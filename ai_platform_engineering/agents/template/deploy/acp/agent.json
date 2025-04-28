@@ -1,0 +1,198 @@
+{
+  "metadata": {
+    "ref": {
+      "name": "io.cnoe.agent.template",
+      "version": "0.0.1"
+    },
+    "description": "Template AI Agent"
+  },
+  "specs": {
+    "capabilities": {
+      "threads": false,
+      "interrupts": false,
+      "callbacks": false
+    },
+    "input": {
+      "$defs": {
+        "Message": {
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/Type",
+              "description": "indicates the originator of the message, a human or an assistant"
+            },
+            "content": {
+              "description": "the content of the message",
+              "title": "Content",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ],
+          "title": "Message",
+          "type": "object"
+        },
+        "Type": {
+          "enum": [
+            "human",
+            "assistant",
+            "ai",
+            "tool"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Message"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messages"
+        },
+        "is_completed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Completed"
+        }
+      },
+      "title": "AgentState",
+      "type": "object"
+    },
+    "output": {
+      "$defs": {
+        "Message": {
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/Type",
+              "description": "indicates the originator of the message, a human or an assistant"
+            },
+            "content": {
+              "description": "the content of the message",
+              "title": "Content",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ],
+          "title": "Message",
+          "type": "object"
+        },
+        "Type": {
+          "enum": [
+            "human",
+            "assistant",
+            "ai",
+            "tool"
+
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Message"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messages"
+        },
+        "is_completed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Completed"
+        },
+        "final_response": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Final response produced by Agent",
+          "title": "Final Response"
+        }
+      },
+      "title": "OutputState",
+      "type": "object"
+    },
+    "config": {
+      "properties": {
+      },
+      "required": [
+      ],
+      "title": "ConfigSchema",
+      "type": "object"
+    }
+  },
+  "deployment": {
+    "deployment_options": [
+      {
+        "type": "source_code",
+        "name": "source_code_local",
+        "url": ".",
+        "framework_config": {
+          "framework_type": "langgraph",
+          "graph": "agent_template.agent_template:agent"
+        }
+      }
+    ],
+    "env_vars": [
+      {
+        "desc": "Azure key for the OpenAI service",
+        "name": "AZURE_OPENAI_API_KEY"
+      },
+      {
+        "desc": "API version for Azure OpenAI service",
+        "name": "AZURE_OPENAI_API_VERSION"
+      },
+      {
+        "desc": "Deployment for Azure OpenAI service",
+        "name": "AZURE_OPENAI_DEPLOYMENT"
+      },
+      {
+        "desc": "Azure endpoint for the OpenAI service",
+        "name": "AZURE_OPENAI_ENDPOINT"
+      }
+    ],
+    "dependencies": []
+  }
+}
