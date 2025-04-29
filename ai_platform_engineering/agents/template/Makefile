@@ -1,18 +1,6 @@
 # Makefile
 
-.PHONY: build setup help
-
-setup:
-	@echo "Creating virtual environment in .venv inside project directory..."
-	export POETRY_VIRTUALENVS_IN_PROJECT=true && poetry install --no-root
-
-venv/bin/activate:
-	@echo "Setting up virtual environment..."
-	@if [ ! -d "venv" ]; then \
-		python3 -m venv venv; \
-	fi
-	@echo "Activating virtual environment and installing requirements..."
-	. venv/bin/activate && pip install -r requirements.txt
+.PHONY: build setup-venv activate-venv install run run-acp run-client langgraph-dev help
 
 setup-venv:
 	@echo "Setting up virtual environment using venv..."
@@ -21,6 +9,14 @@ setup-venv:
 	fi
 	@echo "Activating virtual environment and installing requirements..."
 	. venv/bin/activate && poetry install
+
+activate-venv:
+	@echo "Activating virtual environment..."
+	@if [ -d "venv" ]; then \
+		. venv/bin/activate; \
+	else \
+		echo "Virtual environment not found. Please run 'make setup-venv' first."; \
+	fi
 
 build:
 	poetry build
@@ -46,6 +42,12 @@ langgraph-dev: build install
 
 help:
 	@echo "Available targets:"
-	@echo "  setup    Create virtual environment in .venv and install dependencies"
-	@echo "  build    Build the project using poetry"
-	@echo "  help     Show this help message"
+	@echo "  setup-venv       Create virtual environment in venv and install dependencies"
+	@echo "  activate-venv    Activate the virtual environment"
+	@echo "  build            Build the project using poetry"
+	@echo "  install          Install the package"
+	@echo "  run              Build, install, and run the application"
+	@echo "  run-acp          Deploy using wfsm with ACP configuration"
+	@echo "  run-client       Run the client application"
+	@echo "  langgraph-dev    Run the LangGraph agent"
+	@echo "  help             Show this help message"
