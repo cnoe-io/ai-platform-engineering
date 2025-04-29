@@ -15,33 +15,69 @@ This project uses a `Makefile` to manage common tasks. Below are the available `
 
 ### Makefile Targets
 
-- `make run`: Start the weekend activity planner agent.
-- `make test`: Run tests for the agent and its sub-agents.
-- `make clean`: Clean up temporary files and build artifacts.
+- `make setup-env`: Setup Virtual Env
+- `make run-acp`: Start the weekend activity planner agent.
+- `make run-client`: Run tests for the agent and its sub-agents.
 
 ## Getting Started
 
-1. Clone the repository:
-  ```bash
-  git clone <repository-url>
-  cd agent-template
-  ```
+- Clone the repository:
+```bash
+git clone <repository-url>
+cd agent-template
+```
 
-2. Run the agent:
-  ```bash
-  make run
-  ```
+- Create `deploy/acp/agent-env.yaml` with the following content:
 
-3. Test the agent:
-  ```bash
-  make test
-  ```
+```yaml
+values:
+  AZURE_OPENAI_API_KEY: <Refer to 1Password>
+  OPENAI_API_VERSION: 2025-03-01-preview
+  AZURE_OPENAI_API_VERSION: 2025-03-01-preview
+  AZURE_OPENAI_DEPLOYMENT: gpt-4o
+  AZURE_OPENAI_ENDPOINT: https://platform-interns-eus2.openai.azure.com/
+```
 
-4. Clean up:
-  ```bash
-  make clean
-  ```
+- Run the agent server:
+```bash
+make run-acp
+```
 
-## License
+- Create a `.env` file with the following content:
 
-This project is licensed under the terms of the Apache License 2.0.
+```bash
+API_PORT=57226
+API_KEY=<COPY from make run-acp console output>
+AGENT_ID=0f9d6e73-b027-4ea8-a3d2-4180a9b634db
+OPENAI_API_VERSION=gpt-4o
+AZURE_OPENAI_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_ENDPOINT=https://platform-interns-eus2.openai.azure.com/
+AZURE_OPENAI_API_KEY=<CHECK 1Password>
+AZURE_OPENAI_API_VERSION=2025-03-01-preview
+```
+
+- Run the agent client:
+```bash
+source .env
+make run-acp
+source venv/bin/activate
+make run-client
+```
+
+- Sample Output:
+
+```
+Chat ID: 12345, Event: data, Data: {"answer": "where can I hike in Califronia?", "metadata": {}}
+Chat ID: 12345, Event: data, Data: {"answer": "", "metadata": {}}
+Chat ID: 12345, Event: data, Data: {"answer": "Successfully transferred to hiking_agent", "metadata": {}}
+Chat ID: 12345, Event: data, Data: {"answer": "California offers ...", "metadata": {}}
+Chat ID: 12345, Event: data, Data: {"answer": "Transferring back to supervisor", "metadata": {}}
+Chat ID: 12345, Event: data, Data: {"answer": "Successfully transferred back to supervisor", "metadata": {}}
+Chat ID: 12345, Event: data, Data: {"answer": "I hope you found the information on hiking destinations in California helpful! If you have any more questions or need further assistance, feel free to ask.", "metadata": {}}
+```
+
+## Run LangGraph Studio
+
+```
+make langgraph-dev
+```

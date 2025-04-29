@@ -40,6 +40,10 @@ run-client: build install
 	@echo "Running the client..."
 	. venv/bin/activate && . .env && python3 client/client_agent_template.py
 
+langgraph-dev: build install
+	@echo "Running the LangGraph agent..."
+	. venv/bin/activate && . .env && langgraph dev
+
 help:
 	@echo "Available targets:"
 	@echo "  setup    Create virtual environment in .venv and install dependencies"
