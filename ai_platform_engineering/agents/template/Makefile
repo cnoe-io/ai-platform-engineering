@@ -34,7 +34,7 @@ run-acp: build install
 
 run-client: build install
 	@echo "Running the client..."
-	. venv/bin/activate && . .env && python3 client/client_agent_template.py
+	. venv/bin/activate && set -a && . .env && set +a && python3 client/client_agent_template.py
 
 langgraph-dev: build install
 	@echo "Running the LangGraph agent..."
