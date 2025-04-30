@@ -3,7 +3,6 @@
 import json
 from agent_template.models import ChatBotQuestion
 import logging
-import agent_template.logging_config
 from httpx_sse import ServerSentEvent
 
 import os
