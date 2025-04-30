@@ -38,14 +38,14 @@ jobs:
           version: "3.12.1" # Default Helm version
 
       - name: Helm lint
-        run: helm lint deployments/helm/jira-agntcy-agent --with-subcharts
+        run: helm lint deployments/helm/agent-template --with-subcharts
 
       - name: Package and Push Helm Chart
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         run: |
           # Extract the version from Chart.yaml
-          CHART_VERSION=$(grep '^version:' deployments/helm/jira-agntcy-agent/Chart.yaml | awk '{print $2}')
+          CHART_VERSION=$(grep '^version:' deployments/helm/agent-template/Chart.yaml | awk '{print $2}')
 
           # Package and push the Helm chart
-          helm package deployments/helm/jira-agntcy-agent --dependency-update --version $CHART_VERSION
-          helm push jira-agntcy-agent-$CHART_VERSION.tgz oci://ghcr.io/${{ github.repository_owner }}/helm
+          helm package deployments/helm/agent-template --dependency-update --version $CHART_VERSION
+          helm push agent-template-$CHART_VERSION.tgz oci://ghcr.io/${{ github.repository_owner }}/helm
