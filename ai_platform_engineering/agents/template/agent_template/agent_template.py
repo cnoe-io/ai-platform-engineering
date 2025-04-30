@@ -1,12 +1,12 @@
-from langchain_openai import AzureChatOpenAI
+# SPDX-License-Identifier: Apache-2.0
 
 from langgraph_supervisor import create_supervisor
 from langgraph.prebuilt import create_react_agent
 import random
 
 from .utils import load_and_validate_env_vars
-from .llm_factory import LLMFactory
-from .logging_config import configure_logging
+from cisco_outshift_agent_utils.llm_factory import LLMFactory
+from cisco_outshift_agent_utils.logging_config import configure_logging
 from geopy.geocoders import Nominatim
 import requests
 
