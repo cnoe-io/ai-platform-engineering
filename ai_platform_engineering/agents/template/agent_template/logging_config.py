@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+
 """logging_configuration.py
 ==========================
 A **self‑contained, dependency‑free** (aside from the optional

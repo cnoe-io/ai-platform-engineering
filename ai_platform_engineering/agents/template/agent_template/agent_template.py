@@ -1,4 +1,4 @@
-from langchain_openai import AzureChatOpenAI
+# SPDX-License-Identifier: Apache-2.0
 
 from langgraph_supervisor import create_supervisor
 from langgraph.prebuilt import create_react_agent

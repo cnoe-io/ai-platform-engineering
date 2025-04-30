@@ -1,0 +1,33 @@
+---
+name: commit-msg
+
+on:
+  push:
+    # Run superlinter on pushes to default branch
+    branches:
+      - main
+  # Run superlinter on pull request events
+  pull_request:
+
+# Declare default permissions as read-only
+permissions: read-all
+
+jobs:
+  conventional-commits:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      statuses: write
+    steps:
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 🧹 Conventional Commits
+        uses: webiny/action-conventional-commits@v1.3.0
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

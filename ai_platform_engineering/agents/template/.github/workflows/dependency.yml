@@ -1,0 +1,30 @@
+---
+name: dependency
+
+on:
+  # Review dependencies on pull requests to the default branch
+  pull_request:
+    branches: ["main"]
+
+# Declare default permissions as read-only
+permissions: read-all
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - name: 🔂 dependency review
+        uses: actions/dependency-review-action@ce3cf9537a52e8119d91fd484ab5b8a807627bf8 # v4.6.0
+        with:
+          fail-on-severity: "high"
+          deny-licenses: "AGPL-1.0, AGPL-3.0"
+          comment-summary-in-pr: true
+          warn-on-openssf-scorecard-level: 3
