@@ -1,5 +1,8 @@
 # Agent Template
 
+[![Build and Push Python Image](https://github.com/cnoe-io/agent-template/actions/workflows/docker-build-push.yaml/badge.svg)](https://github.com/cnoe-io/agent-template/actions/workflows/docker-build-push.yaml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 ## Overview
 
 You are a weekend activity planner agent. This agent helps users plan their weekend activities by leveraging specialized sub-agents.
