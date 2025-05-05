@@ -4,7 +4,7 @@
 
 add-copyright-license-headers:
 	@echo "Adding copyright license headers..."
-	docker run --rm -v $(shell pwd)/agent_argocd:/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v -ignore argocd_mcp/** /workspace
+	docker run --rm -v $(shell pwd)/agent_argocd:/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
 
 setup-venv:
 	@echo "======================================="
