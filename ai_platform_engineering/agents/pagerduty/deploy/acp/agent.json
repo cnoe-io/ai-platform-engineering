@@ -1,35 +1,163 @@
 {
-  "name": "pagerduty-agent",
-  "description": "A PagerDuty agent that can manage incidents, services, users, and schedules",
-  "version": "0.1.0",
-  "author": "Your Name",
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/your-username/agent-pagerduty.git"
+  "metadata": {
+    "ref": {
+      "name": "io.cnoe.agent_pagerduty",
+      "version": "0.0.1"
+    },
+    "description": "PagerDuty ACP + MCP Agent powered by LangGraph and LangChain MCP Adapters."
   },
-  "dependencies": {
-    "langchain": "^0.1.0",
-    "langgraph": "^0.0.10",
-    "pydantic": "^2.5.2",
-    "click": "^8.1.7",
-    "fastapi": "^0.109.2",
-    "uvicorn": "^0.27.1",
-    "python-dotenv": "^1.0.0",
-    "openai": "^1.12.0",
-    "requests": "^2.31.0"
+  "specs": {
+    "capabilities": {
+      "threads": false,
+      "interrupts": false,
+      "callbacks": false
+    },
+    "input": {
+      "$defs": {
+        "Message": {
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/Type",
+              "description": "indicates the originator of the message, a human or an assistant"
+            },
+            "content": {
+              "description": "the content of the message",
+              "title": "Content",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ],
+          "title": "Message",
+          "type": "object"
+        },
+        "Type": {
+          "enum": [
+            "human",
+            "assistant",
+            "ai"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Message"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messages"
+        }
+      },
+      "title": "InputState",
+      "type": "object"
+    },
+    "output": {
+      "$defs": {
+        "Message": {
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/Type",
+              "description": "indicates the originator of the message, a human or an assistant"
+            },
+            "content": {
+              "description": "the content of the message",
+              "title": "Content",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ],
+          "title": "Message",
+          "type": "object"
+        },
+        "Type": {
+          "enum": [
+            "human",
+            "assistant",
+            "ai"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Message"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messages"
+        }
+      },
+      "title": "OutputState",
+      "type": "object"
+    },
+    "config": {
+      "properties": {},
+      "title": "EmptyConfig",
+      "type": "object"
+    }
   },
-  "devDependencies": {
-    "pytest": "^7.4.4",
-    "black": "^24.1.1",
-    "isort": "^5.13.2",
-    "mypy": "^1.8.0",
-    "ruff": "^0.2.1"
-  },
-  "scripts": {
-    "start": "python -m agent_pagerduty",
-    "test": "pytest",
-    "lint": "black . && isort . && mypy . && ruff check .",
-    "format": "black . && isort ."
+  "deployment": {
+    "deployment_options": [
+      {
+        "type": "source_code",
+        "name": "source_code_local",
+        "url": ".",
+        "framework_config": {
+          "framework_type": "langgraph",
+          "graph": "agent_pagerduty.langgraph:AGENT_GRAPH"
+        }
+      }
+    ],
+    "env_vars": [
+      {
+        "desc": "Azure OpenAI endpoint for LLM",
+        "name": "AZURE_OPENAI_ENDPOINT"
+      },
+      {
+        "desc": "Azure OpenAI API key",
+        "name": "AZURE_OPENAI_API_KEY"
+      },
+      {
+        "desc": "Azure OpenAI deployment name",
+        "name": "AZURE_OPENAI_DEPLOYMENT_NAME"
+      },
+      {
+        "desc": "Azure OpenAI API version",
+        "name": "AZURE_OPENAI_API_VERSION"
+      },
+      {
+        "desc": "PagerDuty API token",
+        "name": "PAGERDUTY_TOKEN"
+      },
+      {
+        "desc": "PagerDuty API URL",
+        "name": "PAGERDUTY_API_URL"
+      }
+    ],
+    "dependencies": []
   }
 } 

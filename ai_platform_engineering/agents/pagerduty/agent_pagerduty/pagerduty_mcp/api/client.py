@@ -1,296 +1,124 @@
-# Copyright 2025 Cisco
-# SPDX-License-Identifier: Apache-2.0
+"""PagerDuty API client
 
+This module provides a client for interacting with the PagerDuty API.
+It handles authentication, request formatting, and response parsing.
+"""
 
-import logging
 import os
-from typing import Dict, List, Optional
-from datetime import datetime
+import logging
+from typing import Optional, Dict, Tuple, Any
+import httpx
+from dotenv import load_dotenv
 
-import aiohttp
-from pydantic import BaseModel
+# Load environment variables
+load_dotenv()
 
-logger = logging.getLogger(__name__)
+# Constants
+PAGERDUTY_API_URL = "https://api.pagerduty.com"
+DEFAULT_TOKEN = os.getenv("PAGERDUTY_API_TOKEN")
 
-class PagerDutyClient:
-    """PagerDuty API client."""
-    
-    def __init__(self):
-        self.token = os.getenv("PAGERDUTY_TOKEN")
-        if not self.token:
-            raise ValueError("PAGERDUTY_TOKEN must be set as an environment variable.")
-        
-        self.base_url = "https://api.pagerduty.com"
-        self.headers = {
-            "Authorization": f"Token token={self.token}",
+# Log token presence but not the token itself
+if DEFAULT_TOKEN:
+    logging.info("Default token provided (masked for security)")
+
+logger = logging.getLogger("pagerduty_mcp")
+
+async def make_api_request(
+    path: str,
+    method: str = "GET",
+    token: Optional[str] = None,
+    params: Dict[str, Any] = {},
+    data: Dict[str, Any] = {},
+    timeout: int = 30,
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Make a request to the PagerDuty API
+
+    Args:
+        path: API path to request (without base URL)
+        method: HTTP method (default: GET)
+        token: API token (defaults to DEFAULT_TOKEN)
+        params: Query parameters for the request (optional)
+        data: JSON data for POST/PATCH/PUT requests (optional)
+        timeout: Request timeout in seconds (default: 30)
+
+    Returns:
+        Tuple of (success, data) where data is either the response JSON or an error dict
+    """
+    if not token:
+        token = DEFAULT_TOKEN
+
+    if not token:
+        return (
+            False,
+            {
+                "error": "Token is required. Please set the PAGERDUTY_API_TOKEN environment variable."
+            },
+        )
+
+    try:
+        headers = {
+            "Authorization": f"Token token={token}",
             "Accept": "application/vnd.pagerduty+json;version=2",
             "Content-Type": "application/json",
         }
-    
-    async def _make_request(
-        self,
-        method: str,
-        endpoint: str,
-        params: Optional[Dict] = None,
-        data: Optional[Dict] = None,
-    ) -> Dict:
-        """Make a request to the PagerDuty API."""
-        url = f"{self.base_url}{endpoint}"
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.request(
-                method=method,
-                url=url,
-                headers=self.headers,
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            url = f"{PAGERDUTY_API_URL}/{path}"
+
+            # Map HTTP methods to client methods
+            method_map = {
+                "GET": client.get,
+                "POST": client.post,
+                "PUT": client.put,
+                "PATCH": client.patch,
+                "DELETE": client.delete,
+            }
+
+            if method not in method_map:
+                return (False, {"error": f"Unsupported method: {method}"})
+
+            # Make the request
+            response = await method_map[method](
+                url,
+                headers=headers,
                 params=params,
-                json=data,
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
-    
-    # Incident methods
-    async def get_incidents(
-        self,
-        status: Optional[str] = None,
-        service_ids: Optional[List[str]] = None,
-        user_ids: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-    ) -> Dict:
-        """Get incidents."""
-        params = {}
-        if status:
-            params["statuses[]"] = status
-        if service_ids:
-            params["service_ids[]"] = service_ids
-        if user_ids:
-            params["user_ids[]"] = user_ids
-        if since:
-            params["since"] = since
-        if until:
-            params["until"] = until
-            
-        return await self._make_request("GET", "/incidents", params=params)
-    
-    async def create_incident(
-        self,
-        title: str,
-        service_id: str,
-        urgency: str = "high",
-        body: Optional[str] = None,
-    ) -> Dict:
-        """Create an incident."""
-        data = {
-            "incident": {
-                "type": "incident",
-                "title": title,
-                "urgency": urgency,
-                "service": {"id": service_id, "type": "service_reference"},
-            }
-        }
-        if body:
-            data["incident"]["body"] = {"type": "incident_body", "details": body}
-            
-        return await self._make_request("POST", "/incidents", data=data)
-    
-    async def update_incident(
-        self,
-        incident_id: str,
-        title: Optional[str] = None,
-        urgency: Optional[str] = None,
-        body: Optional[str] = None,
-    ) -> Dict:
-        """Update an incident."""
-        data = {"incident": {}}
-        if title:
-            data["incident"]["title"] = title
-        if urgency:
-            data["incident"]["urgency"] = urgency
-        if body:
-            data["incident"]["body"] = {"type": "incident_body", "details": body}
-            
-        return await self._make_request("PUT", f"/incidents/{incident_id}", data=data)
-    
-    async def resolve_incident(
-        self,
-        incident_id: str,
-        resolution: Optional[str] = None,
-    ) -> Dict:
-        """Resolve an incident."""
-        data = {
-            "incident": {
-                "type": "incident",
-                "status": "resolved",
-            }
-        }
-        if resolution:
-            data["incident"]["resolution"] = resolution
-            
-        return await self._make_request("PUT", f"/incidents/{incident_id}", data=data)
-    
-    async def acknowledge_incident(
-        self,
-        incident_id: str,
-        note: Optional[str] = None,
-    ) -> Dict:
-        """Acknowledge an incident."""
-        data = {
-            "incident": {
-                "type": "incident",
-                "status": "acknowledged",
-            }
-        }
-        if note:
-            data["incident"]["note"] = note
-            
-        return await self._make_request("PUT", f"/incidents/{incident_id}", data=data)
-    
-    # Service methods
-    async def get_services(
-        self,
-        team_ids: Optional[List[str]] = None,
-        query: Optional[str] = None,
-    ) -> Dict:
-        """Get services."""
-        params = {}
-        if team_ids:
-            params["team_ids[]"] = team_ids
-        if query:
-            params["query"] = query
-            
-        return await self._make_request("GET", "/services", params=params)
-    
-    async def create_service(
-        self,
-        name: str,
-        description: Optional[str] = None,
-        escalation_policy_id: Optional[str] = None,
-        team_ids: Optional[List[str]] = None,
-    ) -> Dict:
-        """Create a service."""
-        data = {
-            "service": {
-                "type": "service",
-                "name": name,
-            }
-        }
-        if description:
-            data["service"]["description"] = description
-        if escalation_policy_id:
-            data["service"]["escalation_policy"] = {
-                "id": escalation_policy_id,
-                "type": "escalation_policy_reference",
-            }
-        if team_ids:
-            data["service"]["teams"] = [
-                {"id": team_id, "type": "team_reference"} for team_id in team_ids
-            ]
-            
-        return await self._make_request("POST", "/services", data=data)
-    
-    async def update_service(
-        self,
-        service_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        escalation_policy_id: Optional[str] = None,
-        team_ids: Optional[List[str]] = None,
-    ) -> Dict:
-        """Update a service."""
-        data = {"service": {}}
-        if name:
-            data["service"]["name"] = name
-        if description:
-            data["service"]["description"] = description
-        if escalation_policy_id:
-            data["service"]["escalation_policy"] = {
-                "id": escalation_policy_id,
-                "type": "escalation_policy_reference",
-            }
-        if team_ids:
-            data["service"]["teams"] = [
-                {"id": team_id, "type": "team_reference"} for team_id in team_ids
-            ]
-            
-        return await self._make_request("PUT", f"/services/{service_id}", data=data)
-    
-    # User methods
-    async def get_users(
-        self,
-        team_ids: Optional[List[str]] = None,
-        query: Optional[str] = None,
-    ) -> Dict:
-        """Get users."""
-        params = {}
-        if team_ids:
-            params["team_ids[]"] = team_ids
-        if query:
-            params["query"] = query
-            
-        return await self._make_request("GET", "/users", params=params)
-    
-    async def get_user_contact_methods(
-        self,
-        user_id: str,
-    ) -> Dict:
-        """Get user contact methods."""
-        return await self._make_request("GET", f"/users/{user_id}/contact_methods")
-    
-    async def get_user_notification_rules(
-        self,
-        user_id: str,
-    ) -> Dict:
-        """Get user notification rules."""
-        return await self._make_request("GET", f"/users/{user_id}/notification_rules")
-    
-    # Schedule methods
-    async def get_schedules(
-        self,
-        team_ids: Optional[List[str]] = None,
-        query: Optional[str] = None,
-    ) -> Dict:
-        """Get schedules."""
-        params = {}
-        if team_ids:
-            params["team_ids[]"] = team_ids
-        if query:
-            params["query"] = query
-            
-        return await self._make_request("GET", "/schedules", params=params)
-    
-    async def get_schedule_users(
-        self,
-        schedule_id: str,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-    ) -> Dict:
-        """Get schedule users."""
-        params = {}
-        if since:
-            params["since"] = since
-        if until:
-            params["until"] = until
-            
-        return await self._make_request(
-            "GET", f"/schedules/{schedule_id}/users", params=params
-        )
-    
-    async def get_oncalls(
-        self,
-        schedule_ids: Optional[List[str]] = None,
-        user_ids: Optional[List[str]] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-    ) -> Dict:
-        """Get on-call assignments."""
-        params = {}
-        if schedule_ids:
-            params["schedule_ids[]"] = schedule_ids
-        if user_ids:
-            params["user_ids[]"] = user_ids
-        if since:
-            params["since"] = since
-        if until:
-            params["until"] = until
-            
-        return await self._make_request("GET", "/oncalls", params=params) 
+                json=data if method in ["POST", "PUT", "PATCH"] else None,
+            )
+
+            # Handle different response codes
+            if response.status_code in [200, 201, 202, 204]:
+                if response.status_code == 204:  # No content
+                    return (True, {"status": "success"})
+                try:
+                    return (True, response.json())
+                except ValueError:
+                    return (True, {"status": "success", "raw_response": response.text})
+            else:
+                error_message = f"API request failed: {response.status_code}"
+                try:
+                    error_data = response.json()
+                    if "error" in error_data:
+                        error_message = f"{error_message} - {error_data['error']}"
+                    elif "message" in error_data:
+                        error_message = f"{error_message} - {error_data['message']}"
+                    return (False, {"error": error_message, "details": error_data})
+                except ValueError:
+                    error_text = response.text[:200] if response.text else ""
+                    return (False, {"error": f"{error_message} - {error_text}"})
+
+    except httpx.TimeoutException:
+        return (False, {"error": f"Request timed out after {timeout} seconds"})
+    except httpx.HTTPStatusError as e:
+        return (False, {"error": f"HTTP error: {e.response.status_code} - {str(e)}"})
+    except httpx.RequestError as e:
+        error_message = str(e)
+        if token and token in error_message:
+            error_message = error_message.replace(token, "[REDACTED]")
+        return (False, {"error": f"Request error: {error_message}"})
+    except Exception as e:
+        # Ensure no sensitive data is included in error messages
+        error_message = str(e)
+        if token and token in error_message:
+            error_message = error_message.replace(token, "[REDACTED]")
+        return (False, {"error": f"Unexpected error: {error_message}"}) 

@@ -1,4 +1,4 @@
-# Copyright 2025 Cisco
+# Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
@@ -6,14 +6,13 @@ import asyncio
 import os
 from pathlib import Path
 import importlib.util
-from typing import Optional
+from typing import Any, Dict
 
 from langchain_openai import AzureChatOpenAI
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from pydantic import SecretStr
 from langchain_core.runnables import RunnableConfig
-from typing import Any, Dict
 
 from .state import AgentState, Message, MsgType, OutputState
 
@@ -31,6 +30,10 @@ if not azure_endpoint:
 pagerduty_token = os.getenv("PAGERDUTY_TOKEN")
 if not pagerduty_token:
     raise ValueError("PAGERDUTY_TOKEN must be set as an environment variable.")
+
+pagerduty_api_url = os.getenv("PAGERDUTY_API_URL")
+if not pagerduty_api_url:
+    raise ValueError("PAGERDUTY_API_URL must be set as an environment variable.")
 
 model = AzureChatOpenAI(
     api_key=SecretStr(api_key),
@@ -50,64 +53,77 @@ if not spec or not spec.origin:
 
 server_path = str(Path(spec.origin).resolve())
 
-# Initialize MCP client
-mcp_client = MultiServerMCPClient(
-    server_paths=[server_path],
-    server_names=["pagerduty-mcp"]
-)
+# Setup the PagerDuty MCP Client and create React Agent
+async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
+    args = config.get("configurable", {})
+    logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")
 
-# Create the agent
-agent = create_react_agent(
-    llm=model,
-    tools=mcp_client.tools,
-    system_message="""You are a helpful AI assistant that helps users manage their PagerDuty incidents, services, users, and schedules.
-You can help with:
-1. Creating, updating, and resolving incidents
-2. Managing services and their configurations
-3. Viewing and managing user information
-4. Handling on-call schedules and rotations
-
-Always be professional and concise in your responses."""
-)
-
-async def _async_pagerduty_agent(
-    state: AgentState,
-    config: Optional[RunnableConfig] = None,
-) -> OutputState:
-    """Run the PagerDuty agent asynchronously."""
-    try:
-        # Process messages
+    if hasattr(state.pagerduty_input, "messages"):
+        messages = getattr(state.pagerduty_input, "messages")
+    elif "messages" in state.pagerduty_input:
+        messages = [Message.model_validate(m) for m in state.pagerduty_input["messages"]]
+    else:
         messages = []
-        for msg in state.messages:
-            if msg.type == MsgType.HUMAN:
-                messages.append({"role": "user", "content": msg.content})
-            elif msg.type == MsgType.ASSISTANT:
-                messages.append({"role": "assistant", "content": msg.content})
-        
-        # Run the agent
-        result = await agent.ainvoke(
-            {"messages": messages},
-            config=config
+ 
+    if messages is not None:
+        # Get last human message
+        human_message = next(
+            filter(lambda m: m.type == MsgType.human, reversed(messages)),
+            None,
         )
-        
-        # Extract the response
-        response = result.get("output", "")
-        
-        return OutputState(
-            messages=[
-                Message(
-                    type=MsgType.ASSISTANT,
-                    content=response
-                )
-            ]
-        )
-    except Exception as e:
-        logger.error(f"Error in PagerDuty agent: {str(e)}")
-        raise
+        if human_message is not None:
+            human_message = human_message.content
 
-def agent_pagerduty(
-    state: AgentState,
-    config: Optional[RunnableConfig] = None,
-) -> OutputState:
-    """Run the PagerDuty agent."""
+    logger.info(f"Launching MCP server at: {server_path}")
+
+    async with MultiServerMCPClient(
+        {
+            "pagerduty": {
+                "command": "uv",
+                "args": ["run", server_path],
+                "env": {
+                    "PAGERDUTY_TOKEN": pagerduty_token,
+                    "PAGERDUTY_API_URL": pagerduty_api_url
+                },
+                "transport": "stdio",
+            }
+        }
+    ) as client:
+        agent = create_react_agent(model, client.get_tools())
+        llm_result = await agent.ainvoke({"messages": human_message})
+        logger.info("LLM response received")
+        logger.debug(f"LLM result: {llm_result}")
+
+    # Try to extract meaningful content from the LLM result
+    ai_content = None
+
+    # Look through messages for final assistant content
+    for msg in reversed(llm_result.get("messages", [])):
+        if hasattr(msg, "type") and msg.type in ("ai", "assistant") and getattr(msg, "content", None):
+            ai_content = msg.content
+            break
+        elif isinstance(msg, dict) and msg.get("type") in ("ai", "assistant") and msg.get("content"):
+            ai_content = msg["content"]
+            break
+
+    # Fallback: if no content was found but tool_call_results exists
+    if not ai_content and "tool_call_results" in llm_result:
+        ai_content = "\n".join(
+            str(r.get("content", r)) for r in llm_result["tool_call_results"]
+        )
+
+    # Return response
+    if ai_content:
+        logger.info("Assistant generated response")
+        output_messages = [Message(type=MsgType.assistant, content=ai_content)]
+    else:
+        logger.warning("No assistant content found in LLM result")
+        output_messages = []
+
+    logger.debug(f"Final output messages: {output_messages}")
+
+    return {"pagerduty_output": OutputState(messages=messages + output_messages)}
+
+# Sync wrapper for workflow server
+def agent_pagerduty(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     return asyncio.run(_async_pagerduty_agent(state, config)) 

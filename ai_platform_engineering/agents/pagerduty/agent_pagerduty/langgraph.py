@@ -1,25 +1,18 @@
-# Copyright 2025 Cisco
+# Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
 from langgraph.graph import StateGraph, START, END
-
+from langgraph.graph.state import CompiledStateGraph
 from .agent import agent_pagerduty
 from .state import AgentState
 
-def build_graph() -> StateGraph:
-    """Build the state graph for the PagerDuty agent."""
-    # Create the graph
-    graph = StateGraph(AgentState)
-    
-    # Add the agent node
-    graph.add_node("agent_pagerduty", agent_pagerduty)
-    
-    # Add edges
-    graph.add_edge(START, "agent_pagerduty")
-    graph.add_edge("agent_pagerduty", END)
-    
-    # Compile the graph
-    return graph.compile()
+def build_graph() -> CompiledStateGraph:
+    graph_builder = StateGraph(AgentState)
+    graph_builder.add_node("agent_pagerduty", agent_pagerduty)
 
-# Create the graph instance
+    graph_builder.add_edge(START, "agent_pagerduty")
+    graph_builder.add_edge("agent_pagerduty", END)
+
+    return graph_builder.compile()
+
 AGENT_GRAPH = build_graph() 

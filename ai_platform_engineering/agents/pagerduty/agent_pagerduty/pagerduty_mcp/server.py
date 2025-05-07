@@ -1,66 +1,53 @@
-# Copyright 2025 Cisco
-# SPDX-License-Identifier: Apache-2.0
+#!/usr/bin/env python3
+"""
+PagerDuty MCP Server
 
-
+This server provides a Model Context Protocol (MCP) interface to the PagerDuty API,
+allowing large language models and AI assistants to manage PagerDuty resources.
+"""
 import logging
 import os
-from typing import Dict, List, Optional
+import sys
+from dotenv import load_dotenv
+from mcp.server.fastmcp import FastMCP
 
-from fastapi import FastAPI
-from pydantic import BaseModel
-from langchain.tools import BaseTool
-from langchain_core.tools import tool
+# Import tools
+from agent_pagerduty.pagerduty_mcp.tools import incidents
+from agent_pagerduty.pagerduty_mcp.tools import services
+from agent_pagerduty.pagerduty_mcp.tools import users
+from agent_pagerduty.pagerduty_mcp.tools import schedules
+from agent_pagerduty.pagerduty_mcp.tools import oncalls
 
-from .tools import (
-    get_incidents,
-    get_services,
-    get_users,
-    get_schedules,
-    get_oncalls,
-    create_incident,
-    update_incident,
-    resolve_incident,
-    acknowledge_incident,
-)
+# Load environment variables from .env file
+load_dotenv()
 
-logger = logging.getLogger(__name__)
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 
-app = FastAPI(title="PagerDuty MCP Server")
+# Create server instance
+mcp = FastMCP("PagerDuty MCP Server")
 
-class ToolRequest(BaseModel):
-    name: str
-    args: Dict[str, str]
+# Register incident tools
+mcp.tool()(incidents.get_incidents)
+mcp.tool()(incidents.create_incident)
+mcp.tool()(incidents.update_incident)
+mcp.tool()(incidents.resolve_incident)
+mcp.tool()(incidents.acknowledge_incident)
 
-class ToolResponse(BaseModel):
-    result: str
+# Register service tools
+mcp.tool()(services.get_services)
+mcp.tool()(services.create_service)
+mcp.tool()(services.update_service)
 
-@app.post("/tools/{tool_name}")
-async def execute_tool(tool_name: str, request: ToolRequest) -> ToolResponse:
-    """Execute a PagerDuty tool."""
-    logger.info(f"Executing tool: {tool_name}")
-    
-    # Map tool names to their functions
-    tool_map = {
-        "get_incidents": get_incidents,
-        "get_services": get_services,
-        "get_users": get_users,
-        "get_schedules": get_schedules,
-        "get_oncalls": get_oncalls,
-        "create_incident": create_incident,
-        "update_incident": update_incident,
-        "resolve_incident": resolve_incident,
-        "acknowledge_incident": acknowledge_incident,
-    }
-    
-    if tool_name not in tool_map:
-        raise ValueError(f"Unknown tool: {tool_name}")
-    
-    tool_func = tool_map[tool_name]
-    result = await tool_func(**request.args)
-    
-    return ToolResponse(result=str(result))
+# Register user tools
+mcp.tool()(users.get_users)
 
-@app.get("/health")
-async def health_check() -> Dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "healthy"} 
+# Register schedule tools
+mcp.tool()(schedules.get_schedules)
+
+# Register oncall tools
+mcp.tool()(oncalls.get_oncalls)
+
+# Start server when run directly
+if __name__ == "__main__":
+    mcp.run() 

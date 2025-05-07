@@ -1,125 +1,220 @@
-# Copyright 2025 Cisco
-# SPDX-License-Identifier: Apache-2.0
-
+"""Incident management tools for PagerDuty MCP"""
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
-
 from pydantic import BaseModel
-from langchain_core.tools import tool
+from ..api.client import make_api_request
 
-from ..api.client import PagerDutyClient
+logger = logging.getLogger("pagerduty_mcp")
 
-logger = logging.getLogger(__name__)
+class IncidentBody(BaseModel):
+    """Model for incident body"""
+    type: str = "incident_body"
+    details: str
 
-@tool
 async def get_incidents(
     status: Optional[str] = None,
     service_ids: Optional[List[str]] = None,
     user_ids: Optional[List[str]] = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
-) -> str:
-    """Get incidents from PagerDuty.
-    
-    Args:
-        status: Filter by status (triggered, acknowledged, resolved)
-        service_ids: Filter by service IDs
-        user_ids: Filter by user IDs
-        since: Start time (ISO format)
-        until: End time (ISO format)
+    limit: int = 100,
+) -> Dict[str, Any]:
     """
-    client = PagerDutyClient()
-    incidents = await client.get_incidents(
-        status=status,
-        service_ids=service_ids,
-        user_ids=user_ids,
-        since=since,
-        until=until
-    )
-    return str(incidents)
+    Get incidents from PagerDuty with filtering options
 
-@tool
+    Args:
+        status: Filter incidents by status (triggered, acknowledged, resolved)
+        service_ids: Filter incidents by service IDs
+        user_ids: Filter incidents by user IDs
+        since: Start time for incident search (ISO 8601 format)
+        until: End time for incident search (ISO 8601 format)
+        limit: Maximum number of incidents to return (default: 100)
+
+    Returns:
+        List of incidents with pagination information
+    """
+    params = {}
+
+    if status:
+        params["statuses[]"] = status
+
+    if service_ids:
+        params["service_ids[]"] = service_ids
+
+    if user_ids:
+        params["user_ids[]"] = user_ids
+
+    if since:
+        params["since"] = since
+
+    if until:
+        params["until"] = until
+
+    params["limit"] = limit
+
+    success, data = await make_api_request("incidents", params=params)
+
+    if not success:
+        return {"error": data.get("error", "Failed to retrieve incidents")}
+
+    return data
+
 async def create_incident(
     title: str,
     service_id: str,
     urgency: str = "high",
     body: Optional[str] = None,
-) -> str:
-    """Create a new incident in PagerDuty.
-    
-    Args:
-        title: Incident title
-        service_id: Service ID to create incident for
-        urgency: Incident urgency (high/low)
-        body: Incident description
+    priority_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    client = PagerDutyClient()
-    incident = await client.create_incident(
-        title=title,
-        service_id=service_id,
-        urgency=urgency,
-        body=body
-    )
-    return str(incident)
+    Create a new incident in PagerDuty
 
-@tool
+    Args:
+        title: The title of the incident (required)
+        service_id: The ID of the service to create the incident for (required)
+        urgency: The urgency of the incident (default: high)
+        body: Additional details about the incident
+        priority_id: The ID of the priority to set for the incident
+
+    Returns:
+        The created incident details
+    """
+    incident_data = {
+        "incident": {
+            "type": "incident",
+            "title": title,
+            "service": {"id": service_id, "type": "service_reference"},
+            "urgency": urgency,
+        }
+    }
+
+    if body:
+        incident_data["incident"]["body"] = {
+            "type": "incident_body",
+            "details": body
+        }
+
+    if priority_id:
+        incident_data["incident"]["priority"] = {
+            "id": priority_id,
+            "type": "priority_reference"
+        }
+
+    success, data = await make_api_request("incidents", method="POST", data=incident_data)
+
+    if success:
+        logger.info(f"Incident '{title}' created successfully")
+        return data
+    else:
+        logger.error(f"Failed to create incident '{title}': {data.get('error')}")
+        return {"error": data.get("error", "Failed to create incident")}
+
 async def update_incident(
-    incident_id: str,
+    id: str,
     title: Optional[str] = None,
     urgency: Optional[str] = None,
     body: Optional[str] = None,
-) -> str:
-    """Update an existing incident.
-    
-    Args:
-        incident_id: ID of incident to update
-        title: New title
-        urgency: New urgency
-        body: New description
+    priority_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    client = PagerDutyClient()
-    incident = await client.update_incident(
-        incident_id=incident_id,
-        title=title,
-        urgency=urgency,
-        body=body
-    )
-    return str(incident)
+    Update an existing incident in PagerDuty
 
-@tool
+    Args:
+        id: The ID of the incident to update (required)
+        title: New title for the incident
+        urgency: New urgency level for the incident
+        body: New body text for the incident
+        priority_id: New priority ID for the incident
+
+    Returns:
+        The updated incident details
+    """
+    incident_data = {"incident": {}}
+
+    if title:
+        incident_data["incident"]["title"] = title
+
+    if urgency:
+        incident_data["incident"]["urgency"] = urgency
+
+    if body:
+        incident_data["incident"]["body"] = {
+            "type": "incident_body",
+            "details": body
+        }
+
+    if priority_id:
+        incident_data["incident"]["priority"] = {
+            "id": priority_id,
+            "type": "priority_reference"
+        }
+
+    success, data = await make_api_request(f"incidents/{id}", method="PUT", data=incident_data)
+
+    if success:
+        logger.info(f"Incident '{id}' updated successfully")
+        return data
+    else:
+        logger.error(f"Failed to update incident '{id}': {data.get('error')}")
+        return {"error": data.get("error", "Failed to update incident")}
+
 async def resolve_incident(
-    incident_id: str,
+    id: str,
     resolution: Optional[str] = None,
-) -> str:
-    """Resolve an incident.
-    
-    Args:
-        incident_id: ID of incident to resolve
-        resolution: Resolution note
+) -> Dict[str, Any]:
     """
-    client = PagerDutyClient()
-    incident = await client.resolve_incident(
-        incident_id=incident_id,
-        resolution=resolution
-    )
-    return str(incident)
+    Resolve an incident in PagerDuty
 
-@tool
-async def acknowledge_incident(
-    incident_id: str,
-    note: Optional[str] = None,
-) -> str:
-    """Acknowledge an incident.
-    
     Args:
-        incident_id: ID of incident to acknowledge
-        note: Acknowledgment note
+        id: The ID of the incident to resolve (required)
+        resolution: Optional resolution note
+
+    Returns:
+        The resolved incident details
     """
-    client = PagerDutyClient()
-    incident = await client.acknowledge_incident(
-        incident_id=incident_id,
-        note=note
-    )
-    return str(incident) 
+    incident_data = {
+        "incident": {
+            "status": "resolved"
+        }
+    }
+
+    if resolution:
+        incident_data["incident"]["resolution"] = resolution
+
+    success, data = await make_api_request(f"incidents/{id}", method="PUT", data=incident_data)
+
+    if success:
+        logger.info(f"Incident '{id}' resolved successfully")
+        return data
+    else:
+        logger.error(f"Failed to resolve incident '{id}': {data.get('error')}")
+        return {"error": data.get("error", "Failed to resolve incident")}
+
+async def acknowledge_incident(
+    id: str,
+) -> Dict[str, Any]:
+    """
+    Acknowledge an incident in PagerDuty
+
+    Args:
+        id: The ID of the incident to acknowledge (required)
+
+    Returns:
+        The acknowledged incident details
+    """
+    incident_data = {
+        "incident": {
+            "status": "acknowledged"
+        }
+    }
+
+    success, data = await make_api_request(f"incidents/{id}", method="PUT", data=incident_data)
+
+    if success:
+        logger.info(f"Incident '{id}' acknowledged successfully")
+        return data
+    else:
+        logger.error(f"Failed to acknowledge incident '{id}': {data.get('error')}")
+        return {"error": data.get("error", "Failed to acknowledge incident")} 

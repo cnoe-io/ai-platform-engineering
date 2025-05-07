@@ -1,64 +1,191 @@
 # Copyright 2025 Cisco
 # SPDX-License-Identifier: Apache-2.0
 
+"""Schedule management tools for PagerDuty MCP"""
 
+from typing import Dict, Any, Optional, List
 import logging
-from typing import Dict, List, Optional
 from datetime import datetime
-
 from pydantic import BaseModel
-from langchain_core.tools import tool
+from ..api.client import make_api_request
 
-from ..api.client import PagerDutyClient
+logger = logging.getLogger("pagerduty_mcp")
 
-logger = logging.getLogger(__name__)
+class Layer(BaseModel):
+    """Model for schedule layer"""
+    start: str
+    rotation_virtual_start: str
+    rotation_turn_length_seconds: int
+    users: List[Dict[str, str]]
+    restrictions: Optional[List[Dict[str, Any]]] = None
 
-@tool
+class Schedule(BaseModel):
+    """Model for schedule"""
+    type: str = "schedule"
+    name: str
+    description: Optional[str] = None
+    time_zone: str = "UTC"
+    layers: Optional[List[Layer]] = None
+
 async def get_schedules(
     team_ids: Optional[List[str]] = None,
     query: Optional[str] = None,
-) -> str:
-    """Get schedules from PagerDuty.
-    
-    Args:
-        team_ids: Filter by team IDs
-        query: Search query
+    include: Optional[List[str]] = None,
+    limit: int = 100,
+) -> Dict[str, Any]:
     """
-    client = PagerDutyClient()
-    schedules = await client.get_schedules(
-        team_ids=team_ids,
-        query=query
-    )
-    return str(schedules)
+    Get schedules from PagerDuty with filtering options
 
-@tool
+    Args:
+        team_ids: Filter schedules by team IDs
+        query: Search query for schedules
+        include: Additional fields to include in the response
+        limit: Maximum number of schedules to return (default: 100)
+
+    Returns:
+        List of schedules with pagination information
+    """
+    params = {}
+
+    if team_ids:
+        params["team_ids[]"] = team_ids
+
+    if query:
+        params["query"] = query
+
+    if include:
+        params["include[]"] = include
+
+    params["limit"] = limit
+
+    success, data = await make_api_request("schedules", params=params)
+
+    if not success:
+        return {"error": data.get("error", "Failed to retrieve schedules")}
+
+    return data
+
+async def create_schedule(
+    name: str,
+    description: Optional[str] = None,
+    time_zone: str = "UTC",
+    layers: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Create a new schedule in PagerDuty
+
+    Args:
+        name: The name of the schedule (required)
+        description: Description of the schedule
+        time_zone: The time zone of the schedule (default: UTC)
+        layers: List of schedule layers with rotation information
+
+    Returns:
+        The created schedule details
+    """
+    schedule_data = {
+        "schedule": {
+            "type": "schedule",
+            "name": name,
+            "time_zone": time_zone,
+        }
+    }
+
+    if description:
+        schedule_data["schedule"]["description"] = description
+
+    if layers:
+        schedule_data["schedule"]["layers"] = layers
+
+    success, data = await make_api_request("schedules", method="POST", data=schedule_data)
+
+    if success:
+        logger.info(f"Schedule '{name}' created successfully")
+        return data
+    else:
+        logger.error(f"Failed to create schedule '{name}': {data.get('error')}")
+        return {"error": data.get("error", "Failed to create schedule")}
+
+async def update_schedule(
+    id: str,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    time_zone: Optional[str] = None,
+    layers: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Update an existing schedule in PagerDuty
+
+    Args:
+        id: The ID of the schedule to update (required)
+        name: New name for the schedule
+        description: New description for the schedule
+        time_zone: New time zone for the schedule
+        layers: New list of schedule layers
+
+    Returns:
+        The updated schedule details
+    """
+    schedule_data = {"schedule": {}}
+
+    if name:
+        schedule_data["schedule"]["name"] = name
+
+    if description:
+        schedule_data["schedule"]["description"] = description
+
+    if time_zone:
+        schedule_data["schedule"]["time_zone"] = time_zone
+
+    if layers:
+        schedule_data["schedule"]["layers"] = layers
+
+    success, data = await make_api_request(f"schedules/{id}", method="PUT", data=schedule_data)
+
+    if success:
+        logger.info(f"Schedule '{id}' updated successfully")
+        return data
+    else:
+        logger.error(f"Failed to update schedule '{id}': {data.get('error')}")
+        return {"error": data.get("error", "Failed to update schedule")}
+
 async def get_schedule_users(
-    schedule_id: str,
+    id: str,
     since: Optional[str] = None,
     until: Optional[str] = None,
-) -> str:
-    """Get users on a schedule.
-    
-    Args:
-        schedule_id: Schedule ID
-        since: Start time (ISO format)
-        until: End time (ISO format)
+) -> Dict[str, Any]:
     """
-    client = PagerDutyClient()
-    users = await client.get_schedule_users(
-        schedule_id=schedule_id,
-        since=since,
-        until=until
-    )
-    return str(users)
+    Get users on a schedule for a given time period
 
-@tool
+    Args:
+        id: The ID of the schedule (required)
+        since: Start time for the search (ISO 8601 format)
+        until: End time for the search (ISO 8601 format)
+
+    Returns:
+        List of users on the schedule for the specified time period
+    """
+    params = {}
+
+    if since:
+        params["since"] = since
+
+    if until:
+        params["until"] = until
+
+    success, data = await make_api_request(f"schedules/{id}/users", params=params)
+
+    if not success:
+        return {"error": data.get("error", "Failed to retrieve schedule users")}
+
+    return data
+
 async def get_oncalls(
     schedule_ids: Optional[List[str]] = None,
     user_ids: Optional[List[str]] = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
-) -> str:
+) -> Dict[str, Any]:
     """Get on-call assignments.
     
     Args:
@@ -67,11 +194,23 @@ async def get_oncalls(
         since: Start time (ISO format)
         until: End time (ISO format)
     """
-    client = PagerDutyClient()
-    oncalls = await client.get_oncalls(
-        schedule_ids=schedule_ids,
-        user_ids=user_ids,
-        since=since,
-        until=until
-    )
-    return str(oncalls) 
+    params = {}
+
+    if schedule_ids:
+        params["schedule_ids[]"] = schedule_ids
+
+    if user_ids:
+        params["user_ids[]"] = user_ids
+
+    if since:
+        params["since"] = since
+
+    if until:
+        params["until"] = until
+
+    success, data = await make_api_request("oncalls", params=params)
+
+    if not success:
+        return {"error": data.get("error", "Failed to retrieve on-call assignments")}
+
+    return data 
