@@ -6,6 +6,8 @@ from datetime import datetime
 from pydantic import BaseModel
 from ..api.client import make_api_request
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("pagerduty_mcp")
 
 class IncidentBody(BaseModel):
@@ -35,6 +37,14 @@ async def get_incidents(
     Returns:
         List of incidents with pagination information
     """
+    logger.debug("Getting incidents with filters:")
+    logger.debug(f"Status: {status}")
+    logger.debug(f"Service IDs: {service_ids}")
+    logger.debug(f"User IDs: {user_ids}")
+    logger.debug(f"Since: {since}")
+    logger.debug(f"Until: {until}")
+    logger.debug(f"Limit: {limit}")
+
     params = {}
 
     if status:
@@ -54,11 +64,14 @@ async def get_incidents(
 
     params["limit"] = limit
 
+    logger.debug(f"Making API request with params: {params}")
     success, data = await make_api_request("incidents", params=params)
 
     if not success:
+        logger.error(f"Failed to retrieve incidents: {data.get('error')}")
         return {"error": data.get("error", "Failed to retrieve incidents")}
 
+    logger.info(f"Successfully retrieved incidents")
     return data
 
 async def create_incident(
@@ -81,6 +94,14 @@ async def create_incident(
     Returns:
         The created incident details
     """
+    logger.debug(f"Creating new incident:")
+    logger.debug(f"Title: {title}")
+    logger.debug(f"Service ID: {service_id}")
+    logger.debug(f"Urgency: {urgency}")
+    logger.debug(f"Priority ID: {priority_id}")
+    if body:
+        logger.debug(f"Body length: {len(body)} characters")
+
     incident_data = {
         "incident": {
             "type": "incident",
@@ -102,6 +123,7 @@ async def create_incident(
             "type": "priority_reference"
         }
 
+    logger.debug(f"Making API request with incident data: {incident_data}")
     success, data = await make_api_request("incidents", method="POST", data=incident_data)
 
     if success:
@@ -131,6 +153,13 @@ async def update_incident(
     Returns:
         The updated incident details
     """
+    logger.debug(f"Updating incident {id}:")
+    logger.debug(f"New title: {title}")
+    logger.debug(f"New urgency: {urgency}")
+    logger.debug(f"New priority ID: {priority_id}")
+    if body:
+        logger.debug(f"New body length: {len(body)} characters")
+
     incident_data = {"incident": {}}
 
     if title:
@@ -151,6 +180,7 @@ async def update_incident(
             "type": "priority_reference"
         }
 
+    logger.debug(f"Making API request with update data: {incident_data}")
     success, data = await make_api_request(f"incidents/{id}", method="PUT", data=incident_data)
 
     if success:
@@ -174,6 +204,10 @@ async def resolve_incident(
     Returns:
         The resolved incident details
     """
+    logger.debug(f"Resolving incident {id}")
+    if resolution:
+        logger.debug(f"Resolution note length: {len(resolution)} characters")
+
     incident_data = {
         "incident": {
             "status": "resolved"
@@ -183,6 +217,7 @@ async def resolve_incident(
     if resolution:
         incident_data["incident"]["resolution"] = resolution
 
+    logger.debug(f"Making API request with resolution data: {incident_data}")
     success, data = await make_api_request(f"incidents/{id}", method="PUT", data=incident_data)
 
     if success:
@@ -204,12 +239,15 @@ async def acknowledge_incident(
     Returns:
         The acknowledged incident details
     """
+    logger.debug(f"Acknowledging incident {id}")
+
     incident_data = {
         "incident": {
             "status": "acknowledged"
         }
     }
 
+    logger.debug(f"Making API request with acknowledgment data: {incident_data}")
     success, data = await make_api_request(f"incidents/{id}", method="PUT", data=incident_data)
 
     if success:

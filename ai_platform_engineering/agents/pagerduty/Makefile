@@ -38,8 +38,8 @@ setup-venv:
 
 activate-venv:
 	@echo "Activating virtual environment..."
-	@if [ -d "venv" ]; then \
-		. venv/bin/activate; \
+	@if [ -d ".venv" ]; then \
+		. .venv/bin/activate; \
 	else \
 		echo "Virtual environment not found. Please run 'make setup-venv' first."; \
 	fi
