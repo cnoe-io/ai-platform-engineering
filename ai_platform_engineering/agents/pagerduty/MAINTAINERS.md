@@ -2,7 +2,7 @@
 
 ## Core Maintainers
 
-- Your Name <your.email@example.com>
+- Rehan Agrawal <rehagraw@cisco.com>
 
 ## Emeritus Maintainers
 
