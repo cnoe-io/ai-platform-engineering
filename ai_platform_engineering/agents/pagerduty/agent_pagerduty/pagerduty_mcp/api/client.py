@@ -60,7 +60,7 @@ async def make_api_request(
         return (
             False,
             {
-                "error": "Token is required. Please set the PAGERDUTY_API_TOKEN environment variable."
+                "error": "Token is required. Please set the PAGERDUTY_TOKEN environment variable."
             },
         )
 
@@ -95,11 +95,19 @@ async def make_api_request(
 
             # Make the request
             logger.debug(f"Executing {method} request")
+            
+            # Only include json parameter for methods that use request body
+            request_kwargs = {
+                "headers": headers,
+                "params": params,
+            }
+            
+            if method in ["POST", "PUT", "PATCH"]:
+                request_kwargs["json"] = data
+                
             response = await method_map[method](
                 url,
-                headers=headers,
-                params=params,
-                json=data if method in ["POST", "PUT", "PATCH"] else None,
+                **request_kwargs
             )
             
             logger.debug(f"Response status code: {response.status_code}")
