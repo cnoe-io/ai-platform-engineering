@@ -10,6 +10,7 @@ from typing import Any, Dict
 
 from langchain_openai import AzureChatOpenAI
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain.chains.summarize import load_summarize_chain
 from langgraph.prebuilt import create_react_agent
 from pydantic import SecretStr
 from langchain_core.runnables import RunnableConfig
@@ -17,6 +18,40 @@ from langchain_core.runnables import RunnableConfig
 from .state import AgentState, Message, MsgType, OutputState
 
 logger = logging.getLogger(__name__)
+
+class Memory:
+    """
+    A class to manage short-term memory for the agent.
+    """
+    def __init__(self, max_size=5):
+        self.max_size = max_size
+        self.memory = []
+
+    def add_interaction(self, user_input, agent_response):
+        """
+        Add a new interaction to memory.
+        
+        :param user_input: The user's input.
+        :param agent_response: The agent's response.
+        """
+        self.memory.append({"user_input": user_input, "agent_response": agent_response})
+        # Ensure memory does not exceed max size
+        if len(self.memory) > self.max_size:
+            self.memory.pop(0)
+
+    def get_memory(self):
+        """
+        Retrieve the current memory.
+        
+        :return: A list of recent interactions.
+        """
+        return self.memory
+
+    def clear_memory(self):
+        """
+        Clear all stored memory.
+        """
+        self.memory = []
 
 # Initialize the Azure OpenAI model
 api_key = os.getenv("AZURE_OPENAI_API_KEY")
@@ -53,6 +88,9 @@ if not spec or not spec.origin:
 
 server_path = str(Path(spec.origin).resolve())
 
+# Initialize memory
+memory = Memory()
+
 # Setup the PagerDuty MCP Client and create React Agent
 async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     args = config.get("configurable", {})
@@ -74,6 +112,22 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
         if human_message is not None:
             human_message = human_message.content
 
+        # Retrieve memory and include it in the context
+        recent_memory = memory.get_memory()
+        logger.debug(f"Recent memory: {recent_memory}")
+
+        # Format memory and current message to match expected structure
+        memory_content = "\n".join(
+            [f"User: {interaction['user_input']}\nAgent: {interaction['agent_response']}" for interaction in recent_memory]
+        )
+        combined_message = f"{memory_content}\nCurrent: {human_message}" if memory_content else human_message
+
+        # Construct the message with required keys
+        human_message_with_memory = {
+            "role": "user",
+            "content": combined_message
+        }
+
     logger.info(f"Launching MCP server at: {server_path}")
 
     async with MultiServerMCPClient(
@@ -90,7 +144,7 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
         }
     ) as client:
         agent = create_react_agent(model, client.get_tools())
-        llm_result = await agent.ainvoke({"messages": human_message})
+        llm_result = await agent.ainvoke({"messages": human_message_with_memory})
         logger.info("LLM response received")
         logger.debug(f"LLM result: {llm_result}")
 
@@ -122,8 +176,11 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
 
     logger.debug(f"Final output messages: {output_messages}")
 
+    # Store the interaction in memory
+    memory.add_interaction(user_input=human_message, agent_response=ai_content)
+
     return {"pagerduty_output": OutputState(messages=messages + output_messages)}
 
 # Sync wrapper for workflow server
 def agent_pagerduty(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-    return asyncio.run(_async_pagerduty_agent(state, config)) 
+    return asyncio.run(_async_pagerduty_agent(state, config))
