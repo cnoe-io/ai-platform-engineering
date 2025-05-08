@@ -44,20 +44,23 @@
         }
       },
       "properties": {
-        "messages": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/Message"
+        "argocd_input": {
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Message"
+                },
+                "type": "array"
               },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Messages"
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Messages"
+          },
+          "type": "object"
         }
       },
       "title": "InputState",
@@ -161,7 +164,6 @@
         "desc": "Argo verify ssl",
         "name": "ARGOCD_VERIFY_SSL"
       }
-
     ],
     "dependencies": []
   }
