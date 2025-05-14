@@ -39,18 +39,17 @@ This project implements an AI Agent that interacts with ArgoCD using the [langch
 
 ### Start ACP Agent AGNTCY Workflow manager server
 
-#### Step 1. Create/Update `deploy/acp/agent-env.yaml`
+#### Step 1. Create/Update `.env`
 
 ```
-values:
-  AZURE_OPENAI_API_KEY: <COPY YOUR AZURE OPENAI API KEY>
-  OPENAI_API_VERSION: <COPY YOUR AZURE OPENAI API VERSION>
-  AZURE_OPENAI_API_VERSION: <COPY YOUR AZURE OPENAI API VERSION>
-  AZURE_OPENAI_DEPLOYMENT: <COPY YOUR AZURE OPENAI DEPLOYMENT>
-  AZURE_OPENAI_ENDPOINT: <COPY YOUR AZURE OPENAI ENDPOINT>
-  ARGOCD_TOKEN: <COPY YOUR ARGOCD SERVICE ACCOUNT TOKEN>
-  ARGOCD_API_URL: <COPY YOUR ARGOCD API ENDPOINT. Example https://argocd.exmaple.com/api/v1>
-  ARGOCD_VERIFY_SSL: <SET ARGOCD SSL VERIFICATION. true | false>
+AZURE_OPENAI_API_KEY=<COPY YOUR AZURE OPENAI API KEY>
+OPENAI_API_VERSION=<COPY YOUR AZURE OPENAI API VERSION>
+AZURE_OPENAI_API_VERSION=<COPY YOUR AZURE OPENAI API VERSION>
+AZURE_OPENAI_DEPLOYMENT=<COPY YOUR AZURE OPENAI DEPLOYMENT>
+AZURE_OPENAI_ENDPOINT=<COPY YOUR AZURE OPENAI ENDPOINT>
+ARGOCD_TOKEN=<COPY YOUR ARGOCD SERVICE ACCOUNT TOKEN>
+ARGOCD_API_URL=<COPY YOUR ARGOCD API ENDPOINT. Example https://argocd.exmaple.com/api/v1>
+ARGOCD_VERIFY_SSL=<SET ARGOCD SSL VERIFICATION. true | false>
 ```
 #### Step 2. Start ACP Workflow Server Manager
 
@@ -60,9 +59,9 @@ make run-acp
 
 ### 🔁 Test with ArgoCD Client
 
-#### Step 1: Add Environment Variables to `.env`
+#### Step 1: Update Environment Variables in `.env`
 
-Create or update a `.env` file in the project root with the following content:
+Update a `.env` file in the project root with the following content:
 
 ```bash
 AGENT_ID="<COPY AGENT_ID>"
