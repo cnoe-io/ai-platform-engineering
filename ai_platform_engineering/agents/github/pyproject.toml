@@ -1,0 +1,65 @@
+[tool.poetry]
+name = "agent_slack"
+version = "0.1.0"
+description = "An ArgoCD natural language agent using LangChain, LangGraph, and MCP."
+license = "Apache-2.0"
+authors = [
+    "Jasvir Dhillon <jasvdhil@cisco.com>"
+]
+maintainers = [
+    "Jasvir Dhillon <jasvdhil@cisco.com>"
+]
+packages = [
+    { include = "agent_slack" }
+]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.12.0,<4.0"
+pydantic = "^2.6.4"
+click = "^8.1.8"
+langchain = "^0.3.19"
+langgraph = "0.3.34"
+langchain-openai = "^0.3.6"
+langchain-mcp-adapters = "^0.0.9"
+fastapi = "^0.115.11"
+uvicorn = "^0.34.2"
+uv = "^0.7.2"
+agntcy-acp = ">=1.1.4"
+slack_sdk = "^3.27.0" 
+
+
+[tool.poetry.group.sanity.dependencies]
+mypy = "^1.10.0"
+ruff = "^0.4.6"
+
+[tool.poetry.scripts]
+agent_slack = "agent_slack.__main__:run_slack_agent"
+
+[tool.ruff]
+lint.select = ["E", "F", "I", "TID251"]
+lint.ignore = ["E501"]
+line-length = 88
+indent-width = 4
+extend-include = ["*.ipynb"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = false
+docstring-code-line-length = "dynamic"
+
+[tool.mypy]
+disallow_untyped_defs = true
+explicit_package_bases = true
+warn_no_return = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+allow_redefinition = true
+disable_error_code = "typeddict-item, return-value, override, has-type"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
