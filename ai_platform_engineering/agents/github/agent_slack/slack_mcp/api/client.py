@@ -9,18 +9,47 @@ import logging
 from typing import Optional, Dict, Any, List, Tuple
 import httpx
 from dotenv import load_dotenv
+from pathlib import Path
 
-# Load environment variables
-load_dotenv()
+
+# Get the correct path to the .env file
+# client.py is in agent_slack/slack_mcp/api/
+# We need to go up 4 levels to get to agent-slack root
+file_path = Path(__file__)
+project_root = file_path.parent.parent.parent.parent  # Navigate up to agent-slack root
+env_path = project_root / '.env'
+
+# Load environment variables with the specific path
+load_dotenv(dotenv_path=env_path)
 
 # Constants
 SLACK_API_URL = "https://slack.com/api"
 DEFAULT_TIMEOUT = 30
-DEFAULT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+DEFAULT_TOKEN = None
+if "SLACK_BOT_TOKEN" in os.environ:
+    DEFAULT_TOKEN = os.environ["SLACK_BOT_TOKEN"]
+elif "SLACK_TOKEN" in os.environ:
+    DEFAULT_TOKEN = os.environ["SLACK_TOKEN"]
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("slack_mcp")
+
+# Log the path where we're looking for the .env file
+logger.info(f"Looking for .env file at: {env_path}")
+logger.info(f"Absolute path: {env_path.absolute()}")
+if env_path.exists():
+    logger.info(f".env file found at {env_path}")
+else:
+    logger.warning(f".env file NOT found at {env_path}")
+    # Try alternative path - just in case
+    alt_path = Path("C:/Users/harmi/UCL/slack_agent_itr1/agent-slack/.env")
+    logger.info(f"Trying alternative path: {alt_path}")
+    if alt_path.exists():
+        logger.info(f".env file found at alternative path {alt_path}")
+        load_dotenv(dotenv_path=alt_path)
+    else:
+        logger.warning(f".env file NOT found at alternative path either")
 
 # Log token presence but not the token itself
 if DEFAULT_TOKEN:
@@ -409,11 +438,23 @@ async def make_api_request(
     """
     logger.debug(f"Making {method} request to {endpoint}")
     
+    # Check environment variables directly for debugging
+    env_token = os.getenv("SLACK_BOT_TOKEN")
+    logger.debug(f"SLACK_BOT_TOKEN in environment: {'Yes' if env_token else 'No'}")
+    
     # Get token from param or environment
     token = token or DEFAULT_TOKEN
+    logger.debug(f"Using token from {'parameter' if token != DEFAULT_TOKEN else 'environment'}")
+    
     if not token:
         logger.error("Slack token not found in params or environment")
-        return False, {"error": "Missing Slack token"}
+        # Try to get it directly one more time to be sure
+        direct_token = os.environ.get("SLACK_BOT_TOKEN")
+        if direct_token:
+            logger.info("Found token directly in os.environ, using it")
+            token = direct_token
+        else:
+            return False, {"error": "Missing Slack token"}
 
     headers = {
         "Authorization": f"Bearer {token}",
