@@ -117,4 +117,6 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## 👥 Maintainers
 
-See [MAINTAINERS.md](MAINTAINERS.md) for the list of maintainers. 
+[MAINTAINERS.md](MAINTAINERS.md)
+
+- Contributions welcome via PR or issue! 

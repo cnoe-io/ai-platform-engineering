@@ -1,5 +1,3 @@
-# Maintainers
-
 ## Core Maintainers
 
 - Rehan Agrawal <rehagraw@cisco.com>
