@@ -75,7 +75,7 @@ run-curl-client: build install
 
 langgraph-dev: build install
 	@echo "Running the LangGraph agent..."
-	. $(VENV_PATH)/bin/activate && . .env && langgraph dev
+	. $(VENV_PATH)/bin/activate && langgraph dev
 
 help:
 	@echo "Available targets:"
