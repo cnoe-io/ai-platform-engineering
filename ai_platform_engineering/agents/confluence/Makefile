@@ -83,6 +83,10 @@ langgraph-dev: build install
 	@echo "Running the LangGraph agent..."
 	. .venv/bin/activate && . .env && langgraph dev
 
+lint: setup-venv
+	@echo "Running ruff..."
+	. .venv/bin/activate && ruff check agent_argocd tests --exclude agent_argocd/argocd_mcp
+
 help:
 	@echo "Available targets:"
 	@echo "  setup-venv       Create virtual environment in .venv and install dependencies"
