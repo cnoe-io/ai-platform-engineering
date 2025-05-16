@@ -1,10 +1,12 @@
 # Copyright CNOE Contributors (https://cnoe.io)
 # SPDX-License-Identifier: Apache-2.0
 
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+
 from .agent import agent_argocd
 from .state import AgentState
+
 
 def build_graph() -> CompiledStateGraph:
     graph_builder = StateGraph(AgentState)
