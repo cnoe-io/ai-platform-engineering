@@ -1,6 +1,6 @@
-# ArgoCD Agent
+# Slack Agent
 
-This project implements an AI Agent that interacts with ArgoCD using the [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) framework and [AGNTCY ACP Protocol](https://github.com/agntcy/acp-sdk), exposing it via an ACP-compatible workflow server.
+This project implements an AI Agent that interacts with Slack using the [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) framework and [AGNTCY ACP Protocol](https://github.com/agntcy/acp-sdk), exposing it via an ACP-compatible workflow server.
 
 ---
 
@@ -13,7 +13,7 @@ This project implements an AI Agent that interacts with ArgoCD using the [langch
                                                                   |
                                                                   v
 +---------------+     +-----------------------+     +----------------------------+
-|     ArgoCD    | <-- | ArgoCD MCP Server     | <-- |   LangGraph MCP Adapter    |
+|     Slack     | <-- |   Slack MCP Tools     | <-- |   LangGraph MCP Adapter    |
 +---------------+     +-----------------------+     +----------------------------+
 ```
 
@@ -21,7 +21,7 @@ This project implements an AI Agent that interacts with ArgoCD using the [langch
 
 - Built using **LangGraph + LangChain MCP Adapter**
 - Uses **Azure OpenAI GPT-4o** as the LLM backend
-- Communicates with ArgoCD through a dedicated [_ArgoCD MCP agent_](https://github.com/severity1/argocd-mcp)
+- Communicates with Slack through a dedicated Slack SDK integration
 - Deployed with [Workflow Server Manager (WFSM)](https://github.com/agntcy/workflow-srv-mgr)
 - Compatible with **ACP protocol** for multi-agent orchestration
 
@@ -36,21 +36,23 @@ This project implements an AI Agent that interacts with ArgoCD using the [langch
 ```
 values:
   AZURE_OPENAI_API_KEY: <COPY YOUR AZURE OPENAI API KEY>
-  OPENAI_API_VERSION: <COPY YOUR AZURE OPENAI API VERSION>
   AZURE_OPENAI_API_VERSION: <COPY YOUR AZURE OPENAI API VERSION>
   AZURE_OPENAI_DEPLOYMENT: <COPY YOUR AZURE OPENAI DEPLOYMENT>
   AZURE_OPENAI_ENDPOINT: <COPY YOUR AZURE OPENAI ENDPOINT>
-  ARGOCD_TOKEN: <COPY YOUR ARGOCD SERVICE ACCOUNT TOKEN>
-  ARGOCD_API_URL: <COPY YOUR ARGOCD API ENDPOINT. Example https://argocd.exmaple.com/api/v1>
-  ARGOCD_VERIFY_SSL: <SET ARGOCD SSL VERIFICATION. true | false>
+  SLACK_BOT_TOKEN: <COPY YOUR SLACK BOT TOKEN>
+  SLACK_APP_TOKEN: <COPY YOUR SLACK APP TOKEN>
+  SLACK_SIGNING_SECRET: <COPY YOUR SLACK SIGNING SECRET>
+  SLACK_CLIENT_SECRET: <COPY YOUR SLACK CLIENT SECRET>
+  SLACK_TEAM_ID: <COPY YOUR SLACK TEAM ID>
 ```
+
 #### Step 2. Start ACP Workflow Server Manager
 
 ```bash
 make run-acp
 ```
 
-### 🔁 Test with ArgoCD Client
+### 🔁 Test with Slack Client
 
 #### Step 1: Add Environment Variables to `.env`
 
@@ -73,32 +75,29 @@ make run-client
 **Sample Output:**
 
 ```
-> Your Question: how can you help?
-Agent: I can assist you with managing applications in ArgoCD, including tasks such as:
-```
+> Your Question: how can you help
+Using Slack token starting with: xoxb-*****...
+Sending request to ACP client...
 
-```
-1. **Listing Applications**: Retrieve a list of applications with filtering options like project name, application name, repository URL, and namespace.
+Agent: I can assist you with a variety of tasks related to managing and interacting with a Slack workspace. Here are some of the things I can do:
 
-2. **Getting Application Details**: Fetch detailed information about a specific application.
+1. **Channel Management**: 
+   - List, join, leave, and get detailed information about channels.
+   
+2. **Messaging**:
+   - Post, update, delete, and list messages in channels.
+   - Reply to threads and add or remove reactions to messages.
 
-3. **Creating Applications**: Create new applications in ArgoCD with specified configurations.
+3. **File Management**:
+   - List, upload, get information about, and delete files.
 
-4. **Updating Applications**: Update existing applications with new configurations.
+4. **User Management**:
+   - List users and get detailed information about specific users.
+   - Set the status for the authenticated user.
 
-5. **Deleting Applications**: Remove applications from ArgoCD, with options for cascading deletions.
+If you have a specific task in mind, feel free to ask, and I'll do my best to assist you!
 
-6. **Syncing Applications**: Synchronize applications to a specific Git revision, with options for pruning and dry runs.
-
-7. **Getting User Info**: Retrieve information about the currently logged-in user, including permissions and groups.
-
-8. **Getting ArgoCD Settings**: Access server settings related to OIDC, Dex, UI customization, and plugins.
-
-9. **Getting Plugins**: List available plugins in ArgoCD.
-
-10. **Getting Version Information**: Retrieve version details of the ArgoCD API server.
-
-If you need help with any of these tasks or have specific questions about ArgoCD, feel free to ask!
+> Your Question: 
 ```
 
 ### 🔁 Test with Curl (using Workflow Server)
@@ -110,10 +109,10 @@ You can send a test request to the running Workflow Server instance using the ag
 When you run the server using `wfsm deploy`, it prints out values like:
 
 ```
-2025-05-01T10:17:45-05:00 INF ACP agent deployment name: org.cnoe.agent_argocd
-2025-05-01T10:17:45-05:00 INF ACP agent running in container: org.cnoe.agent_argocd, listening for ACP requests on: http://127.0.0.1:56504
-2025-05-01T10:17:45-05:00 INF Agent ID: bc123..
-2025-05-01T10:17:45-05:00 INF API Key: xyz456...
+2025-05-01T10:17:45-05:00 INF ACP agent deployment name: org.cnoe.agent_slack
+2025-05-01T10:17:45-05:00 INF ACP agent running in container: org.cnoe.agent_slack, listening for ACP requests on: http://127.0.0.1:56504
+2025-05-01T10:17:45-05:00 INF Agent ID: ***********
+2025-05-01T10:17:45-05:00 INF API Key: ***********
 ...
 ```
 Set them as environment variables:
@@ -132,11 +131,11 @@ curl -s -H "Content-Type: application/json" \
      -d '{
            "agent_id": "'"$AGENT_ID"'",
            "input": {
-             "argocd_input": {
+             "slack_input": {
                "messages": [
                  {
                    "type": "human",
-                   "content": "Get version information of the ARGO CD server"
+                   "content": "Send a message to the general channel saying hello"
                  }
                ]
              }
@@ -148,15 +147,14 @@ curl -s -H "Content-Type: application/json" \
      http://127.0.0.1:$WFSM_PORT/runs/wait
 ```
 
-This will trigger the agent via Workflow Server and return the LLM-powered response using tools from the `argocd-mcp` submodule.
+This will trigger the agent via Workflow Server and return the LLM-powered response using tools from the Slack MCP integration.
 
 ---
 
 ## 🧬 Agent Internals
 
 - Uses [`create_react_agent`](https://docs.langchain.com/langgraph/agents/react/) for tool-calling
-- Tools are dynamically loaded from the **ArgoCD MCP server**
-- MCP server launched using `uv run` with `stdio` transport by default
+- Tools are integrated directly within the `agent_slack/slack_mcp/tools` directory
 - Graph built using a single-node LangGraph that handles inference and action routing
 
 ---
@@ -164,76 +162,73 @@ This will trigger the agent via Workflow Server and return the LLM-powered respo
 ## 📦 Project Structure
 
 ```
-agent_argocd/
+agent_slack/
 │
 ├── agent.py              # LLM + MCP client orchestration
 ├── langgraph.py          # LangGraph graph definition
 ├── __main__.py           # CLI entrypoint
 ├── state.py              # Pydantic state models
-└── argocd_mcp/           # Git submodule: contains ArgoCD MCP server
+└── slack_mcp/            # Slack tools implementation
+    ├── __init__.py
+    ├── server.py         # MCP server implementation
+    ├── tool_registry.py  # Tool registration
+    ├── api/              # API client implementation
+    ├── models/           # Data models
+    └── tools/            # Slack tools
+        ├── channels.py   # Channel management tools
+        ├── files.py      # File management tools
+        ├── messages.py   # Message sending/reading tools
+        └── users.py      # User management tools
 
-client
+client/
 │
-└── client_agent.py       # Agent ACP Client
+├── client_agent.py       # Agent ACP Client
+└── client_curl.sh        # Curl-based client example
 
+deploy/
+│
+└── acp/                  # ACP deployment configuration
+    └── agent.json        # Agent configuration
 ```
 ---
 
-## 📚 MCP Submodule (ArgoCD Tools)
+## 📚 Slack Tools
 
-This project uses the [ArgoCD MCP Server by `severity1`](https://mcp.so/server/argocd-mcp/severity1) as a **git submodule** in the `argocd_mcp/` directory.
+This project includes a set of Slack tools implemented directly in the codebase. These tools use the official Slack SDK to communicate with the Slack API.
 
-All ArgoCD-related LangChain tools used by this agent are defined by that MCP server implementation. You can see the list of supported tools here:
-
-👉 **[View supported tools](https://mcp.so/server/argocd-mcp/severity1?tab=content)**
-
+Key features include:
+- **Channel management**: Create, archive, list channels
+- **Message actions**: Send, read, update, delete messages
+- **User operations**: Lookup profiles, check presence
+- **File handling**: Upload and share files
 
 ---
 
 ## 🔌 MCP Integration
 
-The agent uses [`MultiServerMCPClient`](https://github.com/langchain-ai/langchain-mcp-adapters) to communicate with external MCP-compliant services (e.g., ArgoCD). This adapter handles the tool registration and function calling for LangChain tools.
+The agent uses LangChain tools integrated directly in the codebase, exposed through the Model Context Protocol (MCP) adapters framework.
 
-### In this project:
-
-- We use the `stdio` transport to launch the MCP server process via `uv run ...`.
-- The `argocd_mcp.server` is discovered dynamically and launched in a subprocess.
-
-Example:
+Example of using the Slack tools:
 
 ```python
-async with MultiServerMCPClient(
-    {
-        "argocd": {
-            "command": "uv",
-            "args": ["run", "/abs/path/to/argocd_mcp/server.py"],
-            "env": {
-                "ARGOCD_TOKEN": argocd_token,
-                "ARGOCD_API_URL": argocd_api_url,
-                "ARGOCD_VERIFY_SSL": "false"
-            },
-            "transport": "stdio",
-        }
+# Send a message to a Slack channel
+response = messages.send_message(
+    channel_id="C08RQPSH4KD",
+    text="Hello from the Slack agent!",
+    env={
+        "SLACK_BOT_TOKEN": os.getenv("SLACK_BOT_TOKEN")
     }
-) as client:
-    agent = create_react_agent(model, client.get_tools())
+)
+
+# Get channel information
+channel_info = channels.get_channel_info(
+    channel_id="C08RQPSH4KD",
+    env={
+        "SLACK_BOT_TOKEN": os.getenv("SLACK_BOT_TOKEN")
+    }
+)
 ```
 
-### SSE Transport (Alternative)
-
-If your MCP server is running as an HTTP server, you can use SSE transport:
-
-```python
-async with MultiServerMCPClient(
-    {
-        "argocd": {
-            "transport": "sse",
-            "url": "http://localhost:8000"
-        }
-    }
-) as client:
-    ...
-```
 ---
 
 ## 📜 License
@@ -244,7 +239,6 @@ Apache 2.0 (see [LICENSE](./LICENSE))
 
 ## 👥 Maintainers
 
-[MAINTAINERS.md](MAINTAINERS.md)
+See [MAINTAINERS.md](MAINTAINERS.md)
 
 - Contributions welcome via PR or issue!
-
