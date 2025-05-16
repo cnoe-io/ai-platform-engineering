@@ -59,10 +59,18 @@ run: build install
 	. .venv/bin/activate && . .env && python3 -m agent_template
 
 run-acp: setup-venv build install
-	. .venv/bin/activate && wfsm deploy -m ./deploy/acp/agent.json -e ./deploy/acp/agent-env.yaml
+	@if [ ! -f ".env" ]; then \
+		echo "Error: .env file not found. Please create a .env file before running this target."; \
+		exit 1; \
+	fi
+	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -m ./deploy/acp/agent.json --dryRun=false
 
 run-client: build install
 	@echo "Running the client..."
+	@if [ ! -f ".env" ]; then \
+		echo "Error: .env file not found. Please create a .env file before running this target."; \
+		exit 1; \
+	fi
 	. .venv/bin/activate && set -a && . .env && set +a && \
 	python3 client/client_agent.py
 
@@ -74,6 +82,10 @@ run-curl-client: build install
 langgraph-dev: build install
 	@echo "Running the LangGraph agent..."
 	. .venv/bin/activate && . .env && langgraph dev
+
+lint: setup-venv
+	@echo "Running ruff..."
+	. .venv/bin/activate && ruff check agent_argocd tests --exclude agent_argocd/argocd_mcp
 
 help:
 	@echo "Available targets:"
