@@ -45,7 +45,7 @@ flowchart TD
   subgraph Tools/MCP Layer
     D[LangGraph MCP Adapter]
     E[ArgoCD MCP Server]
-    F[ArgoCD]
+    F[ArgoCD API Server]
   end
 
   A --> B --> C
@@ -105,28 +105,29 @@ You can start the workflow server in either ACP or A2A mode:
 If you don't have an existing ArgoCD server, you can quickly spin one up using [Minikube](https://minikube.sigs.k8s.io/docs/):
 
 1. **Start Minikube:**
+
   ```bash
   minikube start
   ```
 
-2. **Install ArgoCD in the `argocd` namespace:**
+1. **Install ArgoCD in the `argocd` namespace:**
   ```bash
   kubectl create namespace argocd
   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
   ```
 
-3. **Expose the ArgoCD API server:**
+1. **Expose the ArgoCD API server:**
   ```bash
   kubectl port-forward svc/argocd-server -n argocd 8080:443
   ```
   The API will be available at `https://localhost:8080`.
 
-4. **Get the ArgoCD admin password:**
+1. **Get the ArgoCD admin password:**
   ```bash
   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
   ```
 
-5. **(Optional) Install ArgoCD CLI:**
+1. **(Optional) Install ArgoCD CLI:**
   ```bash
   brew install argocd
   # or see https://argo-cd.readthedocs.io/en/stable/cli_installation/
@@ -329,6 +330,7 @@ Results:
 [Latest Strict Match Eval Results](evals/strict_match/README.md)
 
 ---
+
 ## 📜 License
 
 Apache 2.0 (see [LICENSE](./LICENSE))
@@ -353,4 +355,3 @@ See [MAINTAINERS.md](MAINTAINERS.md)
 - [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for the protocol specification.
 - [Google A2A](https://github.com/google/A2A/tree/main)
 - The open source community for ongoing support and contributions.
-
