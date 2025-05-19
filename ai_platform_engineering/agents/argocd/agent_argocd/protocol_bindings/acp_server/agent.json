@@ -1,0 +1,194 @@
+{
+  "metadata": {
+    "ref": {
+      "name": "io.cnoe.agent_argocd",
+      "version": "0.0.1"
+    },
+    "description": "ArgoCD ACP + MCP Agent powered by LangGraph and LangChain MCP Adapters."
+  },
+  "specs": {
+    "capabilities": {
+      "threads": false,
+      "interrupts": false,
+      "callbacks": false
+    },
+    "input": {
+      "$defs": {
+        "Message": {
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/Type",
+              "description": "indicates the originator of the message, a human or an assistant"
+            },
+            "content": {
+              "description": "the content of the message",
+              "title": "Content",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ],
+          "title": "Message",
+          "type": "object"
+        },
+        "Type": {
+          "enum": [
+            "human",
+            "assistant",
+            "ai"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "argocd_input": {
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Message"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Messages"
+          },
+          "type": "object"
+        }
+      },
+      "title": "InputState",
+      "type": "object"
+    },
+    "output": {
+      "$defs": {
+        "Message": {
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/Type",
+              "description": "indicates the originator of the message, a human or an assistant"
+            },
+            "content": {
+              "description": "the content of the message",
+              "title": "Content",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "content"
+          ],
+          "title": "Message",
+          "type": "object"
+        },
+        "Type": {
+          "enum": [
+            "human",
+            "assistant",
+            "ai"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Message"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messages"
+        }
+      },
+      "title": "OutputState",
+      "type": "object"
+    },
+    "config": {
+      "properties": {},
+      "title": "EmptyConfig",
+      "type": "object"
+    }
+  },
+  "deployment": {
+    "deployment_options": [
+      {
+        "type": "source_code",
+        "name": "source_code_local",
+        "url": "./../../../",
+        "framework_config": {
+          "framework_type": "langgraph",
+          "graph": "agent_argocd.graph:graph"
+        }
+      }
+    ],
+    "env_vars": [
+      {
+        "desc": "LLM provider",
+        "name": "LLM_PROVIDER"
+      },
+      {
+        "desc": "Agent Name",
+        "name": "AGENT_NAME"
+      },
+      {
+        "desc": "Agent ID",
+        "name": "AGENT_ID"
+      },
+      {
+        "desc": "Agent API Key",
+        "name": "API_KEY"
+      },
+      {
+        "desc": "ACP Workflow Server Manager Port",
+        "name": "WFSM_PORT"
+      },
+      {
+        "desc": "Azure OpenAI endpoint for LLM",
+        "name": "AZURE_OPENAI_ENDPOINT"
+      },
+      {
+        "desc": "Azure OpenAI API key",
+        "name": "AZURE_OPENAI_API_KEY"
+      },
+      {
+        "desc": "Azure OpenAI deployment",
+        "name": "AZURE_OPENAI_DEPLOYMENT"
+      },
+      {
+        "desc": "Azure OpenAI API version",
+        "name": "AZURE_OPENAI_API_VERSION"
+      },
+      {
+        "desc": "Google API key",
+        "name": "GOOGLE_API_KEY"
+      },
+      {
+        "desc": "ArgoCD Token",
+        "name": "ARGOCD_TOKEN"
+      },
+      {
+        "desc": "Argo api url",
+        "name": "ARGOCD_API_URL"
+      },
+      {
+        "desc": "Argo verify ssl",
+        "name": "ARGOCD_VERIFY_SSL"
+      }
+    ],
+    "dependencies": []
+  }
+}
