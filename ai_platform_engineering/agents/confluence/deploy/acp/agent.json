@@ -131,11 +131,31 @@
         "url": "./../../",
         "framework_config": {
           "framework_type": "langgraph",
-          "graph": "agent_argocd.langgraph:AGENT_GRAPH"
+          "graph": "agent_argocd.graph:graph"
         }
       }
     ],
     "env_vars": [
+      {
+        "desc": "LLM provider",
+        "name": "LLM_PROVIDER"
+      },
+      {
+        "desc": "Agent Name",
+        "name": "AGENT_NAME"
+      },
+      {
+        "desc": "Agent ID",
+        "name": "AGENT_ID"
+      },
+      {
+        "desc": "Agent API Key",
+        "name": "API_KEY"
+      },
+      {
+        "desc": "ACP Workflow Server Manager Port",
+        "name": "WFSM_PORT"
+      },
       {
         "desc": "Azure OpenAI endpoint for LLM",
         "name": "AZURE_OPENAI_ENDPOINT"
@@ -145,12 +165,16 @@
         "name": "AZURE_OPENAI_API_KEY"
       },
       {
-        "desc": "Azure OpenAI deployment name",
-        "name": "AZURE_OPENAI_DEPLOYMENT_NAME"
+        "desc": "Azure OpenAI deployment",
+        "name": "AZURE_OPENAI_DEPLOYMENT"
       },
       {
         "desc": "Azure OpenAI API version",
         "name": "AZURE_OPENAI_API_VERSION"
+      },
+      {
+        "desc": "Google API key",
+        "name": "GOOGLE_API_KEY"
       },
       {
         "desc": "ArgoCD Token",

@@ -4,8 +4,8 @@ import sys
 import click
 import httpx
 
-from agent_argocd.a2a_server.agent import ArgoCDAgent # type: ignore[import-untyped]
-from agent_argocd.a2a_server.agent_executor import ArgoCDAgentExecutor # type: ignore[import-untyped]
+from agent import ArgoCDAgent # type: ignore[import-untyped]
+from agent_executor import ArgoCDAgentExecutor # type: ignore[import-untyped]
 from dotenv import load_dotenv
 
 from a2a.server.apps import A2AStarletteApplication
