@@ -10,54 +10,131 @@ from typing import Any, Dict
 
 from langchain_core.runnables import RunnableConfig
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_openai import AzureChatOpenAI
 from langgraph.prebuilt import create_react_agent
-from pydantic import SecretStr
+from typing import Literal
+from langgraph.checkpoint.memory import MemorySaver
+from pydantic import BaseModel
 
-from .state import AgentState, Message, MsgType, OutputState
+
+from agent_argocd.state import AgentState, Message, MsgType, OutputState
+from agent_argocd.llm_factory import LLMFactory
 
 logger = logging.getLogger(__name__)
 
-# Initialize the Azure OpenAI model
-api_key = os.getenv("AZURE_OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("AZURE_OPENAI_API_KEY must be set as an environment variable.")
-
-azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-if not azure_endpoint:
-    raise ValueError("AZURE_OPENAI_ENDPOINT must be set as an environment variable.")
-
-argocd_token = os.getenv("ARGOCD_TOKEN")
-if not azure_endpoint:
-    raise ValueError("ARGOCD_TOKEN must be set as an environment variable.")
-
-argocd_api_url = os.getenv("ARGOCD_API_URL")
-if not azure_endpoint:
-    raise ValueError("ARGOCD_API_URL must be set as an environment variable.")
-
-
-model = AzureChatOpenAI(
-    api_key=SecretStr(api_key),
-    azure_endpoint=azure_endpoint,
-    model="gpt-4o",
-    openai_api_type="azure_openai",
-    api_version="2024-07-01-preview",
-    temperature=0,
-    max_retries=10,
-    seed=42
-)
-
-
 # Find installed path of the argocd_mcp sub-module
-spec = importlib.util.find_spec("agent_argocd.argocd_mcp.server")
+spec = importlib.util.find_spec("agent_argocd.argocd_mcp.mcp_argocd.server")
 if not spec or not spec.origin:
-    raise ImportError("Cannot find agent_argocd.argocd_mcp.server module")
+    raise ImportError("Cannot find agent_argocd.argocd_mcp.mcp_argocd.server module")
 
 server_path = str(Path(spec.origin).resolve())
+
+async def create_agent(prompt=None, response_format=None):
+  memory = MemorySaver()
+
+  # Find installed path of the argocd_mcp sub-module
+  spec = importlib.util.find_spec("agent_argocd.argocd_mcp.server")
+  if not spec or not spec.origin:
+      raise ImportError("Cannot find agent_argocd.argocd_mcp.server module")
+
+  server_path = str(Path(spec.origin).resolve())
+
+
+  logger.info(f"Launching ArgoCD LangGraph Agent with MCP server adapter at: {server_path}")
+
+  argocd_token = os.getenv("ARGOCD_TOKEN")
+  if not argocd_token:
+    raise ValueError("ARGOCD_TOKEN must be set as an environment variable.")
+
+  argocd_api_url = os.getenv("ARGOCD_API_URL")
+  if not argocd_api_url:
+    raise ValueError("ARGOCD_API_URL must be set as an environment variable.")
+
+  agent = None
+  async with MultiServerMCPClient(
+    {
+      "argocd": {
+        "command": "uv",
+        "args": ["run", server_path],
+        "env": {
+          "ARGOCD_TOKEN": argocd_token,
+          "ARGOCD_API_URL": argocd_api_url,
+          "ARGOCD_VERIFY_SSL": "false"
+        },
+        "transport": "stdio",
+      }
+    }
+  ) as client:
+    if prompt is None and response_format is None:
+      agent = create_react_agent(
+      LLMFactory().get_llm(),
+      tools=client.get_tools(),
+      checkpointer=memory
+      )
+    else:
+      agent = create_react_agent(
+      LLMFactory().get_llm(),
+      tools=client.get_tools(),
+      checkpointer=memory,
+      prompt=prompt,
+      response_format=response_format
+      )
+  return agent
+
+class ResponseFormat(BaseModel):
+    """Respond to the user in this format."""
+
+    status: Literal['input_required', 'completed', 'error'] = 'input_required'
+    message: str
+
+def create_agent_sync(prompt, response_format):
+  # return asyncio.run(create_agent(prompt, response_format))
+  memory = MemorySaver()
+  argocd_token = os.getenv("ARGOCD_TOKEN")
+  if not argocd_token:
+      raise ValueError("ARGOCD_TOKEN must be set as an environment variable.")
+
+  argocd_api_url = os.getenv("ARGOCD_API_URL")
+  if not argocd_api_url:
+      raise ValueError("ARGOCD_API_URL must be set as an environment variable.")
+
+  client = MultiServerMCPClient(
+      {
+          "argocd": {
+              "command": "uv",
+              "args": ["run", server_path],
+              "env": {
+                  "ARGOCD_TOKEN": argocd_token,
+                  "ARGOCD_API_URL": argocd_api_url,
+                  "ARGOCD_VERIFY_SSL": "false"
+              },
+              "transport": "stdio",
+          }
+      }
+  )
+  tools = client.get_tools()
+
+  model = LLMFactory().get_llm()
+  # model = ChatGoogleGenerativeAI(model='gemini-2.0-flash')
+  return create_react_agent(
+    model,
+    tools=tools,
+    checkpointer=memory,
+    prompt=prompt,
+    response_format=(response_format, ResponseFormat),
+  )
 
 
 # Setup the ArgoCD MCP Client and create React Agent
 async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
+    argocd_token = os.getenv("ARGOCD_TOKEN")
+    if not argocd_token:
+      raise ValueError("ARGOCD_TOKEN must be set as an environment variable.")
+
+    argocd_api_url = os.getenv("ARGOCD_API_URL")
+    model = LLMFactory().get_llm()
+
+    if not argocd_api_url:
+      raise ValueError("ARGOCD_API_URL must be set as an environment variable.")
     args = config.get("configurable", {})
     logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")
 
@@ -79,7 +156,7 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
 
     logger.info(f"Launching MCP server at: {server_path}")
 
-    async with MultiServerMCPClient(
+    client = MultiServerMCPClient(
         {
             "argocd": {
                 "command": "uv",
@@ -92,11 +169,23 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
                 "transport": "stdio",
             }
         }
-    ) as client:
-        agent = create_react_agent(model, client.get_tools())
-        llm_result = await agent.ainvoke({"messages": human_message})
-        logger.info("LLM response received")
-        logger.debug(f"LLM result: {llm_result}")
+    )
+    tools = await client.get_tools()
+    memory = MemorySaver()
+    agent = create_react_agent(
+        model,
+        tools,
+        checkpointer=memory,
+        prompt=(
+            "You are a helpful assistant that can interact with ArgoCD. "
+            "You can use the ArgoCD API to get information about applications, clusters, and projects. "
+            "You can also perform actions like syncing applications or rolling back to previous versions."
+        )
+    )
+    human_message = "show argocd version"
+    llm_result = await agent.ainvoke({"messages": human_message})
+    logger.info("LLM response received")
+    logger.debug(f"LLM result: {llm_result}")
 
     # Try to extract meaningful content from the LLM result
     ai_content = None
@@ -127,7 +216,7 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
 
     logger.debug(f"Final output messages: {output_messages}")
 
-    return {"argocd_output": OutputState(messages=messages + output_messages)}
+    return {"argocd_output": OutputState(messages=(messages or []) + output_messages)}
 
 # Sync wrapper for workflow server
 def agent_argocd(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:

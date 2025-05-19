@@ -1,0 +1,26 @@
+[project]
+name = "mcp_argocd"
+version = "0.1.0"
+description = "Generated MCP server for argocd from OpenAPI specification"
+authors = [
+  { name = "Your Name", email = "your.email@example.com" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.poetry.scripts]
+mcp_argocd = "mcp_argocd.server:main"
+
+[tool.setuptools]
+packages = ["mcp_argocd"]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+httpx = ">=0.24.0"
+python-dotenv = ">=1.0.0"
+pydantic = ">=2.0.0"
+mcp = ">=1.9.0"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
