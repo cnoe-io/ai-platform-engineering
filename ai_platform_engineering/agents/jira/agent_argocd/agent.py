@@ -22,9 +22,9 @@ from agent_argocd.llm_factory import LLMFactory
 logger = logging.getLogger(__name__)
 
 # Find installed path of the argocd_mcp sub-module
-spec = importlib.util.find_spec("agent_argocd.argocd_mcp.mcp_argocd.server")
+spec = importlib.util.find_spec("agent_argocd.protocol_bindings.mcp_server.mcp_argocd.server")
 if not spec or not spec.origin:
-    raise ImportError("Cannot find agent_argocd.argocd_mcp.mcp_argocd.server module")
+    raise ImportError("Cannot find agent_argocd.protocol_bindings.mcp_server.mcp_argocd.server module")
 
 server_path = str(Path(spec.origin).resolve())
 
@@ -32,9 +32,9 @@ async def create_agent(prompt=None, response_format=None):
   memory = MemorySaver()
 
   # Find installed path of the argocd_mcp sub-module
-  spec = importlib.util.find_spec("agent_argocd.argocd_mcp.server")
+  spec = importlib.util.find_spec("agent_argocd.protocol_bindings.mcp_server.server")
   if not spec or not spec.origin:
-      raise ImportError("Cannot find agent_argocd.argocd_mcp.server module")
+      raise ImportError("Cannot find agent_argocd.protocol_bindings.mcp_server.server module")
 
   server_path = str(Path(spec.origin).resolve())
 
