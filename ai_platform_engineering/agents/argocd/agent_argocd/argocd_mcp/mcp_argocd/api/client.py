@@ -1,3 +1,6 @@
+# Copyright 2025 CNOE
+# SPDX-License-Identifier: Apache-2.0
+
 """API client for making requests to the service"""
 
 import logging
