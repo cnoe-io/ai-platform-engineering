@@ -4,10 +4,10 @@ version = "0.1.0"
 license = "Apache-2.0"
 description = "A PagerDuty natural language agent using LangChain, LangGraph, and MCP."
 authors = [
-    { name = "Rehan", email = "rehan@cisco.com" },
+    { name = "Rehan", email = "rehagraw@cisco.com" },
 ]
 maintainers = [
-    { name = "Rehan", email = "rehan@cisco.com" },
+    { name = "Rehan", email = "rehagraw@cisco.com" },
 ]
 requires-python = ">=3.12"
 dependencies = [
