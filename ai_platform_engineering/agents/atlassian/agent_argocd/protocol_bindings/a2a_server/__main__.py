@@ -6,10 +6,11 @@ import sys
 
 import click
 import httpx
-from dotenv import load_dotenv
+import uvicorn
 
-from agent_argocd.protocol_bindings.a2a_server.agent import ArgoCDAgent # type: ignore[import-untyped]
-from agent_argocd.protocol_bindings.a2a_server.agent_executor import ArgoCDAgentExecutor # type: ignore[import-untyped]
+from agent import ArgoCDAgent # type: ignore[import-untyped]
+from agent_executor import ArgoCDAgentExecutor # type: ignore[import-untyped]
+from dotenv import load_dotenv
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -43,7 +44,6 @@ def main(host: str, port: int):
     server = A2AStarletteApplication(
         agent_card=get_agent_card(host, port), http_handler=request_handler
     )
-    import uvicorn
 
     uvicorn.run(server.build(), host=host, port=port)
 

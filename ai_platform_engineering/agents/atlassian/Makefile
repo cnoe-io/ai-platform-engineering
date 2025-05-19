@@ -106,7 +106,7 @@ run-acp: setup-venv build install
 		echo "Error: .env file not found. Please create a .env file before running this target."; \
 		exit 1; \
 	fi
-	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -m ./deploy/acp/agent.json --dryRun=false
+	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -m ./agent_argocd/protocol_bindings/acp_server/agent.json --dryRun=false
 
 install-a2a: setup-venv
 	@git clone https://github.com/google/a2a-python -b main --depth 1 || { echo "a2a-python repo already cloned or failed to clone."; }
