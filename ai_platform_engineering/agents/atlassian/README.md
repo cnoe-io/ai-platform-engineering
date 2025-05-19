@@ -283,8 +283,8 @@ async with MultiServerMCPClient(
 ## Evals
 
 ### Running Evals
+This evaluation uses [agentevals](https://github.com/langchain-ai/agentevals) to perform strict trajectory match evaluation of the agent's behavior. To run the evaluation suite:
 
-To run the evaluation suite and verify agent behavior, use:
 
 ```bash
 make evals
@@ -326,15 +326,7 @@ Results:
 
 #### Evaluation Results
 
-| Test ID        | Prompt                                                    | Score | Extracted Trajectory            | Reference Trajectories          | Notes                                                                        |
-|----------------|-----------------------------------------------------------|-------|---------------------------------|---------------------------------|------------------------------------------------------------------------------|
-| argocd_agent_1 | show argocd version                                       | True  | [['__start__', 'agent_argocd']] | [['__start__', 'agent_argocd']] | Shows the version of the ArgoCD Server Version.                              |
-| argocd_agent_2 | show argocd app health status in project jarvis-agent-dev | True  | [['__start__', 'agent_argocd']] | [['__start__', 'agent_argocd']] | Shows the health status of all applications in the jarvis-agent-dev project. |
-| argocd_agent_3 | show argocd unhealthy apps in project jarvis-agent-dev    | True  | [['__start__', 'agent_argocd']] | [['__start__', 'agent_argocd']] | Lists all unhealthy applications in the jarvis-agent-dev project.            |
-
-**Accuracy:** 100%
-
-The agent passes all strict trajectory matching tests, confirming correct tool invocation and output for the tested prompts.
+[Latest Strict Match Eval Results](evals/strict_match/README.md)
 
 ---
 ## 📜 License
