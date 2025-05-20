@@ -1,233 +1,333 @@
-# Slack Agent
+# 🚀 ArgoCD AI Agent
 
-This project implements an AI Agent that interacts with Slack using the [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) framework and [AGNTCY ACP Protocol](https://github.com/agntcy/acp-sdk), exposing it via an ACP-compatible workflow server.
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue?logo=python)](https://www.python.org/)
+[![Poetry](https://img.shields.io/badge/poetry-1.0%2B-blueviolet?logo=python)](https://python-poetry.org/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
----
-
-## Architecture
-
-```
-+---------------------+     +---------------------+     +------------------------+
-|  User Client (ACP)  | --> |     AGNTCY ACP      | --> | LangGraph ReAct Agent  |
-+---------------------+     +---------------------+     +------------------------+
-                                                                  |
-                                                                  v
-+---------------+     +-----------------------+     +----------------------------+
-|     Slack     | <-- |   Slack MCP Tools     | <-- |   LangGraph MCP Adapter    |
-+---------------+     +-----------------------+     +----------------------------+
-```
-
-## 🧠 Features
-
-- Built using **LangGraph + LangChain MCP Adapter**
-- Uses **Azure OpenAI GPT-4o** as the LLM backend
-- Communicates with Slack through a dedicated Slack SDK integration
-- Deployed with [Workflow Server Manager (WFSM)](https://github.com/agntcy/workflow-srv-mgr)
-- Compatible with **ACP protocol** for multi-agent orchestration
+[![Conventional Commits](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/conventional_commits.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/conventional_commits.yml)
+[![Ruff Linter](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/ruff.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/ruff.yml)
+[![Super Linter](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml)
 
 ---
 
-## 🛠️ Setup
+## 🧪 Evaluation Badges
 
-### Start ACP Agent AGNTCY Workflow manager server
-
-#### Step 1. Create/Update `deploy/acp/agent-env.yaml`
-
-```
-values:
-  AZURE_OPENAI_API_KEY: <COPY YOUR AZURE OPENAI API KEY>
-  AZURE_OPENAI_API_VERSION: <COPY YOUR AZURE OPENAI API VERSION>
-  AZURE_OPENAI_DEPLOYMENT: <COPY YOUR AZURE OPENAI DEPLOYMENT>
-  AZURE_OPENAI_ENDPOINT: <COPY YOUR AZURE OPENAI ENDPOINT>
-  SLACK_BOT_TOKEN: <COPY YOUR SLACK BOT TOKEN>
-  SLACK_APP_TOKEN: <COPY YOUR SLACK APP TOKEN>
-  SLACK_SIGNING_SECRET: <COPY YOUR SLACK SIGNING SECRET>
-  SLACK_CLIENT_SECRET: <COPY YOUR SLACK CLIENT SECRET>
-  SLACK_TEAM_ID: <COPY YOUR SLACK TEAM ID>
-```
-
-#### Step 2. Start ACP Workflow Server Manager
-
-```bash
-make run-acp
-```
-
-### 🔁 Test with Slack Client
-
-#### Step 1: Add Environment Variables to `.env`
-
-Create or update a `.env` file in the project root with the following content:
-
-```bash
-AGENT_ID="<COPY AGENT_ID>"
-API_KEY="<COPY API_KEY from the above step xyz456...>"
-WFSM_PORT="<COPY ACP SERVER PORT>"
-```
-
-#### Step 2: Run the Client
-
-Start the client using the following command:
-
-```bash
-make run-client
-```
-
-**Sample Output:**
-
-```
-> Your Question: how can you help
-Using Slack token starting with: xoxb-*****...
-Sending request to ACP client...
-
-Agent: I can assist you with a variety of tasks related to managing and interacting with a Slack workspace. Here are some of the things I can do:
-
-1. **Channel Management**: 
-   - List, join, leave, and get detailed information about channels.
-   
-2. **Messaging**:
-   - Post, update, delete, and list messages in channels.
-   - Reply to threads and add or remove reactions to messages.
-
-3. **File Management**:
-   - List, upload, get information about, and delete files.
-
-4. **User Management**:
-   - List users and get detailed information about specific users.
-   - Set the status for the authenticated user.
-
-If you have a specific task in mind, feel free to ask, and I'll do my best to assist you!
-
-> Your Question: 
-```
-
-### 🔁 Test with Curl (using Workflow Server)
-
-You can send a test request to the running Workflow Server instance using the agent's dynamic values.
-
-#### Step 1: Get `AGENT_ID`, `API_KEY`, and `PORT`
-
-When you run the server using `wfsm deploy`, it prints out values like:
-
-```
-2025-05-01T10:17:45-05:00 INF ACP agent deployment name: org.cnoe.agent_slack
-2025-05-01T10:17:45-05:00 INF ACP agent running in container: org.cnoe.agent_slack, listening for ACP requests on: http://127.0.0.1:56504
-2025-05-01T10:17:45-05:00 INF Agent ID: ***********
-2025-05-01T10:17:45-05:00 INF API Key: ***********
-...
-```
-Set them as environment variables:
-
-```bash
-export AGENT_ID="<COPY AGENT_ID>"
-export API_KEY="<COPY API_KEY from the above step xyz456...>"
-export WFSM_PORT="<COPY ACP SERVER PORT>"
-```
-
-#### Step 2: Run the curl command
-
-```bash
-curl -s -H "Content-Type: application/json" \
-     -H "x-api-key: $API_KEY" \
-     -d '{
-           "agent_id": "'"$AGENT_ID"'",
-           "input": {
-             "slack_input": {
-               "messages": [
-                 {
-                   "type": "human",
-                   "content": "Send a message to the general channel saying hello"
-                 }
-               ]
-             }
-           },
-           "config": {
-             "configurable": {}
-           }
-         }' \
-     http://127.0.0.1:$WFSM_PORT/runs/wait
-```
-
-This will trigger the agent via Workflow Server and return the LLM-powered response using tools from the Slack MCP integration.
+| Claude | Gemini | OpenAI | Llama |
+|--------|--------|--------|-------|
+| [![Claude Evals](https://github.com/cnoe-io/agent-argocd/actions/workflows/claude-evals.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/claude-evals.yml) | [![Gemini Evals](https://github.com/cnoe-io/agent-argocd/actions/workflows/gemini-evals.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/gemini-evals.yml) | [![OpenAI Evals](https://github.com/cnoe-io/agent-argocd/actions/workflows/openai-evals.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/openai-evals.yml) | [![Llama Evals](https://github.com/cnoe-io/agent-argocd/actions/workflows/openai-evals.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/openai-evals.yml) |
 
 ---
 
-## 🧬 Agent Internals
-
-- Uses [`create_react_agent`](https://docs.langchain.com/langgraph/agents/react/) for tool-calling
-- Tools are integrated directly within the `agent_slack/slack_mcp/tools` directory
-- Graph built using a single-node LangGraph that handles inference and action routing
+- 🤖 **ArgoCD Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and [MCP tools](https://modelcontextprotocol.io/introduction).
+- 🌐 **Protocol Support:** Compatible with [ACP](https://github.com/agntcy/acp-spec) and [A2A](https://github.com/google/A2A) protocols for integration with external user clients.
+- 🛡️ **Secure by Design:** Enforces ArgoCD API token-based RBAC and supports external authentication for strong access control.
+- 🔌 **Integrated Communication:** Uses [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) to connect with the ArgoCD MCP server within the LangGraph ReAct Agent workflow.
+- 🏭 **First-Party MCP Server:** The MCP server is generated by our first-party [openapi-mcp-codegen](https://github.com/cnoe-io/openapi-mcp-codegen/tree/main) utility, ensuring version/API compatibility and software supply chain integrity.
 
 ---
 
-## 📦 Project Structure
+## 🏗️ Architecture
+
+```mermaid
+flowchart TD
+  subgraph Client Layer
+    A[User Client ACP/A2A]
+  end
+
+  subgraph Agent Transport Layer
+    B[AGNTCY ACP<br/>or<br/>Google A2A]
+  end
+
+  subgraph Agent Graph Layer
+    C[LangGraph ReAct Agent]
+  end
+
+  subgraph Tools/MCP Layer
+    D[LangGraph MCP Adapter]
+    E[ArgoCD MCP Server]
+    F[ArgoCD API Server]
+  end
+
+  A --> B --> C
+  C --> D
+  D -.-> C
+  D --> E --> F --> E
+```
+
+---
+
+## ✨ Features
+
+- 🤖 **LangGraph + LangChain MCP Adapter** for agent orchestration
+- 🧠 **Azure OpenAI GPT-4o** as the LLM backend
+- 🔗 Connects to ArgoCD via a dedicated [ArgoCD MCP agent](https://github.com/severity1/argocd-mcp)
+- 🔄 **Multi-protocol support:** Compatible with both **ACP** and **A2A** protocols for flexible integration and multi-agent orchestration
+
+---
+
+### 1️⃣ Create/Update `.env`
+
+```env
+LLM_PROVIDER=azure-openai
+AZURE_OPENAI_API_KEY=<COPY YOUR AZURE OPENAI API KEY>
+OPENAI_API_VERSION=<COPY YOUR AZURE OPENAI API VERSION>
+AZURE_OPENAI_API_VERSION=<COPY YOUR AZURE OPENAI API VERSION>
+AZURE_OPENAI_DEPLOYMENT=<COPY YOUR AZURE OPENAI DEPLOYMENT>
+AZURE_OPENAI_ENDPOINT=<COPY YOUR AZURE OPENAI ENDPOINT>
+ARGOCD_TOKEN=<COPY YOUR ARGOCD SERVICE ACCOUNT TOKEN>
+ARGOCD_API_URL=<COPY YOUR ARGOCD API ENDPOINT. Example https://argocd.example.com/api/v1>
+ARGOCD_VERIFY_SSL=<SET ARGOCD SSL VERIFICATION. true | false>
+```
+
+---
+
+### 2️⃣ Start Workflow Server (ACP or A2A)
+
+You can start the workflow server in either ACP or A2A mode:
+
+- **ACP Mode:**
+  ```bash
+  make run-acp
+  ```
+- **A2A Mode:**
+  ```bash
+  make run-a2a
+  ```
+
+---
+
+## 🧪 Usage
+
+### ▶️ Test with ArgoCD Server
+
+#### 🏃 Quick Start: Run ArgoCD Locally with Minikube
+
+If you don't have an existing ArgoCD server, you can quickly spin one up using [Minikube](https://minikube.sigs.k8s.io/docs/):
+
+1. **Start Minikube:**
+
+  ```bash
+  minikube start
+  ```
+
+1. **Install ArgoCD in the `argocd` namespace:**
+  ```bash
+  kubectl create namespace argocd
+  kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  ```
+
+1. **Expose the ArgoCD API server:**
+  ```bash
+  kubectl port-forward svc/argocd-server -n argocd 8080:443
+  ```
+  The API will be available at `https://localhost:8080`.
+
+1. **Get the ArgoCD admin password:**
+  ```bash
+  kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
+  ```
+
+1. **(Optional) Install ArgoCD CLI:**
+  ```bash
+  brew install argocd
+  # or see https://argo-cd.readthedocs.io/en/stable/cli_installation/
+  ```
+
+For more details, see the [official getting started guide](https://argo-cd.readthedocs.io/en/stable/getting_started/#1-install-argo-cd).
+
+### 1️⃣ Run the ACP Client
+
+To interact with the agent in **ACP mode**:
+
+```bash
+make run-acp-client
+```
+
+**Configure Environment Variables**
+
+Create or update a `.env` file in your project root with the following:
+
+```env
+AGENT_ID="<YOUR_AGENT_ID>"
+API_KEY="<YOUR_API_KEY>"
+WFSM_PORT="<YOUR_ACP_SERVER_PORT>"
+```
+
+**Example Interaction**
 
 ```
-agent_slack/
+> Your Question: how can you help?
+Agent: I can assist you with managing applications in ArgoCD, including tasks such as:
+```
+
+- **Listing Applications**: Retrieve a list of applications with filtering options.
+- **Getting Application Details**: Fetch detailed information about a specific application.
+- **Creating Applications**: Create new applications in ArgoCD.
+- **Updating Applications**: Update existing applications.
+- **Deleting Applications**: Remove applications from ArgoCD.
+- **Syncing Applications**: Synchronize applications to a specific Git revision.
+- **Getting User Info**: Retrieve information about the current user.
+- **Getting ArgoCD Settings**: Access server settings.
+- **Getting Plugins**: List available plugins.
+- **Getting Version Information**: Retrieve ArgoCD API server version.
+
+---
+
+### 2️⃣ Run the A2A Client
+
+To interact with the agent in **A2A mode**:
+
+```bash
+make run-a2a-client
+```
+
+**Sample Streaming Output**
+
+When running in A2A mode, you’ll see streaming responses like:
+
+```
+============================================================
+RUNNING STREAMING TEST
+============================================================
+
+--- Single Turn Streaming Request ---
+--- Streaming Chunk ---
+The current version of ArgoCD is **v2.13.3+a25c8a0**. Here are some additional details:
+
+- **Build Date:** 2025-01-03
+- **Git Commit:** a25c8a0eef7830be0c2c9074c92dbea8ff23a962
+- **Git Tree State:** clean
+- **Go Version:** go1.23.1
+- **Compiler:** gc
+- **Platform:** linux/amd64
+- **Kustomize Version:** v5.4.3
+- **Helm Version:** v3.15.4+gfa9efb0
+- **Kubectl Version:** v0.31.0
+- **Jsonnet Version:** v0.20.0
+```
+
+---
+
+## 🧬 Internals
+
+- 🛠️ Uses [`create_react_agent`](https://docs.langchain.com/langgraph/agents/react/) for tool-calling
+- 🔌 Tools loaded from the **ArgoCD MCP server** (submodule)
+- ⚡ MCP server launched via `uv run` with `stdio` transport
+- 🕸️ Single-node LangGraph for inference and action routing
+
+---
+
+## 📁 Project Structure
+
+```text
+agent_argocd/
 │
 ├── agent.py              # LLM + MCP client orchestration
 ├── langgraph.py          # LangGraph graph definition
 ├── __main__.py           # CLI entrypoint
 ├── state.py              # Pydantic state models
-└── slack_mcp/            # Slack tools implementation
-    ├── __init__.py
-    ├── server.py         # MCP server implementation
-    ├── tool_registry.py  # Tool registration
-    ├── api/              # API client implementation
-    ├── models/           # Data models
-    └── tools/            # Slack tools
-        ├── channels.py   # Channel management tools
-        ├── files.py      # File management tools
-        ├── messages.py   # Message sending/reading tools
-        └── users.py      # User management tools
+└── argocd_mcp/           # Git submodule: ArgoCD MCP server
 
 client/
-│
-├── client_agent.py       # Agent ACP Client
-└── client_curl.sh        # Curl-based client example
-
-deploy/
-│
-└── acp/                  # ACP deployment configuration
-    └── agent.json        # Agent configuration
+└── client_agent.py       # Agent ACP Client
 ```
+
 ---
 
-## 📚 Slack Tools
+## 🧩 MCP Submodule (ArgoCD Tools)
 
-This project includes a set of Slack tools implemented directly in the codebase. These tools use the official Slack SDK to communicate with the Slack API.
+This project uses a **first-party MCP module** generated from the ArgoCD OpenAPI specification using our [openapi-mcp-codegen](https://github.com/cnoe-io/openapi-mcp-codegen/tree/main/examples) utility. The generated MCP server is included as a git submodule in `argocd_mcp/`.
 
-Key features include:
-- **Channel management**: Create, archive, list channels
-- **Message actions**: Send, read, update, delete messages
-- **User operations**: Lookup profiles, check presence
-- **File handling**: Upload and share files
+All ArgoCD-related LangChain tools are defined by this MCP server implementation, ensuring up-to-date API compatibility and supply chain integrity.
 
 ---
 
 ## 🔌 MCP Integration
 
-The agent uses LangChain tools integrated directly in the codebase, exposed through the Model Context Protocol (MCP) adapters framework.
+The agent uses [`MultiServerMCPClient`](https://github.com/langchain-ai/langchain-mcp-adapters) to communicate with MCP-compliant services.
 
-Example of using the Slack tools:
+**Example (stdio transport):**
 
 ```python
-# Send a message to a Slack channel
-response = messages.send_message(
-    channel_id="C08RQPSH4KD",
-    text="Hello from the Slack agent!",
-    env={
-        "SLACK_BOT_TOKEN": os.getenv("SLACK_BOT_TOKEN")
+async with MultiServerMCPClient(
+  {
+    "argocd": {
+      "command": "uv",
+      "args": ["run", "/abs/path/to/argocd_mcp/server.py"],
+      "env": {
+        "ARGOCD_TOKEN": argocd_token,
+        "ARGOCD_API_URL": argocd_api_url,
+        "ARGOCD_VERIFY_SSL": "false"
+      },
+      "transport": "stdio",
     }
-)
-
-# Get channel information
-channel_info = channels.get_channel_info(
-    channel_id="C08RQPSH4KD",
-    env={
-        "SLACK_BOT_TOKEN": os.getenv("SLACK_BOT_TOKEN")
-    }
-)
+  }
+) as client:
+  agent = create_react_agent(model, client.get_tools())
 ```
+
+**Example (SSE transport):**
+
+```python
+async with MultiServerMCPClient(
+  {
+    "argocd": {
+      "transport": "sse",
+      "url": "http://localhost:8000"
+    }
+  }
+) as client:
+  ...
+```
+
+---
+## Evals
+
+### Running Evals
+This evaluation uses [agentevals](https://github.com/langchain-ai/agentevals) to perform strict trajectory match evaluation of the agent's behavior. To run the evaluation suite:
+
+
+```bash
+make evals
+```
+
+This will:
+
+- Set up and activate the Python virtual environment
+- Install evaluation dependencies (`agentevals`, `tabulate`, `pytest`)
+- Run strict trajectory matching tests against the agent
+
+#### Example Output
+
+```
+=======================================
+ Setting up the Virtual Environment
+=======================================
+Virtual environment already exists.
+=======================================
+ Activating virtual environment
+=======================================
+To activate venv manually, run: source .venv/bin/activate
+. .venv/bin/activate
+Running Agent Strict Trajectory Matching evals...
+Installing agentevals with Poetry...
+. .venv/bin/activate && uv add agentevals tabulate pytest
+...
+set -a && . .env && set +a && uv run evals/strict_match/test_strict_match.py
+...
+Test ID: argocd_agent_1
+Prompt: show argocd version
+Reference Trajectories: [['__start__', 'agent_argocd']]
+Note: Shows the version of the ArgoCD Server Version.
+...
+Results:
+{'score': True}
+...
+```
+
+#### Evaluation Results
+
+[Latest Strict Match Eval Results](evals/strict_match/README.md)
 
 ---
 
@@ -242,3 +342,16 @@ Apache 2.0 (see [LICENSE](./LICENSE))
 See [MAINTAINERS.md](MAINTAINERS.md)
 
 - Contributions welcome via PR or issue!
+
+---
+
+## 🙏 Acknowledgements
+
+- [LangGraph](https://github.com/langchain-ai/langgraph) and [LangChain](https://github.com/langchain-ai/langchain) for agent orchestration frameworks.
+- [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) for MCP integration.
+- [AGNTCY Agent Connect Protocol(ACP)](https://docs.agntcy.org/pages/syntactic_sdk/connect.html)
+- [AGNTCY Agent Gateway Protocol(AGP)](https://docs.agntcy.org/pages/messaging_sdk/agp-howto.html)
+- [AGNTCY Workflow Server Manager (WFSM)](https://github.com/agntcy/workflow-srv-mgr) for deployment and orchestration.
+- [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for the protocol specification.
+- [Google A2A](https://github.com/google/A2A/tree/main)
+- The open source community for ongoing support and contributions.

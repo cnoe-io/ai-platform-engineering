@@ -178,3 +178,10 @@ deploy/acp/agent-env.yaml
 agent-env.yaml
 .env
 .env*
+
+# Others
+a2a-python
+
+# Local configuration files
+.DS_Store
+my_temp/
