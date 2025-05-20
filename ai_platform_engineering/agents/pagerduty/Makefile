@@ -1,7 +1,7 @@
 # Copyright 2025 Cisco
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: build setup-venv activate-venv install run run-acp run-client langgraph-dev help
+.PHONY: build setup-venv activate-venv install run run-acp run-client langgraph-dev help clean clean-pyc clean-venv clean-build-artifacts install-uv install-a2a run-a2a run-acp-client run-a2a-client
 
 add-copyright-license-headers:
 	@echo "Adding copyright license headers..."
@@ -21,20 +21,62 @@ setup-venv:
 	@echo "======================================="
 	@echo " Activating virtual environment       "
 	@echo "======================================="
-	@if [ -f ".venv/bin/activate" ]; then \
-		. .venv/bin/activate; \
-		echo "Virtual environment activated."; \
+	@echo "To activate venv manually, run: source .venv/bin/activate"
+	. .venv/bin/activate
+
+clean-pyc:
+	@echo "Cleaning up __pycache__ directories..."
+	@find . -type d -name "__pycache__" -exec rm -rf {} +
+
+clean-venv:
+	@echo "Cleaning up the virtual environment..."
+	@if [ -d ".venv" ]; then \
+		rm -rf .venv; \
+		echo "Virtual environment removed."; \
 	else \
-		echo "Activation script not found. Please check the virtual environment setup."; \
-		exit 1; \
+		echo "No virtual environment found."; \
 	fi
 
-	@echo "======================================="
-	@echo " Installing dependencies with Poetry  "
-	@echo "======================================="
-	. .venv/bin/activate && poetry install
+clean-build-artifacts:
+	@echo "Cleaning up build artifacts..."
+	@if [ -d "build" ]; then \
+		rm -rf build; \
+		echo "Build artifacts removed."; \
+	else \
+		echo "No build artifacts found."; \
+	fi
 
+	@echo "Cleaning up the build artifacts..."
+	@if [ -d "dist" ]; then \
+		rm -rf dist; \
+		echo "Build artifacts removed."; \
+	else \
+		echo "No build artifacts found."; \
+	fi
+	@echo "Cleaning up the A2A SDK..."
+	@if [ -d "a2a-python" ]; then \
+		rm -rf a2a-python; \
+		echo "A2A SDK removed."; \
+	else \
+		echo "No A2A SDK found."; \
+	fi
+	@echo "Cleaning up the agent_pagerduty.egg-info..."
+	@if [ -d "agent_pagerduty.egg-info" ]; then \
+		rm -rf agent_pagerduty.egg-info; \
+		echo "agent_pagerduty.egg-info removed."; \
+	else \
+		echo "No agent_pagerduty.egg-info found."; \
+	fi
 
+clean: clean-pyc clean-venv clean-build-artifacts
+	@echo "Cleaning up all temporary files..."
+	@find . -type d -name "__pycache__" -exec rm -rf {} +
+	@find . -type d -name "*.egg-info" -exec rm -rf {} +
+	@find . -type d -name ".pytest_cache" -exec rm -rf {} +
+
+install-uv:
+	@echo "Installing uv using pip..."
+	. .venv/bin/activate && pip install uv
 
 activate-venv:
 	@echo "Activating virtual environment..."
@@ -45,11 +87,6 @@ activate-venv:
 	fi
 
 build:
-	@echo "======================================="
-	@echo " Updating git submodules...           "
-	@echo "======================================="
-	git submodule update --init --recursive
-
 	@echo "======================================="
 	@echo " Building the package using poetry... "
 	@echo "======================================="
@@ -67,17 +104,53 @@ run: build install
 	. .venv/bin/activate && . .env && python3 -m agent_pagerduty
 
 run-acp: setup-venv build install
-	. .venv/bin/activate && wfsm deploy -m ./deploy/acp/agent.json -e ./deploy/acp/agent-env.yaml
+	@if [ ! -f ".env" ]; then \
+		echo "Error: .env file not found. Please create a .env file before running this target."; \
+		exit 1; \
+	fi
+	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -m ./agent_pagerduty/protocol_bindings/acp_server/agent.json --dryRun=false
+
+install-a2a: setup-venv
+	@git clone https://github.com/google/a2a-python -b main --depth 1 || { echo "a2a-python repo already cloned or failed to clone."; }
+	. .venv/bin/activate && cd a2a-python && pip install -e . && \
+		echo "A2A SDK installed successfully."
+	. .venv/bin/activate && python3 -c "import a2a; print('A2A SDK imported successfully')"
+
+run-a2a: setup-venv install-uv build install-a2a
+	@if [ ! -f ".env" ]; then \
+		echo "Error: .env file not found. Please create a .env file before running this target."; \
+		exit 1; \
+	fi
+	@echo "Running the A2A agent..."
+	. .venv/bin/activate && set -a && . .env && set +a && uv run agent_pagerduty
 
 run-client: build install
 	@echo "Running the client..."
 	. .venv/bin/activate && set -a && . .env && set +a && \
 	python3 client/client_agent.py
 
+run-acp-client: build install
+	@echo "Running the ACP client..."
+	@if [ ! -f ".env" ]; then \
+		echo "Error: .env file not found. Please create a .env file before running this target."; \
+		exit 1; \
+	fi
+	. .venv/bin/activate && set -a && . .env && set +a && \
+	uv run client/acp_client.py
+
+run-a2a-client: build install install-a2a
+	@echo "Running the A2A client..."
+	@if [ ! -f ".env" ]; then \
+		echo "Error: .env file not found. Please create a .env file before running this target."; \
+		exit 1; \
+	fi
+	. .venv/bin/activate && set -a && . .env && set +a && \
+	uv run client/a2a_client.py
+
 run-curl-client: build install
 	@echo "Running the curl client..."
 	. .venv/bin/activate && set -a && . .env && set +a && \
-	./client/client_curl.sh
+	./client/acp_client_curl.sh
 
 langgraph-dev: build install
 	@echo "Running the LangGraph agent..."
@@ -85,12 +158,18 @@ langgraph-dev: build install
 
 help:
 	@echo "Available targets:"
-	@echo "  setup-venv       Create virtual environment in .venv and install dependencies"
-	@echo "  activate-venv    Activate the virtual environment"
-	@echo "  build            Build the project using poetry"
-	@echo "  install          Install the package"
-	@echo "  run              Build, install, and run the application"
-	@echo "  run-acp          Deploy using wfsm with ACP configuration"
-	@echo "  run-client       Run the client application"
-	@echo "  langgraph-dev    Run the LangGraph agent"
-	@echo "  help             Show this help message" 
+	@echo "  setup-venv          Create virtual environment in .venv and install dependencies"
+	@echo "  activate-venv       Activate the virtual environment"
+	@echo "  build               Build the project using poetry"
+	@echo "  install             Install the package"
+	@echo "  run                 Build, install, and run the application"
+	@echo "  run-acp             Deploy using wfsm with ACP configuration"
+	@echo "  install-a2a         Clone and install the A2A SDK"
+	@echo "  run-a2a             Run the agent with A2A protocol"
+	@echo "  run-acp-client      Run the ACP client application"
+	@echo "  run-a2a-client      Run the A2A client application"
+	@echo "  run-curl-client     Run the curl client script"
+	@echo "  run-client          Run the default client application"
+	@echo "  langgraph-dev       Run the LangGraph agent"
+	@echo "  clean               Clean up temporary files and build artifacts"
+	@echo "  help                Show this help message" 
