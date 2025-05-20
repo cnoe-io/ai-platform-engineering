@@ -15,7 +15,6 @@ from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
 from a2a.types import (
-    AgentAuthentication,
     AgentCapabilities,
     AgentCard,
     AgentSkill,
@@ -71,8 +70,7 @@ def get_agent_card(host: str, port: int):
     defaultInputModes=ArgoCDAgent.SUPPORTED_CONTENT_TYPES,
     defaultOutputModes=ArgoCDAgent.SUPPORTED_CONTENT_TYPES,
     capabilities=capabilities,
-    skills=[skill],
-    authentication=AgentAuthentication(schemes=['public']),
+    skills=[skill]
   )
 
 

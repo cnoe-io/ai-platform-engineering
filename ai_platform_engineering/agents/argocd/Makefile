@@ -52,12 +52,6 @@ clean-build-artifacts:
 		echo "No build artifacts found."; \
 	fi
 	@echo "Cleaning up the A2A SDK..."
-	@if [ -d "a2a-python" ]; then \
-		rm -rf a2a-python; \
-		echo "A2A SDK removed."; \
-	else \
-		echo "No A2A SDK found."; \
-	fi
 	@echo "Cleaning up the agent_argocd.egg-info..."
 	@if [ -d "agent_argocd.egg-info" ]; then \
 		rm -rf agent_argocd.egg-info; \
@@ -106,15 +100,14 @@ run-acp: setup-venv build install
 		echo "Error: .env file not found. Please create a .env file before running this target."; \
 		exit 1; \
 	fi
-	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -m ./agent_argocd/protocol_bindings/acp_server/agent.json --dryRun=false
+	# Temporarily using workflow server from a fork until Python 3.13 is supported in Agntcy workflow server
+	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -b ghcr.io/sriaradhyula/acp/wfsrv:latest -m ./agent_argocd/protocol_bindings/acp_server/agent_manifest.json --envFilePath=./.env --showConfig --dryRun=false
 
-install-a2a: setup-venv
-	@git clone https://github.com/google/a2a-python -b main --depth 1 || { echo "a2a-python repo already cloned or failed to clone."; }
-	. .venv/bin/activate && cd a2a-python && pip install -e . && \
-		echo "A2A SDK installed successfully."
-	python -c "import a2a; print('A2A SDK imported successfully')"
 
-run-a2a: setup-venv install-uv build install-a2a
+verify-a2a-sdk: setup-venv
+	. .venv/bin/activate && python -c "import a2a; print('A2A SDK imported successfully')"
+
+run-a2a: setup-venv install-uv build verify-a2a-sdk
 	@if [ ! -f ".env" ]; then \
 		echo "Error: .env file not found. Please create a .env file before running this target."; \
 		exit 1; \
@@ -131,7 +124,7 @@ run-acp-client: build install
 	. .venv/bin/activate && set -a && . .env && set +a && \
 	uv run client/acp_client.py
 
-run-a2a-client: build install install-a2a
+run-a2a-client: build install verify-a2a-sdk
 	@echo "Running the client..."
 	@if [ ! -f ".env" ]; then \
 		echo "Error: .env file not found. Please create a .env file before running this target."; \
@@ -172,7 +165,7 @@ help:
 	@echo "  install              Install the package"
 	@echo "  run                  Build, install, and run the application"
 	@echo "  run-acp              Deploy using wfsm with ACP configuration"
-	@echo "  install-a2a          Clone and install the A2A SDK"
+	@echo "  verify-a2a-sdk          Clone and install the A2A SDK"
 	@echo "  run-a2a              Run the agent with A2A protocol"
 	@echo "  run-acp-client       Run the ACP client application"
 	@echo "  run-a2a-client       Run the A2A client application"

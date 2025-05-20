@@ -69,18 +69,18 @@ async def run_single_turn_test(client: A2AClient) -> None:
         return
 
     task_id: str = send_response.root.result.id
-    # print('---Query Task---')
-    # # query the task
-    # get_request = GetTaskRequest(params=TaskQueryParams(id=task_id))
-    # get_response: GetTaskResponse = await client.get_task(get_request)
-    # print_json_response(get_response, 'Query Task Response')
+    print('---Query Task---')
+    # query the task
+    get_request = GetTaskRequest(params=TaskQueryParams(id=task_id))
+    get_response: GetTaskResponse = await client.get_task(get_request)
+    print_json_response(get_response, 'Query Task Response')
 
 
 async def run_streaming_test(client: A2AClient) -> None:
   """Runs a single-turn streaming test."""
 
   send_payload = create_send_message_payload(
-    text='ArgoCD version?',
+    text='what can you do?',
   )
 
   request = SendStreamingMessageRequest(
@@ -126,7 +126,11 @@ async def main() -> None:
             )
             print('Connection successful.')
 
+            # print('\n' + '=' * 60)
+            # print('RUNNING SINGLE TEST')
+            # print('=' * 60 + '\n')
             # await run_single_turn_test(client)
+
             print('\n' + '=' * 60)
             print('RUNNING STREAMING TEST')
             print('=' * 60 + '\n')
