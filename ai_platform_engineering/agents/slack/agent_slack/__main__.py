@@ -1,81 +1,82 @@
+# Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
-import asyncio
-import itertools
+
+import os
+import sys
 import logging
+
 import click
-from langchain_core.runnables import RunnableConfig
+import httpx
+from dotenv import load_dotenv
 
-# Change these imports to reference your slack MCP modules
-from .langgraph import SLACK_GRAPH
-from .state import AgentState, ConfigSchema, InputState, Message, MsgType
+from agent_slack.protocol_bindings.a2a_server.agent import SlackAgent  # type: ignore
+from agent_slack.protocol_bindings.a2a_server.agent_executor import SlackAgentExecutor  # type: ignore
 
-logger = logging.getLogger(__name__)
-
-class ParamMessage(click.ParamType):
-    name = "message"
-
-    def __init__(self, **kwargs):
-        self.msg_type = kwargs.pop("msg_type", MsgType.human)
-        super().__init__(**kwargs)
-
-    def convert(self, value, param, ctx):
-        try:
-            return Message(type=self.msg_type, content=value)
-        except ValueError:
-            self.fail(f"{value!r} is not valid message content", param, ctx)
-
-
-@click.command(short_help="Run Slack Agent")
-@click.option(
-    "--log-level",
-    type=click.Choice(["critical", "error", "warning", "info", "debug"], case_sensitive=False),
-    default="info",
-    help="Set logging level.",
+from a2a.server.apps import A2AStarletteApplication
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
+from a2a.types import (
+    AgentAuthentication,
+    AgentCapabilities,
+    AgentCard,
+    AgentSkill,
 )
-@click.option(
-    "--human",
-    type=ParamMessage(msg_type=MsgType.human),
-    multiple=True,
-    help="Add human message(s).",
-)
-@click.option(
-    "--assistant",
-    type=ParamMessage(msg_type=MsgType.assistant),
-    multiple=True,
-    help="Add assistant message(s).",
-)
-def run_slack_agent(log_level, human, assistant):
-    logging.basicConfig(level=log_level.upper())
-    config = ConfigSchema()
 
-    # Combine messages in natural order
-    if human and assistant:
-        messages = list(itertools.chain(*zip(human, assistant)))
-        messages += human[len(assistant):] if len(human) > len(assistant) else assistant[len(human):]
-    elif human:
-        messages = list(human)
-    elif assistant:
-        messages = list(assistant)
-    else:
-        messages = []
+load_dotenv()
 
-    # Changed to slack_input instead of argocd_input
-    state_input = InputState(messages=messages)
-    logger.debug(f"input messages: {state_input.model_dump_json()}")
+# Set logging level
+logging.basicConfig(level=logging.INFO)
 
-    # Prepare graph input - changed to slack_input
-    agent_input = AgentState(slack_input=state_input).model_dump(mode="json")
+@click.command()
+@click.option('--host', 'host', default='localhost')
+@click.option('--port', 'port', default=10000)
+def main(host: str, port: int):
+    print("🚀 Starting Slack A2A Agent...")
+    if not os.getenv('GOOGLE_API_KEY'):
+        print('❌ GOOGLE_API_KEY environment variable not set.')
+        sys.exit(1)
 
-    # Use SLACK_GRAPH instead of AGENT_GRAPH
-    result = SLACK_GRAPH.invoke(
-        SLACK_GRAPH.builder.schema.model_validate(agent_input),
-        config=RunnableConfig(configurable=config),
+    client = httpx.AsyncClient()
+    request_handler = DefaultRequestHandler(
+        agent_executor=SlackAgentExecutor(),
+        task_store=InMemoryTaskStore(),
+        push_notifier=InMemoryPushNotifier(client),
     )
 
-    logger.debug(f"output messages: {result}")
-    # Changed to slack_output
-    print(result["slack_output"].model_dump_json(indent=2))
+    server = A2AStarletteApplication(
+        agent_card=get_agent_card(host, port), http_handler=request_handler
+    )
 
+    print(f"✅ Running at http://{host}:{port}/")
+    print("📡 Agent ready to receive requests.\n")
 
-if __name__ == "__main__":
-    run_slack_agent()  # type: ignore
+    import uvicorn
+    uvicorn.run(server.build(), host=host, port=port)
+
+def get_agent_card(host: str, port: int):
+    capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
+    skill = AgentSkill(
+        id='slack',
+        name='Slack Workspace Operations',
+        description='Interact with Slack messages, channels, and users via agentic tools.',
+        tags=['slack', 'productivity', 'chatops'],
+        examples=[
+            'Send a message to the #general channel.',
+            'List users in a workspace.',
+            'Reply to a thread in #support.',
+        ],
+    )
+    return AgentCard(
+        name='Slack Agent',
+        description='Agent for managing Slack workspace operations.',
+        url=f'http://{host}:{port}/',
+        version='1.0.0',
+        defaultInputModes=SlackAgent.SUPPORTED_CONTENT_TYPES,
+        defaultOutputModes=SlackAgent.SUPPORTED_CONTENT_TYPES,
+        capabilities=capabilities,
+        skills=[skill],
+        authentication=AgentAuthentication(schemes=['public']),
+    )
+
+if __name__ == '__main__':
+    main()

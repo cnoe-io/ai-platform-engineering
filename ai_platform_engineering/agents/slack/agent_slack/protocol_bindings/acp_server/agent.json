@@ -1,0 +1,232 @@
+{
+  "metadata": {
+    "ref": {
+      "name": "io.cnoe.agent_slack",
+      "version": "0.0.1"
+    },
+    "description": "Slack MCP Agent powered by LangGraph and LangChain MCP Adapters."
+  },
+  "specs": {
+    "capabilities": {
+      "threads": true,
+      "interrupts": false,
+      "callbacks": true
+    },
+    "input": {
+      "$defs": {
+        "Message": {
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/Type",
+              "description": "indicates the originator of the message, a human or an assistant"
+            },
+            "content": {
+              "description": "the content of the message",
+              "title": "Content",
+              "type": "string"
+            },
+            "channel_id": {
+              "description": "the Slack channel ID where the message was sent",
+              "title": "ChannelId",
+              "type": "string"
+            },
+            "user_id": {
+              "description": "the Slack user ID who sent the message",
+              "title": "UserId",
+              "type": "string"
+            },
+            "thread_ts": {
+              "description": "the Slack thread timestamp for threading",
+              "title": "ThreadTs",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "content",
+            "channel_id",
+            "user_id"
+          ],
+          "title": "Message",
+          "type": "object"
+        },
+        "Type": {
+          "enum": [
+            "human",
+            "assistant",
+            "ai"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Message"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messages"
+        }
+      },
+      "title": "InputState",
+      "type": "object"
+    },
+    "output": {
+      "$defs": {
+        "Message": {
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/Type",
+              "description": "indicates the originator of the message, a human or an assistant"
+            },
+            "content": {
+              "description": "the content of the message",
+              "title": "Content",
+              "type": "string"
+            },
+            "channel_id": {
+              "description": "the Slack channel ID where the message was sent",
+              "title": "ChannelId",
+              "type": "string"
+            },
+            "user_id": {
+              "description": "the Slack user ID who sent the message",
+              "title": "UserId",
+              "type": "string"
+            },
+            "thread_ts": {
+              "description": "the Slack thread timestamp for threading",
+              "title": "ThreadTs",
+              "type": "string"
+            },
+            "blocks": {
+              "description": "Slack blocks for rich formatting",
+              "title": "Blocks",
+              "type": "array"
+            }
+          },
+          "required": [
+            "type",
+            "content",
+            "channel_id"
+          ],
+          "title": "Message",
+          "type": "object"
+        },
+        "Type": {
+          "enum": [
+            "human",
+            "assistant",
+            "ai"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Message"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messages"
+        }
+      },
+      "title": "OutputState",
+      "type": "object"
+    },
+    "config": {
+      "properties": {
+        "slack_app_token": {
+          "type": "string",
+          "description": "Slack app-level token (xapp-) for Socket Mode"
+        },
+        "slack_bot_token": {
+          "type": "string",
+          "description": "Slack bot token (xoxb-)"
+        },
+        "allowed_channels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of allowed Slack channel IDs"
+        }
+      },
+      "required": [
+        "slack_bot_token"
+      ],
+      "title": "SlackConfig",
+      "type": "object"
+    }
+  },
+  "deployment": {
+    "deployment_options": [
+      {
+        "type": "source_code",
+        "name": "source_code_local",
+        "url": ".",
+        "framework_config": {
+          "framework_type": "langgraph",
+          "graph": "agent_slack.graph:AGENT_GRAPH"
+        }
+      }
+    ],
+    "env_vars": [
+      {
+        "desc": "Azure OpenAI endpoint for LLM",
+        "name": "AZURE_OPENAI_ENDPOINT"
+      },
+      {
+        "desc": "Azure OpenAI API key",
+        "name": "AZURE_OPENAI_API_KEY"
+      },
+      {
+        "desc": "Azure OpenAI deployment name",
+        "name": "AZURE_OPENAI_DEPLOYMENT_NAME"
+      },
+      {
+        "desc": "Azure OpenAI API version",
+        "name": "AZURE_OPENAI_API_VERSION"
+      },
+      {
+        "desc": "Slack Bot Token (xoxb-)",
+        "name": "SLACK_BOT_TOKEN"
+      },
+      {
+        "desc": "Slack App Token (xapp-)",
+        "name": "SLACK_APP_TOKEN"
+      },
+      {
+        "desc": "Slack Signing Secret",
+        "name": "SLACK_SIGNING_SECRET"
+      },
+      {
+        "desc": "Slack Client Secret",
+        "name": "SLACK_CLIENT_SECRET"
+      },
+      {
+        "desc": "Slack Team ID",
+        "name": "SLACK_TEAM_ID"
+      }
+    ],
+    "dependencies": []
+  }
+}

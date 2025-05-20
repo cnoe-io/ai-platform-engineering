@@ -1,3 +1,0 @@
-[submodule "agent_argocd/argocd_mcp"]
-	path = agent_argocd/argocd_mcp
-	url = https://github.com/severity1/argocd-mcp
