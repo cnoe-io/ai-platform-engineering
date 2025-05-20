@@ -60,7 +60,7 @@ flowchart TD
 
 - 🤖 **LangGraph + LangChain MCP Adapter** for agent orchestration
 - 🧠 **Azure OpenAI GPT-4o** as the LLM backend
-- 🔗 Connects to ArgoCD via a dedicated [ArgoCD MCP agent](https://github.com/severity1/argocd-mcp)
+- 🔗 Connects to ArgoCD via a dedicated [ArgoCD MCP agent](https://github.com/cnoe-io/agent-argocd/tree/main/agent_argocd/protocol_bindings/mcp_server)
 - 🔄 **Multi-protocol support:** Compatible with both **ACP** and **A2A** protocols for flexible integration and multi-agent orchestration
 
 ---
