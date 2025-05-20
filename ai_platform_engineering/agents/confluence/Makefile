@@ -112,7 +112,7 @@ install-a2a: setup-venv
 	@git clone https://github.com/google/a2a-python -b main --depth 1 || { echo "a2a-python repo already cloned or failed to clone."; }
 	. .venv/bin/activate && cd a2a-python && pip install -e . && \
 		echo "A2A SDK installed successfully."
-	python3 -c "import a2a; print('A2A SDK imported successfully')"
+	. .venv/bin/activate && python3 -c "import a2a; print('A2A SDK imported successfully')"
 
 run-a2a: setup-venv install-uv build install-a2a
 	@if [ ! -f ".env" ]; then \

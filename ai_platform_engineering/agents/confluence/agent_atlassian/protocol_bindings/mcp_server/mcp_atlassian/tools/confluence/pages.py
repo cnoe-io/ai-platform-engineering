@@ -3,7 +3,6 @@
 import logging
 from typing import Any, Annotated
 from pydantic import BaseModel, Field
-from fastapi import Depends
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.api.client import make_api_request
 import json
 from mcp.server.fastmcp import Context
