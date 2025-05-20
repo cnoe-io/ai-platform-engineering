@@ -1,27 +1,27 @@
 tests:
-  argocd_agent_1:
+  atlassian_agent_1:
     input: |
-      show argocd version
+      show atlassian version
     reference_trajectory:
-      solution_1: __start__;agent_argocd
+      solution_1: __start__;agent_atlassian
     metadata:
       comments: |
-        Shows the version of the ArgoCD Server Version.
+        Shows the version of the Atlassian Server Version.
 
-  argocd_agent_2:
+  atlassian_agent_2:
     input: |
-      show argocd app health status in project jarvis-agent-dev
+      show atlassian app health status in project jarvis-agent-dev
     reference_trajectory:
-      solution_1: __start__;agent_argocd
+      solution_1: __start__;agent_atlassian
     metadata:
       comments: |
         Shows the health status of all applications in the jarvis-agent-dev project.
 
-  argocd_agent_3:
+  atlassian_agent_3:
     input: |
-      show argocd unhealthy apps in project jarvis-agent-dev
+      show atlassian unhealthy apps in project jarvis-agent-dev
     reference_trajectory:
-      solution_1: __start__;agent_argocd
+      solution_1: __start__;agent_atlassian
     metadata:
       comments: |
         Lists all unhealthy applications in the jarvis-agent-dev project.

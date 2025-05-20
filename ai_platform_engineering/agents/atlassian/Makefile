@@ -4,7 +4,7 @@
 
 add-copyright-license-headers:
 	@echo "Adding copyright license headers..."
-	docker run --rm -v $(shell pwd)/agent_argocd:/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
+	docker run --rm -v $(shell pwd)/agent_atlassian:/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
 
 setup-venv:
 	@echo "======================================="
@@ -58,12 +58,12 @@ clean-build-artifacts:
 	else \
 		echo "No A2A SDK found."; \
 	fi
-	@echo "Cleaning up the agent_argocd.egg-info..."
-	@if [ -d "agent_argocd.egg-info" ]; then \
-		rm -rf agent_argocd.egg-info; \
-		echo "agent_argocd.egg-info removed."; \
+	@echo "Cleaning up the agent_atlassian.egg-info..."
+	@if [ -d "agent_atlassian.egg-info" ]; then \
+		rm -rf agent_atlassian.egg-info; \
+		echo "agent_atlassian.egg-info removed."; \
 	else \
-		echo "No agent_argocd.egg-info found."; \
+		echo "No agent_atlassian.egg-info found."; \
 	fi
 
 clean: clean-pyc clean-venv clean-build-artifacts
@@ -106,13 +106,13 @@ run-acp: setup-venv build install
 		echo "Error: .env file not found. Please create a .env file before running this target."; \
 		exit 1; \
 	fi
-	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -m ./agent_argocd/protocol_bindings/acp_server/agent.json --dryRun=false
+	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -m ./agent_atlassian/protocol_bindings/acp_server/agent.json --dryRun=false
 
 install-a2a: setup-venv
 	@git clone https://github.com/google/a2a-python -b main --depth 1 || { echo "a2a-python repo already cloned or failed to clone."; }
 	. .venv/bin/activate && cd a2a-python && pip install -e . && \
 		echo "A2A SDK installed successfully."
-	python -c "import a2a; print('A2A SDK imported successfully')"
+	python3 -c "import a2a; print('A2A SDK imported successfully')"
 
 run-a2a: setup-venv install-uv build install-a2a
 	@if [ ! -f ".env" ]; then \
@@ -120,7 +120,7 @@ run-a2a: setup-venv install-uv build install-a2a
 		exit 1; \
 	fi
 	@echo "Running the A2A agent..."
-	. .venv/bin/activate && set -a && . .env && set +a && uv run agent_argocd
+	. .venv/bin/activate && set -a && . .env && set +a && uv run agent_atlassian
 
 run-acp-client: build install
 	@echo "Running the client..."
@@ -151,11 +151,11 @@ langgraph-dev: build install
 
 lint: setup-venv
 	@echo "Running ruff..."
-	. .venv/bin/activate && ruff check agent_argocd tests
+	. .venv/bin/activate && ruff check agent_atlassian tests
 
 ruff-fix: setup-venv
 	@echo "Running ruff and fix lint errors..."
-	. .venv/bin/activate && ruff check agent_argocd tests --fix
+	. .venv/bin/activate && ruff check agent_atlassian tests --fix
 
 evals: setup-venv
 	@echo "Running Agent Strict Trajectory Matching evals..."
