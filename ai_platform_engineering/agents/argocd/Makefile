@@ -66,6 +66,7 @@ clean: clean-pyc clean-venv clean-build-artifacts
 	@find . -type d -name "*.egg-info" -exec rm -rf {} +
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} +
 
+
 install-uv:
 	@echo "Installing uv using pip..."
 	. .venv/bin/activate && pip install uv
@@ -103,9 +104,8 @@ run-acp: setup-venv build install
 	# Temporarily using workflow server from a fork until Python 3.13 is supported in Agntcy workflow server
 	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -b ghcr.io/sriaradhyula/acp/wfsrv:latest -m ./agent_argocd/protocol_bindings/acp_server/agent_manifest.json --envFilePath=./.env --showConfig --dryRun=false
 
-
 verify-a2a-sdk: setup-venv
-	. .venv/bin/activate && python -c "import a2a; print('A2A SDK imported successfully')"
+	. .venv/bin/activate && python3 -c "import a2a; print('A2A SDK imported successfully')"
 
 run-a2a: setup-venv install-uv build verify-a2a-sdk
 	@if [ ! -f ".env" ]; then \
