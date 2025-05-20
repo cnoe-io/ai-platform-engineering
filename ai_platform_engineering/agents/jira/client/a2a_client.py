@@ -52,7 +52,7 @@ async def run_single_turn_test(client: A2AClient) -> None:
     """Runs a single-turn non-streaming test."""
 
     send_payload = create_send_message_payload(
-        text='What is argocd version?',
+        text='What is atlassian version?',
     )
     request = SendMessageRequest(params=MessageSendParams(**send_payload))
 
@@ -80,7 +80,7 @@ async def run_streaming_test(client: A2AClient) -> None:
   """Runs a single-turn streaming test."""
 
   send_payload = create_send_message_payload(
-    text='ArgoCD version?',
+    text='Atlassian version?',
   )
 
   request = SendStreamingMessageRequest(
@@ -94,12 +94,12 @@ async def run_streaming_test(client: A2AClient) -> None:
 
 
 async def run_multi_turn_test(client: A2AClient) -> None:
-  """Runs a multi-turn test about ArgoCD applications in the jarvis-agent-dev project and their health status, streaming output like run_streaming_test."""
-  print('--- Multi-Turn ArgoCD Application Health Status Request ---')
+  """Runs a multi-turn test about Atlassian applications in the jarvis-agent-dev project and their health status, streaming output like run_streaming_test."""
+  print('--- Multi-Turn Atlassian Application Health Status Request ---')
 
   # --- First Turn ---
   first_turn_payload = create_send_message_payload(
-    text='List all ArgoCD applications in the jarvis-agent-dev project.'
+    text='List all Atlassian applications in the jarvis-agent-dev project.'
   )
   request1 = SendStreamingMessageRequest(
     params=MessageSendParams(**first_turn_payload)

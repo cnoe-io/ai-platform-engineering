@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-from agent_argocd.models import ChatBotQuestion
+from agent_atlassian.models import ChatBotQuestion
 from httpx_sse import ServerSentEvent
 
 import os
@@ -48,7 +48,7 @@ async def run_stateless(question: ChatBotQuestion, process_event):
 
     # Compose input according to the input spec in jarvis-agent.json
     input_obj = {
-      "argocd_input": {
+      "atlassian_input": {
         "messages": [
           {
             "type": "human",
@@ -80,9 +80,9 @@ async def run_stateless(question: ChatBotQuestion, process_event):
     else:
       raise Exception(f"ACP Server returned a unsupported response: {run_output}")
     run_state = run_result.values  # type: ignore
-    if run_state.get("argocd_output") and "messages" in run_state["argocd_output"]:
+    if run_state.get("atlassian_output") and "messages" in run_state["atlassian_output"]:
       # Extract the assistant message type and content
-      for message in run_state["argocd_output"]["messages"]:
+      for message in run_state["atlassian_output"]["messages"]:
         if message["type"] == "assistant":
           assistant_content = message["content"]
           event = ServerSentEvent(
