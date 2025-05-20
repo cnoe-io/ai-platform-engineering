@@ -8,15 +8,37 @@ from pathlib import Path
 import importlib.util
 from typing import Any, Dict
 
-from langchain_openai import AzureChatOpenAI
+from langchain_core.runnables import RunnableConfig
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
-from pydantic import SecretStr
-from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import MemorySaver
 
 from .state import AgentState, Message, MsgType, OutputState
+from .llm_factory import LLMFactory
 
 logger = logging.getLogger(__name__)
+
+# Find installed path of the pagerduty_mcp server module
+try:
+    spec = importlib.util.find_spec("agent_pagerduty.protocol_bindings.mcp_server.pagerduty_mcp.server")
+    if not spec or not spec.origin:
+        raise ImportError("Cannot find agent_pagerduty.protocol_bindings.mcp_server.server module")
+    
+    server_path = str(Path(spec.origin).resolve())
+    logger.info(f"Found MCP server at: {server_path}")
+except ImportError as e:
+    logger.error(f"Error finding MCP server: {e}")
+    # Fall back to pagerduty_mcp.server directlyx
+    try:
+        spec = importlib.util.find_spec("agent_pagerduty.protocol_bindings.mcp_server.pagerduty_mcp.server")
+        if spec and spec.origin:
+            server_path = str(Path(spec.origin).resolve())
+            logger.info(f"Falling back to direct pagerduty_mcp server: {server_path}")
+        else:
+            raise ImportError("Cannot find any PagerDuty MCP server module")
+    except ImportError:
+        logger.error("Could not find any PagerDuty MCP server module. MCP functionality will be unavailable.")
+        server_path = None
 
 class Memory:
     """
@@ -52,46 +74,73 @@ class Memory:
         """
         self.memory = []
 
-# Initialize the Azure OpenAI model
-api_key = os.getenv("AZURE_OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("AZURE_OPENAI_API_KEY must be set as an environment variable.")
-
-azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-if not azure_endpoint:
-    raise ValueError("AZURE_OPENAI_ENDPOINT must be set as an environment variable.")
-
-pagerduty_token = os.getenv("PAGERDUTY_TOKEN")
-if not pagerduty_token:
-    raise ValueError("PAGERDUTY_TOKEN must be set as an environment variable.")
-
-pagerduty_api_url = os.getenv("PAGERDUTY_API_URL")
-if not pagerduty_api_url:
-    raise ValueError("PAGERDUTY_API_URL must be set as an environment variable.")
-
-model = AzureChatOpenAI(
-    api_key=SecretStr(api_key),
-    azure_endpoint=azure_endpoint,
-    model="gpt-4o",
-    openai_api_type="azure_openai",
-    api_version="2024-07-01-preview",
-    temperature=0,
-    max_retries=10,
-    seed=42
-)
-
-# Find installed path of the pagerduty_mcp sub-module
-spec = importlib.util.find_spec("agent_pagerduty.pagerduty_mcp.server")
-if not spec or not spec.origin:
-    raise ImportError("Cannot find agent_pagerduty.pagerduty_mcp.server module")
-
-server_path = str(Path(spec.origin).resolve())
-
 # Initialize memory
 memory = Memory()
 
+async def create_agent(prompt=None, response_format=None):
+    """
+    Create a PagerDuty agent with MCP tools
+    """
+    memory_saver = MemorySaver()
+
+    pagerduty_token = os.getenv("PAGERDUTY_TOKEN")
+    if not pagerduty_token:
+        raise ValueError("PAGERDUTY_TOKEN must be set as an environment variable.")
+
+    pagerduty_api_url = os.getenv("PAGERDUTY_API_URL")
+    if not pagerduty_api_url:
+        raise ValueError("PAGERDUTY_API_URL must be set as an environment variable.")
+
+    if server_path is None:
+        logger.error("MCP server path not found, cannot create agent")
+        raise ImportError("MCP server path not found")
+
+    logger.info(f"Launching MCP server at: {server_path}")
+
+    async with MultiServerMCPClient(
+        {
+            "pagerduty": {
+                "command": "uv",
+                "args": ["run", server_path],
+                "env": {
+                    "PAGERDUTY_TOKEN": pagerduty_token,
+                    "PAGERDUTY_API_URL": pagerduty_api_url
+                },
+                "transport": "stdio",
+            }
+        }
+    ) as client:
+        tools = await client.get_tools()
+        if prompt is None and response_format is None:
+            agent = create_react_agent(
+                LLMFactory().get_llm(),
+                tools=tools,
+                checkpointer=memory_saver
+            )
+        else:
+            agent = create_react_agent(
+                LLMFactory().get_llm(),
+                tools=tools,
+                checkpointer=memory_saver,
+                prompt=prompt,
+                response_format=response_format
+            )
+    return agent
+
 # Setup the PagerDuty MCP Client and create React Agent
 async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
+    pagerduty_token = os.getenv("PAGERDUTY_TOKEN")
+    if not pagerduty_token:
+        raise ValueError("PAGERDUTY_TOKEN must be set as an environment variable.")
+
+    pagerduty_api_url = os.getenv("PAGERDUTY_API_URL")
+    if not pagerduty_api_url:
+        raise ValueError("PAGERDUTY_API_URL must be set as an environment variable.")
+
+    if server_path is None:
+        logger.error("MCP server path not found, cannot create agent")
+        raise ImportError("MCP server path not found")
+
     args = config.get("configurable", {})
     logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")
 
@@ -121,14 +170,10 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
         )
         combined_message = f"{memory_content}\nCurrent: {human_message}" if memory_content else human_message
 
-        # Construct the message with required keys
-        human_message_with_memory = {
-            "role": "user",
-            "content": combined_message
-        }
-
     logger.info(f"Launching MCP server at: {server_path}")
 
+    model = LLMFactory().get_llm()
+    
     client = MultiServerMCPClient(
         {
             "pagerduty": {
@@ -144,8 +189,19 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
     )
 
     tools = await client.get_tools()
-    agent = create_react_agent(model, tools)
-    llm_result = await agent.ainvoke({"messages": human_message_with_memory})
+    memory_saver = MemorySaver()
+    agent = create_react_agent(
+        model,
+        tools,
+        checkpointer=memory_saver,
+        prompt=(
+            "You are a helpful assistant that can interact with PagerDuty. "
+            "You can use the PagerDuty API to get information about incidents, services, and schedules. "
+            "You can also perform actions like creating, updating, or resolving incidents."
+        )
+    )
+
+    llm_result = await agent.ainvoke({"messages": human_message})
     logger.info("LLM response received")
     logger.debug(f"LLM result: {llm_result}")
 
@@ -180,7 +236,7 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
     # Store the interaction in memory
     memory.add_interaction(user_input=human_message, agent_response=ai_content)
 
-    return {"pagerduty_output": OutputState(messages=messages + output_messages)}
+    return {"pagerduty_output": OutputState(messages=(messages or []) + output_messages)}
 
 # Sync wrapper for workflow server
 def agent_pagerduty(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:

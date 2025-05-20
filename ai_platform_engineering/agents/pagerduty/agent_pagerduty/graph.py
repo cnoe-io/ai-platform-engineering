@@ -15,4 +15,5 @@ def build_graph() -> CompiledStateGraph:
 
     return graph_builder.compile()
 
-AGENT_GRAPH = build_graph() 
+# Export the graph for ACP to use
+graph = build_graph() 

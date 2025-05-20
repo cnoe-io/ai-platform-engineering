@@ -44,20 +44,23 @@
         }
       },
       "properties": {
-        "messages": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/Message"
+        "pagerduty_input": {
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Message"
+                },
+                "type": "array"
               },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Messages"
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Messages"
+          },
+          "type": "object"
         }
       },
       "title": "InputState",
@@ -125,14 +128,34 @@
       {
         "type": "source_code",
         "name": "source_code_local",
-        "url": ".",
+        "url": "./../../../",
         "framework_config": {
           "framework_type": "langgraph",
-          "graph": "agent_pagerduty.langgraph:AGENT_GRAPH"
+          "graph": "agent_pagerduty.graph:graph"
         }
       }
     ],
     "env_vars": [
+      {
+        "desc": "LLM provider",
+        "name": "LLM_PROVIDER"
+      },
+      {
+        "desc": "Agent Name",
+        "name": "AGENT_NAME"
+      },
+      {
+        "desc": "Agent ID",
+        "name": "AGENT_ID"
+      },
+      {
+        "desc": "Agent API Key",
+        "name": "API_KEY"
+      },
+      {
+        "desc": "ACP Workflow Server Manager Port",
+        "name": "WFSM_PORT"
+      },
       {
         "desc": "Azure OpenAI endpoint for LLM",
         "name": "AZURE_OPENAI_ENDPOINT"
@@ -142,15 +165,19 @@
         "name": "AZURE_OPENAI_API_KEY"
       },
       {
-        "desc": "Azure OpenAI deployment name",
-        "name": "AZURE_OPENAI_DEPLOYMENT_NAME"
+        "desc": "Azure OpenAI deployment",
+        "name": "AZURE_OPENAI_DEPLOYMENT"
       },
       {
         "desc": "Azure OpenAI API version",
         "name": "AZURE_OPENAI_API_VERSION"
       },
       {
-        "desc": "PagerDuty API token",
+        "desc": "Google API key",
+        "name": "GOOGLE_API_KEY"
+      },
+      {
+        "desc": "PagerDuty Token",
         "name": "PAGERDUTY_TOKEN"
       },
       {
