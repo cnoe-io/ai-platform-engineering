@@ -182,7 +182,7 @@
       {
         "type": "source_code",
         "name": "source_code_local",
-        "url": ".",
+        "url": "./../../../",
         "framework_config": {
           "framework_type": "langgraph",
           "graph": "agent_slack.graph:AGENT_GRAPH"
@@ -190,6 +190,11 @@
       }
     ],
     "env_vars": [
+      {
+        "desc": "LLM provider",
+        "name": "LLM_PROVIDER",
+        "required": true
+      },
       {
         "desc": "Azure OpenAI endpoint for LLM",
         "name": "AZURE_OPENAI_ENDPOINT"
@@ -200,7 +205,7 @@
       },
       {
         "desc": "Azure OpenAI deployment name",
-        "name": "AZURE_OPENAI_DEPLOYMENT_NAME"
+        "name": "AZURE_OPENAI_DEPLOYMENT"
       },
       {
         "desc": "Azure OpenAI API version",
@@ -225,6 +230,10 @@
       {
         "desc": "Slack Team ID",
         "name": "SLACK_TEAM_ID"
+      },
+      {
+        "desc": "Google ApI Key",
+        "name": "GOOGLE_API_KEY"
       }
     ],
     "dependencies": []
