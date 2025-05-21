@@ -52,7 +52,7 @@ async def run_single_turn_test(client: A2AClient) -> None:
     """Runs a single-turn non-streaming test."""
 
     send_payload = create_send_message_payload(
-        text='What is argocd version?',
+        text='list applications in the jarvis-agent-dev project',
     )
     request = SendMessageRequest(params=MessageSendParams(**send_payload))
 
@@ -120,21 +120,21 @@ async def main() -> None:
     """Main function to run the tests."""
     print(f'Connecting to agent at {AGENT_URL}...')
     try:
-        async with httpx.AsyncClient() as httpx_client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as httpx_client:
             client = await A2AClient.get_client_from_agent_card_url(
                 httpx_client, AGENT_URL
             )
             print('Connection successful.')
 
-            # print('\n' + '=' * 60)
-            # print('RUNNING SINGLE TEST')
-            # print('=' * 60 + '\n')
-            # await run_single_turn_test(client)
-
             print('\n' + '=' * 60)
-            print('RUNNING STREAMING TEST')
+            print('RUNNING SINGLE TEST')
             print('=' * 60 + '\n')
-            await run_streaming_test(client)
+            await run_single_turn_test(client)
+
+            # print('\n' + '=' * 60)
+            # print('RUNNING STREAMING TEST')
+            # print('=' * 60 + '\n')
+            # await run_streaming_test(client)
 
             # print('\n' + '=' * 60)
             # print('RUNNING MULTI-TURN TEST')

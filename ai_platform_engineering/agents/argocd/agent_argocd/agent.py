@@ -32,7 +32,7 @@ async def create_agent(prompt=None, response_format=None):
   memory = MemorySaver()
 
   # Find installed path of the argocd_mcp sub-module
-  spec = importlib.util.find_spec("agent_argocd.protocol_bindings.mcp_server.server")
+  spec = importlib.util.find_spec("agent_argocd.protocol_bindings.mcp_server.mcp_argocd.server")
   if not spec or not spec.origin:
       raise ImportError("Cannot find agent_argocd.protocol_bindings.mcp_server.server module")
 
@@ -67,13 +67,13 @@ async def create_agent(prompt=None, response_format=None):
     if prompt is None and response_format is None:
       agent = create_react_agent(
       LLMFactory().get_llm(),
-      tools=client.get_tools(),
+      tools=await client.get_tools(),
       checkpointer=memory
       )
     else:
       agent = create_react_agent(
       LLMFactory().get_llm(),
-      tools=client.get_tools(),
+      tools=await client.get_tools(),
       checkpointer=memory,
       prompt=prompt,
       response_format=response_format
@@ -182,8 +182,12 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
             "You can also perform actions like syncing applications or rolling back to previous versions."
         )
     )
-    human_message = "show argocd version"
-    llm_result = await agent.ainvoke({"messages": human_message})
+    input_message = ''.join([m.content for m in messages])
+    logger.info("*"*80)
+    logger.info(f"Input message: {input_message}")
+    logger.info("*"*80)
+    llm_result = await agent.ainvoke({"messages": input_message})
+
     logger.info("LLM response received")
     logger.debug(f"LLM result: {llm_result}")
 

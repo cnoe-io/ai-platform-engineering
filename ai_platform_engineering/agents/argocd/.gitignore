@@ -184,3 +184,6 @@ a2a-python
 
 # Local configuration files
 .DS_Store
+
+# LangGraph Server
+.langgraph_api/

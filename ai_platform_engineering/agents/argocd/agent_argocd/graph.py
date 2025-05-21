@@ -15,9 +15,6 @@ def build_graph() -> CompiledStateGraph:
   graph_builder.add_edge(START, "agent_argocd")
   graph_builder.add_edge("agent_argocd", END)
 
-  # Set memory checkpointer
-  checkpointer = InMemorySaver()
-
-  return graph_builder.compile(checkpointer=checkpointer)
+  return graph_builder.compile()
 
 graph = build_graph()
