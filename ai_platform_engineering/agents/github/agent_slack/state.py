@@ -3,6 +3,7 @@
 
 from enum import Enum
 from typing import Optional, TypedDict
+from typing import List, Dict, Any
 
 from pydantic import BaseModel, Field
 
@@ -34,5 +35,11 @@ class OutputState(BaseModel):
 
 
 class AgentState(BaseModel):
-    argocd_input: InputState
-    argocd_output: Optional[OutputState] = None
+    slack_input: InputState
+    slack_output: Optional[OutputState] = None
+    conversation_history: List[Dict[str, Any]] = []
+    tools: Optional[List[Dict[str, Any]]] = None
+    next_action: Optional[Dict[str, Any]] = None
+    tool_results: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None

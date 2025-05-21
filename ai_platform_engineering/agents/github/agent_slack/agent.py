@@ -185,7 +185,12 @@ async def _async_slack_agent(state: AgentState, config: RunnableConfig) -> Dict[
             "and help manage conversations in the workspace."
         )
     )
-    human_message = state.slack_input.get("query", "Hello")
+    human_message = "Hello"
+    if state.slack_input and state.slack_input.messages:
+        last_msg = next((m for m in reversed(state.slack_input.messages) if m.type == MsgType.human), None)
+        if last_msg:
+            human_message = last_msg.content
+
     llm_result = await agent.ainvoke({"messages": human_message})
     logger.info("LLM response received")
     logger.debug(f"LLM result: {llm_result}")

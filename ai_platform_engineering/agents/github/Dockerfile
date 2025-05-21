@@ -1,26 +1,37 @@
-# Use the official Python image
 FROM ubuntu:latest
 
-# Set the working directory
+# Set working dir
 WORKDIR /usr/src/app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3-pip \
+    python3-venv \
+    curl \
+    git \
+ && rm -rf /var/lib/apt/lists/*
 
 # Install wfsm
 RUN curl -L https://raw.githubusercontent.com/agntcy/workflow-srv-mgr/refs/heads/main/install.sh | bash
 
-# Copy agent_argocd to /usr/src/app/agent_argocd
-COPY agent_argocd /user/src/app/agent_argocd
+# Install Poetry
+RUN pip install poetry
 
-# Build Poetry agent_argocd package
-WORKDIR /user/src/app/agent_argocd
+# Copy project files
+COPY . /usr/src/app/
+
+# Build and install agent package
+WORKDIR /usr/src/app
 RUN poetry build
-
-# Install Poetry agent_argocd package
 RUN pip install dist/*.whl
 
-# Copy deploy/acp/agent.json to /usr/src/app/data
-WORKDIR /usr/src/app
+# Setup config
 RUN mkdir -p ./data
-COPY deploy/acp/agent.json ./data/
+COPY ./agent_slack/protocol_bindings/acp_server/agent.json ./data/
 
-# Set wfsm as the entry point
+# Create an empty agent-env.yaml file if needed
+RUN touch ./data/agent-env.yaml
+
+# Run the agent
 ENTRYPOINT ["wfsm", "deploy", "-m", "./data/agent.json", "-e", "./data/agent-env.yaml"]
