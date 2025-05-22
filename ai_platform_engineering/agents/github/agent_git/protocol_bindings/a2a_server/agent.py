@@ -27,15 +27,15 @@ class ResponseFormat(BaseModel):
     status: Literal['input_required', 'completed', 'error'] = 'input_required'
     message: str
 
-class SlackAgent:
-    """Slack Agent using A2A protocol."""
+class GitHubAgent:
+    """GitHub Agent using A2A protocol."""
 
     SYSTEM_INSTRUCTION = (
-      'You are an expert assistant for Slack integration and operations. '
-      'Your purpose is to help users interact with Slack workspaces, channels, and messages. '
-      'Use the available Slack tools to interact with the Slack API and provide accurate, '
-      'actionable responses. If the user asks about anything unrelated to Slack, politely state '
-      'that you can only assist with Slack operations. Do not attempt to answer unrelated questions '
+      'You are an expert assistant for GitHub integration and operations. '
+      'Your purpose is to help users interact with GitHub repositories, issues, pull requests, and other GitHub features. '
+      'Use the available GitHub tools to interact with the GitHub API and provide accurate, '
+      'actionable responses. If the user asks about anything unrelated to GitHub, politely state '
+      'that you can only assist with GitHub operations. Do not attempt to answer unrelated questions '
       'or use tools for other purposes.'
     )
 
@@ -55,9 +55,9 @@ class SlackAgent:
         if not azure_endpoint:
             logger.warning("AZURE_OPENAI_ENDPOINT not set, LLM functionality will be limited")
 
-        self.slack_token = os.getenv("SLACK_BOT_TOKEN")
-        if not self.slack_token:
-            logger.warning("SLACK_BOT_TOKEN not set, Slack integration will be limited")
+        self.github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+        if not self.github_token:
+            logger.warning("GITHUB_PERSONAL_ACCESS_TOKEN not set, GitHub integration will be limited")
 
         # Initialize the model if credentials are available
         if api_key and azure_endpoint:
@@ -77,19 +77,19 @@ class SlackAgent:
 
         self.graph = None
         
-        # Find installed path of the slack_mcp sub-module
-        spec = importlib.util.find_spec("agent_slack.protocol_bindings.mcp_server.mcp_slack.server")
+        # Find installed path of the github_mcp sub-module
+        spec = importlib.util.find_spec("agent_github.protocol_bindings.mcp_server.mcp_github.server")
         if not spec or not spec.origin:
             try:
-                spec = importlib.util.find_spec("agent_slack.protocol_bindings.mcp_server.mcp_slack.server")
+                spec = importlib.util.find_spec("agent_github.protocol_bindings.mcp_server.mcp_github.server")
                 if not spec or not spec.origin:
-                    raise ImportError("Cannot find slack_mcp server module")
+                    raise ImportError("Cannot find github_mcp server module")
             except ImportError:
-                logger.error("Cannot find slack_mcp server module in any known location")
-                raise ImportError("Cannot find slack_mcp server module in any known location")
+                logger.error("Cannot find github_mcp server module in any known location")
+                raise ImportError("Cannot find github_mcp server module in any known location")
 
         self.server_path = str(Path(spec.origin).resolve())
-        logger.info(f"Found Slack MCP server path: {self.server_path}")
+        logger.info(f"Found GitHub MCP server path: {self.server_path}")
         
         # Initialize the agent
         asyncio.run(self._initialize_agent())
@@ -100,17 +100,43 @@ class SlackAgent:
             logger.error("Cannot initialize agent without a valid model")
             return
 
-        logger.info(f"Launching MCP server at: {self.server_path}")
+        logger.info("Launching GitHub MCP server")
 
         try:
+            # Prepare environment variables for GitHub MCP server
+            env_vars = {
+                "GITHUB_PERSONAL_ACCESS_TOKEN": self.github_token,
+            }
+            
+            # Add optional GitHub Enterprise Server host if provided
+            github_host = os.getenv("GITHUB_HOST")
+            if github_host:
+                env_vars["GITHUB_HOST"] = github_host
+            
+            # Add toolsets configuration if provided
+            toolsets = os.getenv("GITHUB_TOOLSETS")
+            if toolsets:
+                env_vars["GITHUB_TOOLSETS"] = toolsets
+            
+            # Enable dynamic toolsets if configured
+            if os.getenv("GITHUB_DYNAMIC_TOOLSETS"):
+                env_vars["GITHUB_DYNAMIC_TOOLSETS"] = os.getenv("GITHUB_DYNAMIC_TOOLSETS")
+
             client = MultiServerMCPClient(
                 {
-                    "slack": {
-                        "command": "uv",
-                        "args": ["run", self.server_path],
-                        "env": {
-                            "SLACK_BOT_TOKEN": self.slack_token,
-                        },
+                    "github": {
+                        "command": "docker",
+                        "args": [
+                            "run",
+                            "-i",
+                            "--rm",
+                            "-e",
+                            "GITHUB_PERSONAL_ACCESS_TOKEN",
+                        ] + (["-e", "GITHUB_HOST"] if github_host else []) +
+                        (["-e", "GITHUB_TOOLSETS"] if toolsets else []) +
+                        (["-e", "GITHUB_DYNAMIC_TOOLSETS"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
+                        ["ghcr.io/github/github-mcp-server"],
+                        "env": env_vars,
                         "transport": "stdio",
                     }
                 }
@@ -120,7 +146,7 @@ class SlackAgent:
             client_tools = await client.get_tools()
             
             print('*'*80)
-            print("Available Slack Tools and Parameters:")
+            print("Available GitHub Tools and Parameters:")
             for tool in client_tools:
                 print(f"Tool: {tool.name}")
                 print(f"  Description: {tool.description.strip().splitlines()[0]}")
@@ -154,7 +180,7 @@ class SlackAgent:
             runnable_config = RunnableConfig(configurable={"thread_id": "init-thread"})
             try:
                 llm_result = await self.graph.ainvoke(
-                    {"messages": HumanMessage(content="Summarize what Slack operations you can help with")}, 
+                    {"messages": HumanMessage(content="Summarize what GitHub operations you can help with")}, 
                     config=runnable_config
                 )
                 
@@ -170,7 +196,7 @@ class SlackAgent:
 
                 # Print the agent's capabilities
                 print("=" * 80)
-                print(f"Agent Slack Capabilities: {ai_content}")
+                print(f"Agent GitHub Capabilities: {ai_content}")
                 print("=" * 80)
             except Exception as e:
                 logger.error(f"Error testing agent: {e}")
@@ -187,7 +213,7 @@ class SlackAgent:
             yield {
                 'is_task_complete': False,
                 'require_user_input': True,
-                'content': 'Slack agent is not properly initialized. Please check the logs.',
+                'content': 'GitHub agent is not properly initialized. Please check the logs.',
             }
             return
             
@@ -212,13 +238,13 @@ class SlackAgent:
                     yield {
                         'is_task_complete': False,
                         'require_user_input': False,
-                        'content': 'Processing Slack operations...',
+                        'content': 'Processing GitHub operations...',
                     }
                 elif isinstance(message, ToolMessage):
                     yield {
                         'is_task_complete': False,
                         'require_user_input': False,
-                        'content': 'Interacting with Slack API...',
+                        'content': 'Interacting with GitHub API...',
                     }
                 
                 elif isinstance(message, AIMessage) and message.content:
@@ -234,7 +260,7 @@ class SlackAgent:
             yield {
                 'is_task_complete': False,
                 'require_user_input': True,
-                'content': f'An error occurred while processing your Slack request: {str(e)}',
+                'content': f'An error occurred while processing your GitHub request: {str(e)}',
             }
 
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
@@ -283,7 +309,7 @@ class SlackAgent:
         return {
             'is_task_complete': False,
             'require_user_input': True,
-            'content': 'We are unable to process your Slack request at the moment. Please try again.',
+            'content': 'We are unable to process your GitHub request at the moment. Please try again.',
         }
 
     SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']

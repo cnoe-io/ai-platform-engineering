@@ -56,10 +56,10 @@ def print_json_response(response: Any, description: str) -> None:
 
 
 async def run_single_turn_test(client: A2AClient) -> None:
-    """Runs a single-turn non-streaming test with Slack."""
+    """Runs a single-turn non-streaming test with GitHub."""
 
     send_payload = create_send_message_payload(
-        text='What is the status of the Slack workspace?',
+        text='What repositories do I have access to?',
     )
     request = SendMessageRequest(params=MessageSendParams(**send_payload))
 
@@ -76,18 +76,13 @@ async def run_single_turn_test(client: A2AClient) -> None:
         return
 
     task_id: str = send_response.root.result.id
-    # print('---Query Task---')
-    # # query the task
-    # get_request = GetTaskRequest(params=TaskQueryParams(id=task_id))
-    # get_response: GetTaskResponse = await client.get_task(get_request)
-    # print_json_response(get_response, 'Query Task Response')
 
 
 async def run_streaming_test(client: A2AClient) -> None:
-    """Runs a single-turn streaming test with Slack."""
+    """Runs a single-turn streaming test with GitHub."""
 
     send_payload = create_send_message_payload(
-        text='List all channels in the Slack workspace.',
+        text='List all open pull requests in my repositories.',
     )
 
     request = SendStreamingMessageRequest(
@@ -101,12 +96,12 @@ async def run_streaming_test(client: A2AClient) -> None:
 
 
 async def run_multi_turn_test(client: A2AClient) -> None:
-    """Runs a multi-turn test about Slack workspace information."""
-    print('--- Multi-Turn Slack Workspace Information Request ---')
+    """Runs a multi-turn test about GitHub repository information."""
+    print('--- Multi-Turn GitHub Repository Information Request ---')
 
     # --- First Turn ---
     first_turn_payload = create_send_message_payload(
-        text='What are the most active channels in the workspace?'
+        text='What are the most active repositories in my organization?'
     )
     request1 = SendStreamingMessageRequest(
         params=MessageSendParams(**first_turn_payload)
@@ -124,18 +119,18 @@ async def run_multi_turn_test(client: A2AClient) -> None:
 
 
 async def main() -> None:
-    """Main function to run the Slack tests."""
-    print(f'Connecting to Slack agent at {AGENT_URL}...')
+    """Main function to run the GitHub tests."""
+    print(f'Connecting to GitHub agent at {AGENT_URL}...')
     
-    # Check for required Slack environment variables
-    slack_vars = ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_SIGNING_SECRET"]
+    # Check for required GitHub environment variables
+    github_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]
     missing_vars = []
-    for var in slack_vars:
+    for var in github_vars:
         if not os.environ.get(var):
             missing_vars.append(var)
             
     if missing_vars:
-        print("Warning: Missing Slack environment variables:")
+        print("Warning: Missing GitHub environment variables:")
         for var in missing_vars:
             print(f"  - {var}")
     
@@ -160,7 +155,7 @@ async def main() -> None:
     except Exception as e:
         traceback.print_exc()
         print(f'An error occurred: {e}')
-        print('Ensure the Slack agent server is running at the specified URL.')
+        print('Ensure the GitHub agent server is running at the specified URL.')
 
 
 if __name__ == '__main__':

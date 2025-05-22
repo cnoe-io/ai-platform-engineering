@@ -9,8 +9,8 @@ import click
 import httpx
 from dotenv import load_dotenv
 
-from agent_slack.protocol_bindings.a2a_server.agent import SlackAgent  # type: ignore
-from agent_slack.protocol_bindings.a2a_server.agent_executor import SlackAgentExecutor  # type: ignore
+from agent_git.protocol_bindings.a2a_server.agent import GitHubAgent  # type: ignore
+from agent_git.protocol_bindings.a2a_server.agent_executor import GitHubAgentExecutor  # type: ignore
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -30,14 +30,14 @@ logging.basicConfig(level=logging.INFO)
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=10000)
 def main(host: str, port: int):
-    print("🚀 Starting Slack A2A Agent...")
-    if not os.getenv('GOOGLE_API_KEY'):
-        print('❌ GOOGLE_API_KEY environment variable not set.')
+    print("🚀 Starting GitHub A2A Agent...")
+    if not os.getenv('GITHUB_PERSONAL_ACCESS_TOKEN'):
+        print('❌ GITHUB_PERSONAL_ACCESS_TOKEN environment variable not set.')
         sys.exit(1)
 
     client = httpx.AsyncClient()
     request_handler = DefaultRequestHandler(
-        agent_executor=SlackAgentExecutor(),
+        agent_executor=GitHubAgentExecutor(),
         task_store=InMemoryTaskStore(),
         push_notifier=InMemoryPushNotifier(client),
     )
@@ -55,23 +55,24 @@ def main(host: str, port: int):
 def get_agent_card(host: str, port: int):
     capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
     skill = AgentSkill(
-        id='slack',
-        name='Slack Workspace Operations',
-        description='Interact with Slack messages, channels, and users via agentic tools.',
-        tags=['slack', 'productivity', 'chatops'],
+        id='github',
+        name='GitHub Repository Operations',
+        description='Interact with GitHub repositories, issues, pull requests, and other GitHub resources via agentic tools.',
+        tags=['github', 'repositories', 'issues', 'pull_requests', 'code_review'],
         examples=[
-            'Send a message to the #general channel.',
-            'List users in a workspace.',
-            'Reply to a thread in #support.',
+            'Create a new repository.',
+            'List open pull requests in a repository.',
+            'Create an issue with a detailed description.',
+            'Review and merge a pull request.',
         ],
     )
     return AgentCard(
-        name='Slack Agent',
-        description='Agent for managing Slack workspace operations.',
+        name='GitHub Agent',
+        description='Agent for managing GitHub repository operations and resources.',
         url=f'http://{host}:{port}/',
         version='1.0.0',
-        defaultInputModes=SlackAgent.SUPPORTED_CONTENT_TYPES,
-        defaultOutputModes=SlackAgent.SUPPORTED_CONTENT_TYPES,
+        defaultInputModes=GitHubAgent.SUPPORTED_CONTENT_TYPES,
+        defaultOutputModes=GitHubAgent.SUPPORTED_CONTENT_TYPES,
         capabilities=capabilities,
         skills=[skill],
     )

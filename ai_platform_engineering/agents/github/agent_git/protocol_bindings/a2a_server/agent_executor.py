@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-from agent_slack.protocol_bindings.a2a_server.agent import SlackAgent # type: ignore[import-untyped]
+from agent_git.protocol_bindings.a2a_server.agent import GitHubAgent # type: ignore[import-untyped]
 from typing_extensions import override
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
@@ -14,11 +14,11 @@ from a2a.types import (
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 
 
-class SlackAgentExecutor(AgentExecutor):
-    """Slack AgentExecutor implementation."""
+class GitHubAgentExecutor(AgentExecutor):
+    """GitHub AgentExecutor implementation."""
 
     def __init__(self):
-        self.agent = SlackAgent()
+        self.agent = GitHubAgent()
 
     @override
     async def execute(
@@ -47,7 +47,7 @@ class SlackAgentExecutor(AgentExecutor):
                         lastChunk=True,
                         artifact=new_text_artifact(
                             name='current_result',
-                            description='Result of request to Slack agent.',
+                            description='Result of request to GitHub agent.',
                             text=event['content'],
                         ),
                     )

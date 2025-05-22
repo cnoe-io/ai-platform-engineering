@@ -5,7 +5,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 
-from .agent import agent_slack
+from .agent import agent_github
 from .state import AgentState
 
 import logging
@@ -17,7 +17,7 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 def start_node(state: AgentState) -> AgentState:
-    logger.info("Agent Slack workflow started")
+    logger.info("Agent Github workflow started")
     state.conversation_history = state.conversation_history or []
     state.metadata = state.metadata or {}
     state.metadata["temperature"] = 0.0
@@ -68,7 +68,7 @@ def build_agent_graph() -> CompiledStateGraph:
     
     # Add nodes
     graph.add_node("start", start_node)
-    graph.add_node("agent", agent_slack)
+    graph.add_node("agent", agent_github)
     graph.add_node("should_execute_tool", should_execute_tool)
     graph.add_node("execute_tool", execute_tool)
     
