@@ -1,8 +1,8 @@
 [project]
-name = "agent_slack"
+name = "agent_git"
 version = "0.1.0"
 license = "Apache-2.0"
-description = "An ArgoCD natural language agent using LangChain, LangGraph, and MCP."
+description = "A GitHub natural language agent using LangChain, LangGraph, and MCP."
 readme = "README.md"
 authors = [
     { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
@@ -30,7 +30,7 @@ dependencies = [
 packages = ["."]
 
 [tool.poetry.scripts]
-agent_slack_a2a = "agent_slack.protocol_bindings.a2a_server:main"
+agent_git_a2a = "agent_git.protocol_bindings.a2a_server:main"
 
 [tool.poetry.dependencies]
 uv = "^0.7.5"
