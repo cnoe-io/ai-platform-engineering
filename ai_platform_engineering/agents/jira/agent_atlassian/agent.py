@@ -48,6 +48,10 @@ async def create_agent(prompt=None, response_format=None):
   atlassian_api_url = os.getenv("ATLASSIAN_API_URL")
   if not atlassian_api_url:
     raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
+  
+  atlassian_email = os.getenv("ATLASSIAN_EMAIL")
+  if not atlassian_email:
+    raise ValueError("ATLASSIAN_EMAIl must be set as an environment variable.")
 
   agent = None
   async with MultiServerMCPClient(
@@ -58,6 +62,7 @@ async def create_agent(prompt=None, response_format=None):
         "env": {
           "ATLASSIAN_TOKEN": atlassian_token,
           "ATLASSIAN_API_URL": atlassian_api_url,
+          "ATLASSIAN_EMAIL": atlassian_email,
           "ATLASSIAN_VERIFY_SSL": "false"
         },
         "transport": "stdio",
@@ -96,6 +101,10 @@ def create_agent_sync(prompt, response_format):
   atlassian_api_url = os.getenv("ATLASSIAN_API_URL")
   if not atlassian_api_url:
       raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
+  
+  atlassian_email = os.getenv("ATLASSIAN_EMAIL")
+  if not atlassian_email:
+    raise ValueError("ATLASSIAN_EMAIl must be set as an environment variable.")
 
   client = MultiServerMCPClient(
       {
@@ -105,6 +114,7 @@ def create_agent_sync(prompt, response_format):
               "env": {
                   "ATLASSIAN_TOKEN": atlassian_token,
                   "ATLASSIAN_API_URL": atlassian_api_url,
+                  "ATLASSIAN_EMAIL": atlassian_email,
                   "ATLASSIAN_VERIFY_SSL": "false"
               },
               "transport": "stdio",
@@ -138,6 +148,10 @@ async def _async_atlassian_agent(state: AgentState, config: RunnableConfig) -> D
     args = config.get("configurable", {})
     logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")
 
+    atlassian_email = os.getenv("ATLASSIAN_EMAIL")
+    if not atlassian_email:
+        raise ValueError("ATLASSIAN_EMAIl must be set as an environment variable.")
+
     if hasattr(state.atlassian_input, "messages"):
         messages = getattr(state.atlassian_input, "messages")
     elif "messages" in state.atlassian_input:
@@ -170,6 +184,7 @@ async def _async_atlassian_agent(state: AgentState, config: RunnableConfig) -> D
                 "env": {
                     "ATLASSIAN_TOKEN": atlassian_token,
                     "ATLASSIAN_API_URL": atlassian_api_url,
+                    "ATLASSIAN_EMAIL": atlassian_email,
                     "ATLASSIAN_VERIFY_SSL": "false"
                 },
                 "transport": "stdio",

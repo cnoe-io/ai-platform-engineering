@@ -181,6 +181,10 @@
         "name": "ATLASSIAN_TOKEN"
       },
       {
+        "desc": "Atlassian Email",
+        "name": "ATLASSIAN_EMAIL"
+      },
+      {
         "desc": "Atlassian api url",
         "name": "ATLASSIAN_API_URL"
       },
