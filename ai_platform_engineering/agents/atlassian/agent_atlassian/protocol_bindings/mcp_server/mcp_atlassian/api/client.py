@@ -16,9 +16,6 @@ load_dotenv()
 # Constants
 # Update the base URL to be specific to Jira API
 
-ATLASSIAN_API_URL = "https://jarvis-cisco.atlassian.net"
-DEFAULT_TOKEN = os.getenv("ATLASSIAN_TOKEN")
-ATLASSIAN_EMAIL = "omar.ahmed.taha@hotmail.com"
 
 
 # Configure logging
@@ -28,11 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("atlassian_mcp")
 
-# Log token presence but not the token itself
-if DEFAULT_TOKEN:
-    logger.info("Default token found in environment variables")
-else:
-    logger.warning("No default token found in environment variables")
+
 
 def get_env() -> Optional[str]:
     """Retrieve the environment variables."""
@@ -67,7 +60,8 @@ async def make_api_request(
 
     # Use the utility function to retrieve the token if not provided
     token = token or get_env()
-
+    email = str(os.getenv("ATLASSIAN_EMAIL"))
+    url = str(os.getenv("ATLASSIAN_API_URL"))
     if not token:
         logger.error("No API token available. Request cannot proceed.")
         return (
@@ -77,7 +71,7 @@ async def make_api_request(
 
     import base64
 
-    auth_str = f"{ATLASSIAN_EMAIL}:{token}"
+    auth_str = f"{email}:{token}"
     encoded_auth = base64.b64encode(auth_str.encode()).decode()
 
     headers = {
@@ -93,7 +87,7 @@ async def make_api_request(
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            url = f"{ATLASSIAN_API_URL}/{path}"
+            url = f"{url}/{path}"
             logger.debug(f"Full request URL: {url}")
 
             method_map = {
