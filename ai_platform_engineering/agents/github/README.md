@@ -1,4 +1,4 @@
-# 🤖 Github AI Agent
+# 🤖 GitHub AI Agent
 
 This is a LangGraph-powered Github Agent that interacts with users via Github, executing tasks using MCP tools and large language models. Built for **ACP** and **A2A** protocol support.
 
@@ -13,46 +13,64 @@ A natural language agent for GitHub operations using LangChain, LangGraph, and M
 pip install -e .
 ```
 
-2. Create a `.env` file with your credentials:
+2. Create a `.env` file with your GitHub token:
 ```env
 GITHUB_PERSONAL_ACCESS_TOKEN=your_github_token
-OPENAI_API_KEY=your_openai_key
 ```
 
-3. Run the agent:
+## Running the Agent
+
+1. Start the server (choose one):
 ```bash
-wfsm deploy -m ./data/agent.json -e .env
+# For A2A protocol
+make run-a2a
+
+# For ACP protocol
+make run-acp
 ```
 
-## Features
-
-- Repository management
-- Issue tracking
-- Pull request operations
-- Code review
-- User management
-- Security scanning
-
-## Configuration
-
-The agent supports various configuration options through environment variables:
-
-- `GITHUB_PERSONAL_ACCESS_TOKEN`: Your GitHub token
-- `GITHUB_HOST`: (Optional) GitHub Enterprise host
-- `GITHUB_TOOLSETS`: (Optional) Comma-separated list of enabled toolsets
-- `GITHUB_DYNAMIC_TOOLSETS`: (Optional) Enable dynamic toolsets
-
-## Development
-
-1. Install development dependencies:
+2. In a new terminal, run the client:
 ```bash
-pip install -e ".[dev]"
+# For A2A protocol
+make run-a2a-client
+
+# For ACP protocol
+make run-acp-client
 ```
 
-2. Run tests:
-```bash
-pytest
+## How it Works
+
+The agent connects to GitHub through the official GitHub MCP server running in Docker. The configuration is in `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "github": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN=${github_token}",
+        "ghcr.io/github/github-mcp-server:latest"
+      ],
+      "transport": "stdio"
+    }
+  }
+}
 ```
+
+This configuration:
+- Uses Docker to run the official GitHub MCP server (`ghcr.io/github/github-mcp-server:latest`)
+- Passes your GitHub token to the container
+- Uses stdio for communication
+
+## Requirements
+
+- Docker Desktop running
+- GitHub Personal Access Token
+- Python 3.12+
 
 ## License
 
