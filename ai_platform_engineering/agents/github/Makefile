@@ -4,7 +4,7 @@
 
 add-copyright-license-headers:
 	@echo "Adding copyright license headers..."
-	docker run --rm -v $(shell pwd)/agent_slack:/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
+	docker run --rm -v $(shell pwd)/agent_git:/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
 
 setup-venv:
 	@echo "======================================="
@@ -35,6 +35,7 @@ clean-venv:
 	else \
 		echo "No virtual environment found."; \
 	fi
+
 clean-build-artifacts:
 	@echo "Cleaning up build artifacts..."
 	@if [ -d "build" ]; then \
@@ -58,12 +59,12 @@ clean-build-artifacts:
 	else \
 		echo "No A2A SDK found."; \
 	fi
-	@echo "Cleaning up the agent_slack.egg-info..."
-	@if [ -d "agent_slack.egg-info" ]; then \
-		rm -rf agent_slack.egg-info; \
-		echo "agent_slack.egg-info removed."; \
+	@echo "Cleaning up the agent_git.egg-info..."
+	@if [ -d "agent_git.egg-info" ]; then \
+		rm -rf agent_git.egg-info; \
+		echo "agent_git.egg-info removed."; \
 	else \
-		echo "No agent_slack.egg-info found."; \
+		echo "No agent_git.egg-info found."; \
 	fi
 
 clean: clean-pyc clean-venv clean-build-artifacts
@@ -99,19 +100,17 @@ build:
 
 run: build
 	@echo "Running the application..."
-	. .venv/bin/activate && . .env && python3 -m agent_template
+	. .venv/bin/activate && . "$(PWD)/.env" && python3 -m agent_git
 
 run-acp: setup-venv build install
-	@if [ ! -f ".env" ]; then \
+	@if [ ! -f "$(PWD)/.env" ]; then \
 		echo "Error: .env file not found. Please create a .env file before running this target."; \
 		exit 1; \
 	fi
-	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy \
-		-m agent_slack/protocol_bindings/acp_server/agent.json \
-		-e agent_slack/protocol_bindings/acp_server/agent-env.yaml \
+	. .venv/bin/activate && set -a && . "$(PWD)/.env" && set +a && wfsm deploy \
+		-m agent_git/protocol_bindings/acp_server/agent.json \
+		-e $(PWD)/.env \
 		--dryRun=false
-
-
 
 install-a2a: setup-venv
 	@git clone https://github.com/google/a2a-python -b main --depth 1 || { echo "a2a-python repo already cloned or failed to clone."; }
@@ -120,54 +119,53 @@ install-a2a: setup-venv
 	. .venv/bin/activate && python3 -c "import a2a; print('A2A SDK imported successfully')"
 
 run-a2a: setup-venv install-uv build install-a2a
-	@if [ ! -f ".env" ]; then \
+	@if [ ! -f "$(PWD)/.env" ]; then \
 		echo "Error: .env file not found. Please create a .env file before running this target."; \
 		exit 1; \
 	fi
 	@echo "Running the A2A agent..."
-	. .venv/bin/activate && set -a && . .env && set +a && uv run agent_slack
+	. .venv/bin/activate && set -a && . "$(PWD)/.env" && set +a && uv run agent_git
 
 run-acp-client: build install
 	@echo "Running the client..."
-	@if [ ! -f ".env" ]; then \
+	@if [ ! -f "$(PWD)/.env" ]; then \
 		echo "Error: .env file not found. Please create a .env file before running this target."; \
 		exit 1; \
 	fi
-	. .venv/bin/activate && set -a && . .env && set +a && \
+	. .venv/bin/activate && set -a && . "$(PWD)/.env" && set +a && \
 	uv run client/acp_client.py
 
 run-a2a-client: build install install-a2a
 	@echo "Running the client..."
-	@if [ ! -f ".env" ]; then \
+	@if [ ! -f "$(PWD)/.env" ]; then \
 		echo "Error: .env file not found. Please create a .env file before running this target."; \
 		exit 1; \
 	fi
-	. .venv/bin/activate && set -a && . .env && set +a && \
+	. .venv/bin/activate && set -a && . "$(PWD)/.env" && set +a && \
 	uv run client/a2a_client.py
 
 run-curl-client: build install
 	@echo "Running the curl client..."
-	. .venv/bin/activate && set -a && . .env && set +a && \
+	. .venv/bin/activate && set -a && . "$(PWD)/.env" && set +a && \
 	./client/client_curl.sh
 
 langgraph-dev: build install
 	@echo "Running the LangGraph agent..."
-	. .venv/bin/activate && . .env && langgraph dev
+	. .venv/bin/activate && . "$(PWD)/.env" && langgraph dev
 
 lint: setup-venv
 	@echo "Running ruff..."
-	. .venv/bin/activate && ruff check agent_slack tests
+	. .venv/bin/activate && ruff check agent_git tests
 
 ruff-fix: setup-venv
 	@echo "Running ruff and fix lint errors..."
-	. .venv/bin/activate && ruff check agent_slack tests --fix
+	. .venv/bin/activate && ruff check agent_git tests --fix
 
 evals: setup-venv
 	@echo "Running Agent Strict Trajectory Matching evals..."
 	@echo "Installing agentevals with Poetry..."
 	. .venv/bin/activate && uv add agentevals tabulate pytest
-	set -a && . .env && set +a && uv run evals/strict_match/test_strict_match.py
-
+	set -a && . "$(PWD)/.env" && set +a && uv run evals/strict_match/test_strict_match.py
 
 help:
 	@echo "Available targets:"

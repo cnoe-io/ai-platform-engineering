@@ -18,6 +18,16 @@ from agent_git.llm_factory import LLMFactory
 
 logger = logging.getLogger(__name__)
 
+# Available GitHub toolsets
+GITHUB_TOOLSETS = {
+    "repos": "Repository-related tools (file operations, branches, commits)",
+    "issues": "Issue-related tools (create, read, update, comment)",
+    "users": "Anything relating to GitHub Users",
+    "pull_requests": "Pull request operations (create, merge, review)",
+    "code_security": "Code scanning alerts and security features",
+    "experiments": "Experimental features (not considered stable)"
+}
+
 async def create_agent(prompt=None, response_format=None, toolsets: Optional[List[str]] = None):
     """
     Create a GitHub agent with optional prompt and response format.
@@ -25,7 +35,14 @@ async def create_agent(prompt=None, response_format=None, toolsets: Optional[Lis
     Args:
         prompt: Custom prompt for the agent
         response_format: Response format specification
-        toolsets: List of GitHub toolsets to enable (repos, issues, users, pull_requests, code_security, experiments)
+        toolsets: List of GitHub toolsets to enable. Available options:
+            - repos: Repository-related tools
+            - issues: Issue-related tools
+            - users: User-related tools
+            - pull_requests: Pull request operations
+            - code_security: Code scanning and security
+            - experiments: Experimental features
+            - all: Enable all toolsets
     """
     memory = MemorySaver()
 
@@ -47,26 +64,48 @@ async def create_agent(prompt=None, response_format=None, toolsets: Optional[Lis
     
     # Add toolsets configuration if provided
     if toolsets:
-        env_vars["GITHUB_TOOLSETS"] = ",".join(toolsets)
+        # Handle 'all' toolset specially
+        if "all" in toolsets:
+            env_vars["GITHUB_TOOLSETS"] = "all"
+        else:
+            # Validate toolsets
+            valid_toolsets = []
+            for toolset in toolsets:
+                if toolset in GITHUB_TOOLSETS or toolset == "all":
+                    valid_toolsets.append(toolset)
+                else:
+                    logger.warning(f"Unknown toolset: {toolset}")
+            env_vars["GITHUB_TOOLSETS"] = ",".join(valid_toolsets)
     
     # Enable dynamic toolsets if configured
     if os.getenv("GITHUB_DYNAMIC_TOOLSETS"):
         env_vars["GITHUB_DYNAMIC_TOOLSETS"] = os.getenv("GITHUB_DYNAMIC_TOOLSETS")
 
+    # Configure Docker command for GitHub MCP server
+    docker_args = [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+    ]
+
+    # Add optional environment variables
+    if github_host:
+        docker_args.extend(["-e", "GITHUB_HOST"])
+    if toolsets:
+        docker_args.extend(["-e", "GITHUB_TOOLSETS"])
+    if os.getenv("GITHUB_DYNAMIC_TOOLSETS"):
+        docker_args.extend(["-e", "GITHUB_DYNAMIC_TOOLSETS"])
+
+    # Add the GitHub MCP server image
+    docker_args.append("ghcr.io/github/github-mcp-server")
+
     client = MultiServerMCPClient(
         {
             "github": {
                 "command": "docker",
-                "args": [
-                    "run",
-                    "-i",
-                    "--rm",
-                    "-e",
-                    "GITHUB_PERSONAL_ACCESS_TOKEN",
-                ] + (["-e", "GITHUB_HOST"] if github_host else []) +
-                (["-e", "GITHUB_TOOLSETS"] if toolsets else []) +
-                (["-e", "GITHUB_DYNAMIC_TOOLSETS"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
-                ["ghcr.io/github/github-mcp-server"],
+                "args": docker_args,
                 "env": env_vars,
                 "transport": "stdio",
             }

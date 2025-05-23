@@ -4,8 +4,6 @@
 import logging
 import asyncio
 import os
-import importlib.util
-from pathlib import Path
 from typing import Any, Literal, Dict, AsyncIterable, List
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -77,20 +75,6 @@ class GitHubAgent:
 
         self.graph = None
         
-        # Find installed path of the github_mcp sub-module
-        spec = importlib.util.find_spec("agent_github.protocol_bindings.mcp_server.mcp_github.server")
-        if not spec or not spec.origin:
-            try:
-                spec = importlib.util.find_spec("agent_github.protocol_bindings.mcp_server.mcp_github.server")
-                if not spec or not spec.origin:
-                    raise ImportError("Cannot find github_mcp server module")
-            except ImportError:
-                logger.error("Cannot find github_mcp server module in any known location")
-                raise ImportError("Cannot find github_mcp server module in any known location")
-
-        self.server_path = str(Path(spec.origin).resolve())
-        logger.info(f"Found GitHub MCP server path: {self.server_path}")
-        
         # Initialize the agent
         asyncio.run(self._initialize_agent())
 
@@ -122,6 +106,7 @@ class GitHubAgent:
             if os.getenv("GITHUB_DYNAMIC_TOOLSETS"):
                 env_vars["GITHUB_DYNAMIC_TOOLSETS"] = os.getenv("GITHUB_DYNAMIC_TOOLSETS")
 
+            # Configure the GitHub MCP server client
             client = MultiServerMCPClient(
                 {
                     "github": {
@@ -130,13 +115,11 @@ class GitHubAgent:
                             "run",
                             "-i",
                             "--rm",
-                            "-e",
-                            "GITHUB_PERSONAL_ACCESS_TOKEN",
-                        ] + (["-e", "GITHUB_HOST"] if github_host else []) +
-                        (["-e", "GITHUB_TOOLSETS"] if toolsets else []) +
-                        (["-e", "GITHUB_DYNAMIC_TOOLSETS"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
-                        ["ghcr.io/github/github-mcp-server"],
-                        "env": env_vars,
+                            "-e", f"GITHUB_PERSONAL_ACCESS_TOKEN={self.github_token}",
+                        ] + (["-e", f"GITHUB_HOST={github_host}"] if github_host else []) +
+                        (["-e", f"GITHUB_TOOLSETS={toolsets}"] if toolsets else []) +
+                        (["-e", "GITHUB_DYNAMIC_TOOLSETS=true"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
+                        ["ghcr.io/github/github-mcp-server:latest"],
                         "transport": "stdio",
                     }
                 }
