@@ -226,16 +226,33 @@ The current version of ArgoCD is **v2.13.3+a25c8a0**. Here are some additional d
 ## 📁 Project Structure
 
 ```text
-agent_argocd/
-│
-├── agent.py              # LLM + MCP client orchestration
-├── langgraph.py          # LangGraph graph definition
-├── __main__.py           # CLI entrypoint
-├── state.py              # Pydantic state models
-└── argocd_mcp/           # Git submodule: ArgoCD MCP server
+agent_argocd
+├── __main__.py
+├── agent.py
+├── graph.py
+├── llm_factory.py
+├── models.py
+├── protocol_bindings
+│   ├── __init__.py
+│   ├── a2a_server
+│   │   └── agent_executor.py
+│   ├── acp_server
+│   │   └── agent.json
+│   └── mcp_server
+│       ├── __init__.py
+│       └── mcp_argocd
+│           ├── __init__.py
+│           ├── api
+│           │   └── client.py
+│           ├── models
+│           │   └── base.py
+│           ├── server.py
+│           ├── tools
+│           │   └── api_v1_applications.py
+│           └── utils
+│               └── __init__.py
+└── state.py
 
-client/
-└── client_agent.py       # Agent ACP Client
 ```
 
 ---
