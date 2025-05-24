@@ -42,6 +42,9 @@ jobs:
             type=ref,event=tag,prefix=acp-
             type=sha,format=short,prefix=acp-
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
       - name: Build and Push Docker image
         uses: docker/build-push-action@v4
         with:
@@ -50,5 +53,6 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
