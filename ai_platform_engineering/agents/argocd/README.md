@@ -1,7 +1,7 @@
 # 🚀 ArgoCD AI Agent
 
-[![Python](https://img.shields.io/badge/python-3.8%2B-blue?logo=python)](https://www.python.org/)
-[![Poetry](https://img.shields.io/badge/poetry-1.0%2B-blueviolet?logo=python)](https://python-poetry.org/)
+[![Python](https://img.shields.io/badge/python-3.13%2B-blue?logo=python)](https://www.python.org/)
+[![Poetry](https://img.shields.io/badge/poetry-2.1.1%2B-blueviolet?logo=python)](https://python-poetry.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
 [![Conventional Commits](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/conventional_commits.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/conventional_commits.yml)
@@ -71,9 +71,9 @@ flowchart TD
 ### 1️⃣ Create/Update `.env`
 
 ```env
-IO_CNOE_AGENT_ARGOCD_API_KEY=<uuid>
-IO_CNOE_AGENT_ARGOCD_ID=<uuid>
-IO_CNOE_AGENT_ARGOCD_PORT=15000
+CNOE_AGENT_ARGOCD_API_KEY=<uuid>
+CNOE_AGENT_ARGOCD_ID=<uuid>
+CNOE_AGENT_ARGOCD_PORT=15000
 LLM_PROVIDER=azure-openai
 AZURE_OPENAI_API_KEY=<COPY YOUR AZURE OPENAI API KEY>
 OPENAI_API_VERSION=<COPY YOUR AZURE OPENAI API VERSION>
