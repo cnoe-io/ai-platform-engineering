@@ -24,8 +24,8 @@ import readline
 load_dotenv()
 
 # Host can't have trailing slash
-WFSM_PORT = os.getenv("IO_CNOE_AGENT_ARGOCD_PORT")
-API_KEY = os.getenv("IO_CNOE_AGENT_ARGOCD_API_KEY")
+WFSM_PORT = os.getenv("CNOE_AGENT_ARGOCD_PORT")
+API_KEY = os.getenv("CNOE_AGENT_ARGOCD_API_KEY")
 
 if not WFSM_PORT or not API_KEY:
     raise EnvironmentError("WFSM_PORT and API_KEY environment variables must be set")
@@ -42,7 +42,7 @@ async def run_stateless(question: ChatBotQuestion, process_event):
   """
   async with AsyncApiClient(client_config) as api_client:
     acp_client = AsyncACPClient(api_client)
-    agent_id = os.getenv("IO_CNOE_AGENT_ARGOCD_ID")
+    agent_id = os.getenv("CNOE_AGENT_ARGOCD_ID")
     if not agent_id:
       raise EnvironmentError("AGENT_ID environment variable is not set")
 

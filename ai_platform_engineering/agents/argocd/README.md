@@ -7,6 +7,9 @@
 [![Conventional Commits](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/conventional_commits.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/conventional_commits.yml)
 [![Ruff Linter](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/ruff.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/ruff.yml)
 [![Super Linter](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml)
+[![Unit Tests](https://github.com/cnoe-io/agent-argocd/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/unit-tests.yml)
+
+[![ACP Docker Build and Push](https://github.com/cnoe-io/agent-argocd/actions/workflows/docker-build.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/docker-build.yml)
 
 ---
 

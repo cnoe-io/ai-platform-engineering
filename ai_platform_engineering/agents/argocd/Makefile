@@ -1,177 +1,155 @@
 # Makefile
+AGENT_NAME=agent_argocd
 
-.PHONY: build setup-venv activate-venv install run run-acp run-client langgraph-dev help
+.PHONY: \
+  build setup-venv activate-venv install run run-acp run-client \
+  langgraph-dev help clean clean-pyc clean-venv clean-build-artifacts \
+  install-uv install-wfsm verify-a2a-sdk evals \
+  run-a2a run-acp-client run-a2a-client run-curl-client \
+  build-docker-acp build-docker-acp-tag-and-push \
+  check-env lint ruff-fix \
+  add-copyright-license-headers
 
-add-copyright-license-headers:
-	@echo "Adding copyright license headers..."
-	docker run --rm -v $(shell pwd)/agent_argocd:/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
+## ========== Setup & Clean ==========
 
-setup-venv:
-	@echo "======================================="
-	@echo " Setting up the Virtual Environment   "
-	@echo "======================================="
+setup-venv:        ## Create the Python virtual environment
+	@echo "Setting up virtual environment..."
 	@if [ ! -d ".venv" ]; then \
-		python3 -m venv .venv; \
-		echo "Virtual environment created."; \
+		python3 -m venv .venv && echo "Virtual environment created."; \
 	else \
 		echo "Virtual environment already exists."; \
 	fi
+	@echo "To activate manually, run: source .venv/bin/activate"
+	@. .venv/bin/activate
 
-	@echo "======================================="
-	@echo " Activating virtual environment       "
-	@echo "======================================="
-	@echo "To activate venv manually, run: source .venv/bin/activate"
-	. .venv/bin/activate
+clean-pyc:         ## Remove Python bytecode and __pycache__
+	@echo "Cleaning up Python bytecode and __pycache__ directories..."
+	@find . -type d -name "__pycache__" -exec rm -rf {} + || echo "No __pycache__ directories found."
 
-clean-pyc:
-	@echo "Cleaning up __pycache__ directories..."
-	@find . -type d -name "__pycache__" -exec rm -rf {} +
+clean-venv:        ## Remove the virtual environment
+	@rm -rf .venv && echo "Virtual environment removed." || echo "No virtual environment found."
 
-clean-venv:
-	@echo "Cleaning up the virtual environment..."
-	@if [ -d ".venv" ]; then \
-		rm -rf .venv; \
-		echo "Virtual environment removed."; \
-	else \
-		echo "No virtual environment found."; \
-	fi
-clean-build-artifacts:
+clean-build-artifacts: ## Remove dist/, build/, egg-info/
 	@echo "Cleaning up build artifacts..."
-	@if [ -d "build" ]; then \
-		rm -rf build; \
-		echo "Build artifacts removed."; \
-	else \
-		echo "No build artifacts found."; \
-	fi
+	@rm -rf dist $(AGENT_NAME).egg-info || echo "No build artifacts found."
 
-	@echo "Cleaning up the build artifacts..."
-	@if [ -d "dist" ]; then \
-		rm -rf dist; \
-		echo "Build artifacts removed."; \
-	else \
-		echo "No build artifacts found."; \
-	fi
-	@echo "Cleaning up the A2A SDK..."
-	@echo "Cleaning up the agent_argocd.egg-info..."
-	@if [ -d "agent_argocd.egg-info" ]; then \
-		rm -rf agent_argocd.egg-info; \
-		echo "agent_argocd.egg-info removed."; \
-	else \
-		echo "No agent_argocd.egg-info found."; \
-	fi
+clean:             ## Clean all build artifacts and cache
+	@$(MAKE) clean-pyc
+	@$(MAKE) clean-venv
+	@$(MAKE) clean-build-artifacts
+	@find . -type d -name ".pytest_cache" -exec rm -rf {} + || echo "No .pytest_cache directories found."
 
-clean: clean-pyc clean-venv clean-build-artifacts
-	@echo "Cleaning up all temporary files..."
-	@find . -type d -name "__pycache__" -exec rm -rf {} +
-	@find . -type d -name "*.egg-info" -exec rm -rf {} +
-	@find . -type d -name ".pytest_cache" -exec rm -rf {} +
+## ========== Helpers ==========
 
-
-install-uv:
-	@echo "Installing uv using pip..."
-	. .venv/bin/activate && pip install uv
-
-activate-venv:
-	@echo "Activating virtual environment..."
-	@if [ -d "venv" ]; then \
-		. venv/bin/activate; \
-	else \
-		echo "Virtual environment not found. Please run 'make setup-venv' first."; \
-	fi
-
-build:
-	@echo "======================================="
-	@echo " Building the package using poetry... "
-	@echo "======================================="
-	poetry build
-
-# install:
-# 	@echo "======================================="
-# 	@echo " Activating virtual environment and    "
-# 	@echo " Installing poetry the current package "
-# 	@echo "======================================="
-# 	. .venv/bin/activate && poetry install
-
-run: build
-	@echo "Running the application..."
-	. .venv/bin/activate && . .env && python3 -m agent_template
-
-run-acp: setup-venv build install
+check-env:         ## Internal: check that .env file exists
 	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found. Please create a .env file before running this target."; \
-		exit 1; \
+		echo "Error: .env file not found."; exit 1; \
 	fi
-	# Temporarily using workflow server from a fork until Python 3.13 is supported in Agntcy workflow server
-	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy -b ghcr.io/sriaradhyula/acp/wfsrv:latest -m ./agent_argocd/protocol_bindings/acp_server/agent_manifest.json --envFilePath=./.env --showConfig --dryRun=false
 
-verify-a2a-sdk: setup-venv
-	. .venv/bin/activate && python3 -c "import a2a; print('A2A SDK imported successfully')"
+# Define helper variables for environment activation
+venv-activate = . .venv/bin/activate
+load-env = set -a && . .env && set +a
+venv-run = $(venv-activate) && $(load-env) &&
 
-run-a2a: setup-venv install-uv build verify-a2a-sdk
-	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found. Please create a .env file before running this target."; \
-		exit 1; \
-	fi
-	@echo "Running the A2A agent..."
-	. .venv/bin/activate && set -a && . .env && set +a && uv run agent_argocd
+## ========== Install ==========
 
-run-acp-client: build install
-	@echo "Running the client..."
-	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found. Please create a .env file before running this target."; \
-		exit 1; \
-	fi
-	. .venv/bin/activate && set -a && . .env && set +a && \
-	uv run client/acp_client.py
+install-uv:        ## Install the uv package manager
+	@$(venv-run) pip install uv
 
-run-a2a-client: build install verify-a2a-sdk
-	@echo "Running the client..."
-	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found. Please create a .env file before running this target."; \
-		exit 1; \
-	fi
-	. .venv/bin/activate && set -a && . .env && set +a && \
-	uv run client/a2a_client.py
+install-wfsm:      ## Install workflow service manager from AGNTCY
+	curl -sSL https://raw.githubusercontent.com/agntcy/workflow-srv-mgr/refs/heads/install-sh-tag-cmd-args/install.sh -t v0.3.1 | bash
 
-run-curl-client: build install
-	@echo "Running the curl client..."
-	. .venv/bin/activate && set -a && . .env && set +a && \
-	./client/client_curl.sh
+## ========== Build & Lint ==========
 
-langgraph-dev: build install
-	@echo "Running the LangGraph agent..."
-	. .venv/bin/activate && . .env && langgraph dev
+build:             ## Build the package using Poetry
+	@poetry build
 
-lint: setup-venv
-	@echo "Running ruff..."
-	. .venv/bin/activate && ruff check agent_argocd tests
+lint: setup-venv   ## Run ruff linter
+	@echo "Running ruff linter..."
+	@$(venv-activate) && poetry install && ruff check $(AGENT_NAME) tests
 
-ruff-fix: setup-venv
-	@echo "Running ruff and fix lint errors..."
-	. .venv/bin/activate && ruff check agent_argocd tests --fix
+ruff-fix: setup-venv     ## Auto-fix lint errors
+	@$(venv-activate) && ruff check $(AGENT_NAME) tests --fix
 
-evals: setup-venv
-	@echo "Running Agent Strict Trajectory Matching evals..."
-	@echo "Installing agentevals with Poetry..."
-	. .venv/bin/activate && uv add agentevals tabulate pytest
-	set -a && . .env && set +a && uv run evals/strict_match/test_strict_match.py
+## ========== Run Targets ==========
 
+run:               ## Run the default agent
+	@$(venv-run) python3 -m agent_template
 
-help:
+run-acp:           ## Run ACP agent with wfsm
+	@$(MAKE) check-env
+	@$(venv-run) wfsm deploy -b ghcr.io/sriaradhyula/acp/wfsrv:latest -m ./$(AGENT_NAME)/protocol_bindings/acp_server/agent.json --envFilePath=./.env --dryRun=false
+
+verify-a2a-sdk:    ## Verify A2A SDK is available
+	@$(venv-run) python3 -c "import a2a; print('A2A SDK imported successfully')"
+
+run-a2a:           ## Run A2A agent
+	@$(MAKE) check-env
+	@$(venv-run) uv run $(AGENT_NAME)
+
+run-acp-client:    ## Run the ACP client
+	@$(MAKE) check-env
+	@$(venv-run) uv run client/acp_client.py
+
+run-a2a-client:    ## Run the A2A client
+	@$(MAKE) check-env
+	@$(venv-run) uv run client/a2a_client.py
+
+run-curl-client:   ## Run the curl-based test client
+	@$(MAKE) check-env
+	@$(venv-run) ./client/client_curl.sh
+
+langgraph-dev:     ## Run the agent with LangGraph dev mode
+	@$(venv-run) langgraph dev
+
+evals:             ## Run agent evaluation script
+	@$(venv-run) uv add agentevals tabulate pytest
+	@$(venv-run) uv run evals/strict_match/test_strict_match.py
+
+## ========== Docker ==========
+
+build-docker-acp:  ## Build Docker image for ACP
+	@docker build -t $(AGENT_NAME):acp-latest -f build/Dockerfile.acp .
+
+build-docker-acp-tag-and-push: ## Build and push Docker image for ACP
+	@$(MAKE) build-docker-acp
+	@docker tag $(AGENT_NAME):acp-latest ghcr.io/cnoe-io/$(AGENT_NAME):acp-latest
+	@docker push ghcr.io/cnoe-io/$(AGENT_NAME):acp-latest
+
+## ========= Run Docker ==========
+
+run-docker-acp: ## Run the ACP agent in Docker
+	@echo "Running Docker container for agent_argocd with agent ID: $$AGENT_ID"
+	@AGENT_ID=$$(cat .env | grep CNOE_AGENT_ARGOCD_ID | cut -d '=' -f2); \
+	docker run --rm -it \
+		-v $(PWD)/.env:/opt/agent_src/.env \
+		--env-file .env \
+		-e AGWS_STORAGE_PERSIST=False \
+		-e AGENT_MANIFEST_PATH="manifest.json" \
+		-e AGENT_REF='{"'$$AGENT_ID'": "agent_argocd.graph:graph"}' \
+		-e AIOHTTP_CLIENT_MAX_REDIRECTS=10 \
+		-e AIOHTTP_CLIENT_TIMEOUT=60 \
+		-p 0.0.0.0:8000:10000 \
+		ghcr.io/cnoe-io/agent_argocd:acp-latest
+
+## ========= Tests ==========
+test: setup-venv build         ## Run all tests excluding evals
+	@echo "Running unit tests..."
+	@$(venv-activate) && poetry install
+	@$(venv-activate) && poetry add pytest-asyncio --dev
+	@$(venv-activate) && poetry add pytest-cov --dev
+	@$(venv-activate) && pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_NAME) --cov-report=term --cov-report=xml
+
+## ========= AGNTCY Agent Directory ==========
+registry-agntcy-directory: ## Update the AGNTCY directory
+	@echo "Registering $(AGENT_NAME) to AGNTCY Agent Directory..."
+	@dirctl hub push outshift_platform_engineering/agent_argocd ./$(AGENT_NAME)/protocol_bindings/acp_server/agent.json
+
+## ========== Licensing & Help ==========
+
+add-copyright-license-headers: ## Add license headers with Google tool
+	@docker run --rm -v $(shell pwd)/$(AGENT_NAME):/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
+
+help:              ## Show this help message
 	@echo "Available targets:"
-	@echo "  setup-venv           Create virtual environment in .venv and install dependencies"
-	@echo "  activate-venv        Activate the virtual environment"
-	@echo "  build                Build the project using poetry"
-	@echo "  install              Install the package"
-	@echo "  run                  Build, install, and run the application"
-	@echo "  run-acp              Deploy using wfsm with ACP configuration"
-	@echo "  verify-a2a-sdk          Clone and install the A2A SDK"
-	@echo "  run-a2a              Run the agent with A2A protocol"
-	@echo "  run-acp-client       Run the ACP client application"
-	@echo "  run-a2a-client       Run the A2A client application"
-	@echo "  run-curl-client      Run the curl client script"
-	@echo "  langgraph-dev        Run the LangGraph agent"
-	@echo "  lint                 Run ruff linter"
-	@echo "  evals                Run Agent Strict Trajectory Matching evals"
-	@echo "  add-copyright-license-headers  Add copyright license headers"
-	@echo "  help                 Show this help message"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-30s %s\n", $$1, $$2}'
