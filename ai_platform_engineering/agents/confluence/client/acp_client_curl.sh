@@ -1,11 +1,11 @@
 curl -s -H "Content-Type: application/json"      -H "x-api-key: $API_KEY"      -d '{
            "agent_id": "'"$AGENT_ID"'",
            "input": {
-             "atlassian_input": {
+             "input": {
                "messages": [
                  {
                    "type": "human",
-                   "content": "Get version information of the ATLASSIAN server"
+                   "content": "Get version information of the ARGO CD server"
                  }
                ]
              }
