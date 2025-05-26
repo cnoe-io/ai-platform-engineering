@@ -1,4 +1,5 @@
 # Maintainers
 
-- [jsd784](https://github.com/jsd784)
 - [sriaradhyula](https://github.com/sriaradhyula)
+- [sbraicu](https://github.com/sbraicu)
+- [artdroz](https://github.com/artdroz)
