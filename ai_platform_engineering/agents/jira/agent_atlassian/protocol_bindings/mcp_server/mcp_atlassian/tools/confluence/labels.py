@@ -13,54 +13,50 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp-confluence")
 
 async def get_labels(
-    ctx: Context,
-    page_id: Annotated[
-        str,
-        Field(
-            description=(
-                "Confluence page ID (numeric ID, can be parsed from URL, "
-                "e.g. from 'https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title' "
-                "-> '123456789')"
-            )
-        ),
-    ],
-) -> str:
-    """Get labels for a specific Confluence page.
+    page_id: str
+) -> dict:
+    """
+    Get labels for a specific Confluence page.
 
     Args:
-        ctx: The FastMCP context.
-        page_id: Confluence page ID.
+        page_id: Confluence page ID
 
     Returns:
-        JSON string representing a list of label objects.
+        Response JSON from Confluence API or error dict.
     """
-    response = await make_api_request(
+    success, response = await make_api_request(
         endpoint=f"/rest/api/content/{page_id}/label",
-        method="GET",
+        method="GET"
     )
-    return json.dumps(response, indent=2, ensure_ascii=False)
+
+    if success:
+        return response
+    else:
+        logger.error(f"Failed to get labels for page {page_id}: {response}")
+        return response
 
 async def add_label(
-    ctx: Context,
-    page_id: Annotated[str, Field(description="The ID of the page to update")],
-    name: Annotated[str, Field(description="The name of the label")],
-) -> str:
-    """Add label to an existing Confluence page.
+    page_id: str,
+    name: str
+) -> dict:
+    """
+    Add label to an existing Confluence page.
 
     Args:
-        ctx: The FastMCP context.
-        page_id: The ID of the page to update.
-        name: The name of the label.
+        page_id: The ID of the page to update
+        name: The name of the label to add
 
     Returns:
-        JSON string representing the updated list of label objects for the page.
-
-    Raises:
-        ValueError: If in read-only mode or Confluence client is unavailable.
+        Response JSON from Confluence API or error dict.
     """
-    response = await make_api_request(
+    success, response = await make_api_request(
         endpoint=f"/rest/api/content/{page_id}/label",
         method="POST",
-        json={"name": name},
+        json={"name": name}
     )
-    return json.dumps(response, indent=2, ensure_ascii=False)
+
+    if success:
+        return response
+    else:
+        logger.error(f"Failed to add label '{name}' to page {page_id}: {response}")
+        return response
