@@ -130,7 +130,7 @@ evals: setup-venv ## Run agentevals with test cases
 ## ========== Docker ==========
 
 build-docker-acp:            ## Build ACP Docker image
-	docker build -t $(AGENT_DIR_NAME):acp-latest --build-arg AGENT_NAME=atlassian -f build/Dockerfile.acp .
+	docker build -t $(AGENT_DIR_NAME):acp-latest --build-arg AGENT_NAME=argocd -f build/Dockerfile.acp .
 
 build-docker-acp-tag:        ## Tag ACP Docker image
 	docker tag $(AGENT_DIR_NAME):acp-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest
