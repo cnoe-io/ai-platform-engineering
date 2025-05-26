@@ -9,7 +9,7 @@ async def test_async_argocd_agent_success():
     ]
 
     mock_state = AgentState(
-        argocd_input=InputState(messages=mock_messages)
+        input=InputState(messages=mock_messages)
     )
 
     mock_config = {
@@ -47,8 +47,8 @@ async def test_async_argocd_agent_success():
       result = await _async_argocd_agent(mock_state, mock_config)
 
       # Verify the result
-      assert "argocd_output" in result
-      assert hasattr(result["argocd_output"], "messages")
-      assert len(result["argocd_output"].messages) > 0
+      assert "output" in result
+      assert hasattr(result["output"], "messages")
+      assert len(result["output"].messages) > 0
       assert any(msg.type == MsgType.assistant and "Sync completed successfully" in msg.content
-            for msg in result["argocd_output"].messages)
+            for msg in result["output"].messages)

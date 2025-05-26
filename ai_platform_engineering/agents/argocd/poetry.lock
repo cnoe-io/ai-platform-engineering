@@ -4336,6 +4336,21 @@ examples = ["fastapi"]
 uvicorn = ["uvicorn (>=0.34.0)"]
 
 [[package]]
+name = "sseclient"
+version = "0.0.27"
+description = "Python client library for reading Server Sent Event streams."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "sseclient-0.0.27.tar.gz", hash = "sha256:b2fe534dcb33b1d3faad13d60c5a7c718e28f85987f2a034ecf5ec279918c11c"},
+]
+
+[package.dependencies]
+requests = ">=2.9"
+six = "*"
+
+[[package]]
 name = "starlette"
 version = "0.46.2"
 description = "The little ASGI library that shines."
@@ -5122,4 +5137,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "5c16fc54f665d38554380888289b13235258114449ad44158cca64e31180b659"
+content-hash = "7472babd1fcacd62969e335c80555d238d558277d95030ea0df051df0c4c2d30"

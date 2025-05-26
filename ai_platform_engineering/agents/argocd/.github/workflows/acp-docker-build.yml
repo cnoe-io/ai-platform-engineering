@@ -45,7 +45,7 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
-      - name: Build and Push Docker image
+      - name: Build and Push ACP Docker image
         uses: docker/build-push-action@v4
         with:
           context: .

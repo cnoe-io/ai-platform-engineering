@@ -36,6 +36,7 @@ from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.tools import api_v1_st
 from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.tools import api_v1_write_repocreds
 from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.tools import api_v1_write_repositories
 from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.tools import api_version
+import os
 
 # Load environment variables
 load_dotenv()
@@ -43,8 +44,25 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
+# Get MCP configuration from environment variables
+
+# Determine mode (SSE or STDIO)
+MCP_MODE = os.getenv("MCP_MODE", "STDIO")
+
+# Get host and port for server
+MCP_HOST = os.getenv("MCP_HOST", "localhost")
+MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
+
+logging.info(f"Starting MCP server in {MCP_MODE} mode on {MCP_HOST}:{MCP_PORT}")
+
+# Get agent name from environment variables
+AGENT_NAME = os.getenv("AGENT_NAME", "ArgoCD Agent")
+logging.info(f"Agent name: {AGENT_NAME}")
 # Create server instance
-mcp = FastMCP("argocd MCP Server")
+if MCP_MODE == "SSE":
+  mcp = FastMCP(f"{AGENT_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
+else:
+  mcp = FastMCP(f"{AGENT_NAME} MCP Server")
 
 # Register tools
 # Register api_v1_account tools

@@ -34,5 +34,5 @@ class OutputState(BaseModel):
 
 
 class AgentState(BaseModel):
-    argocd_input: InputState
-    argocd_output: Optional[OutputState] = None
+    input: InputState
+    output: Optional[OutputState] = None

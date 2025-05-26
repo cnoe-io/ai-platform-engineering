@@ -31,6 +31,14 @@ from agent_argocd.protocol_bindings.a2a_server.state import (
 
 logger = logging.getLogger(__name__)
 
+def debug_print(message: str, banner: bool = True):
+    if os.getenv("ACP_SERVER_DEBUG", "false").lower() == "true":
+        if banner:
+            print("=" * 80)
+        print(f"DEBUG: {message}")
+        if banner:
+            print("=" * 80)
+
 memory = MemorySaver()
 
 class ResponseFormat(BaseModel):
@@ -151,15 +159,13 @@ class ArgoCDAgent:
               output_messages = []
 
           # Add a banner before printing the output messages
-          print("=" * 80)
-          print(f"Agent MCP Capabilities: {output_messages[-1].content}")
-          print("=" * 80)
+          debug_print(f"Agent MCP Capabilities: {output_messages[-1].content}")
 
       def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           return asyncio.run(_async_argocd_agent(state, config))
       messages = []
       state_input = InputState(messages=messages)
-      agent_input = AgentState(argocd_input=state_input).model_dump(mode="json")
+      agent_input = AgentState(input=state_input).model_dump(mode="json")
       runnable_config = RunnableConfig()
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
@@ -175,9 +181,7 @@ class ArgoCDAgent:
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
-          print('*'*80)
-          print("DEBUG: Streamed message:", message)
-          print('*'*80)
+          debug_print(f"Streamed message: {message}")
           if (
               isinstance(message, AIMessage)
               and message.tool_calls
@@ -197,22 +201,18 @@ class ArgoCDAgent:
 
       yield self.get_agent_response(config)
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
-      print("DEBUG: Fetching agent response with config:", config)
+      debug_print(f"Fetching agent response with config: {config}")
       current_state = self.graph.get_state(config)
-      print('*'*80)
-      print("DEBUG: Current state:", current_state)
-      print('*'*80)
+      debug_print(f"Current state: {current_state}")
 
       structured_response = current_state.values.get('structured_response')
-      print('='*80)
-      print("DEBUG: Structured response:", structured_response)
-      print('='*80)
+      debug_print(f"Structured response: {structured_response}")
       if structured_response and isinstance(
         structured_response, ResponseFormat
       ):
-        print("DEBUG: Structured response is a valid ResponseFormat")
+        debug_print("Structured response is a valid ResponseFormat")
         if structured_response.status in {'input_required', 'error'}:
-          print("DEBUG: Status is input_required or error")
+          debug_print("Status is input_required or error")
           return {
             'is_task_complete': False,
             'require_user_input': True,

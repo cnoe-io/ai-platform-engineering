@@ -47,6 +47,8 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "pytest" },
+    { name = "rich" },
+    { name = "sseclient" },
     { name = "tabulate" },
     { name = "uv" },
 ]
@@ -65,6 +67,8 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3.17" },
     { name = "langgraph", specifier = ">=0.4.5" },
     { name = "pytest", specifier = ">=8.3.5" },
+    { name = "rich", specifier = ">=14.0.0,<15.0.0" },
+    { name = "sseclient", specifier = ">=0.0.27,<0.0.28" },
     { name = "tabulate", specifier = ">=0.9.0" },
     { name = "uv" },
 ]
@@ -2306,6 +2310,16 @@ sdist = { url = "https://files.pythonhosted.org/packages/10/5f/28f45b1ff14bee871
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/48/3e49cf0f64961656402c0023edbc51844fe17afe53ab50e958a6dbbbd499/sse_starlette-2.3.5-py3-none-any.whl", hash = "sha256:251708539a335570f10eaaa21d1848a10c42ee6dc3a9cf37ef42266cdb1c52a8", size = 10233, upload-time = "2025-05-12T18:23:50.722Z" },
 ]
+
+[[package]]
+name = "sseclient"
+version = "0.0.27"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cf/6c/fa601216344952be8f9a51a3f49b4274bbbc58bd395f87f67f6131726358/sseclient-0.0.27.tar.gz", hash = "sha256:b2fe534dcb33b1d3faad13d60c5a7c718e28f85987f2a034ecf5ec279918c11c", size = 7465, upload-time = "2020-09-25T02:46:41.997Z" }
 
 [[package]]
 name = "starlette"

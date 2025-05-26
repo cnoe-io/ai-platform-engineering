@@ -138,10 +138,10 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
     args = config.get("configurable", {})
     logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")
 
-    if hasattr(state.argocd_input, "messages"):
-        messages = getattr(state.argocd_input, "messages")
-    elif "messages" in state.argocd_input:
-        messages = [Message.model_validate(m) for m in state.argocd_input["messages"]]
+    if hasattr(state.input, "messages"):
+        messages = getattr(state.input, "messages")
+    elif "messages" in state.input:
+        messages = [Message.model_validate(m) for m in state.input["messages"]]
     else:
         messages = []
 
@@ -220,7 +220,7 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
 
     logger.debug(f"Final output messages: {output_messages}")
 
-    return {"argocd_output": OutputState(messages=(messages or []) + output_messages)}
+    return {"output": OutputState(messages=(messages or []) + output_messages)}
 
 # Sync wrapper for workflow server
 def agent_argocd(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
