@@ -9,8 +9,8 @@
 [![Super Linter](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml)
 [![Unit Tests](https://github.com/cnoe-io/agent-argocd/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/unit-tests.yml)
 
-[![ACP Docker Build and Push](https://github.com/cnoe-io/agent-argocd/actions/workflows/docker-build.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/docker-build.yml)
-
+[![ACP Docker Build and Push](https://github.com/cnoe-io/agent-argocd/actions/workflows/acp-docker-build.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/acp-docker-build.yml)
+[![A2A Docker Build and Push](https://github.com/cnoe-io/agent-argocd/actions/workflows/a2a-docker-build.yml/badge.svg)](https://github.com/cnoe-io/agent-argocd/actions/workflows/a2a-docker-build.yml)
 ---
 
 ## 🧪 Evaluation Badges
