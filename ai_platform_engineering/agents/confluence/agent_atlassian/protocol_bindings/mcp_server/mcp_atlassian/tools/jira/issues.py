@@ -578,50 +578,41 @@ async def batch_get_changelogs(
     return json.dumps(results, indent=2, ensure_ascii=False)
 
 async def delete_issue(
-    ctx: Context,
-    issue_key: Annotated[str, Field(description="Jira issue key (e.g., 'PROJ-123')")],
-    delete_subtasks: Annotated[
-        bool,
-        Field(
-            description="Whether to delete the issue's subtasks (true) or not (false)",
-            default=False,
-        ),
-    ] = False,
-) -> str:
-    """Delete a Jira issue.
+    issue_key: str,
+    delete_subtasks: bool = False
+) -> dict:
+    """
+    Delete a Jira issue using the REST API.
 
     Args:
-        ctx: The FastMCP context.
-        issue_key: The key of the issue to delete.
-        delete_subtasks: Whether to delete subtasks as well (default: False).
+        issue_key: The key of the issue to delete (e.g., PROJ-123)
+        delete_subtasks: Whether to delete subtasks as well (default: False)
 
     Returns:
-        JSON string indicating success or error details.
-
-    Raises:
-        ValueError: If issue_key is missing or invalid.
+        Response JSON indicating success or containing error details
     """
-    logger.debug(f"delete_issue called with issue_key={issue_key}, delete_subtasks={delete_subtasks}")
-
     if not issue_key:
-        raise ValueError("issue_key is required")
-
-    # Prepare the query parameters
-    params = {
-        "deleteSubtasks": str(delete_subtasks).lower()  # Convert to lowercase 'true' or 'false'
-    }
-
+        return {"error": "Issue key is required"}
+    
+    logger.info(f"Deleting Jira issue {issue_key} (with subtasks: {delete_subtasks})")
+    
+    params = {"deleteSubtasks": str(delete_subtasks).lower()}
+    
     success, response = await make_api_request(
         path=f"rest/api/3/issue/{issue_key}",
         method="DELETE",
         params=params
     )
+    
+    if success or getattr(response, "status", None) == 204:
+        return {"success": True, "message": f"Issue {issue_key} deleted successfully"}
+    
+    try:
+        error_details = await response.json()
+    except Exception:
+        error_details = getattr(response, "text", str(response))
+    
+    logger.error(f"Failed to delete Jira issue {issue_key}: {error_details}")
+    return {"error": error_details}
 
-    if success:
-        # DELETE requests often return no content (204) when successful
-        result = {"message": f"Issue {issue_key} deleted successfully"}
-        return json.dumps(result, indent=2, ensure_ascii=False)
-    else:
-        logger.error(f"Failed to delete Jira issue: {response}")
-        return json.dumps(response, indent=2, ensure_ascii=False)
 
