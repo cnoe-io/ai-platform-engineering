@@ -64,16 +64,22 @@ venv-run = $(venv-activate) && $(load-env) &&
 
 ## ========== Install ==========
 
+install: setup-venv ## Install Python dependencies using Poetry
+	@echo "Installing dependencies..."
+	@$(venv-activate) && poetry install --no-interaction
+	@echo "Dependencies installed successfully."
+
 install-uv:        ## Install uv package manager
 	@$(venv-run) pip install uv
+
 
 install-wfsm:      ## Install workflow server manager (wfsm)
 	curl -sSL https://raw.githubusercontent.com/agntcy/workflow-srv-mgr/refs/heads/install-sh-tag-cmd-args/install.sh -t v0.3.1 | bash
 
 ## ========== Build & Lint ==========
 
-build:             ## Build the package using Poetry
-	@poetry build
+build: setup-venv  ## Build the package using Poetry
+	@$(venv-activate) && poetry build
 
 lint: setup-venv   ## Lint code with ruff
 	@$(venv-activate) && poetry install && ruff check $(AGENT_PKG_NAME) tests
@@ -83,48 +89,48 @@ ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 
 ## ========== Run ==========
 
-run-acp:           ## Deploy ACP agent via wfsm
+run-acp: setup-venv ## Deploy ACP agent via wfsm
 	@$(MAKE) check-env
 	@$(venv-run) wfsm deploy -b ghcr.io/sriaradhyula/acp/wfsrv:latest -m ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json --envFilePath=./.env --dryRun=false
 
-run-a2a:           ## Run A2A agent with uvicorn
+run-a2a: setup-venv ## Run A2A agent with uvicorn
 	@$(MAKE) check-env
 	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
 	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_AGENT_PORT:-8000}
 
-run-mcp:           ## Run MCP server in SSE mode
+run-mcp: setup-venv ## Run MCP server in SSE mode
 	@$(MAKE) check-env
 	@$(venv-run) MCP_MODE=SSE uv run $(AGENT_PKG_NAME)/protocol_bindings/mcp_server/$(MCP_SERVER_DIR)/server.py
 
 ## ========== Clients ==========
 
-run-acp-client:    ## Run ACP client script
+run-acp-client: setup-venv ## Run ACP client script
 	@$(MAKE) check-env
 	@$(venv-run) uv run client/acp_client.py
 
-run-a2a-client:    ## Run A2A client script
+run-a2a-client: setup-venv ## Run A2A client script
 	@$(MAKE) check-env
 	@$(venv-run) uv run client/a2a_client.py
 
-run-mcp-client:    ## Run MCP client script
+run-mcp-client: setup-venv ## Run MCP client script
 	@$(MAKE) check-env
 	@$(venv-run) uv run client/mcp_client.py
 
-run-curl-client:   ## Run shell-based CURL client
+run-curl-client: setup-venv ## Run shell-based CURL client
 	@$(MAKE) check-env
 	@$(venv-run) ./client/client_curl.sh
 
-langgraph-dev:     ## Run LangGraph dev mode
+langgraph-dev: setup-venv ## Run LangGraph dev mode
 	@$(venv-run) langgraph dev
 
-evals:             ## Run agentevals with test cases
+evals: setup-venv ## Run agentevals with test cases
 	@$(venv-run) uv add agentevals tabulate pytest
 	@$(venv-run) uv run evals/strict_match/test_strict_match.py
 
 ## ========== Docker ==========
 
 build-docker-acp:            ## Build ACP Docker image
-	docker build -t $(AGENT_DIR_NAME):acp-latest -f build/Dockerfile.acp .
+	docker build -t $(AGENT_DIR_NAME):acp-latest --build-arg AGENT_NAME=argocd -f build/Dockerfile.acp .
 
 build-docker-acp-tag:        ## Tag ACP Docker image
 	docker tag $(AGENT_DIR_NAME):acp-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest
