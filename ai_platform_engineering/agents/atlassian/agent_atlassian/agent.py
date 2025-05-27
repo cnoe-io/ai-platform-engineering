@@ -152,9 +152,22 @@ async def _async_atlassian_agent(state: AgentState, config: RunnableConfig) -> D
     if not atlassian_email:
         raise ValueError("ATLASSIAN_EMAIl must be set as an environment variable.")
 
-    if hasattr(state.atlassian_input, "messages"):
+    # Parse input from the client format
+    if state.atlassian_input is None:
+        # Check if input comes in the standard format from the client
+        if hasattr(state, 'input') and state.input:
+            input_data = state.input
+        else:
+            # Fallback: try to find input in the state directly
+            input_data = getattr(state, 'input', {})
+        
+        if isinstance(input_data, dict) and "messages" in input_data:
+            messages = [Message.model_validate(m) for m in input_data["messages"]]
+        else:
+            messages = []
+    elif hasattr(state.atlassian_input, "messages"):
         messages = getattr(state.atlassian_input, "messages")
-    elif "messages" in state.atlassian_input:
+    elif isinstance(state.atlassian_input, dict) and "messages" in state.atlassian_input:
         messages = [Message.model_validate(m) for m in state.atlassian_input["messages"]]
     else:
         messages = []
