@@ -34,5 +34,6 @@ class OutputState(BaseModel):
 
 
 class AgentState(BaseModel):
-    atlassian_input: InputState
+    atlassian_input: Optional[InputState] = None
     atlassian_output: Optional[OutputState] = None
+    input: Optional[dict] = None  # Add field to capture client input

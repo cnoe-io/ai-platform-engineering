@@ -13,90 +13,73 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp-confluence")
 
 async def get_comments(
-    ctx: Context,
-    page_id: Annotated[
-        str,
-        Field(
-            description=(
-                "Confluence page ID (numeric ID, can be parsed from URL, "
-                "e.g. from 'https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title' "
-                "-> '123456789')"
-            )
-        ),
-    ],
-) -> str:
-    """Get comments for a specific Confluence page.
+    page_id: str,
+    limit: int = 25,
+    start: int = 0,
+    expand: str = "body.view,version"
+) -> dict:
+    """
+    Get comments for a specific Confluence page.
 
     Args:
-        ctx: The FastMCP context.
-        page_id: Confluence page ID.
+        page_id: Confluence page ID
+        limit: Maximum number of comments to return (default: 25)
+        start: Starting index for pagination (default: 0)
+        expand: Fields to expand in the response (default: "body.view,version")
 
     Returns:
-        JSON string representing a list of comment objects.
+        Response JSON from Confluence API or error dict.
     """
-    response = await make_api_request(
+    params = {
+        "limit": limit,
+        "start": start,
+        "expand": expand
+    }
+    
+    success, response = await make_api_request(
         endpoint=f"/rest/api/content/{page_id}/child/comment",
         method="GET",
+        params=params
     )
-    return json.dumps(response, indent=2, ensure_ascii=False)
+
+    if success:
+        return response
+    else:
+        logger.error(f"Failed to get comments for page {page_id}: {response}")
+        return response
 
 async def add_comment(
-    ctx: Context,
-    page_id: Annotated[
-        str, Field(description="The ID of the page to add a comment to")
-    ],
-    content: Annotated[
-        str, Field(description="The comment content in Markdown format")
-    ],
-) -> str:
-    """Add a comment to a Confluence page.
+    page_id: str,
+    content: str
+) -> dict:
+    """
+    Add a comment to a Confluence page.
 
     Args:
-        ctx: The FastMCP context.
-        page_id: The ID of the page to add a comment to.
-        content: The comment content in Markdown format.
+        page_id: The ID of the page to add a comment to
+        content: The comment content in Markdown format
 
     Returns:
-        JSON string representing the created comment.
-
-    Raises:
-        ValueError: If in read-only mode or Confluence client is unavailable.
+        Response JSON from Confluence API or error dict.
     """
-    if ctx.request_context.lifespan_context.get("app_lifespan_context", {}).get("read_only", False):
-        logger.warning("Attempted to call add_comment in read-only mode.")
-        raise ValueError("Cannot add comment in read-only mode.")
+    payload = {
+        "type": "comment",
+        "body": {
+            "storage": {
+                "value": content,
+                "representation": "wiki",
+            }
+        }
+    }
+    
+    success, response = await make_api_request(
+        endpoint=f"/rest/api/content/{page_id}/child/comment",
+        method="POST",
+        json=payload
+    )
 
-    try:
-        response = await make_api_request(
-            endpoint=f"/rest/api/content/{page_id}/child/comment",
-            method="POST",
-            json={
-                "type": "comment",
-                "body": {
-                    "storage": {
-                        "value": content,
-                        "representation": "wiki",
-                    }
-                },
-            },
-        )
-        return json.dumps(
-            {
-                "success": True,
-                "message": "Comment added successfully",
-                "comment": response,
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
-    except Exception as e:
-        logger.error(f"Error adding comment to Confluence page {page_id}: {str(e)}")
-        return json.dumps(
-            {
-                "success": False,
-                "message": f"Error adding comment to page {page_id}",
-                "error": str(e),
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
+    if success:
+        return response
+    else:
+        logger.error(f"Failed to add comment to page {page_id}: {response}")
+        return response
