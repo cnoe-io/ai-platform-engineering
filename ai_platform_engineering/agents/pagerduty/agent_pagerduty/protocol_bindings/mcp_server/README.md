@@ -27,7 +27,7 @@ python -m agent_pagerduty.protocol_bindings.mcp_server.pagerduty_mcp.server
 
 The MCP server requires the following environment variables:
 
-- `PAGERDUTY_TOKEN`: Your PagerDuty API token
+- `PAGERDUTY_API_KEY`: Your PagerDuty API key
 - `PAGERDUTY_API_URL`: The PagerDuty API URL
 
 ## Available Tools

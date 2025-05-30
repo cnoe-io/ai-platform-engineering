@@ -29,7 +29,7 @@ The following environment variables should be set before deploying the agent:
 - `PAGERDUTY_API_URL`: The PagerDuty API URL
 - `AGENT_NAME`: The name of the agent
 - `AGENT_ID`: The unique identifier for the agent
-- `API_KEY`: The API key for the agent
+- `PAGERDUTY_API_KEY`: Your PagerDuty API key
 - `WFSM_PORT`: The port for the Workflow Server Manager
 
 Additional environment variables might be required depending on the chosen LLM provider. 

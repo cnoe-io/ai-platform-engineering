@@ -13,7 +13,7 @@ This directory contains the implementation of the PagerDuty agent using the A2A 
 
 The following environment variables are required:
 
-- `PAGERDUTY_TOKEN`: Your PagerDuty API token
+- `PAGERDUTY_API_KEY`: Your PagerDuty API key
 - `PAGERDUTY_API_URL`: The PagerDuty API URL
 - `LLM_PROVIDER`: The LLM provider to use (one of: "azure-openai", "openai", "anthropic-claude", "google-gemini")
 - `GOOGLE_API_KEY`: API key for Google Gemini (if using Google Gemini as the LLM provider)
