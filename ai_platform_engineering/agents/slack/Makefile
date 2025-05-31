@@ -1,189 +1,222 @@
-# Makefile
+# Common Makefile for CNOE Agent Projects
+# --------------------------------------------------
+# This Makefile provides common targets for building, testing, and running CNOE agents.
+# Usage:
+#   make <target>
+# --------------------------------------------------
 
-.PHONY: build setup-venv activate-venv install run run-acp run-client langgraph-dev help
+# Variables
+AGENT_NAME ?= slack
+AGENT_DIR_NAME = agent-$(shell echo $(AGENT_NAME))
+AGENT_PKG_NAME ?= agent_$(shell echo $(AGENT_NAME))
+MCP_SERVER_DIR ?= mcp_$(AGENT_NAME)
+VENV_DIR = /mnt/c/Users/kanav/OneDrive/Desktop/git_agent/.venv
 
-add-copyright-license-headers:
-	@echo "Adding copyright license headers..."
-	docker run --rm -v $(shell pwd)/agent_slack:/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
+## -------------------------------------------------
+.PHONY: \
+  build setup-venv activate-venv install run run-acp run-client \
+  langgraph-dev help clean clean-pyc clean-venv clean-build-artifacts \
+  install-uv install-wfsm verify-a2a-sdk evals \
+  run-a2a run-acp-client run-a2a-client run-curl-client \
+  run-mcp run-mcp-client test registry-agntcy-directory \
+  build-docker-acp build-docker-acp-tag build-docker-acp-push build-docker-acp-tag-and-push \
+  build-docker-a2a build-docker-a2a-tag build-docker-a2a-push build-docker-a2a-tag-and-push \
+  run-docker-acp run-docker-a2a \
+  check-env lint ruff-fix \
+  help add-copyright-license-headers install-a2a
 
-setup-venv:
-	@echo "======================================="
-	@echo " Setting up the Virtual Environment   "
-	@echo "======================================="
-	@if [ ! -d ".venv" ]; then \
-		python3 -m venv .venv; \
-		echo "Virtual environment created."; \
+## ========== Setup & Clean ==========
+
+setup-venv:        ## Create the Python virtual environment
+	@echo "Setting up virtual environment..."
+	@if [ ! -d "$(VENV_DIR)" ]; then \
+		python3 -m venv $(VENV_DIR) && echo "Virtual environment created."; \
 	else \
 		echo "Virtual environment already exists."; \
 	fi
+	@echo "To activate manually, run: source $(VENV_DIR)/bin/activate"
+	@. $(VENV_DIR)/bin/activate
 
-	@echo "======================================="
-	@echo " Activating virtual environment       "
-	@echo "======================================="
-	@echo "To activate venv manually, run: source .venv/bin/activate"
-	. .venv/bin/activate
+clean-pyc:         ## Remove Python bytecode and __pycache__
+	@find . -type d -name "__pycache__" -exec rm -rf {} + || echo "No __pycache__ directories found."
 
-clean-pyc:
-	@echo "Cleaning up __pycache__ directories..."
-	@find . -type d -name "__pycache__" -exec rm -rf {} +
+clean-venv:        ## Remove the virtual environment
+	@rm -rf $(VENV_DIR) && echo "Virtual environment removed." || echo "No virtual environment found."
 
-clean-venv:
-	@echo "Cleaning up the virtual environment..."
-	@if [ -d ".venv" ]; then \
-		rm -rf .venv; \
-		echo "Virtual environment removed."; \
-	else \
-		echo "No virtual environment found."; \
-	fi
-clean-build-artifacts:
-	@echo "Cleaning up build artifacts..."
-	@if [ -d "build" ]; then \
-		rm -rf build; \
-		echo "Build artifacts removed."; \
-	else \
-		echo "No build artifacts found."; \
+clean-build-artifacts: ## Remove dist/, build/, egg-info/
+	@rm -rf dist $(AGENT_PKG_NAME).egg-info || echo "No build artifacts found."
+
+clean:             ## Clean all build artifacts and cache
+	@$(MAKE) clean-pyc
+	@$(MAKE) clean-venv
+	@$(MAKE) clean-build-artifacts
+	@find . -type d -name ".pytest_cache" -exec rm -rf {} + || echo "No .pytest_cache directories found."
+
+## ========== Environment Helpers ==========
+
+check-env:         ## Check if .env file exists
+	@if [ ! -f "$(PWD)/.env" ]; then \
+		echo "Error: .env file not found."; exit 1; \
 	fi
 
-	@echo "Cleaning up the build artifacts..."
-	@if [ -d "dist" ]; then \
-		rm -rf dist; \
-		echo "Build artifacts removed."; \
-	else \
-		echo "No build artifacts found."; \
-	fi
-	@echo "Cleaning up the A2A SDK..."
-	@if [ -d "a2a-python" ]; then \
-		rm -rf a2a-python; \
-		echo "A2A SDK removed."; \
-	else \
-		echo "No A2A SDK found."; \
-	fi
-	@echo "Cleaning up the agent_slack.egg-info..."
-	@if [ -d "agent_slack.egg-info" ]; then \
-		rm -rf agent_slack.egg-info; \
-		echo "agent_slack.egg-info removed."; \
-	else \
-		echo "No agent_slack.egg-info found."; \
-	fi
+venv-activate = . $(VENV_DIR)/bin/activate
+load-env = set -a && . "$(PWD)/.env" && set +a
+venv-run = $(venv-activate) && $(load-env) &&
 
-clean: clean-pyc clean-venv clean-build-artifacts
-	@echo "Cleaning up all temporary files..."
-	@find . -type d -name "__pycache__" -exec rm -rf {} +
-	@find . -type d -name "*.egg-info" -exec rm -rf {} +
-	@find . -type d -name ".pytest_cache" -exec rm -rf {} +
+## ========== Install ==========
 
-install-uv:
-	@echo "Installing uv using pip..."
-	. .venv/bin/activate && pip install uv
+install-uv:        ## Install uv package manager
+	@$(venv-run) pip install uv
 
-activate-venv:
-	@echo "Activating virtual environment..."
-	@if [ -d "venv" ]; then \
-		. venv/bin/activate; \
-	else \
-		echo "Virtual environment not found. Please run 'make setup-venv' first."; \
-	fi
-
-build:
-	@echo "======================================="
-	@echo " Building the package using poetry... "
-	@echo "======================================="
-	poetry build
-
-# install:
-# 	@echo "======================================="
-# 	@echo " Activating virtual environment and    "
-# 	@echo " Installing poetry the current package "
-# 	@echo "======================================="
-# 	. .venv/bin/activate && poetry install
-
-run: build
-	@echo "Running the application..."
-	. .venv/bin/activate && . .env && python3 -m agent_template
-
-run-acp: setup-venv build install
-	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found. Please create a .env file before running this target."; \
-		exit 1; \
-	fi
-	. .venv/bin/activate && set -a && . .env && set +a && wfsm deploy \
-		-m agent_slack/protocol_bindings/acp_server/agent.json \
-		-e agent_slack/protocol_bindings/acp_server/agent-env.yaml \
-		--dryRun=false
-
-
+install-wfsm:      ## Install workflow server manager (wfsm)
+	curl -sSL https://raw.githubusercontent.com/agntcy/workflow-srv-mgr/refs/heads/install-sh-tag-cmd-args/install.sh -t v0.3.1 | bash
 
 install-a2a: setup-venv
 	@git clone https://github.com/google/a2a-python -b main --depth 1 || { echo "a2a-python repo already cloned or failed to clone."; }
-	. .venv/bin/activate && cd a2a-python && pip install -e . && \
+	$(venv-run) cd a2a-python && pip install -e . && \
 		echo "A2A SDK installed successfully."
-	. .venv/bin/activate && python3 -c "import a2a; print('A2A SDK imported successfully')"
+	$(venv-run) python3 -c "import a2a; print('A2A SDK imported successfully')"
 
-run-a2a: setup-venv install-uv build install-a2a
-	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found. Please create a .env file before running this target."; \
-		exit 1; \
-	fi
-	@echo "Running the A2A agent..."
-	. .venv/bin/activate && set -a && . .env && set +a && uv run agent_slack
+## ========== Build & Lint ==========
 
-run-acp-client: build install
-	@echo "Running the client..."
-	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found. Please create a .env file before running this target."; \
-		exit 1; \
-	fi
-	. .venv/bin/activate && set -a && . .env && set +a && \
-	uv run client/acp_client.py
+build:             ## Build the package using Poetry
+	@poetry build
 
-run-a2a-client: build install install-a2a
-	@echo "Running the client..."
-	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found. Please create a .env file before running this target."; \
-		exit 1; \
-	fi
-	. .venv/bin/activate && set -a && . .env && set +a && \
-	uv run client/a2a_client.py
+lint: setup-venv   ## Lint code with ruff
+	@$(venv-activate) && poetry install && ruff check $(AGENT_PKG_NAME) tests
 
-run-curl-client: build install
-	@echo "Running the curl client..."
-	. .venv/bin/activate && set -a && . .env && set +a && \
-	./client/client_curl.sh
+ruff-fix: setup-venv ## Auto-fix lint issues with ruff
+	@$(venv-activate) && ruff check $(AGENT_PKG_NAME) tests --fix
 
-langgraph-dev: build install
-	@echo "Running the LangGraph agent..."
-	. .venv/bin/activate && . .env && langgraph dev
+## ========== Run ==========
 
-lint: setup-venv
-	@echo "Running ruff..."
-	. .venv/bin/activate && ruff check agent_slack tests
+run-acp:           ## Deploy ACP agent via wfsm
+	@$(MAKE) check-env
+	@$(venv-run) wfsm deploy -b ghcr.io/sriaradhyula/acp/wfsrv:latest -m ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json --envFilePath="$(PWD)/.env" --dryRun=false
 
-ruff-fix: setup-venv
-	@echo "Running ruff and fix lint errors..."
-	. .venv/bin/activate && ruff check agent_slack tests --fix
+run-a2a: setup-venv install-a2a
+	@$(MAKE) check-env
+	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT "$(PWD)/.env" | cut -d '=' -f2); \
+	$(venv-run) python3 -m $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_AGENT_PORT:-8000}
 
-evals: setup-venv
-	@echo "Running Agent Strict Trajectory Matching evals..."
-	@echo "Installing agentevals with Poetry..."
-	. .venv/bin/activate && uv add agentevals tabulate pytest
-	set -a && . .env && set +a && uv run evals/strict_match/test_strict_match.py
+run-mcp:           ## Run MCP server in SSE mode
+	@$(MAKE) check-env
+	@$(venv-run) MCP_MODE=SSE uv run $(AGENT_PKG_NAME)/protocol_bindings/mcp_server/$(MCP_SERVER_DIR)/server.py
 
+## ========== Clients ==========
 
-help:
+run-acp-client:    ## Run ACP client script
+	@$(MAKE) check-env
+	@$(venv-run) pip install -e .
+	@$(venv-run) python3 client/acp_client.py
+
+run-a2a-client:    ## Run A2A client script
+	@$(MAKE) check-env
+	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT "$(PWD)/.env" | cut -d '=' -f2); \
+	$(venv-run) AGENT_PORT=$${A2A_AGENT_PORT:-8000} python3 client/a2a_client.py
+
+run-mcp-client:    ## Run MCP client script
+	@$(MAKE) check-env
+	@$(venv-run) uv run client/mcp_client.py
+
+run-curl-client:   ## Run shell-based CURL client
+	@$(MAKE) check-env
+	@$(venv-run) ./client/client_curl.sh
+
+langgraph-dev:     ## Run LangGraph dev mode
+	@$(venv-run) langgraph dev
+
+evals:             ## Run agentevals with test cases
+	@$(venv-run) uv add agentevals tabulate pytest
+	@$(venv-run) uv run evals/strict_match/test_strict_match.py
+
+## ========== Docker ==========
+
+build-docker-acp:            ## Build ACP Docker image
+	docker build -t $(AGENT_DIR_NAME):acp-latest -f build/Dockerfile.acp .
+
+build-docker-acp-tag:        ## Tag ACP Docker image
+	docker tag $(AGENT_DIR_NAME):acp-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest
+
+build-docker-acp-push:       ## Push ACP Docker image
+	docker push ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest
+
+build-docker-acp-tag-and-push: ## Tag and push ACP Docker image
+	@$(MAKE) build-docker-acp build-docker-acp-tag build-docker-acp-push
+
+build-docker-a2a:            ## Build A2A Docker image
+	docker build -t $(AGENT_DIR_NAME):a2a-latest -f build/Dockerfile.a2a .
+
+build-docker-a2a-tag:        ## Tag A2A Docker image
+	docker tag $(AGENT_DIR_NAME):a2a-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest
+
+build-docker-a2a-push:       ## Push A2A Docker image
+	docker push ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest
+
+build-docker-a2a-tag-and-push: ## Tag and push A2A Docker image
+	@$(MAKE) build-docker-a2a build-docker-a2a-tag build-docker-a2a-push
+
+run-docker-acp: ## Run the ACP agent in Docker
+	@$(MAKE) check-env
+	@AGENT_ID=$$(grep CNOE_AGENT_$$(echo $(AGENT_NAME) | tr a-z A-Z)_ID "$(PWD)/.env" | cut -d '=' -f2); \
+	AGENT_PORT=$$(grep CNOE_AGENT_$$(echo $(AGENT_NAME) | tr a-z A-Z)_PORT "$(PWD)/.env" | cut -d '=' -f2); \
+	ACP_AGENT_IMAGE=$$(grep ACP_AGENT_IMAGE "$(PWD)/.env" | cut -d '=' -f2 || echo ""); \
+	LOCAL_AGENT_PORT=$${AGENT_PORT:-10000}; \
+	LOCAL_AGENT_IMAGE=$${ACP_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest}; \
+	echo "========================================================================"; \
+	echo "==                     ACP AGENT DOCKER RUN                           =="; \
+	echo "========================================================================"; \
+	echo "Using Agent Image : $$LOCAL_AGENT_IMAGE"; \
+	echo "Using Agent ID    : $$AGENT_ID"; \
+	echo "Using Agent Port  : localhost:$$LOCAL_AGENT_PORT"; \
+	echo "========================================================================"; \
+	echo "==               Do not use uvicorn port in the logs                  =="; \
+	echo "========================================================================"; \
+	docker run -p $$LOCAL_AGENT_PORT:8000 -it \
+		-v "$(PWD)/.env":/opt/agent_src/.env \
+		--env-file "$(PWD)/.env" \
+		-e AGWS_STORAGE_PERSIST=False \
+		-e AGENT_MANIFEST_PATH="manifest.json" \
+		-e AGENTS_REF='{"'$$AGENT_ID'": "$(AGENT_PKG_NAME).graph:graph"}' \
+		-e AGENT_ID=$$AGENT_ID \
+		-e AIOHTTP_CLIENT_MAX_REDIRECTS=10 \
+		-e AIOHTTP_CLIENT_TIMEOUT=60 \
+		-e API_HOST=0.0.0.0 \
+		$$LOCAL_AGENT_IMAGE
+
+# Run Docker container for A2A agent
+
+run-docker-a2a: ## Run the A2A agent in Docker
+	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT "$(PWD)/.env" | cut -d '=' -f2); \
+	LOCAL_A2A_AGENT_IMAGE=$${A2A_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest}; \
+	LOCAL_A2A_AGENT_PORT=$${A2A_AGENT_PORT:-8000}; \
+	echo "==================================================================="; \
+	echo "                      A2A AGENT DOCKER RUN                         "; \
+	echo "==================================================================="; \
+	echo "Using Agent Image: $$LOCAL_A2A_AGENT_IMAGE"; \
+	echo "Using Agent Port: $$LOCAL_A2A_AGENT_PORT"; \
+	echo "==================================================================="; \
+	docker run -p $$LOCAL_A2A_AGENT_PORT:8000 -it \
+		$$LOCAL_A2A_AGENT_IMAGE
+
+## ========== Tests ==========
+
+test: setup-venv build ## Run tests using pytest and coverage
+	@$(venv-activate) && poetry install
+	@$(venv-activate) && poetry add pytest-asyncio pytest-cov --dev
+	@$(venv-activate) && pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
+
+## ========== AGNTCY Directory ==========
+
+registry-agntcy-directory:  ## Push agent.json to AGNTCY registry
+	@dirctl hub push outshift_platform_engineering/$(AGENT_DIR_NAME) ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json
+
+## ========== Licensing & Help ==========
+
+add-copyright-license-headers: ## Add license headers
+	docker run --rm -v $(shell pwd)/$(AGENT_PKG_NAME):/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
+
+help: ## Show this help message
 	@echo "Available targets:"
-	@echo "  setup-venv           Create virtual environment in .venv and install dependencies"
-	@echo "  activate-venv        Activate the virtual environment"
-	@echo "  build                Build the project using poetry"
-	@echo "  install              Install the package"
-	@echo "  run                  Build, install, and run the application"
-	@echo "  run-acp              Deploy using wfsm with ACP configuration"
-	@echo "  install-a2a          Clone and install the A2A SDK"
-	@echo "  run-a2a              Run the agent with A2A protocol"
-	@echo "  run-acp-client       Run the ACP client application"
-	@echo "  run-a2a-client       Run the A2A client application"
-	@echo "  run-curl-client      Run the curl client script"
-	@echo "  langgraph-dev        Run the LangGraph agent"
-	@echo "  lint                 Run ruff linter"
-	@echo "  evals                Run Agent Strict Trajectory Matching evals"
-	@echo "  add-copyright-license-headers  Add copyright license headers"
-	@echo "  help                 Show this help message"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-30s\033[0m %s\n", $$1, $$2}' | sort

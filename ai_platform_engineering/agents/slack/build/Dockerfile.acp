@@ -1,0 +1,30 @@
+FROM ghcr.io/sriaradhyula/acp/wfsrv:latest
+
+# Set the working directory
+WORKDIR /opt/agent-workflow-server
+
+# Configure Poetry to NOT create a new virtualenv but use the existing one
+RUN poetry config virtualenvs.create false
+
+# Copy the agent source directory to the container
+COPY . /opt/agent_src
+
+COPY ./agent_slack/protocol_bindings/acp_server/agent.json /opt/agent_src/agent_slack/manifest.json
+
+# Print which Python is being used
+RUN which python
+
+# Activate the virtual environment
+ENV VIRTUAL_ENV=/opt/agent-workflow-server/.venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+RUN . /opt/agent-workflow-server/.venv/bin/activate || echo "Virtual environment not found"
+
+# Change to the agent source directory and install the package
+WORKDIR /opt/agent_src
+RUN poetry install --no-interaction
+
+# Return to the workflow server directory
+WORKDIR /opt/agent-workflow-server
+
+# Print where the package was installed
+RUN poetry show -v && pip list

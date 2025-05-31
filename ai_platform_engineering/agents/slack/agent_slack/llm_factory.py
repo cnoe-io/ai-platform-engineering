@@ -37,7 +37,7 @@ class LLMFactory:
         )
     if provider not in self.SUPPORTED_PROVIDERS:
       raise ValueError(
-        f"Unsupported provider: {self.provider}. Supported providers are: {self.SUPPORTED_PROVIDERS}"
+        f"Unsupported provider: {provider}. Supported providers are: {self.SUPPORTED_PROVIDERS}"
       )
     self.provider = provider.lower().replace("-", "_")
 

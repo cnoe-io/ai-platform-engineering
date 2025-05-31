@@ -91,6 +91,7 @@ async def run_streaming_test(client: A2AClient) -> None:
     )
 
     request = SendStreamingMessageRequest(
+        id=uuid4().hex,
         params=MessageSendParams(**send_payload)
     )
 
