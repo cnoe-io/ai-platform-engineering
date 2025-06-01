@@ -16,13 +16,14 @@ from agntcy_acp.models import RunCreateStateless, RunResult, RunError, Config
 # Load environment variables from a .env file
 load_dotenv()
 
-# Host can't have trailing slash
-WFSM_PORT = os.getenv("WFSM_PORT")
-API_KEY = os.getenv("API_KEY")
-AGENT_ID = os.getenv("AGENT_ID")
+# Get agent name and construct environment variable names
+AGENT_NAME = os.getenv("AGENT_NAME", "slack").lower()
+WFSM_PORT = os.getenv(f"CNOE_AGENT_{AGENT_NAME.upper()}_PORT")
+API_KEY = os.getenv(f"CNOE_AGENT_{AGENT_NAME.upper()}_API_KEY")
+AGENT_ID = os.getenv(f"CNOE_AGENT_{AGENT_NAME.upper()}_ID")
 
 if not WFSM_PORT or not API_KEY or not AGENT_ID:
-    raise EnvironmentError("WFSM_PORT, API_KEY, and AGENT_ID environment variables must be set")
+    raise EnvironmentError(f"CNOE_AGENT_{AGENT_NAME.upper()}_PORT, CNOE_AGENT_{AGENT_NAME.upper()}_API_KEY, and CNOE_AGENT_{AGENT_NAME.upper()}_ID environment variables must be set")
 
 client_config = ApiClientConfiguration(
     host=f"http://localhost:{WFSM_PORT}", 

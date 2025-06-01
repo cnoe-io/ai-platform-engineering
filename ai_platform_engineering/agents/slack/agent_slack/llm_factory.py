@@ -89,7 +89,7 @@ class LLMFactory:
     logging.info(
       f"[LLM] AzureOpenAI deployment={deployment} api_version={api_version}"
     )
-
+    logging.info(f"[DEBUG] AzureChatOpenAI endpoint={endpoint}")
     model_kwargs = {"response_format": response_format} if response_format else {}
     return AzureChatOpenAI(
       azure_endpoint=endpoint,

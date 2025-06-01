@@ -35,3 +35,6 @@ RUN touch ./data/agent-env.yaml
 
 # Run the agent
 ENTRYPOINT ["wfsm", "deploy", "-m", "./data/agent.json", "-e", "./data/agent-env.yaml"]
+
+
+

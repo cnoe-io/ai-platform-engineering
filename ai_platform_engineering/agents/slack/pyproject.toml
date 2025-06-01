@@ -10,7 +10,7 @@ authors = [
 maintainers = [
     { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.11,<4.0"
 dependencies = [
     "a2a-python>=0.0.1",
     "agentevals>=0.0.7",

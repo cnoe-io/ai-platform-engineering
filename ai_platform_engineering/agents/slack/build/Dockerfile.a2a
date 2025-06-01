@@ -12,6 +12,10 @@ RUN poetry config virtualenvs.in-project true
 RUN poetry config cache-dir /app/.cache
 RUN poetry config virtualenvs.path /app/.venv
 
+# Install A2A SDK in the Poetry environment
+RUN poetry run pip install -e /app/a2a-python && \
+    poetry run python -c "import a2a; print('✅ A2A SDK installed in Poetry environment')"
+
 RUN poetry build
 
 RUN poetry install --no-interaction

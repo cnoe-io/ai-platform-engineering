@@ -1,170 +1,162 @@
 # Copyright CNOE Contributors (https://cnoe.io)
 # SPDX-License-Identifier: Apache-2.0
 
-from a2a.client import A2AClient
-from typing import Any
+import os
+import asyncio
+import re
 from uuid import uuid4
+from typing import Any, List
+from rich.markdown import Markdown
+from rich.console import Console
+from chat_interface import run_chat_loop, render_answer
+
+import httpx
+from a2a.client import A2AClient
+import json
 from a2a.types import (
     SendMessageResponse,
-    GetTaskResponse,
     SendMessageSuccessResponse,
-    Task,
-    TaskState,
     SendMessageRequest,
     MessageSendParams,
-    GetTaskRequest,
-    TaskQueryParams,
-    SendStreamingMessageRequest,
 )
-import httpx
-import traceback
-import os
+import warnings
 
-# Default agent URL and port
-AGENT_HOST = os.getenv("AGENT_HOST", "localhost")
-AGENT_PORT = os.getenv("AGENT_PORT", "10000")
+warnings.filterwarnings(
+    "ignore",
+    message=".*`dict` method is deprecated.*",
+    category=DeprecationWarning,
+    module=".*"
+)
+
+AGENT_HOST = os.environ.get("A2A_AGENT_HOST", "localhost")
+AGENT_PORT = os.environ.get("A2A_AGENT_PORT", "8000")
 AGENT_URL = f"http://{AGENT_HOST}:{AGENT_PORT}"
+DEBUG = os.environ.get("A2A_DEBUG_CLIENT", "false").lower() in ["1", "true", "yes"]
+console = Console()
 
+async def get_available_tools() -> List[str]:
+    """Fetch available tools from the agent."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as httpx_client:
+            client = await A2AClient.get_client_from_agent_card_url(httpx_client, AGENT_URL)
+            # Send a test message to get the agent's capabilities
+            payload = create_send_message_payload("What tools do you have available?")
+            request = SendMessageRequest(
+                id=uuid4().hex,
+                params=MessageSendParams(**payload)
+            )
+            response = await client.send_message(request)
+            
+            if isinstance(response.root, SendMessageSuccessResponse):
+                # Extract tools from the response
+                tools = []
+                if hasattr(response.root, "result") and hasattr(response.root.result, "artifacts"):
+                    for artifact in response.root.result.artifacts:
+                        if hasattr(artifact, "parts"):
+                            for part in artifact.parts:
+                                if part.get("kind") == "text":
+                                    # Look for tool descriptions in the response
+                                    tool_matches = re.findall(r"Tool: (.*?)(?:\n|$)", part.get("text", ""))
+                                    tools.extend(tool_matches)
+                return tools
+    except Exception as e:
+        debug_log(f"Error fetching tools: {str(e)}")
+    return []
 
-def create_send_message_payload(
-    text: str, task_id: str | None = None, context_id: str | None = None
-) -> dict[str, Any]:
-    """Helper function to create the payload for sending a task."""
-    payload: dict[str, Any] = {
-        'message': {
-            'role': 'user',
-            'parts': [{'type': 'text', 'text': text}],
-            'messageId': uuid4().hex,
-        },
+def debug_log(message: str):
+    if DEBUG:
+        print(f"DEBUG: {message}")
+
+def create_system_prompt(tools: List[str]) -> str:
+    """Create a system prompt based on available tools."""
+    base_prompt = """You are a helpful Slack workspace assistant. You have access to the following tools:
+
+{tools}
+
+Please be concise and clear in your responses. If you need more information, ask specific questions."""
+    
+    return base_prompt.format(tools="\n".join(f"- {tool}" for tool in tools))
+
+def create_send_message_payload(text: str, tools: List[str]) -> dict[str, Any]:
+    return {
+        "message": {
+            "role": "user",
+            "parts": [
+                {"type": "text", "text": create_system_prompt(tools)},
+                {"type": "text", "text": "\nUser query: " + text}
+            ],
+            "messageId": uuid4().hex,
+        }
     }
 
-    if task_id:
-        payload['message']['taskId'] = task_id
-
-    if context_id:
-        payload['message']['contextId'] = context_id
-    return payload
-
-
-def print_json_response(response: Any, description: str) -> None:
-    """Helper function to print the JSON representation of a response."""
-    print(f'--- {description} ---')
-    if hasattr(response, 'root'):
-        print(f'{response.root.model_dump_json(exclude_none=True)}\n')
-    else:
-        print(f'{response.model_dump(mode="json", exclude_none=True)}\n')
-
-
-async def run_single_turn_test(client: A2AClient) -> None:
-    """Runs a single-turn non-streaming test with Slack."""
-
-    send_payload = create_send_message_payload(
-        text='What is the status of the Slack workspace?',
-    )
-    request = SendMessageRequest(params=MessageSendParams(**send_payload))
-
-    print('--- Single Turn Request ---')
-    # Send Message
-    send_response: SendMessageResponse = await client.send_message(request)
-    print_json_response(send_response, 'Single Turn Request Response')
-    if not isinstance(send_response.root, SendMessageSuccessResponse):
-        print('received non-success response. Aborting get task ')
-        return
-
-    if not isinstance(send_response.root.result, Task):
-        print('received non-task response. Aborting get task ')
-        return
-
-    task_id: str = send_response.root.result.id
-    # print('---Query Task---')
-    # # query the task
-    # get_request = GetTaskRequest(params=TaskQueryParams(id=task_id))
-    # get_response: GetTaskResponse = await client.get_task(get_request)
-    # print_json_response(get_response, 'Query Task Response')
-
-
-async def run_streaming_test(client: A2AClient) -> None:
-    """Runs a single-turn streaming test with Slack."""
-
-    send_payload = create_send_message_payload(
-        text='List all channels in the Slack workspace.',
-    )
-
-    request = SendStreamingMessageRequest(
-        id=uuid4().hex,
-        params=MessageSendParams(**send_payload)
-    )
-
-    print('--- Single Turn Streaming Request ---')
-    stream_response = client.send_message_streaming(request)
-    async for chunk in stream_response:
-        print_json_response(chunk, 'Streaming Chunk')
-
-
-async def run_multi_turn_test(client: A2AClient) -> None:
-    """Runs a multi-turn test about Slack workspace information."""
-    print('--- Multi-Turn Slack Workspace Information Request ---')
-
-    # --- First Turn ---
-    first_turn_payload = create_send_message_payload(
-        text='What are the most active channels in the workspace?'
-    )
-    request1 = SendStreamingMessageRequest(
-        params=MessageSendParams(**first_turn_payload)
-    )
-    print('--- Multi-Turn: First Turn (Streaming) ---')
-    stream_response1 = client.send_message_streaming(request1)
-    context_id: str | None = None
-    task_id: str | None = None
-    async for chunk in stream_response1:
-        print_json_response(chunk, 'Multi-Turn: First Turn Streaming Chunk')
-        if hasattr(chunk, 'root') and isinstance(chunk.root, SendMessageSuccessResponse) and isinstance(chunk.root.result, Task):
-            task: Task = chunk.root.result
-            context_id = task.contextId
-            task_id = task.id
-
-
-async def main() -> None:
-    """Main function to run the Slack tests."""
-    print(f'Connecting to Slack agent at {AGENT_URL}...')
-    
-    # Check for required Slack environment variables
-    slack_vars = ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_SIGNING_SECRET"]
-    missing_vars = []
-    for var in slack_vars:
-        if not os.environ.get(var):
-            missing_vars.append(var)
-            
-    if missing_vars:
-        print("Warning: Missing Slack environment variables:")
-        for var in missing_vars:
-            print(f"  - {var}")
-    
+def extract_response_text(response) -> str:
     try:
-        async with httpx.AsyncClient() as httpx_client:
-            client = await A2AClient.get_client_from_agent_card_url(
-                httpx_client, AGENT_URL
-            )
-            print('Connection successful.')
+        if hasattr(response, "model_dump"):
+            response_data = response.model_dump()
+        elif hasattr(response, "dict"):
+            response_data = response.dict()
+        elif isinstance(response, dict):
+            response_data = response
+        else:
+            raise ValueError("Unsupported response type")
 
-            # await run_single_turn_test(client)
-            print('\n' + '=' * 60)
-            print('RUNNING STREAMING TEST')
-            print('=' * 60 + '\n')
-            await run_streaming_test(client)
+        result = response_data.get("result", {})
 
-            # print('\n' + '=' * 60)
-            # print('RUNNING MULTI-TURN TEST')
-            # print('=' * 60 + '\n')
-            # await run_multi_turn_test(client)
+        artifacts = result.get("artifacts")
+        if artifacts and isinstance(artifacts, list) and artifacts[0].get("parts"):
+            for part in artifacts[0]["parts"]:
+                if part.get("kind") == "text":
+                    return part.get("text", "").strip()
+
+        message = result.get("status", {}).get("message", {})
+        for part in message.get("parts", []):
+            if part.get("kind") == "text":
+                return part.get("text", "").strip()
+            elif "text" in part:
+                return part["text"].strip()
 
     except Exception as e:
-        traceback.print_exc()
-        print(f'An error occurred: {e}')
-        print('Ensure the Slack agent server is running at the specified URL.')
+        debug_log(f"Error extracting text: {str(e)}")
 
+    return ""
 
-if __name__ == '__main__':
-    import asyncio
+async def handle_user_input(user_input: str):
+    debug_log(f"Received user input: {user_input}")
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as httpx_client:
+            debug_log(f"Connecting to agent at {AGENT_URL}")
+            client = await A2AClient.get_client_from_agent_card_url(httpx_client, AGENT_URL)
+            debug_log("Successfully connected to agent")
 
-    asyncio.run(main())
+            # Get available tools
+            tools = await get_available_tools()
+            debug_log(f"Available tools: {tools}")
+
+            payload = create_send_message_payload(user_input, tools)
+            debug_log(f"Created payload with message ID: {payload['message']['messageId']}")
+
+            request = SendMessageRequest(
+                id=uuid4().hex,
+                params=MessageSendParams(**payload)
+            )
+            debug_log("Sending message to agent...")
+
+            response: SendMessageResponse = await client.send_message(request)
+            debug_log("Received response from agent")
+
+            if isinstance(response.root, SendMessageSuccessResponse):
+                debug_log("Agent returned success response")
+                debug_log("Response JSON:")
+                debug_log(json.dumps(response.root.dict(), indent=2, default=str))
+                text = extract_response_text(response)
+                debug_log(f"Extracted text (first 100 chars): {text[:100]}...")
+                render_answer(text)
+            else:
+                print(f"❌ Agent returned a non-success response: {response.root}")
+    except Exception as e:
+        print(f"ERROR: Exception occurred: {str(e)}")
+        raise
+
+if __name__ == "__main__":
+    agent_name = os.getenv("AGENT_NAME", "")
+    asyncio.run(run_chat_loop(handle_user_input, title=f"A2A {agent_name} Agent"))
