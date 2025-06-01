@@ -17,7 +17,7 @@ A powerful GitHub agent that can interact with your repositories, manage issues,
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/agent-github.git
+git clone https://github.com/cnoe-io/agent-github.git
 cd agent-github
 ```
 
