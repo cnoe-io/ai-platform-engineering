@@ -9,8 +9,8 @@ import click
 import httpx
 from dotenv import load_dotenv
 
-from agent_git.protocol_bindings.a2a_server.agent import GitHubAgent  # type: ignore
-from agent_git.protocol_bindings.a2a_server.agent_executor import GitHubAgentExecutor  # type: ignore
+from agent_github.protocol_bindings.a2a_server.agent import GitHubAgent  # type: ignore
+from agent_github.protocol_bindings.a2a_server.agent_executor import GitHubAgentExecutor  # type: ignore
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler

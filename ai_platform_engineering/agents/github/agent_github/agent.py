@@ -13,8 +13,8 @@ from typing import Literal
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel
 
-from agent_git.state import AgentState, Message, MsgType, OutputState
-from agent_git.llm_factory import LLMFactory
+from agent_github.state import AgentState, Message, MsgType, OutputState
+from agent_github.llm_factory import LLMFactory
 
 logger = logging.getLogger(__name__)
 

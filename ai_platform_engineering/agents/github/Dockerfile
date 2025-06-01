@@ -28,7 +28,7 @@ RUN pip install dist/*.whl
 
 # Setup config
 RUN mkdir -p ./data
-COPY ./agent_git/protocol_bindings/acp_server/agent.json ./data/
+COPY ./agent_github/protocol_bindings/acp_server/agent.json ./data/
 
 # Create an empty agent-env.yaml file if needed
 RUN touch ./data/agent-env.yaml

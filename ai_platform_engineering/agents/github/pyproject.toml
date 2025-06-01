@@ -1,8 +1,8 @@
 [project]
-name = "agent_git"
+name = "agent_github"
 version = "0.1.0"
 license = "Apache-2.0"
-description = "A GitHub natural language agent using LangChain, LangGraph, and MCP."
+description = "A Github natural language agent using LangChain, LangGraph, and MCP."
 readme = "README.md"
 authors = [
     { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
@@ -10,7 +10,7 @@ authors = [
 maintainers = [
     { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.11,<4.0"
 dependencies = [
     "a2a-python>=0.0.1",
     "agentevals>=0.0.7",
@@ -30,7 +30,7 @@ dependencies = [
 packages = ["."]
 
 [tool.poetry.scripts]
-agent_git_a2a = "agent_git.protocol_bindings.a2a_server:main"
+agent_slack_a2a = "agent_slack.protocol_bindings.a2a_server:main"
 
 [tool.poetry.dependencies]
 uv = "^0.7.5"

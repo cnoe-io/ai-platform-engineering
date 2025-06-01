@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "agent-argocd.fullname" . }}
+  name: {{ include "agent-github.fullname" . }}
   labels:
-    {{- include "agent-argocd.labels" . | nindent 4 }}
+    {{- include "agent-github.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -12,4 +12,4 @@ spec:
       protocol: TCP
       name: http
   selector:
-    {{- include "agent-argocd.selectorLabels" . | nindent 4 }}
+    {{- include "agent-github.selectorLabels" . | nindent 4 }}

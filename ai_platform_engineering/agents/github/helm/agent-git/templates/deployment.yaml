@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "agent-argocd.fullname" . }}
+  name: {{ include "agent-github.fullname" . }}
   labels:
-    {{- include "agent-argocd.labels" . | nindent 4 }}
+    {{- include "agent-github.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "agent-argocd.selectorLabels" . | nindent 6 }}
+      {{- include "agent-github.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -18,7 +18,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "agent-argocd.labels" . | nindent 8 }}
+        {{- include "agent-github.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -27,7 +27,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "agent-argocd.serviceAccountName" . }}
+      serviceAccountName: {{ include "agent-github.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -44,6 +44,36 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          env:
+            - name: GITHUB_PERSONAL_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-github.fullname" . }}-secrets
+                  key: github-token
+            - name: GITHUB_API_URL
+              value: {{ .Values.github.apiUrl | quote }}
+            - name: LLM_PROVIDER
+              value: {{ .Values.llm.provider | quote }}
+            {{- if .Values.llm.azure }}
+            - name: AZURE_OPENAI_ENDPOINT
+              value: {{ .Values.llm.azure.endpoint | quote }}
+            - name: AZURE_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-github.fullname" . }}-secrets
+                  key: azure-openai-key
+            - name: AZURE_OPENAI_DEPLOYMENT
+              value: {{ .Values.llm.azure.deployment | quote }}
+            - name: AZURE_OPENAI_API_VERSION
+              value: {{ .Values.llm.azure.apiVersion | quote }}
+            {{- end }}
+            {{- if .Values.llm.google }}
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-github.fullname" . }}-secrets
+                  key: google-api-key
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

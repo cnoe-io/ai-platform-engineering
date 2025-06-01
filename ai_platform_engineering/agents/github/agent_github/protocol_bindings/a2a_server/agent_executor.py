@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-from agent_git.protocol_bindings.a2a_server.agent import GitHubAgent # type: ignore[import-untyped]
+from agent_github.protocol_bindings.a2a_server.agent import GitHubAgent # type: ignore[import-untyped]
 from typing_extensions import override
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
