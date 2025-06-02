@@ -4,9 +4,9 @@
   "schema_version": "0.0.1",
   "description": "Slack Agent powered by LangGraph and LangChain MCP Adapters.",
   "authors": [
-    "Sri Aradhyula"
+    "CNOE Contributors"
   ],
-  "created_at": "2025-05-23T18:01:50Z",
+  "created_at": "2024-03-21T00:00:00Z",
   "skills": [
     {
       "class_uid": 10201
@@ -96,6 +96,9 @@
           ]
         },
         "acp": {
+          "version": "1.0.0",
+          "framework": "langgraph",
+          "graph": "agent_slack.graph:AGENT_GRAPH",
           "capabilities": {
             "threads": false,
             "interrupts": false,
@@ -133,7 +136,7 @@
               }
             },
             "properties": {
-              "input": {
+              "slack_input": {
                 "messages": {
                   "anyOf": [
                     {
@@ -187,20 +190,23 @@
               }
             },
             "properties": {
-              "messages": {
-                "anyOf": [
-                  {
-                    "items": {
-                      "$ref": "#/$defs/Message"
+              "slack_output": {
+                "messages": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "$ref": "#/$defs/Message"
+                      },
+                      "type": "array"
                     },
-                    "type": "array"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Messages"
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Messages"
+                },
+                "type": "object"
               }
             },
             "title": "OutputState",

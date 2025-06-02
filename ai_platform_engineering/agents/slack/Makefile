@@ -97,7 +97,23 @@ ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 
 run-acp: setup-venv ## Deploy ACP agent via wfsm
 	@$(MAKE) check-env
-	@$(venv-run) wfsm deploy -b ghcr.io/sriaradhyula/acp/wfsrv:latest -m ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json --envFilePath=./.env --dryRun=false
+	@AGENT_ID=$$(grep CNOE_AGENT_$$(echo $(AGENT_NAME) | tr a-z A-Z)_ID .env | cut -d '=' -f2 | tr -d '"'); \
+	if [ -z "$$AGENT_ID" ]; then \
+		echo "Error: CNOE_AGENT_SLACK_ID not found in .env file"; \
+		exit 1; \
+	fi; \
+	echo "========================================================================"; \
+	echo "==                     ACP AGENT DEPLOYMENT                           =="; \
+	echo "========================================================================"; \
+	echo "Using Agent ID: $$AGENT_ID"; \
+	echo "========================================================================"; \
+	AGENTS_REF='{"'$$AGENT_ID'": "agent_slack.graph:AGENT_GRAPH"}' \
+	$(venv-run) wfsm deploy \
+		-b ghcr.io/sriaradhyula/acp/wfsrv:latest \
+		-m ./agent_slack/protocol_bindings/acp_server/agent.json \
+		--envFilePath=./.env \
+		--dryRun=false
+
 
 run-a2a: setup-venv ## Run A2A agent with uvicorn
 	@$(MAKE) check-env

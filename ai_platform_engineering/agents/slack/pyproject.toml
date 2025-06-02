@@ -2,7 +2,7 @@
 name = "agent_slack"
 version = "0.1.0"
 license = "Apache-2.0"
-description = "An ArgoCD natural language agent using LangChain, LangGraph, and MCP."
+description = "A Slack natural language agent using LangChain, LangGraph, and MCP."
 readme = "README.md"
 authors = [
     { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
