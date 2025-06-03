@@ -2,120 +2,131 @@
 
 This is a LangGraph-powered Slack Agent that interacts with users via Slack, executing tasks using MCP tools and large language models. Built for **ACP** and **A2A** protocol support.
 
-## 🧰 Quickstart
+## 🚀 Quick Start Guide
 
 ### Prerequisites
+- Docker installed on your system
+- A Slack App configured with necessary permissions
+- Azure OpenAI API access (or other supported LLM provider)
 
-- Docker installed and running
-- Git
-- Access to required API keys and tokens
-
-### Step 1: Clone and Setup
-
+### Step 1: Clone the Repository
 ```bash
-git clone <repository-url>
+git clone https://github.com/cnoe-io/agent-slack.git
 cd agent-slack
 ```
 
-### Step 2: Create a `.env` File
-
-Create a `.env` file in the root directory with the following structure:
+### Step 2: Create Environment File
+Create a `.env` file in the root directory with the following variables (do not use quotes around values):
 
 ```env
 ############################
 # Slack Agent Environment
 ############################
-AGENT_NAME="slack"
-CNOE_AGENT_SLACK_ID="your-agent-id"  # Will be generated automatically
-CNOE_AGENT_SLACK_API_KEY="your-api-key"  # Will be generated automatically
+
+AGENT_NAME=slack
+CNOE_AGENT_SLACK_ID=your-agent-id
+CNOE_AGENT_SLACK_API_KEY=your-api-key
 CNOE_AGENT_SLACK_PORT=8000
 
-# Slack Configuration
-SLACK_BOT_TOKEN="your-slack-bot-token"
-SLACK_TOKEN="your-slack-token"
-SLACK_APP_TOKEN="your-slack-app-token"
-SLACK_SIGNING_SECRET="your-slack-signing-secret"
-SLACK_CLIENT_SECRET="your-slack-client-secret"
-SLACK_TEAM_ID="your-slack-team-id"
+# Required for ACP Docker
+AGENT_ID=your-agent-id
+AGENTS_REF={"your-agent-id": "agent_slack.graph:AGENT_GRAPH"}
 
-############################
-# A2A Agent Configuration
-############################
-A2A_AGENT_HOST=localhost
-A2A_AGENT_PORT=8000
+SLACK_BOT_TOKEN=your-bot-token
+SLACK_TOKEN=your-bot-token
+SLACK_APP_TOKEN=your-app-token
+SLACK_SIGNING_SECRET=your-signing-secret
+SLACK_CLIENT_SECRET=your-client-secret
+SLACK_TEAM_ID=your-team-id
 
 ############################
 # Azure OpenAI Configuration
 ############################
+
 LLM_PROVIDER=azure-openai
-AZURE_OPENAI_API_KEY="your-azure-openai-key"
-AZURE_OPENAI_ENDPOINT="your-azure-openai-endpoint"
-AZURE_OPENAI_API_VERSION="2025-04-01-preview"
-AZURE_OPENAI_DEPLOYMENT="gpt-4.1"
+AZURE_OPENAI_API_KEY=your-azure-key
+AZURE_OPENAI_ENDPOINT=your-azure-endpoint
+AZURE_OPENAI_API_VERSION=2025-04-01-preview
+AZURE_OPENAI_DEPLOYMENT=gpt-4.1
 
 ############################
-# Docker Image Configuration
+# Other Configurations
 ############################
-ACP_AGENT_IMAGE=ghcr.io/cnoe-io/agent-slack:acp-latest
-A2A_AGENT_IMAGE=ghcr.io/cnoe-io/agent-slack:a2a-latest
+
+A2A_AGENT_HOST=localhost
+A2A_AGENT_PORT=8000
+MCP_HOST=localhost
+MCP_PORT=9000
 ```
 
-### Step 3: Configure Your Slack App
+### Step 3: Running the Agent
+
+#### ACP Mode
+1. Pull the ACP image:
+```bash
+docker pull ghcr.io/cnoe-io/agent-slack:acp-v0.1.1
+```
+
+2. Run the ACP container:
+```bash
+docker run -it --rm \
+  --env-file .env \
+  -v $(pwd)/.env:/opt/agent_src/.env \
+  -p 8000:8000 \
+  -e AGENT_MANIFEST_PATH=manifest.json \
+  -e API_HOST=0.0.0.0 \
+  ghcr.io/cnoe-io/agent-slack:acp-v0.1.1
+```
+
+3. In a new terminal, start the ACP client:
+```bash
+make run-acp-client
+```
+
+#### A2A Mode
+1. Pull the A2A image:
+```bash
+docker pull ghcr.io/cnoe-io/agent-slack:a2a-v0.1.1
+```
+
+2. Run the A2A container:
+```bash
+docker run -it --rm \
+  --env-file .env \
+  -p 8000:8000 \
+  ghcr.io/cnoe-io/agent-slack:a2a-v0.1.1
+```
+
+3. In a new terminal, start the A2A client:
+```bash
+make run-a2a-client
+```
+
+### Step 4: Configure Your Slack App
 
 To use this agent with Slack, you'll need to create a Slack App and:
 
-* Enable **Socket Mode**
-* Add the following **Bot Token Scopes**:
-  * `app_mentions:read`
-  * `channels:history`
-  * `chat:write`
-  * `users:read`
-  * `groups:history`
-  * `im:history`
-  * `mpim:history`
-* Install the app to your workspace and retrieve the required tokens for the `.env` file above.
+1. Enable **Socket Mode**
+2. Add the following **Bot Token Scopes**:  
+   * `app_mentions:read`  
+   * `channels:history`  
+   * `chat:write`  
+   * `users:read`  
+   * `groups:history`  
+   * `im:history`  
+   * `mpim:history`
+3. Install the app to your workspace
+4. Copy the required tokens to your `.env` file
 
-## 🚀 Running the Agents
+## 🛠️ Core Commands
 
-### Option 1: Running ACP Agent
-
-The ACP (Agent Control Protocol) agent can be run in two ways:
-
-#### Using Docker (Recommended)
-
-```bash
-make run-docker-acp
-```
-
-This will:
-1. Build the ACP Docker image if not already built
-2. Start the container with all necessary environment variables
-3. Expose the agent on port 8000 (or the port specified in your .env file)
-
-#### Using Local Development
-
+### ACP Mode
 ```bash
 make run-acp         # Starts the ACP server
 make run-acp-client  # Launches the ACP client to interact with the agent
 ```
 
-### Option 2: Running A2A Agent
-
-The A2A (Agent-to-Agent) agent can also be run in two ways:
-
-#### Using Docker
-
-```bash
-make run-docker-a2a
-```
-
-This will:
-1. Build the A2A Docker image if not already built
-2. Start the container with all necessary environment variables
-3. Expose the agent on port 8000 (or the port specified in your .env file)
-
-#### Using Local Development
-
+### A2A Mode
 ```bash
 make run-a2a         # Starts the A2A server
 make run-a2a-client  # Launches the A2A client to interact with the agent
@@ -123,57 +134,78 @@ make run-a2a-client  # Launches the A2A client to interact with the agent
 
 ## 🧠 What This Agent Can Do
 
-Once running, you can chat with the agent via Slack, and it will:
+This agent is powered by a custom MCP (Multi-Protocol Control) server specifically built for Slack integration. Once running, you can chat with the agent via Slack, and it will:
 
 * Respond to queries using Azure OpenAI GPT-4
 * Use Slack's Web API to send messages and perform actions
-* Handle tool-calling via MCP in the background
+* Handle tool-calling via our custom Slack MCP server
 
-Under the hood:
+### Example Interactions
 
-* The Slack MCP server is launched using `uv run`
-* The agent uses LangGraph's `create_react_agent()` API
-* Tool selection and execution is done via the LangChain-MCP adapter
+1. **Channel Management**
+```
+User: list all channels
+Agent: Here are all the public, active channels in your Slack workspace:
+
+1. all-slack-bot-test – For announcements and company updates.
+2. social – A fun channel to get to know your teammates.
+3. new-channel – For everything related to #new-channel, including meetings and docs.
+4. test-channel – (No description provided).
+
+Let me know if you want more details about any channel or need to take action!
+```
+
+2. **Capabilities Overview**
+```
+User: what can you do for me
+Agent: I can help you with a wide range of tasks related to Slack and general productivity! Here are some things I can do for you:
+
+1. Slack Channel Management:
+   • List, join, or leave channels
+   • Get information about channels (members, purpose, etc.)
+   • Post messages or announcements to channels
+   • Reply to threads or update/delete messages
+
+2. User & Team Support:
+   • List users in your workspace
+   • Get detailed info about specific users
+   • Set your Slack status
+
+3. File Management:
+   • List, upload, or delete files in Slack
+   • Get information about specific files
+
+4. Message Reactions:
+   • Add or remove emoji reactions to messages
+
+5. General Productivity:
+   • Summarize conversations or threads
+   • Help draft or format messages
+   • Remind you of tasks or follow-ups
+
+6. Custom Requests:
+   • Answer questions about Slack features
+   • Provide tips for better collaboration
+   • Automate repetitive Slack tasks
+
+If you have a specific task in mind, just let me know what you'd like to do!
+```
 
 ## 📁 Project Structure
 
-```bash
-agent-slack/
-├── agent_slack/              # Main agent package
-│   ├── agent.py             # Core Slack Agent orchestration
-│   ├── graph.py             # LangGraph definition
-│   ├── state.py             # Pydantic model for AgentState
-│   ├── llm_factory.py       # Returns configured LLM based on env vars
-│   └── protocol_bindings/   # Contains the Slack MCP server
-├── client/                  # Client implementations
-│   ├── acp_client.py        # ACP client to test the agent
-│   ├── a2a_client.py        # A2A client to test the agent
-│   ├── mcp_client.py        # MCP client implementation
-│   ├── chat_interface.py    # Chat interface utilities
-│   └── acp_client_curl.sh   # Shell-based CURL client
-├── build/                   # Docker build files
-├── tests/                   # Test suite
-├── evals/                   # Evaluation scripts
-├── helm/                    # Kubernetes Helm charts
-└── Makefile                # Build and run commands
+```
+agent_slack/
+├── agent.py               # Core Slack Agent orchestration
+├── graph.py               # LangGraph definition
+├── state.py               # Pydantic model for AgentState
+├── llm_factory.py         # Returns configured LLM based on env vars
+├── protocol_bindings/    # Contains the Slack MCP server
+client/
+├── acp_client.py          # ACP client to test the agent
+├── a2a_client.py          # A2A client to test the agent
 ```
 
-## 🧪 Sample Usage
-
-### ACP Mode
-```bash
-make run-acp
-# In another terminal
-make run-acp-client
-```
-
-You will see:
-```
-> Your Question: who are you?
-Agent: I am a Slack assistant that can send messages and manage your workspace.
-```
-
-## 🔧 Troubleshooting
+## 🔍 Troubleshooting
 
 ### Common Issues
 
@@ -191,39 +223,38 @@ Agent: I am a Slack assistant that can send messages and manage your workspace.
    - Ensure no trailing spaces in variable values
    - Verify API keys and tokens are valid
 
+4. **Client Connection Issues**
+   - Make sure the server is running before starting the client
+   - Verify the port numbers match between server and client
+   - Check that the API key in your `.env` file matches the one used by the server
+
 ### Logs
 
 - For Docker containers, use `docker logs <container-id>` to view logs
 - For local development, logs will be displayed in the terminal
-
-## 🛠️ Development
-
-### Building Docker Images
-
-```bash
-# Build ACP image
-make build-docker-acp
-
-# Build A2A image
-make build-docker-a2a
-```
-
-### Testing
-
-```bash
-make test
-```
-
-## 🔐 Security Notes
-
-Make sure you do **not commit your `.env` file** into version control. Use environment variables or secret managers in production.
 
 ## 📚 Additional Resources
 
 - [Slack API Documentation](https://api.slack.com/)
 - [Azure OpenAI Documentation](https://learn.microsoft.com/en-us/azure/ai-services/openai/)
 - [Docker Documentation](https://docs.docker.com/)
+- [LangGraph Documentation](https://python.langchain.com/docs/langgraph)
+
+## 🔐 Security Notes
+
+* Never commit your `.env` file to version control
+* Keep your API keys and tokens secure
+* Use environment variables or secret managers in production
+* Regularly rotate your API keys and tokens
 
 ## 📜 License
 
 Apache 2.0
+
+## 🤝 Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+## 📞 Support
+
+For support, please open an issue in the GitHub repository. 
