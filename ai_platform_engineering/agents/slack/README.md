@@ -23,12 +23,11 @@ Create a `.env` file in the root directory with the following variables (do not 
 # Slack Agent Environment
 ############################
 
+# Required for ACP Docker
 AGENT_NAME=slack
 CNOE_AGENT_SLACK_ID=your-agent-id
 CNOE_AGENT_SLACK_API_KEY=your-api-key
 CNOE_AGENT_SLACK_PORT=8000
-
-# Required for ACP Docker
 AGENT_ID=your-agent-id
 AGENTS_REF={"your-agent-id": "agent_slack.graph:AGENT_GRAPH"}
 
@@ -50,13 +49,20 @@ AZURE_OPENAI_API_VERSION=2025-04-01-preview
 AZURE_OPENAI_DEPLOYMENT=gpt-4.1
 
 ############################
-# Other Configurations
+# A2A and MCP Configurations
 ############################
 
 A2A_AGENT_HOST=localhost
 A2A_AGENT_PORT=8000
 MCP_HOST=localhost
 MCP_PORT=9000
+
+############################
+# Docker Image (Optional)
+############################
+
+ACP_AGENT_IMAGE=ghcr.io/cnoe-io/agent-slack:acp-latest
+A2A_AGENT_IMAGE=ghcr.io/cnoe-io/agent-slack:a2a-latest
 ```
 
 ### Step 3: Running the Agent
