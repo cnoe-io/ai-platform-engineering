@@ -45,16 +45,16 @@ Create a `.env` file in the root directory with the following structure:
 # GitHub Agent Environment
 ############################
 
-AGENT_NAME="github"
-CNOE_AGENT_GITHUB_ID="your-agent-id"
-CNOE_AGENT_GITHUB_API_KEY="your-api-key"
+AGENT_NAME=github
+CNOE_AGENT_GITHUB_ID=your-agent-id
+CNOE_AGENT_GITHUB_API_KEY=your-api-key
 CNOE_AGENT_GITHUB_PORT=10000
 
 ############################
 # GitHub MCP Tool Auth
 ############################
 
-GITHUB_PERSONAL_ACCESS_TOKEN="your-github-token"
+GITHUB_PERSONAL_ACCESS_TOKEN=your-github-token
 
 ############################
 # A2A Agent Configuration
@@ -75,16 +75,16 @@ MCP_PORT=9000
 ############################
 
 LLM_PROVIDER=azure-openai
-AZURE_OPENAI_API_KEY="your-azure-key"
-AZURE_OPENAI_ENDPOINT="your-azure-endpoint"
-AZURE_OPENAI_API_VERSION="2025-04-01-preview"
-AZURE_OPENAI_DEPLOYMENT="gpt-4.1"
+AZURE_OPENAI_API_KEY=your-azure-key
+AZURE_OPENAI_ENDPOINT=your-azure-endpoint
+AZURE_OPENAI_API_VERSION=2025-04-01-preview
+AZURE_OPENAI_DEPLOYMENT=gpt-4.1
 
 ############################
 # Google Gemini (Optional)
 ############################
 
-GOOGLE_API_KEY="your-google-api-key"
+GOOGLE_API_KEY=your-google-api-key
 
 ############################
 # Docker Image Configuration
@@ -131,19 +131,28 @@ make run-docker-acp
 
 #### A2A Mode
 ```bash
-make run-docker-a2a
+# First, pull the latest image
+docker pull ghcr.io/cnoe-io/agent-github:a2a-latest
+
+# Then run the container
+docker run -it --rm \
+  --env-file .env \
+  -p 8000:8000 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/cnoe-io/agent-github:a2a-latest
 ```
 
 ## Running the Client
 
 ### ACP Client
 ```bash
-make run-acp-client
+uvx https://github.com/cnoe-io/agent-chat-cli.git acp
 ```
 
 ### A2A Client
 ```bash
-make run-a2a-client
+# Make sure you have activated your virtual environment
+uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
 
 ## Example Interactions
