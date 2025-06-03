@@ -15,14 +15,14 @@ load_dotenv()
 
 # Constants
 PAGERDUTY_API_URL = "https://api.pagerduty.com"
-DEFAULT_TOKEN = os.getenv("PAGERDUTY_TOKEN")
+DEFAULT_API_KEY = os.getenv("PAGERDUTY_API_KEY")
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("pagerduty_mcp")
 
 # Log token presence but not the token itself
-if DEFAULT_TOKEN:
+if DEFAULT_API_KEY:
     logger.info("Default token found in environment variables")
 else:
     logger.warning("No default token found in environment variables")
@@ -41,7 +41,7 @@ async def make_api_request(
     Args:
         path: API path to request (without base URL)
         method: HTTP method (default: GET)
-        token: API token (defaults to DEFAULT_TOKEN)
+        token: API token (defaults to DEFAULT_API_KEY)
         params: Query parameters for the request (optional)
         data: JSON data for POST/PATCH/PUT requests (optional)
         timeout: Request timeout in seconds (default: 30)
@@ -53,14 +53,14 @@ async def make_api_request(
     
     if not token:
         logger.debug("No token provided, using default token")
-        token = DEFAULT_TOKEN
+        token = DEFAULT_API_KEY
 
     if not token:
         logger.error("No token available - neither provided nor found in environment")
         return (
             False,
             {
-                "error": "Token is required. Please set the PAGERDUTY_TOKEN environment variable."
+                "error": "Token is required. Please set the PAGERDUTY_API_KEY environment variable."
             },
         )
 

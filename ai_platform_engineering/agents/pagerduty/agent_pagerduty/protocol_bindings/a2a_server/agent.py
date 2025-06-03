@@ -1,4 +1,4 @@
-# Copyright 2025 Cisco
+# Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
@@ -31,6 +31,14 @@ from agent_pagerduty.protocol_bindings.a2a_server.state import (
 
 logger = logging.getLogger(__name__)
 
+def debug_print(message: str, banner: bool = True):
+    if os.getenv("ACP_SERVER_DEBUG", "false").lower() == "true":
+        if banner:
+            print("=" * 80)
+        print(f"DEBUG: {message}")
+        if banner:
+            print("=" * 80)
+
 memory = MemorySaver()
 
 class ResponseFormat(BaseModel):
@@ -57,7 +65,7 @@ class PagerDutyAgent:
     )
 
     def __init__(self):
-      # Setup the math agent and load MCP tools
+      # Setup the agent and load MCP tools
       self.model = AzureChatOpenAI(
           model="gpt-4o")
       self.graph = None
@@ -65,50 +73,48 @@ class PagerDutyAgent:
           args = config.get("configurable", {})
 
           server_path = args.get("server_path", "./agent_pagerduty/protocol_bindings/mcp_server/pagerduty_mcp/server.py")
-          print(f"Launching MCP server at: {server_path}")
+          debug_print(f"Launching MCP server at: {server_path}")
 
-          pagerduty_token = os.getenv("PAGERDUTY_TOKEN")
-          if not pagerduty_token:
-            raise ValueError("PAGERDUTY_TOKEN must be set as an environment variable.")
+          pagerduty_api_key = os.getenv("PAGERDUTY_API_KEY")
+          if not pagerduty_api_key:
+            raise ValueError("PAGERDUTY_API_KEY must be set as an environment variable.")
 
           pagerduty_api_url = os.getenv("PAGERDUTY_API_URL")
           if not pagerduty_api_url:
             raise ValueError("PAGERDUTY_API_URL must be set as an environment variable.")
+
           client = MultiServerMCPClient(
               {
                   "pagerduty": {
                       "command": "uv",
                       "args": ["run", server_path],
                       "env": {
-                          "PAGERDUTY_TOKEN": os.getenv("PAGERDUTY_TOKEN"),
-                          "PAGERDUTY_API_URL": os.getenv("PAGERDUTY_API_URL")
+                          "PAGERDUTY_API_KEY": pagerduty_api_key,
+                          "PAGERDUTY_API_URL": pagerduty_api_url
                       },
                       "transport": "stdio",
                   }
               }
           )
           tools = await client.get_tools()
-          print('*'*80)
-          print("Available Tools and Parameters:")
+          debug_print("Available Tools and Parameters:")
           for tool in tools:
-            print(f"Tool: {tool.name}")
-            print(f"  Description: {tool.description.strip().splitlines()[0]}")
+            debug_print(f"Tool: {tool.name}", banner=False)
+            debug_print(f"  Description: {tool.description.strip().splitlines()[0]}", banner=False)
             params = tool.args_schema.get('properties', {})
             if params:
-              print("  Parameters:")
+              debug_print("  Parameters:", banner=False)
               for param, meta in params.items():
                 param_type = meta.get('type', 'unknown')
                 param_title = meta.get('title', param)
                 default = meta.get('default', None)
-                print(f"    - {param} ({param_type}): {param_title}", end='')
+                debug_print(f"    - {param} ({param_type}): {param_title}", banner=False)
                 if default is not None:
-                  print(f" [default: {default}]")
-                else:
-                  print()
+                  debug_print(f" [default: {default}]", banner=False)
             else:
-              print("  Parameters: None")
-            print()
-          print('*'*80)
+              debug_print("  Parameters: None", banner=False)
+            debug_print("", banner=False)
+
           self.graph = create_react_agent(
             self.model,
             tools,
@@ -116,7 +122,6 @@ class PagerDutyAgent:
             prompt=self.SYSTEM_INSTRUCTION,
             response_format=(self.RESPONSE_FORMAT_INSTRUCTION, ResponseFormat),
           )
-
 
           # Provide a 'configurable' key such as 'thread_id' for the checkpointer
           runnable_config = RunnableConfig(configurable={"thread_id": "test-thread"})
@@ -140,43 +145,38 @@ class PagerDutyAgent:
                   str(r.get("content", r)) for r in llm_result["tool_call_results"]
               )
 
-
           # Return response
           if ai_content:
-              print("Assistant generated response")
+              debug_print("Assistant generated response")
               output_messages = [Message(type=MsgType.assistant, content=ai_content)]
           else:
               logger.warning("No assistant content found in LLM result")
               output_messages = []
 
           # Add a banner before printing the output messages
-          print("=" * 80)
-          print(f"Agent MCP Capabilities: {output_messages[-1].content}")
-          print("=" * 80)
+          debug_print(f"Agent MCP Capabilities: {output_messages[-1].content}")
 
       def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           return asyncio.run(_async_pagerduty_agent(state, config))
       messages = []
       state_input = InputState(messages=messages)
-      agent_input = AgentState(pagerduty_input=state_input).model_dump(mode="json")
+      agent_input = AgentState(input=state_input).model_dump(mode="json")
       runnable_config = RunnableConfig()
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
-          messages.append(HumanMessage(content="What is 2 + 2?"))
+          messages.append(HumanMessage(content="What can you help me with?"))
       _create_agent(agent_input, config=runnable_config)
 
     async def stream(
       self, query: str, sessionId: str
     ) -> AsyncIterable[dict[str, Any]]:
-      print("DEBUG: Starting stream with query:", query, "and sessionId:", sessionId)
+      debug_print(f"Starting stream with query: {query} and sessionId: {sessionId}")
       inputs: dict[str, Any] = {'messages': [('user', query)]}
       config: RunnableConfig = {'configurable': {'thread_id': sessionId}}
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
-          print('*'*80)
-          print("DEBUG: Streamed message:", message)
-          print('*'*80)
+          debug_print(f"Streamed message: {message}")
           if (
               isinstance(message, AIMessage)
               and message.tool_calls
@@ -195,37 +195,34 @@ class PagerDutyAgent:
               }
 
       yield self.get_agent_response(config)
+
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
-      print("DEBUG: Fetching agent response with config:", config)
+      debug_print(f"Fetching agent response with config: {config}")
       current_state = self.graph.get_state(config)
-      print('*'*80)
-      print("DEBUG: Current state:", current_state)
-      print('*'*80)
+      debug_print(f"Current state: {current_state}")
 
       structured_response = current_state.values.get('structured_response')
-      print('='*80)
-      print("DEBUG: Structured response:", structured_response)
-      print('='*80)
+      debug_print(f"Structured response: {structured_response}")
       if structured_response and isinstance(
         structured_response, ResponseFormat
       ):
-        print("DEBUG: Structured response is a valid ResponseFormat")
+        debug_print("Structured response is a valid ResponseFormat")
         if structured_response.status in {'input_required', 'error'}:
-          print("DEBUG: Status is input_required or error")
+          debug_print("Status is input_required or error")
           return {
             'is_task_complete': False,
             'require_user_input': True,
             'content': structured_response.message,
           }
         if structured_response.status == 'completed':
-          print("DEBUG: Status is completed")
+          debug_print("Status is completed")
           return {
             'is_task_complete': True,
             'require_user_input': False,
             'content': structured_response.message,
           }
 
-      print("DEBUG: Unable to process request, returning fallback response")
+      debug_print("Unable to process request, returning fallback response")
       return {
         'is_task_complete': False,
         'require_user_input': True,

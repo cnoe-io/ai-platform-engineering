@@ -83,9 +83,9 @@ async def create_agent(prompt=None, response_format=None):
     """
     memory_saver = MemorySaver()
 
-    pagerduty_token = os.getenv("PAGERDUTY_TOKEN")
-    if not pagerduty_token:
-        raise ValueError("PAGERDUTY_TOKEN must be set as an environment variable.")
+    pagerduty_api_key = os.getenv("PAGERDUTY_API_KEY")
+    if not pagerduty_api_key:
+        raise ValueError("PAGERDUTY_API_KEY must be set as an environment variable.")
 
     pagerduty_api_url = os.getenv("PAGERDUTY_API_URL")
     if not pagerduty_api_url:
@@ -103,7 +103,7 @@ async def create_agent(prompt=None, response_format=None):
                 "command": "uv",
                 "args": ["run", server_path],
                 "env": {
-                    "PAGERDUTY_TOKEN": pagerduty_token,
+                    "PAGERDUTY_API_KEY": pagerduty_api_key,
                     "PAGERDUTY_API_URL": pagerduty_api_url
                 },
                 "transport": "stdio",
@@ -129,9 +129,9 @@ async def create_agent(prompt=None, response_format=None):
 
 # Setup the PagerDuty MCP Client and create React Agent
 async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-    pagerduty_token = os.getenv("PAGERDUTY_TOKEN")
-    if not pagerduty_token:
-        raise ValueError("PAGERDUTY_TOKEN must be set as an environment variable.")
+    pagerduty_api_key = os.getenv("PAGERDUTY_API_KEY")
+    if not pagerduty_api_key:
+        raise ValueError("PAGERDUTY_API_KEY must be set as an environment variable.")
 
     pagerduty_api_url = os.getenv("PAGERDUTY_API_URL")
     if not pagerduty_api_url:
@@ -180,7 +180,7 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
                 "command": "uv",
                 "args": ["run", server_path],
                 "env": {
-                    "PAGERDUTY_TOKEN": pagerduty_token,
+                    "PAGERDUTY_API_KEY": pagerduty_api_key,
                     "PAGERDUTY_API_URL": pagerduty_api_url
                 },
                 "transport": "stdio",
