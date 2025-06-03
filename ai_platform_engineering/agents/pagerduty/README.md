@@ -60,7 +60,7 @@ flowchart TD
 ## ✨ Features
 
 - 🤖 **LangGraph + LangChain MCP Adapter** for agent orchestration
-- 🧠 **Azure OpenAI GPT-4o** as the LLM backend
+- 🧠 **Azure OpenAI GPT-4** as the LLM backend
 - 🔗 Connects to PagerDuty via a dedicated [PagerDuty MCP agent](https://github.com/cnoe-io/agent-pagerduty/tree/main/agent_pagerduty/protocol_bindings/mcp_server)
 - 🔄 **Multi-protocol support:** Compatible with both **ACP** and **A2A** protocols for flexible integration and multi-agent orchestration
 - 📊 **Comprehensive PagerDuty API Support:**
@@ -75,16 +75,27 @@ flowchart TD
 
 ## 🛠️ Setup
 
+### Prerequisites
+- Docker installed on your system
+- PagerDuty account with API access
+- Azure OpenAI API access (or other supported LLM provider)
+
 ### 1️⃣ Create/Update `.env`
 
 ```env
+############################
+# Agent Configuration
+############################
+
 LLM_PROVIDER=<azure-openai|google-gemini>
 AGENT_NAME=PagerDuty
 
 ## ACP Agent Configuration
-CNOE_AGENT_PAGERDUTY_API_KEY=
-CNOE_AGENT_PAGERDUTY_ID=
-CNOE_AGENT_PAGERDUTY_PORT=
+CNOE_AGENT_PAGERDUTY_API_KEY=your-api-key
+CNOE_AGENT_PAGERDUTY_ID=your-agent-id
+CNOE_AGENT_PAGERDUTY_PORT=8000
+AGENT_ID=your-agent-id
+AGENTS_REF={"your-agent-id": "agent_pagerduty.graph:AGENT_GRAPH"}
 
 ## A2A Agent Configuration
 A2A_AGENT_HOST=localhost
@@ -94,25 +105,82 @@ A2A_AGENT_PORT=8000
 MCP_HOST=localhost
 MCP_PORT=9000
 
-## Azure OpenAI Configuration
-AZURE_OPENAI_API_KEY=
-AZURE_OPENAI_API_VERSION=
-AZURE_OPENAI_DEPLOYMENT=
-AZURE_OPENAI_ENDPOINT=
+############################
+# Azure OpenAI Configuration
+############################
 
-## Google Gemini Configuration
-GOOGLE_API_KEY=
+AZURE_OPENAI_API_KEY=your-azure-key
+AZURE_OPENAI_API_VERSION=2025-04-01-preview
+AZURE_OPENAI_DEPLOYMENT=gpt-4.1
+AZURE_OPENAI_ENDPOINT=your-azure-endpoint
 
-## PagerDuty Configuration
-PAGERDUTY_API_KEY=
-PAGERDUTY_API_URL=
+############################
+# Google Gemini Configuration
+############################
+
+GOOGLE_API_KEY=your-google-key
+
+############################
+# PagerDuty Configuration
+############################
+
+PAGERDUTY_API_KEY=your-pagerduty-key
+PAGERDUTY_API_URL=https://api.pagerduty.com
+
+############################
+# Docker Image (Optional)
+############################
+
+ACP_AGENT_IMAGE=ghcr.io/cnoe-io/agent-pagerduty:acp-latest
+A2A_AGENT_IMAGE=ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
 ```
 
----
+### 2️⃣ Running with Docker
 
-### 2️⃣ Start Workflow Server (ACP or A2A)
+#### ACP Mode
+1. Pull the ACP image:
+```bash
+docker pull ghcr.io/cnoe-io/agent-pagerduty:acp-v0.1.0
+```
 
-You can start the workflow server in either ACP or A2A mode:
+2. Run the ACP container:
+```bash
+docker run -it --rm \
+  --env-file .env \
+  -v $(pwd)/.env:/opt/agent_src/.env \
+  -p 8000:8000 \
+  -e AGENT_MANIFEST_PATH=manifest.json \
+  -e API_HOST=0.0.0.0 \
+  ghcr.io/cnoe-io/agent-pagerduty:acp-v0.1.0
+```
+
+3. In a new terminal, start the ACP client:
+```bash
+make run-acp-client
+```
+
+#### A2A Mode
+1. Pull the A2A image:
+```bash
+docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-v0.1.0
+```
+
+2. Run the A2A container:
+```bash
+docker run -it --rm \
+  --env-file .env \
+  -p 8000:8000 \
+  ghcr.io/cnoe-io/agent-pagerduty:a2a-v0.1.0
+```
+
+3. In a new terminal, start the A2A client:
+```bash
+make run-a2a-client
+```
+
+### 3️⃣ Running Locally (Alternative)
+
+You can also run the agent locally without Docker:
 
 - **ACP Mode:**
   ```bash
@@ -141,89 +209,80 @@ You can start the workflow server in either ACP or A2A mode:
    - Save the API key securely
 
 3. **Get Your PagerDuty Domain:**
-   - Your API URL will be `https://<your-subdomain>.pagerduty.com/api/v1`
-   - Replace `<your-subdomain>` with your actual PagerDuty subdomain
+   - Your API URL will be `https://api.pagerduty.com`
+   - Update the `PAGERDUTY_API_URL` in your `.env` file
 
-### 1️⃣ Run the ACP Client
+### Example Interactions
 
-To interact with the agent in **ACP mode**:
+1. **Incident Management**
+```
+User: list all active incidents
+Agent: Here are the current active incidents:
 
-```bash
-make run-acp-client
+1. ID: P123ABC - High CPU Usage on Production Server
+   Status: triggered
+   Urgency: high
+   Assigned to: John Smith
+
+2. ID: P456DEF - Database Connection Errors
+   Status: acknowledged
+   Urgency: medium
+   Assigned to: DevOps Team
+
+Let me know if you need more details about any incident or would like to take action!
 ```
 
-**Configure Environment Variables**
+2. **Service Management**
+```
+User: show me all services
+Agent: Here are all the services configured in PagerDuty:
 
-Create or update a `.env` file in your project root with the following:
+1. Web Application (ID: PS1)
+   - Status: active
+   - Integration: API
+   - Team: Platform
 
-```env
-AGENT_ID="<YOUR_AGENT_ID>"
-API_KEY="<YOUR_API_KEY>"
-WFSM_PORT="<YOUR_ACP_SERVER_PORT>"
+2. Database Cluster (ID: PS2)
+   - Status: active
+   - Integration: Nagios
+   - Team: Infrastructure
+
+3. Payment Gateway (ID: PS3)
+   - Status: maintenance
+   - Integration: Custom
+   - Team: Payments
+
+Would you like more details about any specific service?
 ```
 
-**Example Interaction**
+## 🔍 Troubleshooting
 
-```
-> Your Question: how can you help?
-Agent: I can assist you with managing PagerDuty resources and operations, including:
+### Common Issues
 
-- **Incidents**: Create, update, resolve, and acknowledge incidents
-- **Services**: Create, update, and manage service configurations
-- **Schedules**: View and manage on-call schedules and rotations
-- **Teams**: Create and manage team assignments
-- **Users**: Manage user information and notification rules
-- **Escalation Policies**: Configure and update escalation policies
-```
+1. **Docker Issues**
+   - Ensure Docker daemon is running
+   - Check if you have sufficient permissions
+   - Verify the required images are available
 
----
+2. **Port Conflicts**
+   - If port 8000 is in use, modify `CNOE_AGENT_PAGERDUTY_PORT` in `.env`
+   - Check for other services using required ports
 
-### 2️⃣ Run the A2A Client
+3. **Environment Variables**
+   - Verify all required variables in `.env`
+   - Check API keys and tokens are valid
+   - No trailing spaces in values
 
-To interact with the agent in **A2A mode**:
+4. **Client Connection Issues**
+   - Server must be running before client
+   - Port numbers should match
+   - API keys must match between server and client
 
-```bash
-make run-a2a-client
-```
+### Logs
 
-**Sample Streaming Output**
-
-When running in A2A mode, you'll see streaming responses like:
-
-```
-============================================================
-RUNNING STREAMING TEST
-============================================================
-
---- Single Turn Streaming Request ---
---- Streaming Chunk ---
-I can help you manage your PagerDuty resources. Here are some examples of what I can do:
-
-1. Incident Management:
-   - Create new incidents
-   - Update incident status
-   - Resolve incidents
-   - Add notes to incidents
-
-2. Service Management:
-   - List available services
-   - Create new services
-   - Update service configurations
-   - Get service details
-
-[Response continues with more capabilities...]
-```
-
----
-
-## 🧬 Internals
-
-- 🛠️ Uses [`create_react_agent`](https://docs.langchain.com/langgraph/agents/react/) for tool-calling
-- 🔌 Tools loaded from the **PagerDuty MCP server** (submodule)
-- ⚡ MCP server launched via `uv run` with `stdio` transport
-- 🕸️ Single-node LangGraph for inference and action routing
-
----
+- Docker: Use `docker logs <container-id>`
+- Local: Check terminal output
+- Debug mode: Set `DEBUG=true` in `.env`
 
 ## 📚 Documentation
 
@@ -239,6 +298,13 @@ For more detailed information about the project, please refer to:
 - [Changelog](CHANGELOG.md) - Version history and changes
 - [Code of Conduct](CODE_OF_CONDUCT.md) - Community guidelines
 
+## 🔐 Security Notes
+
+* Never commit your `.env` file to version control
+* Keep your API keys and tokens secure
+* Use environment variables or secret managers in production
+* Regularly rotate your API keys and tokens
+
 ## 👥 Maintainers
 
 See [MAINTAINERS.md](MAINTAINERS.md) for the list of maintainers.
@@ -249,4 +315,4 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## 📄 License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details. 
+Apache 2.0 
