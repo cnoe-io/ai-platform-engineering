@@ -96,38 +96,10 @@ A2A_AGENT_IMAGE=ghcr.io/cnoe-io/agent-github:a2a-latest
 
 Note: Replace all placeholder values (like `your-github-token`, `your-azure-key`, etc.) with your actual credentials. Never commit the `.env` file to version control.
 
-## Building Docker Images
-
-### ACP Image
-```bash
-make build-docker-acp
-```
-
-### A2A Image
-```bash
-make build-docker-a2a
-```
 
 ## Running the Agent
 
-### Local Development
-
-#### ACP Mode
-```bash
-make run-acp
-```
-
-#### A2A Mode
-```bash
-make run-a2a
-```
-
 ### Docker Mode
-
-#### ACP Mode
-```bash
-make run-docker-acp
-```
 
 #### A2A Mode
 ```bash
@@ -144,16 +116,26 @@ docker run -it --rm \
 
 ## Running the Client
 
-### ACP Client
-```bash
-uvx https://github.com/cnoe-io/agent-chat-cli.git acp
-```
 
 ### A2A Client
 ```bash
 # Make sure you have activated your virtual environment
 uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
+
+### Local Development
+
+#### ACP Mode
+```bash
+make run-acp
+```
+
+#### A2A Mode
+```bash
+make run-a2a
+```
+
+
 
 ## Example Interactions
 
