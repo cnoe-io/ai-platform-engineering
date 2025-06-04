@@ -57,6 +57,10 @@ AWS_BEDROCK_PROVIDER="amazon"
 
 ### 2️⃣ Start the Agent (A2A Mode)
 
+> **Note:**
+> - If you don't have access to an ArgoCD server, see the [Local Development Setup](#-pre-requisite-start-local-argocd-server) section below to quickly spin up a local ArgoCD instance and deploy a sample app before proceeding.
+> - If you are using a different container runtime such as `podman` or `ctr`, please substitute `docker` with the respective utility in the commands below.
+
 Run the agent in a Docker container using your `.env` file:
 
 ```bash
@@ -122,9 +126,7 @@ flowchart TD
 
 ## Local Development Setup
 
-### ▶️ [Pre-requisite] Start local ArgoCD Server
-
-#### 🏃 Quick Start: Run ArgoCD Locally with kind
+### ▶️ [Optional] Start local ArgoCD Server with kind
 
 **Note:**
 This section assumes you have basic familiarity with Kubernetes concepts and tools, as running ArgoCD locally requires interacting with Kubernetes clusters and resources.
