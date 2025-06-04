@@ -26,6 +26,46 @@
 
 ---
 
+### 1️⃣ Create/Update `.env`
+
+```env
+LLM_PROVIDER=
+AGENT_NAME=
+CNOE_AGENT_ATLASSIAN_ID=
+CNOE_AGENT_ATLASSIAN_API_KEY=
+CNOE_AGENT_ATLASSIAN_PORT=
+AGENT_HOST=
+AGENT_PORT=
+AZURE_OPENAI_API_KEY=
+OPENAI_API_VERSION=
+AZURE_OPENAI_API_VERSION=
+AZURE_OPENAI_DEPLOYMENT=
+AZURE_OPENAI_ENDPOINT=
+ATLASSIAN_TOKEN=
+ATLASSIAN_EMAIL=
+ATLASSIAN_API_URL=
+ATLASSIAN_VERIFY_SSL=
+GOOGLE_API_KEY=
+```
+
+### 2️⃣ Start the Agent (A2A Mode)
+
+Run the agent in a Docker container using your `.env` file:
+
+```bash
+docker run -p 0.0.0.0:8000:8000 -it\
+   -v "$(pwd)/.env:/app/.env"\
+   ghcr.io/cnoe-io/agent-atlassian:a2a-latest
+```
+
+### 3️⃣ Run the Client
+
+Use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
+
+```bash
+uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+```
+
 ## 🏗️ Architecture
 
 ```mermaid
@@ -65,29 +105,6 @@ flowchart TD
 
 ---
 
-### 1️⃣ Create/Update `.env`
-
-```env
-LLM_PROVIDER=
-AGENT_NAME=
-CNOE_AGENT_ATLASSIAN_ID=
-CNOE_AGENT_ATLASSIAN_API_KEY=
-CNOE_AGENT_ATLASSIAN_PORT=
-AGENT_HOST=
-AGENT_PORT=
-AZURE_OPENAI_API_KEY=
-OPENAI_API_VERSION=
-AZURE_OPENAI_API_VERSION=
-AZURE_OPENAI_DEPLOYMENT=
-AZURE_OPENAI_ENDPOINT=
-ATLASSIAN_TOKEN=
-ATLASSIAN_EMAIL=
-ATLASSIAN_API_URL=
-ATLASSIAN_VERIFY_SSL=
-GOOGLE_API_KEY=
-```
-
----
 
 ### 2️⃣ Start Workflow Server (ACP or A2A)
 
