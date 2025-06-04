@@ -27,8 +27,8 @@ warnings.filterwarnings(
     module=".*"
 )
 
-AGENT_HOST = os.environ.get("A2A_AGENT_HOST", "localhost")
-AGENT_PORT = os.environ.get("A2A_AGENT_PORT", "8000")
+AGENT_HOST = os.environ.get("A2A_HOST", "localhost")
+AGENT_PORT = os.environ.get("A2A_PORT", "8000")
 AGENT_URL = f"http://{AGENT_HOST}:{AGENT_PORT}"
 DEBUG = os.environ.get("A2A_DEBUG_CLIENT", "false").lower() in ["1", "true", "yes"]
 console = Console()

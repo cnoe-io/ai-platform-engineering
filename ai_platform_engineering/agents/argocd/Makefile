@@ -95,8 +95,8 @@ run-acp: setup-venv ## Deploy ACP agent via wfsm
 
 run-a2a: setup-venv ## Run A2A agent with uvicorn
 	@$(MAKE) check-env
-	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
-	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_AGENT_PORT:-8000}
+	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
+	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
 
 run-mcp: setup-venv ## Run MCP server in SSE mode
 	@$(MAKE) check-env
@@ -184,17 +184,17 @@ run-docker-acp: ## Run the ACP agent in Docker
 # Run Docker container for A2A agent
 
 run-docker-a2a: ## Run the A2A agent in Docker
-	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
+	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
 	A2A_AGENT_IMAGE=$$(grep A2A_AGENT_IMAGE .env | cut -d '=' -f2 || echo ""); \
 	LOCAL_A2A_AGENT_IMAGE=$${A2A_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest}; \
-	LOCAL_A2A_AGENT_PORT=$${A2A_AGENT_PORT:-8000}; \
+	LOCAL_A2A_PORT=$${A2A_PORT:-8000}; \
 	echo "==================================================================="; \
 	echo "                      A2A AGENT DOCKER RUN                         "; \
 	echo "==================================================================="; \
 	echo "Using Agent Image: $$LOCAL_A2A_AGENT_IMAGE"; \
-	echo "Using Agent Port: $$LOCAL_A2A_AGENT_PORT"; \
+	echo "Using Agent Port: $$LOCAL_A2A_PORT"; \
 	echo "==================================================================="; \
-	docker run -p 0.0.0.0:$$LOCAL_A2A_AGENT_PORT:8000 -it \
+	docker run -p 0.0.0.0:$$LOCAL_A2A_PORT:8000 -it \
 		-v $(PWD)/.env:/app/.env \
 		$$LOCAL_A2A_AGENT_IMAGE
 

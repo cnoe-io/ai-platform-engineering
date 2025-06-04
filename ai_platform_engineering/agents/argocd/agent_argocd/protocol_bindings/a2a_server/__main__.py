@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import sys
 
 import click
 import httpx
@@ -16,10 +15,10 @@ from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
 from a2a.types import (
-    AgentAuthentication,
-    AgentCapabilities,
-    AgentCard,
-    AgentSkill,
+  AgentAuthentication,
+  AgentCapabilities,
+  AgentCard,
+  AgentSkill,
 )
 
 
@@ -27,25 +26,29 @@ load_dotenv()
 
 
 @click.command()
-@click.option('--host', 'host', default='localhost')
-@click.option('--port', 'port', default=10000)
+@click.option('--host', 'host', default='localhost', type=str)
+@click.option('--port', 'port', default=8000, type=int)
 def main(host: str, port: int):
-    if not os.getenv('GOOGLE_API_KEY'):
-        print('GOOGLE_API_KEY environment variable not set.')
-        sys.exit(1)
+  # Check environment variables for host and port if not provided via CLI
+  env_host = os.getenv('A2A_HOST')
+  env_port = os.getenv('A2A_PORT')
 
-    client = httpx.AsyncClient()
-    request_handler = DefaultRequestHandler(
-        agent_executor=ArgoCDAgentExecutor(),
-        task_store=InMemoryTaskStore(),
-        push_notifier=InMemoryPushNotifier(client),
-    )
+  # Use CLI argument if provided, else environment variable, else default
+  host = host or env_host or 'localhost'
+  port = port or int(env_port) if env_port is not None else 8000
 
-    server = A2AStarletteApplication(
-        agent_card=get_agent_card(host, port), http_handler=request_handler
-    )
+  client = httpx.AsyncClient()
+  request_handler = DefaultRequestHandler(
+    agent_executor=ArgoCDAgentExecutor(),
+    task_store=InMemoryTaskStore(),
+    push_notifier=InMemoryPushNotifier(client),
+  )
 
-    uvicorn.run(server.build(), host=host, port=port)
+  server = A2AStarletteApplication(
+    agent_card=get_agent_card(host, port), http_handler=request_handler
+  )
+
+  uvicorn.run(server.build(), host=host, port=port)
 
 
 def get_agent_card(host: str, port: int):

@@ -26,7 +26,34 @@
 
 ### 1️⃣ Configure Environment
 
-Ensure your `.env` file is set up as described in the [cnoe-agent-utils usage guide](https://github.com/cnoe-io/cnoe-agent-utils#-usage) based on your LLM Provider.
+- Ensure your `.env` file is set up as described in the [cnoe-agent-utils usage guide](https://github.com/cnoe-io/cnoe-agent-utils#-usage) based on your LLM Provider.
+- Refer to [.env.example](.env.example) as an example.
+
+**Example .env file:**
+
+```
+LLM_PROVIDER=aws-bedrock
+AGENT_NAME=ArgoCD
+
+## ArgoCD Configuration
+ARGOCD_TOKEN=
+ARGOCD_API_URL=
+ARGOCD_VERIFY_SSL=true
+
+## A2A Agent Configuration
+A2A_HOST=localhost
+A2A_PORT=8000
+
+########### LLM Configuration ###########
+
+# AWS Configuration
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_REGION=
+AWS_BEDROCK_MODEL_ID="us.amazon.nova-pro-v1:0"
+AWS_BEDROCK_PROVIDER="amazon"
+```
+
 
 ### 2️⃣ Start the Agent (A2A Mode)
 
