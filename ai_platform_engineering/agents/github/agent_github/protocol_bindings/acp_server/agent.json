@@ -35,7 +35,7 @@
               "url": "./../../../",
               "framework_config": {
                 "framework_type": "langgraph",
-                "graph": "agent_github.graph:graph"
+                "graph": "agent_slack.graph:AGENT_GRAPH"
               }
             },
             {
@@ -80,7 +80,7 @@
         "acp": {
           "version": "1.0.0",
           "framework": "langgraph",
-          "graph": "agent_github.graph:graph",
+          "graph": "agent_slack.graph:AGENT_GRAPH",
           "capabilities": {
             "threads": false,
             "interrupts": false,
