@@ -115,9 +115,7 @@ docker pull ghcr.io/cnoe-io/agent-github:a2a-latest
 
 2. Run the agent in a Docker container using your `.env` file:
 ```bash
-docker run -p 0.0.0.0:8000:8000 -it \
-  -v $(pwd)/.env:/app/.env \
-  ghcr.io/cnoe-io/agent-github:a2a-latest
+docker run -it --rm --env-file .env -p 8000:8000 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/cnoe-io/agent-github:a2a-latest
 ```
 
 ### 3️⃣ Run the Client
