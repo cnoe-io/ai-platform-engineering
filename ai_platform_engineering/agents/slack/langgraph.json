@@ -3,7 +3,7 @@
     "ENV PYTHONPATH=./agent_slack"
   ],
   "graphs": {
-    "graph": "agent_slack.graph:AGENT_GRAPH"
+    "JARVIS": "agent_slack.graph:graph"
   },
   "env": "./.env",
   "python_version": "3.13",
