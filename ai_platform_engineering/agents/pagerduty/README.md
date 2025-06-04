@@ -80,6 +80,37 @@ Running it via Docker:
 ### 1️⃣ Configure Environment
 Ensure your `.env` file is set up as described in the [cnoe-agent-utils usage guide](https://github.com/cnoe-io/cnoe-agent-utils) based on your LLM Provider.
 
+Example `.env` configuration:
+```env
+############################
+# Agent Configuration
+############################
+LLM_PROVIDER=azure-openai
+AGENT_NAME=PagerDuty
+
+## A2A Agent Configuration
+A2A_AGENT_HOST=localhost
+A2A_AGENT_PORT=8000
+
+## MCP Server Configuration
+MCP_HOST=localhost
+MCP_PORT=9000
+
+############################
+# Azure OpenAI Configuration
+############################
+AZURE_OPENAI_API_KEY=<your-azure-key>
+AZURE_OPENAI_API_VERSION=2025-04-01-preview
+AZURE_OPENAI_DEPLOYMENT=gpt-4.1
+AZURE_OPENAI_ENDPOINT=<your-azure-endpoint>
+
+############################
+# PagerDuty Configuration
+############################
+PAGERDUTY_API_KEY=<your-pagerduty-key>
+PAGERDUTY_API_URL=https://api.pagerduty.com
+```
+
 ### 2️⃣ Start the Agent (A2A Mode)
 1. Pull the A2A image:
 ```bash
