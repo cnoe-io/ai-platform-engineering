@@ -63,6 +63,13 @@ async def run_chat_loop(handle_user_input: Callable[[str], Awaitable[None]], tit
                     clear_screen()
                     print(f"🚀 Start chatting with your {title}...\n💬 Type your question and hit enter. Type 'exit' or 'quit' to leave. Type 'clear' to clear the screen.\n")
                     continue
+                elif user_input.lower() == "history":
+                    print("\n📜 Chat History (last 100 entries):")
+                    history = [readline.get_history_item(i) for i in range(1, readline.get_current_history_length() + 1)]
+                    for idx, entry in enumerate(history[-100:], 1):
+                        print(f"{idx}: {entry}")
+                    print()
+                    continue
                 if user_input:
                     readline.add_history(user_input)
                     spinner_task = asyncio.create_task(spinner())
@@ -76,7 +83,7 @@ async def run_chat_loop(handle_user_input: Callable[[str], Awaitable[None]], tit
                             await spinner_task
                         except asyncio.CancelledError:
                             pass
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 print("\n👋 Chat interrupted. Goodbye!")
                 break
     finally:
@@ -98,10 +105,11 @@ async def main():
     console.print("[green]Chat session started. Type 'exit' to quit.[/green]")
     console.print("[green]Enter your message:[/green]")
 
-    await run_chat_loop(lambda message: chat.send_message(message))
+    await run_chat_loop(lambda message: chat.send_message(message), title="PagerDuty Agent")
 
     await chat.client.aclose()
     console.print("[green]Chat session ended.[/green]")
 
 if __name__ == "__main__":
+    import sys
     asyncio.run(main()) 

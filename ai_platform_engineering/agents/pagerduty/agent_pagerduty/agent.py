@@ -1,4 +1,4 @@
-# Copyright 2025 CNOE
+# Copyright CNOE Contributors (https://cnoe.io)
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
@@ -13,32 +13,17 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 
-from .state import AgentState, Message, MsgType, OutputState
-from .llm_factory import LLMFactory
+from agent_pagerduty.state import AgentState, Message, MsgType, OutputState
+from cnoe_agent_utils import LLMFactory
 
 logger = logging.getLogger(__name__)
 
-# Find installed path of the pagerduty_mcp server module
-try:
-    spec = importlib.util.find_spec("agent_pagerduty.protocol_bindings.mcp_server.pagerduty_mcp.server")
-    if not spec or not spec.origin:
-        raise ImportError("Cannot find agent_pagerduty.protocol_bindings.mcp_server.server module")
-    
-    server_path = str(Path(spec.origin).resolve())
-    logger.info(f"Found MCP server at: {server_path}")
-except ImportError as e:
-    logger.error(f"Error finding MCP server: {e}")
-    # Fall back to pagerduty_mcp.server directlyx
-    try:
-        spec = importlib.util.find_spec("agent_pagerduty.protocol_bindings.mcp_server.pagerduty_mcp.server")
-        if spec and spec.origin:
-            server_path = str(Path(spec.origin).resolve())
-            logger.info(f"Falling back to direct pagerduty_mcp server: {server_path}")
-        else:
-            raise ImportError("Cannot find any PagerDuty MCP server module")
-    except ImportError:
-        logger.error("Could not find any PagerDuty MCP server module. MCP functionality will be unavailable.")
-        server_path = None
+# Find installed path of the pagerduty_mcp sub-module
+spec = importlib.util.find_spec("agent_pagerduty.protocol_bindings.mcp_server.mcp_pagerduty.server")
+if not spec or not spec.origin:
+    raise ImportError("Cannot find agent_pagerduty.protocol_bindings.mcp_server.mcp_pagerduty.server module")
+
+server_path = str(Path(spec.origin).resolve())
 
 class Memory:
     """
