@@ -2,11 +2,10 @@
 
 import json
 import logging
-from typing import Annotated, Any, Optional, List, Dict
+from typing import Annotated, Optional, List
 
 from mcp.server.fastmcp import Context
 from pydantic import Field
-from requests.exceptions import HTTPError
 
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.api.client import make_api_request
 
@@ -64,7 +63,10 @@ async def get_issue(
     ] = True,
 ) -> str:
     """Fetch details of a specific Jira issue."""
-    logger.debug(f"get_issue called with issue_key={issue_key}, fields={fields}, expand={expand}, comment_limit={comment_limit}, properties={properties}, update_history={update_history}")
+    logger.debug(
+        f"get_issue called with issue_key={issue_key}, fields={fields}, expand={expand}, "
+        f"comment_limit={comment_limit}, properties={properties}, update_history={update_history}"
+    )
 
     fields_list: Optional[List[str]] = None
     if fields and fields != "*all":

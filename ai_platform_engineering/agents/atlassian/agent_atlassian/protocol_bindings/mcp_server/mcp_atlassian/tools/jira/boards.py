@@ -1,6 +1,5 @@
 """Board operations for Jira MCP"""
 
-import json
 import logging
 from typing import Annotated
 from pydantic import Field

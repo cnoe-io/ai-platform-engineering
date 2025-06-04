@@ -2,9 +2,6 @@
 
 import logging
 import os
-from pathlib import Path
-from typing import Any
-from pydantic import BaseModel
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.api.client import make_api_request
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.models.jira.common import JiraAttachment
 

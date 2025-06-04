@@ -2,7 +2,6 @@
 
 import logging
 import json
-from typing import Any
 from pydantic import Field
 from typing_extensions import Annotated
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.api.client import make_api_request

@@ -1,13 +1,7 @@
 """Search operations for Confluence MCP"""
 
 import logging
-from typing import Any
-from pydantic import BaseModel
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.api.client import make_api_request
-import json
-from typing import Annotated
-from pydantic import Field
-from mcp.server.fastmcp import Context
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
