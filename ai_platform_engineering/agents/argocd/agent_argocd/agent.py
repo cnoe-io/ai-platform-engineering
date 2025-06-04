@@ -49,6 +49,10 @@ async def create_agent(prompt=None, response_format=None):
   if not argocd_api_url:
     raise ValueError("ARGOCD_API_URL must be set as an environment variable.")
 
+  argocd_verify_ssl = os.getenv("ARGOCD_VERIFY_SSL", "false")
+  if argocd_verify_ssl.lower() not in ["true", "false"]:
+    raise ValueError("ARGOCD_VERIFY_SSL must be 'true' or 'false'.")
+
   agent = None
   async with MultiServerMCPClient(
     {
@@ -58,7 +62,7 @@ async def create_agent(prompt=None, response_format=None):
         "env": {
           "ARGOCD_TOKEN": argocd_token,
           "ARGOCD_API_URL": argocd_api_url,
-          "ARGOCD_VERIFY_SSL": "false"
+          "ARGOCD_VERIFY_SSL": argocd_verify_ssl
         },
         "transport": "stdio",
       }
@@ -97,6 +101,10 @@ def create_agent_sync(prompt, response_format):
   if not argocd_api_url:
       raise ValueError("ARGOCD_API_URL must be set as an environment variable.")
 
+  argocd_verify_ssl = os.getenv("ARGOCD_VERIFY_SSL", "false")
+  if argocd_verify_ssl.lower() not in ["true", "false"]:
+    raise ValueError("ARGOCD_VERIFY_SSL must be 'true' or 'false'.")
+
   client = MultiServerMCPClient(
       {
           "argocd": {
@@ -105,7 +113,7 @@ def create_agent_sync(prompt, response_format):
               "env": {
                   "ARGOCD_TOKEN": argocd_token,
                   "ARGOCD_API_URL": argocd_api_url,
-                  "ARGOCD_VERIFY_SSL": "false"
+                  "ARGOCD_VERIFY_SSL": argocd_verify_ssl
               },
               "transport": "stdio",
           }
@@ -131,6 +139,13 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
       raise ValueError("ARGOCD_TOKEN must be set as an environment variable.")
 
     argocd_api_url = os.getenv("ARGOCD_API_URL")
+    if not argocd_api_url:
+      raise ValueError("ARGOCD_API_URL must be set as an environment variable.")
+
+    argocd_verify_ssl = os.getenv("ARGOCD_VERIFY_SSL", "false")
+    if argocd_verify_ssl.lower() not in ["true", "false"]:
+      raise ValueError("ARGOCD_VERIFY_SSL must be 'true' or 'false'.")
+
     model = LLMFactory().get_llm()
 
     if not argocd_api_url:
@@ -156,6 +171,7 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
 
     logger.info(f"Launching MCP server at: {server_path}")
 
+
     client = MultiServerMCPClient(
         {
             "argocd": {
@@ -164,7 +180,7 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
                 "env": {
                     "ARGOCD_TOKEN": argocd_token,
                     "ARGOCD_API_URL": argocd_api_url,
-                    "ARGOCD_VERIFY_SSL": "false"
+                    "ARGOCD_VERIFY_SSL": argocd_verify_ssl
                 },
                 "transport": "stdio",
             }
@@ -173,14 +189,26 @@ async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict
     tools = await client.get_tools()
     memory = MemorySaver()
     agent = create_react_agent(
-        model,
-        tools,
-        checkpointer=memory,
-        prompt=(
-            "You are a helpful assistant that can interact with ArgoCD. "
-            "You can use the ArgoCD API to get information about applications, clusters, and projects. "
-            "You can also perform actions like syncing applications or rolling back to previous versions."
-        )
+      model,
+      tools,
+      checkpointer=memory,
+      prompt=(
+        "You are an expert assistant for ArgoCD, a GitOps continuous delivery tool for Kubernetes. "
+        "Your role is to help users manage and troubleshoot a given ArgoCD-managed applications, clusters, and projects. "
+        "You have access to the ArgoCD API and can perform actions such as:\n"
+        "- Listing, describing, and getting the status of applications, clusters, and projects\n"
+        "- Syncing applications to their desired state\n"
+        "- Rolling back applications to previous versions\n"
+        "- Viewing and explaining application manifests and diffs\n"
+        "- Providing troubleshooting steps for common ArgoCD issues\n"
+        "- Explaining ArgoCD concepts and best practices\n"
+        "When responding, be concise, accurate, and actionable. "
+        "If a user asks for an action, confirm before proceeding if the action is potentially disruptive. "
+        "If you need more information, ask clarifying questions. "
+        "Always format your responses clearly and include relevant details from the ArgoCD API when possible. "
+        "Do not answer questions unrelated to ArgoCD. "
+        "For any create, update, or delete operation, always confirm with the user before proceeding."
+      )
     )
     input_message = ''.join([m.content for m in messages])
     logger.info("*"*80)

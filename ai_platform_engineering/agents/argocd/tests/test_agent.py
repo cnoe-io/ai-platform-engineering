@@ -29,7 +29,8 @@ async def test_async_argocd_agent_success():
        patch("agent_argocd.agent.create_react_agent") as mock_create_agent:
 
       # Configure mocks
-      mock_getenv.side_effect = lambda key: {"ARGOCD_TOKEN": "dummy-token", "ARGOCD_API_URL": "https://dummy-server"}[key]
+      mock_getenv.side_effect = lambda key, default=None: {"ARGOCD_TOKEN": "dummy-token",
+                                                           "ARGOCD_API_URL": "https://dummy-server"}.get(key, default)
       mock_llm = AsyncMock()
       mock_llm_factory.return_value.get_llm.return_value = mock_llm
 

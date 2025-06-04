@@ -124,38 +124,115 @@ flowchart TD
 
 ### ▶️ [Pre-requisite] Start local ArgoCD Server
 
-#### 🏃 Quick Start: Run ArgoCD Locally with Minikube
+#### 🏃 Quick Start: Run ArgoCD Locally with kind
 
-If you don't have an existing ArgoCD server, you can quickly spin one up using [Minikube](https://minikube.sigs.k8s.io/docs/):
+**Note:**
+This section assumes you have basic familiarity with Kubernetes concepts and tools, as running ArgoCD locally requires interacting with Kubernetes clusters and resources.
 
-1. **Start Minikube:**
+If you don't have an existing ArgoCD server, you can quickly spin one up using [kind](https://kind.sigs.k8s.io/):
+
+- **Install KinD**
+  _Reference:_ https://kind.sigs.k8s.io/docs/user/quick-start/#installing-from-release-binaries
+
+- **Create a kind cluster:**
 
   ```bash
-  minikube start
+  kind create cluster --name cnoe-argocd-agent
   ```
 
-1. **Install ArgoCD in the `argocd` namespace:**
+- **Install ArgoCD in the `argocd` namespace:**
+
   ```bash
   kubectl create namespace argocd
+  ```
+
+  ```bash
   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
   ```
 
-1. **Expose the ArgoCD API server:**
+- **Expose the ArgoCD API server:**
+  Wait until all the pods are running by checking their status:
+
+  ```bash
+  kubectl get pods -A
+  ```
+
   ```bash
   kubectl port-forward svc/argocd-server -n argocd 8080:443
   ```
+
   The API will be available at `https://localhost:8080`.
 
-1. **Get the ArgoCD admin password:**
+- **Get the ArgoCD admin password:**
+
   ```bash
   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
   ```
 
-1. **(Optional) Install ArgoCD CLI:**
+- **(Optional) Install ArgoCD CLI:**
+
   ```bash
   brew install argocd
   # or see https://argo-cd.readthedocs.io/en/stable/cli_installation/
   ```
+
+#### Example: Deploying Guestbook via ArgoCD CLI
+
+> **Note:** Use a new terminal session and continue to run ArgoCD locally via port forwarding.
+
+To deploy the [Guestbook](https://github.com/argoproj/argocd-example-apps/tree/master/guestbook) demo application using the ArgoCD CLI, follow these steps:
+
+1. **Login to ArgoCD:**
+
+  ```bash
+  argocd login localhost:8080 --username admin --password <ARGOCD_ADMIN_PASSWORD> --insecure
+  ```
+
+2. **Create the Guestbook application:**
+
+  ```bash
+  argocd app create guestbook \
+    --repo https://github.com/argoproj/argocd-example-apps.git \
+    --path guestbook \
+    --dest-server https://kubernetes.default.svc \
+    --dest-namespace default
+  ```
+
+3. **Sync (deploy) the application:**
+
+  ```bash
+  argocd app sync guestbook
+  ```
+
+4. **Check application status:**
+
+  ```bash
+  argocd app get guestbook
+  ```
+
+5. **Generate an ArgoCD API Token:**
+
+To interact programmatically with ArgoCD, you need an API token. After logging in with the CLI, run:
+
+```bash
+kubectl -n argocd patch configmap argocd-cm --type merge -p '{"data":{"accounts.admin":"login,apiKey"}}'
+```
+
+```bash
+kubectl -n argocd rollout restart deployment argocd-server
+```
+
+```bash
+argocd account generate-token --account admin
+```
+
+Copy the output token and set it as `ARGOCD_TOKEN` in your `.env` file.
+
+```
+ARGOCD_TOKEN=
+ARGOCD_API_URL=https://localhost:8080
+ARGOCD_VERIFY_SSL=false
+```
 
 For more details, see the [official getting started guide](https://argo-cd.readthedocs.io/en/stable/getting_started/#1-install-argo-cd).
 
