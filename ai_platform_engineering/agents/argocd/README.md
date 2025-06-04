@@ -100,7 +100,7 @@ flowchart TD
   end
 
   subgraph Tools/MCP Layer
-    D[LangGraph MCP Adapter]
+    D[Langchain MCP Adapter]
     E[ArgoCD MCP Server]
     F[ArgoCD API Server]
   end
