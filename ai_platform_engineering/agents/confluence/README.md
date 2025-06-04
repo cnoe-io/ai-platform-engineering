@@ -37,7 +37,7 @@
 
 ```env
 LLM_PROVIDER=
-AGENT_NAME=
+AGENT_NAME=atlassian
 CNOE_AGENT_ATLASSIAN_ID=
 CNOE_AGENT_ATLASSIAN_API_KEY=
 CNOE_AGENT_ATLASSIAN_PORT=
@@ -54,6 +54,10 @@ ATLASSIAN_API_URL=
 ATLASSIAN_VERIFY_SSL=
 GOOGLE_API_KEY=
 ```
+
+**Use the following link to get your own Atlassian API Token:**
+
+https://id.atlassian.com/manage-profile/security/api-tokens
 
 ### 2️⃣ Start the Agent (A2A Mode)
 
