@@ -9,7 +9,6 @@
 [![Super Linter](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml)
 [![Unit Tests](https://github.com/cnoe-io/agent-pagerduty/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/cnoe-io/agent-pagerduty/actions/workflows/unit-tests.yml)
 
-[![ACP Docker Build and Push](https://github.com/cnoe-io/agent-pagerduty/actions/workflows/acp-docker-build.yml/badge.svg)](https://github.com/cnoe-io/agent-pagerduty/actions/workflows/acp-docker-build.yml)
 [![A2A Docker Build and Push](https://github.com/cnoe-io/agent-pagerduty/actions/workflows/a2a-docker-build.yml/badge.svg)](https://github.com/cnoe-io/agent-pagerduty/actions/workflows/a2a-docker-build.yml)
 ---
 
@@ -73,29 +72,21 @@ flowchart TD
 
 ---
 
-## 🛠️ Setup
+## 🚀 Getting Started
 
-### Prerequisites
-- Docker installed on your system
-- PagerDuty account with API access
-- Azure OpenAI API access (or other supported LLM provider)
+Running it via Docker:
 
-### 1️⃣ Create/Update `.env`
 
+### 1️⃣ Configure Environment
+Ensure your `.env` file is set up as described in the [cnoe-agent-utils usage guide](https://github.com/cnoe-io/cnoe-agent-utils) based on your LLM Provider.
+
+Example `.env` configuration:
 ```env
 ############################
 # Agent Configuration
 ############################
-
-LLM_PROVIDER=<azure-openai|google-gemini>
+LLM_PROVIDER=azure-openai
 AGENT_NAME=PagerDuty
-
-## ACP Agent Configuration
-CNOE_AGENT_PAGERDUTY_API_KEY=your-api-key
-CNOE_AGENT_PAGERDUTY_ID=your-agent-id
-CNOE_AGENT_PAGERDUTY_PORT=8000
-AGENT_ID=your-agent-id
-AGENTS_REF={"your-agent-id": "agent_pagerduty.graph:AGENT_GRAPH"}
 
 ## A2A Agent Configuration
 A2A_AGENT_HOST=localhost
@@ -108,92 +99,71 @@ MCP_PORT=9000
 ############################
 # Azure OpenAI Configuration
 ############################
-
-AZURE_OPENAI_API_KEY=your-azure-key
+AZURE_OPENAI_API_KEY=<your-azure-key>
 AZURE_OPENAI_API_VERSION=2025-04-01-preview
 AZURE_OPENAI_DEPLOYMENT=gpt-4.1
-AZURE_OPENAI_ENDPOINT=your-azure-endpoint
-
-############################
-# Google Gemini Configuration
-############################
-
-GOOGLE_API_KEY=your-google-key
+AZURE_OPENAI_ENDPOINT=<your-azure-endpoint>
 
 ############################
 # PagerDuty Configuration
 ############################
-
-PAGERDUTY_API_KEY=your-pagerduty-key
+PAGERDUTY_API_KEY=<your-pagerduty-key>
 PAGERDUTY_API_URL=https://api.pagerduty.com
-
-############################
-# Docker Image (Optional)
-############################
-
-ACP_AGENT_IMAGE=ghcr.io/cnoe-io/agent-pagerduty:acp-latest
-A2A_AGENT_IMAGE=ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
 ```
 
-### 2️⃣ Running with Docker
-
-#### ACP Mode
-1. Pull the ACP image:
-```bash
-docker pull ghcr.io/cnoe-io/agent-pagerduty:acp-v0.1.0
-```
-
-2. Run the ACP container:
-```bash
-docker run -it --rm \
-  --env-file .env \
-  -v $(pwd)/.env:/opt/agent_src/.env \
-  -p 8000:8000 \
-  -e AGENT_MANIFEST_PATH=manifest.json \
-  -e API_HOST=0.0.0.0 \
-  ghcr.io/cnoe-io/agent-pagerduty:acp-v0.1.0
-```
-
-3. In a new terminal, start the ACP client:
-```bash
-make run-acp-client
-```
-
-#### A2A Mode
+### 2️⃣ Start the Agent (A2A Mode)
 1. Pull the A2A image:
 ```bash
-docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-v0.1.0
+docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
 ```
 
-2. Run the A2A container:
+2. Run the agent in a Docker container using your `.env` file:
 ```bash
-docker run -it --rm \
-  --env-file .env \
-  -p 8000:8000 \
-  ghcr.io/cnoe-io/agent-pagerduty:a2a-v0.1.0
+docker run -p 0.0.0.0:8000:8000 -it \
+  -v $(pwd)/.env:/app/.env \
+  ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
 ```
 
-3. In a new terminal, start the A2A client:
+### 3️⃣ Run the Client
+Use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
+
+```bash
+uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+```
+
+### Alternative: Running Locally
+You can also run the agent locally without Docker:
+
+First clone the repo
+
+```bash
+git clone https://github.com/cnoe-io/agent-pagerduty.git
+cd agent-pagerduty
+```
+
+```bash
+make run-a2a
+```
+
+In a new terminal, start the A2A client:
 ```bash
 make run-a2a-client
 ```
 
-### 3️⃣ Running Locally (Alternative)
+### Alternative: ACP Mode (Legacy)
+If you need to use ACP mode instead:
 
-You can also run the agent locally without Docker:
+1. Run the agent:
+```bash
+make run-acp
+```
 
-- **ACP Mode:**
-  ```bash
-  make run-acp
-  ```
-- **A2A Mode:**
-  ```bash
-  make run-a2a
-  ```
+2. In a new terminal, start the ACP client:
+```bash
+make run-acp-client
+```
 
----
-
-## 🧪 Usage
+## Quick Demos
 
 ### ▶️ Test with PagerDuty API
 
