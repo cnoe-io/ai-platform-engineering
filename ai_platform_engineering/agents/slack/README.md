@@ -105,7 +105,7 @@ docker run -it --rm \
 
 3. In a new terminal, start the A2A client:
 ```bash
-make run-a2a-client
+uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
 
 ### Step 4: Configure Your Slack App
