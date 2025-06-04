@@ -1,3 +1,7 @@
+"""
+Chat interface for interacting with the GitHub agent.
+"""
+
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
@@ -6,16 +10,14 @@ import json
 import os
 import re
 import readline
-import subprocess
 import platform
 from typing import Callable, Awaitable
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Prompt
 from rich.theme import Theme
 
-# Custom theme for better GitHub-like appearance
+# Custom theme for GitHub-like appearance
 custom_theme = Theme({
     "info": "cyan",
     "warning": "yellow",
@@ -60,7 +62,7 @@ def print_welcome_message():
         "[github]🚀 Welcome to GitHub Agent CLI[/github]\n\n"
         "This agent helps you interact with GitHub repositories and manage your GitHub resources.\n"
         "You can ask questions about your repositories, manage issues, pull requests, and more.\n\n"
-        "Type 'exit' or 'quit' to leave. Type 'clear' to clear the screen.",
+        "Type 'exit' or 'quit' to leave. Type 'clear' to clear the screen. Type 'history' to view chat history.",
         title="[github]GitHub Agent[/github]",
         border_style="github",
         padding=(1, 2)
@@ -80,13 +82,20 @@ async def run_chat_loop(handle_user_input: Callable[[str], Awaitable[None]], tit
     try:
         while True:
             try:
-                user_input = Prompt.ask("[github]🧑‍💻 You[/github]")
+                user_input = input("🧑‍💻 You: ").strip()
                 if user_input.lower() in ["exit", "quit"]:
                     console.print("\n[github]👋 Thank you for using GitHub Agent. Goodbye![/github]")
                     break
                 elif user_input.lower() == "clear":
                     clear_screen()
                     print_welcome_message()
+                    continue
+                elif user_input.lower() == "history":
+                    console.print("\n[github]📜 Chat History (last 100 entries):[/github]")
+                    history = [readline.get_history_item(i) for i in range(1, readline.get_current_history_length() + 1)]
+                    for idx, entry in enumerate(history[-100:], 1):
+                        console.print(f"{idx}: {entry}")
+                    console.print()
                     continue
                 if user_input:
                     readline.add_history(user_input)
@@ -101,7 +110,7 @@ async def run_chat_loop(handle_user_input: Callable[[str], Awaitable[None]], tit
                             await spinner_task
                         except asyncio.CancelledError:
                             pass
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 console.print("\n[github]👋 Chat interrupted. Goodbye![/github]")
                 break
     finally:
@@ -109,3 +118,25 @@ async def run_chat_loop(handle_user_input: Callable[[str], Awaitable[None]], tit
             readline.write_history_file(history_file)
         except Exception as e:
             console.print(f"[warning]⚠️  Could not save history file: {e}[/warning]")
+
+async def main():
+    """Main chat loop."""
+    if len(sys.argv) < 2:
+        console.print("[error]Please provide the agent URL as an argument.[/error]")
+        console.print("Example: python chat_interface.py http://localhost:8000")
+        sys.exit(1)
+
+    base_url = sys.argv[1]
+    chat = ChatInterface(base_url)
+
+    console.print("[github]Chat session started. Type 'exit' to quit.[/github]")
+    console.print("[github]Enter your message:[/github]")
+
+    await run_chat_loop(lambda message: chat.send_message(message), title="GitHub Agent")
+
+    await chat.client.aclose()
+    console.print("[github]Chat session ended.[/github]")
+
+if __name__ == "__main__":
+    import sys
+    asyncio.run(main())
