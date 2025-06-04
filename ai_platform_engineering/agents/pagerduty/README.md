@@ -74,6 +74,9 @@ flowchart TD
 
 ## 🚀 Getting Started
 
+Running it via Docker:
+
+
 ### 1️⃣ Configure Environment
 Ensure your `.env` file is set up as described in the [cnoe-agent-utils usage guide](https://github.com/cnoe-io/cnoe-agent-utils) based on your LLM Provider.
 
@@ -100,8 +103,20 @@ uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 ### Alternative: Running Locally
 You can also run the agent locally without Docker:
 
+First clone the repo
+
+```bash
+git clone https://github.com/cnoe-io/agent-pagerduty.git
+cd agent-pagerduty
+```
+
 ```bash
 make run-a2a
+```
+
+In a new terminal, start the A2A client:
+```bash
+make run-a2a-client
 ```
 
 ### Alternative: ACP Mode (Legacy)
