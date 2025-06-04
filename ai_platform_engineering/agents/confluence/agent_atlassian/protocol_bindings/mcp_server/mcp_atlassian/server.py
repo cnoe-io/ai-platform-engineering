@@ -6,8 +6,6 @@ This server provides a Model Context Protocol (MCP) interface to the Atlassian A
 allowing large language models and AI assistants to manage Atlassian resources.
 """
 import logging
-import os
-import sys
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 

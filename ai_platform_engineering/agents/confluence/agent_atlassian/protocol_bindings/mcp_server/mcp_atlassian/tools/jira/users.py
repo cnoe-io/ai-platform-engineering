@@ -2,10 +2,9 @@
 
 import json
 import logging
-from typing import Annotated
 
 from mcp.server.fastmcp import Context
-from pydantic import Field, BaseModel
+from pydantic import BaseModel
 from requests.exceptions import HTTPError
 
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.exceptions import MCPAtlassianAuthenticationError

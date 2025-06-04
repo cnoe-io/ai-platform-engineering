@@ -2,8 +2,7 @@
 
 import logging
 import json
-from typing import Any, List, Optional
-from pydantic import BaseModel
+from typing import List, Optional
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.api.client import make_api_request
 from mcp.server.fastmcp import Context
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.models.jira.search import JiraSearchResult
