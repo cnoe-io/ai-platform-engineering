@@ -2,8 +2,8 @@
 
 import json
 import logging
-from typing import Annotated, Any, Optional
-from pydantic import Field, BaseModel
+from typing import Annotated
+from pydantic import Field
 from mcp.server.fastmcp import Context
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.api.client import make_api_request
 from agent_atlassian.protocol_bindings.mcp_server.mcp_atlassian.models.jira.worklog import JiraWorklog
@@ -41,7 +41,10 @@ async def add_worklog(
 ) -> str:
     """Add a worklog to a Jira issue."""
     logger.debug("Entering add_worklog function")
-    logger.debug(f"Parameters: issue_key={issue_key}, time_spent={time_spent}, comment={comment}, started={started}, original_estimate={original_estimate}, remaining_estimate={remaining_estimate}")
+    logger.debug(
+        f"Parameters: issue_key={issue_key}, time_spent={time_spent}, comment={comment}, "
+        f"started={started}, original_estimate={original_estimate}, remaining_estimate={remaining_estimate}"
+    )
 
     lifespan_ctx = ctx.request_context.lifespan_context
     if lifespan_ctx.read_only:
@@ -49,8 +52,6 @@ async def add_worklog(
         raise ValueError("Cannot add worklog in read-only mode.")
     if not lifespan_ctx or not lifespan_ctx.jira:
         raise ValueError("Jira client is not configured or available.")
-
-    jira = lifespan_ctx.jira
 
     worklog_data = {
         "timeSpent": time_spent,
