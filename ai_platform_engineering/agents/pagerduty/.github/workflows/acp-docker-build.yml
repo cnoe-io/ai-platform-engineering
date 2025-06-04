@@ -48,11 +48,13 @@ jobs:
       - name: Build and Push ACP Docker image
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: ./build/Dockerfile.acp
+          # Build context is now the agent-pagerduty/ folder
+          context: ./agent-pagerduty
+          # Dockerfile is inside agent-pagerduty/build/
+          file: ./agent-pagerduty/build/Dockerfile.acp
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
-          cache-to: type=gha,mode=max 
+          cache-to: type=gha,mode=max
