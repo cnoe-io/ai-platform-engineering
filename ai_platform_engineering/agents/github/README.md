@@ -132,14 +132,14 @@ make run-docker-acp
 #### A2A Mode
 ```bash
 # First, pull the latest image
-docker pull ghcr.io/cnoe-io/agent-github:a2a-latest
+docker pull ghcr.io/cnoe-io/agent-github:a2a-b51dae5
 
 # Then run the container
 docker run -it --rm \
   --env-file .env \
   -p 8000:8000 \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/cnoe-io/agent-github:a2a-latest
+  ghcr.io/cnoe-io/agent-github:a2a-b51dae5
 ```
 
 ## Running the Client

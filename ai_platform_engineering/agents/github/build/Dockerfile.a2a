@@ -29,7 +29,8 @@ RUN poetry config cache-dir /app/.cache
 RUN poetry config virtualenvs.path /app/.venv
 
 # Install A2A SDK in the Poetry environment
-RUN git clone https://github.com/google/a2a-python -b main --depth 1 /app/a2a-python
+RUN rm -rf /app/a2a-python && \
+    git clone https://github.com/google/a2a-python -b main --depth 1 /app/a2a-python
 
 RUN poetry run pip install -e /app/a2a-python
 
