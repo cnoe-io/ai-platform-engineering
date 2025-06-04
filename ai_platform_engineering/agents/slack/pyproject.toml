@@ -10,9 +10,10 @@ authors = [
 maintainers = [
     { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
 ]
-requires-python = ">=3.11,<4.0"
+requires-python = ">=3.13,<4.0"
 dependencies = [
     "a2a-python>=0.0.1",
+    "a2a-sdk>=0.2.1",
     "agentevals>=0.0.7",
     "agntcy-acp>=1.3.2",
     "click>=8.2.0",
@@ -25,6 +26,9 @@ dependencies = [
     "pytest>=8.3.5",
     "tabulate>=0.9.0",
     "uv",
+    "rich (>=14.0.0,<15.0.0)",
+    "sseclient (>=0.0.27,<0.0.28)",
+    "cnoe-agent-utils (>=0.1.3,<0.2.0)",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]
@@ -34,6 +38,12 @@ agent_slack_a2a = "agent_slack.protocol_bindings.a2a_server:main"
 
 [tool.poetry.dependencies]
 uv = "^0.7.5"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.11.11"
+pytest-asyncio = "^0.26.0"
+pytest-cov = "^6.1.1"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
