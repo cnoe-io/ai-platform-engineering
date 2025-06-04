@@ -116,16 +116,13 @@ GITHUB_PERSONAL_ACCESS_TOKEN=<your-github-token>
 ### 2️⃣ Start the Agent (A2A Mode)
 1. Pull the A2A image:
 ```bash
-docker pull ghcr.io/cnoe-io/agent-github:a2a-v1.0.2
+docker pull ghcr.io/cnoe-io/agent-github:a2a-latest
 ```
 
 2. Run the agent in a Docker container using your `.env` file:
 ```bash
-docker run -it --rm 
---env-file .env 
--p 8000:8000 
--v /var/run/docker.sock:/var/run/docker.sock 
-ghcr.io/cnoe-io/agent-github:a2a-v1.0.2
+docker run -it --rm --env-file .env -p 8000:8000 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/cnoe-io/agent-github:a2a-latest
+```
 ```
 
 ### 3️⃣ Run the Client
