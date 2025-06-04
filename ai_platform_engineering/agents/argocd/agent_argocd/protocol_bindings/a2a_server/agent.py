@@ -12,7 +12,6 @@ from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langchain_core.runnables.config import (
     RunnableConfig,
 )
-from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -28,6 +27,7 @@ from agent_argocd.protocol_bindings.a2a_server.state import (
     Message,
     MsgType,
 )
+from cnoe_agent_utils import LLMFactory
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +66,7 @@ class ArgoCDAgent:
 
     def __init__(self):
       # Setup the math agent and load MCP tools
-      self.model = AzureChatOpenAI(
-          model="gpt-4o")
+      self.model = LLMFactory().get_llm()
       self.graph = None
       async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})

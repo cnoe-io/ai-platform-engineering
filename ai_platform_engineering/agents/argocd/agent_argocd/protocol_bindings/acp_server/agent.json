@@ -51,24 +51,67 @@
               "required": true
             },
             {
-              "desc": "Azure OpenAI endpoint for LLM",
-              "name": "AZURE_OPENAI_ENDPOINT"
+              "desc": "Anthropic API key",
+              "name": "ANTHROPIC_API_KEY"
+            },
+            {
+              "desc": "Anthropic model name",
+              "name": "ANTHROPIC_MODEL_NAME"
+            {
+              "desc": "AWS profile",
+              "name": "AWS_PROFILE"
+            },
+            {
+              "desc": "AWS region",
+              "name": "AWS_REGION"
+            },
+            {
+              "desc": "AWS Bedrock model ID",
+              "name": "AWS_BEDROCK_MODEL_ID"
+            },
+            {
+              "desc": "AWS Bedrock provider",
+              "name": "AWS_BEDROCK_PROVIDER"
             },
             {
               "desc": "Azure OpenAI API key",
               "name": "AZURE_OPENAI_API_KEY"
             },
             {
-              "desc": "Azure OpenAI deployment",
-              "name": "AZURE_OPENAI_DEPLOYMENT"
-            },
-            {
               "desc": "Azure OpenAI API version",
               "name": "AZURE_OPENAI_API_VERSION"
             },
             {
+              "desc": "Azure OpenAI deployment",
+              "name": "AZURE_OPENAI_DEPLOYMENT"
+            },
+            {
+              "desc": "Azure OpenAI endpoint",
+              "name": "AZURE_OPENAI_ENDPOINT"
+            },
+            {
+              "desc": "OpenAI API key",
+              "name": "OPENAI_API_KEY"
+            },
+            {
+              "desc": "OpenAI endpoint",
+              "name": "OPENAI_ENDPOINT"
+            },
+            {
+              "desc": "OpenAI model name",
+              "name": "OPENAI_MODEL_NAME"
+            },
+            {
               "desc": "Google API key",
               "name": "GOOGLE_API_KEY"
+            },
+            {
+              "desc": "Google application credentials (GCP service account JSON path)",
+              "name": "GOOGLE_APPLICATION_CREDENTIALS"
+            },
+            {
+              "desc": "Vertex AI model name",
+              "name": "VERTEXAI_MODEL_NAME"
             },
             {
               "desc": "ArgoCD Token",

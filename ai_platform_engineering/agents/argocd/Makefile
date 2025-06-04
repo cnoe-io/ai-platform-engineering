@@ -91,7 +91,7 @@ ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 
 run-acp: setup-venv ## Deploy ACP agent via wfsm
 	@$(MAKE) check-env
-	@$(venv-run) wfsm deploy -b ghcr.io/sriaradhyula/acp/wfsrv:latest -m ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json --envFilePath=./.env --dryRun=false
+	@$(venv-run) wfsm deploy -m ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json --envFilePath=./.env --dryRun=false
 
 run-a2a: setup-venv ## Run A2A agent with uvicorn
 	@$(MAKE) check-env
@@ -185,6 +185,7 @@ run-docker-acp: ## Run the ACP agent in Docker
 
 run-docker-a2a: ## Run the A2A agent in Docker
 	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
+	A2A_AGENT_IMAGE=$$(grep A2A_AGENT_IMAGE .env | cut -d '=' -f2 || echo ""); \
 	LOCAL_A2A_AGENT_IMAGE=$${A2A_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest}; \
 	LOCAL_A2A_AGENT_PORT=$${A2A_AGENT_PORT:-8000}; \
 	echo "==================================================================="; \
@@ -193,7 +194,8 @@ run-docker-a2a: ## Run the A2A agent in Docker
 	echo "Using Agent Image: $$LOCAL_A2A_AGENT_IMAGE"; \
 	echo "Using Agent Port: $$LOCAL_A2A_AGENT_PORT"; \
 	echo "==================================================================="; \
-	docker run -p $$LOCAL_A2A_AGENT_PORT:8000 -it \
+	docker run -p 0.0.0.0:$$LOCAL_A2A_AGENT_PORT:8000 -it \
+		-v $(PWD)/.env:/app/.env \
 		$$LOCAL_A2A_AGENT_IMAGE
 
 ## ========== Tests ==========

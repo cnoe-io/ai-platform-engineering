@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 
 from agent_argocd.state import AgentState, Message, MsgType, OutputState
-from agent_argocd.llm_factory import LLMFactory
+from cnoe_agent_utils import LLMFactory
 
 logger = logging.getLogger(__name__)
 

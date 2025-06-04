@@ -107,6 +107,9 @@ async def handle_user_input(user_input: str):
         print(f"ERROR: Exception occurred: {str(e)}")
         raise
 
+def main():
+  agent_name = os.getenv("AGENT_NAME", "")
+  asyncio.run(run_chat_loop(handle_user_input, title=f"A2A {agent_name} Agent"))
+
 if __name__ == "__main__":
-    agent_name = os.getenv("AGENT_NAME", "")
-    asyncio.run(run_chat_loop(handle_user_input, title=f"A2A {agent_name} Agent"))
+  main()

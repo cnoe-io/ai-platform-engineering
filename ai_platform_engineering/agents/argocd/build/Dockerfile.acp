@@ -1,4 +1,4 @@
-FROM ghcr.io/sriaradhyula/acp/wfsrv:latest
+FROM ghcr.io/agntcy/acp/wfsrv:latest
 
 ARG AGENT_NAME=
 RUN test -n "$AGENT_NAME" || (echo "Error: AGENT_NAME is not set" && exit 1)
