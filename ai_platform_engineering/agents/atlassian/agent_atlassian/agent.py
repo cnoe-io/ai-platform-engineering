@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 
 from agent_atlassian.state import AgentState, Message, MsgType, OutputState
-from agent_atlassian.llm_factory import LLMFactory
+from cnoe_agent_utils import LLMFactory
 
 logger = logging.getLogger(__name__)
 

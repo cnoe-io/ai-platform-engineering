@@ -17,6 +17,8 @@ from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent  # type: ignore
+from cnoe_agent_utils import LLMFactory
+
 
 
 import asyncio
@@ -58,6 +60,7 @@ class AtlassianAgent:
 
     def __init__(self):
       # Setup the math agent and load MCP tools
+      self.model = LLMFactory().get_llm()
       self.model = AzureChatOpenAI(
           model="gpt-4o")
       self.graph = None
