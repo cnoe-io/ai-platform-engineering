@@ -61,8 +61,6 @@ class AtlassianAgent:
     def __init__(self):
       # Setup the math agent and load MCP tools
       self.model = LLMFactory().get_llm()
-      self.model = AzureChatOpenAI(
-          model="gpt-4o")
       self.graph = None
       async def _async_atlassian_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
