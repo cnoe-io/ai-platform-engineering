@@ -76,7 +76,55 @@ flowchart TD
 ## 🚀 Getting Started
 
 ### 1️⃣ Configure Environment
-Create a `.env` file in the root directory with the following configuration:
+
+#### Setting Up Azure OpenAI
+1. Go to [Azure Portal](https://portal.azure.com)
+2. Create or select your Azure OpenAI resource
+3. Navigate to "Keys and Endpoint" section
+4. Copy the endpoint URL and one of the keys
+5. In Azure OpenAI Studio:
+   - Create a deployment for GPT-4
+   - Note down the deployment name
+   - You'll need these values for your `.env` file:
+     - `AZURE_OPENAI_API_KEY`
+     - `AZURE_OPENAI_ENDPOINT`
+     - `AZURE_OPENAI_DEPLOYMENT`
+
+#### Setting Up GitHub Token
+1. Go to GitHub.com → Settings → Developer Settings → Personal Access Tokens → Tokens (classic)
+2. Click "Generate new token (classic)"
+3. Give your token a descriptive name
+4. Set an expiration date (recommended: 90 days)
+5. Select the required permissions:
+   - repo (Full control of private repositories)
+   - workflow (Update GitHub Action workflows)
+   - admin:org (Full control of orgs and teams)
+   - admin:public_key (Full control of public keys)
+   - admin:repo_hook (Full control of repository hooks)
+   - admin:org_hook (Full control of organization hooks)
+   - gist (Create gists)
+   - notifications (Access notifications)
+   - user (Update ALL user data)
+   - delete_repo (Delete repositories)
+   - write:packages (Upload packages to GitHub Package Registry)
+   - delete:packages (Delete packages from GitHub Package Registry)
+   - admin:gpg_key (Full control of GPG keys)
+   - admin:ssh_signing_key (Full control of SSH signing keys)
+6. Click "Generate token"
+7. Copy the token immediately (you won't be able to see it again)
+8. Save this as your `GITHUB_PERSONAL_ACCESS_TOKEN`
+
+#### Port Configuration
+- Default ports:
+  - A2A Agent: 8000
+  - MCP Server: 9000
+- If port 8000 is already in use:
+  1. Choose an available port (e.g., 8001, 8002, etc.)
+  2. You'll need to update this in both:
+     - Your `.env` file as `A2A_AGENT_PORT`
+     - Your Docker run command port mapping
+
+Now, create a `.env` file in the root directory with the following configuration:
 
 ```env
 ############################
@@ -87,7 +135,7 @@ AGENT_NAME=github
 
 ## A2A Agent Configuration
 A2A_AGENT_HOST=localhost
-A2A_AGENT_PORT=8000
+A2A_AGENT_PORT=8000  # Change this if port 8000 is already in use
 
 ## MCP Server Configuration
 MCP_HOST=localhost
@@ -96,10 +144,11 @@ MCP_PORT=9000
 ############################
 # Azure OpenAI Configuration
 ############################
-AZURE_OPENAI_API_KEY=<your-azure-key>
+# Get these values from your Azure OpenAI resource in Azure Portal
+AZURE_OPENAI_API_KEY=<your-azure-key>  # Found in Azure Portal under "Keys and Endpoint"
 AZURE_OPENAI_API_VERSION=2025-04-01-preview
-AZURE_OPENAI_DEPLOYMENT=gpt-4.1
-AZURE_OPENAI_ENDPOINT=<your-azure-endpoint>
+AZURE_OPENAI_DEPLOYMENT=gpt-4.1  # Your deployment name in Azure OpenAI
+AZURE_OPENAI_ENDPOINT=<your-azure-endpoint>  # Found in Azure Portal under "Keys and Endpoint"
 
 ############################
 # Google Gemini (if needed)
@@ -110,6 +159,7 @@ GOOGLE_API_KEY=<your-google-api-key>
 ############################
 # GitHub Configuration
 ############################
+# Your GitHub Classic Token with the permissions listed above
 GITHUB_PERSONAL_ACCESS_TOKEN=<your-github-token>
 ```
 
@@ -121,12 +171,43 @@ docker pull ghcr.io/cnoe-io/agent-github:a2a-latest
 
 2. Run the agent in a Docker container using your `.env` file:
 ```bash
-docker run -it --rm --env-file .env -p 8000:8000 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/cnoe-io/agent-github:a2a-latest
-```
+docker run -it --rm \
+  --env-file .env \
+  -p 8000:8000 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/cnoe-io/agent-github:a2a-latest
 ```
 
 ### 3️⃣ Run the Client
-Use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
+First, set up a virtual environment and install required tools:
+
+#### Set Up Virtual Environment
+
+**For Linux/macOS:**
+```bash
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+source .venv/bin/activate
+```
+
+**For Windows:**
+```bash
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment
+.\.venv\Scripts\activate
+```
+
+#### Install uv
+```bash
+# Install uv package manager
+pip install uv
+```
+
+Now you can use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
 
 ```bash
 uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
