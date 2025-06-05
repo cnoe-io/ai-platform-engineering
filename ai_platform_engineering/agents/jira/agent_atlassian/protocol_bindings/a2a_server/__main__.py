@@ -24,9 +24,18 @@ load_dotenv()
 
 
 @click.command()
-@click.option('--host', 'host', default='localhost')
-@click.option('--port', 'port', default=10000)
+@click.option('--host', 'host', default='localhost', type=str)
+@click.option('--port', 'port', default=8000, type=int)
 def main(host: str, port: int):
+    # Check environment variables for host and port if not provided via CLI
+    env_host = os.getenv('A2A_HOST')
+    env_port = os.getenv('A2A_PORT')
+
+    # Use CLI argument if provided, else environment variable, else default
+    host = host or env_host or 'localhost'
+    port = port or int(env_port) if env_port is not None else 8000
+
+
     client = httpx.AsyncClient()
     request_handler = DefaultRequestHandler(
         agent_executor=AtlassianAgentExecutor(),
