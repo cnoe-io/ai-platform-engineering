@@ -2,7 +2,6 @@
 
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
 from pydantic import BaseModel
 from ..api.client import make_api_request
 
@@ -71,7 +70,7 @@ async def get_incidents(
         logger.error(f"Failed to retrieve incidents: {data.get('error')}")
         return {"error": data.get("error", "Failed to retrieve incidents")}
 
-    logger.info(f"Successfully retrieved incidents")
+    logger.info("Successfully retrieved incidents")
     return data
 
 async def create_incident(
@@ -94,7 +93,7 @@ async def create_incident(
     Returns:
         The created incident details
     """
-    logger.debug(f"Creating new incident:")
+    logger.debug("Creating new incident:")
     logger.debug(f"Title: {title}")
     logger.debug(f"Service ID: {service_id}")
     logger.debug(f"Urgency: {urgency}")

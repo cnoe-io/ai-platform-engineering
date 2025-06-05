@@ -71,7 +71,7 @@ async def make_api_request(
             "Content-Type": "application/json",
         }
         
-        logger.debug(f"Request headers prepared (Authorization header masked)")
+        logger.debug("Request headers prepared (Authorization header masked)")
         logger.debug(f"Request parameters: {params}")
         if data:
             logger.debug(f"Request data: {data}")

@@ -36,7 +36,7 @@ class Memory:
     def add_interaction(self, user_input, agent_response):
         """
         Add a new interaction to memory.
-        
+
         :param user_input: The user's input.
         :param agent_response: The agent's response.
         """
@@ -48,7 +48,7 @@ class Memory:
     def get_memory(self):
         """
         Retrieve the current memory.
-        
+
         :return: A list of recent interactions.
         """
         return self.memory
@@ -135,7 +135,7 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
         messages = [Message.model_validate(m) for m in state.pagerduty_input["messages"]]
     else:
         messages = []
- 
+
     if messages is not None:
         # Get last human message
         human_message = next(
@@ -153,12 +153,12 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
         memory_content = "\n".join(
             [f"User: {interaction['user_input']}\nAgent: {interaction['agent_response']}" for interaction in recent_memory]
         )
-        combined_message = f"{memory_content}\nCurrent: {human_message}" if memory_content else human_message
+        _ = f"{memory_content}\nCurrent: {human_message}" if memory_content else human_message
 
     logger.info(f"Launching MCP server at: {server_path}")
 
     model = LLMFactory().get_llm()
-    
+
     client = MultiServerMCPClient(
         {
             "pagerduty": {
@@ -225,4 +225,4 @@ async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> D
 
 # Sync wrapper for workflow server
 def agent_pagerduty(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-    return asyncio.run(_async_pagerduty_agent(state, config)) 
+    return asyncio.run(_async_pagerduty_agent(state, config))

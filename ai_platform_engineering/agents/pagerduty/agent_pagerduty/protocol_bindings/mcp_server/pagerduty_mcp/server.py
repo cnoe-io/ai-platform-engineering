@@ -6,8 +6,6 @@ This server provides a Model Context Protocol (MCP) interface to the PagerDuty A
 allowing large language models and AI assistants to manage PagerDuty resources.
 """
 import logging
-import os
-import sys
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 

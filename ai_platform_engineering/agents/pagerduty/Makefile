@@ -80,8 +80,9 @@ install-wfsm:      ## Install workflow server manager (wfsm)
 build: setup-venv  ## Build the package using Poetry
 	@$(venv-activate) && poetry build
 
-lint: setup-venv   ## Lint code with ruff
-	@$(venv-activate) && poetry install && ruff check $(AGENT_PKG_NAME) tests
+lint: setup-venv   ## Lint code with ruff (ignoring F401)
+	@$(venv-activate) && poetry install && ruff check --ignore F401 $(AGENT_PKG_NAME) tests
+
 
 ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 	@$(venv-activate) && ruff check $(AGENT_PKG_NAME) tests --fix

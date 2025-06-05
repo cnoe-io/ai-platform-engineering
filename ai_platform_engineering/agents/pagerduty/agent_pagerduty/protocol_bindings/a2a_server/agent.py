@@ -21,7 +21,6 @@ from agent_pagerduty.protocol_bindings.a2a_server.state import (
     InputState,
     Message,
     MsgType,
-    OutputState,
 )
 from cnoe_agent_utils import LLMFactory
 

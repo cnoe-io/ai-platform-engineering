@@ -1,8 +1,6 @@
 # Copyright 2025 Cisco
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-import sys
 
 import click
 import httpx
