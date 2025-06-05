@@ -1,12 +1,12 @@
 {
   "name": "cnoe_agent_pagerduty",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "schema_version": "0.0.1",
   "description": "PagerDuty Agent powered by LangGraph and LangChain MCP Adapters.",
   "authors": [
-    "Rehan"
+    "CNOE Contributors"
   ],
-  "created_at": "2025-05-23T18:01:50Z",
+  "created_at": "2024-06-04T00:00:00Z",
   "skills": [
     {
       "class_uid": 10201
@@ -67,10 +67,6 @@
               "name": "AZURE_OPENAI_API_VERSION"
             },
             {
-              "desc": "Google API key",
-              "name": "GOOGLE_API_KEY"
-            },
-            {
               "desc": "PagerDuty API Key",
               "name": "PAGERDUTY_API_KEY",
               "required": true
@@ -83,6 +79,9 @@
           ]
         },
         "acp": {
+          "version": "1.0.0",
+          "framework": "langgraph",
+          "graph": "agent_pagerduty.graph:AGENT_GRAPH",
           "capabilities": {
             "threads": false,
             "interrupts": false,
@@ -174,6 +173,7 @@
               }
             },
             "properties": {
+<<<<<<< HEAD
               "messages": {
                 "anyOf": [
                   {
@@ -188,12 +188,32 @@
                 ],
                 "default": null,
                 "title": "Messages"
+=======
+              "output": {
+                "messages": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "$ref": "#/$defs/Message"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Messages"
+                },
+                "type": "object"
+>>>>>>> 3677567 (fix(acp): update agent.json)
               }
             },
             "title": "OutputState",
             "type": "object"
           },
           "config": {
+<<<<<<< HEAD
             "properties": {},
             "title": "EmptyConfig",
             "type": "object"
@@ -203,4 +223,23 @@
       }
     }
   ]
-} 
+}
+=======
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "description": "The model to use for the agent"
+              },
+              "temperature": {
+                "type": "number",
+                "description": "The temperature to use for the model"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+>>>>>>> 3677567 (fix(acp): update agent.json)
