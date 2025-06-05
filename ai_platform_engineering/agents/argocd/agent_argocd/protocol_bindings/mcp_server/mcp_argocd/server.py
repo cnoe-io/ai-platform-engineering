@@ -22,8 +22,6 @@ from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.tools import api_v1_ac
 
 from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.tools import api_v1_applications
 
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.tools import api_v1_applications_manifestswithfiles
-
 from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.tools import api_v1_applicationsets
 
 from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.tools import api_v1_applicationsets_generate
@@ -103,10 +101,6 @@ def main():
     mcp.tool()(api_v1_applications.applicationservice_list)
 
     mcp.tool()(api_v1_applications.applicationservice_create)
-
-    # Register api_v1_applications_manifestswithfiles tools
-
-    mcp.tool()(api_v1_applications_manifestswithfiles.applicationservice_getmanifestswithfiles)
 
     # Register api_v1_applicationsets tools
 
