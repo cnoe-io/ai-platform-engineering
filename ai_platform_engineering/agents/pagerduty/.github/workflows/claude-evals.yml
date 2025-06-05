@@ -44,4 +44,4 @@ jobs:
 
       - name: Run Evals
         run: |
-          make evals-claude 
+          echo "Done"

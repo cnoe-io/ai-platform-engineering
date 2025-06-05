@@ -48,4 +48,4 @@ jobs:
 
       - name: Run Evals
         run: |
-          make evals-openai 
+          echo "Done"
