@@ -8,6 +8,8 @@
 [![Ruff Linter](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/ruff.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/ruff.yml)
 [![Super Linter](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml/badge.svg)](https://github.com/cnoe-io/openapi-mcp-codegen/actions/workflows/superlinter.yml)
 
+
+[![A2A Docker Build and Push](https://github.com/cnoe-io/agent-atlassian/actions/workflows/a2a-docker-build.yml/badge.svg)](https://github.com/cnoe-io/agent-atlassian/actions/workflows/a2a-docker-build.yml)
 ---
 
 ## 🧪 Evaluation Badges
