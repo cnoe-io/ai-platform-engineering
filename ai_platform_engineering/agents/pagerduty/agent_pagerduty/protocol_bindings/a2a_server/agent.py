@@ -4,6 +4,7 @@
 import logging
 from collections.abc import AsyncIterable
 from typing import Any, Literal, Dict
+import uuid
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
@@ -23,8 +24,11 @@ from agent_pagerduty.protocol_bindings.a2a_server.state import (
     MsgType,
     OutputState,
 )
+
 from cnoe_agent_utils import LLMFactory
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 def debug_print(message: str, banner: bool = True):
@@ -54,154 +58,143 @@ class PagerDutyAgent:
     Set response status to error if the input indicates an error."""
 
     def __init__(self):
+        logger.info("Initializing PagerDutyAgent")
         # Setup the agent and load MCP tools
         self.model = LLMFactory().get_llm()
         self.graph = None
-        async def _async_pagerduty_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-            args = config.get("configurable", {})
+        logger.debug("Agent initialized with model")
 
-            server_path = args.get("server_path", "./agent_pagerduty/protocol_bindings/mcp_server/pagerduty_mcp/server.py")
-            print(f"Launching MCP server at: {server_path}")
+    async def initialize(self):
+        """Initialize the agent with MCP tools."""
+        logger.info("Starting agent initialization")
+        if self.graph is not None:
+            logger.debug("Graph already initialized, skipping")
+            return
 
-            pagerduty_api_key = os.getenv("PAGERDUTY_API_KEY")
-            if not pagerduty_api_key:
-                raise ValueError("PAGERDUTY_API_KEY must be set as an environment variable.")
+        server_path = "./agent_pagerduty/protocol_bindings/mcp_server/pagerduty_mcp/server.py"
+        print(f"Launching MCP server at: {server_path}")
 
-            pagerduty_api_url = os.getenv("PAGERDUTY_API_URL")
-            if not pagerduty_api_url:
-                raise ValueError("PAGERDUTY_API_URL must be set as an environment variable.")
+        pagerduty_api_key = os.getenv("PAGERDUTY_API_KEY")
+        if not pagerduty_api_key:
+            logger.error("PAGERDUTY_API_KEY not set in environment")
+            raise ValueError("PAGERDUTY_API_KEY must be set as an environment variable.")
 
-            client = MultiServerMCPClient(
-                {
-                    "pagerduty": {
-                        "command": "uv",
-                        "args": ["run", server_path],
-                        "env": {
-                            "PAGERDUTY_API_KEY": pagerduty_api_key,
-                            "PAGERDUTY_API_URL": pagerduty_api_url
-                        },
-                        "transport": "stdio",
-                    }
+        pagerduty_api_url = os.getenv("PAGERDUTY_API_URL")
+        if not pagerduty_api_url:
+            logger.error("PAGERDUTY_API_URL not set in environment")
+            raise ValueError("PAGERDUTY_API_URL must be set as an environment variable.")
+
+        client = MultiServerMCPClient(
+            {
+                "pagerduty": {
+                    "command": "uv",
+                    "args": ["run", server_path],
+                    "env": {
+                        "PAGERDUTY_API_KEY": pagerduty_api_key,
+                        "PAGERDUTY_API_URL": pagerduty_api_url
+                    },
+                    "transport": "stdio",
                 }
-            )
-            tools = await client.get_tools()
-            print('*'*80)
-            print("Available Tools and Parameters:")
-            for tool in tools:
-                print(f"Tool: {tool.name}")
-                print(f"  Description: {tool.description.strip().splitlines()[0]}")
-                params = tool.args_schema.get('properties', {})
-                if params:
-                    print("  Parameters:")
-                    for param, meta in params.items():
-                        param_type = meta.get('type', 'unknown')
-                        param_title = meta.get('title', param)
-                        default = meta.get('default', None)
-                        print(f"    - {param} ({param_type}): {param_title}", end='')
-                        if default is not None:
-                            print(f" [default: {default}]")
-                        else:
-                            print()
-                else:
-                    print("  Parameters: None")
-                print()
-            print('*'*80)
-
-            self.graph = create_react_agent(
-                self.model,
-                tools,
-                checkpointer=memory,
-                prompt=self.SYSTEM_INSTRUCTION,
-                response_format=(self.RESPONSE_FORMAT_INSTRUCTION, ResponseFormat),
-            )
-
-            # Provide a 'configurable' key such as 'thread_id' for the checkpointer
-            runnable_config = RunnableConfig(configurable={"thread_id": "test-thread"})
-            llm_result = await self.graph.ainvoke({"messages": HumanMessage(content="Summarize what you can do?")}, config=runnable_config)
-
-            # Try to extract meaningful content from the LLM result
-            ai_content = None
-
-            # Look through messages for final assistant content
-            for msg in reversed(llm_result.get("messages", [])):
-                if hasattr(msg, "type") and msg.type in ("ai", "assistant") and getattr(msg, "content", None):
-                    ai_content = msg.content
-                    break
-                elif isinstance(msg, dict) and msg.get("type") in ("ai", "assistant") and msg.get("content"):
-                    ai_content = msg["content"]
-                    break
-
-            # Fallback: if no content was found but tool_call_results exists
-            if not ai_content and "tool_call_results" in llm_result:
-                ai_content = "\n".join(
-                    str(r.get("content", r)) for r in llm_result["tool_call_results"]
-                )
-
-            # Return response
-            if ai_content:
-                print("Assistant generated response")
-                output_messages = [Message(type=MsgType.assistant, content=ai_content)]
+            }
+        )
+        tools = await client.get_tools()
+        print('*'*80)
+        print("Available Tools and Parameters:")
+        for tool in tools:
+            print(f"Tool: {tool.name}")
+            print(f"  Description: {tool.description.strip().splitlines()[0]}")
+            params = tool.args_schema.get('properties', {})
+            if params:
+                print("  Parameters:")
+                for param, meta in params.items():
+                    param_type = meta.get('type', 'unknown')
+                    param_title = meta.get('title', param)
+                    default = meta.get('default', None)
+                    print(f"    - {param} ({param_type}): {param_title}", end='')
+                    if default is not None:
+                        print(f" [default: {default}]")
+                    else:
+                        print()
             else:
-                logger.warning("No assistant content found in LLM result")
-                output_messages = []
+                print("  Parameters: None")
+            print()
+        print('*'*80)
 
-            # Add a banner before printing the output messages
-            debug_print(f"Agent MCP Capabilities: {output_messages[-1].content}")
+        logger.debug("Creating React agent with LangGraph")
+        self.graph = create_react_agent(
+            self.model,
+            tools,
+            checkpointer=memory,
+            prompt=self.SYSTEM_INSTRUCTION,
+            response_format=(self.RESPONSE_FORMAT_INSTRUCTION, ResponseFormat),
+        )
 
-        def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-            return asyncio.run(_async_pagerduty_agent(state, config))
-
-        messages = []
-        state_input = InputState(messages=messages)
-        agent_input = AgentState(input=state_input).model_dump(mode="json")
-        runnable_config = RunnableConfig()
-        # Add a HumanMessage to the input messages if not already present
-        if not any(isinstance(m, HumanMessage) for m in messages):
-            messages.append(HumanMessage(content="What can you help me with?"))
-        _create_agent(agent_input, config=runnable_config)
+        # Initialize with a test message using a temporary thread ID
+        config = RunnableConfig(configurable={"thread_id": "132456789"})
+        logger.debug(f"Initializing with test message, config: {config}")
+        await self.graph.ainvoke({"messages": [HumanMessage(content="Summarize what you can do?")]}, config=config)
+        logger.debug("Test message initialization complete")
 
     async def stream(
-        self, query: str, sessionId: str
+        self, query: str, context_id: str | None = None
     ) -> AsyncIterable[dict[str, Any]]:
-        debug_print(f"Starting stream with query: {query} and sessionId: {sessionId}")
+        """Stream responses for a given query."""
+        # Use the context_id as the thread_id, or generate a new one if none provided
+        thread_id = context_id or uuid.uuid4().hex
+        logger.info(f"Stream started - Query: {query}, Thread ID: {thread_id}, Context ID: {context_id}")
+        debug_print(f"Starting stream with query: {query} using thread ID: {thread_id}")
+        
+        # Initialize agent if needed
+        await self.initialize()
+        
         inputs: dict[str, Any] = {'messages': [('user', query)]}
-        config: RunnableConfig = {'configurable': {'thread_id': sessionId}}
+        config: RunnableConfig = {'configurable': {'thread_id': thread_id}}
+        logger.debug(f"Stream config: {config}")
 
         async for item in self.graph.astream(inputs, config, stream_mode='values'):
             message = item['messages'][-1]
             debug_print(f"Streamed message: {message}")
+            logger.debug(f"Processing message: {message}")
             if (
                 isinstance(message, AIMessage)
                 and message.tool_calls
                 and len(message.tool_calls) > 0
             ):
+                logger.debug(f"Processing tool calls: {message.tool_calls}")
                 yield {
                     'is_task_complete': False,
                     'require_user_input': False,
                     'content': 'Looking up PagerDuty information...',
                 }
             elif isinstance(message, ToolMessage):
+                logger.debug(f"Processing tool message: {message}")
                 yield {
                     'is_task_complete': False,
                     'require_user_input': False,
                     'content': 'Processing PagerDuty data...',
                 }
 
-        yield self.get_agent_response(config)
+        response = self.get_agent_response(config)
+        yield response
 
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
+        """Get the agent's response."""
         debug_print(f"Fetching agent response with config: {config}")
+        logger.debug(f"Getting agent response with config: {config}")
         current_state = self.graph.get_state(config)
         debug_print(f"Current state: {current_state}")
+        logger.debug(f"Current graph state: {current_state}")
 
         structured_response = current_state.values.get('structured_response')
         debug_print(f"Structured response: {structured_response}")
+        logger.debug(f"Structured response: {structured_response}")
         if structured_response and isinstance(
             structured_response, ResponseFormat
         ):
             debug_print("Structured response is a valid ResponseFormat")
             if structured_response.status in {'input_required', 'error'}:
                 debug_print("Status is input_required or error")
+                logger.debug(f"Returning {structured_response.status} response")
                 return {
                     'is_task_complete': False,
                     'require_user_input': True,
@@ -209,6 +202,7 @@ class PagerDutyAgent:
                 }
             if structured_response.status == 'completed':
                 debug_print("Status is completed")
+                logger.debug("Returning completed response")
                 return {
                     'is_task_complete': True,
                     'require_user_input': False,
@@ -216,6 +210,7 @@ class PagerDutyAgent:
                 }
 
         debug_print("Unable to process request, returning fallback response")
+        logger.warning("Unable to process request, returning fallback response")
         return {
             'is_task_complete': False,
             'require_user_input': True,
