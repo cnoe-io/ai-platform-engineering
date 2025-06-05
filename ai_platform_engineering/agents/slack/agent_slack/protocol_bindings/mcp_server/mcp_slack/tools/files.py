@@ -1,8 +1,7 @@
 """File-related tools for Slack MCP Server"""
 
 import logging
-import os
-from typing import Dict, Any, Optional, List, BinaryIO
+from typing import Dict, Any, Optional
 from pydantic import BaseModel
 from ..api.client import make_api_request
 
@@ -122,7 +121,7 @@ async def upload_file(
             if initial_comment:
                 data['initial_comment'] = initial_comment
 
-            logger.debug(f"Making API request with file upload data")
+            logger.debug("Making API request with file upload data")
             success, response = await make_api_request(
                 "files.upload",
                 method="POST",

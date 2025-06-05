@@ -30,10 +30,6 @@ load_dotenv()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=10000)
 def main(host: str, port: int):
-    if not os.getenv('GOOGLE_API_KEY'):
-        print('GOOGLE_API_KEY environment variable not set.')
-        sys.exit(1)
-
     client = httpx.AsyncClient()
     request_handler = DefaultRequestHandler(
         agent_executor=SlackAgentExecutor(),

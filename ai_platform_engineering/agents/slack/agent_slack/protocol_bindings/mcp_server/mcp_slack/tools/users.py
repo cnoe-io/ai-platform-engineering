@@ -1,7 +1,7 @@
 """User-related tools for Slack MCP"""
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from pydantic import BaseModel
 from ..api.client import make_api_request
 
@@ -55,7 +55,7 @@ async def list_users(
         logger.error(f"Failed to list users: {data.get('error')}")
         return {"error": data.get("error", "Failed to list users")}
 
-    logger.info(f"Successfully retrieved user list")
+    logger.info("Successfully retrieved user list")
     users = [SlackUser(**user) for user in data.get("members", [])]
     return {
         "users": users,
@@ -102,7 +102,7 @@ async def set_user_status(
     Returns:
         Dictionary containing updated profile information
     """
-    logger.debug(f"Setting user status:")
+    logger.debug("Setting user status:")
     logger.debug(f"Status text: {status_text}")
     logger.debug(f"Status emoji: {status_emoji}")
     logger.debug(f"Status expiration: {status_expiration}")
@@ -125,7 +125,7 @@ async def set_user_status(
     success, data = await make_api_request("users.profile.set", data=status_data)
 
     if success:
-        logger.info(f"User status updated successfully")
+        logger.info("User status updated successfully")
         return {"success": True, "profile": data.get("profile", {})}
     else:
         logger.error(f"Failed to set user status: {data.get('error')}")

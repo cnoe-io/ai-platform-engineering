@@ -8,7 +8,6 @@ messages, and users through a standardized tool interface.
 """
 
 import logging
-import os
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 

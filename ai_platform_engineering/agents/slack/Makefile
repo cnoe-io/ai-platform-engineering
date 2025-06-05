@@ -237,7 +237,6 @@ run-docker-a2a: install-a2a ## Run the A2A agent in Docker
 	SLACK_SIGNING_SECRET=$$(grep SLACK_SIGNING_SECRET .env | cut -d '=' -f2 | tr -d '"'); \
 	SLACK_CLIENT_SECRET=$$(grep SLACK_CLIENT_SECRET .env | cut -d '=' -f2 | tr -d '"'); \
 	SLACK_TEAM_ID=$$(grep SLACK_TEAM_ID .env | cut -d '=' -f2 | tr -d '"'); \
-	GOOGLE_API_KEY=$$(grep GOOGLE_API_KEY .env | cut -d '=' -f2 | tr -d '"'); \
 	LOCAL_AGENT_PORT=$${AGENT_PORT:-8000}; \
 	LOCAL_AGENT_IMAGE=$${A2A_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest}; \
 	echo "========================================================================"; \
@@ -267,7 +266,6 @@ run-docker-a2a: install-a2a ## Run the A2A agent in Docker
 		-e SLACK_SIGNING_SECRET="$$SLACK_SIGNING_SECRET" \
 		-e SLACK_CLIENT_SECRET="$$SLACK_CLIENT_SECRET" \
 		-e SLACK_TEAM_ID="$$SLACK_TEAM_ID" \
-		-e GOOGLE_API_KEY="$$GOOGLE_API_KEY" \
 		$$LOCAL_AGENT_IMAGE
 
 ## ========== Tests ==========

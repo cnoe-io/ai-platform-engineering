@@ -1,7 +1,6 @@
 """Message-related tools for Slack MCP Server"""
 
 import logging
-import os
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 from ..api.client import make_api_request

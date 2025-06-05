@@ -49,7 +49,7 @@ else:
         logger.info(f".env file found at alternative path {alt_path}")
         load_dotenv(dotenv_path=alt_path)
     else:
-        logger.warning(f".env file NOT found at alternative path either")
+        logger.warning(".env file NOT found at alternative path either")
 
 # Log token presence but not the token itself
 if DEFAULT_TOKEN:
@@ -59,11 +59,11 @@ else:
 
 class SlackClient:
     """Client for interacting with Slack API"""
-    
+
     def __init__(self, bot_token: Optional[str] = None):
         """
         Initialize the Slack client
-        
+
         Args:
             bot_token: Slack bot token (defaults to environment variable if not provided)
         """
@@ -71,12 +71,12 @@ class SlackClient:
         if not self.bot_token:
             logger.error("No Slack bot token provided or found in environment")
             raise ValueError("Slack bot token is required")
-            
+
         self.headers = {
             "Authorization": f"Bearer {self.bot_token}",
             "Content-Type": "application/json"
         }
-        
+
         self.team_id = os.getenv("SLACK_TEAM_ID")
         if not self.team_id:
             logger.warning("SLACK_TEAM_ID not set, some operations may be limited")
@@ -84,17 +84,17 @@ class SlackClient:
     async def get_channels(self, limit: int = 100, cursor: Optional[str] = None) -> Dict[str, Any]:
         """
         Get list of channels in the workspace
-        
+
         Args:
             limit: Maximum number of channels to return (default: 100)
             cursor: Pagination cursor for fetching additional pages
-            
+
         Returns:
             Dictionary containing channel information
         """
         logger.debug(f"Getting channels with limit={limit}, cursor={cursor}")
         predefined_channel_ids = os.getenv("SLACK_CHANNEL_IDS")
-        
+
         if predefined_channel_ids:
             logger.debug(f"Using predefined channel IDs: {predefined_channel_ids}")
             channels = []
@@ -107,7 +107,7 @@ class SlackClient:
                 )
                 if response.get("ok") and response.get("channel") and not response["channel"].get("is_archived"):
                     channels.append(response["channel"])
-            
+
             logger.debug(f"Found {len(channels)} active channels from predefined IDs")
             return {
                 "ok": True,
@@ -130,21 +130,21 @@ class SlackClient:
     async def post_message(self, channel_id: str, text: str, blocks: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
         Post a message to a channel
-        
+
         Args:
             channel_id: ID of the channel to post to
             text: Message text
             blocks: Optional blocks for rich formatting
-            
+
         Returns:
             API response data
         """
         logger.debug(f"Posting message to channel {channel_id}")
         data = {"channel": channel_id, "text": text}
-        
+
         if blocks:
             data["blocks"] = blocks
-            
+
         return await self._make_request(
             "chat.postMessage",
             method="POST",
@@ -154,12 +154,12 @@ class SlackClient:
     async def post_reply(self, channel_id: str, thread_ts: str, text: str) -> Dict[str, Any]:
         """
         Reply to a thread
-        
+
         Args:
             channel_id: ID of the channel containing the thread
             thread_ts: Timestamp of the parent message
             text: Reply text
-            
+
         Returns:
             API response data
         """
@@ -177,12 +177,12 @@ class SlackClient:
     async def add_reaction(self, channel_id: str, timestamp: str, reaction: str) -> Dict[str, Any]:
         """
         Add a reaction to a message
-        
+
         Args:
             channel_id: ID of the channel containing the message
             timestamp: Timestamp of the message
             reaction: Name of the reaction emoji (without colons)
-            
+
         Returns:
             API response data
         """
@@ -197,16 +197,22 @@ class SlackClient:
             }
         )
 
-    async def get_channel_history(self, channel_id: str, limit: int = 10, oldest: Optional[str] = None, latest: Optional[str] = None) -> Dict[str, Any]:
+    async def get_channel_history(
+      self,
+      channel_id: str,
+      limit: int = 10,
+      oldest: Optional[str] = None,
+      latest: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Get channel message history
-        
+
         Args:
             channel_id: ID of the channel
             limit: Maximum number of messages to return (default: 10)
             oldest: Start of time range (timestamp)
             latest: End of time range (timestamp)
-            
+
         Returns:
             API response data with message history
         """
@@ -215,24 +221,24 @@ class SlackClient:
             "channel": channel_id,
             "limit": limit
         }
-        
+
         if oldest:
             params["oldest"] = oldest
-            
+
         if latest:
             params["latest"] = latest
-            
+
         return await self._make_request("conversations.history", params=params)
 
     async def get_thread_replies(self, channel_id: str, thread_ts: str, limit: int = 100) -> Dict[str, Any]:
         """
         Get thread replies
-        
+
         Args:
             channel_id: ID of the channel containing the thread
             thread_ts: Timestamp of the parent message
             limit: Maximum number of replies to return (default: 100)
-            
+
         Returns:
             API response data with thread replies
         """
@@ -249,11 +255,11 @@ class SlackClient:
     async def get_users(self, limit: int = 100, cursor: Optional[str] = None) -> Dict[str, Any]:
         """
         Get list of users in the workspace
-        
+
         Args:
             limit: Maximum number of users to return (default: 100)
             cursor: Pagination cursor for fetching additional pages
-            
+
         Returns:
             API response data with user information
         """
@@ -270,10 +276,10 @@ class SlackClient:
     async def get_user_profile(self, user_id: str) -> Dict[str, Any]:
         """
         Get detailed profile information for a user
-        
+
         Args:
             user_id: ID of the user
-            
+
         Returns:
             API response data with user profile
         """
@@ -285,16 +291,16 @@ class SlackClient:
                 "include_labels": "true"
             }
         )
-        
+
     async def update_user_status(self, status_text: str, status_emoji: Optional[str] = None, status_expiration: int = 0) -> Dict[str, Any]:
         """
         Update the authenticated user's status
-        
+
         Args:
             status_text: Status text to display
             status_emoji: Emoji to display with the status
             status_expiration: Timestamp when status should expire (0 for no expiration)
-            
+
         Returns:
             API response data
         """
@@ -303,10 +309,10 @@ class SlackClient:
             "status_text": status_text,
             "status_expiration": status_expiration
         }
-        
+
         if status_emoji:
             profile["status_emoji"] = status_emoji
-            
+
         return await self._make_request(
             "users.profile.set",
             method="POST",
@@ -323,30 +329,30 @@ class SlackClient:
     ) -> Dict[str, Any]:
         """
         Make a request to the Slack API
-        
+
         Args:
             endpoint: API endpoint to call (without base URL)
             method: HTTP method (GET, POST, etc.)
             params: Query parameters for the request
             data: JSON data for POST/PUT requests
             files: Files to upload
-            
+
         Returns:
             Response data dictionary
         """
         url = f"{SLACK_API_URL}/{endpoint}"
         logger.debug(f"Making {method} request to {url}")
-        
+
         if params:
             logger.debug(f"Request parameters: {params}")
-            
+
         if data:
             # Log data but protect sensitive information
             safe_data = data.copy()
             if isinstance(safe_data.get("token"), str):
                 safe_data["token"] = "[REDACTED]"
             logger.debug(f"Request data: {safe_data}")
-        
+
         try:
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
                 # Map HTTP methods to client methods
@@ -357,32 +363,32 @@ class SlackClient:
                     "PATCH": client.patch,
                     "DELETE": client.delete,
                 }
-                
+
                 if method not in method_map:
                     logger.error(f"Unsupported HTTP method: {method}")
                     return {"ok": False, "error": f"Unsupported HTTP method: {method}"}
-                
+
                 # Prepare request kwargs
                 request_kwargs = {
                     "headers": self.headers,
                     "params": params,
                 }
-                
+
                 if method != "GET":
                     request_kwargs["json"] = data
-                    
+
                 if files:
                     request_kwargs["files"] = files
-                    
+
                 # Make the request
                 response = await method_map[method](url, **request_kwargs)
-                
+
                 logger.debug(f"Response status code: {response.status_code}")
-                
+
                 # Handle response
                 response.raise_for_status()
                 data = response.json()
-                
+
                 if data.get("ok"):
                     logger.debug("API request successful")
                     return data
@@ -390,7 +396,7 @@ class SlackClient:
                     error = data.get("error", "Unknown error")
                     logger.error(f"Slack API error: {error}")
                     return data
-                    
+
         except httpx.TimeoutException:
             logger.error(f"Request timed out after {DEFAULT_TIMEOUT} seconds")
             return {"ok": False, "error": f"Request timed out after {DEFAULT_TIMEOUT} seconds"}
@@ -423,7 +429,7 @@ async def make_api_request(
 ) -> Tuple[bool, Dict[str, Any]]:
     """
     Make a request to the Slack API.
-    
+
     Args:
         endpoint: API endpoint to call (without base URL)
         method: HTTP method (GET, POST, etc.)
@@ -432,20 +438,20 @@ async def make_api_request(
         files: Files to upload
         token: Slack API token (defaults to environment variable)
         timeout: Request timeout in seconds
-        
+
     Returns:
         Tuple of (success, response_data)
     """
     logger.debug(f"Making {method} request to {endpoint}")
-    
+
     # Check environment variables directly for debugging
     env_token = os.getenv("SLACK_BOT_TOKEN")
     logger.debug(f"SLACK_BOT_TOKEN in environment: {'Yes' if env_token else 'No'}")
-    
+
     # Get token from param or environment
     token = token or DEFAULT_TOKEN
     logger.debug(f"Using token from {'parameter' if token != DEFAULT_TOKEN else 'environment'}")
-    
+
     if not token:
         logger.error("Slack token not found in params or environment")
         # Try to get it directly one more time to be sure
@@ -463,17 +469,17 @@ async def make_api_request(
 
     url = f"{SLACK_API_URL}/{endpoint}"
     logger.debug(f"Full request URL: {url}")
-    
+
     if params:
         logger.debug(f"Request parameters: {params}")
-        
+
     if data:
         # Log data but protect sensitive information
         safe_data = data.copy() if data else {}
         if isinstance(safe_data.get("token"), str):
             safe_data["token"] = "[REDACTED]"
         logger.debug(f"Request data: {safe_data}")
-    
+
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             # Map HTTP methods to client methods
@@ -484,31 +490,31 @@ async def make_api_request(
                 "PATCH": client.patch,
                 "DELETE": client.delete,
             }
-            
+
             if method not in method_map:
                 logger.error(f"Unsupported HTTP method: {method}")
                 return False, {"error": f"Unsupported method: {method}"}
-            
+
             # Prepare request kwargs
             request_kwargs = {
                 "headers": headers,
                 "params": params,
             }
-            
+
             if method != "GET":
                 request_kwargs["json"] = data
-                
+
             if files:
                 request_kwargs["files"] = files
-            
+
             # Make the request
             response = await method_map[method](url, **request_kwargs)
             logger.debug(f"Response status code: {response.status_code}")
-            
+
             # Handle different response codes
             response.raise_for_status()
             response_data = response.json()
-            
+
             if response_data.get("ok"):
                 logger.debug("API request successful")
                 return True, response_data
@@ -516,7 +522,7 @@ async def make_api_request(
                 error = response_data.get("error", "Unknown error")
                 logger.error(f"Slack API error: {error}")
                 return False, response_data
-                
+
     except httpx.TimeoutException:
         logger.error(f"Request timed out after {timeout} seconds")
         return False, {"error": f"Request timed out after {timeout} seconds"}
