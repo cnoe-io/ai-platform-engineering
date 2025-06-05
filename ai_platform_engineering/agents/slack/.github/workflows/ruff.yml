@@ -24,9 +24,13 @@ jobs:
         uses: step-security/harden-runner@0634a2670c59f64b4a01f0f96f84700a4088b9f0 # v2.12.0
         with:
           egress-policy: audit
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2 # v4.1.7
         with:
           fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.2"
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
@@ -34,10 +38,7 @@ jobs:
           POETRY_HOME: /opt/poetry
       - name: Add Poetry to PATH
         run: echo "/opt/poetry/bin" >> $GITHUB_PATH
-      - name: Install ruff
-        run: |
-          pip install ruff
-      - name: run ruff linter # python linting
+      - name: Install ruff with Poetry
+        run: poetry add --dev ruff
+      - name: Run ruff linter # python linting
         run: make lint
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
