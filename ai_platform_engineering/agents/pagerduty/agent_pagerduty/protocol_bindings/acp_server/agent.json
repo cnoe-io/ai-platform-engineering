@@ -1,10 +1,10 @@
 {
   "name": "cnoe_agent_pagerduty",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "schema_version": "0.0.1",
   "description": "PagerDuty Agent powered by LangGraph and LangChain MCP Adapters.",
   "authors": [
-    "CNOE Contributors"
+    "Rehan"
   ],
   "created_at": "2024-06-04T00:00:00Z",
   "skills": [
@@ -173,22 +173,6 @@
               }
             },
             "properties": {
-<<<<<<< HEAD
-              "messages": {
-                "anyOf": [
-                  {
-                    "items": {
-                      "$ref": "#/$defs/Message"
-                    },
-                    "type": "array"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Messages"
-=======
               "output": {
                 "messages": {
                   "anyOf": [
@@ -206,25 +190,12 @@
                   "title": "Messages"
                 },
                 "type": "object"
->>>>>>> 3677567 (fix(acp): update agent.json)
               }
             },
             "title": "OutputState",
             "type": "object"
           },
           "config": {
-<<<<<<< HEAD
-            "properties": {},
-            "title": "EmptyConfig",
-            "type": "object"
-          }
-        },
-        "schema_version": "0.0.1"
-      }
-    }
-  ]
-}
-=======
             "type": "object",
             "properties": {
               "model": {
@@ -242,4 +213,3 @@
     }
   ]
 }
->>>>>>> 3677567 (fix(acp): update agent.json)
