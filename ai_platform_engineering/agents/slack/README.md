@@ -79,62 +79,6 @@ Running it via Docker:
 ### 1️⃣ Configure Environment
 Ensure your `.env` file is set up as described in the [cnoe-agent-utils usage guide](https://github.com/cnoe-io/cnoe-agent-utils) based on your LLM Provider.
 
-#### Setting Up Slack Environment Variables
-
-1. **Create a Slack App:**
-   - Go to [Slack API](https://api.slack.com/apps)
-   - Click "Create New App"
-   - Choose "From scratch"
-   - Enter a name and select your workspace
-   - Click "Create App"
-
-2. **Configure Bot Permissions:**
-   - In your app dashboard, go to "OAuth & Permissions"
-   - Under "Scopes", add the following Bot Token Scopes:
-     - `app_mentions:read`
-     - `channels:history`
-     - `chat:write`
-     - `users:read`
-     - `groups:history`
-     - `im:history`
-     - `mpim:history`
-
-3. **Install the App:**
-   - Go to "Install App" tab
-   - Click "Install to Workspace"
-   - Copy your Bot Token (starts with `xoxb-`) - This will be your `SLACK_BOT_TOKEN`
-
-4. **Get Other Slack Credentials:**
-   - Go to "Basic Information" in your app settings
-   - Find and copy:
-     - App ID
-     - Client ID
-     - Client Secret (`SLACK_CLIENT_SECRET`)
-     - Signing Secret (`SLACK_SIGNING_SECRET`)
-     - Team ID (`SLACK_TEAM_ID`)
-
-5. **Enable Socket Mode:**
-   - Go to "Socket Mode" in your app settings
-   - Enable Socket Mode
-   - Generate an app-level token (starts with `xapp-`) - This will be your `SLACK_APP_TOKEN`
-
-#### Setting Up Azure OpenAI Environment Variables
-
-1. **Get Azure OpenAI Credentials:**
-   - Go to [Azure Portal](https://portal.azure.com)
-   - Navigate to your Azure OpenAI resource
-   - Under "Resource Management" > "Keys and Endpoint"
-   - Copy:
-     - Key 1 or Key 2 (`AZURE_OPENAI_API_KEY`)
-     - Endpoint URL (`AZURE_OPENAI_ENDPOINT`)
-   - Note your deployment name (`AZURE_OPENAI_DEPLOYMENT`)
-
-#### Port Configuration
-The agent runs on port 8000 by default. If this port is occupied, you can modify it in your `.env` file:
-```env
-A2A_AGENT_PORT=8000  # Change to any available port
-```
-
 Example `.env` configuration:
 ```env
 ############################
@@ -145,7 +89,7 @@ AGENT_NAME=Slack
 
 ## A2A Agent Configuration
 A2A_AGENT_HOST=localhost
-A2A_AGENT_PORT=8000  # Change if port 8000 is occupied
+A2A_AGENT_PORT=8000
 
 ## MCP Server Configuration
 MCP_HOST=localhost
@@ -154,65 +98,36 @@ MCP_PORT=9000
 ############################
 # Azure OpenAI Configuration
 ############################
-AZURE_OPENAI_API_KEY=<your-azure-key>        # From Azure Portal > Keys and Endpoint
+AZURE_OPENAI_API_KEY=<your-azure-key>
 AZURE_OPENAI_API_VERSION=2025-04-01-preview
-AZURE_OPENAI_DEPLOYMENT=gpt-4.1              # Your deployment name from Azure
-AZURE_OPENAI_ENDPOINT=<your-azure-endpoint>  # From Azure Portal > Keys and Endpoint
+AZURE_OPENAI_DEPLOYMENT=gpt-4.1
+AZURE_OPENAI_ENDPOINT=<your-azure-endpoint>
 
 ############################
 # Slack Configuration
 ############################
-SLACK_BOT_TOKEN=<your-bot-token>             # From OAuth & Permissions > Bot User OAuth Token
-SLACK_APP_TOKEN=<your-app-token>             # From Socket Mode > App-Level Token
-SLACK_SIGNING_SECRET=<your-signing-secret>   # From Basic Information > App Credentials
-SLACK_CLIENT_SECRET=<your-client-secret>     # From Basic Information > App Credentials
-SLACK_TEAM_ID=<your-team-id>                 # From Basic Information > App Credentials
+SLACK_BOT_TOKEN=<your-bot-token>
+SLACK_APP_TOKEN=<your-app-token>
+SLACK_SIGNING_SECRET=<your-signing-secret>
+SLACK_CLIENT_SECRET=<your-client-secret>
+SLACK_TEAM_ID=<your-team-id>
 ```
 
 ### 2️⃣ Start the Agent (A2A Mode)
 1. Pull the A2A image:
 ```bash
-docker pull ghcr.io/cnoe-io/agent-slack:a2a-v0.1.1
+docker pull ghcr.io/cnoe-io/agent-slack:a2a-latest
 ```
 
 2. Run the agent in a Docker container using your `.env` file:
 ```bash
-docker run -it --rm \
-  --env-file .env \
-  -p 8000:8000 \
-  ghcr.io/cnoe-io/agent-slack:a2a-v0.1.1
+docker run -p 0.0.0.0:8000:8000 -it \
+  -v $(pwd)/.env:/app/.env \
+  ghcr.io/cnoe-io/agent-slack:a2a-latest
 ```
 
 ### 3️⃣ Run the Client
-First, set up a virtual environment and install required tools:
-
-#### Set Up Virtual Environment
-
-**For Linux/macOS:**
-```bash
-# Create virtual environment
-python -m venv .venv
-
-# Activate virtual environment
-source .venv/bin/activate
-```
-
-**For Windows:**
-```bash
-# Create virtual environment
-python -m venv .venv
-
-# Activate virtual environment
-.\.venv\Scripts\activate
-```
-
-#### Install uv
-```bash
-# Install uv package manager
-pip install uv
-```
-
-Now you can use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
+Use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
 
 ```bash
 uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
@@ -254,6 +169,30 @@ make run-acp-client
 
 ### ▶️ Test with Slack API
 
+#### 🏃 Quick Start: Set Up Slack Access
+
+1. **Create a Slack App:**
+   If you don't have one, create a new app at [Slack API](https://api.slack.com/apps).
+
+2. **Configure Bot Token Scopes:**
+   - Go to OAuth & Permissions
+   - Add the following scopes:
+     - `app_mentions:read`
+     - `channels:history`
+     - `chat:write`
+     - `users:read`
+     - `groups:history`
+     - `im:history`
+     - `mpim:history`
+
+3. **Enable Socket Mode:**
+   - Go to Socket Mode in your app settings
+   - Enable Socket Mode and generate an app-level token
+   - Save the token as `SLACK_APP_TOKEN`
+
+4. **Install the App:**
+   - Install the app to your workspace
+   - Save the Bot User OAuth Token as `SLACK_BOT_TOKEN`
 
 ### Example Interactions
 
