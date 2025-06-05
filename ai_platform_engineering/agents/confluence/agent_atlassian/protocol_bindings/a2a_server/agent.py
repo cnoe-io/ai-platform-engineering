@@ -12,7 +12,6 @@ from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langchain_core.runnables.config import (
     RunnableConfig,
 )
-from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
