@@ -59,8 +59,7 @@ async def search(
     if not success:
         raise ValueError(f"Failed to search Jira issues: {response}")
 
-    search_results = response.json().get("issues", [])
-    return [JiraSearchResult(**issue) for issue in search_results]
+    return response
 
 async def search_fields(
     ctx: Context,
