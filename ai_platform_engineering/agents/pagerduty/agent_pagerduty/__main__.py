@@ -18,6 +18,7 @@ from a2a.types import (
     AgentSkill,
 )
 
+from starlette.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
@@ -36,9 +37,18 @@ def main(host: str, port: int):
     server = A2AStarletteApplication(
         agent_card=get_agent_card(host, port), http_handler=request_handler
     )
-    import uvicorn
+    app = server.build()
 
-    uvicorn.run(server.build(), host=host, port=port)
+    # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
+    app.add_middleware(
+          CORSMiddleware,
+          allow_origins=["*"],  # Allow all origins
+          allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+          allow_headers=["*"],  # Allow all headers
+    )
+
+    import uvicorn
+    uvicorn.run(app, host=host, port=port)
 
 
 def get_agent_card(host: str, port: int):

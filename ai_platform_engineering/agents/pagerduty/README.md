@@ -59,19 +59,24 @@ PAGERDUTY_API_URL=https://api.pagerduty.com
 ```
 
 ### 2️⃣ Start the Agent (A2A Mode)
+
 1. Pull the A2A image:
+
 ```bash
 docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
 ```
 
 2. Run the agent in a Docker container using your `.env` file:
+
 ```bash
-docker run -p 0.0.0.0:8000:8000 -it \
+docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-latest && \
+docker run --rm -p 0.0.0.0:8000:8000 -it \
   -v $(pwd)/.env:/app/.env \
   ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
 ```
 
 ### 3️⃣ Run the Client
+
 Use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
 
 ```bash
