@@ -37,6 +37,11 @@ agent_atlassian_a2a = "agent_atlassian.protocol_bindings.a2a_server:main"
 
 [tool.poetry.dependencies]
 uv = "^0.7.5"
+
+[tool.poetry.group.dev.dependencies]
+pytest-asyncio = "^1.0.0"
+pytest-cov = "^6.1.1"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
