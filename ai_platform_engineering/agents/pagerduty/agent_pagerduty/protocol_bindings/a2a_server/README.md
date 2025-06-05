@@ -16,7 +16,6 @@ The following environment variables are required:
 - `PAGERDUTY_API_KEY`: Your PagerDuty API key
 - `PAGERDUTY_API_URL`: The PagerDuty API URL
 - `LLM_PROVIDER`: The LLM provider to use (one of: "azure-openai", "openai", "anthropic-claude", "google-gemini")
-- `GOOGLE_API_KEY`: API key for Google Gemini (if using Google Gemini as the LLM provider)
 - `OPENAI_API_KEY`: API key for OpenAI (if using OpenAI as the LLM provider)
 - `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`: Required for Azure OpenAI
 - `ANTHROPIC_API_KEY`: API key for Anthropic Claude (if using Anthropic Claude as the LLM provider)
@@ -43,4 +42,4 @@ The A2A server implementation consists of several key components:
 - `agent_executor.py`: Contains the `PagerDutyAgentExecutor` class that handles task execution
 - `state.py`: Defines the state models for the agent
 - `helpers.py`: Provides utility functions for handling agent responses
-- `__main__.py`: The entry point for running the server 
+- `__main__.py`: The entry point for running the server

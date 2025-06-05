@@ -191,7 +191,6 @@ run-docker-a2a: ## Run the A2A agent in Docker
 	echo "Using Agent Port: $$LOCAL_A2A_AGENT_PORT"; \
 	echo "==================================================================="; \
 	docker run -p $$LOCAL_A2A_AGENT_PORT:8000 -it \
-		-e GOOGLE_API_KEY=$$GOOGLE_API_KEY \
 		-e AZURE_OPENAI_API_KEY=$$AZURE_OPENAI_API_KEY \
 		-e OPENAI_API_VERSION=$$OPENAI_API_VERSION \
 		-e AZURE_OPENAI_API_VERSION=$$AZURE_OPENAI_API_VERSION \
@@ -221,4 +220,4 @@ add-copyright-license-headers: ## Add license headers
 help: ## Show this help message
 	@echo "Available targets:"
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-30s\033[0m %s\n", $$1, $$2}' | sort 
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-30s\033[0m %s\n", $$1, $$2}' | sort
