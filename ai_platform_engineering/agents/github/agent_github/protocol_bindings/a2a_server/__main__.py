@@ -54,13 +54,23 @@ def get_agent_card(host: str, port: int):
   skill = AgentSkill(
     id='github',
     name='GitHub Operations',
-    description='Performs Create, Read, Update, and Delete operations on GitHub repositories, issues, pull requests, and other GitHub resources.',
-    tags=['github', 'repositories', 'issues', 'pull_requests', 'code_review', 'devops'],
+    description=(
+      'Performs Create, Read, Update, and Delete operations on GitHub repositories, '
+      'issues, pull requests, and other GitHub resources.'
+    ),
+    tags=[
+      'github',
+      'repositories',
+      'issues',
+      'pull_requests',
+      'code_review',
+      'devops',
+    ],
     examples=[
       'Create a new repository named "my-project".',
       'Get the status of pull request #123 in "owner/repo".',
       'Create an issue in the "frontend" repository.',
-      'Review and merge a pull request.'
+      'Review and merge a pull request.',
     ],
   )
   return AgentCard(

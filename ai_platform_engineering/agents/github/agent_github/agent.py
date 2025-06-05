@@ -36,7 +36,7 @@ class Memory:
     def add_interaction(self, user_input, agent_response):
         """
         Add a new interaction to memory.
-        
+
         :param user_input: The user's input.
         :param agent_response: The agent's response.
         """
@@ -48,7 +48,7 @@ class Memory:
     def get_memory(self):
         """
         Retrieve the current memory.
-        
+
         :return: A list of recent interactions.
         """
         return self.memory
@@ -150,7 +150,7 @@ async def _async_github_agent(state: AgentState, config: RunnableConfig) -> Dict
         messages = [Message.model_validate(m) for m in state.github_input["messages"]]
     else:
         messages = []
- 
+
     if messages is not None:
         # Get last human message
         human_message = next(
@@ -168,12 +168,12 @@ async def _async_github_agent(state: AgentState, config: RunnableConfig) -> Dict
         memory_content = "\n".join(
             [f"User: {interaction['user_input']}\nAgent: {interaction['agent_response']}" for interaction in recent_memory]
         )
-        combined_message = f"{memory_content}\nCurrent: {human_message}" if memory_content else human_message
+        _ = f"{memory_content}\nCurrent: {human_message}" if memory_content else human_message
 
     logger.info(f"Launching MCP server at: {server_path}")
 
     model = LLMFactory().get_llm()
-    
+
     env_vars = {
         "GITHUB_PERSONAL_ACCESS_TOKEN": github_token,
     }
@@ -222,7 +222,7 @@ async def _async_github_agent(state: AgentState, config: RunnableConfig) -> Dict
     if ai_content:
         # Add the interaction to memory
         memory.add_interaction(human_message, ai_content)
-        
+
         # Return the agent's response
         return OutputState(
             github_output={"messages": [Message(type=MsgType.ai, content=ai_content)]}

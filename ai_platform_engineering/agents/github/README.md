@@ -78,6 +78,7 @@ flowchart TD
 ### 1️⃣ Configure Environment
 
 #### Setting Up Azure OpenAI
+
 1. Go to [Azure Portal](https://portal.azure.com)
 2. Create or select your Azure OpenAI resource
 3. Navigate to "Keys and Endpoint" section
@@ -91,6 +92,7 @@ flowchart TD
      - `AZURE_OPENAI_DEPLOYMENT`
 
 #### Setting Up GitHub Token
+
 1. Go to GitHub.com → Settings → Developer Settings → Personal Access Tokens → Tokens (classic)
 2. Click "Generate new token (classic)"
 3. Give your token a descriptive name
@@ -115,6 +117,7 @@ flowchart TD
 8. Save this as your `GITHUB_PERSONAL_ACCESS_TOKEN`
 
 #### Port Configuration
+
 - Default ports:
   - A2A Agent: 8000
   - MCP Server: 9000
@@ -164,13 +167,17 @@ GITHUB_PERSONAL_ACCESS_TOKEN=<your-github-token>
 ```
 
 ### 2️⃣ Start the Agent (A2A Mode)
+
 1. Pull the A2A image:
+
 ```bash
 docker pull ghcr.io/cnoe-io/agent-github:a2a-latest
 ```
 
 2. Run the agent in a Docker container using your `.env` file:
+
 ```bash
+docker pull ghcr.io/cnoe-io/agent-github:a2a-latest && \
 docker run -it --rm \
   --env-file .env \
   -p 8000:8000 \
@@ -179,11 +186,13 @@ docker run -it --rm \
 ```
 
 ### 3️⃣ Run the Client
+
 First, set up a virtual environment and install required tools:
 
 #### Set Up Virtual Environment
 
 **For Linux/macOS:**
+
 ```bash
 # Create virtual environment
 python -m venv .venv
@@ -193,15 +202,17 @@ source .venv/bin/activate
 ```
 
 **For Windows:**
+
 ```bash
 # Create virtual environment
 python -m venv .venv
 
 # Activate virtual environment
-.\.venv\Scripts\activate
+. .venv\Scripts\activate
 ```
 
 #### Install uv
+
 ```bash
 # Install uv package manager
 pip install uv
@@ -213,10 +224,13 @@ Now you can use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) 
 uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
 
+## Local Development
+
 ### Alternative: Running Locally
 You can also run the agent locally without Docker:
 
 First clone the repo:
+
 ```bash
 git clone https://github.com/cnoe-io/agent-github.git
 cd agent-github
@@ -227,6 +241,7 @@ make run-a2a
 ```
 
 In a new terminal, start the A2A client:
+
 ```bash
 make run-a2a-client
 ```
