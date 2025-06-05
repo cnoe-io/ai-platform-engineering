@@ -37,22 +37,16 @@
 
 ```env
 LLM_PROVIDER=
+
 AGENT_NAME=atlassian
-CNOE_AGENT_ATLASSIAN_ID=
-CNOE_AGENT_ATLASSIAN_API_KEY=
-CNOE_AGENT_ATLASSIAN_PORT=
-AGENT_HOST=
-AGENT_PORT=
-AZURE_OPENAI_API_KEY=
-OPENAI_API_VERSION=
-AZURE_OPENAI_API_VERSION=
-AZURE_OPENAI_DEPLOYMENT=
-AZURE_OPENAI_ENDPOINT=
+
 ATLASSIAN_TOKEN=
 ATLASSIAN_EMAIL=
 ATLASSIAN_API_URL=
 ATLASSIAN_VERIFY_SSL=
-GOOGLE_API_KEY=
+
+########### LLM Configuration ###########
+# Refer to: https://github.com/cnoe-io/cnoe-agent-utils#-usage
 ```
 
 **Use the following link to get your own Atlassian API Token:**
