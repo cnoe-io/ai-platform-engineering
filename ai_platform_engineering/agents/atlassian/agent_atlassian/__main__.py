@@ -1,9 +1,6 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-import os
-import sys
-
 import click
 import httpx
 from dotenv import load_dotenv
@@ -20,9 +17,7 @@ from a2a.types import (
     AgentSkill,
 )
 
-
 load_dotenv()
-
 
 @click.command()
 @click.option('--host', 'host', default='localhost')
