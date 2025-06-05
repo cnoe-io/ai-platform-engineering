@@ -66,10 +66,6 @@
               "name": "AZURE_OPENAI_API_VERSION"
             },
             {
-              "desc": "Google API key",
-              "name": "GOOGLE_API_KEY"
-            },
-            {
               "desc": "Atlassian Token",
               "name": "ATLASSIAN_TOKEN",
               "required": true
