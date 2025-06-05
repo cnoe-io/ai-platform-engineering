@@ -30,8 +30,11 @@ warnings.filterwarnings(
 AGENT_HOST = os.environ.get("A2A_AGENT_HOST", "localhost")
 AGENT_PORT = os.environ.get("A2A_AGENT_PORT", "8000")
 AGENT_URL = f"http://{AGENT_HOST}:{AGENT_PORT}"
-DEBUG = os.environ.get("A2A_DEBUG_CLIENT", "false").lower() in ["1", "true", "yes"]
+DEBUG = os.environ.get("A2A_DEBUG_CLIENT", "true").lower() in ["1", "true", "yes"]
 console = Console()
+
+# Generate a context ID when the script starts - this will be used for the entire session
+SESSION_CONTEXT_ID = uuid4().hex
 
 def debug_log(message: str):
     if DEBUG:
@@ -43,6 +46,7 @@ def create_send_message_payload(text: str) -> dict[str, Any]:
             "role": "user",
             "parts": [{"type": "text", "text": text}],
             "messageId": uuid4().hex,
+            "contextId": SESSION_CONTEXT_ID  # Include the session context ID in each message
         }
     }
 
