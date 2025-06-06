@@ -21,6 +21,8 @@ from a2a.types import (
     AgentSkill,
 )
 
+from starlette.middleware.cors import CORSMiddleware
+
 load_dotenv()
 
 # Set logging level
@@ -49,8 +51,19 @@ def main(host: str, port: int):
     print(f"✅ Running at http://{host}:{port}/")
     print("📡 Agent ready to receive requests.\n")
 
+    app = server.build()
+
+    # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
+    app.add_middleware(
+          CORSMiddleware,
+          allow_origins=["*"],  # Allow all origins
+          allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+          allow_headers=["*"],  # Allow all headers
+    )
+
     import uvicorn
-    uvicorn.run(server.build(), host=host, port=port)
+    uvicorn.run(app, host=host, port=port)
+
 
 def get_agent_card(host: str, port: int):
     capabilities = AgentCapabilities(streaming=True, pushNotifications=True)

@@ -4,7 +4,7 @@
 import logging
 import asyncio
 import os
-from typing import Any, Literal, Dict, AsyncIterable, List
+from typing import Any, Literal, AsyncIterable
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
@@ -14,6 +14,8 @@ from pydantic import BaseModel, SecretStr
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
+
+from cnoe_agent_utils import LLMFactory
 
 logger = logging.getLogger(__name__)
 
@@ -44,37 +46,13 @@ class GitHubAgent:
     )
 
     def __init__(self):
-        # Initialize the Azure OpenAI model
-        api_key = os.getenv("AZURE_OPENAI_API_KEY")
-        if not api_key:
-            logger.warning("AZURE_OPENAI_API_KEY not set, LLM functionality will be limited")
-
-        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        if not azure_endpoint:
-            logger.warning("AZURE_OPENAI_ENDPOINT not set, LLM functionality will be limited")
-
         self.github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
         if not self.github_token:
             logger.warning("GITHUB_PERSONAL_ACCESS_TOKEN not set, GitHub integration will be limited")
 
-        # Initialize the model if credentials are available
-        if api_key and azure_endpoint:
-            self.model = AzureChatOpenAI(
-                api_key=SecretStr(api_key),
-                azure_endpoint=azure_endpoint,
-                model="gpt-4o",
-                openai_api_type="azure_openai",
-                api_version="2024-08-01-preview",
-                temperature=0,
-                max_retries=10,
-                seed=42
-            )
-        else:
-            logger.error("Cannot initialize Azure OpenAI model due to missing credentials")
-            self.model = None
-
+        self.model = LLMFactory().get_llm()
         self.graph = None
-        
+
         # Initialize the agent
         asyncio.run(self._initialize_agent())
 
@@ -91,17 +69,17 @@ class GitHubAgent:
             env_vars = {
                 "GITHUB_PERSONAL_ACCESS_TOKEN": self.github_token,
             }
-            
+
             # Add optional GitHub Enterprise Server host if provided
             github_host = os.getenv("GITHUB_HOST")
             if github_host:
                 env_vars["GITHUB_HOST"] = github_host
-            
+
             # Add toolsets configuration if provided
             toolsets = os.getenv("GITHUB_TOOLSETS")
             if toolsets:
                 env_vars["GITHUB_TOOLSETS"] = toolsets
-            
+
             # Enable dynamic toolsets if configured
             if os.getenv("GITHUB_DYNAMIC_TOOLSETS"):
                 env_vars["GITHUB_DYNAMIC_TOOLSETS"] = os.getenv("GITHUB_DYNAMIC_TOOLSETS")
@@ -124,10 +102,10 @@ class GitHubAgent:
                     }
                 }
             )
-            
+
             # Get tools via the client
             client_tools = await client.get_tools()
-            
+
             print('*'*80)
             print("Available GitHub Tools and Parameters:")
             for tool in client_tools:
@@ -149,7 +127,7 @@ class GitHubAgent:
                     print("  Parameters: None")
                 print()
             print('*'*80)
-            
+
             # Create the agent with the tools
             self.graph = create_react_agent(
                 self.model,
@@ -163,10 +141,10 @@ class GitHubAgent:
             runnable_config = RunnableConfig(configurable={"thread_id": "init-thread"})
             try:
                 llm_result = await self.graph.ainvoke(
-                    {"messages": HumanMessage(content="Summarize what GitHub operations you can help with")}, 
+                    {"messages": HumanMessage(content="Summarize what GitHub operations you can help with")},
                     config=runnable_config
                 )
-                
+
                 # Try to extract meaningful content from the LLM result
                 ai_content = None
                 for msg in reversed(llm_result.get("messages", [])):
@@ -189,7 +167,7 @@ class GitHubAgent:
 
     async def stream(self, query: str, context_id: str) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
-        logger.info(f"Starting stream with query: {query} and context_id: {context_id}")
+        logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
         
         if not self.graph:
             logger.error("Agent graph not initialized")
@@ -199,19 +177,19 @@ class GitHubAgent:
                 'content': 'GitHub agent is not properly initialized. Please check the logs.',
             }
             return
-            
+
         inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
         config: RunnableConfig = {'configurable': {'thread_id': context_id}}
 
         try:
             async for item in self.graph.astream(inputs, config, stream_mode='values'):
                 message = item.get('messages', [])[-1] if item.get('messages') else None
-                
+
                 if not message:
                     continue
-                
+
                 logger.debug(f"Streamed message type: {type(message)}")
-                
+
                 if (
                     isinstance(message, AIMessage)
                     and hasattr(message, 'tool_calls')
@@ -229,7 +207,7 @@ class GitHubAgent:
                         'require_user_input': False,
                         'content': 'Interacting with GitHub API...',
                     }
-                
+
                 elif isinstance(message, AIMessage) and message.content:
                     yield {
                         'is_task_complete': False,
@@ -249,14 +227,14 @@ class GitHubAgent:
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
         """Get the final response from the agent."""
         logger.debug(f"Fetching agent response with config: {config}")
-        
+
         try:
             current_state = self.graph.get_state(config)
             logger.debug(f"Current state values: {current_state.values}")
 
             structured_response = current_state.values.get('structured_response')
             logger.debug(f"Structured response: {structured_response}")
-            
+
             if structured_response and isinstance(structured_response, ResponseFormat):
                 logger.debug(f"Structured response is valid: {structured_response.status}")
                 if structured_response.status in {'input_required', 'error'}:
@@ -271,23 +249,23 @@ class GitHubAgent:
                         'require_user_input': False,
                         'content': structured_response.message,
                     }
-            
+
             # If we couldn't get a structured response, try to get the last message
             messages = []
             for item in current_state.values.get('messages', []):
                 if isinstance(item, AIMessage) and item.content:
                     messages.append(item.content)
-            
+
             if messages:
                 return {
                     'is_task_complete': True,
                     'require_user_input': False,
                     'content': messages[-1],
                 }
-                
+
         except Exception as e:
             logger.exception(f"Error getting agent response: {e}")
-        
+
         logger.warning("Unable to process request, returning fallback response")
         return {
             'is_task_complete': False,

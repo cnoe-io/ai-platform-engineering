@@ -35,12 +35,12 @@ class GitHubAgentExecutor(AgentExecutor):
 
         if not task:
             task = new_task(context.message)
-            await event_queue.enqueue_event(task)
+            event_queue.enqueue_event(task)
             
         # invoke the underlying agent, using streaming results
         async for event in self.agent.stream(query, context_id):
             if event['is_task_complete']:
-                await event_queue.enqueue_event(
+                event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
                         contextId=task.contextId,
@@ -53,7 +53,7 @@ class GitHubAgentExecutor(AgentExecutor):
                         ),
                     )
                 )
-                await event_queue.enqueue_event(
+                event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
                         final=True,
@@ -62,7 +62,7 @@ class GitHubAgentExecutor(AgentExecutor):
                     )
                 )
             elif event['require_user_input']:
-                await event_queue.enqueue_event(
+                event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
@@ -78,7 +78,7 @@ class GitHubAgentExecutor(AgentExecutor):
                     )
                 )
             else:
-                await event_queue.enqueue_event(
+                event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.working,
