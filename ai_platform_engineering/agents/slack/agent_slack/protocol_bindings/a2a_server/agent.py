@@ -157,9 +157,9 @@ class SlackAgent:
             logger.exception(f"Error initializing agent: {e}")
             self.graph = None
 
-    async def stream(self, query: str, sessionId: str) -> AsyncIterable[dict[str, Any]]:
+    async def stream(self, query: str, context_id: str) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
-        logger.info(f"Starting stream with query: {query} and sessionId: {sessionId}")
+        logger.info(f"Starting stream with query: {query} and context_id: {context_id}")
 
         if not self.graph:
             logger.error("Agent graph not initialized")
@@ -171,7 +171,7 @@ class SlackAgent:
             return
 
         inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
-        config: RunnableConfig = {'configurable': {'thread_id': sessionId}}
+        config: RunnableConfig = {'configurable': {'thread_id': context_id}}
 
         try:
             async for item in self.graph.astream(inputs, config, stream_mode='values'):

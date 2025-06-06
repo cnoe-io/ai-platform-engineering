@@ -28,6 +28,7 @@ class SlackAgentExecutor(AgentExecutor):
     ) -> None:
         query = context.get_user_input()
         task = context.current_task
+        context_id = context.message.contextId if context.message else None
 
         if not context.message:
             raise Exception('No message provided')
@@ -37,7 +38,7 @@ class SlackAgentExecutor(AgentExecutor):
             event_queue.enqueue_event(task)
             
         # invoke the underlying agent, using streaming results
-        async for event in self.agent.stream(query, task.contextId):
+        async for event in self.agent.stream(query, context_id):
             if event['is_task_complete']:
                 event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
