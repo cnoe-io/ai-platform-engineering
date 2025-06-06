@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import uuid
 
 from collections.abc import AsyncIterable
 from typing import Any, Literal, Dict
@@ -167,11 +168,13 @@ class AtlassianAgent:
       _create_agent(agent_input, config=runnable_config)
 
     async def stream(
-      self, query: str, sessionId: str
+      self, query: str, context_id: str | None = None
     ) -> AsyncIterable[dict[str, Any]]:
-      print("DEBUG: Starting stream with query:", query, "and sessionId:", sessionId)
+      print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
+      # Use the context_id as the thread_id, or generate a new one if none provided
+      thread_id = context_id or uuid.uuid4().hex
       inputs: dict[str, Any] = {'messages': [('user', query)]}
-      config: RunnableConfig = {'configurable': {'thread_id': sessionId}}
+      config: RunnableConfig = {'configurable': {'thread_id': thread_id}}
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
