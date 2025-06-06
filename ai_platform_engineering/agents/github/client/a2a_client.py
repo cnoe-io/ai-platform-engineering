@@ -34,6 +34,9 @@ AGENT_URL = f"http://{AGENT_HOST}:{AGENT_PORT}"
 DEBUG = os.environ.get("A2A_DEBUG_CLIENT", "false").lower() in ["1", "true", "yes"]
 console = Console()
 
+# Generate a context ID when the script starts - this will be used for the entire session
+SESSION_CONTEXT_ID = uuid4().hex
+
 async def get_available_tools() -> List[str]:
     """Fetch available tools from the agent."""
     try:
@@ -86,6 +89,7 @@ def create_send_message_payload(text: str, tools: List[str]) -> dict[str, Any]:
                 {"type": "text", "text": "\nUser query: " + text}
             ],
             "messageId": uuid4().hex,
+            "contextId": SESSION_CONTEXT_ID,
         }
     }
 
