@@ -177,7 +177,6 @@ docker pull ghcr.io/cnoe-io/agent-github:a2a-latest
 2. Run the agent in a Docker container using your `.env` file:
 
 ```bash
-docker pull ghcr.io/cnoe-io/agent-github:a2a-latest && \
 docker run -it --rm \
   --env-file .env \
   -p 8000:8000 \
