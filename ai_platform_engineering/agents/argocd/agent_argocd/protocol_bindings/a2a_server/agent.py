@@ -172,11 +172,11 @@ class ArgoCDAgent:
       _create_agent(agent_input, config=runnable_config)
 
     async def stream(
-      self, query: str, sessionId: str
+      self, query: str, context_id: str
     ) -> AsyncIterable[dict[str, Any]]:
-      print("DEBUG: Starting stream with query:", query, "and sessionId:", sessionId)
+      print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
       inputs: dict[str, Any] = {'messages': [('user', query)]}
-      config: RunnableConfig = {'configurable': {'thread_id': sessionId}}
+      config: RunnableConfig = {'configurable': {'thread_id': context_id}}
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
