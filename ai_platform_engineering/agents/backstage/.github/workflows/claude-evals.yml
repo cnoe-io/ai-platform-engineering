@@ -1,0 +1,47 @@
+name: Claude Evals
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+
+    env:
+      LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      BACKSTAGE_API_TOKEN: ${{ secrets.BACKSTAGE_API_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.2"
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+        env:
+          POETRY_HOME: /opt/poetry
+
+      - name: Add Poetry to PATH
+        run: echo "/opt/poetry/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          make install
+
+      - name: Run Evals
+        run: |
+          echo "Done"
