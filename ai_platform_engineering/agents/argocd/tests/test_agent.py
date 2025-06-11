@@ -1,55 +1,89 @@
+import os
+import types
 import pytest
-from agent_argocd.agent import _async_argocd_agent
-from agent_argocd.state import AgentState, InputState, Message, MsgType
+from unittest import mock
+from agent_argocd.agent import ArgoCDAgent, ResponseFormat
+from agent_argocd import agent
+from agent_argocd import agent
+from agent_argocd import agent
 
-@pytest.mark.asyncio
-async def test_async_argocd_agent_success():
-    mock_messages = [
-        Message(type=MsgType.human, content="sync app test-app")
-    ]
+@pytest.fixture(autouse=True)
+def set_env_vars(monkeypatch):
+  monkeypatch.setenv("ARGOCD_TOKEN", "dummy-token")
+  monkeypatch.setenv("ARGOCD_API_URL", "https://dummy-argocd/api")
 
-    mock_state = AgentState(
-        input=InputState(messages=mock_messages)
-    )
+def test_response_format_defaults():
+  resp = ResponseFormat(message="Test message")
+  assert resp.status == "input_required"
+  assert resp.message == "Test message"
 
-    mock_config = {
-        "argocd_server": "https://dummy-server",
-        "argocd_token": "dummy-token",
-        "verify_ssl": False
-    }
+def test_debug_print_banner(capsys, monkeypatch):
+  monkeypatch.setenv("ACP_SERVER_DEBUG", "true")
+  agent.debug_print("hello", banner=True)
+  out = capsys.readouterr().out
+  assert "DEBUG: hello" in out
+  assert "=" * 80 in out
 
-    # Inject required LangGraph metadata directly into state or override how `ainvoke()` is called
-    # If `_async_argocd_agent()` doesn't currently support that, mock `ainvoke()` instead:
-    from unittest.mock import AsyncMock, patch
+def test_debug_print_no_banner(capsys, monkeypatch):
+  monkeypatch.setenv("ACP_SERVER_DEBUG", "true")
+  agent.debug_print("no-banner", banner=False)
+  out = capsys.readouterr().out
+  assert "DEBUG: no-banner" in out
+  assert "=" * 80 not in out
 
-    # Mock necessary dependencies
-    with patch("agent_argocd.agent.os.getenv") as mock_getenv, \
-       patch("agent_argocd.agent.LLMFactory") as mock_llm_factory, \
-       patch("agent_argocd.agent.MultiServerMCPClient") as mock_client_class, \
-       patch("agent_argocd.agent.create_react_agent") as mock_create_agent:
+def test_debug_print_disabled(capsys, monkeypatch):
+  monkeypatch.setenv("ACP_SERVER_DEBUG", "false")
+  agent.debug_print("should not print")
+  out = capsys.readouterr().out
+  assert out == ""
 
-      # Configure mocks
-      mock_getenv.side_effect = lambda key, default=None: {"ARGOCD_TOKEN": "dummy-token",
-                                                           "ARGOCD_API_URL": "https://dummy-server"}.get(key, default)
-      mock_llm = AsyncMock()
-      mock_llm_factory.return_value.get_llm.return_value = mock_llm
+def test_supported_content_types():
+  assert 'text' in ArgoCDAgent.SUPPORTED_CONTENT_TYPES
+  assert 'text/plain' in ArgoCDAgent.SUPPORTED_CONTENT_TYPES
 
-      mock_client = AsyncMock()
-      mock_client.get_tools.return_value = []
-      mock_client_class.return_value = mock_client
+def test_get_agent_response_completed(monkeypatch):
+  agent = ArgoCDAgent.__new__(ArgoCDAgent)
+  mock_graph = mock.Mock()
+  mock_config = mock.Mock()
+  resp = ResponseFormat(status="completed", message="Done")
+  mock_graph.get_state.return_value = types.SimpleNamespace(values={'structured_response': resp})
+  agent.graph = mock_graph
+  result = agent.get_agent_response(mock_config)
+  assert result['is_task_complete'] is True
+  assert result['require_user_input'] is False
+  assert result['content'] == "Done"
 
-      mock_agent = AsyncMock()
-      mock_agent.ainvoke.return_value = {
-        "messages": [{"type": "assistant", "content": "Sync completed successfully"}]
-      }
-      mock_create_agent.return_value = mock_agent
+def test_get_agent_response_input_required(monkeypatch):
+  agent = ArgoCDAgent.__new__(ArgoCDAgent)
+  mock_graph = mock.Mock()
+  mock_config = mock.Mock()
+  resp = ResponseFormat(status="input_required", message="Need input")
+  mock_graph.get_state.return_value = types.SimpleNamespace(values={'structured_response': resp})
+  agent.graph = mock_graph
+  result = agent.get_agent_response(mock_config)
+  assert result['is_task_complete'] is False
+  assert result['require_user_input'] is True
+  assert result['content'] == "Need input"
 
-      # Execute the function
-      result = await _async_argocd_agent(mock_state, mock_config)
+def test_get_agent_response_error(monkeypatch):
+  agent = ArgoCDAgent.__new__(ArgoCDAgent)
+  mock_graph = mock.Mock()
+  mock_config = mock.Mock()
+  resp = ResponseFormat(status="error", message="Error occurred")
+  mock_graph.get_state.return_value = types.SimpleNamespace(values={'structured_response': resp})
+  agent.graph = mock_graph
+  result = agent.get_agent_response(mock_config)
+  assert result['is_task_complete'] is False
+  assert result['require_user_input'] is True
+  assert result['content'] == "Error occurred"
 
-      # Verify the result
-      assert "output" in result
-      assert hasattr(result["output"], "messages")
-      assert len(result["output"].messages) > 0
-      assert any(msg.type == MsgType.assistant and "Sync completed successfully" in msg.content
-            for msg in result["output"].messages)
+def test_get_agent_response_no_structured(monkeypatch):
+  agent = ArgoCDAgent.__new__(ArgoCDAgent)
+  mock_graph = mock.Mock()
+  mock_config = mock.Mock()
+  mock_graph.get_state.return_value = types.SimpleNamespace(values={})
+  agent.graph = mock_graph
+  result = agent.get_agent_response(mock_config)
+  assert result['is_task_complete'] is False
+  assert result['require_user_input'] is True
+  assert "unable to process" in result['content'].lower()

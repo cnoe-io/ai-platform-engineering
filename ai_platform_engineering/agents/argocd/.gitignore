@@ -174,9 +174,8 @@ cython_debug/
 .pypirc
 
 # env vars for wfsm
-deploy/acp/agent-env.yaml
-agent-env.yaml
 .env
+.env.*
 .env*
 
 # Others
