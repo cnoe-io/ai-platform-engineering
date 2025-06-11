@@ -29,6 +29,13 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      - name: 📝 Update image.tag in values.yaml
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/}"
+          yq e -i '.image.tag = strenv(TAG_VERSION)' helm/${{ github.event.repository.name }}/values.yaml
+        env:
+          TAG_VERSION: ${{ github.ref_name }}
+
       - name: 📦 Package Helm Chart
         run: |
           helm dependency update helm/${{ github.event.repository.name }}
