@@ -171,7 +171,7 @@ GITHUB_PERSONAL_ACCESS_TOKEN=<your-github-token>
 1. Pull the A2A image:
 
 ```bash
-docker pull ghcr.io/cnoe-io/agent-github:a2a-latest
+docker pull ghcr.io/cnoe-io/agent-github:a2a-stable
 ```
 
 2. Run the agent in a Docker container using your `.env` file:
@@ -181,7 +181,7 @@ docker run -it --rm \
   --env-file .env \
   -p 8000:8000 \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/cnoe-io/agent-github:a2a-latest
+  ghcr.io/cnoe-io/agent-github:a2a-stable
 ```
 
 ### 3️⃣ Run the Client
@@ -243,19 +243,6 @@ In a new terminal, start the A2A client:
 
 ```bash
 make run-a2a-client
-```
-
-### Alternative: ACP Mode (Legacy)
-If you need to use ACP mode instead:
-
-1. Run the agent:
-```bash
-make run-acp
-```
-
-2. In a new terminal, start the ACP client:
-```bash
-make run-acp-client
 ```
 
 ## Quick Demos
@@ -338,4 +325,3 @@ Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of
 ## License
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
-
