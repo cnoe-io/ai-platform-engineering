@@ -44,5 +44,5 @@ jobs:
           CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           helm plugin install https://github.com/chartmuseum/helm-push.git
-          helm repo add ghcr "oci://ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}/charts"
-          helm push packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}/charts
+          helm repo add ghcr "oci://ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}/helm"
+          helm push packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}/helm
