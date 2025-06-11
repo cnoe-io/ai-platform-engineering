@@ -126,21 +126,13 @@ run-mcp: setup-venv ## Run MCP server in SSE mode
 
 ## ========== Clients ==========
 
-run-acp-client: setup-venv ## Run ACP client script
-	@$(MAKE) check-env
-	@$(venv-run) uv run client/acp_client.py
-
 run-a2a-client: setup-venv ## Run A2A client script
 	@$(MAKE) check-env
-	@$(venv-run) uv run client/a2a_client.py
+	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 
 run-mcp-client: setup-venv ## Run MCP client script
 	@$(MAKE) check-env
-	@$(venv-run) uv run client/mcp_client.py
-
-run-curl-client: setup-venv ## Run shell-based CURL client
-	@$(MAKE) check-env
-	@$(venv-run) ./client/client_curl.sh
+	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git mcp
 
 langgraph-dev: setup-venv ## Run LangGraph dev mode
 	@$(venv-run) langgraph dev
