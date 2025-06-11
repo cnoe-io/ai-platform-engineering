@@ -32,7 +32,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update image tag in values.yaml if on semver tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/') && contains(github.ref, '.')
         run: |
           TAG_NAME="${GITHUB_REF#refs/tags/}"
           yq e '.image.tag = strenv(TAG_NAME)' -i helm/agent-argocd/values.yaml
