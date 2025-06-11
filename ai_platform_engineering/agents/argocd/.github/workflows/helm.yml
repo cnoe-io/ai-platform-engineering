@@ -43,9 +43,10 @@ jobs:
           helm package helm/agent-argocd --destination packaged
 
       - name: Push Helm chart to GHCR
+        if: startsWith(github.ref, 'refs/tags/') && contains(github.ref, '.')
         env:
           CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           helm plugin install https://github.com/chartmuseum/helm-push.git
-          helm repo add ghcr "oci://ghcr.io/${{ github.repository_owner }}/charts"
-          helm push packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+          helm repo add ghcr "oci://ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}/charts"
+          helm push packaged/*.tgz oci://ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}/charts
