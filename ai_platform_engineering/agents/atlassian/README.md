@@ -62,7 +62,7 @@ Run the agent in a Docker container using your `.env` file:
 ```bash
 docker run -p 0.0.0.0:8000:8000 -it\
    -v "$(pwd)/.env:/app/.env"\
-   ghcr.io/cnoe-io/agent-atlassian:a2a-latest
+   ghcr.io/cnoe-io/agent-atlassian:a2a-stable
 ```
 
 ### 3️⃣ Run the Client
