@@ -1,10 +1,7 @@
-import os
 import types
 import pytest
 from unittest import mock
 from agent_argocd.agent import ArgoCDAgent, ResponseFormat
-from agent_argocd import agent
-from agent_argocd import agent
 from agent_argocd import agent
 
 @pytest.fixture(autouse=True)
