@@ -2,10 +2,10 @@ name: 📦 Publish Helm Chart to GHCR
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
     paths:
-      - charts/**
+      - helm/**
 
 permissions:
   contents: read
@@ -31,8 +31,8 @@ jobs:
 
       - name: 📦 Package Helm Chart
         run: |
-          helm dependency update charts/${{ github.event.repository.name }}
-          helm package charts/${{ github.event.repository.name }} --destination ./
+          helm dependency update helm/${{ github.event.repository.name }}
+          helm package helm/${{ github.event.repository.name }} --destination ./
 
       - name: 🚀 Push Chart to GHCR
         run: |
