@@ -63,16 +63,16 @@ PAGERDUTY_API_URL=https://api.pagerduty.com
 1. Pull the A2A image:
 
 ```bash
-docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
+docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
 ```
 
 2. Run the agent in a Docker container using your `.env` file:
 
 ```bash
-docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-latest && \
+docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-stable && \
 docker run --rm -p 0.0.0.0:8000:8000 -it \
   -v $(pwd)/.env:/app/.env \
-  ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
+  ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
 ```
 
 ### 3️⃣ Run the Client
