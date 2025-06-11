@@ -2,12 +2,8 @@ name: Package and Publish Helm Chart
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'helm/agent-argocd/**'
-      - '.github/workflows/helm.yml'
-  workflow_dispatch:
+    tags:
+      - '*'
 
 jobs:
   publish:
