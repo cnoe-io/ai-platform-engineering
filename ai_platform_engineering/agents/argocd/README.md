@@ -193,6 +193,40 @@ ARGOCD_VERIFY_SSL=false
 
 ---
 
+## 🛠️ Common Development Tasks
+
+### 1️⃣ Run A2A Agent Locally (without Docker)
+
+- **Makefile Target:** `run-a2a`
+- **What it does:**
+  - Ensures your `.env` file exists.
+  - Activates the Python virtual environment.
+  - Loads environment variables from `.env`.
+  - Runs the agent using [`uv`](https://github.com/astral-sh/uv) (a fast Python runner) on the port specified by `A2A_PORT` in your `.env` (defaults to `8000` if not set).
+
+### 2️⃣ Build Local Docker Image
+
+- **Makefile Target:** `build-docker-a2a`
+- **What it does:**
+  - Builds a Docker image for the A2A agent using `build/Dockerfile.a2a`.
+  - Tags the image as `agent-<name>:a2a-latest` (e.g., `agent-argocd:a2a-latest`).
+
+### 3️⃣ Run the Agent in Docker
+
+- **Makefile Target:** `run-docker-a2a`
+- **What it does:**
+  - Reads `A2A_PORT` and `A2A_AGENT_IMAGE` from `.env` (uses defaults if not set).
+  - Runs the Docker image, mapping the chosen port to container port `8000`.
+  - Mounts your `.env` file into the container for configuration.
+
+### ⚡ Typical Workflow & Gotchas
+
+- Ensure your `.env` file exists and is up to date.
+- If you change code, rebuild the Docker image before running again.
+- The Docker container uses port `8000` internally; you can change the host port via `A2A_PORT` in `.env`.
+
+---
+
 ## 🧩 MCP Server
 
 This project includes a **first-party MCP server** generated from ArgoCD’s OpenAPI specification using the [openapi-mcp-codegen](https://github.com/cnoe-io/openapi-mcp-codegen) utility.
