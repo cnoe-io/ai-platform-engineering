@@ -1,0 +1,29 @@
+[project]
+name = "ai-platform-engineering"
+version = "0.1.0"
+description = "AI Platform Engineering Multi-Agent Systems"
+authors = [
+  {name = "CNOE Contributors"}
+]
+license = {text = "Apache-2.0"}
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "click (>=8.2.1,<9.0.0)",
+    "fastapi (>=0.115.12,<0.116.0)",
+    "uvicorn (>=0.34.3,<0.35.0)",
+    "config (>=0.5.1,<0.6.0)",
+    "langchain-core (>=0.3.65,<0.4.0)",
+    "langgraph (>=0.4.8,<0.5.0)",
+    "langgraph-supervisor (>=0.0.27,<0.0.28)",
+    "a2a-sdk (>=0.2.7,<0.3.0)",
+    "cnoe-agent-utils (>=0.1.4,<0.2.0)",
+    "langchain (>=0.3.25,<0.4.0)",
+]
+
+[project.scripts]
+ai-platform-engineering = "ai_platform_engineering.__main__:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

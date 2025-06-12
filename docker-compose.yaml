@@ -1,0 +1,70 @@
+services:
+  # AI Platform Engineer Multi-Agent System
+  ai-platform-engineer:
+    image: ghcr.io/cnoe-io/ai-platform-engineer:latest
+    container_name: ai-platform-engineer
+    depends_on:
+      - agent-pagerduty
+      - agent-argocd
+      - agent-atlassian
+      - agent-github
+      - agent-slack
+    env_file:
+      - .env
+    ports:
+      # Expose the AI Platform Engineer agent on port 8000
+      - "8000:8000"
+
+  # Agent ArgoCD
+  agent-argocd:
+    image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
+    container_name: agent-argocd
+    env_file:
+      - .env.argocd
+    ports:
+      - "8001:8000"
+
+  # Agent Atlassian
+  agent-atlassian:
+    image: ghcr.io/cnoe-io/agent-atlassian:a2a-stable
+    container_name: agent-atlassian
+    env_file:
+      - .env.atlassian
+    ports:
+      - "8002:8000"
+
+  # Agent GitHub
+  agent-github:
+    image: ghcr.io/cnoe-io/agent-github:a2a-stable
+    container_name: agent-github
+    env_file:
+      - .env.github
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8003:8000"
+
+  # Agent PagerDuty
+  agent-pagerduty:
+    image: ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
+    container_name: agent-pagerduty
+    env_file:
+      - .env.pagerduty
+    ports:
+      - "8004:8000"
+
+  # Agent Slack
+  agent-slack:
+    image: ghcr.io/cnoe-io/agent-slack:a2a-stable
+    container_name: agent-slack
+    env_file:
+      - .env.slack
+    ports:
+      - "8005:8000"
+
+  # Sample UI container to interact with A2A applications
+  ui:
+    image: ghcr.io/eti-demos/agenttool
+    container_name: ui
+    ports:
+      - "3001:3001"
