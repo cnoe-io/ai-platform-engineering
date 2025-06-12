@@ -50,12 +50,6 @@ Just describe your task—**the platform intelligently routes your request to th
    cd ai-platform-engineering
    ```
 
-2. **Install dependencies**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
 3. **Configure environment variables**
 
    ```bash
