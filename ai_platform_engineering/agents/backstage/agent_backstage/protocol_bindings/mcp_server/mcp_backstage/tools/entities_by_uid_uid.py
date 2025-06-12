@@ -62,7 +62,7 @@ async def get_entity_by_uid(path_uid: str) -> Dict[str, Any]:
     params = {}
     data = {}
 
-    success, response = await make_api_request(f"/entities/by-uid/{path_uid}", method="GET", params=params, data=data)
+    success, response = await make_api_request(f"/api/catalog/entities/by-uid/{path_uid}", method="GET", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
@@ -127,7 +127,7 @@ async def delete_entity_by_uid(path_uid: str) -> Dict[str, Any]:
     data = {}
 
     success, response = await make_api_request(
-        f"/entities/by-uid/{path_uid}", method="DELETE", params=params, data=data
+        f"/api/catalog/entities/by-uid/{path_uid}", method="DELETE", params=params, data=data
     )
 
     if not success:

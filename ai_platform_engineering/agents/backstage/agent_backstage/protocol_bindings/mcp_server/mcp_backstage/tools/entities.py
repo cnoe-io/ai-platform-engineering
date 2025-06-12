@@ -109,14 +109,20 @@ async def get_entities(
     params = {}
     data = {}
 
-    params["fields"] = param_fields
-    params["limit"] = param_limit
-    params["filter"] = param_filter
-    params["offset"] = param_offset
-    params["after"] = param_after
-    params["order"] = param_order
+    if param_fields is not None:
+        params["fields"] = param_fields
+    if param_limit is not None:
+        params["limit"] = param_limit
+    if param_filter is not None:
+        params["filter"] = param_filter
+    if param_offset is not None:
+        params["offset"] = param_offset
+    if param_after is not None:
+        params["after"] = param_after
+    if param_order is not None:
+        params["order"] = param_order
 
-    success, response = await make_api_request("/entities", method="GET", params=params, data=data)
+    success, response = await make_api_request("/api/catalog/entities", method="GET", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

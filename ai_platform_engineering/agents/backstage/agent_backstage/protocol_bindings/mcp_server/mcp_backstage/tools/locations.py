@@ -87,7 +87,7 @@ async def create_location(body_target: str, body_type: str, param_dryRun: str = 
     if body_type:
         data["type"] = body_type
 
-    success, response = await make_api_request("/locations", method="POST", params=params, data=data)
+    success, response = await make_api_request("/api/catalog/locations", method="POST", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
@@ -163,7 +163,7 @@ async def get_locations() -> Dict[str, Any]:
     params = {}
     data = {}
 
-    success, response = await make_api_request("/locations", method="GET", params=params, data=data)
+    success, response = await make_api_request("/api/catalog/locations", method="GET", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

@@ -85,7 +85,7 @@ async def analyze_location(
     if body_catalog_file_name:
         data["catalog_file_name"] = body_catalog_file_name
 
-    success, response = await make_api_request("/analyze-location", method="POST", params=params, data=data)
+    success, response = await make_api_request("/api/catalog/analyze-location", method="POST", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

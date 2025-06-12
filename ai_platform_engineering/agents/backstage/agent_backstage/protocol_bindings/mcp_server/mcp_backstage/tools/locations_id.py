@@ -62,7 +62,7 @@ async def get_location(path_id: str) -> Dict[str, Any]:
     params = {}
     data = {}
 
-    success, response = await make_api_request(f"/locations/{path_id}", method="GET", params=params, data=data)
+    success, response = await make_api_request(f"/api/catalog/locations/{path_id}", method="GET", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
@@ -142,7 +142,7 @@ async def delete_location(path_id: str) -> Dict[str, Any]:
     params = {}
     data = {}
 
-    success, response = await make_api_request(f"/locations/{path_id}", method="DELETE", params=params, data=data)
+    success, response = await make_api_request(f"/api/catalog/locations/{path_id}", method="DELETE", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

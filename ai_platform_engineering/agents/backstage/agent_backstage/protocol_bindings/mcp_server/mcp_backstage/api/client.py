@@ -59,7 +59,7 @@ async def make_api_request(
         )
 
     try:
-        headers_dict = {"Authorization": "Bearer f{token}", "Accept": "application/json"}
+        headers_dict = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         headers = {key: value.format(token=token) for key, value in headers_dict.items()}
 
         logger.debug("Request headers prepared (Authorization header masked)")
@@ -102,7 +102,10 @@ async def make_api_request(
                     logger.debug("Request successful, parsed JSON response")
                     return (True, response_data)
                 except ValueError:
-                    logger.warning("Request successful but could not parse JSON response")
+                    content_type = response.headers.get("content-type", "unknown")
+                    logger.warning(f"Request successful but could not parse JSON response. Content-Type: {content_type}")
+                    if "html" in content_type.lower():
+                        return (False, {"error": "Received HTML response instead of JSON. The API endpoint might be returning a web page instead of API data."})
                     return (True, {"status": "success", "raw_response": response.text})
             else:
                 error_message = f"API request failed: {response.status_code}"

@@ -73,7 +73,7 @@ async def get_entity_ancestry_by_name(path_kind: str, path_namespace: str, path_
     data = {}
 
     success, response = await make_api_request(
-        f"/entities/by-name/{path_kind}/{path_namespace}/{path_name}/ancestry", method="GET", params=params, data=data
+        f"/api/catalog/entities/by-name/{path_kind}/{path_namespace}/{path_name}/ancestry", method="GET", params=params, data=data
     )
 
     if not success:

@@ -79,7 +79,7 @@ async def get_location_by_entity(path_kind: str, path_namespace: str, path_name:
     data = {}
 
     success, response = await make_api_request(
-        f"/locations/by-entity/{path_kind}/{path_namespace}/{path_name}", method="GET", params=params, data=data
+        f"/api/catalog/locations/by-entity/{path_kind}/{path_namespace}/{path_name}", method="GET", params=params, data=data
     )
 
     if not success:

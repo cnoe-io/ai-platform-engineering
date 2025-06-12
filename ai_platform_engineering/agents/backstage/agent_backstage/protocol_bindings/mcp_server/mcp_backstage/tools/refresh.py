@@ -82,7 +82,7 @@ async def refresh_entity(body_entity_ref: str, body_authorization_token: str = N
     if body_authorization_token:
         data["authorization_token"] = body_authorization_token
 
-    success, response = await make_api_request("/refresh", method="POST", params=params, data=data)
+    success, response = await make_api_request("/api/catalog/refresh", method="POST", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

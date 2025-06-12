@@ -69,7 +69,7 @@ async def get_entity_facets(param_facet: List[str], param_filter: List[str] = No
     params["facet"] = param_facet
     params["filter"] = param_filter
 
-    success, response = await make_api_request("/entity-facets", method="GET", params=params, data=data)
+    success, response = await make_api_request("/api/catalog/entity-facets", method="GET", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

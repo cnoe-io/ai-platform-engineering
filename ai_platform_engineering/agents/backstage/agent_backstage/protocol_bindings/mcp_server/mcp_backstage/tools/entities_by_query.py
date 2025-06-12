@@ -140,16 +140,24 @@ async def get_entities_by_query(
     params = {}
     data = {}
 
-    params["fields"] = param_fields
-    params["limit"] = param_limit
-    params["offset"] = param_offset
-    params["orderField"] = param_orderField
-    params["cursor"] = param_cursor
-    params["filter"] = param_filter
-    params["fullTextFilterTerm"] = param_fullTextFilterTerm
-    params["fullTextFilterFields"] = param_fullTextFilterFields
+    if param_fields is not None:
+        params["fields"] = param_fields
+    if param_limit is not None:
+        params["limit"] = param_limit
+    if param_offset is not None:
+        params["offset"] = param_offset
+    if param_orderField is not None:
+        params["orderField"] = param_orderField
+    if param_cursor is not None:
+        params["cursor"] = param_cursor
+    if param_filter is not None:
+        params["filter"] = param_filter
+    if param_fullTextFilterTerm is not None:
+        params["fullTextFilterTerm"] = param_fullTextFilterTerm
+    if param_fullTextFilterFields is not None:
+        params["fullTextFilterFields"] = param_fullTextFilterFields
 
-    success, response = await make_api_request("/entities/by-query", method="GET", params=params, data=data)
+    success, response = await make_api_request("/api/catalog/entities/by-query", method="GET", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

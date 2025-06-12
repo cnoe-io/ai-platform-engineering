@@ -80,7 +80,7 @@ async def validate_entity(body_location: str, body_entity: Dict[str, Any]) -> Di
     if body_entity:
         data["entity"] = body_entity
 
-    success, response = await make_api_request("/validate-entity", method="POST", params=params, data=data)
+    success, response = await make_api_request("/api/catalog/validate-entity", method="POST", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

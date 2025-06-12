@@ -85,7 +85,7 @@ async def get_entities_by_refs(
     if body_fields:
         data["fields"] = body_fields
 
-    success, response = await make_api_request("/entities/by-refs", method="POST", params=params, data=data)
+    success, response = await make_api_request("/api/catalog/entities/by-refs", method="POST", params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
