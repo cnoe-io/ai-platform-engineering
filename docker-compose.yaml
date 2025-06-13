@@ -64,7 +64,7 @@ services:
 
   # Sample UI container to interact with A2A applications
   ui:
-    image: ghcr.io/eti-demos/agenttool
+    image: ghcr.io/eti-demos/agentconnect
     container_name: ui
     ports:
       - "3001:3001"
