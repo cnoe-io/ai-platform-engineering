@@ -12,37 +12,69 @@ APP_NAME ?= ai-platform-engineering
 .PHONY: \
 	build install run test lint help
 
+## ========== Setup & Clean ==========
+
+setup-venv:        ## Create the Python virtual environment
+	@echo "Setting up virtual environment..."
+	@if [ ! -d ".venv" ]; then \
+		python3 -m venv .venv && echo "Virtual environment created."; \
+	else \
+		echo "Virtual environment already exists."; \
+	fi
+	@echo "To activate manually, run: source .venv/bin/activate"
+	@. .venv/bin/activate
+
+start-venv: ## Activate the virtual environment (run: source .venv/bin/activate)
+	@echo "To activate the virtual environment, run:"
+	@echo "  source .venv/bin/activate"
+
+clean-pyc:         ## Remove Python bytecode and __pycache__
+	@find . -type d -name "__pycache__" -exec rm -rf {} + || echo "No __pycache__ directories found."
+
+clean-venv:        ## Remove the virtual environment
+	@rm -rf .venv && echo "Virtual environment removed." || echo "No virtual environment found."
+
+clean-build-artifacts: ## Remove dist/, build/, egg-info/
+	@rm -rf dist $(AGENT_PKG_NAME).egg-info || echo "No build artifacts found."
+
+clean:             ## Clean all build artifacts and cache
+	@$(MAKE) clean-pyc
+	@$(MAKE) clean-venv
+	@$(MAKE) clean-build-artifacts
+	@find . -type d -name ".pytest_cache" -exec rm -rf {} + || echo "No .pytest_cache directories found."
+
 ## ========== Build & Install ==========
 
-build: ## Build the package using Poetry
+build: setup-venv ## Build the package using Poetry
 	@echo "Building the package..."
 	@poetry build
 
-install: ## Install the package using Poetry
+install: setup-venv ## Install the package using Poetry
 	@echo "Installing the package..."
 	@poetry install
 
 ## ========== Run ==========
 
-run: ## Run the application with Poetry
+run: setup-venv ## Run the application with Poetry
 	@echo "Running the application..."
 	@poetry run $(APP_NAME) $(ARGS)
 
-run-ai-platform-engineer: ## Run the AI Platform Engineering Multi-Agent System
+run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Agent System
 	@echo "Running the AI Platform Engineering Multi-Agent System..."
 	@poetry run ai-platform-engineering platform-engineer $(ARGS)
 
 ## ========== Lint ==========
 
-lint: ## Lint the code using Ruff
+lint: setup-venv ## Lint the code using Ruff
 	@echo "Linting the code..."
 	@poetry run ruff check .
 
 ## ========== Test ==========
 
-test: ## Run tests using pytest
+test: setup-venv ## Run tests using pytest
 	@echo "Running tests..."
 	@poetry run pytest
+
 
 ## ========== Help ==========
 

@@ -5,10 +5,11 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
+AGENT_HOST = "0.0.0.0"
 AGENT_PORT = 8000  # Default port for the agent server
 
 @click.group()
-@click.option('--host', default='0.0.0.0', help='Host to bind the server.')
+@click.option('--host', default=AGENT_HOST, help='Host to bind the server.')
 @click.option('--port', default=None, type=int, help='Port to bind the server.')
 @click.pass_context
 def main(ctx, host, port):
@@ -22,7 +23,7 @@ def main(ctx, host, port):
 @click.pass_context
 def platform_engineer(ctx):
   """Start the AI Platform Engineer system."""
-  host = ctx.obj.get('host', '0.0.0.0')
+  host = ctx.obj.get('host', AGENT_HOST)
   port = ctx.obj.get('port', None)
   click.echo("Starting AI Platform Engineer system...")
   agent_protocol = os.getenv("AGENT_PROTOCOL", "a2a")
