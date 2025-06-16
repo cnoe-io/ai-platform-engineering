@@ -1,27 +1,27 @@
 tests:
-  atlassian_agent_1:
+  confluence_agent_1:
     input: |
-      show atlassian version
+      show confluence version
     reference_trajectory:
-      solution_1: __start__;agent_atlassian
+      solution_1: __start__;agent_confluence
     metadata:
       comments: |
-        Shows the version of the Atlassian Server Version.
+        Shows the version of the confluence Server Version.
 
-  atlassian_agent_2:
+  confluence_agent_2:
     input: |
-      show atlassian app health status in project jarvis-agent-dev
+      show confluence app health status in project jarvis-agent-dev
     reference_trajectory:
-      solution_1: __start__;agent_atlassian
+      solution_1: __start__;agent_confluence
     metadata:
       comments: |
         Shows the health status of all applications in the jarvis-agent-dev project.
 
-  atlassian_agent_3:
+  confluence_agent_3:
     input: |
-      show atlassian unhealthy apps in project jarvis-agent-dev
+      show confluence unhealthy apps in project jarvis-agent-dev
     reference_trajectory:
-      solution_1: __start__;agent_atlassian
+      solution_1: __start__;agent_confluence
     metadata:
       comments: |
         Lists all unhealthy applications in the jarvis-agent-dev project.

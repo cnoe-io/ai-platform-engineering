@@ -2,9 +2,9 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "agent-atlassian.fullname" . }}
+  name: {{ include "agent-confluence.fullname" . }}
   labels:
-    {{- include "agent-atlassian.labels" . | nindent 4 }}
+    {{- include "agent-confluence.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -35,7 +35,7 @@ spec:
             {{- end }}
             backend:
               service:
-                name: {{ include "agent-atlassian.fullname" $ }}
+                name: {{ include "agent-confluence.fullname" $ }}
                 port:
                   number: {{ $.Values.service.port }}
           {{- end }}

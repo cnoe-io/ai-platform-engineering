@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "agent-atlassian.fullname" . }}
+  name: {{ include "agent-confluence.fullname" . }}
   labels:
-    {{- include "agent-atlassian.labels" . | nindent 4 }}
+    {{- include "agent-confluence.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -12,4 +12,4 @@ spec:
       protocol: TCP
       name: http
   selector:
-    {{- include "agent-atlassian.selectorLabels" . | nindent 4 }}
+    {{- include "agent-confluence.selectorLabels" . | nindent 4 }}

@@ -30,7 +30,7 @@ wheels = [
 ]
 
 [[package]]
-name = "agent-atlassian"
+name = "agent-confluence"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

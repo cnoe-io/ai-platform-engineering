@@ -6,7 +6,7 @@
 # --------------------------------------------------
 
 # Variables
-AGENT_NAME ?= atlassian
+AGENT_NAME ?= confluence
 AGENT_DIR_NAME = agent-$(shell echo $(AGENT_NAME))
 AGENT_PKG_NAME ?= agent_$(shell echo $(AGENT_NAME))
 MCP_SERVER_DIR ?= mcp_$(AGENT_NAME)
@@ -124,7 +124,7 @@ evals: setup-venv ## Run agentevals with test cases
 ## ========== Docker ==========
 
 build-docker-acp:            ## Build ACP Docker image
-	docker build -t $(AGENT_DIR_NAME):acp-latest --build-arg AGENT_NAME=atlassian -f build/Dockerfile.acp .
+	docker build -t $(AGENT_DIR_NAME):acp-latest --build-arg AGENT_NAME=confluence -f build/Dockerfile.acp .
 
 build-docker-acp-tag:        ## Tag ACP Docker image
 	docker tag $(AGENT_DIR_NAME):acp-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest
