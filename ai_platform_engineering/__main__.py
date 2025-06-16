@@ -5,6 +5,7 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
+AGENT_PORT = 8000  # Default port for the agent server
 
 @click.group()
 @click.option('--host', default='0.0.0.0', help='Host to bind the server.')
@@ -27,18 +28,18 @@ def platform_engineer(ctx):
   agent_protocol = os.getenv("AGENT_PROTOCOL", "a2a")
   logging.info(f"Selected agent protocol: {agent_protocol}")
   if agent_protocol == "fastapi":
-    logging.info(f"Starting FastAPI server on {host}:{port or 5001}")
+    logging.info(f"Starting FastAPI server on {host}:{port or AGENT_PORT}")
     uvicorn.run(
       "ai_platform_engineering.mas.platform_engineer.protocol_bindings.fastapi.main:app",
       host=host,
-      port=port or 5001,
+      port=port or AGENT_PORT,
       reload=True)
   elif agent_protocol == "a2a":
-    logging.info(f"Starting A2A server on {host}:{port or 8000}")
+    logging.info(f"Starting A2A server on {host}:{port or AGENT_PORT}")
     uvicorn.run(
       "ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.main:server.build",
       host=host,
-      port=port or 8000,
+      port=port or AGENT_PORT,
       reload=True,
       factory=True)
   else:
