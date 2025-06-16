@@ -8,7 +8,7 @@ on:
       - '*'
 
 env:
-  IMAGE_NAME: cnoe-io/ai-platform-engineer
+  IMAGE_NAME: cnoe-io/ai-platform-engineering
 
 jobs:
   build-and-push:
