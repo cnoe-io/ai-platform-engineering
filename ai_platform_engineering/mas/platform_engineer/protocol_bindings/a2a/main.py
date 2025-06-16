@@ -3,11 +3,8 @@
 
 import os
 
-import click
 import httpx
-import uvicorn
 
-from ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.agent import AIPlatformEngineerA2ABinding # type: ignore[import-untyped]
 from ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.agent_executor import AIPlatformEngineerA2AExecutor # type: ignore[import-untyped]
 from dotenv import load_dotenv
 
@@ -25,9 +22,6 @@ from ai_platform_engineering.mas.platform_engineer.prompts import (
   agent_name,
   agent_description,
   agent_skill_examples
-)
-from ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.agent_executor import (
-  AIPlatformEngineerA2AExecutor
 )
 
 load_dotenv()

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from pydantic import BaseModel
-from typing import Any, Literal, Dict
+from typing import Literal
 
 
 class UserPrompt(BaseModel):

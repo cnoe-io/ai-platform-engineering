@@ -2,9 +2,6 @@ import click
 import uvicorn
 import os
 import logging
-from ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.main import (
-  server
-)
 
 logging.basicConfig(level=logging.INFO)
 

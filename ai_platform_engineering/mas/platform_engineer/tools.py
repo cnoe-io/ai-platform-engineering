@@ -5,7 +5,6 @@ import logging
 from typing import Any, Optional, Union
 from uuid import uuid4
 from pydantic import PrivateAttr
-import json
 import pprint
 
 import httpx
@@ -18,7 +17,6 @@ from a2a.types import (
 )
 
 from langchain_core.tools import BaseTool
-from langchain_core.callbacks import CallbackManagerForToolRun
 from graph.models import Input, Output
 
 logger = logging.getLogger("a2a.client.tool")

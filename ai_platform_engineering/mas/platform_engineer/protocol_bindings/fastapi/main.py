@@ -5,7 +5,6 @@ import logging
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 from ai_platform_engineering.mas.platform_engineer.supervisor_agent import AIPlatformEngineerMAS
 from ai_platform_engineering.utils.models.generic_agent import UserPrompt
