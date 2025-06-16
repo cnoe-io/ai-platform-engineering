@@ -30,6 +30,9 @@ jobs:
           POETRY_HOME: /opt/poetry
       - name: Add Poetry to PATH
         run: echo "/opt/poetry/bin" >> $GITHUB_PATH
+      - name: Install dependencies
+        run: |
+          poetry install --with dev
       - name: Run tests
         run: |
           make test
