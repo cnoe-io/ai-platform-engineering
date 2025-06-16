@@ -59,7 +59,7 @@ skills_prompt = PromptTemplate(
 )
 
 system_prompt = (
-  f"""
+  """
 You are an AI Platform Engineer, a multi-agent system designed to manage operations across various tools.
 
 For each tool, follow these specific instructions:
