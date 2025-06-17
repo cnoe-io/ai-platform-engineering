@@ -8,6 +8,6 @@
 
 | Test ID        | Prompt                                                    | Score   | Extracted Trajectory            | Reference Trajectories          | Notes                                                                        |
 |----------------|-----------------------------------------------------------|---------|---------------------------------|---------------------------------|------------------------------------------------------------------------------|
-| atlassian_agent_1 | show atlassian version                                       | True    | [['__start__', 'agent_atlassian']] | [['__start__', 'agent_atlassian']] | Shows the version of the Atlassian Server Version.                              |
-| atlassian_agent_2 | show atlassian app health status in project jarvis-agent-dev | True    | [['__start__', 'agent_atlassian']] | [['__start__', 'agent_atlassian']] | Shows the health status of all applications in the jarvis-agent-dev project. |
-| atlassian_agent_3 | show atlassian unhealthy apps in project jarvis-agent-dev    | True    | [['__start__', 'agent_atlassian']] | [['__start__', 'agent_atlassian']] | Lists all unhealthy applications in the jarvis-agent-dev project.            |
+| jira_agent_1 | show jira version                                       | True    | [['__start__', 'agent_jira']] | [['__start__', 'agent_jira']] | Shows the version of the Jira Server Version.                              |
+| jira_agent_2 | show jira app health status in project jarvis-agent-dev | True    | [['__start__', 'agent_jira']] | [['__start__', 'agent_jira']] | Shows the health status of all applications in the jarvis-agent-dev project. |
+| jira_agent_3 | show jira unhealthy apps in project jarvis-agent-dev    | True    | [['__start__', 'agent_jira']] | [['__start__', 'agent_jira']] | Lists all unhealthy applications in the jarvis-agent-dev project.            |

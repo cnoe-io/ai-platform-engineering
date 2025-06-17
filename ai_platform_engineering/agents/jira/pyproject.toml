@@ -1,8 +1,8 @@
 [project]
-name = "agent_atlassian"
+name = "agent_jira"
 version = "0.1.0"
 license = "Apache-2.0"
-description = "An Atlassian natural language agent using LangChain, LangGraph, and MCP."
+description = "An Jira natural language agent using LangChain, LangGraph, and MCP."
 readme = "README.md"
 authors = [
     { name = "Omar Sayed", email = "osayed@cisco.com" },
@@ -33,7 +33,7 @@ dependencies = [
 packages = ["."]
 
 [tool.poetry.scripts]
-agent_atlassian_a2a = "agent_atlassian.protocol_bindings.a2a_server:main"
+agent_jira_a2a = "agent_jira.protocol_bindings.a2a_server:main"
 
 [tool.poetry.dependencies]
 uv = "^0.7.5"

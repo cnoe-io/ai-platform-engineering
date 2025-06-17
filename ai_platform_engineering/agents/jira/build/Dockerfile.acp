@@ -1,6 +1,6 @@
 FROM ghcr.io/sriaradhyula/acp/wfsrv:latest
 
-ARG AGENT_NAME=atlassian
+ARG AGENT_NAME=jira
 RUN test -n "$AGENT_NAME" || (echo "Error: AGENT_NAME is not set" && exit 1)
 
 # Set the working directory

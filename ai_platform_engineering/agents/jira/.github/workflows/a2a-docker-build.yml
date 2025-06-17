@@ -8,7 +8,7 @@ on:
       - '*'
 
 env:
-  IMAGE_NAME: cnoe-io/agent-atlassian
+  IMAGE_NAME: cnoe-io/agent-jira
 
 jobs:
   build-and-push:

@@ -3,7 +3,7 @@ from agentevals.graph_trajectory.utils import (
 )
 from agentevals.graph_trajectory.strict import graph_trajectory_strict_match_async
 
-from agent_atlassian.graph import graph
+from agent_jira.graph import graph
 
 import pprint
 import pytest
@@ -72,7 +72,7 @@ async def eval_strict(test_ids=None):
     await graph.ainvoke(
       {
         "messages": [{"role": "user", "content": each_prompt}],
-        "atlassian_input": {},  # Provide an appropriate value if required by your agent
+        "jira_input": {},  # Provide an appropriate value if required by your agent
       },
       config={"configurable": {"thread_id": thread_id, "user_files": [], "user_sandbox": "sandbox-noone"}},
     )

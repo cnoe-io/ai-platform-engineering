@@ -2,14 +2,14 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "agent-atlassian.fullname" . }}
+  name: {{ include "agent-jira.fullname" . }}
   labels:
-    {{- include "agent-atlassian.labels" . | nindent 4 }}
+    {{- include "agent-jira.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "agent-atlassian.fullname" . }}
+    name: {{ include "agent-jira.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:
