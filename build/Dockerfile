@@ -1,11 +1,13 @@
-FROM python:3.13
+FROM python:3.13-slim
 
 WORKDIR /app
 
-COPY . /app/
+COPY pyproject.toml poetry.lock /app/
+COPY ai_platform_engineering /app/ai_platform_engineering
+COPY README.md /app/
 
-# Install uv and use it to install the package
-RUN pip install uv poetry
+# Install poetry
+RUN pip install poetry
 
 RUN poetry config virtualenvs.create true
 RUN poetry config virtualenvs.in-project true

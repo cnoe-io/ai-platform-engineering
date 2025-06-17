@@ -1,0 +1,343 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-platform-engineer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-platform-engineer
+  template:
+    metadata:
+      labels:
+        app: ai-platform-engineer
+    spec:
+      containers:
+      - command:
+        - platform-engineer
+        env:
+        - name: AGENT_PROTOCOL
+          value: a2a
+        image: ghcr.io/cnoe-io/ai-platform-engineering:latest
+        name: ai-platform-engineer
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - mountPath: /app/.env
+          name: env-secret
+          subPath: .env
+      volumes:
+      - name: env-secret
+        secret:
+          items:
+          - key: .env
+            path: .env
+          secretName: ai-platform-engineer-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-argocd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-argocd
+  template:
+    metadata:
+      labels:
+        app: agent-argocd
+    spec:
+      containers:
+      - image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
+        name: agent-argocd
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - mountPath: /app/.env
+          name: env-secret
+          subPath: .env
+      volumes:
+      - name: env-secret
+        secret:
+          items:
+          - key: .env
+            path: .env
+          secretName: agent-argocd-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-atlassian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-atlassian
+  template:
+    metadata:
+      labels:
+        app: agent-atlassian
+    spec:
+      containers:
+      - image: ghcr.io/cnoe-io/agent-atlassian:a2a-stable
+        name: agent-atlassian
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - mountPath: /app/.env
+          name: env-secret
+          subPath: .env
+      volumes:
+      - name: env-secret
+        secret:
+          items:
+          - key: .env
+            path: .env
+          secretName: agent-atlassian-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-github
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-github
+  template:
+    metadata:
+      labels:
+        app: agent-github
+    spec:
+      containers:
+      - image: ghcr.io/cnoe-io/agent-github:a2a-stable
+        name: agent-github
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - mountPath: /app/.env
+          name: env-secret
+          subPath: .env
+      volumes:
+      - name: env-secret
+        secret:
+          items:
+          - key: .env
+            path: .env
+          secretName: agent-github-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-pagerduty
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-pagerduty
+  template:
+    metadata:
+      labels:
+        app: agent-pagerduty
+    spec:
+      containers:
+      - image: ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
+        name: agent-pagerduty
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - mountPath: /app/.env
+          name: env-secret
+          subPath: .env
+      volumes:
+      - name: env-secret
+        secret:
+          items:
+          - key: .env
+            path: .env
+          secretName: agent-pagerduty-secret
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-slack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-slack
+  template:
+    metadata:
+      labels:
+        app: agent-slack
+    spec:
+      containers:
+      - image: ghcr.io/cnoe-io/agent-slack:a2a-stable
+        name: agent-slack
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - mountPath: /app/.env
+          name: env-secret
+          subPath: .env
+      volumes:
+      - name: env-secret
+        secret:
+          items:
+          - key: .env
+            path: .env
+          secretName: agent-slack-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ui
+  template:
+    metadata:
+      labels:
+        app: ui
+    spec:
+      containers:
+      - image: ghcr.io/eti-demos/agentconnect
+        name: ui
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - mountPath: /app/.env
+          name: env-secret
+          subPath: .env
+      volumes:
+      - name: env-secret
+        secret:
+          items:
+          - key: .env
+            path: .env
+          secretName: ai-platform-engineer-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-platform-engineer
+spec:
+  ports:
+  - port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: ai-platform-engineer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-argocd
+spec:
+  ports:
+  - port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: agent-argocd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-atlassian
+spec:
+  ports:
+  - port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: agent-atlassian
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-github
+spec:
+  ports:
+  - port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: agent-github
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-pagerduty
+spec:
+  ports:
+  - port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: agent-pagerduty
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-slack
+spec:
+  ports:
+  - port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: agent-slack
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+spec:
+  ports:
+  - port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: ui
