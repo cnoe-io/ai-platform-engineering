@@ -128,7 +128,7 @@ class ArgoCDAgent:
 
 
           # Provide a 'configurable' key such as 'thread_id' for the checkpointer
-          runnable_config = RunnableConfig(configurable={"thread_id": "test-thread"})
+          runnable_config = RunnableConfig(configurable={"thread_id": "one-time-test-thread"})
           llm_result = await self.graph.ainvoke({"messages": HumanMessage(content="Summarize what you can do?")}, config=runnable_config)
 
           # Try to extract meaningful content from the LLM result
@@ -169,7 +169,7 @@ class ArgoCDAgent:
       runnable_config = RunnableConfig()
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
-          messages.append(HumanMessage(content="What is 2 + 2?"))
+          messages.append(HumanMessage(content="What can you do?"))
       _create_agent(agent_input, config=runnable_config)
 
     async def stream(
