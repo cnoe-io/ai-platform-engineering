@@ -64,6 +64,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
     Establishes a connection to the remote A2A agent.
     Fetches AgentCard if not already provided.
     """
+    logger.info("*" * 80)
     logger.info(
         f"Connecting to remote agent: {
             getattr(
@@ -102,11 +103,13 @@ class A2ARemoteAgentConnectTool(BaseTool):
         raise RuntimeError(
             f"Could not fetch remote agent card from {base_url}") from e
 
+    logger.info(f"Agent Card: {self._agent_card}")
     self._client = A2AClient(
         httpx_client=self._httpx_client,
         agent_card=self._agent_card
     )
     logger.info("A2AClient initialized.")
+    logger.info("*" * 80)
 
   def _run(self, input: Input) -> Any:
     raise NotImplementedError("Use _arun for async execution.")

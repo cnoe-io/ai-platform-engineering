@@ -24,7 +24,7 @@ app.add_middleware(
   allow_headers=["*"],  # Allow all headers
 )
 
-exchange_graph = AIPlatformEngineerMAS()
+mas_graph = AIPlatformEngineerMAS()
 
 
 @app.post("/agent/prompt")
@@ -38,7 +38,7 @@ async def handle_prompt(request: UserPrompt):
   """
   try:
     # Process the prompt using the exchange graph
-    result = await exchange_graph.serve(request.prompt)
+    result = await mas_graph.serve(request.prompt)
     logger.info(f"Final result from LangGraph: {result}")
     return {"response": result}
   except ValueError as ve:

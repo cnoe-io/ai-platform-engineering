@@ -31,16 +31,11 @@ class AIPlatformEngineerA2ABinding:
   def __init__(self):
       self.graph = AIPlatformEngineerMAS().get_graph()
 
-  def invoke(self, query, context_id) -> str:
-      config = {'configurable': {'thread_id': context_id}}
-      self.graph.invoke({'messages': [('user', query)]}, config)
-      return self.get_agent_response(config)
-
   async def stream(self, query, context_id) -> AsyncIterable[dict[str, Any]]:
       inputs = {'messages': [('user', query)]}
       config = {'configurable': {'thread_id': context_id}}
 
-      for item in self.graph.stream(inputs, config, stream_mode='values'):
+      async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
           if (
               isinstance(message, AIMessage)

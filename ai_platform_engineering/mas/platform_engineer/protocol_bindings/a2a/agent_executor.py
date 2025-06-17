@@ -18,7 +18,7 @@ from ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.agent i
 )
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
-    """AgentExecutor Example."""
+    """AI Platform Engineer A2A Executor."""
 
     def __init__(self):
         self.agent = AIPlatformEngineerA2ABinding()

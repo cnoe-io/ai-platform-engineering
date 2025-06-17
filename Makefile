@@ -53,6 +53,12 @@ install: setup-venv ## Install the package using Poetry
 	@echo "Installing the package..."
 	@poetry install
 
+## ========== Docker Build ==========
+
+build-docker:  ## Build the Docker image
+	@echo "Building the Docker image..."
+	@docker build -t $(APP_NAME):latest -f build/Dockerfile .
+
 ## ========== Run ==========
 
 run: setup-venv ## Run the application with Poetry
