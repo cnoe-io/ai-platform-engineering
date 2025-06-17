@@ -1,4 +1,4 @@
-FROM python:3.13
+FROM python:3.13-slim
 
 WORKDIR /app
 
@@ -11,13 +11,6 @@ RUN poetry config virtualenvs.create true
 RUN poetry config virtualenvs.in-project true
 RUN poetry config cache-dir /app/.cache
 RUN poetry config virtualenvs.path /app/.venv
-
-# Install A2A SDK in the Poetry environment
-RUN git clone https://github.com/google/a2a-python -b main --depth 1 /app/a2a-python
-
-RUN poetry run pip install -e /app/a2a-python
-
-RUN poetry run python -c "import a2a; print('✅ A2A SDK installed in Poetry environment')"
 
 RUN poetry build
 
