@@ -5,6 +5,8 @@ import os
 
 import httpx
 
+from starlette.middleware.cors import CORSMiddleware
+
 from ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.agent_executor import AIPlatformEngineerA2AExecutor # type: ignore[import-untyped]
 from dotenv import load_dotenv
 
@@ -64,6 +66,17 @@ request_handler = DefaultRequestHandler(
   push_notifier=InMemoryPushNotifier(client),
 )
 
-server = A2AStarletteApplication(
-  agent_card=get_agent_card(host, port), http_handler=request_handler
+a2a_server = A2AStarletteApplication(
+  agent_card=get_agent_card(host, port),
+  http_handler=request_handler
+)
+
+app = a2a_server.build()
+
+# Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
+app.add_middleware(
+  CORSMiddleware,
+  allow_origins=["*"],  # Allow all origins
+  allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+  allow_headers=["*"],  # Allow all headers
 )
