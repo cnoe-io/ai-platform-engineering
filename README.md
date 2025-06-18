@@ -83,42 +83,24 @@ Just describe your task—**the platform intelligently routes your request to th
 
 ---
 
-## 💡 Usage
+## 💡 Local Development
 
 1. **Start the application**
 
    ```bash
-   python main.py
+   make run-ai-platform-engineer
    ```
 
-2. **Open the web interface:**
-   [http://localhost:8000](http://localhost:8000)
+2. **Run the client**
+   ```bash
+   docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
+   ```
 
-3. **Test the FastAPI endpoint**
+   *Or, clone and run the chat client:*
 
    ```bash
-   curl --location 'http://localhost:5001/agent/prompt' \
-     --header 'Content-Type: application/json' \
-     --data '{
-         "prompt": "show all who is oncall on SRE and also show my repos in sriaradhyula org that are agent in name and send this info to slack channel test-channel"
-     }'
+   uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
    ```
-
----
-
-## 🗂️ Project Structure
-
-```
-ai-platform-engineering/
-├── src/                # Source code for the platform
-├── tests/              # Unit and integration tests
-├── docs/               # Documentation and resources
-├── scripts/            # Utility scripts
-├── .env.example        # Example environment variables
-├── requirements.txt    # Python dependencies
-└── README.md           # Project documentation
-```
-
 ---
 
 ## 🤝 Contributing
@@ -130,7 +112,7 @@ To get started:
 2. **Create a branch** for your feature or fix
 3. **Open a Pull Request** with a clear description
 
-For larger changes, open an [issue](https://github.com/your-org/ai-platform-engineering/issues) first to discuss.
+For larger changes, open an [discussion](https://github.com/cnoe-io/ai-platform-engineering/discussions) first to discuss.
 
 ---
 
@@ -140,5 +122,4 @@ Licensed under the [Apache-2.0 License](LICENSE).
 
 ---
 
-> *Inspired by [agent-argocd](https://github.com/cnoe-io/agent-argocd)*
 > *Made with ❤️ by the CNOE Contributors
