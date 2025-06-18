@@ -71,7 +71,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 self._remote_agent_card,
                 'name',
                 self._remote_agent_card)}")
-    self._httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
+    self._httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
 
     # If self._remote_agent_card is already an AgentCard, just use it
     if isinstance(self._remote_agent_card, AgentCard):

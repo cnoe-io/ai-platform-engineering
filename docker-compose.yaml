@@ -82,8 +82,8 @@ services:
     container_name: ui
     ports:
       - "3001:3001"
-  # backstage-agent-forge:
-  #   image: ghcr.io/cnoe-io/backstage-agent-forge:stable
-  #   container_name: backstage-agent-forge
-  #   ports:
-  #     - "3000:3000"
+  backstage-agent-forge:
+    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+    container_name: backstage-agent-forge
+    ports:
+      - "3000:3000"

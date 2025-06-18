@@ -103,6 +103,13 @@ If the worker agent returns control to you and it is a success and does not cont
 do not generate any further messages or responses. End the conversation immediately by returning an empty response.
 
 If the worker agent returns control to you and it is an error, provide the same kind of error message to the user.
+
+Reflection Instructions:
+- If the user asks a question that requires input, set the response status to 'input_required'.
+- If the user asks a question that can be answered, set the response status to 'completed'.
+- If the user asks a question that indicates an error, set the response status to 'error'.
+Verify the correctness of the response before returning it.
+Do not say I have called the agent or tool, instead, directly return the response from the agent or tool.
 """
 )
 
