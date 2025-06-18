@@ -1,7 +1,7 @@
 services:
   # AI Platform Engineer Multi-Agent System
   ai-platform-engineer:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:stable
+    image: docker.io/library/ai-platform-engineering:latest
     container_name: platform-engineer
     depends_on:
       - agent-argocd
