@@ -48,7 +48,7 @@ def platform_engineer(ctx):
 
 @main.command()
 @click.pass_context
-def incident_management(ctx):
+def incident_engineer(ctx):
   """Start the Incident Management system."""
   click.echo("Starting Incident Management system...")
 
