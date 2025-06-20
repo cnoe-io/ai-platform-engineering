@@ -12,6 +12,8 @@ APP_NAME ?= ai-platform-engineering
 .PHONY: \
 	build install run test lint help
 
+.DEFAULT_GOAL := run
+
 ## ========== Setup & Clean ==========
 
 setup-venv:        ## Create the Python virtual environment
@@ -61,11 +63,10 @@ build-docker:  ## Build the Docker image
 
 ## ========== Run ==========
 
-run: setup-venv ## Run the application with Poetry
-	@echo "Running the application..."
-	@poetry run $(APP_NAME) $(ARGS)
+run: run-ai-platform-engineer ## Run the application with Poetry
+	@echo "Running the AI Platform Engineer persona..."
 
-run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Agent System
+run-ai-platform-engineer: setup-venv build install ## Run the AI Platform Engineering Multi-Agent System
 	@echo "Running the AI Platform Engineering Multi-Agent System..."
 	@poetry run ai-platform-engineering platform-engineer $(ARGS)
 
