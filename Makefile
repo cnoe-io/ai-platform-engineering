@@ -70,6 +70,10 @@ run-ai-platform-engineer: setup-venv build install ## Run the AI Platform Engine
 	@echo "Running the AI Platform Engineering Multi-Agent System..."
 	@poetry run ai-platform-engineering platform-engineer $(ARGS)
 
+langgraph-dev: setup-venv ## Run langgraph in development mode
+	@echo "Running langgraph dev..."
+	@export LANGGRAPH_DEV=true && langgraph dev
+
 ## ========== Lint ==========
 
 lint: setup-venv ## Lint the code using Ruff

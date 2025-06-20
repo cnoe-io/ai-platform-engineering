@@ -21,13 +21,17 @@ atlassian_agent_skill = AgentSkill(
     "jira",
     "gitops"],
   examples=[
-    "Create a Jira ticket.",
-    "Update the status of a Jira issue.",
-    "Retrieve details of a specific Jira ticket.",
-    "List all Jira issues assigned to a user."])
+      "Create a new Jira ticket for the 'AI Project'.",
+      "List all open tickets in the 'Platform Engineering' project.",
+      "Update the status of ticket 'AI-123' to 'In Progress'.",
+      "Assign ticket 'PE-456' to user 'john.doe'.",
+      "Get details of the Jira ticket 'AI-789'."
+      "Search for Jira tickets with the label 'urgent'.",
+      "Search using JQL for tickets assigned to 'john.doe' in the 'Platform Engineering' project.",
+  ])
 
 atlassian_agent_card = AgentCard(
-  name='Atlassian Management Agent',
+  name='Jira',
   id='atlassian-tools-agent',
   description=ATLASSIAN_AGENT_DESCRIPTION,
   url=f'http://{ATLASSIAN_AGENT_HOST}:{ATLASSIAN_AGENT_PORT}',
