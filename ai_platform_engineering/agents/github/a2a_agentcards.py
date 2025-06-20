@@ -22,12 +22,15 @@ github_agent_skill = AgentSkill(
     "pull requests",
     "workflows"],
   examples=[
-    "Create a new repository in GitHub.",
-    "List all open pull requests in a repository.",
-    "Trigger a GitHub Actions workflow."])
+      "Create a new GitHub repository named 'my-repo'.",
+      "List all open pull requests in the 'frontend' repository.",
+      "Merge the pull request #42 in the 'backend' repository.",
+      "Close the issue #101 in the 'docs' repository.",
+      "Get the latest commit in the 'main' branch of 'my-repo'."
+  ])
 
 github_agent_card = AgentCard(
-  name='GitHub Tools Agent',
+  name='GitHub',
   id='github-tools-agent',
   description='An AI agent that interacts with GitHub to manage repositories, pull requests, and workflows.',
   url=f'http://{GITHUB_AGENT_HOST}:{GITHUB_AGENT_PORT}',
