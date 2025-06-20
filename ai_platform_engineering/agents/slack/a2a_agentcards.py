@@ -23,14 +23,15 @@ slack_agent_skill = AgentSkill(
     "slack",
     "chatops"],
   examples=[
-    "List all Slack channels.",
-    "Send a message to a specific Slack channel.",
-    "Retrieve information about a Slack user.",
-    "Post an announcement to multiple Slack channels.",
-    "Get the list of members in a Slack channel."])
+      "Send a message to the 'devops' Slack channel.",
+      "List all members of the 'engineering' Slack workspace.",
+      "Create a new Slack channel named 'project-updates'.",
+      "Archive the 'old-project' Slack channel.",
+      "Post a notification to the 'alerts' Slack channel."
+  ])
 
 slack_agent_card = AgentCard(
-  name='Slack ArgoCD Management Agent',
+  name='Slack',
   id='slack-tools-agent',
   description=SLACK_AGENT_DESCRIPTION,
   url=f'http://{SLACK_AGENT_HOST}:{SLACK_AGENT_PORT}',
