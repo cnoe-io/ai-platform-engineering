@@ -1,0 +1,15 @@
+{
+  "id": "trace-test-request-005",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "kind": "text",
+          "text": "Can you help me check the status of my GitHub repositories and create a new issue for the main project repository?"
+        }
+      ],
+      "messageId": "msg-trace-test-005"
+    }
+  }
+}

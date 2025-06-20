@@ -3,6 +3,8 @@ import uvicorn
 import os
 import logging
 
+from ai_platform_engineering.utils.tracing import setup_phoenix_tracing
+
 logging.basicConfig(level=logging.INFO)
 
 AGENT_HOST = "0.0.0.0"
@@ -26,6 +28,14 @@ def platform_engineer(ctx):
   host = ctx.obj.get('host', AGENT_HOST)
   port = ctx.obj.get('port', None)
   click.echo("Starting AI Platform Engineer system...")
+  
+  # Initialize Phoenix tracing
+  try:
+    setup_phoenix_tracing("ai-platform-engineering")
+    logging.info("Phoenix tracing initialized successfully")
+  except Exception as e:
+    logging.warning(f"Failed to initialize Phoenix tracing: {e}")
+  
   agent_protocol = os.getenv("AGENT_PROTOCOL", "a2a")
   logging.info(f"Selected agent protocol: {agent_protocol}")
   if agent_protocol == "fastapi":

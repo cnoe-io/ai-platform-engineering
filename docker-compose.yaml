@@ -1,8 +1,21 @@
 services:
-  # AI Platform Engineer Multi-Agent System
+  # Phoenix Observability Platform
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: phoenix
+    profiles: ["tracing"]
+    ports:
+      - "6006:6006"
+    environment:
+      - "PHOENIX_SQL_DATABASE_URL=sqlite:///:memory:"
+      - "PHOENIX_ENABLE_EXPERIMENTAL_FEATURES=true"
+    restart: unless-stopped
+
+  # AI Platform Engineer Multi-Agent System (Standard)
   ai-platform-engineer:
     image: ghcr.io/cnoe-io/ai-platform-engineering:stable
     container_name: platform-engineer
+    profiles: ["default"]
     depends_on:
       - agent-argocd
       - agent-atlassian
@@ -26,10 +39,52 @@ services:
       - PAGERDUTY_AGENT_PORT=8000
       - SLACK_AGENT_HOST=agent-slack
       - SLACK_AGENT_PORT=8000
-
     volumes:
       - .env:/app/.env
     command: platform-engineer
+
+  # AI Platform Engineer Multi-Agent System (With Tracing)
+  ai-platform-engineer-tracing:
+    build:
+      context: .
+      dockerfile: Dockerfile.tracing
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: ai-platform-engineering:tracing
+    container_name: platform-engineer
+    profiles: ["tracing"]
+    depends_on:
+      - phoenix
+      - agent-argocd
+      - agent-atlassian
+      - agent-pagerduty
+      - agent-github
+      - agent-slack
+    env_file:
+      - .env
+    ports:
+      # Expose the AI Platform Engineer agent on port 8000
+      - "8000:8000"
+    environment:
+      - AGENT_PROTOCOL=a2a
+      - ARGOCD_AGENT_HOST=agent-argocd
+      - ARGOCD_AGENT_PORT=8000
+      - ATLASSIAN_AGENT_HOST=agent-atlassian
+      - ATLASSIAN_AGENT_PORT=8000
+      - GITHUB_AGENT_HOST=agent-github
+      - GITHUB_AGENT_PORT=8000
+      - PAGERDUTY_AGENT_HOST=agent-pagerduty
+      - PAGERDUTY_AGENT_PORT=8000
+      - SLACK_AGENT_HOST=agent-slack
+      - SLACK_AGENT_PORT=8000
+      # Phoenix tracing configuration
+      - PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006
+      - OTEL_SERVICE_NAME=ai-platform-engineer
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=tracing-enabled
+      - PHOENIX_FILTER_NOISY_SPANS=true
+    volumes:
+      - .env:/app/.env
+    # command: platform-engineer
   # Agent ArgoCD
   agent-argocd:
     image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
@@ -97,3 +152,7 @@ services:
   #   container_name: backstage-agent-forge
   #   ports:
   #     - "3000:3000"
+
+volumes:
+  phoenix_data:
+    driver: local
