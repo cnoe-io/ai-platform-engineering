@@ -7,7 +7,7 @@ authors = [
 ]
 license = {text = "Apache-2.0"}
 readme = "README.md"
-requires-python = ">=3.13,<4.0"
+requires-python = ">=3.12,<4.0"
 dependencies = [
     "click (>=8.2.1,<9.0.0)",
     "fastapi (>=0.115.12,<0.116.0)",
@@ -19,6 +19,11 @@ dependencies = [
     "a2a-sdk (>=0.2.7,<0.3.0)",
     "cnoe-agent-utils (>=0.1.4,<0.2.0)",
     "langchain (>=0.3.25,<0.4.0)",
+    "arize-phoenix",
+    "openinference-instrumentation-langchain",
+    "openinference-instrumentation-httpx",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
 ]
 
 [project.scripts]

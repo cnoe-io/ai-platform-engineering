@@ -1,0 +1,54 @@
+# Dockerfile for AI Platform Engineering with Phoenix Tracing
+FROM python:3.13-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies including git
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy all files first (to get README.md)
+COPY . .
+
+# Install publicly available dependencies first
+RUN pip install --no-cache-dir \
+    arize-phoenix \
+    openinference-instrumentation-langchain \
+    opentelemetry-api \
+    opentelemetry-sdk \
+    opentelemetry-instrumentation-httpx \
+    click \
+    fastapi \
+    uvicorn \
+    langchain-core \
+    langgraph \
+    langgraph-supervisor \
+    a2a-sdk \
+    langchain
+
+# Install cnoe-agent-utils from GitHub since it might not be on PyPI or version mismatch
+RUN pip install git+https://github.com/cnoe-io/cnoe-agent-utils.git || \
+    pip install cnoe-agent-utils || \
+    echo "cnoe-agent-utils not available, continuing without it"
+
+# Try to install the package, now that dependencies should be available
+RUN pip install -e . || echo "Package install failed, continuing with available components..."
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV AGENT_PROTOCOL=a2a
+ENV PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/ || exit 1
+
+# Command to run the application
+CMD ["python", "-m", "ai_platform_engineering", "platform-engineer"]
