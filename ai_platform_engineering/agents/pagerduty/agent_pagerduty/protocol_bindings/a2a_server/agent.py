@@ -31,7 +31,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 def debug_print(message: str, banner: bool = True):
-    if os.getenv("ACP_SERVER_DEBUG", "false").lower() == "true":
+    if os.getenv("A2A_SERVER_DEBUG", "false").lower() == "true":
         if banner:
             print("=" * 80)
         print(f"DEBUG: {message}")
