@@ -13,14 +13,13 @@ MCP_SERVER_DIR ?= mcp_$(AGENT_NAME)
 
 ## -------------------------------------------------
 .PHONY: \
-  build setup-venv activate-venv install run run-acp run-client \
+  build setup-venv activate-venv install run run-client \
   langgraph-dev help clean clean-pyc clean-venv clean-build-artifacts \
   install-uv install-wfsm verify-a2a-sdk evals \
-  run-a2a run-acp-client run-a2a-client run-curl-client \
+  run-a2a run-a2a-client run-curl-client \
   run-mcp run-mcp-client test registry-agntcy-directory \
-  build-docker-acp build-docker-acp-tag build-docker-acp-push build-docker-acp-tag-and-push \
   build-docker-a2a build-docker-a2a-tag build-docker-a2a-push build-docker-a2a-tag-and-push \
-  run-docker-acp run-docker-a2a \
+  run-docker-a2a \
   check-env lint ruff-fix \
   help add-copyright-license-headers
 
@@ -89,10 +88,6 @@ ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 
 ## ========== Run ==========
 
-run-acp: setup-venv ## Deploy ACP agent via wfsm
-	@$(MAKE) check-env
-	@$(venv-run) wfsm deploy -m ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json --envFilePath=./.env --dryRun=false
-
 run-a2a: setup-venv ## Run A2A agent with uvicorn
 	@$(MAKE) check-env
 	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
@@ -123,18 +118,6 @@ evals: setup-venv ## Run agentevals with test cases
 
 ## ========== Docker ==========
 
-build-docker-acp:            ## Build ACP Docker image
-	docker build -t $(AGENT_DIR_NAME):acp-latest --build-arg AGENT_NAME=atlassian -f build/Dockerfile.acp .
-
-build-docker-acp-tag:        ## Tag ACP Docker image
-	docker tag $(AGENT_DIR_NAME):acp-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest
-
-build-docker-acp-push:       ## Push ACP Docker image
-	docker push ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest
-
-build-docker-acp-tag-and-push: ## Tag and push ACP Docker image
-	@$(MAKE) build-docker-acp build-docker-acp-tag build-docker-acp-push
-
 build-docker-a2a:            ## Build A2A Docker image
 	docker build -t $(AGENT_DIR_NAME):a2a-latest -f build/Dockerfile.a2a .
 
@@ -146,36 +129,6 @@ build-docker-a2a-push:       ## Push A2A Docker image
 
 build-docker-a2a-tag-and-push: ## Tag and push A2A Docker image
 	@$(MAKE) build-docker-a2a build-docker-a2a-tag build-docker-a2a-push
-
-run-docker-acp: ## Run the ACP agent in Docker
-	@$(MAKE) check-env
-	@AGENT_ID=$$(grep CNOE_AGENT_$$(echo $(AGENT_NAME) | tr a-z A-Z)_ID .env | cut -d '=' -f2); \
-	AGENT_PORT=$$(grep CNOE_AGENT_$$(echo $(AGENT_NAME) | tr a-z A-Z)_PORT .env | cut -d '=' -f2); \
-	ACP_AGENT_IMAGE=$$(grep ACP_AGENT_IMAGE .env | cut -d '=' -f2 || echo ""); \
-	LOCAL_AGENT_PORT=$${AGENT_PORT:-10000}; \
-	LOCAL_AGENT_IMAGE=$${ACP_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest}; \
-	echo "========================================================================"; \
-	echo "==                     ACP AGENT DOCKER RUN                           =="; \
-	echo "========================================================================"; \
-	echo "Using Agent Image : $$LOCAL_AGENT_IMAGE"; \
-	echo "Using Agent ID    : $$AGENT_ID"; \
-	echo "Using Agent Port  : localhost:$$LOCAL_AGENT_PORT"; \
-	echo "========================================================================"; \
-	echo "==               Do not use uvicorn port in the logs                  =="; \
-	echo "========================================================================"; \
-	docker run -p $$LOCAL_AGENT_PORT:8000 -it \
-		-v $(PWD)/.env:/opt/agent_src/.env \
-		--env-file .env \
-		-e AGWS_STORAGE_PERSIST=False \
-		-e AGENT_MANIFEST_PATH="manifest.json" \
-		-e AGENTS_REF='{"'$$AGENT_ID'": "$(AGENT_PKG_NAME).graph:graph"}' \
-		-e AGENT_ID=$$AGENT_ID \
-		-e AIOHTTP_CLIENT_MAX_REDIRECTS=10 \
-		-e AIOHTTP_CLIENT_TIMEOUT=60 \
-		-e API_HOST=0.0.0.0 \
-		$$LOCAL_AGENT_IMAGE
-
-# Run Docker container for A2A agent
 
 run-docker-a2a: ## Run the A2A agent in Docker
 	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
@@ -198,11 +151,6 @@ test: setup-venv build ## Run tests using pytest and coverage
 	@$(venv-activate) && poetry install
 	@$(venv-activate) && poetry add pytest-asyncio pytest-cov --dev
 	@$(venv-activate) && pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
-
-## ========== AGNTCY Directory ==========
-
-registry-agntcy-directory:  ## Push agent.json to AGNTCY registry
-	@dirctl hub push outshift_platform_engineering/$(AGENT_DIR_NAME) ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json
 
 ## ========== Licensing & Help ==========
 
