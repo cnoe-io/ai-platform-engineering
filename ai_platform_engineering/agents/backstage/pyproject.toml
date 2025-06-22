@@ -54,7 +54,7 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 # Allow lines to be as long as 140.
-line-length = 140
+line-length = 200
 # Number of spaces per indentation level
 indent-width = 2
 
