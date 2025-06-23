@@ -17,7 +17,7 @@ APP_NAME ?= ai-platform-engineering
 setup-venv:        ## Create the Python virtual environment
 	@echo "Setting up virtual environment..."
 	@if [ ! -d ".venv" ]; then \
-		python3 -m venv .venv && echo "Virtual environment created."; \
+		python -m venv .venv && echo "Virtual environment created."; \
 	else \
 		echo "Virtual environment already exists."; \
 	fi
@@ -65,7 +65,7 @@ run: setup-venv ## Run the application with Poetry
 	@echo "Running the application..."
 	@poetry run $(APP_NAME) $(ARGS)
 
-run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Agent System
+run-ai-platform-engineer: setup-venv build install ## Run the AI Platform Engineering Multi-Agent System
 	@echo "Running the AI Platform Engineering Multi-Agent System..."
 	@poetry run ai-platform-engineering platform-engineer $(ARGS)
 

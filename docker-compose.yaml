@@ -1,43 +1,42 @@
 services:
   # AI Platform Engineer Multi-Agent System
-  ai-platform-engineer:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:stable
-    container_name: platform-engineer
-    depends_on:
-      - agent-argocd
-      - agent-atlassian
-      - agent-pagerduty
-      - agent-github
-      - agent-slack
-    env_file:
-      - .env
-    ports:
-      # Expose the AI Platform Engineer agent on port 8000
-      - "8000:8000"
-    environment:
-      - AGENT_PROTOCOL=a2a
-      - ARGOCD_AGENT_HOST=agent-argocd
-      - ARGOCD_AGENT_PORT=8000
-      - ATLASSIAN_AGENT_HOST=agent-atlassian
-      - ATLASSIAN_AGENT_PORT=8000
-      - GITHUB_AGENT_HOST=agent-github
-      - GITHUB_AGENT_PORT=8000
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - PAGERDUTY_AGENT_PORT=8000
-      - SLACK_AGENT_HOST=agent-slack
-      - SLACK_AGENT_PORT=8000
+  # ai-platform-engineer:
+  #   image: docker.io/library/ai-platform-engineering:latest
+  #   # image: ghcr.io/cnoe-io/ai-platform-engineering:stable
+  #   container_name: platform-engineer
+  #   depends_on:
+  #     - agent-argocd
+  #     - agent-atlassian
+  #     - agent-pagerduty
+  #     - agent-github
+  #     - agent-slack
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     # Expose the AI Platform Engineer agent on port 8000
+  #     - "8000:8000"
+  #   environment:
+  #     - AGENT_PROTOCOL=fastapi
+  #     - ARGOCD_AGENT_HOST=agent-argocd
+  #     - ARGOCD_AGENT_PORT=8000
+  #     - ATLASSIAN_AGENT_HOST=agent-atlassian
+  #     - ATLASSIAN_AGENT_PORT=8000
+  #     - GITHUB_AGENT_HOST=agent-github
+  #     - GITHUB_AGENT_PORT=8000
+  #     - PAGERDUTY_AGENT_HOST=agent-pagerduty
+  #     - PAGERDUTY_AGENT_PORT=8000
+  #     - SLACK_AGENT_HOST=agent-slack
+  #     - SLACK_AGENT_PORT=8000
 
-    volumes:
-      - .env:/app/.env
-    command: platform-engineer
-  # Agent ArgoCD
+  #   volumes:
+  #     - .env:/app/.env
+  #   command: platform-engineer
+  # # Agent ArgoCD
   agent-argocd:
     image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
     container_name: agent-argocd
-    env_file:
-      - .env.argocd
     volumes:
-      - ./.env.argocd:/app/.env
+      - ./.env:/app/.env
     ports:
       # Expose the ArgoCD agent on port 8080
       - "8001:8000"
@@ -45,10 +44,8 @@ services:
   agent-atlassian:
     image: ghcr.io/cnoe-io/agent-atlassian:a2a-stable
     container_name: agent-atlassian
-    env_file:
-      - .env.atlassian
     volumes:
-      - ./.env.atlassian:/app/.env
+      - ./.env:/app/.env
     ports:
       # Expose the Atlassian agent on port 8002
       - "8002:8000"
@@ -56,11 +53,9 @@ services:
   agent-github:
     image: ghcr.io/cnoe-io/agent-github:a2a-stable
     container_name: agent-github
-    env_file:
-      - .env.github
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./.env.github:/app/.env
+      - ./.env:/app/.env
     ports:
       # Expose the GitHub agent on port 8003
       - "8003:8000"
@@ -68,10 +63,8 @@ services:
   agent-pagerduty:
     image: ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
     container_name: agent-pagerduty
-    env_file:
-      - .env.pagerduty
     volumes:
-      - ./.env.pagerduty:/app/.env
+      - ./.env:/app/.env
     ports:
       # Expose the PagerDuty agent on port 8004
       - "8004:8000"
@@ -79,10 +72,8 @@ services:
   agent-slack:
     image: ghcr.io/cnoe-io/agent-slack:a2a-stable
     container_name: agent-slack
-    env_file:
-      - .env.slack
     volumes:
-      - ./.env.slack:/app/.env
+      - ./.env:/app/.env
     ports:
       # Expose the Slack agent on port 8005
       - "8005:8000"
