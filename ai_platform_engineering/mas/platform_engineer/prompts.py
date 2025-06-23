@@ -15,36 +15,36 @@ tools = {
         "List all on-call schedules for the DevOps team.",
         "Trigger a PagerDuty alert for the database service.",
         "Resolve the PagerDuty incident with ID 67890.",
-        "Get details of the PagerDuty incident with ID 54321.",
+        "Get details of the PagerDuty incident with ID 54321."
     ],
     "GitHub": [
         "Create a new GitHub repository named 'my-repo'.",
         "List all open pull requests in the 'frontend' repository.",
         "Merge the pull request #42 in the 'backend' repository.",
         "Close the issue #101 in the 'docs' repository.",
-        "Get the latest commit in the 'main' branch of 'my-repo'.",
+        "Get the latest commit in the 'main' branch of 'my-repo'."
     ],
     "Jira": [
         "Create a new Jira ticket for the 'AI Project'.",
         "List all open tickets in the 'Platform Engineering' project.",
         "Update the status of ticket 'AI-123' to 'In Progress'.",
         "Assign ticket 'PE-456' to user 'john.doe'.",
-        "Get details of the Jira ticket 'AI-789'.",
+        "Get details of the Jira ticket 'AI-789'."
     ],
     "Slack": [
         "Send a message to the 'devops' Slack channel.",
         "List all members of the 'engineering' Slack workspace.",
         "Create a new Slack channel named 'project-updates'.",
         "Archive the 'old-project' Slack channel.",
-        "Post a notification to the 'alerts' Slack channel.",
+        "Post a notification to the 'alerts' Slack channel."
     ],
     "ArgoCD": [
         "Create a new ArgoCD application named 'my-app'.",
         "Get the status of the 'frontend' ArgoCD application.",
         "Update the image version for 'backend' app.",
         "Delete the 'test-app' from ArgoCD.",
-        "Sync the 'production' ArgoCD application to the latest commit.",
-    ],
+        "Sync the 'production' ArgoCD application to the latest commit."
+    ]
 }
 
 agent_skill_examples = [example for examples in tools.values() for example in examples]

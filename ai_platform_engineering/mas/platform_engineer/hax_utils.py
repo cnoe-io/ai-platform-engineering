@@ -1,19 +1,9 @@
-# Copyright 2025 Cisco Systems, Inc. and its affiliates
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+# Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+# Source: https://github.com/CopilotKit/CopilotKit/blob/main/sdk-python/copilotkit/langgraph.py
+# License: MIT
+# Modified: Keeping integration Lightweight and focused on HAX conversation as opposed to full CopilotKit integration
 
 import uuid
 import json
@@ -120,7 +110,7 @@ def hax_to_langchain(
     Convert HAX messages to LangChain format.
 
     Args:
-        messages: List of CopilotKit messages
+        messages: List of HAX messages
         use_function_call: If True, uses function_call format instead of tool_calls
     """
     result = []

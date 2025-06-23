@@ -12,7 +12,8 @@ from ai_platform_engineering.mas.platform_engineer.supervisor_agent import (
 from ai_platform_engineering.utils.models.generic_agent import UserPrompt, ChatRequest
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, 
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("mas.ai_platform_engineer.main")
 

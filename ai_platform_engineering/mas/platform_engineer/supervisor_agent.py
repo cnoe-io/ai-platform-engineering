@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class DynamicTool(BaseTool):
-    """Dynamically created tool from a CopilotKit Action"""
+    """Dynamically created tool from a HAX Action"""
 
     action: Action = None
     schema: Dict = None
