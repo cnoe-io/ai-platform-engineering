@@ -1,50 +1,44 @@
 from langchain.prompts import PromptTemplate
 
+from ai_platform_engineering.agents.argocd.a2a_agentcards import (
+  argocd_agent_card,
+  argocd_agent_skill
+)
+from ai_platform_engineering.agents.atlassian.a2a_agentcards import  (
+  atlassian_agent_card,
+  atlassian_agent_skill
+)
+from ai_platform_engineering.agents.github.a2a_agentcards import (
+  github_agent_card,
+  github_agent_skill
+)
+from ai_platform_engineering.agents.pagerduty.a2a_agentcards import (
+  pagerduty_agent_card,
+  pagerduty_agent_skill
+)
+from ai_platform_engineering.agents.slack.a2a_agentcards import (
+  slack_agent_card,
+  slack_agent_skill
+)
+
 agent_name = "AI Platform Engineer"
 
 agent_description = (
-    "This platform engineering system integrates with multiple tools to manage operations efficiently. "
-    "It includes PagerDuty for incident management, GitHub for version control and collaboration, "
-    "Jira for project management, Slack for communication, and ArgoCD for continuous deployment. "
-    "Each tool is handled by a specialized agent to ensure seamless task execution."
+  "This platform engineering system integrates with multiple tools to manage operations efficiently. "
+  "It includes PagerDuty for incident management, GitHub for version control and collaboration, "
+  "Jira for project management and ticket tracking, Slack for team communication and notifications, "
+  "and ArgoCD for application deployment and synchronization. "
+  "Each tool is handled by a specialized agent to ensure seamless task execution, "
+  "covering tasks such as incident resolution, repository management, ticket updates, "
+  "channel creation, and application synchronization."
 )
 
 tools = {
-    "PagerDuty": [
-        "Acknowledge the PagerDuty incident with ID 12345.",
-        "List all on-call schedules for the DevOps team.",
-        "Trigger a PagerDuty alert for the database service.",
-        "Resolve the PagerDuty incident with ID 67890.",
-        "Get details of the PagerDuty incident with ID 54321."
-    ],
-    "GitHub": [
-        "Create a new GitHub repository named 'my-repo'.",
-        "List all open pull requests in the 'frontend' repository.",
-        "Merge the pull request #42 in the 'backend' repository.",
-        "Close the issue #101 in the 'docs' repository.",
-        "Get the latest commit in the 'main' branch of 'my-repo'."
-    ],
-    "Jira": [
-        "Create a new Jira ticket for the 'AI Project'.",
-        "List all open tickets in the 'Platform Engineering' project.",
-        "Update the status of ticket 'AI-123' to 'In Progress'.",
-        "Assign ticket 'PE-456' to user 'john.doe'.",
-        "Get details of the Jira ticket 'AI-789'."
-    ],
-    "Slack": [
-        "Send a message to the 'devops' Slack channel.",
-        "List all members of the 'engineering' Slack workspace.",
-        "Create a new Slack channel named 'project-updates'.",
-        "Archive the 'old-project' Slack channel.",
-        "Post a notification to the 'alerts' Slack channel."
-    ],
-    "ArgoCD": [
-        "Create a new ArgoCD application named 'my-app'.",
-        "Get the status of the 'frontend' ArgoCD application.",
-        "Update the image version for 'backend' app.",
-        "Delete the 'test-app' from ArgoCD.",
-        "Sync the 'production' ArgoCD application to the latest commit."
-    ]
+  argocd_agent_card.name: argocd_agent_skill.examples,
+  atlassian_agent_card.name: atlassian_agent_skill.examples,
+  pagerduty_agent_card.name: pagerduty_agent_skill.examples,
+  github_agent_card.name: github_agent_skill.examples,
+  slack_agent_card.name: slack_agent_skill.examples
 }
 
 agent_skill_examples = [example for examples in tools.values() for example in examples]
@@ -58,48 +52,46 @@ skills_prompt = PromptTemplate(
     ),
 )
 
-system_prompt = """
+# Generate system prompt dynamically based on tools and their tasks
+def generate_system_prompt(tools):
+  tool_instructions = []
+  for tool_name, tasks in tools.items():
+    tasks_str = ", ".join(tasks)
+    instruction = f"""
+{tool_name}:
+  If the user's prompt is related to {tool_name.lower()} operations, such as {tasks_str},
+  assign the task to the {tool_name} agent.
+"""
+    tool_instructions.append(instruction.strip())
+
+  tool_instructions_str = "\n\n".join(tool_instructions)
+
+  return f"""
 You are an AI Platform Engineer, a multi-agent system designed to manage operations across various tools.
 
-DO NOT hallucinate or generate responses that are not related to the tools you are integrated with. Alway call the appropriate agent or tool to handle the request.
+DO NOT hallucinate or generate responses that are not related to the tools you are integrated with. Always call the appropriate agent or tool to handle the request.
 
 For each tool, follow these specific instructions:
 
-- **PagerDuty**:
-  If the user's prompt is related to incident management, such as acknowledging, resolving, or retrieving incident details,
-  listing and retrieving on-call schedules, determining who is on call, or getting PagerDuty services,
-  assign the task to the PagerDuty agent.
+{tool_instructions_str}
 
-- **GitHub**:
-  If the user's prompt is related to version control, such as creating repositories, managing pull requests,
-  or retrieving commit details, assign the task to the GitHub agent.
 
-- **Jira**:
-  If the user's prompt is related to project management, such as creating tickets, updating statuses,
-  or assigning tasks, assign the task to the Jira agent.
 
-- **Slack**:
-  If the user's prompt is related to communication, such as sending messages, managing channels,
-  or listing workspace members, assign the task to the Slack agent.
+Reflection Instructions:
+- If the user asks a question that requires input, set the response status to 'input_required'.
+- If the user asks a question that can be answered, set the response status to 'completed'.
+- If the user asks a question that indicates an error, set the response status to 'error'.
 
-- **ArgoCD**:
-  If the user's prompt is related to continuous deployment, such as managing applications, syncing,
-  or updating configurations, assign the task to the ArgoCD agent.
+When asked about your capabilities, respond with:
+{tool_instructions_str}
 
-If the user asks how you can help, respond with:
-"I am an AI Platform Engineer capable of managing operations across various tools. I can assist with:
-- Incident management using PagerDuty
-- Version control and collaboration using GitHub
-- Project management using Jira
-- Communication and workspace management using Slack
-- Continuous deployment using ArgoCD
-Please let me know how I can assist you."
-
-If the worker agent returns control to you and it is a success and does not contain errors,
-do not generate any further messages or responses. End the conversation immediately by returning an empty response.
-
-If the worker agent returns control to you and it is an error, provide the same kind of error message to the user.
+DO NOT respond without calling the appropriate agent or tool.
 """
+
+# Generate the system prompt
+system_prompt = generate_system_prompt(tools)
+
+print("System Prompt Generated:\n", system_prompt)
 
 response_format_instruction: str = (
     "Select status as completed if the request is complete"

@@ -26,6 +26,7 @@ from ai_platform_engineering.agents.atlassian.agent import atlassian_agent
 from ai_platform_engineering.agents.pagerduty.agent import pagerduty_agent
 from ai_platform_engineering.agents.github.agent import github_agent
 from ai_platform_engineering.agents.slack.agent import slack_agent
+import os
 
 from ai_platform_engineering.utils.models.generic_agent import ResponseFormat
 
@@ -108,7 +109,13 @@ class AIPlatformEngineerMAS:
         This function initializes a `SupervisorAgent` to create the base graph structure
         and uses an `InMemorySaver` as the checkpointer for the compilation process.
 
-        The resulting compiled graph can be used to execute Supervisor workflow in LangGraph Studio.
+    # Check if LANGGRAPH_DEV is defined in the environment
+    if os.getenv("LANGGRAPH_DEV"):
+      checkpointer = None
+      store = None
+    else:
+      checkpointer = InMemorySaver()
+      store = InMemoryStore()
 
         Returns:
         CompiledGraph: A fully compiled LangGraph instance ready for execution.

@@ -20,12 +20,17 @@ pagerduty_agent_skill = AgentSkill(
         "alerts",
         "on-call"],
     examples=[
-        "Create a new incident in PagerDuty.",
-        "List all active alerts in PagerDuty.",
-        "What is the current on-call schedule?"])
+      "List PagerDuty services.",
+      "List Pagerduty on-call schedules.",
+      "Acknowledge the PagerDuty incident with ID",
+      "List all on-call schedules for a team like DevOps or SRE team.",
+      "Trigger a PagerDuty alert for a given service.",
+      "Resolve the PagerDuty incident with ID.",
+      "Get details of the PagerDuty incident with ID."
+  ])
 
 pagerduty_agent_card = AgentCard(
-    name='PagerDuty Tools Agent',
+    name='PagerDuty',
     id='pagerduty-tools-agent',
     description='An AI agent that interacts with PagerDuty to manage incidents, alerts, and on-call schedules.',
     url=f'http://{PAGERDUTY_AGENT_HOST}:{PAGERDUTY_AGENT_PORT}',

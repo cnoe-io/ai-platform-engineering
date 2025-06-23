@@ -21,13 +21,15 @@ argocd_agent_skill = AgentSkill(
     "list apps",
     "gitops"],
   examples=[
-    "List all applications in ArgoCD.",
-    "Retrieve details of a specific ArgoCD application.",
-    "Filter applications by status in ArgoCD.",
-    "Show all applications managed by ArgoCD."])
+      "Create a new ArgoCD application named 'my-app'.",
+      "Get the status of the 'frontend' ArgoCD application.",
+      "Update the image version for 'backend' app.",
+      "Delete the 'test-app' from ArgoCD.",
+      "Sync the 'production' ArgoCD application to the latest commit."
+  ])
 
 argocd_agent_card = AgentCard(
-  name='ArgoCD Management Agent',
+  name='ArgoCD',
   id='argocd-tools-agent',
   description=ARGOCD_AGENT_DESCRIPTION,
   url=f'http://{ARGOCD_AGENT_HOST}:{ARGOCD_AGENT_PORT}',
