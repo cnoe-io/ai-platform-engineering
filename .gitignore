@@ -186,3 +186,5 @@ a2a-python
 
 # LangGraph Server
 .langgraph_api/
+
+.vscode

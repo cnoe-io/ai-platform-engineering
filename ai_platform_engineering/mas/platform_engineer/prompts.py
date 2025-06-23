@@ -49,7 +49,7 @@ skills_prompt = PromptTemplate(
     template=(
         "User Prompt: {user_prompt}\n"
         "Determine the appropriate agent to handle the request based on the system's capabilities."
-    )
+    ),
 )
 
 # Generate system prompt dynamically based on tools and their tasks
@@ -76,8 +76,6 @@ For each tool, follow these specific instructions:
 {tool_instructions_str}
 
 
-If the request does not match any capabilities, respond with:
-"I'm sorry, I cannot assist with that request. Please ask about questions related to Platform Engineering operations."
 
 Reflection Instructions:
 - If the user asks a question that requires input, set the response status to 'input_required'.
@@ -95,8 +93,8 @@ system_prompt = generate_system_prompt(tools)
 
 print("System Prompt Generated:\n", system_prompt)
 
-response_format_instruction : str = (
-  'Select status as completed if the request is complete'
-  'Select status as input_required if the input is a question to the user'
-  'Set response status to error if the input indicates an error'
+response_format_instruction: str = (
+    "Select status as completed if the request is complete"
+    "Select status as input_required if the input is a question to the user"
+    "Set response status to error if the input indicates an error"
 )
