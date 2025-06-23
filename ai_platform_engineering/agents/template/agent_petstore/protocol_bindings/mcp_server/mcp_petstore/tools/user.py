@@ -1,0 +1,39 @@
+# AUTO-GENERATED CODE - DO NOT MODIFY
+# Generated on May 16th using openai_mcp_generator package
+
+"""Tools for /user operations"""
+
+import logging
+from typing import Dict, Any, Optional, List
+from pydantic import BaseModel
+from mcp_petstore.api.client import make_api_request
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("mcp_tools")
+
+
+async def createUser() -> Dict[str, Any]:
+    """
+    Create user.
+
+    This can only be done by the logged in user.
+
+    Returns:
+        API response data
+    """
+    logger.debug(f"Making POST request to /user")
+    params = {}
+    data = None
+    # Add parameters to request
+    
+    success, response = await make_api_request(
+        "/user",
+        method="POST",
+        params=params,
+        data=data
+    )
+    if not success:
+        logger.error(f"Request failed: {response.get('error')}")
+        return {"error": response.get('error', 'Request failed')}
+    return response
