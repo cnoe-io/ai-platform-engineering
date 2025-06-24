@@ -22,6 +22,7 @@ from ai_platform_engineering.agents.atlassian.agent import atlassian_agent
 from ai_platform_engineering.agents.pagerduty.agent import pagerduty_agent
 from ai_platform_engineering.agents.github.agent import github_agent
 from ai_platform_engineering.agents.slack.agent import slack_agent
+from ai_platform_engineering.agents.backstage.agent import backstage_agent
 import os
 
 from ai_platform_engineering.utils.models.generic_agent import (
@@ -79,6 +80,7 @@ class AIPlatformEngineerMAS:
         pagerduty_agent,
         github_agent,
         slack_agent,
+        backstage_agent,
         # Add other agents here as needed
       ],
       prompt=system_prompt,
