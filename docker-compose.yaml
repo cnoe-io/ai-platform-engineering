@@ -87,3 +87,15 @@ services:
     container_name: backstage-agent-forge
     ports:
       - "3000:3000"
+  # Agent Backstage
+  agent-backstage:
+    image: ghcr.io/cnoe-io/agent-backstage:a2a-stable
+    container_name: agent-backstage
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      # Expose the Backstage agent on port 8006
+      - "8006:8000"
+    environment:
+      - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
+      - BACKSTAGE_URL=${BACKSTAGE_URL}
