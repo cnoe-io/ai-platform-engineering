@@ -5,7 +5,7 @@ import click
 import httpx
 from dotenv import load_dotenv
 
-from agent_petstore.agent import PetStoreAgent # type: ignore[import-untyped]
+from agent_petstore.protocol_bindings.a2a_server.agent import PetStoreAgent # type: ignore[import-untyped]
 from agent_petstore.protocol_bindings.a2a_server.agent_executor import PetStoreAgentExecutor # type: ignore[import-untyped]
 
 from a2a.server.apps import A2AStarletteApplication

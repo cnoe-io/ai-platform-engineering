@@ -7,7 +7,7 @@ import click
 import httpx
 import uvicorn
 
-from agent_petstore.agent import PetStoreAgent # type: ignore[import-untyped]
+from agent_petstore.protocol_bindings.a2a_server.agent import PetStoreAgent # type: ignore[import-untyped]
 from agent_executor import PetStoreAgentExecutor # type: ignore[import-untyped]
 from dotenv import load_dotenv
 
