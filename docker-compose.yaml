@@ -9,6 +9,7 @@ services:
       - agent-pagerduty
       - agent-github
       - agent-slack
+      - phoenix
     env_file:
       - .env
     ports:
@@ -26,6 +27,12 @@ services:
       - PAGERDUTY_AGENT_PORT=8000
       - SLACK_AGENT_HOST=agent-slack
       - SLACK_AGENT_PORT=8000
+      # Phoenix Tracing Configuration
+      - PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://phoenix:4317
+      - PHOENIX_TRACE_USER_REQUESTS_ONLY=true
+      - PHOENIX_FILTER_HEALTH_CHECKS=true
+      - PHOENIX_SPAN_ATTRIBUTE_LIMIT=10
 
     volumes:
       - .env:/app/.env
@@ -92,8 +99,33 @@ services:
     container_name: ui
     ports:
       - "3001:3001"
+  # Phoenix Distributed Tracing
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: phoenix
+    ports:
+      - "6006:6006"  # Phoenix UI
+      - "4317:4317"  # OTLP gRPC receiver
+      - "4318:4318"  # OTLP HTTP receiver
+    environment:
+      - PHOENIX_PORT=6006
+      - PHOENIX_ENABLE_PROMETHEUS=false  # Reduce metric noise
+      - PHOENIX_TRACE_SAMPLING_RATE=0.1  # Sample non-user traces
+      - PHOENIX_MAX_TRACE_SIZE=10MB      # Limit trace payload
+      - PHOENIX_COLLECTOR_ENDPOINT=0.0.0.0:4317
+    volumes:
+      - phoenix_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # backstage-agent-forge:
   #   image: ghcr.io/cnoe-io/backstage-agent-forge:stable
   #   container_name: backstage-agent-forge
   #   ports:
   #     - "3000:3000"
+
+volumes:
+  phoenix_data:
