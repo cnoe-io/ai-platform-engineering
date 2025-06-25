@@ -1,25 +1,22 @@
-# AUTO-GENERATED CODE - DO NOT MODIFY
-# Generated on May 16th using openai_mcp_generator package
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry]
+[project]
 name = "mcp_petstore"
 version = "0.1.0"
-description = "Generated MCP server for Petstore from OpenAPI specification"
+description = "Petstore MCP Server"
+license = "Apache-2.0"
 authors = [
-  { name = "Your Name", email = "your.email@example.com" }
+  { name = "Rehan Agrawal", email = "rehagraw@cisco.com" }
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13.2"
 
 [tool.poetry.scripts]
-mcp_petstore = "mcp_petstore.server:main"
+mcp_argocd = "mcp_petstore.server:main"
+
+[tool.setuptools]
+packages = ["mcp_petstore"]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<4.0"
+python = ">=3.13,<4.0"
 httpx = ">=0.24.0"
 python-dotenv = ">=1.0.0"
 pydantic = ">=2.0.0"

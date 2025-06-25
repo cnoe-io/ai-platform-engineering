@@ -1,156 +1,113 @@
-# AUTO-GENERATED CODE - DO NOT MODIFY
-# Generated on May 16th using openai_mcp_generator package
+# 🧠 Petstore MCP Server
 
-# Generated MCP Server
+This module implements the **MCP protocol bindings** for the `Petstore` agent.
 
-This is an automatically generated Model Context Protocol (MCP) server based on an OpenAPI specification.
+It auto-generates MCP compliant tools or data models and server code.
 
-## Prerequisites
+The server acts as a wrapper over the agent's async call loop and translates standard input/output formats.
 
-- Python 3.8 or higher
-- [Install Poetry](https://python-poetry.org/docs/#installation)
-- Setup a virtual environment
+---
+
+## 📄 Overview
+
+- **Description**: Petstore MCP Server
+- **Version**: 0.1.0
+- **Author**: Rehan Agrawal
+
+---
+
+## 📁 Module Structure
+
 ```
-poetry config virtualenvs.in-project true
-poetry install
+mcp_server/
+├── mcp_argocd
+│   ├── __init__.py
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── client.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── base.py
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   ├── api_foo.py
+│   └── utils/
+│       └── __init__.py
+├── pyproject.toml
+└── README.md
 ```
 
+---
 
-## Setup
+## 🚀 Running the MCP Server
 
-1. Copy `.env.example` to `.env` and fill in your API credentials:
+Make sure dependencies are installed and environment variables are configured. Then run:
 
 ```bash
-cp .env.example .env
+poetry run mcp_petstore
 ```
 
-2. Install dependencies:
+Or directly with Python:
 
 ```bash
-poetry install
+python -m .protocol_bindings.mcp_server.main
 ```
 
-3. Run the server:
+---
+
+## 🌐 API Endpoints
+
+- `POST /v1/task` — Submit a task for execution
+- `GET  /v1/task/{task_id}` — Query result of a submitted task
+- `GET  /v1/spec` — Get OpenAPI spec for tool ingestion
+
+You can test with:
 
 ```bash
-poetry run python -m server
+curl -X POST http://localhost:8000/v1/task \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "status of ArgoCD app",
+    "agent_id": "",
+    "tool_config": {}
+  }'
 ```
 
-## Available Tools
+---
 
-The following tools are available through the MCP server:
+## ⚙️ Environment Variables
 
+| Variable             | Description                              |
+|----------------------|------------------------------------------|
+| `_ID`   | Agent identifier used in API requests |
+| `_PORT` | Port to run the MCP server (default: 8000) |
 
-### PUT /pet
-Update an existing pet.
+---
 
-Update an existing pet by Id.
+## 🧰 Available Tools
 
-
-### POST /pet
-Add a new pet to the store.
-
-Add a new pet to the store.
-
-
-### GET /pet/findByStatus
-Finds Pets by status.
-
-Multiple status values can be provided with comma separated strings.
+The following tools are exposed by this agent via the MCP protocol. These are defined in the `tools/` directory and registered at runtime.
 
 
-### GET /pet/findByTags
-Finds Pets by tags.
 
-Multiple tags can be provided with comma separated strings. Use tag1, tag2, tag3 for testing.
+---
 
+## 🧪 Testing
 
-### GET /pet/{petId}
-Find pet by ID.
+To test locally:
 
-Returns a single pet.
+```bash
+make run-mcp
+```
 
+Or with the included MCP client:
 
-### POST /pet/{petId}
-Updates a pet in the store with form data.
+```bash
+python client/mcp_client.py
+```
 
-Updates a pet resource based on the form data.
+---
 
+## 📚 References
 
-### DELETE /pet/{petId}
-Deletes a pet.
-
-Delete a pet.
-
-
-### POST /pet/{petId}/uploadImage
-Uploads an image.
-
-Upload image of the pet.
-
-
-### GET /store/inventory
-Returns pet inventories by status.
-
-Returns a map of status codes to quantities.
-
-
-### POST /store/order
-Place an order for a pet.
-
-Place a new order in the store.
-
-
-### GET /store/order/{orderId}
-Find purchase order by ID.
-
-For valid response try integer IDs with value <= 5 or > 10. Other values will generate exceptions.
-
-
-### DELETE /store/order/{orderId}
-Delete purchase order by identifier.
-
-For valid response try integer IDs with value < 1000. Anything above 1000 or non-integers will generate API errors.
-
-
-### POST /user
-Create user.
-
-This can only be done by the logged in user.
-
-
-### POST /user/createWithList
-Creates list of users with given input array.
-
-Creates list of users with given input array.
-
-
-### GET /user/login
-Logs user into the system.
-
-Log into the system.
-
-
-### GET /user/logout
-Logs out current logged in user session.
-
-Log user out of the system.
-
-
-### GET /user/{username}
-Get user by user name.
-
-Get user detail based on username.
-
-
-### PUT /user/{username}
-Update user resource.
-
-This can only be done by the logged in user.
-
-
-### DELETE /user/{username}
-Delete user resource.
-
-This can only be done by the logged in user.
-
+- [OpenAPI MCP Codegen](https://github.com/cnoe-io/openapi-mcp-codegen)
