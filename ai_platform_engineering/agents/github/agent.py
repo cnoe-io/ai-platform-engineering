@@ -9,6 +9,7 @@ from ai_platform_engineering.agents.github.a2a_agentcards import (
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
+from ai_platform_engineering.mas.platform_engineer.prompts import get_agent_system_prompt, get_agent_skills_prompt
 
 model = LLMFactory().get_llm()
 
@@ -20,8 +21,12 @@ github_a2a_remote_agent = A2ARemoteAgentConnectTool(
     skill_id=github_agent_skill.id,
 )
 
+github_system_prompt = get_agent_system_prompt("github")
+github_skills_prompt = get_agent_skills_prompt("github")
+
 github_agent = create_react_agent(
     model=model,
     tools=[github_a2a_remote_agent],
     name="github_agent",
+    prompt=github_system_prompt,
 )
