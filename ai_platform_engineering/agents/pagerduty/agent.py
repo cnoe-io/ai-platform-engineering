@@ -9,6 +9,7 @@ from ai_platform_engineering.agents.pagerduty.a2a_agentcards import (
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
+from ai_platform_engineering.mas.platform_engineer.prompts import get_agent_system_prompt, get_agent_skills_prompt
 
 model = LLMFactory().get_llm()
 
@@ -20,8 +21,12 @@ pagerduty_a2a_remote_agent = A2ARemoteAgentConnectTool(
     skill_id=pagerduty_agent_skill.id,
 )
 
+pagerduty_system_prompt = get_agent_system_prompt("pagerduty")
+pagerduty_skills_prompt = get_agent_skills_prompt("pagerduty")
+
 pagerduty_agent = create_react_agent(
     model=model,
     tools=[pagerduty_a2a_remote_agent],
     name="pagerduty_agent",
+    prompt=pagerduty_system_prompt,
 )
