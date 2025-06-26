@@ -1,6 +1,4 @@
-# NexiGraph
-
-The Knowledge graph generation and RAG system for strucutred data.
+# NexiGraph - Knowledge graph generation and RAG system for strucutred data.
 
 NexiGraph is a knowledge graph system, that can be used to store and retrieve structured documents (e.g. JSON). It can automatically create relations between documents, and allow for GraphRAG. The Question & Answer agent is an example of GraphRAG enabled agent.
 
@@ -10,9 +8,13 @@ It has the following components:
  - `agen_qa`: An agent that can answer questions based on the knowledge graph. It exposes the chat interface through A2A.
  - `client`: Client uses the server API to submit documents. Examples of clients can be found in the `nexigraph/clients` directory.
 
-## Installation
+## ✨ Features
 
-### Running locally
+- 📂 Ready-made clients to import data from AWS, Backstage, K8s.
+- 🔗 Auto creation of relations
+- 💬 A2A enabled query agent to query the graph database
+
+## 🚀  How to run
 
 Pre-requisites:
  - docker
@@ -40,9 +42,10 @@ Once the relations are created you can ask question on the graph database by:
 `docker run -it -e A2A_HOST=host.docker.internal -e A2A_PORT=8096 ghcr.io/cnoe-io/agent-chat-cli:latest`
 
 
-### Helm chart
+## 📄 License
 
-The helm chart for Nexus is available in the `deploy/charts` directory. 
-There are two helm charts:
- - `nexigraph` - The main nexigraph chart
- - `nexigraph-neo4j` - The neo4j database
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+## 👥 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
