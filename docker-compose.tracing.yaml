@@ -1,0 +1,199 @@
+services:
+  # Shared Langfuse instance for all containers
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: langfuse
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/langfuse
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=your-nextauth-secret-key-change-in-production
+      - SALT=your-salt-key-change-in-production
+      - LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ai-platform-network
+    healthcheck:
+      test: ["CMD-SHELL", "sleep 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 1
+
+  postgres:
+    image: postgres:15
+    container_name: langfuse-postgres
+    environment:
+      - POSTGRES_DB=langfuse
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ai-platform-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Main supervisor container with tracing
+  ai-platform-engineer:
+    build:
+      context: .
+      dockerfile: build/Dockerfile
+    container_name: supervisor
+    depends_on:
+      langfuse:
+        condition: service_healthy
+      agent-argocd:
+        condition: service_started
+      agent-atlassian:
+        condition: service_started
+      agent-github:
+        condition: service_started
+      agent-pagerduty:
+        condition: service_started
+      agent-slack:
+        condition: service_started
+      agent-backstage:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      # Override specific tracing settings for container networking
+      - LANGFUSE_HOST=http://langfuse:3000
+      - LANGFUSE_ENABLE_TRACING=true
+      - LANGFUSE_DEBUG=false
+      
+      # Service identification
+      - SERVICE_NAME=supervisor-agent
+      - CONTAINER_NAME=supervisor
+      
+      # Agent connectivity
+      - AGENT_PROTOCOL=a2a
+      - ARGOCD_AGENT_HOST=agent-argocd
+      - ARGOCD_AGENT_PORT=8000
+      - ATLASSIAN_AGENT_HOST=agent-atlassian
+      - ATLASSIAN_AGENT_PORT=8000
+      - GITHUB_AGENT_HOST=agent-github
+      - GITHUB_AGENT_PORT=8000
+      - PAGERDUTY_AGENT_HOST=agent-pagerduty
+      - PAGERDUTY_AGENT_PORT=8000
+      - SLACK_AGENT_HOST=agent-slack
+      - SLACK_AGENT_PORT=8000
+    networks:
+      - ai-platform-network
+    ports:
+      - "8000:8000"
+    command: ["platform-engineer"]
+
+  # Agent ArgoCD with tracing support
+  agent-argocd:
+    image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
+    container_name: agent-argocd
+    env_file:
+      - .env.argocd
+    environment:
+      - LANGFUSE_HOST=http://langfuse:3000
+      - LANGFUSE_ENABLE_TRACING=true
+      - SERVICE_NAME=argocd-agent
+      - CONTAINER_NAME=agent-argocd
+    networks:
+      - ai-platform-network
+    ports:
+      - "8001:8000"
+
+  # Agent Atlassian with tracing support
+  agent-atlassian:
+    image: ghcr.io/cnoe-io/agent-atlassian:a2a-stable
+    container_name: agent-atlassian
+    env_file:
+      - .env.atlassian
+    environment:
+      - LANGFUSE_HOST=http://langfuse:3000
+      - LANGFUSE_ENABLE_TRACING=true
+      - SERVICE_NAME=atlassian-agent
+      - CONTAINER_NAME=agent-atlassian
+    networks:
+      - ai-platform-network
+    ports:
+      - "8002:8000"
+
+  # Agent GitHub with tracing support
+  agent-github:
+    image: ghcr.io/cnoe-io/agent-github:a2a-stable
+    container_name: agent-github
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - .env.github
+    environment:
+      - LANGFUSE_HOST=http://langfuse:3000
+      - LANGFUSE_ENABLE_TRACING=true
+      - SERVICE_NAME=github-agent
+      - CONTAINER_NAME=agent-github
+    networks:
+      - ai-platform-network
+    ports:
+      - "8003:8000"
+
+  # Agent PagerDuty with tracing support
+  agent-pagerduty:
+    image: ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
+    container_name: agent-pagerduty
+    env_file:
+      - .env.pagerduty
+    environment:
+      - LANGFUSE_HOST=http://langfuse:3000
+      - LANGFUSE_ENABLE_TRACING=true
+      - SERVICE_NAME=pagerduty-agent
+      - CONTAINER_NAME=agent-pagerduty
+    networks:
+      - ai-platform-network
+    ports:
+      - "8004:8000"
+
+  # Agent Slack with tracing support
+  agent-slack:
+    image: ghcr.io/cnoe-io/agent-slack:a2a-stable
+    container_name: agent-slack
+    env_file:
+      - .env.slack
+    environment:
+      - LANGFUSE_HOST=http://langfuse:3000
+      - LANGFUSE_ENABLE_TRACING=true
+      - SERVICE_NAME=slack-agent
+      - CONTAINER_NAME=agent-slack
+    networks:
+      - ai-platform-network
+    ports:
+      - "8005:8000"
+
+  # Agent Backstage with tracing support
+  agent-backstage:
+    image: ghcr.io/cnoe-io/agent-backstage:a2a-stable
+    container_name: agent-backstage
+    env_file:
+      - .env
+    environment:
+      - LANGFUSE_HOST=http://langfuse:3000
+      - LANGFUSE_ENABLE_TRACING=true
+      - SERVICE_NAME=backstage-agent
+      - CONTAINER_NAME=agent-backstage
+      - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
+      - BACKSTAGE_URL=${BACKSTAGE_URL}
+    networks:
+      - ai-platform-network
+    ports:
+      - "8006:8000"
+
+volumes:
+  postgres_data:
+
+networks:
+  ai-platform-network:
+    driver: bridge
+    name: ai-platform-network

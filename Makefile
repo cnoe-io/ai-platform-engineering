@@ -10,7 +10,8 @@ APP_NAME ?= ai-platform-engineering
 
 ## -------------------------------------------------
 .PHONY: \
-	build install run test lint help
+	build install run test lint help \
+	tracing-setup tracing-test tracing-start tracing-stop tracing-logs tracing-clean
 
 .DEFAULT_GOAL := run
 
@@ -86,6 +87,55 @@ test: setup-venv ## Run tests using pytest
 	@echo "Running tests..."
 	@poetry run pytest
 
+
+
+tracing-test: setup-venv install ## Test tracing implementation
+	@echo "🧪 Testing cross-container tracing implementation..."
+	@poetry run python test_tracing.py
+
+tracing-test-supervisor: setup-venv install ## Test supervisor agent with real tracing
+	@echo "🤖 Testing supervisor agent with tracing..."
+	@poetry run python -c "import asyncio; from ai_platform_engineering.mas.platform_engineer.supervisor_agent import AIPlatformEngineerMAS; supervisor = AIPlatformEngineerMAS(); print('Response:', asyncio.run(supervisor.serve('What GitHub repositories are available?', user_id='test-user')))"
+
+tracing-start: ## Start Langfuse tracing services
+	@echo "🚀 Starting Langfuse tracing services..."
+	@echo "📥 Pulling images first..."
+	@docker pull postgres:15 || echo "⚠️  Postgres pull failed, trying to continue..."
+	@docker pull clickhouse/clickhouse-server:23.8 || echo "⚠️  ClickHouse pull failed, trying to continue..."
+	@docker pull langfuse/langfuse:latest || echo "⚠️  Langfuse pull failed, trying to continue..."
+	@echo "🔄 Starting services..."
+	@docker compose -f docker-compose.tracing.yaml up -d langfuse postgres clickhouse
+	@echo "⏳ Waiting for services to be ready..."
+	@sleep 15
+	@echo "✅ Langfuse services started"
+	@echo "📊 Langfuse UI: http://localhost:3000"
+
+tracing-start-full: ## Start full AI Platform with tracing
+	@echo "🚀 Starting full AI Platform with tracing..."
+	@docker compose -f docker-compose.tracing.yaml up -d
+	@echo "📊 Langfuse UI: http://localhost:3000"
+	@echo "🤖 AI Platform: http://localhost:8000"
+
+tracing-stop: ## Stop Langfuse tracing services
+	@echo "🛑 Stopping Langfuse tracing services..."
+	@docker compose -f docker-compose.tracing.yaml down
+
+tracing-logs: ## Show logs from tracing services
+	@echo "📋 Showing Langfuse service logs..."
+	@docker compose -f docker-compose.tracing.yaml logs -f langfuse
+
+tracing-clean: ## Clean up tracing services and volumes
+	@echo "🧹 Cleaning up tracing services and volumes..."
+	@docker compose -f docker-compose.tracing.yaml down -v
+	@docker system prune -f
+
+tracing-status: ## Check status of tracing services
+	@echo "📊 Checking tracing service status..."
+	@docker compose -f docker-compose.tracing.yaml ps
+
+tracing-health: ## Check health of tracing implementation
+	@echo "🏥 Checking tracing health..."
+	@poetry run python -c "import sys; from ai_platform_engineering.utils.tracing import langfuse_tracing; health = langfuse_tracing.health_check(); print('Langfuse Health Check:'); [print(f\"  {'✅' if v else '❌'} {k}: {v}\") for k, v in health.items()]; sys.exit(0 if health['tracing_enabled'] else 1)"
 
 ## ========== Help ==========
 
