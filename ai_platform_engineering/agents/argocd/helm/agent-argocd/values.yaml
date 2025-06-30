@@ -59,19 +59,19 @@ service:
 # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingress:
   enabled: false
-  className: ""
+  className: "nginx"
   annotations: {}
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
-    - host: chart-example.local
+    - host: agent-argocd.local
       paths:
         - path: /
-          pathType: ImplementationSpecific
+          pathType: Prefix
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:
-  #      - chart-example.local
+  #      - agent-argocd.local
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
@@ -87,13 +87,19 @@ resources: {}
 
 # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 livenessProbe:
-  httpGet:
-    path: /
+  tcpSocket:
     port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
 readinessProbe:
-  httpGet:
-    path: /
+  tcpSocket:
     port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
 
 # This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
 autoscaling:
@@ -121,3 +127,41 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# Secrets configuration for LLM providers
+secrets:
+  # if set, use this secret for the LLM provider API keys; if not set, the keys will be provided directly below
+  secretName: ""
+  # below are the API keys for the LLM providers; if secretName is set, these will be ignored
+  # LLM Provider: azure-openai, openai, anthropic-claude
+  llmProvider: ""
+  # OpenAI configuration
+  openaiApiKey: ""
+  # Azure OpenAI configuration
+  azureOpenaiApiKey: ""
+  azureOpenaiEndpoint: ""
+  azureOpenAiApiVersion: ""
+  azureOpenAiDeployment: ""
+  # Anthropic configuration
+  anthropicApiKey: ""
+  anthropicModelName: ""
+  # OpenAI configuration
+  openaiApiKey: ""
+  openaiEndpoint: ""
+  openaiModelName: ""
+  # AWS/Bedrock configuration
+  awsProfile: ""
+  awsRegion: ""
+  awsBedrockModelId: ""
+  awsBedrockProvider: ""
+  # Google/Vertex AI configuration
+  googleApiKey: ""
+  googleApplicationCredentials: ""
+  vertexaiModelName: ""
+  # ArgoCD configuration
+  argocdToken: ""
+  argocdApiUrl: ""
+  argocdVerifySsl: ""
+
+# Environment variables (non-sensitive)
+env: {}

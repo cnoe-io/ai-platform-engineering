@@ -44,6 +44,16 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.secretName | default (printf "%s-secret" (include "agent-argocd.fullname" .)) }}
+          {{- if .Values.env }}
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

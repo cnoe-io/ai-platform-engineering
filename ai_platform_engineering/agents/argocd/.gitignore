@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Helm secrets files
+helm/agent-argocd/values-secrets.yaml
+helm/*/values-secrets.yaml
+
 # C extensions
 *.so
 
