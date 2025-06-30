@@ -12,6 +12,7 @@ from ai_platform_engineering.agents.atlassian.a2a_agentcards import (
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
+from ai_platform_engineering.mas.platform_engineer.prompts import get_agent_system_prompt
 
 model = LLMFactory().get_llm()
 
@@ -23,8 +24,11 @@ atlassian_a2a_remote_agent = A2ARemoteAgentConnectTool(
     skill_id=atlassian_agent_skill.id,
 )
 
+jira_system_prompt = get_agent_system_prompt("jira")
+
 atlassian_agent = create_react_agent(
     model=model,
     tools=[atlassian_a2a_remote_agent],
     name="atlassian_agent",
+    prompt=jira_system_prompt,
 )
