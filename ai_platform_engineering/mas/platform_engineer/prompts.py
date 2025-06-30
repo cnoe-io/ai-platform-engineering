@@ -115,8 +115,7 @@ For each tool, follow these specific instructions:
 {tool_instructions_str}
 
 
-If the request does not match any capabilities, respond with:
-\"I'm sorry, I cannot assist with that request. Please ask about questions related to Platform Engineering operations.\"
+If the request does not match any capabilities, respond with: I'm sorry, I cannot assist with that request. Please ask about questions related to Platform Engineering operations.
 
 Reflection Instructions:
 - If the user asks a question that requires input, set the response status to 'input_required'.
