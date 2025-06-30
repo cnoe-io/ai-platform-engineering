@@ -50,24 +50,7 @@ agent_prompts = config.get("agent_prompts", {})
 
 def get_agent_system_prompt(agent_key: str) -> str:
     """Get the system prompt for a given agent (e.g., 'argocd', 'jira', etc.)"""
-    return agent_prompts.get(agent_key, {}).get("system_prompt", f"No system prompt configured for {agent_key} agent.")
-
-def get_agent_skills_prompt(agent_key: str) -> str:
-    """Get the skills prompt for a given agent (e.g., 'argocd', 'jira', etc.)"""
-    return agent_prompts.get(agent_key, {}).get("skills_prompt", f"No skills prompt configured for {agent_key} agent.")
-
-
-argocd_system_prompt = get_agent_system_prompt("argocd")
-jira_system_prompt = get_agent_system_prompt("jira")
-github_system_prompt = get_agent_system_prompt("github")
-pagerduty_system_prompt = get_agent_system_prompt("pagerduty")
-slack_system_prompt = get_agent_system_prompt("slack")
-
-argocd_skills_prompt = get_agent_skills_prompt("argocd")
-jira_skills_prompt = get_agent_skills_prompt("jira")
-github_skills_prompt = get_agent_skills_prompt("github")
-pagerduty_skills_prompt = get_agent_skills_prompt("pagerduty")
-slack_skills_prompt = get_agent_skills_prompt("slack")
+    return agent_prompts.get(agent_key, {}).get("system_prompt", None)
 
 tools = {
   argocd_agent_card.name: argocd_agent_skill.examples,
@@ -87,11 +70,26 @@ skills_prompt = PromptTemplate(
     )
 )
 
+
 # Generate system prompt dynamically based on tools and their tasks
 def generate_system_prompt(tools):
   tool_instructions = []
-  for agent_key in tools.keys():
-    agent_system_prompt = get_agent_system_prompt(agent_key.lower())
+  for tool_name, tasks in tools.items():
+    tasks_str = ", ".join(tasks)
+    instruction = f"""
+{tool_name}:
+  If the user's prompt is related to {tool_name.lower()} operations, such as {tasks_str},
+  assign the task to the {tool_name} agent.
+"""
+    tool_instructions.append(instruction.strip())
+
+  tool_instructions_str = "\n\n".join(tool_instructions)
+
+# Generate system prompt dynamically based on tools and their tasks
+def generate_system_prompt(tools):
+  tool_instructions = []
+  for agent_key, tasks in tools.items():
+    agent_system_prompt = get_agent_system_prompt(agent_key.lower()) if get_agent_system_prompt(agent_key.lower()) else ", ".join(tasks)
     instruction = f"""
 {agent_key}:
   {agent_system_prompt}
@@ -101,9 +99,11 @@ def generate_system_prompt(tools):
   tool_instructions_str = "\n\n".join(tool_instructions)
 
   yaml_template = config.get("system_prompt_template")
-  
+
   if yaml_template:
-      return yaml_template.replace("{{tool_instructions}}", tool_instructions_str)
+      return yaml_template.format(
+        tool_instructions=tool_instructions_str
+      )
   else:
       return f"""
 You are an AI Platform Engineer, a multi-agent system designed to manage operations across various tools.

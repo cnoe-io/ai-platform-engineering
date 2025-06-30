@@ -1,37 +1,37 @@
 services:
   # AI Platform Engineer Multi-Agent System
-  ai-platform-engineer:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:stable
-    container_name: platform-engineer
-    depends_on:
-      - agent-argocd
-      - agent-atlassian
-      - agent-pagerduty
-      - agent-github
-      - agent-slack
-    env_file:
-      - .env
-    ports:
-      # Expose the AI Platform Engineer agent on port 8000
-      - "8000:8000"
-    environment:
-      - AGENT_PROTOCOL=a2a
-      - ARGOCD_AGENT_HOST=agent-argocd
-      - ARGOCD_AGENT_PORT=8000
-      - ATLASSIAN_AGENT_HOST=agent-atlassian
-      - ATLASSIAN_AGENT_PORT=8000
-      - GITHUB_AGENT_HOST=agent-github
-      - GITHUB_AGENT_PORT=8000
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - PAGERDUTY_AGENT_PORT=8000
-      - SLACK_AGENT_HOST=agent-slack
-      - SLACK_AGENT_PORT=8000
+  # ai-platform-engineer:
+  #   image: ghcr.io/cnoe-io/ai-platform-engineering:stable
+  #   container_name: platform-engineer
+  #   depends_on:
+  #     - agent-argocd
+  #     - agent-atlassian
+  #     - agent-pagerduty
+  #     - agent-github
+  #     - agent-slack
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     # Expose the AI Platform Engineer agent on port 8000
+  #     - "8000:8000"
+  #   environment:
+  #     - AGENT_PROTOCOL=a2a
+  #     - ARGOCD_AGENT_HOST=agent-argocd
+  #     - ARGOCD_AGENT_PORT=8000
+  #     - ATLASSIAN_AGENT_HOST=agent-atlassian
+  #     - ATLASSIAN_AGENT_PORT=8000
+  #     - GITHUB_AGENT_HOST=agent-github
+  #     - GITHUB_AGENT_PORT=8000
+  #     - PAGERDUTY_AGENT_HOST=agent-pagerduty
+  #     - PAGERDUTY_AGENT_PORT=8000
+  #     - SLACK_AGENT_HOST=agent-slack
+  #     - SLACK_AGENT_PORT=8000
 
-    volumes:
-      - .env:/app/.env
-      - ./prompt_config.yaml:/app/prompt_config.yaml
-      - ./ai_platform_engineering:/app/ai_platform_engineering
-    command: platform-engineer
+  #   volumes:
+  #     - .env:/app/.env
+  #     - ./prompt_config.yaml:/app/prompt_config.yaml
+  #     - ./ai_platform_engineering:/app/ai_platform_engineering
+  #   command: platform-engineer
   # Agent ArgoCD
   agent-argocd:
     image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
