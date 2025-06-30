@@ -22,6 +22,10 @@ from ai_platform_engineering.agents.slack.a2a_agentcards import (
   slack_agent_card,
   slack_agent_skill
 )
+from ai_platform_engineering.agents.backstage.a2a_agentcards import (
+  backstage_agent_card,
+  backstage_agent_skill
+)
 
 # Load YAML config
 def load_prompt_config(path="prompt_config.yaml"):
@@ -39,10 +43,10 @@ agent_description = config.get("agent_description", (
   "This platform engineering system integrates with multiple tools to manage operations efficiently. "
   "It includes PagerDuty for incident management, GitHub for version control and collaboration, "
   "Jira for project management and ticket tracking, Slack for team communication and notifications, "
-  "and ArgoCD for application deployment and synchronization. "
+  "ArgoCD for application deployment and synchronization, and Backstage for catalog and service metadata management. "
   "Each tool is handled by a specialized agent to ensure seamless task execution, "
   "covering tasks such as incident resolution, repository management, ticket updates, "
-  "channel creation, and application synchronization."
+  "channel creation, application synchronization, and catalog queries."
 ))
 
 # Load agent prompts from YAML
@@ -57,7 +61,8 @@ tools = {
   atlassian_agent_card.name: atlassian_agent_skill.examples,
   pagerduty_agent_card.name: pagerduty_agent_skill.examples,
   github_agent_card.name: github_agent_skill.examples,
-  slack_agent_card.name: slack_agent_skill.examples
+  slack_agent_card.name: slack_agent_skill.examples,
+  backstage_agent_card.name: backstage_agent_skill.examples
 }
 
 agent_skill_examples = [example for examples in tools.values() for example in examples]
