@@ -2,14 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import os
 
 from collections.abc import AsyncIterable
 from typing import Any
 
+# A2A tracing is disabled via monkey patching in main.py
+
 from langchain_core.messages import AIMessage, ToolMessage
 
-from langfuse import Langfuse
-from langfuse import observe
 from langfuse.langchain import CallbackHandler
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
@@ -35,18 +36,17 @@ class AIPlatformEngineerA2ABinding:
   def __init__(self):
       self.graph = AIPlatformEngineerMAS().get_graph()
 
-  @observe(name="AI Platform Engineer - Multi Agent System")
   async def stream(self, query, context_id) -> AsyncIterable[dict[str, Any]]:
       # Debug logging
-      logger.info(f"🚀 A2A BINDING: Processing query with hybrid @observe + LangGraph tracing")
+      logger.info(f"🚀 A2A BINDING: Processing query with LangGraph tracing (a2a traces disabled)")
 
-      # Initialize Langfuse CallbackHandler for detailed LangGraph tracing
+      # Initialize Langfuse CallbackHandler for LangGraph tracing
       langfuse_handler = CallbackHandler()
 
       inputs = {'messages': [('user', query)]}
       config = {
         'configurable': {'thread_id': context_id},
-        'callbacks': [langfuse_handler]  # This captures LangGraph node execution details
+        'callbacks': [langfuse_handler]  # Captures LangGraph execution details
       }
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
@@ -69,7 +69,7 @@ class AIPlatformEngineerA2ABinding:
               }
 
       result = self.get_agent_response(config)
-      logger.info("🎯 LangGraph execution completed")
+      logger.info("🎯 LangGraph execution completed (clean traces without a2a noise)")
 
       yield result
 
