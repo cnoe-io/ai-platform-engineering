@@ -1,0 +1,21 @@
+[project]
+name = "agent-rag"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Sri Aradhyula",email = "sraradhy@cisco.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "beautifulsoup4 (>=4.13.4,<5.0.0)",
+    "langchain-community (>=0.3.26,<0.4.0)",
+    "langchain-text-splitters (>=0.3.8,<0.4.0)",
+    "langgraph (>=0.4.9,<0.5.0)",
+    "cnoe-agent-utils (>=0.1.4,<0.2.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
