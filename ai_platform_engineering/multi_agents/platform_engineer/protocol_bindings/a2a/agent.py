@@ -8,6 +8,10 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage
 
+from langfuse import Langfuse
+from langfuse import observe
+from langfuse.langchain import CallbackHandler
+
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt
 )
@@ -31,9 +35,19 @@ class AIPlatformEngineerA2ABinding:
   def __init__(self):
       self.graph = AIPlatformEngineerMAS().get_graph()
 
+  @observe(name="AI Platform Engineer - Multi Agent System")
   async def stream(self, query, context_id) -> AsyncIterable[dict[str, Any]]:
+      # Debug logging
+      logger.info(f"🚀 A2A BINDING: Processing query with hybrid @observe + LangGraph tracing")
+
+      # Initialize Langfuse CallbackHandler for detailed LangGraph tracing
+      langfuse_handler = CallbackHandler()
+
       inputs = {'messages': [('user', query)]}
-      config = {'configurable': {'thread_id': context_id}}
+      config = {
+        'configurable': {'thread_id': context_id},
+        'callbacks': [langfuse_handler]  # This captures LangGraph node execution details
+      }
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
@@ -54,7 +68,10 @@ class AIPlatformEngineerA2ABinding:
                   'content': 'Processing..',
               }
 
-      yield self.get_agent_response(config)
+      result = self.get_agent_response(config)
+      logger.info("🎯 LangGraph execution completed")
+
+      yield result
 
   def get_agent_response(self, config):
       current_state = self.graph.get_state(config)
