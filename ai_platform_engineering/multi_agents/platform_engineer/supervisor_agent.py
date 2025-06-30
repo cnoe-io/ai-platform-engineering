@@ -11,6 +11,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 
 from cnoe_agent_utils import LLMFactory
+from langfuse import observe
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt,
@@ -94,6 +95,7 @@ class AIPlatformEngineerMAS:
     logger.debug("LangGraph supervisor created and compiled successfully.")
     return graph
 
+  @observe(name="Supervisor Agent - Process Request")
   async def serve(self, prompt: str):
     """
     Processes the input prompt and returns a response from the graph.
