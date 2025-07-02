@@ -18,9 +18,19 @@ from mcp.server.fastmcp import FastMCP
 # Load environment variables first
 load_dotenv()
 
-'''from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import admin_key
+#used tools
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import attachments
+from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import blogposts
+from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import labels
+from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import pages
+from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import spaces
+from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import space_permissions
+from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import footer_comments
+from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import inline_comments
+
+
+'''from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import admin_key
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import attachments_id
 
@@ -37,8 +47,6 @@ from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import a
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import attachments_attachment_id_versions_version_number
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import attachments_id_footer_comments
-
-from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import blogposts
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import blogposts_id
 
@@ -80,15 +88,11 @@ from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import c
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import custom_content_custom_content_id_properties_property_id
 
-from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import labels
-
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import labels_id_attachments
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import labels_id_blogposts
 
-from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import labels_id_pages'''
-
-from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import pages
+from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import labels_id_pages
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import pages_id
 
@@ -112,7 +116,7 @@ from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import p
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import pages_id_versions
 
-'''from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import whiteboards
+from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import whiteboards
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import whiteboards_id
 
@@ -182,8 +186,6 @@ from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import c
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import custom_content_custom_content_id_versions_version_number
 
-from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import spaces
-
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import spaces_id
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import spaces_id_blogposts
@@ -204,8 +206,6 @@ from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import s
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import spaces_id_permissions
 
-from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import space_permissions
-
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import space_roles
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import space_roles_id
@@ -220,8 +220,6 @@ from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import b
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import blogposts_id_inline_comments
 
-from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import footer_comments
-
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import footer_comments_comment_id
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import footer_comments_id_children
@@ -235,8 +233,6 @@ from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import f
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import footer_comments_id_versions
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import footer_comments_id_versions_version_number
-
-from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import inline_comments
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import inline_comments_comment_id
 
@@ -305,8 +301,10 @@ def main():
     # Load environment variables
     load_dotenv()
 
-    # Configure logging
-    logging.basicConfig(level=logging.DEBUG)
+    # Configure logging - use LOG_LEVEL from environment or default to INFO
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    numeric_level = getattr(logging, log_level, logging.INFO)
+    logging.basicConfig(level=numeric_level)
 
     # Get MCP configuration from environment variables
     MCP_MODE = os.getenv("MCP_MODE", "STDIO")
@@ -328,7 +326,24 @@ def main():
       mcp = FastMCP("CONFLUENCE MCP Server")
 
 
-    '''# Register admin_key tools
+    # Used tools registration
+    mcp.tool()(attachments.get_attachments)
+    mcp.tool()(blogposts.get_blog_posts)
+    mcp.tool()(blogposts.create_blog_post)
+    mcp.tool()(labels.get_content_labels)
+    mcp.tool()(labels.add_labels_to_content)
+    mcp.tool()(pages.get_pages)
+    mcp.tool()(pages.create_page)
+    mcp.tool()(spaces.get_spaces)
+    mcp.tool()(spaces.create_space)
+    mcp.tool()(space_permissions.get_available_space_permissions)
+    mcp.tool()(footer_comments.get_footer_comments)
+    mcp.tool()(footer_comments.create_footer_comment)
+    mcp.tool()(inline_comments.get_inline_comments)
+    mcp.tool()(inline_comments.create_inline_comment)
+
+    '''
+    # Register admin_key tools
 
     mcp.tool()(admin_key.get_admin_key)
 
@@ -338,7 +353,6 @@ def main():
 
     # Register attachments tools
 
-    mcp.tool()(attachments.get_attachments)
 
     # Register attachments_id tools
 
@@ -382,9 +396,7 @@ def main():
 
     # Register blogposts tools
 
-    mcp.tool()(blogposts.get_blog_posts)
 
-    mcp.tool()(blogposts.create_blog_post)
 
     # Register blogposts_id tools
 
@@ -490,7 +502,6 @@ def main():
 
     # Register labels tools
 
-    mcp.tool()(labels.get_labels)
 
     # Register labels_id_attachments tools
 
@@ -502,13 +513,11 @@ def main():
 
     # Register labels_id_pages tools
 
-    mcp.tool()(labels_id_pages.get_label_pages)'''
+    mcp.tool()(labels_id_pages.get_label_pages)
 
     # Register pages tools
 
-    mcp.tool()(pages.get_pages)
 
-    mcp.tool()(pages.create_page)
 
     # Register pages_id tools
 
@@ -564,7 +573,7 @@ def main():
 
     mcp.tool()(pages_id_versions.get_page_versions)
 
-    '''# Register whiteboards tools
+    # Register whiteboards tools
 
     mcp.tool()(whiteboards.create_whiteboard)
 
@@ -738,9 +747,7 @@ def main():
 
     # Register spaces tools
 
-    mcp.tool()(spaces.get_spaces)
 
-    mcp.tool()(spaces.create_space)
 
     # Register spaces_id tools
 
@@ -790,7 +797,6 @@ def main():
 
     # Register space_permissions tools
 
-    mcp.tool()(space_permissions.get_available_space_permissions)
 
     # Register space_roles tools
 
@@ -824,9 +830,7 @@ def main():
 
     # Register footer_comments tools
 
-    mcp.tool()(footer_comments.get_footer_comments)
 
-    mcp.tool()(footer_comments.create_footer_comment)
 
     # Register footer_comments_comment_id tools
 
@@ -862,9 +866,7 @@ def main():
 
     # Register inline_comments tools
 
-    mcp.tool()(inline_comments.get_inline_comments)
 
-    mcp.tool()(inline_comments.create_inline_comment)
 
     # Register inline_comments_comment_id tools
 

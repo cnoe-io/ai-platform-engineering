@@ -18,9 +18,11 @@ load_dotenv()
 
 
 
-# Configure logging
+# Configure logging - use LOG_LEVEL from environment or default to INFO
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+numeric_level = getattr(logging, log_level, logging.INFO)
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=numeric_level,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
 )
 logger = logging.getLogger("confluence_mcp")
@@ -76,7 +78,8 @@ async def make_api_request(
 
     headers = {
         "Authorization": f"Basic {encoded_auth}",
-        "Accept": "application/json"
+        "Accept": "application/json",
+        "Content-Type": "application/json"
     }
 
 
@@ -87,7 +90,10 @@ async def make_api_request(
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            url = f"{url}/{path}"
+            # Construct URL, avoiding double slashes
+            base_url = url.rstrip('/')
+            clean_path = path.lstrip('/')
+            url = f"{base_url}/{clean_path}"
             logger.debug(f"Full request URL: {url}")
 
             method_map = {
@@ -103,6 +109,7 @@ async def make_api_request(
                 return (False, {"error": f"Unsupported method: {method}"})
 
             if method in ["POST", "PUT", "PATCH"]:
+                logger.info(f"Sending {method} request to {url} with JSON data: {data}")
                 response = await method_map[method](
                     url,
                     headers=headers,
@@ -110,6 +117,7 @@ async def make_api_request(
                     json=data
                 )
             else:
+                logger.info(f"Sending {method} request to {url}")
                 response = await method_map[method](
                     url,
                     headers=headers,
@@ -123,11 +131,22 @@ async def make_api_request(
                 if response.status_code == 204:
                     logger.debug("Request successful (204 No Content)")
                     return (True, {"status": "success"})
-                try:
-                    return (True, response.json())
-                except ValueError:
-                    logger.warning("Request successful but could not parse JSON response")
-                    return (True, {"status": "success", "raw_response": response.text})
+                
+                # Try to parse JSON response
+                content_type = response.headers.get('content-type', '').lower()
+                if 'application/json' in content_type:
+                    try:
+                        return (True, response.json())
+                    except ValueError:
+                        logger.debug("Response claimed to be JSON but could not parse - using raw text")
+                        return (True, {"status": "success", "raw_response": response.text})
+                else:
+                    # Non-JSON content type, this is expected for some endpoints
+                    logger.debug(f"Non-JSON response received (Content-Type: {content_type})")
+                    if response.text.strip():
+                        return (True, {"status": "success", "raw_response": response.text})
+                    else:
+                        return (True, {"status": "success"})
             else:
                 error_message = f"API request failed: {response.status_code}"
                 try:

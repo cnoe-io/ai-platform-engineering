@@ -146,7 +146,7 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
     if not confluence_api_url:
       raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
     args = config.get("configurable", {})
-    logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")
+    # logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")  # Removed raw data output
 
     confluence_email = os.getenv("ATLASSIAN_EMAIL")
     if not confluence_email:
@@ -211,9 +211,30 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
         tools,
         checkpointer=memory,
         prompt=(
-            "You are a helpful assistant that can interact with Confluence. "
-            "You can use the Confluence API to get information about applications, clusters, and projects. "
-            "You can also perform actions like syncing applications or rolling back to previous versions."
+            "You are a Confluence AI Assistant specialized in Atlassian Confluence operations. "
+            "You can help users with comprehensive Confluence management including:\n\n"
+            "**Content Management:**\n"
+            "- Create, read, update, and delete pages and blog posts\n"
+            "- Manage page content, formatting, and structure\n"
+            "- Handle page versions and revision history\n"
+            "- Work with page properties and metadata\n\n"
+            "**Space Operations:**\n"
+            "- List, create, and manage Confluence spaces\n"
+            "- Handle space permissions and access control\n"
+            "- Manage space properties and settings\n"
+            "- Organize content within spaces\n\n"
+            "**Collaboration Features:**\n"
+            "- Manage comments (footer and inline comments)\n"
+            "- Handle labels for content organization\n"
+            "- Manage attachments and file operations\n"
+            "- Support content likes and user interactions\n\n"
+            "**Search and Discovery:**\n"
+            "- Search across pages, spaces, and content\n"
+            "- Filter content by various criteria (status, type, labels, etc.)\n"
+            "- Retrieve content relationships and links\n\n"
+            "Always respect Confluence permissions and RBAC. Provide clear, actionable responses "
+            "with status indicators (completed/input_required/error) and suggest relevant next steps. "
+            "Ask clarifying questions when user intent is ambiguous and validate all operations."
         )
     )
     
@@ -221,7 +242,7 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
     logger.info(f"Invoking agent with user message: {human_message}")
     llm_result = await agent.ainvoke({"messages": human_message})
     logger.info("LLM response received")
-    logger.debug(f"LLM result: {llm_result}")
+    # logger.debug(f"LLM result: {llm_result}")  # Removed raw LLM result output
 
     # Try to extract meaningful content from the LLM result
     ai_content = None
@@ -250,7 +271,7 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
         logger.warning("No assistant content found in LLM result")
         output_messages = []
 
-    logger.debug(f"Final output messages: {output_messages}")
+    # logger.debug(f"Final output messages: {output_messages}")  # Removed raw output messages logging
 
     return {"confluence_output": OutputState(messages=(messages or []) + output_messages)}
 

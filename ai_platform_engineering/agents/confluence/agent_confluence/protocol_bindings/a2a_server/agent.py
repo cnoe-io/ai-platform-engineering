@@ -44,19 +44,14 @@ class ResponseFormat(BaseModel):
 class ConfluenceAgent:
     """Confluence Agent."""
 
-    SYSTEM_INSTRUCTION = (
-      'You are an expert assistant for managing Confluence resources. '
-      'Your sole purpose is to help users perform CRUD (Create, Read, Update, Delete) operations on Confluence applications, '
-      'projects, and related resources. Always use the available Confluence tools to interact with the Confluence API and provide '
-      'accurate, actionable responses. If the user asks about anything unrelated to Confluence or its resources, politely state '
-      'that you can only assist with Confluence operations. Do not attempt to answer unrelated questions or use tools for other purposes.'
-    )
+    SYSTEM_INSTRUCTION = """You are a helpful assistant that can interact with Confluence.
+    You can use the Confluence API to get information about pages, spaces, and blog posts.
+    You can also perform actions like creating, reading, updating, or deleting Confluence content.
+    If the user asks about anything unrelated to Confluence, politely state that you can only assist with Confluence operations."""
 
-    RESPONSE_FORMAT_INSTRUCTION: str = (
-        'Select status as completed if the request is complete'
-        'Select status as input_required if the input is a question to the user'
-        'Set response status to error if the input indicates an error'
-    )
+    RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.
+    Select status as input_required if the input is a question to the user.
+    Set response status to error if the input indicates an error."""
 
     def __init__(self):
       # Setup the math agent and load MCP tools
@@ -66,7 +61,7 @@ class ConfluenceAgent:
           args = config.get("configurable", {})
 
           server_path = args.get("server_path", "./agent_confluence/protocol_bindings/mcp_server/mcp_confluence/server.py")
-          print(f"Launching MCP server at: {server_path}")
+          logger.info(f"Launching MCP server at: {server_path}")
 
           confluence_token = os.getenv("ATLASSIAN_TOKEN")
           if not confluence_token:
@@ -90,27 +85,25 @@ class ConfluenceAgent:
               }
           )
           tools = await client.get_tools()
-          print('*'*80)
-          print("Available Tools and Parameters:")
+          logger.debug('*'*80)
+          logger.debug("Available Tools and Parameters:")
           for tool in tools:
-            print(f"Tool: {tool.name}")
-            print(f"  Description: {tool.description.strip().splitlines()[0]}")
+            logger.debug(f"Tool: {tool.name}")
+            logger.debug(f"  Description: {tool.description.strip().splitlines()[0]}")
             params = tool.args_schema.get('properties', {})
             if params:
-              print("  Parameters:")
+              logger.debug("  Parameters:")
               for param, meta in params.items():
                 param_type = meta.get('type', 'unknown')
                 param_title = meta.get('title', param)
                 default = meta.get('default', None)
-                print(f"    - {param} ({param_type}): {param_title}", end='')
                 if default is not None:
-                  print(f" [default: {default}]")
+                  logger.debug(f"    - {param} ({param_type}): {param_title} [default: {default}]")
                 else:
-                  print()
+                  logger.debug(f"    - {param} ({param_type}): {param_title}")
             else:
-              print("  Parameters: None")
-            print()
-          print('*'*80)
+              logger.debug("  Parameters: None")
+          logger.debug('*'*80)
           self.graph = create_react_agent(
             self.model,
             tools,
@@ -145,16 +138,16 @@ class ConfluenceAgent:
 
           # Return response
           if ai_content:
-              print("Assistant generated response")
+              logger.info("Assistant generated response")
               output_messages = [Message(type=MsgType.assistant, content=ai_content)]
           else:
               logger.warning("No assistant content found in LLM result")
               output_messages = []
 
-          # Add a banner before printing the output messages
-          print("=" * 80)
-          print(f"Agent MCP Capabilities: {output_messages[-1].content}")
-          print("=" * 80)
+          # Log the capabilities (reduced verbosity)
+          if output_messages:
+              logger.info("Agent MCP Capabilities response generated")
+              logger.debug(f"Agent MCP Capabilities: {output_messages[-1].content}")  # Only in debug mode
 
       def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           return asyncio.run(_async_confluence_agent(state, config))
@@ -164,13 +157,13 @@ class ConfluenceAgent:
       runnable_config = RunnableConfig()
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
-          messages.append(HumanMessage(content="What is 2 + 2?"))
+          messages.append(HumanMessage(content="Show available Confluence tools"))
       _create_agent(agent_input, config=runnable_config)
 
     async def stream(
       self, query: str, context_id: str | None = None
     ) -> AsyncIterable[dict[str, Any]]:
-      print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
+      logger.debug(f"Starting stream with query: {query} and context_id: {context_id}")
       # Use the context_id as the thread_id, or generate a new one if none provided
       thread_id = context_id or uuid.uuid4().hex
       inputs: dict[str, Any] = {'messages': [('user', query)]}
@@ -178,9 +171,9 @@ class ConfluenceAgent:
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
-          print('*'*80)
-          print("DEBUG: Streamed message:", message)
-          print('*'*80)
+          logger.debug('*'*80)
+          logger.debug(f"Streamed message: {message}")
+          logger.debug('*'*80)
           if (
               isinstance(message, AIMessage)
               and message.tool_calls
@@ -200,36 +193,36 @@ class ConfluenceAgent:
 
       yield self.get_agent_response(config)
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
-      print("DEBUG: Fetching agent response with config:", config)
+      logger.debug(f"Fetching agent response with config: {config}")
       current_state = self.graph.get_state(config)
-      print('*'*80)
-      print("DEBUG: Current state:", current_state)
-      print('*'*80)
+      logger.debug('*'*80)
+      logger.debug(f"Current state: {current_state}")
+      logger.debug('*'*80)
 
       structured_response = current_state.values.get('structured_response')
-      print('='*80)
-      print("DEBUG: Structured response:", structured_response)
-      print('='*80)
+      logger.debug('='*80)
+      logger.debug(f"Structured response: {structured_response}")
+      logger.debug('='*80)
       if structured_response and isinstance(
         structured_response, ResponseFormat
       ):
-        print("DEBUG: Structured response is a valid ResponseFormat")
+        logger.debug("Structured response is a valid ResponseFormat")
         if structured_response.status in {'input_required', 'error'}:
-          print("DEBUG: Status is input_required or error")
+          logger.debug("Status is input_required or error")
           return {
             'is_task_complete': False,
             'require_user_input': True,
             'content': structured_response.message,
           }
         if structured_response.status == 'completed':
-          print("DEBUG: Status is completed")
+          logger.debug("Status is completed")
           return {
             'is_task_complete': True,
             'require_user_input': False,
             'content': structured_response.message,
           }
 
-      print("DEBUG: Unable to process request, returning fallback response")
+      logger.debug("Unable to process request, returning fallback response")
       return {
         'is_task_complete': False,
         'require_user_input': True,
