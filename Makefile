@@ -82,7 +82,9 @@ lint: setup-venv ## Lint the code using Ruff
 
 ## ========== Test ==========
 
-test: setup-venv ## Run tests using pytest
+test: setup-venv install ## Install dependencies and run tests using pytest
+	@echo "Installing ai_platform_engineering, agents, and argocd..."
+	@poetry add ./ai_platform_engineering/agents/argocd --no-interaction --group unittest
 	@echo "Running tests..."
 	@poetry run pytest
 
