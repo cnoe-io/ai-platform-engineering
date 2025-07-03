@@ -9,12 +9,11 @@ COPY README.md /app/
 # Install poetry
 RUN pip install poetry
 
-RUN poetry config virtualenvs.create true
-RUN poetry config virtualenvs.in-project true
+RUN poetry config virtualenvs.create false
+RUN poetry config virtualenvs.in-project false
+RUN poetry config installer.parallel true
 RUN poetry config cache-dir /app/.cache
 RUN poetry config virtualenvs.path /app/.venv
-
-RUN poetry build
 
 RUN poetry install --no-interaction
 
