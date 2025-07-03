@@ -17,7 +17,7 @@ from ai_platform_engineering.mas.platform_engineer.prompts import (
   response_format_instruction
 )
 
-from ai_platform_engineering.agents.argocd.agent import argocd_agent
+from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_agent
 from ai_platform_engineering.agents.atlassian.agent import atlassian_agent
 from ai_platform_engineering.agents.pagerduty.agent import pagerduty_agent
 from ai_platform_engineering.agents.github.agent import github_agent

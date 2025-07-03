@@ -2,7 +2,7 @@ from langchain.prompts import PromptTemplate
 import yaml
 import os
 
-from ai_platform_engineering.agents.argocd.a2a_agentcards import (
+from ai_platform_engineering.agents.argocd.a2a_agent_client.agentcard import (
   argocd_agent_card,
   argocd_agent_skill
 )
@@ -74,21 +74,6 @@ skills_prompt = PromptTemplate(
         "User Prompt: {user_prompt}\nDetermine the appropriate agent to handle the request based on the system's capabilities."
     )
 )
-
-
-# Generate system prompt dynamically based on tools and their tasks
-def generate_system_prompt(tools):
-  tool_instructions = []
-  for tool_name, tasks in tools.items():
-    tasks_str = ", ".join(tasks)
-    instruction = f"""
-{tool_name}:
-  If the user's prompt is related to {tool_name.lower()} operations, such as {tasks_str},
-  assign the task to the {tool_name} agent.
-"""
-    tool_instructions.append(instruction.strip())
-
-  tool_instructions_str = "\n\n".join(tool_instructions)
 
 # Generate system prompt dynamically based on tools and their tasks
 def generate_system_prompt(tools):

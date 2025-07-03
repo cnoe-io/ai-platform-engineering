@@ -1,0 +1,74 @@
+name: Agent Parallel A2A Docker Build and Push
+
+on:
+  push:
+    paths:
+      - 'ai_platform_engineering/agents/**'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        agent: ${{ fromJson('["argocd", "atlassian", "github", "pagerduty", "slack", "backstage"]') }}
+      fail-fast: false
+
+    steps:
+      - name: Determine changed agents
+        id: changed_agents
+        run: |
+          agents=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^ai_platform_engineering/agents/' | cut -d'/' -f3 | sort | uniq)
+          echo "changed_agents=$(echo \"$agents\" | jq -R -s -c 'split("\n")[:-1]')" >> $GITHUB_ENV
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
+      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+
+    steps:
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
+        with:
+          egress-policy: audit
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=a2a-latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,prefix=a2a-
+            type=ref,event=tag,prefix=a2a-
+            type=sha,format=short,prefix=a2a-
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Push A2A Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.AGENT_DIR }}
+          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
+          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

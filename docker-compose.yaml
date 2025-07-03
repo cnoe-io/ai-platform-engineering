@@ -26,7 +26,8 @@ services:
       - PAGERDUTY_AGENT_PORT=8000
       - SLACK_AGENT_HOST=agent-slack
       - SLACK_AGENT_PORT=8000
-
+      - BACKSTAGE_AGENT_HOST=agent-backstage
+      - BACKSTAGE_AGENT_PORT=8000
     volumes:
       - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
@@ -38,7 +39,6 @@ services:
     container_name: agent-argocd
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering:/app/ai_platform_engineering
     ports:
       # Expose the ArgoCD agent on port 8080
       - "8001:8000"
@@ -48,7 +48,6 @@ services:
     container_name: agent-atlassian
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering:/app/ai_platform_engineering
     ports:
       # Expose the Atlassian agent on port 8002
       - "8002:8000"
@@ -59,7 +58,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
-      - ./ai_platform_engineering:/app/ai_platform_engineering
     ports:
       # Expose the GitHub agent on port 8003
       - "8003:8000"
@@ -69,7 +67,6 @@ services:
     container_name: agent-pagerduty
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering:/app/ai_platform_engineering
     ports:
       # Expose the PagerDuty agent on port 8004
       - "8004:8000"
@@ -79,7 +76,6 @@ services:
     container_name: agent-slack
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering:/app/ai_platform_engineering
     ports:
       # Expose the Slack agent on port 8005
       - "8005:8000"
@@ -104,5 +100,4 @@ services:
       # Expose the Backstage agent on port 8006
       - "8006:8000"
     environment:
-      - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
-      - BACKSTAGE_URL=${BACKSTAGE_URL}
+      - ./.env:/app/.env
