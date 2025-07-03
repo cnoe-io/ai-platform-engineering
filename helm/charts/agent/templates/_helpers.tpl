@@ -100,7 +100,7 @@ Determine external secret names - global takes precedence
 {{- .Values.global.externalSecrets.secretNames -}}
 {{- else -}}
 {{- if .Values.global.externalSecrets.enabled -}}
-{{- list "llm-secret" (include "agent.name" .) -}}
+{{- list "llm-secret" (printf "%s-secret" (include "agent.name" .)) -}}
 {{- else -}}
 {{- list -}}
 {{- end -}}

@@ -186,3 +186,6 @@ a2a-python
 
 # LangGraph Server
 .langgraph_api/
+
+# helm chart
+helm/values-secrets.yaml
