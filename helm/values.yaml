@@ -1,43 +1,48 @@
-# Global agent configuration (applied to all agents)
-global:
-  externalSecrets:
-    enabled: false
-  ingress:
-    enabled: false
-
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
   enabled: true
   nameOverride: "agent-argocd"
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
+  secrets:
+    secretName: "" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-pagerduty:
   enabled: true
   nameOverride: "agent-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
+  secrets:
+    secretName: "" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-github:
   enabled: false
   nameOverride: "agent-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
+  secrets:
+    secretName: "" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-atlassian:
   enabled: false
   nameOverride: "agent-atlassian"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
+  secrets:
+    secretName: "" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-backstage:
   enabled: false
   nameOverride: "agent-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
+  secrets:
+    secretName: "" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-slack:
   enabled: false
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
+  secrets:
+    secretName: "" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml

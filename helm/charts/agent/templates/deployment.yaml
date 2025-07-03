@@ -45,8 +45,8 @@ spec:
               containerPort: {{ .Values.service.port }}
               protocol: TCP
           envFrom:
-            {{- if .Values.global.externalSecrets.enabled }}
-            {{- range .Values.externalSecrets.secretNames }}
+            {{- if include "agent.externalSecrets.enabled" . | eq "true" }}
+            {{- range include "agent.externalSecrets.secretNames" . | fromYaml }}
             - secretRef:
                 name: {{ . }}
             {{- end }}
