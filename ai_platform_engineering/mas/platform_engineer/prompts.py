@@ -2,7 +2,7 @@ from langchain.prompts import PromptTemplate
 import yaml
 import os
 
-from ai_platform_engineering.agents.argocd.a2a_client.agentcard import (
+from ai_platform_engineering.agents.argocd.a2a_agent_client.agentcard import (
   argocd_agent_card,
   argocd_agent_skill
 )

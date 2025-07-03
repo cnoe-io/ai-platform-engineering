@@ -4,7 +4,7 @@
 from langgraph.prebuilt import create_react_agent
 from cnoe_agent_utils import LLMFactory
 
-from ai_platform_engineering.agents.argocd.a2a_agentcards import (
+from ai_platform_engineering.agents.argocd.a2a_agent_client.agentcard import (
     ARGOCD_AGENT_DESCRIPTION,
     argocd_agent_card,
     argocd_agent_skill,
