@@ -129,15 +129,20 @@ Enable observability and evaluation with Langfuse v3:
 
 2. **Start with tracing enabled**
    ```bash
+   docker-compose down
    docker-compose --profile tracing up
    ```
 
 3. **Access Langfuse dashboard** at `http://localhost:3000` and create an account and apply for API key
 
-4. **Configure Langfuse keys in `.env`**
+4. **Configure Langfuse keys in `.env` and rebuild the platform-engineer**
    ```bash
    LANGFUSE_PUBLIC_KEY=your-public-key
    LANGFUSE_SECRET_KEY=your-secret-key
+   ```
+
+   ```bash
+   docker-compose --profile tracing build ai-platform-engineer-tracing
    ```
 
 5. **Add LLM keys for evaluator in Langfuse settings** for automated trace analysis

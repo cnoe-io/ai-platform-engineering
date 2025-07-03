@@ -1,10 +1,49 @@
 services:
-  # AI Platform Engineer Multi-Agent System
+  # AI Platform Engineer Multi-Agent System (stable image)
   ai-platform-engineer:
+    image: ghcr.io/cnoe-io/ai-platform-engineering:stable
+    container_name: platform-engineer
+    depends_on:
+      - agent-argocd
+      - agent-atlassian
+      - agent-pagerduty
+      - agent-github
+      - agent-slack
+    env_file:
+      - .env
+    ports:
+      # Expose the AI Platform Engineer agent on port 8000
+      - "8000:8000"
+    environment:
+      - AGENT_PROTOCOL=a2a
+      - ARGOCD_AGENT_HOST=agent-argocd
+      - ARGOCD_AGENT_PORT=8000
+      - ATLASSIAN_AGENT_HOST=agent-atlassian
+      - ATLASSIAN_AGENT_PORT=8000
+      - GITHUB_AGENT_HOST=agent-github
+      - GITHUB_AGENT_PORT=8000
+      - PAGERDUTY_AGENT_HOST=agent-pagerduty
+      - PAGERDUTY_AGENT_PORT=8000
+      - SLACK_AGENT_HOST=agent-slack
+      - SLACK_AGENT_PORT=8000
+      # Uncomment this once the stable GHCR image includes tracing evaluation support
+      # - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      # - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      # - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      # - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
+      # - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+    command: platform-engineer
+
+  # AI Platform Engineer Multi-Agent System (local build for tracing)
+  # TODO: Remove this local build service once the stable GHCR image includes tracing evaluation support
+  ai-platform-engineer-tracing:
     build:
       context: .
       dockerfile: build/Dockerfile
     container_name: platform-engineer
+    profiles:
+      - tracing
     depends_on:
       - agent-argocd
       - agent-atlassian
