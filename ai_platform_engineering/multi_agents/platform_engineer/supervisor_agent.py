@@ -12,7 +12,7 @@ from langgraph.store.memory import InMemoryStore
 
 from cnoe_agent_utils import LLMFactory
 
-from ai_platform_engineering.mas.platform_engineer.prompts import (
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt,
   response_format_instruction
 )

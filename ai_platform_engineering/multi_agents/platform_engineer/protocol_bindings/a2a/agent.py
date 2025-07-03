@@ -8,10 +8,10 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from ai_platform_engineering.mas.platform_engineer.prompts import (
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt
 )
-from ai_platform_engineering.mas.platform_engineer.supervisor_agent import (
+from ai_platform_engineering.multi_agents.platform_engineer.supervisor_agent import (
   AIPlatformEngineerMAS,
 )
 from ai_platform_engineering.utils.models.generic_agent import (
