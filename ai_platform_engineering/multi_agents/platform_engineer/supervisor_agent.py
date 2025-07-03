@@ -3,13 +3,12 @@
 
 import logging
 import uuid
-
+import os
 from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph_supervisor import create_supervisor
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
-
 from cnoe_agent_utils import LLMFactory
 
 # Conditional langfuse import based on ENABLE_TRACING
