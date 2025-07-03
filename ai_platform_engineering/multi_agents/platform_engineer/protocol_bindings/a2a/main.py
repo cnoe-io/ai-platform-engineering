@@ -7,7 +7,7 @@ import httpx
 
 from starlette.middleware.cors import CORSMiddleware
 
-from ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.agent_executor import AIPlatformEngineerA2AExecutor # type: ignore[import-untyped]
+from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import AIPlatformEngineerA2AExecutor # type: ignore[import-untyped]
 from dotenv import load_dotenv
 
 from a2a.server.apps import A2AStarletteApplication
@@ -20,7 +20,7 @@ from a2a.types import (
 )
 
 
-from ai_platform_engineering.mas.platform_engineer.prompts import (
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   agent_name,
   agent_description,
   agent_skill_examples

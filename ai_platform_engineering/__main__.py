@@ -31,7 +31,7 @@ def platform_engineer(ctx):
   if agent_protocol == "fastapi":
     logging.info(f"Starting FastAPI server on {host}:{port or AGENT_PORT}")
     uvicorn.run(
-      "ai_platform_engineering.mas.platform_engineer.protocol_bindings.fastapi.main:app",
+      "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.fastapi.main:app",
       host=host,
       port=port or AGENT_PORT,
       reload=True)
@@ -39,7 +39,7 @@ def platform_engineer(ctx):
     logging.info(f"Starting A2A server on {host}:{port or AGENT_PORT}")
 
     uvicorn.run(
-      "ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.main:app",
+      "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app",
       host=host,
       port=port or AGENT_PORT)
   else:

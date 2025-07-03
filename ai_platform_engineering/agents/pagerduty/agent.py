@@ -9,7 +9,7 @@ from ai_platform_engineering.agents.pagerduty.a2a_agentcards import (
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
-from ai_platform_engineering.mas.platform_engineer.prompts import get_agent_system_prompt
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import get_agent_system_prompt
 
 model = LLMFactory().get_llm()
 

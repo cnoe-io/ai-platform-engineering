@@ -13,7 +13,7 @@ from a2a.types import (
 
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 
-from ai_platform_engineering.mas.platform_engineer.protocol_bindings.a2a.agent import (
+from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
   AIPlatformEngineerA2ABinding
 )
 
