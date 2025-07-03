@@ -33,6 +33,8 @@ jobs:
       - name: Install dependencies
         run: |
           poetry install --with dev
+          echo "Installing ai_platform_engineering, agents, and argocd..."
+          poetry add ./ai_platform_engineering/agents/argocd --no-interaction
       - name: Run tests
         run: |
           make test
