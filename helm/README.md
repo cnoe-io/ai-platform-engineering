@@ -52,7 +52,8 @@ Fill in the file with your preferred LLM provider configuration and add details 
 
 #### Option 2: Use Existing Secrets
 
-If you already have existing Kubernetes secrets that contains required secrets (you can check this in `values-secrets.yaml.example`), add the secrets names in `values.yaml` for each agent e.g.
+If you already have existing Kubernetes secrets that contain the required secrets (you can check these in `values-secrets.yaml.example`), add the secret names in `values.yaml` for each agent:
+
 ```yaml
 agent-argocd:
   enabled: true
@@ -60,30 +61,34 @@ agent-argocd:
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
   secrets:
-    secretName: "<YOUR EXISTING SECRET NAME>" <- fill this in
+    secretName: "[YOUR_EXISTING_SECRET_NAME]" # Replace with your secret name
 ```
 
 #### Option 3 [Recommended]: Use External Secrets Management
 
-You can use our `external-secrets-configuration` included in this chart. You can use the provided example as a template:
+You can use our `external-secrets-configuration` included in this chart. Use the provided example as a template:
+
 ```bash
 cp values-external-secrets.yaml.example values-external-secrets.yaml
 ```
-and modify to work with your preferred secret store.
+
+Then modify it to work with your preferred secret store.
 
 ## Deployment Options
 
 ### Option 1: Simple Deployment (Port-Forward Access)
 
-This is the simplest way to deploy and access your ArgoCD agent.
+This is the simplest way to deploy and access your AI Platform Engineering agents.
 
 #### Deploy the Chart
 
 ```bash
 # Option 1: Using directly configured secrets
 helm install ai-platform-engineering . --values values-secrets.yaml
-# Option 2: Using existing kubernetes secrets (only requires default values.yaml)
+
+# Option 2: Using existing Kubernetes secrets (only requires default values.yaml)
 helm install ai-platform-engineering .
+
 # Option 3: Using external secrets management
 helm install ai-platform-engineering . --values values-external-secrets.yaml
 ```
@@ -99,18 +104,19 @@ Wait for the pod to be in `Running` state and `1/1` ready.
 
 #### Access the Application
 
-Set up port forwarding for each running agents:
+Set up port forwarding for each running agent:
+
 ```bash
-kubectl port-forward service/ai-platform-engineering-agent-<agent-type> <your local port>:8000
+kubectl port-forward service/ai-platform-engineering-agent-[AGENT_NAME] [LOCAL_PORT]:8000
 ```
 
-Your agents will be available at: `http://localhost:<your local port>`
+Your agents will be available at: `http://localhost:[LOCAL_PORT]`
 
 #### Using with Agent Chat CLI
 
 ```bash
 # Install and use the agent chat CLI
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a --host localhost --port <your local port>
+uvx https://github.com/cnoe-io/agent-chat-cli.git a2a --host localhost --port [LOCAL_PORT]
 ```
 
 ### Option 2: Ingress Deployment (Domain Access)
@@ -143,31 +149,32 @@ ingress:
 #### Deploy with Ingress
 
 ```bash
-helm install ai-platform-engineering . --values <existing values file for your secret> --values values-ingress.yaml
+helm install ai-platform-engineering . --values [EXISTING_VALUES_FILE] --values values-ingress.yaml
 ```
 
 Or upgrade if already deployed:
+
 ```bash
-helm upgrade ai-platform-engineering . --values <existing values file for your secret> --values values-ingress.yaml
+helm upgrade ai-platform-engineering . --values [EXISTING_VALUES_FILE] --values values-ingress.yaml
 ```
 
 #### Configure Local DNS
 
-Add the minikube IP to your `/etc/hosts` file:
+Add the Minikube IP to your `/etc/hosts` file:
 
 ```bash
-# Get minikube IP
+# Get Minikube IP
 minikube ip
 
-# Add to /etc/hosts (replace with your minikube IP)
-echo "$(minikube ip) agent-<your agent>.local" | sudo tee -a /etc/hosts
+# Add to /etc/hosts (replace with your Minikube IP)
+echo "$(minikube ip) agent-[AGENT_NAME].local" | sudo tee -a /etc/hosts
 ```
 
 #### Verify Ingress
 
 ```bash
 kubectl get ingress
-curl -i http://agent-<your agent>.local
+curl -i http://agent-[AGENT_NAME].local
 ```
 
 You should see a `405 Method Not Allowed` response, which is expected (the agent only accepts POST requests).
@@ -176,17 +183,19 @@ You should see a `405 Method Not Allowed` response, which is expected (the agent
 
 ```bash
 # Use the domain name instead of localhost
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a --host agent-pagerduty.local --port 80
+uvx https://github.com/cnoe-io/agent-chat-cli.git a2a --host agent-[AGENT_NAME].local --port 80
 ```
 
 ### Uninstall
+
 ```bash
 helm uninstall ai-platform-engineering
 ```
 
 ### Clean up /etc/hosts (if using ingress)
+
 ```bash
-sudo sed -i '/agent-<your agent>.local/d' /etc/hosts
+sudo sed -i '/agent-[AGENT_NAME].local/d' /etc/hosts
 ```
 
 ## Security Notes
