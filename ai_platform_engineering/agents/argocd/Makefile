@@ -110,7 +110,7 @@ langgraph-dev: setup-venv ## Run LangGraph dev mode
 ## ========== Evals ==========
 evals: setup-venv ## Run agentevals with test cases
 	@$(venv-run) uv add agentevals tabulate pytest
-	@$(venv-run) uv run evals/strict_match/test_strict_match.py
+	@$(venv-run) uv run evals/strict_match/eval_strict_match.py
 
 ## ========== Docker ==========
 
