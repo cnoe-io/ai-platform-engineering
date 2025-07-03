@@ -14,15 +14,8 @@ jobs:
 
     strategy:
       matrix:
-        agent: ${{ fromJson('["argocd", "atlassian", "github", "pagerduty", "slack", "backstage"]') }}
+        agent: [argocd, atlassian, github, pagerduty, slack, backstage]
       fail-fast: false
-
-    steps:
-      - name: Determine changed agents
-        id: changed_agents
-        run: |
-          agents=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^ai_platform_engineering/agents/' | cut -d'/' -f3 | sort | uniq)
-          echo "changed_agents=$(echo \"$agents\" | jq -R -s -c 'split("\n")[:-1]')" >> $GITHUB_ENV
 
     env:
       REGISTRY: ghcr.io
@@ -34,6 +27,7 @@ jobs:
         uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
         with:
           egress-policy: audit
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
