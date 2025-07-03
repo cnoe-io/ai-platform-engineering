@@ -2,14 +2,14 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "ai-platform-engineer.fullname" . }}
+  name: {{ include "agent.fullname" . }}
   labels:
-    {{- include "ai-platform-engineer.labels" . | nindent 4 }}
+    {{- include "agent.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "ai-platform-engineer.fullname" . }}
+    name: {{ include "agent.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:

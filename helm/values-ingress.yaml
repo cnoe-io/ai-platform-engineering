@@ -1,0 +1,78 @@
+global:
+  ingress:
+    className: nginx
+    annotations: {}
+      # kubernetes.io/ingress.class: "nginx"
+      # kubernetes.io/tls-acme: "true"
+
+agent-argocd:
+  ingress:
+    hosts:
+      - host: agent-argocd.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: agent-argocd-tls
+      #   hosts:
+      #     - agent-argocd.local
+
+agent-pagerduty:
+  ingress:
+    hosts:
+      - host: agent-pagerduty.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: agent-pagerduty-tls
+      #   hosts:
+      #     - agent-pagerduty.local
+
+agent-github:
+  ingress:
+    hosts:
+      - host: agent-github.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: agent-github-tls
+      #   hosts:
+      #     - agent-github.local
+
+agent-atlassian:
+  ingress:
+    hosts:
+      - host: agent-atlassian.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: agent-atlassian-tls
+      #   hosts:
+      #     - agent-atlassian.local
+
+agent-backstage:
+  ingress:
+    hosts:
+      - host: agent-backstage.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: agent-backstage-tls
+      #   hosts:
+      #     - agent-backstage.local
+
+agent-slack:
+  ingress:
+    hosts:
+      - host: agent-slack.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: agent-slack-tls
+      #   hosts:
+      #     - agent-slack.local
