@@ -52,8 +52,15 @@ spec:
             {{- end }}
             {{- else }}
             # Traditional secret handling when external secrets are disabled
+            {{- if .Values.secrets.secretName }}
             - secretRef:
-                name: {{ .Values.secrets.secretName | default (printf "%s-secret" (include "agent.fullname" .)) }}
+                name: {{ .Values.secrets.secretName }}
+            {{- else }}
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: {{ printf "%s-secret" (include "agent.name" .) }}
+            {{- end }}
             {{- end }}
           {{- if .Values.env }}
           env:

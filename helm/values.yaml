@@ -19,25 +19,25 @@ agent-pagerduty:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
 
 agent-github:
-  enabled: true
+  enabled: false
   nameOverride: "agent-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
 
 agent-atlassian:
-  enabled: true
+  enabled: false
   nameOverride: "agent-atlassian"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
 
 agent-backstage:
-  enabled: true
+  enabled: false
   nameOverride: "agent-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
 
 agent-slack:
-  enabled: true
+  enabled: false
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
