@@ -3,15 +3,6 @@ revision = 2
 requires-python = ">=3.13, <4.0"
 
 [[package]]
-name = "a2a-python"
-version = "0.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f1/6b/4bdbd688371db319ddc36ac9406e2c4c5fdd636ef9b553c9dda83234499e/a2a_python-0.0.1.tar.gz", hash = "sha256:cda7871a63b1dc9978aac63e9f835ea47a3e4b1a37f2a47cefd85438e64ea87b", size = 1456, upload-time = "2025-05-15T22:49:01.076Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/7e/8d197525c504c8ecf8f6f17a8e897d5e86bc5131817c005b68f8ed3619c9/a2a_python-0.0.1-py3-none-any.whl", hash = "sha256:502247646bde11a44bf324fab82524435a6abc064b0533fe0b8a3b835a036462", size = 1583, upload-time = "2025-05-15T22:48:59.927Z" },
-]
-
-[[package]]
 name = "a2a-sdk"
 version = "0.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -35,7 +26,6 @@ name = "agent-argocd"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "a2a-python" },
     { name = "a2a-sdk" },
     { name = "agentevals" },
     { name = "click" },
@@ -58,7 +48,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-python", specifier = ">=0.0.1" },
     { name = "a2a-sdk", specifier = ">=0.2.1" },
     { name = "agentevals", specifier = ">=0.0.7" },
     { name = "click", specifier = ">=8.2.0" },

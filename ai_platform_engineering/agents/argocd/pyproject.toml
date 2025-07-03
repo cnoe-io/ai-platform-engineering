@@ -12,7 +12,6 @@ maintainers = [
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "a2a-python>=0.0.1",
   "a2a-sdk>=0.2.1",
   "agentevals>=0.0.7",
   "click>=8.2.0",

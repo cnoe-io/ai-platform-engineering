@@ -32,3 +32,7 @@ build-backend = "poetry.core.masonry.api"
 pytest = "^8.4.0"
 langgraph-cli = "^0.3.3"
 
+
+[tool.poetry.group.unittest.dependencies]
+agent-argocd = {path = "ai_platform_engineering/agents/argocd"}
+
