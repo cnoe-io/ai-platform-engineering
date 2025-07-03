@@ -75,21 +75,6 @@ skills_prompt = PromptTemplate(
     )
 )
 
-
-# Generate system prompt dynamically based on tools and their tasks
-def generate_system_prompt(tools):
-  tool_instructions = []
-  for tool_name, tasks in tools.items():
-    tasks_str = ", ".join(tasks)
-    instruction = f"""
-{tool_name}:
-  If the user's prompt is related to {tool_name.lower()} operations, such as {tasks_str},
-  assign the task to the {tool_name} agent.
-"""
-    tool_instructions.append(instruction.strip())
-
-  tool_instructions_str = "\n\n".join(tool_instructions)
-
 # Generate system prompt dynamically based on tools and their tasks
 def generate_system_prompt(tools):
   tool_instructions = []
