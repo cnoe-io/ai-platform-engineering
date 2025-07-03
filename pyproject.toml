@@ -19,7 +19,6 @@ dependencies = [
     "a2a-sdk (>=0.2.7,<0.3.0)",
     "cnoe-agent-utils (>=0.1.4,<0.2.0)",
     "langchain (>=0.3.25,<0.4.0)",
-    "agent-argocd @ file:///private/tmp/ai-platform-engineering/ai_platform_engineering/agents/argocd",
 ]
 
 [project.scripts]
