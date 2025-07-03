@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -45,7 +21,7 @@ async def repository_service__list_refs(
 
     Args:
         path_repo (str): The URL of the repository to query.
-        param_forceRefresh (bool): Indicates whether to force a cache refresh on the repository's connection state.
+        param_forceRefresh (bool, optional): Indicates whether to force a cache refresh on the repository's connection state. Defaults to False.
         param_appProject (str, optional): The application project associated with the query. Defaults to None.
 
     Returns:
@@ -59,11 +35,13 @@ async def repository_service__list_refs(
     params = {}
     data = {}
 
-    params["forceRefresh"] = (
-        str(param_forceRefresh).lower() if isinstance(param_forceRefresh, bool) else param_forceRefresh
-    )
+    if param_forceRefresh is not None:
+        params["forceRefresh"] = (
+            str(param_forceRefresh).lower() if isinstance(param_forceRefresh, bool) else param_forceRefresh
+        )
 
-    params["appProject"] = str(param_appProject).lower() if isinstance(param_appProject, bool) else param_appProject
+    if param_appProject is not None:
+        params["appProject"] = str(param_appProject).lower() if isinstance(param_appProject, bool) else param_appProject
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

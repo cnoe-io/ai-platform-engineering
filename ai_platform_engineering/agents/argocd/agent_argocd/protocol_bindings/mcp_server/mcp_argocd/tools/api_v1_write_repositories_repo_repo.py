@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -72,33 +48,33 @@ async def repository_service__update_write_repository(
 
     Args:
         path_repo_repo (str): The URL to the remote repository.
-        body_bearerToken (str, optional): Bearer token for authentication. Defaults to None.
-        body_connectionState_attemptedAt (str, optional): Timestamp of the connection attempt. Defaults to None.
-        body_connectionState_message (str, optional): Message describing the connection state. Defaults to None.
-        body_connectionState_status (str, optional): Status of the connection state. Defaults to None.
+        body_bearerToken (str, optional): The bearer token for authentication. Defaults to None.
+        body_connectionState_attemptedAt (str, optional): The timestamp of the last connection attempt. Defaults to None.
+        body_connectionState_message (str, optional): The message related to the connection state. Defaults to None.
+        body_connectionState_status (str, optional): The status of the connection state. Defaults to None.
         body_enableLfs (bool, optional): Specifies whether git-lfs support should be enabled for this repo. Defaults to None.
         body_enableOCI (bool, optional): Specifies whether OCI support should be enabled. Defaults to None.
-        body_forceHttpBasicAuth (bool, optional): Forces HTTP Basic Authentication. Defaults to None.
-        body_gcpServiceAccountKey (str, optional): GCP service account key for authentication. Defaults to None.
-        body_githubAppEnterpriseBaseUrl (str, optional): Base URL for GitHub App Enterprise. Defaults to None.
-        body_githubAppID (int, optional): GitHub App ID. Defaults to None.
-        body_githubAppInstallationID (int, optional): GitHub App Installation ID. Defaults to None.
-        body_githubAppPrivateKey (str, optional): Private key for GitHub App. Defaults to None.
+        body_forceHttpBasicAuth (bool, optional): Specifies whether HTTP Basic Auth should be forced. Defaults to None.
+        body_gcpServiceAccountKey (str, optional): The GCP service account key. Defaults to None.
+        body_githubAppEnterpriseBaseUrl (str, optional): The base URL for GitHub App Enterprise. Defaults to None.
+        body_githubAppID (int, optional): The GitHub App ID. Defaults to None.
+        body_githubAppInstallationID (int, optional): The GitHub App Installation ID. Defaults to None.
+        body_githubAppPrivateKey (str, optional): The private key for the GitHub App. Defaults to None.
         body_inheritedCreds (bool, optional): Specifies whether credentials are inherited. Defaults to None.
-        body_insecure (bool, optional): Allows insecure connections. Defaults to None.
-        body_insecureIgnoreHostKey (bool, optional): Ignores host key verification. Defaults to None.
-        body_name (str, optional): Name of the repository. Defaults to None.
-        body_noProxy (str, optional): No proxy settings. Defaults to None.
-        body_password (str, optional): Password for authentication. Defaults to None.
-        body_project (str, optional): Project name associated with the repository. Defaults to None.
-        body_proxy (str, optional): Proxy settings. Defaults to None.
-        body_repo (str, optional): Repository details. Defaults to None.
-        body_sshPrivateKey (str, optional): SSH private key for authentication. Defaults to None.
-        body_tlsClientCertData (str, optional): TLS client certificate data. Defaults to None.
-        body_tlsClientCertKey (str, optional): TLS client certificate key. Defaults to None.
-        body_type (str, optional): Type of the repository, either "git" or "helm". Defaults to None.
-        body_useAzureWorkloadIdentity (bool, optional): Specifies whether to use Azure Workload Identity. Defaults to None.
-        body_username (str, optional): Username for authentication. Defaults to None.
+        body_insecure (bool, optional): Specifies whether the connection is insecure. Defaults to None.
+        body_insecureIgnoreHostKey (bool, optional): Specifies whether to ignore host key verification. Defaults to None.
+        body_name (str, optional): The name of the repository. Defaults to None.
+        body_noProxy (str, optional): The no-proxy configuration. Defaults to None.
+        body_password (str, optional): The password for authentication. Defaults to None.
+        body_project (str, optional): The project associated with the repository. Defaults to None.
+        body_proxy (str, optional): The proxy configuration. Defaults to None.
+        body_repo (str, optional): The repository configuration. Defaults to None.
+        body_sshPrivateKey (str, optional): The PEM data for SSH authentication at the repo server. Defaults to None.
+        body_tlsClientCertData (str, optional): The TLS client certificate data. Defaults to None.
+        body_tlsClientCertKey (str, optional): The TLS client certificate key. Defaults to None.
+        body_type (str, optional): The type of the repository, either "git" or "helm". Defaults to None.
+        body_useAzureWorkloadIdentity (bool, optional): Specifies whether Azure Workload Identity is used. Defaults to None.
+        body_username (str, optional): The username for authentication. Defaults to None.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call.

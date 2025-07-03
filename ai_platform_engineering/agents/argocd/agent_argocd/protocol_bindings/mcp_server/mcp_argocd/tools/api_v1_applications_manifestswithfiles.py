@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -45,14 +21,14 @@ async def application_service__get_manifests_with_files(
     body_query_project: str = None,
 ) -> Dict[str, Any]:
     '''
-    Get application manifests using provided files to generate them.
+    GetManifestsWithFiles returns application manifests using provided files to generate them.
 
     Args:
-        body_chunk_chunk (str, optional): The chunk of the body to be used in the request. Defaults to None.
-        body_query_appNamespace (str, optional): The application namespace to query. Defaults to None.
-        body_query_checksum (str, optional): The checksum to verify the integrity of the files. Defaults to None.
-        body_query_name (str, optional): The name of the application to query. Defaults to None.
-        body_query_project (str, optional): The project associated with the application. Defaults to None.
+        body_chunk_chunk (str, optional): The chunk of the body content used for generating manifests. Defaults to None.
+        body_query_appNamespace (str, optional): The namespace of the application for querying manifests. Defaults to None.
+        body_query_checksum (str, optional): The checksum value for verifying the integrity of the files used. Defaults to None.
+        body_query_name (str, optional): The name of the application for which manifests are being requested. Defaults to None.
+        body_query_project (str, optional): The project identifier associated with the application. Defaults to None.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call containing the application manifests.

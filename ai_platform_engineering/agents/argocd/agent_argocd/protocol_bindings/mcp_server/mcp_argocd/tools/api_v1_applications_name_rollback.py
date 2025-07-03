@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -52,11 +28,11 @@ async def application_service__rollback(
     Args:
         path_name (str): The name of the application path to rollback.
         body_appNamespace (str, optional): The namespace of the application. Defaults to None.
-        body_dryRun (bool, optional): If true, performs a dry run of the rollback. Defaults to None.
-        body_id (int, optional): The ID of the application to rollback. Defaults to None.
-        body_name (str, optional): The name of the application to rollback. Defaults to None.
-        body_project (str, optional): The project associated with the application. Defaults to None.
-        body_prune (bool, optional): If true, prunes resources during rollback. Defaults to None.
+        body_dryRun (bool, optional): If true, the rollback will be simulated but not executed. Defaults to None.
+        body_id (int, optional): The unique identifier of the application. Defaults to None.
+        body_name (str, optional): The name of the application. Defaults to None.
+        body_project (str, optional): The project to which the application belongs. Defaults to None.
+        body_prune (bool, optional): If true, resources not defined in the target state will be deleted. Defaults to None.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call, containing the result of the rollback operation.

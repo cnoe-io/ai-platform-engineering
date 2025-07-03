@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -172,10 +148,10 @@ async def application_service__update_spec(
         body_source_path (str, optional): Directory path within the Git repository. Defaults to None.
         body_source_plugin_env (List[str], optional): Environment variables for source plugin. Defaults to None.
         body_source_plugin_name (str, optional): Name of the source plugin. Defaults to None.
-        body_source_plugin_parameters (List[str], optional): Parameters for source plugin. Defaults to None.
+        body_source_plugin_parameters (List[str], optional): Parameters for the source plugin. Defaults to None.
         body_source_ref (str, optional): Reference to another source within sources field. Defaults to None.
         body_source_repoURL (str, optional): Repository URL for the source. Defaults to None.
-        body_source_targetRevision (str, optional): Revision of the source to sync the application to. Defaults to None.
+        body_source_targetRevision (str, optional): Target revision of the source to sync the application to. Defaults to None.
         body_sourceHydrator_drySource_path (str, optional): Path for dry source hydrator. Defaults to None.
         body_sourceHydrator_drySource_repoURL (str, optional): Repository URL for dry source hydrator. Defaults to None.
         body_sourceHydrator_drySource_targetRevision (str, optional): Target revision for dry source hydrator. Defaults to None.
@@ -192,7 +168,7 @@ async def application_service__update_spec(
         body_syncPolicy_retry_backoff_duration (str, optional): Duration for retry backoff. Defaults to None.
         body_syncPolicy_retry_backoff_factor (int, optional): Factor for retry backoff. Defaults to None.
         body_syncPolicy_retry_backoff_maxDuration (str, optional): Maximum duration for retry backoff. Defaults to None.
-        body_syncPolicy_retry_limit (int, optional): Limit for retry attempts. Defaults to None.
+        body_syncPolicy_retry_limit (int, optional): Maximum number of attempts for retrying a failed sync. Defaults to None.
         body_syncPolicy_syncOptions (List[str], optional): Sync options for the policy. Defaults to None.
         param_validate (bool, optional): Whether to validate the parameters. Defaults to False.
         param_appNamespace (str, optional): Application namespace parameter. Defaults to None.
@@ -209,13 +185,16 @@ async def application_service__update_spec(
     params = {}
     data = {}
 
-    params["validate"] = str(param_validate).lower() if isinstance(param_validate, bool) else param_validate
+    if param_validate is not None:
+        params["validate"] = str(param_validate).lower() if isinstance(param_validate, bool) else param_validate
 
-    params["appNamespace"] = (
-        str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
-    )
+    if param_appNamespace is not None:
+        params["appNamespace"] = (
+            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
+        )
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
     flat_body = {}
     if body_destination_name is not None:

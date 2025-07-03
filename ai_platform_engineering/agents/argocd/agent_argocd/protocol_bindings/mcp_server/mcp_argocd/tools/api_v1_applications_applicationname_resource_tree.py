@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are strings with parts separated by underscores.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary where each underscore in the original keys represents a new level of nesting.
-
-    Raises:
-        TypeError: If the input is not a dictionary.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -52,16 +28,16 @@ async def application_service__resource_tree(
 
     Args:
         path_applicationName (str): The name of the application for which the resource tree is requested.
-        param_namespace (str, optional): The namespace of the resource. Defaults to None.
+        param_namespace (str, optional): The namespace of the resources. Defaults to None.
         param_name (str, optional): The name of the resource. Defaults to None.
         param_version (str, optional): The version of the resource. Defaults to None.
         param_group (str, optional): The group of the resource. Defaults to None.
         param_kind (str, optional): The kind of the resource. Defaults to None.
-        param_appNamespace (str, optional): The application namespace of the resource. Defaults to None.
-        param_project (str, optional): The project associated with the resource. Defaults to None.
+        param_appNamespace (str, optional): The application namespace. Defaults to None.
+        param_project (str, optional): The project associated with the application. Defaults to None.
 
     Returns:
-        Dict[str, Any]: The JSON response containing the resource tree from the API call.
+        Dict[str, Any]: The JSON response containing the resource tree of the application.
 
     Raises:
         Exception: If the API request fails or returns an error.
@@ -71,21 +47,28 @@ async def application_service__resource_tree(
     params = {}
     data = {}
 
-    params["namespace"] = str(param_namespace).lower() if isinstance(param_namespace, bool) else param_namespace
+    if param_namespace is not None:
+        params["namespace"] = str(param_namespace).lower() if isinstance(param_namespace, bool) else param_namespace
 
-    params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
+    if param_name is not None:
+        params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
 
-    params["version"] = str(param_version).lower() if isinstance(param_version, bool) else param_version
+    if param_version is not None:
+        params["version"] = str(param_version).lower() if isinstance(param_version, bool) else param_version
 
-    params["group"] = str(param_group).lower() if isinstance(param_group, bool) else param_group
+    if param_group is not None:
+        params["group"] = str(param_group).lower() if isinstance(param_group, bool) else param_group
 
-    params["kind"] = str(param_kind).lower() if isinstance(param_kind, bool) else param_kind
+    if param_kind is not None:
+        params["kind"] = str(param_kind).lower() if isinstance(param_kind, bool) else param_kind
 
-    params["appNamespace"] = (
-        str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
-    )
+    if param_appNamespace is not None:
+        params["appNamespace"] = (
+            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
+        )
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

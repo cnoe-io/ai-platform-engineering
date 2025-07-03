@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -43,7 +19,7 @@ async def application_set_service__get(path_name: str, param_appsetNamespace: st
 
     Args:
         path_name (str): The name of the applicationset.
-        param_appsetNamespace (str, optional): The application set namespace. Defaults to None, which implies the ArgoCD control plane namespace.
+        param_appsetNamespace (str, optional): The application set namespace. Defaults to None, which uses the ArgoCD control plane namespace.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call containing the applicationset details.
@@ -56,9 +32,10 @@ async def application_set_service__get(path_name: str, param_appsetNamespace: st
     params = {}
     data = {}
 
-    params["appsetNamespace"] = (
-        str(param_appsetNamespace).lower() if isinstance(param_appsetNamespace, bool) else param_appsetNamespace
-    )
+    if param_appsetNamespace is not None:
+        params["appsetNamespace"] = (
+            str(param_appsetNamespace).lower() if isinstance(param_appsetNamespace, bool) else param_appsetNamespace
+        )
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
@@ -75,10 +52,10 @@ async def application_set_service__get(path_name: str, param_appsetNamespace: st
 
 async def application_set_service__delete(path_name: str, param_appsetNamespace: str = None) -> Dict[str, Any]:
     '''
-    Deletes an application set.
+    Delete an application set.
 
     Args:
-        path_name (str): The name of the application set to be deleted.
+        path_name (str): The name of the application set to delete.
         param_appsetNamespace (str, optional): The namespace of the application set. Defaults to the ArgoCD control plane namespace if not specified.
 
     Returns:
@@ -92,9 +69,10 @@ async def application_set_service__delete(path_name: str, param_appsetNamespace:
     params = {}
     data = {}
 
-    params["appsetNamespace"] = (
-        str(param_appsetNamespace).lower() if isinstance(param_appsetNamespace, bool) else param_appsetNamespace
-    )
+    if param_appsetNamespace is not None:
+        params["appsetNamespace"] = (
+            str(param_appsetNamespace).lower() if isinstance(param_appsetNamespace, bool) else param_appsetNamespace
+        )
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -67,15 +43,21 @@ async def application_service__revision_metadata(
     params = {}
     data = {}
 
-    params["appNamespace"] = (
-        str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
-    )
+    if param_appNamespace is not None:
+        params["appNamespace"] = (
+            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
+        )
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
-    params["sourceIndex"] = str(param_sourceIndex).lower() if isinstance(param_sourceIndex, bool) else param_sourceIndex
+    if param_sourceIndex is not None:
+        params["sourceIndex"] = (
+            str(param_sourceIndex).lower() if isinstance(param_sourceIndex, bool) else param_sourceIndex
+        )
 
-    params["versionId"] = str(param_versionId).lower() if isinstance(param_versionId, bool) else param_versionId
+    if param_versionId is not None:
+        params["versionId"] = str(param_versionId).lower() if isinstance(param_versionId, bool) else param_versionId
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -41,12 +17,12 @@ async def application_set_service__list(
     param_projects: List[str] = None, param_selector: str = None, param_appsetNamespace: str = None
 ) -> Dict[str, Any]:
     '''
-    List returns a list of applicationset.
+    List returns a list of applicationsets.
 
     Args:
         param_projects (List[str], optional): The project names to restrict the returned list of applicationsets. Defaults to None.
         param_selector (str, optional): The selector to restrict the returned list to applications only with matched labels. Defaults to None.
-        param_appsetNamespace (str, optional): The application set namespace. Default is the ArgoCD control plane namespace if not specified. Defaults to None.
+        param_appsetNamespace (str, optional): The application set namespace. If not provided, defaults to the ArgoCD control plane namespace. Defaults to None.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call containing the list of applicationsets.
@@ -59,13 +35,16 @@ async def application_set_service__list(
     params = {}
     data = {}
 
-    params["projects"] = str(param_projects).lower() if isinstance(param_projects, bool) else param_projects
+    if param_projects is not None:
+        params["projects"] = str(param_projects).lower() if isinstance(param_projects, bool) else param_projects
 
-    params["selector"] = str(param_selector).lower() if isinstance(param_selector, bool) else param_selector
+    if param_selector is not None:
+        params["selector"] = str(param_selector).lower() if isinstance(param_selector, bool) else param_selector
 
-    params["appsetNamespace"] = (
-        str(param_appsetNamespace).lower() if isinstance(param_appsetNamespace, bool) else param_appsetNamespace
-    )
+    if param_appsetNamespace is not None:
+        params["appsetNamespace"] = (
+            str(param_appsetNamespace).lower() if isinstance(param_appsetNamespace, bool) else param_appsetNamespace
+        )
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
@@ -195,115 +174,115 @@ async def application_set_service__create(
 
     Args:
         body_metadata_annotations (Dict[str, Any], optional): Annotations for the metadata. Defaults to None.
-        body_metadata_creationTimestamp (str, optional): Timestamp of creation. Defaults to None.
-        body_metadata_deletionGracePeriodSeconds (int, optional): Grace period for deletion in seconds. Defaults to None.
-        body_metadata_deletionTimestamp (str, optional): Timestamp of deletion. Defaults to None.
-        body_metadata_finalizers (List[str], optional): List of finalizers. Defaults to None.
-        body_metadata_generateName (str, optional): Prefix for generating a unique name. Defaults to None.
-        body_metadata_generation (int, optional): Generation number. Defaults to None.
+        body_metadata_creationTimestamp (str, optional): Creation timestamp for the metadata. Defaults to None.
+        body_metadata_deletionGracePeriodSeconds (int, optional): Deletion grace period in seconds for the metadata. Defaults to None.
+        body_metadata_deletionTimestamp (str, optional): Deletion timestamp for the metadata. Defaults to None.
+        body_metadata_finalizers (List[str], optional): Finalizers for the metadata. Defaults to None.
+        body_metadata_generateName (str, optional): Generate name for the metadata. Defaults to None.
+        body_metadata_generation (int, optional): Generation number for the metadata. Defaults to None.
         body_metadata_labels (Dict[str, Any], optional): Labels for the metadata. Defaults to None.
-        body_metadata_managedFields (List[str], optional): Managed fields for internal use. Defaults to None.
-        body_metadata_name (str, optional): Name of the metadata. Defaults to None.
-        body_metadata_namespace (str, optional): Namespace of the metadata. Defaults to None.
-        body_metadata_ownerReferences (List[str], optional): Owner references. Defaults to None.
-        body_metadata_resourceVersion (str, optional): Resource version for concurrency control. Defaults to None.
-        body_metadata_selfLink (str, optional): Self link of the metadata. Defaults to None.
-        body_metadata_uid (str, optional): Unique identifier. Defaults to None.
-        body_spec_applyNestedSelectors (bool, optional): Enables nested selectors. Defaults to None.
-        body_spec_generators (List[str], optional): List of generators. Defaults to None.
-        body_spec_goTemplate (bool, optional): Enables Go template. Defaults to None.
-        body_spec_goTemplateOptions (List[str], optional): Options for Go template. Defaults to None.
-        body_spec_ignoreApplicationDifferences (List[str], optional): Differences to ignore. Defaults to None.
-        body_spec_preservedFields_annotations (List[str], optional): Preserved annotations. Defaults to None.
-        body_spec_preservedFields_labels (List[str], optional): Preserved labels. Defaults to None.
-        body_spec_strategy_rollingSync_steps (List[str], optional): Steps for rolling sync strategy. Defaults to None.
-        body_spec_strategy_type (str, optional): Type of strategy. Defaults to None.
-        body_spec_syncPolicy_applicationsSync (str, optional): Sync policy for applications. Defaults to None.
-        body_spec_syncPolicy_preserveResourcesOnDeletion (bool, optional): Preserve resources on deletion. Defaults to None.
-        body_spec_template_metadata_annotations (Dict[str, Any], optional): Annotations for template metadata. Defaults to None.
-        body_spec_template_metadata_finalizers (List[str], optional): Finalizers for template metadata. Defaults to None.
-        body_spec_template_metadata_labels (Dict[str, Any], optional): Labels for template metadata. Defaults to None.
-        body_spec_template_metadata_name (str, optional): Name for template metadata. Defaults to None.
-        body_spec_template_metadata_namespace (str, optional): Namespace for template metadata. Defaults to None.
-        body_spec_template_spec_destination_name (str, optional): Name of the destination cluster. Defaults to None.
-        body_spec_template_spec_destination_namespace (str, optional): Namespace of the destination. Defaults to None.
-        body_spec_template_spec_destination_server (str, optional): Server URL of the destination cluster. Defaults to None.
-        body_spec_template_spec_ignoreDifferences (List[str], optional): Differences to ignore in template spec. Defaults to None.
-        body_spec_template_spec_info (List[str], optional): Information for template spec. Defaults to None.
-        body_spec_template_spec_project (str, optional): Project reference. Defaults to None.
-        body_spec_template_spec_revisionHistoryLimit (int, optional): Limit for revision history. Defaults to None.
-        body_spec_template_spec_source_chart (str, optional): Helm chart name. Defaults to None.
-        body_spec_template_spec_source_directory_exclude (str, optional): Directory exclude pattern. Defaults to None.
-        body_spec_template_spec_source_directory_include (str, optional): Directory include pattern. Defaults to None.
-        body_spec_template_spec_source_directory_jsonnet_extVars (List[str], optional): Jsonnet external variables. Defaults to None.
-        body_spec_template_spec_source_directory_jsonnet_libs (List[str], optional): Jsonnet libraries. Defaults to None.
-        body_spec_template_spec_source_directory_jsonnet_tlas (List[str], optional): Jsonnet top-level arguments. Defaults to None.
-        body_spec_template_spec_source_directory_recurse (bool, optional): Recurse directories. Defaults to None.
-        body_spec_template_spec_source_helm_apiVersions (List[str], optional): Helm API versions. Defaults to None.
-        body_spec_template_spec_source_helm_fileParameters (List[str], optional): Helm file parameters. Defaults to None.
-        body_spec_template_spec_source_helm_ignoreMissingValueFiles (bool, optional): Ignore missing value files in Helm. Defaults to None.
-        body_spec_template_spec_source_helm_kubeVersion (str, optional): Kubernetes version for Helm. Defaults to None.
-        body_spec_template_spec_source_helm_namespace (str, optional): Namespace for Helm. Defaults to None.
-        body_spec_template_spec_source_helm_parameters (List[str], optional): Helm parameters. Defaults to None.
-        body_spec_template_spec_source_helm_passCredentials (bool, optional): Pass credentials to Helm. Defaults to None.
-        body_spec_template_spec_source_helm_releaseName (str, optional): Helm release name. Defaults to None.
-        body_spec_template_spec_source_helm_skipCrds (bool, optional): Skip CRDs in Helm. Defaults to None.
-        body_spec_template_spec_source_helm_skipSchemaValidation (bool, optional): Skip schema validation in Helm. Defaults to None.
-        body_spec_template_spec_source_helm_skipTests (bool, optional): Skip tests in Helm. Defaults to None.
-        body_spec_template_spec_source_helm_valueFiles (List[str], optional): Helm value files. Defaults to None.
-        body_spec_template_spec_source_helm_values (str, optional): Helm values. Defaults to None.
-        body_spec_template_spec_source_helm_valuesObject_raw (str, optional): Raw Helm values object. Defaults to None.
-        body_spec_template_spec_source_helm_version (str, optional): Helm version. Defaults to None.
-        body_spec_template_spec_source_kustomize_apiVersions (List[str], optional): Kustomize API versions. Defaults to None.
-        body_spec_template_spec_source_kustomize_commonAnnotations (Dict[str, Any], optional): Common annotations for Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Enable envsubst for common annotations in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_commonLabels (Dict[str, Any], optional): Common labels for Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_components (List[str], optional): Kustomize components. Defaults to None.
-        body_spec_template_spec_source_kustomize_forceCommonAnnotations (bool, optional): Force common annotations in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_forceCommonLabels (bool, optional): Force common labels in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_ignoreMissingComponents (bool, optional): Ignore missing components in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_images (List[str], optional): Kustomize images. Defaults to None.
-        body_spec_template_spec_source_kustomize_kubeVersion (str, optional): Kubernetes version for Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_labelIncludeTemplates (bool, optional): Include label templates in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_labelWithoutSelector (bool, optional): Label without selector in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_namePrefix (str, optional): Name prefix in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_nameSuffix (str, optional): Name suffix in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_namespace (str, optional): Namespace in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_patches (List[str], optional): Patches in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_replicas (List[str], optional): Replicas in Kustomize. Defaults to None.
-        body_spec_template_spec_source_kustomize_version (str, optional): Kustomize version. Defaults to None.
-        body_spec_template_spec_source_name (str, optional): Source name. Defaults to None.
-        body_spec_template_spec_source_path (str, optional): Source path. Defaults to None.
-        body_spec_template_spec_source_plugin_env (List[str], optional): Plugin environment variables. Defaults to None.
-        body_spec_template_spec_source_plugin_name (str, optional): Plugin name. Defaults to None.
-        body_spec_template_spec_source_plugin_parameters (List[str], optional): Plugin parameters. Defaults to None.
-        body_spec_template_spec_source_ref (str, optional): Source reference. Defaults to None.
-        body_spec_template_spec_source_repoURL (str, optional): Repository URL. Defaults to None.
-        body_spec_template_spec_source_targetRevision (str, optional): Target revision. Defaults to None.
-        body_spec_template_spec_sourceHydrator_drySource_path (str, optional): Dry source path for hydrator. Defaults to None.
-        body_spec_template_spec_sourceHydrator_drySource_repoURL (str, optional): Dry source repo URL for hydrator. Defaults to None.
-        body_spec_template_spec_sourceHydrator_drySource_targetRevision (str, optional): Dry source target revision for hydrator. Defaults to None.
-        body_spec_template_spec_sourceHydrator_hydrateTo_targetBranch (str, optional): Target branch for hydrator. Defaults to None.
-        body_spec_template_spec_sourceHydrator_syncSource_path (str, optional): Sync source path for hydrator. Defaults to None.
-        body_spec_template_spec_sourceHydrator_syncSource_targetBranch (str, optional): Sync source target branch for hydrator. Defaults to None.
-        body_spec_template_spec_sources (List[str], optional): List of sources. Defaults to None.
-        body_spec_template_spec_syncPolicy_automated_allowEmpty (bool, optional): Allow empty automated sync policy. Defaults to None.
-        body_spec_template_spec_syncPolicy_automated_enable (bool, optional): Enable automated sync policy. Defaults to None.
-        body_spec_template_spec_syncPolicy_automated_prune (bool, optional): Prune automated sync policy. Defaults to None.
-        body_spec_template_spec_syncPolicy_automated_selfHeal (bool, optional): Self-heal automated sync policy. Defaults to None.
-        body_spec_template_spec_syncPolicy_managedNamespaceMetadata_annotations (Dict[str, Any], optional): Annotations for managed namespace metadata. Defaults to None.
-        body_spec_template_spec_syncPolicy_managedNamespaceMetadata_labels (Dict[str, Any], optional): Labels for managed namespace metadata. Defaults to None.
-        body_spec_template_spec_syncPolicy_retry_backoff_duration (str, optional): Retry backoff duration. Defaults to None.
-        body_spec_template_spec_syncPolicy_retry_backoff_factor (int, optional): Retry backoff factor. Defaults to None.
-        body_spec_template_spec_syncPolicy_retry_backoff_maxDuration (str, optional): Retry backoff max duration. Defaults to None.
-        body_spec_template_spec_syncPolicy_retry_limit (int, optional): Retry limit. Defaults to None.
-        body_spec_template_spec_syncPolicy_syncOptions (List[str], optional): Sync options. Defaults to None.
+        body_metadata_managedFields (List[str], optional): Managed fields for the metadata. Defaults to None.
+        body_metadata_name (str, optional): Name for the metadata. Defaults to None.
+        body_metadata_namespace (str, optional): Namespace for the metadata. Defaults to None.
+        body_metadata_ownerReferences (List[str], optional): Owner references for the metadata. Defaults to None.
+        body_metadata_resourceVersion (str, optional): Resource version for the metadata. Defaults to None.
+        body_metadata_selfLink (str, optional): Self link for the metadata. Defaults to None.
+        body_metadata_uid (str, optional): UID for the metadata. Defaults to None.
+        body_spec_applyNestedSelectors (bool, optional): Apply nested selectors in the spec. Defaults to None.
+        body_spec_generators (List[str], optional): Generators for the spec. Defaults to None.
+        body_spec_goTemplate (bool, optional): Go template flag for the spec. Defaults to None.
+        body_spec_goTemplateOptions (List[str], optional): Go template options for the spec. Defaults to None.
+        body_spec_ignoreApplicationDifferences (List[str], optional): Ignore application differences in the spec. Defaults to None.
+        body_spec_preservedFields_annotations (List[str], optional): Preserved fields annotations in the spec. Defaults to None.
+        body_spec_preservedFields_labels (List[str], optional): Preserved fields labels in the spec. Defaults to None.
+        body_spec_strategy_rollingSync_steps (List[str], optional): Rolling sync steps in the strategy spec. Defaults to None.
+        body_spec_strategy_type (str, optional): Strategy type in the spec. Defaults to None.
+        body_spec_syncPolicy_applicationsSync (str, optional): Applications sync policy in the spec. Defaults to None.
+        body_spec_syncPolicy_preserveResourcesOnDeletion (bool, optional): Preserve resources on deletion in the sync policy spec. Defaults to None.
+        body_spec_template_metadata_annotations (Dict[str, Any], optional): Annotations for the template metadata. Defaults to None.
+        body_spec_template_metadata_finalizers (List[str], optional): Finalizers for the template metadata. Defaults to None.
+        body_spec_template_metadata_labels (Dict[str, Any], optional): Labels for the template metadata. Defaults to None.
+        body_spec_template_metadata_name (str, optional): Name for the template metadata. Defaults to None.
+        body_spec_template_metadata_namespace (str, optional): Namespace for the template metadata. Defaults to None.
+        body_spec_template_spec_destination_name (str, optional): Destination name in the template spec. Defaults to None.
+        body_spec_template_spec_destination_namespace (str, optional): Destination namespace in the template spec. Defaults to None.
+        body_spec_template_spec_destination_server (str, optional): Destination server in the template spec. Defaults to None.
+        body_spec_template_spec_ignoreDifferences (List[str], optional): Ignore differences in the template spec. Defaults to None.
+        body_spec_template_spec_info (List[str], optional): Info in the template spec. Defaults to None.
+        body_spec_template_spec_project (str, optional): Project in the template spec. Defaults to None.
+        body_spec_template_spec_revisionHistoryLimit (int, optional): Revision history limit in the template spec. Defaults to None.
+        body_spec_template_spec_source_chart (str, optional): Source chart in the template spec. Defaults to None.
+        body_spec_template_spec_source_directory_exclude (str, optional): Directory exclude in the source template spec. Defaults to None.
+        body_spec_template_spec_source_directory_include (str, optional): Directory include in the source template spec. Defaults to None.
+        body_spec_template_spec_source_directory_jsonnet_extVars (List[str], optional): Jsonnet external variables in the source directory template spec. Defaults to None.
+        body_spec_template_spec_source_directory_jsonnet_libs (List[str], optional): Jsonnet libraries in the source directory template spec. Defaults to None.
+        body_spec_template_spec_source_directory_jsonnet_tlas (List[str], optional): Jsonnet top-level arguments in the source directory template spec. Defaults to None.
+        body_spec_template_spec_source_directory_recurse (bool, optional): Recurse flag in the source directory template spec. Defaults to None.
+        body_spec_template_spec_source_helm_apiVersions (List[str], optional): Helm API versions in the source template spec. Defaults to None.
+        body_spec_template_spec_source_helm_fileParameters (List[str], optional): Helm file parameters in the source template spec. Defaults to None.
+        body_spec_template_spec_source_helm_ignoreMissingValueFiles (bool, optional): Ignore missing value files flag in the source helm template spec. Defaults to None.
+        body_spec_template_spec_source_helm_kubeVersion (str, optional): Kubernetes version in the source helm template spec. Defaults to None.
+        body_spec_template_spec_source_helm_namespace (str, optional): Namespace in the source helm template spec. Defaults to None.
+        body_spec_template_spec_source_helm_parameters (List[str], optional): Helm parameters in the source template spec. Defaults to None.
+        body_spec_template_spec_source_helm_passCredentials (bool, optional): Pass credentials flag in the source helm template spec. Defaults to None.
+        body_spec_template_spec_source_helm_releaseName (str, optional): Release name in the source helm template spec. Defaults to None.
+        body_spec_template_spec_source_helm_skipCrds (bool, optional): Skip CRDs flag in the source helm template spec. Defaults to None.
+        body_spec_template_spec_source_helm_skipSchemaValidation (bool, optional): Skip schema validation flag in the source helm template spec. Defaults to None.
+        body_spec_template_spec_source_helm_skipTests (bool, optional): Skip tests flag in the source helm template spec. Defaults to None.
+        body_spec_template_spec_source_helm_valueFiles (List[str], optional): Helm value files in the source template spec. Defaults to None.
+        body_spec_template_spec_source_helm_values (str, optional): Helm values in the source template spec. Defaults to None.
+        body_spec_template_spec_source_helm_valuesObject_raw (str, optional): Raw values object in the source helm template spec. Defaults to None.
+        body_spec_template_spec_source_helm_version (str, optional): Helm version in the source template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_apiVersions (List[str], optional): Kustomize API versions in the source template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_commonAnnotations (Dict[str, Any], optional): Common annotations in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Common annotations envsubst flag in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_commonLabels (Dict[str, Any], optional): Common labels in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_components (List[str], optional): Components in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_forceCommonAnnotations (bool, optional): Force common annotations flag in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_forceCommonLabels (bool, optional): Force common labels flag in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_ignoreMissingComponents (bool, optional): Ignore missing components flag in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_images (List[str], optional): Images in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_kubeVersion (str, optional): Kubernetes version in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_labelIncludeTemplates (bool, optional): Label include templates flag in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_labelWithoutSelector (bool, optional): Label without selector flag in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_namePrefix (str, optional): Name prefix in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_nameSuffix (str, optional): Name suffix in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_namespace (str, optional): Namespace in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_patches (List[str], optional): Patches in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_replicas (List[str], optional): Replicas in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_kustomize_version (str, optional): Version in the source kustomize template spec. Defaults to None.
+        body_spec_template_spec_source_name (str, optional): Source name in the template spec. Defaults to None.
+        body_spec_template_spec_source_path (str, optional): Source path in the template spec. Defaults to None.
+        body_spec_template_spec_source_plugin_env (List[str], optional): Plugin environment in the source template spec. Defaults to None.
+        body_spec_template_spec_source_plugin_name (str, optional): Plugin name in the source template spec. Defaults to None.
+        body_spec_template_spec_source_plugin_parameters (List[str], optional): Plugin parameters in the source template spec. Defaults to None.
+        body_spec_template_spec_source_ref (str, optional): Source reference in the template spec. Defaults to None.
+        body_spec_template_spec_source_repoURL (str, optional): Repository URL in the source template spec. Defaults to None.
+        body_spec_template_spec_source_targetRevision (str, optional): Target revision in the source template spec. Defaults to None.
+        body_spec_template_spec_sourceHydrator_drySource_path (str, optional): Dry source path in the source hydrator template spec. Defaults to None.
+        body_spec_template_spec_sourceHydrator_drySource_repoURL (str, optional): Dry source repository URL in the source hydrator template spec. Defaults to None.
+        body_spec_template_spec_sourceHydrator_drySource_targetRevision (str, optional): Dry source target revision in the source hydrator template spec. Defaults to None.
+        body_spec_template_spec_sourceHydrator_hydrateTo_targetBranch (str, optional): Hydrate to target branch in the source hydrator template spec. Defaults to None.
+        body_spec_template_spec_sourceHydrator_syncSource_path (str, optional): Sync source path in the source hydrator template spec. Defaults to None.
+        body_spec_template_spec_sourceHydrator_syncSource_targetBranch (str, optional): Sync source target branch in the source hydrator template spec. Defaults to None.
+        body_spec_template_spec_sources (List[str], optional): Sources in the template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_automated_allowEmpty (bool, optional): Allow empty flag in the automated sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_automated_enable (bool, optional): Enable flag in the automated sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_automated_prune (bool, optional): Prune flag in the automated sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_automated_selfHeal (bool, optional): Self-heal flag in the automated sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_managedNamespaceMetadata_annotations (Dict[str, Any], optional): Annotations in the managed namespace metadata sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_managedNamespaceMetadata_labels (Dict[str, Any], optional): Labels in the managed namespace metadata sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_retry_backoff_duration (str, optional): Retry backoff duration in the sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_retry_backoff_factor (int, optional): Retry backoff factor in the sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_retry_backoff_maxDuration (str, optional): Retry backoff max duration in the sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_retry_limit (int, optional): Retry limit in the sync policy template spec. Defaults to None.
+        body_spec_template_spec_syncPolicy_syncOptions (List[str], optional): Sync options in the sync policy template spec. Defaults to None.
         body_spec_templatePatch (str, optional): Template patch. Defaults to None.
         body_status_applicationStatus (List[str], optional): Application status. Defaults to None.
-        body_status_conditions (List[str], optional): Status conditions. Defaults to None.
-        body_status_resources (List[str], optional): List of resources managed by the application set. Defaults to None.
-        param_upsert (bool, optional): Whether to upsert the application set. Defaults to False.
-        param_dryRun (bool, optional): Whether to perform a dry run. Defaults to False.
+        body_status_conditions (List[str], optional): Conditions in the status. Defaults to None.
+        body_status_resources (List[str], optional): Resources in the status. Defaults to None.
+        param_upsert (bool, optional): Upsert parameter. Defaults to False.
+        param_dryRun (bool, optional): Dry run parameter. Defaults to False.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call.
@@ -316,9 +295,11 @@ async def application_set_service__create(
     params = {}
     data = {}
 
-    params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
+    if param_upsert is not None:
+        params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
 
-    params["dryRun"] = str(param_dryRun).lower() if isinstance(param_dryRun, bool) else param_dryRun
+    if param_dryRun is not None:
+        params["dryRun"] = str(param_dryRun).lower() if isinstance(param_dryRun, bool) else param_dryRun
 
     flat_body = {}
     if body_metadata_annotations is not None:

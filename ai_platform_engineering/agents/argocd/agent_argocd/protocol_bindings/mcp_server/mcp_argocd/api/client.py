@@ -23,6 +23,19 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_argocd")
 
 
+
+def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a flat dict with underscore‐separated keys into a nested dictionary."""
+    nested = {}
+    for key, value in flat_body.items():
+        parts = key.split("_")
+        d = nested
+        for part in parts[:-1]:
+            d = d.setdefault(part, {})
+        d[parts[-1]] = value
+    return nested
+
+
 async def make_api_request(
     path: str,
     method: str = "GET",

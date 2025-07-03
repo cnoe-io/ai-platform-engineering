@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -97,73 +73,98 @@ async def repository_service__validate_access(
     params = {}
     data = {}
 
-    params["username"] = str(param_username).lower() if isinstance(param_username, bool) else param_username
+    if param_username is not None:
+        params["username"] = str(param_username).lower() if isinstance(param_username, bool) else param_username
 
-    params["password"] = str(param_password).lower() if isinstance(param_password, bool) else param_password
+    if param_password is not None:
+        params["password"] = str(param_password).lower() if isinstance(param_password, bool) else param_password
 
-    params["sshPrivateKey"] = (
-        str(param_sshPrivateKey).lower() if isinstance(param_sshPrivateKey, bool) else param_sshPrivateKey
-    )
+    if param_sshPrivateKey is not None:
+        params["sshPrivateKey"] = (
+            str(param_sshPrivateKey).lower() if isinstance(param_sshPrivateKey, bool) else param_sshPrivateKey
+        )
 
-    params["insecure"] = str(param_insecure).lower() if isinstance(param_insecure, bool) else param_insecure
+    if param_insecure is not None:
+        params["insecure"] = str(param_insecure).lower() if isinstance(param_insecure, bool) else param_insecure
 
-    params["tlsClientCertData"] = (
-        str(param_tlsClientCertData).lower() if isinstance(param_tlsClientCertData, bool) else param_tlsClientCertData
-    )
+    if param_tlsClientCertData is not None:
+        params["tlsClientCertData"] = (
+            str(param_tlsClientCertData).lower()
+            if isinstance(param_tlsClientCertData, bool)
+            else param_tlsClientCertData
+        )
 
-    params["tlsClientCertKey"] = (
-        str(param_tlsClientCertKey).lower() if isinstance(param_tlsClientCertKey, bool) else param_tlsClientCertKey
-    )
+    if param_tlsClientCertKey is not None:
+        params["tlsClientCertKey"] = (
+            str(param_tlsClientCertKey).lower() if isinstance(param_tlsClientCertKey, bool) else param_tlsClientCertKey
+        )
 
-    params["type"] = str(param_type).lower() if isinstance(param_type, bool) else param_type
+    if param_type is not None:
+        params["type"] = str(param_type).lower() if isinstance(param_type, bool) else param_type
 
-    params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
+    if param_name is not None:
+        params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
 
-    params["enableOci"] = str(param_enableOci).lower() if isinstance(param_enableOci, bool) else param_enableOci
+    if param_enableOci is not None:
+        params["enableOci"] = str(param_enableOci).lower() if isinstance(param_enableOci, bool) else param_enableOci
 
-    params["githubAppPrivateKey"] = (
-        str(param_githubAppPrivateKey).lower()
-        if isinstance(param_githubAppPrivateKey, bool)
-        else param_githubAppPrivateKey
-    )
+    if param_githubAppPrivateKey is not None:
+        params["githubAppPrivateKey"] = (
+            str(param_githubAppPrivateKey).lower()
+            if isinstance(param_githubAppPrivateKey, bool)
+            else param_githubAppPrivateKey
+        )
 
-    params["githubAppID"] = str(param_githubAppID).lower() if isinstance(param_githubAppID, bool) else param_githubAppID
+    if param_githubAppID is not None:
+        params["githubAppID"] = (
+            str(param_githubAppID).lower() if isinstance(param_githubAppID, bool) else param_githubAppID
+        )
 
-    params["githubAppInstallationID"] = (
-        str(param_githubAppInstallationID).lower()
-        if isinstance(param_githubAppInstallationID, bool)
-        else param_githubAppInstallationID
-    )
+    if param_githubAppInstallationID is not None:
+        params["githubAppInstallationID"] = (
+            str(param_githubAppInstallationID).lower()
+            if isinstance(param_githubAppInstallationID, bool)
+            else param_githubAppInstallationID
+        )
 
-    params["githubAppEnterpriseBaseUrl"] = (
-        str(param_githubAppEnterpriseBaseUrl).lower()
-        if isinstance(param_githubAppEnterpriseBaseUrl, bool)
-        else param_githubAppEnterpriseBaseUrl
-    )
+    if param_githubAppEnterpriseBaseUrl is not None:
+        params["githubAppEnterpriseBaseUrl"] = (
+            str(param_githubAppEnterpriseBaseUrl).lower()
+            if isinstance(param_githubAppEnterpriseBaseUrl, bool)
+            else param_githubAppEnterpriseBaseUrl
+        )
 
-    params["proxy"] = str(param_proxy).lower() if isinstance(param_proxy, bool) else param_proxy
+    if param_proxy is not None:
+        params["proxy"] = str(param_proxy).lower() if isinstance(param_proxy, bool) else param_proxy
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
-    params["gcpServiceAccountKey"] = (
-        str(param_gcpServiceAccountKey).lower()
-        if isinstance(param_gcpServiceAccountKey, bool)
-        else param_gcpServiceAccountKey
-    )
+    if param_gcpServiceAccountKey is not None:
+        params["gcpServiceAccountKey"] = (
+            str(param_gcpServiceAccountKey).lower()
+            if isinstance(param_gcpServiceAccountKey, bool)
+            else param_gcpServiceAccountKey
+        )
 
-    params["forceHttpBasicAuth"] = (
-        str(param_forceHttpBasicAuth).lower()
-        if isinstance(param_forceHttpBasicAuth, bool)
-        else param_forceHttpBasicAuth
-    )
+    if param_forceHttpBasicAuth is not None:
+        params["forceHttpBasicAuth"] = (
+            str(param_forceHttpBasicAuth).lower()
+            if isinstance(param_forceHttpBasicAuth, bool)
+            else param_forceHttpBasicAuth
+        )
 
-    params["useAzureWorkloadIdentity"] = (
-        str(param_useAzureWorkloadIdentity).lower()
-        if isinstance(param_useAzureWorkloadIdentity, bool)
-        else param_useAzureWorkloadIdentity
-    )
+    if param_useAzureWorkloadIdentity is not None:
+        params["useAzureWorkloadIdentity"] = (
+            str(param_useAzureWorkloadIdentity).lower()
+            if isinstance(param_useAzureWorkloadIdentity, bool)
+            else param_useAzureWorkloadIdentity
+        )
 
-    params["bearerToken"] = str(param_bearerToken).lower() if isinstance(param_bearerToken, bool) else param_bearerToken
+    if param_bearerToken is not None:
+        params["bearerToken"] = (
+            str(param_bearerToken).lower() if isinstance(param_bearerToken, bool) else param_bearerToken
+        )
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

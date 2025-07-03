@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -182,79 +158,79 @@ async def application_set_service__generate(
         body_applicationSet_spec_template_metadata_labels (Dict[str, Any], optional): Labels for the application set spec template metadata.
         body_applicationSet_spec_template_metadata_name (str, optional): Name for the application set spec template metadata.
         body_applicationSet_spec_template_metadata_namespace (str, optional): Namespace for the application set spec template metadata.
-        body_applicationSet_spec_template_spec_destination_name (str, optional): Destination name for the application set spec template.
-        body_applicationSet_spec_template_spec_destination_namespace (str, optional): Destination namespace for the application set spec template.
-        body_applicationSet_spec_template_spec_destination_server (str, optional): Destination server for the application set spec template.
-        body_applicationSet_spec_template_spec_ignoreDifferences (List[str], optional): Ignore differences for the application set spec template.
-        body_applicationSet_spec_template_spec_info (List[str], optional): Info for the application set spec template.
-        body_applicationSet_spec_template_spec_project (str, optional): Project for the application set spec template.
-        body_applicationSet_spec_template_spec_revisionHistoryLimit (int, optional): Revision history limit for the application set spec template.
-        body_applicationSet_spec_template_spec_source_chart (str, optional): Source chart for the application set spec template.
-        body_applicationSet_spec_template_spec_source_directory_exclude (str, optional): Source directory exclude for the application set spec template.
-        body_applicationSet_spec_template_spec_source_directory_include (str, optional): Source directory include for the application set spec template.
-        body_applicationSet_spec_template_spec_source_directory_jsonnet_extVars (List[str], optional): Source directory jsonnet extVars for the application set spec template.
-        body_applicationSet_spec_template_spec_source_directory_jsonnet_libs (List[str], optional): Source directory jsonnet libs for the application set spec template.
-        body_applicationSet_spec_template_spec_source_directory_jsonnet_tlas (List[str], optional): Source directory jsonnet tlas for the application set spec template.
-        body_applicationSet_spec_template_spec_source_directory_recurse (bool, optional): Source directory recurse for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_apiVersions (List[str], optional): Source helm apiVersions for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_fileParameters (List[str], optional): Source helm fileParameters for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_ignoreMissingValueFiles (bool, optional): Source helm ignore missing value files for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_kubeVersion (str, optional): Source helm kubeVersion for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_namespace (str, optional): Source helm namespace for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_parameters (List[str], optional): Source helm parameters for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_passCredentials (bool, optional): Source helm pass credentials for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_releaseName (str, optional): Source helm release name for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_skipCrds (bool, optional): Source helm skip CRDs for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_skipSchemaValidation (bool, optional): Source helm skip schema validation for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_skipTests (bool, optional): Source helm skip tests for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_valueFiles (List[str], optional): Source helm value files for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_values (str, optional): Source helm values for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_valuesObject_raw (str, optional): Source helm values object raw for the application set spec template.
-        body_applicationSet_spec_template_spec_source_helm_version (str, optional): Source helm version for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_apiVersions (List[str], optional): Source kustomize apiVersions for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_commonAnnotations (Dict[str, Any], optional): Source kustomize common annotations for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Source kustomize common annotations envsubst for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_commonLabels (Dict[str, Any], optional): Source kustomize common labels for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_components (List[str], optional): Source kustomize components for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_forceCommonAnnotations (bool, optional): Source kustomize force common annotations for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_forceCommonLabels (bool, optional): Source kustomize force common labels for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_ignoreMissingComponents (bool, optional): Source kustomize ignore missing components for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_images (List[str], optional): Source kustomize images for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_kubeVersion (str, optional): Source kustomize kubeVersion for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_labelIncludeTemplates (bool, optional): Source kustomize label include templates for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_labelWithoutSelector (bool, optional): Source kustomize label without selector for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_namePrefix (str, optional): Source kustomize name prefix for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_nameSuffix (str, optional): Source kustomize name suffix for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_namespace (str, optional): Source kustomize namespace for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_patches (List[str], optional): Source kustomize patches for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_replicas (List[str], optional): Source kustomize replicas for the application set spec template.
-        body_applicationSet_spec_template_spec_source_kustomize_version (str, optional): Source kustomize version for the application set spec template.
-        body_applicationSet_spec_template_spec_source_name (str, optional): Source name for the application set spec template.
-        body_applicationSet_spec_template_spec_source_path (str, optional): Source path for the application set spec template.
-        body_applicationSet_spec_template_spec_source_plugin_env (List[str], optional): Source plugin environment for the application set spec template.
-        body_applicationSet_spec_template_spec_source_plugin_name (str, optional): Source plugin name for the application set spec template.
-        body_applicationSet_spec_template_spec_source_plugin_parameters (List[str], optional): Source plugin parameters for the application set spec template.
-        body_applicationSet_spec_template_spec_source_ref (str, optional): Source reference for the application set spec template.
-        body_applicationSet_spec_template_spec_source_repoURL (str, optional): Source repository URL for the application set spec template.
-        body_applicationSet_spec_template_spec_source_targetRevision (str, optional): Source target revision for the application set spec template.
-        body_applicationSet_spec_template_spec_sourceHydrator_drySource_path (str, optional): Source hydrator dry source path for the application set spec template.
-        body_applicationSet_spec_template_spec_sourceHydrator_drySource_repoURL (str, optional): Source hydrator dry source repository URL for the application set spec template.
-        body_applicationSet_spec_template_spec_sourceHydrator_drySource_targetRevision (str, optional): Source hydrator dry source target revision for the application set spec template.
-        body_applicationSet_spec_template_spec_sourceHydrator_hydrateTo_targetBranch (str, optional): Source hydrator hydrate to target branch for the application set spec template.
-        body_applicationSet_spec_template_spec_sourceHydrator_syncSource_path (str, optional): Source hydrator sync source path for the application set spec template.
-        body_applicationSet_spec_template_spec_sourceHydrator_syncSource_targetBranch (str, optional): Source hydrator sync source target branch for the application set spec template.
-        body_applicationSet_spec_template_spec_sources (List[str], optional): Sources for the application set spec template.
-        body_applicationSet_spec_template_spec_syncPolicy_automated_allowEmpty (bool, optional): Automated sync policy allow empty for the application set spec template.
-        body_applicationSet_spec_template_spec_syncPolicy_automated_enable (bool, optional): Automated sync policy enable for the application set spec template.
-        body_applicationSet_spec_template_spec_syncPolicy_automated_prune (bool, optional): Automated sync policy prune for the application set spec template.
-        body_applicationSet_spec_template_spec_syncPolicy_automated_selfHeal (bool, optional): Automated sync policy self-heal for the application set spec template.
-        body_applicationSet_spec_template_spec_syncPolicy_managedNamespaceMetadata_annotations (Dict[str, Any], optional): Managed namespace metadata annotations for the application set spec template sync policy.
-        body_applicationSet_spec_template_spec_syncPolicy_managedNamespaceMetadata_labels (Dict[str, Any], optional): Managed namespace metadata labels for the application set spec template sync policy.
-        body_applicationSet_spec_template_spec_syncPolicy_retry_backoff_duration (str, optional): Retry backoff duration for the application set spec template sync policy.
-        body_applicationSet_spec_template_spec_syncPolicy_retry_backoff_factor (int, optional): Retry backoff factor for the application set spec template sync policy.
-        body_applicationSet_spec_template_spec_syncPolicy_retry_backoff_maxDuration (str, optional): Retry backoff max duration for the application set spec template sync policy.
-        body_applicationSet_spec_template_spec_syncPolicy_retry_limit (int, optional): Retry limit for the application set spec template sync policy.
-        body_applicationSet_spec_template_spec_syncPolicy_syncOptions (List[str], optional): Sync options for the application set spec template sync policy.
+        body_applicationSet_spec_template_spec_destination_name (str, optional): Destination name for the application set spec template spec.
+        body_applicationSet_spec_template_spec_destination_namespace (str, optional): Destination namespace for the application set spec template spec.
+        body_applicationSet_spec_template_spec_destination_server (str, optional): Destination server for the application set spec template spec.
+        body_applicationSet_spec_template_spec_ignoreDifferences (List[str], optional): Ignore differences for the application set spec template spec.
+        body_applicationSet_spec_template_spec_info (List[str], optional): Info for the application set spec template spec.
+        body_applicationSet_spec_template_spec_project (str, optional): Project for the application set spec template spec.
+        body_applicationSet_spec_template_spec_revisionHistoryLimit (int, optional): Revision history limit for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_chart (str, optional): Source chart for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_directory_exclude (str, optional): Source directory exclude for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_directory_include (str, optional): Source directory include for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_directory_jsonnet_extVars (List[str], optional): Source directory jsonnet extVars for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_directory_jsonnet_libs (List[str], optional): Source directory jsonnet libs for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_directory_jsonnet_tlas (List[str], optional): Source directory jsonnet tlas for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_directory_recurse (bool, optional): Source directory recurse for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_apiVersions (List[str], optional): Source helm apiVersions for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_fileParameters (List[str], optional): Source helm file parameters for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_ignoreMissingValueFiles (bool, optional): Source helm ignore missing value files for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_kubeVersion (str, optional): Source helm kube version for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_namespace (str, optional): Source helm namespace for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_parameters (List[str], optional): Source helm parameters for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_passCredentials (bool, optional): Source helm pass credentials for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_releaseName (str, optional): Source helm release name for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_skipCrds (bool, optional): Source helm skip CRDs for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_skipSchemaValidation (bool, optional): Source helm skip schema validation for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_skipTests (bool, optional): Source helm skip tests for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_valueFiles (List[str], optional): Source helm value files for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_values (str, optional): Source helm values for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_valuesObject_raw (str, optional): Source helm values object raw for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_helm_version (str, optional): Source helm version for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_apiVersions (List[str], optional): Source kustomize apiVersions for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_commonAnnotations (Dict[str, Any], optional): Source kustomize common annotations for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Source kustomize common annotations envsubst for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_commonLabels (Dict[str, Any], optional): Source kustomize common labels for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_components (List[str], optional): Source kustomize components for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_forceCommonAnnotations (bool, optional): Source kustomize force common annotations for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_forceCommonLabels (bool, optional): Source kustomize force common labels for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_ignoreMissingComponents (bool, optional): Source kustomize ignore missing components for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_images (List[str], optional): Source kustomize images for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_kubeVersion (str, optional): Source kustomize kube version for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_labelIncludeTemplates (bool, optional): Source kustomize label include templates for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_labelWithoutSelector (bool, optional): Source kustomize label without selector for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_namePrefix (str, optional): Source kustomize name prefix for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_nameSuffix (str, optional): Source kustomize name suffix for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_namespace (str, optional): Source kustomize namespace for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_patches (List[str], optional): Source kustomize patches for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_replicas (List[str], optional): Source kustomize replicas for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_kustomize_version (str, optional): Source kustomize version for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_name (str, optional): Source name for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_path (str, optional): Source path for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_plugin_env (List[str], optional): Source plugin environment for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_plugin_name (str, optional): Source plugin name for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_plugin_parameters (List[str], optional): Source plugin parameters for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_ref (str, optional): Source reference for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_repoURL (str, optional): Source repository URL for the application set spec template spec.
+        body_applicationSet_spec_template_spec_source_targetRevision (str, optional): Source target revision for the application set spec template spec.
+        body_applicationSet_spec_template_spec_sourceHydrator_drySource_path (str, optional): Source hydrator dry source path for the application set spec template spec.
+        body_applicationSet_spec_template_spec_sourceHydrator_drySource_repoURL (str, optional): Source hydrator dry source repository URL for the application set spec template spec.
+        body_applicationSet_spec_template_spec_sourceHydrator_drySource_targetRevision (str, optional): Source hydrator dry source target revision for the application set spec template spec.
+        body_applicationSet_spec_template_spec_sourceHydrator_hydrateTo_targetBranch (str, optional): Source hydrator hydrate to target branch for the application set spec template spec.
+        body_applicationSet_spec_template_spec_sourceHydrator_syncSource_path (str, optional): Source hydrator sync source path for the application set spec template spec.
+        body_applicationSet_spec_template_spec_sourceHydrator_syncSource_targetBranch (str, optional): Source hydrator sync source target branch for the application set spec template spec.
+        body_applicationSet_spec_template_spec_sources (List[str], optional): Sources for the application set spec template spec.
+        body_applicationSet_spec_template_spec_syncPolicy_automated_allowEmpty (bool, optional): Automated sync policy allow empty for the application set spec template spec.
+        body_applicationSet_spec_template_spec_syncPolicy_automated_enable (bool, optional): Automated sync policy enable for the application set spec template spec.
+        body_applicationSet_spec_template_spec_syncPolicy_automated_prune (bool, optional): Automated sync policy prune for the application set spec template spec.
+        body_applicationSet_spec_template_spec_syncPolicy_automated_selfHeal (bool, optional): Automated sync policy self-heal for the application set spec template spec.
+        body_applicationSet_spec_template_spec_syncPolicy_managedNamespaceMetadata_annotations (Dict[str, Any], optional): Managed namespace metadata annotations for the application set spec template spec sync policy.
+        body_applicationSet_spec_template_spec_syncPolicy_managedNamespaceMetadata_labels (Dict[str, Any], optional): Managed namespace metadata labels for the application set spec template spec sync policy.
+        body_applicationSet_spec_template_spec_syncPolicy_retry_backoff_duration (str, optional): Retry backoff duration for the application set spec template spec sync policy.
+        body_applicationSet_spec_template_spec_syncPolicy_retry_backoff_factor (int, optional): Retry backoff factor for the application set spec template spec sync policy.
+        body_applicationSet_spec_template_spec_syncPolicy_retry_backoff_maxDuration (str, optional): Retry backoff max duration for the application set spec template spec sync policy.
+        body_applicationSet_spec_template_spec_syncPolicy_retry_limit (int, optional): Retry limit for the application set spec template spec sync policy.
+        body_applicationSet_spec_template_spec_syncPolicy_syncOptions (List[str], optional): Sync options for the application set spec template spec sync policy.
         body_applicationSet_spec_templatePatch (str, optional): Template patch for the application set spec.
         body_applicationSet_status_applicationStatus (List[str], optional): Application status for the application set status.
         body_applicationSet_status_conditions (List[str], optional): Conditions for the application set status.

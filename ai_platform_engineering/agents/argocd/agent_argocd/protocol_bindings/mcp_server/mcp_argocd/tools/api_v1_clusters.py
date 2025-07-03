@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -60,13 +36,17 @@ async def cluster_service__list(
     params = {}
     data = {}
 
-    params["server"] = str(param_server).lower() if isinstance(param_server, bool) else param_server
+    if param_server is not None:
+        params["server"] = str(param_server).lower() if isinstance(param_server, bool) else param_server
 
-    params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
+    if param_name is not None:
+        params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
 
-    params["id_type"] = str(param_id_type).lower() if isinstance(param_id_type, bool) else param_id_type
+    if param_id_type is not None:
+        params["id_type"] = str(param_id_type).lower() if isinstance(param_id_type, bool) else param_id_type
 
-    params["id_value"] = str(param_id_value).lower() if isinstance(param_id_value, bool) else param_id_value
+    if param_id_value is not None:
+        params["id_value"] = str(param_id_value).lower() if isinstance(param_id_value, bool) else param_id_value
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
@@ -123,50 +103,50 @@ async def cluster_service__create(
     param_upsert: bool = False,
 ) -> Dict[str, Any]:
     '''
-    Create a cluster with the specified configuration and parameters.
+    Create a cluster with the specified configuration.
 
     Args:
         body_annotations (Dict[str, Any], optional): Annotations for the cluster. Defaults to None.
         body_clusterResources (bool, optional): Indicates if cluster-level resources should be managed. Used only if the cluster is connected in a namespaced mode. Defaults to None.
-        body_config_awsAuthConfig_clusterName (str, optional): The name of the AWS Auth Config cluster. Defaults to None.
-        body_config_awsAuthConfig_profile (str, optional): Optional profile containing role ARN for AWS IAM Authenticator. Defaults to None.
-        body_config_awsAuthConfig_roleARN (str, optional): Optional role ARN for AWS IAM Authenticator to assume a role for cluster operations. Defaults to None.
+        body_config_awsAuthConfig_clusterName (str, optional): The cluster name for AWS authentication configuration. Defaults to None.
+        body_config_awsAuthConfig_profile (str, optional): Optional AWS profile for IAM Authenticator. Defaults to None.
+        body_config_awsAuthConfig_roleARN (str, optional): Optional role ARN for AWS IAM Authenticator. Defaults to None.
         body_config_bearerToken (str, optional): Bearer token for server authentication. Defaults to None.
         body_config_disableCompression (bool, optional): If True, disables automatic GZip compression requests to the server. Defaults to None.
-        body_config_execProviderConfig_apiVersion (str, optional): API version for the exec provider configuration. Defaults to None.
-        body_config_execProviderConfig_args (List[str], optional): Arguments for the exec provider configuration. Defaults to None.
-        body_config_execProviderConfig_command (str, optional): Command for the exec provider configuration. Defaults to None.
-        body_config_execProviderConfig_env (Dict[str, Any], optional): Environment variables for the exec provider configuration. Defaults to None.
-        body_config_execProviderConfig_installHint (str, optional): Installation hint for the exec provider configuration. Defaults to None.
-        body_config_password (str, optional): Password for authentication. Defaults to None.
-        body_config_proxyUrl (str, optional): Proxy URL for the server connection. Defaults to None.
+        body_config_execProviderConfig_apiVersion (str, optional): API version for exec provider configuration. Defaults to None.
+        body_config_execProviderConfig_args (List[str], optional): Arguments for exec provider configuration. Defaults to None.
+        body_config_execProviderConfig_command (str, optional): Command for exec provider configuration. Defaults to None.
+        body_config_execProviderConfig_env (Dict[str, Any], optional): Environment variables for exec provider configuration. Defaults to None.
+        body_config_execProviderConfig_installHint (str, optional): Installation hint for exec provider configuration. Defaults to None.
+        body_config_password (str, optional): Password for server authentication. Defaults to None.
+        body_config_proxyUrl (str, optional): Proxy URL for server connection. Defaults to None.
         body_config_tlsClientConfig_caData (str, optional): CA data for TLS client configuration. Defaults to None.
         body_config_tlsClientConfig_certData (str, optional): Certificate data for TLS client configuration. Defaults to None.
-        body_config_tlsClientConfig_insecure (bool, optional): If True, accesses the server without verifying the TLS certificate. For testing only. Defaults to None.
+        body_config_tlsClientConfig_insecure (bool, optional): If True, access the server without verifying the TLS certificate. For testing only. Defaults to None.
         body_config_tlsClientConfig_keyData (str, optional): Key data for TLS client configuration. Defaults to None.
         body_config_tlsClientConfig_serverName (str, optional): Server name for SNI and certificate verification. Defaults to None.
-        body_config_username (str, optional): Username for authentication. Defaults to None.
+        body_config_username (str, optional): Username for server authentication. Defaults to None.
         body_connectionState_attemptedAt (str, optional): Timestamp of the last connection attempt. Defaults to None.
-        body_connectionState_message (str, optional): Message describing the connection state. Defaults to None.
+        body_connectionState_message (str, optional): Message regarding the connection state. Defaults to None.
         body_connectionState_status (str, optional): Status of the connection state. Defaults to None.
-        body_info_apiVersions (List[str], optional): List of API versions supported by the server. Defaults to None.
-        body_info_applicationsCount (int, optional): Count of applications in the cluster. Defaults to None.
-        body_info_cacheInfo_apisCount (int, optional): Count of APIs in the cache. Defaults to None.
+        body_info_apiVersions (List[str], optional): Supported API versions. Defaults to None.
+        body_info_applicationsCount (int, optional): Count of applications. Defaults to None.
+        body_info_cacheInfo_apisCount (int, optional): Count of cached APIs. Defaults to None.
         body_info_cacheInfo_lastCacheSyncTime (str, optional): Timestamp of the last cache synchronization. Defaults to None.
-        body_info_cacheInfo_resourcesCount (int, optional): Count of resources in the cache. Defaults to None.
+        body_info_cacheInfo_resourcesCount (int, optional): Count of cached resources. Defaults to None.
         body_info_connectionState_attemptedAt (str, optional): Timestamp of the last connection state attempt. Defaults to None.
-        body_info_connectionState_message (str, optional): Message describing the connection state. Defaults to None.
+        body_info_connectionState_message (str, optional): Message regarding the connection state. Defaults to None.
         body_info_connectionState_status (str, optional): Status of the connection state. Defaults to None.
-        body_info_serverVersion (str, optional): Version of the server. Defaults to None.
+        body_info_serverVersion (str, optional): Server version information. Defaults to None.
         body_labels (Dict[str, Any], optional): Labels for the cluster. Defaults to None.
         body_name (str, optional): Name of the cluster. Defaults to None.
-        body_namespaces (List[str], optional): List of namespaces accessible in the cluster. Defaults to None.
+        body_namespaces (List[str], optional): List of accessible namespaces in the cluster. Defaults to None.
         body_project (str, optional): Project associated with the cluster. Defaults to None.
         body_refreshRequestedAt (str, optional): Timestamp when a refresh was requested. Defaults to None.
-        body_server (str, optional): Server URL for the cluster. Defaults to None.
+        body_server (str, optional): Server address. Defaults to None.
         body_serverVersion (str, optional): Version of the server. Defaults to None.
-        body_shard (int, optional): Optional shard number for the cluster. Defaults to None.
-        param_upsert (bool, optional): If True, upserts the cluster configuration. Defaults to False.
+        body_shard (int, optional): Optional shard number. Defaults to None.
+        param_upsert (bool, optional): If True, upsert the cluster configuration. Defaults to False.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call.
@@ -179,7 +159,8 @@ async def cluster_service__create(
     params = {}
     data = {}
 
-    params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
+    if param_upsert is not None:
+        params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
 
     flat_body = {}
     if body_annotations is not None:

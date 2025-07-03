@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -41,30 +17,33 @@ async def repository_service__list_apps(
     path_repo: str, param_revision: str = None, param_appName: str = None, param_appProject: str = None
 ) -> Dict[str, Any]:
     '''
-    ListApps returns a list of apps in the repository.
+    ListApps returns a list of applications in the specified repository.
 
     Args:
-        path_repo (str): The path to the repository.
-        param_revision (str, optional): The revision parameter for filtering apps. Defaults to None.
-        param_appName (str, optional): The name of the app to filter by. Defaults to None.
-        param_appProject (str, optional): The project of the app to filter by. Defaults to None.
+        path_repo (str): The path to the repository where the applications are located.
+        param_revision (str, optional): The specific revision of the repository to query. Defaults to None.
+        param_appName (str, optional): The name of the application to filter the results. Defaults to None.
+        param_appProject (str, optional): The project associated with the application to filter the results. Defaults to None.
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call containing the list of apps.
+        Dict[str, Any]: A dictionary containing the JSON response from the API call, which includes the list of applications.
 
     Raises:
-        Exception: If the API request fails or returns an error.
+        Exception: If the API request fails or returns an error, an exception is raised with the error details.
     '''
     logger.debug("Making GET request to /api/v1/repositories/{repo}/apps")
 
     params = {}
     data = {}
 
-    params["revision"] = str(param_revision).lower() if isinstance(param_revision, bool) else param_revision
+    if param_revision is not None:
+        params["revision"] = str(param_revision).lower() if isinstance(param_revision, bool) else param_revision
 
-    params["appName"] = str(param_appName).lower() if isinstance(param_appName, bool) else param_appName
+    if param_appName is not None:
+        params["appName"] = str(param_appName).lower() if isinstance(param_appName, bool) else param_appName
 
-    params["appProject"] = str(param_appProject).lower() if isinstance(param_appProject, bool) else param_appProject
+    if param_appProject is not None:
+        params["appProject"] = str(param_appProject).lower() if isinstance(param_appProject, bool) else param_appProject
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -85,8 +61,8 @@ async def repository_service__update_repository(
         body_githubAppInstallationID (int, optional): The GitHub App Installation ID. Defaults to None.
         body_githubAppPrivateKey (str, optional): The private key for the GitHub App. Defaults to None.
         body_inheritedCreds (bool, optional): Specifies whether credentials are inherited. Defaults to None.
-        body_insecure (bool, optional): Specifies whether the connection is insecure. Defaults to None.
-        body_insecureIgnoreHostKey (bool, optional): Specifies whether to ignore host key verification. Defaults to None.
+        body_insecure (bool, optional): Specifies whether insecure connections are allowed. Defaults to None.
+        body_insecureIgnoreHostKey (bool, optional): Specifies whether host key verification should be ignored. Defaults to None.
         body_name (str, optional): The name of the repository. Defaults to None.
         body_noProxy (str, optional): The no-proxy configuration. Defaults to None.
         body_password (str, optional): The password for authentication. Defaults to None.
@@ -97,7 +73,7 @@ async def repository_service__update_repository(
         body_tlsClientCertData (str, optional): The TLS client certificate data. Defaults to None.
         body_tlsClientCertKey (str, optional): The TLS client certificate key. Defaults to None.
         body_type (str, optional): The type of the repository, either "git" or "helm". "git" is assumed if empty or absent. Defaults to None.
-        body_useAzureWorkloadIdentity (bool, optional): Specifies whether Azure Workload Identity is used. Defaults to None.
+        body_useAzureWorkloadIdentity (bool, optional): Specifies whether Azure Workload Identity should be used. Defaults to None.
         body_username (str, optional): The username for authentication. Defaults to None.
 
     Returns:

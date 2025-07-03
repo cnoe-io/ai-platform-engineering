@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -39,23 +15,24 @@ logger = logging.getLogger("mcp_tools")
 
 async def repo_creds_service__list_write_repository_credentials(param_url: str = None) -> Dict[str, Any]:
     '''
-    ListWriteRepositoryCredentials retrieves a list of all configured repository credential sets that have write access.
+    ListWriteRepositoryCredentials gets a list of all configured repository credential sets that have write access.
 
     Args:
-        param_url (str, optional): The repository URL for the query. Defaults to None.
+        param_url (str, optional): Repo URL for query. Defaults to None.
 
     Returns:
-        Dict[str, Any]: A dictionary containing the JSON response from the API call, which includes the list of repository credentials with write access.
+        Dict[str, Any]: The JSON response from the API call containing the list of repository credentials with write access.
 
     Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
+        Exception: If the API request fails or returns an error.
     '''
     logger.debug("Making GET request to /api/v1/write-repocreds")
 
     params = {}
     data = {}
 
-    params["url"] = str(param_url).lower() if isinstance(param_url, bool) else param_url
+    if param_url is not None:
+        params["url"] = str(param_url).lower() if isinstance(param_url, bool) else param_url
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
@@ -107,7 +84,7 @@ async def repo_creds_service__create_write_repository_credentials(
         body_sshPrivateKey (str, optional): The SSH private key. Defaults to None.
         body_tlsClientCertData (str, optional): The TLS client certificate data. Defaults to None.
         body_tlsClientCertKey (str, optional): The TLS client certificate key. Defaults to None.
-        body_type (str, optional): Specifies the type of the repository credentials, either "git" or "helm". Defaults to None.
+        body_type (str, optional): Specifies the type of the repository credentials, either "git" or "helm". Defaults to "git" if empty or absent.
         body_url (str, optional): The URL of the repository. Defaults to None.
         body_useAzureWorkloadIdentity (bool, optional): Flag to use Azure Workload Identity. Defaults to None.
         body_username (str, optional): The username for authentication. Defaults to None.
@@ -124,7 +101,8 @@ async def repo_creds_service__create_write_repository_credentials(
     params = {}
     data = {}
 
-    params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
+    if param_upsert is not None:
+        params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
 
     flat_body = {}
     if body_bearerToken is not None:

@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -49,7 +25,7 @@ async def application_service__list_resource_events(
     ListResourceEvents returns a list of event resources.
 
     Args:
-        path_name (str): The name of the application path for which events are to be listed.
+        path_name (str): The name of the application for which events are being listed.
         param_resourceNamespace (str, optional): The namespace of the resource. Defaults to None.
         param_resourceName (str, optional): The name of the resource. Defaults to None.
         param_resourceUID (str, optional): The unique identifier of the resource. Defaults to None.
@@ -67,21 +43,30 @@ async def application_service__list_resource_events(
     params = {}
     data = {}
 
-    params["resourceNamespace"] = (
-        str(param_resourceNamespace).lower() if isinstance(param_resourceNamespace, bool) else param_resourceNamespace
-    )
+    if param_resourceNamespace is not None:
+        params["resourceNamespace"] = (
+            str(param_resourceNamespace).lower()
+            if isinstance(param_resourceNamespace, bool)
+            else param_resourceNamespace
+        )
 
-    params["resourceName"] = (
-        str(param_resourceName).lower() if isinstance(param_resourceName, bool) else param_resourceName
-    )
+    if param_resourceName is not None:
+        params["resourceName"] = (
+            str(param_resourceName).lower() if isinstance(param_resourceName, bool) else param_resourceName
+        )
 
-    params["resourceUID"] = str(param_resourceUID).lower() if isinstance(param_resourceUID, bool) else param_resourceUID
+    if param_resourceUID is not None:
+        params["resourceUID"] = (
+            str(param_resourceUID).lower() if isinstance(param_resourceUID, bool) else param_resourceUID
+        )
 
-    params["appNamespace"] = (
-        str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
-    )
+    if param_appNamespace is not None:
+        params["appNamespace"] = (
+            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
+        )
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

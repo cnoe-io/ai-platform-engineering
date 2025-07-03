@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -92,70 +68,135 @@ async def repository_service__get_app_details(
     body_sourceIndex: int = None,
     body_versionId: int = None,
 ) -> Dict[str, Any]:
-    '''
-    Get application details by the given path.
+    """
+        GetAppDetails returns application details by given path
 
-    Args:
-        path_source_repoURL (str): The URL to the repository (Git or Helm) that contains the application manifests.
-        body_appName (str, optional): The name of the application. Defaults to None.
-        body_appProject (str, optional): The project associated with the application. Defaults to None.
-        body_source_chart (str, optional): The Helm chart name, required for applications sourced from a Helm repo. Defaults to None.
-        body_source_directory_exclude (str, optional): Directories to exclude. Defaults to None.
-        body_source_directory_include (str, optional): Directories to include. Defaults to None.
-        body_source_directory_jsonnet_extVars (List[str], optional): Jsonnet external variables. Defaults to None.
-        body_source_directory_jsonnet_libs (List[str], optional): Jsonnet library paths. Defaults to None.
-        body_source_directory_jsonnet_tlas (List[str], optional): Jsonnet top-level arguments. Defaults to None.
-        body_source_directory_recurse (bool, optional): Whether to recurse into directories. Defaults to None.
-        body_source_helm_apiVersions (List[str], optional): Kubernetes resource API versions for Helm. Defaults to None.
-        body_source_helm_fileParameters (List[str], optional): Helm file parameters. Defaults to None.
-        body_source_helm_ignoreMissingValueFiles (bool, optional): Ignore missing value files in Helm. Defaults to None.
-        body_source_helm_kubeVersion (str, optional): Kubernetes API version for Helm. Defaults to None.
-        body_source_helm_namespace (str, optional): Namespace for Helm templating. Defaults to None.
-        body_source_helm_parameters (List[str], optional): Helm parameters. Defaults to None.
-        body_source_helm_passCredentials (bool, optional): Pass credentials to Helm. Defaults to None.
-        body_source_helm_releaseName (str, optional): Helm release name. Defaults to None.
-        body_source_helm_skipCrds (bool, optional): Skip CRDs in Helm. Defaults to None.
-        body_source_helm_skipSchemaValidation (bool, optional): Skip schema validation in Helm. Defaults to None.
-        body_source_helm_skipTests (bool, optional): Skip test manifest installation in Helm. Defaults to None.
-        body_source_helm_valueFiles (List[str], optional): Helm value files. Defaults to None.
-        body_source_helm_values (str, optional): Helm values. Defaults to None.
-        body_source_helm_valuesObject_raw (str, optional): Raw serialization of Helm values object. Defaults to None.
-        body_source_helm_version (str, optional): Helm version. Defaults to None.
-        body_source_kustomize_apiVersions (List[str], optional): Kubernetes resource API versions for Kustomize. Defaults to None.
-        body_source_kustomize_commonAnnotations (Dict[str, Any], optional): Common annotations for Kustomize. Defaults to None.
-        body_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Environment substitution for common annotations in Kustomize. Defaults to None.
-        body_source_kustomize_commonLabels (Dict[str, Any], optional): Common labels for Kustomize. Defaults to None.
-        body_source_kustomize_components (List[str], optional): Kustomize components. Defaults to None.
-        body_source_kustomize_forceCommonAnnotations (bool, optional): Force common annotations in Kustomize. Defaults to None.
-        body_source_kustomize_forceCommonLabels (bool, optional): Force common labels in Kustomize. Defaults to None.
-        body_source_kustomize_ignoreMissingComponents (bool, optional): Ignore missing components in Kustomize. Defaults to None.
-        body_source_kustomize_images (List[str], optional): Kustomize images. Defaults to None.
-        body_source_kustomize_kubeVersion (str, optional): Kubernetes API version for Kustomize. Defaults to None.
-        body_source_kustomize_labelIncludeTemplates (bool, optional): Include templates in labels for Kustomize. Defaults to None.
-        body_source_kustomize_labelWithoutSelector (bool, optional): Label without selector in Kustomize. Defaults to None.
-        body_source_kustomize_namePrefix (str, optional): Name prefix for Kustomize. Defaults to None.
-        body_source_kustomize_nameSuffix (str, optional): Name suffix for Kustomize. Defaults to None.
-        body_source_kustomize_namespace (str, optional): Namespace for Kustomize. Defaults to None.
-        body_source_kustomize_patches (List[str], optional): Patches for Kustomize. Defaults to None.
-        body_source_kustomize_replicas (List[str], optional): Replicas for Kustomize. Defaults to None.
-        body_source_kustomize_version (str, optional): Kustomize version. Defaults to None.
-        body_source_name (str, optional): Name of the source, displayed in the UI. Defaults to None.
-        body_source_path (str, optional): Directory path within the Git repository. Defaults to None.
-        body_source_plugin_env (List[str], optional): Plugin environment variables. Defaults to None.
-        body_source_plugin_name (str, optional): Plugin name. Defaults to None.
-        body_source_plugin_parameters (List[str], optional): Plugin parameters. Defaults to None.
-        body_source_ref (str, optional): Reference to another source. Defaults to None.
-        body_source_repoURL (str, optional): Repository URL for the source. Defaults to None.
-        body_source_targetRevision (str, optional): Target revision for syncing the application. Defaults to None.
-        body_sourceIndex (int, optional): Index of the source. Defaults to None.
-        body_versionId (int, optional): Version ID. Defaults to None.
+        OpenAPI Description:
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call.
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
+        Args:
+
+            path_source_repoURL (str): RepoURL is the URL to the repository (Git or Helm) that contains the application manifests
+
+            body_appName (str): OpenAPI parameter corresponding to 'body_appName'
+
+            body_appProject (str): OpenAPI parameter corresponding to 'body_appProject'
+
+            body_source_chart (str): Chart is a Helm chart name, and must be specified for applications sourced from a Helm repo.
+
+            body_source_directory_exclude (str): OpenAPI parameter corresponding to 'body_source_directory_exclude'
+
+            body_source_directory_include (str): OpenAPI parameter corresponding to 'body_source_directory_include'
+
+            body_source_directory_jsonnet_extVars (List[str]): OpenAPI parameter corresponding to 'body_source_directory_jsonnet_extVars'
+
+            body_source_directory_jsonnet_libs (List[str]): OpenAPI parameter corresponding to 'body_source_directory_jsonnet_libs'
+
+            body_source_directory_jsonnet_tlas (List[str]): OpenAPI parameter corresponding to 'body_source_directory_jsonnet_tlas'
+
+            body_source_directory_recurse (bool): OpenAPI parameter corresponding to 'body_source_directory_recurse'
+
+            body_source_helm_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_source_helm_fileParameters (List[str]): OpenAPI parameter corresponding to 'body_source_helm_fileParameters'
+
+            body_source_helm_ignoreMissingValueFiles (bool): OpenAPI parameter corresponding to 'body_source_helm_ignoreMissingValueFiles'
+
+            body_source_helm_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_source_helm_namespace (str): Namespace is an optional namespace to template with. If left empty, defaults to the app's destination namespace.
+
+            body_source_helm_parameters (List[str]): OpenAPI parameter corresponding to 'body_source_helm_parameters'
+
+            body_source_helm_passCredentials (bool): OpenAPI parameter corresponding to 'body_source_helm_passCredentials'
+
+            body_source_helm_releaseName (str): OpenAPI parameter corresponding to 'body_source_helm_releaseName'
+
+            body_source_helm_skipCrds (bool): OpenAPI parameter corresponding to 'body_source_helm_skipCrds'
+
+            body_source_helm_skipSchemaValidation (bool): OpenAPI parameter corresponding to 'body_source_helm_skipSchemaValidation'
+
+            body_source_helm_skipTests (bool): SkipTests skips test manifest installation step (Helm's --skip-tests).
+
+            body_source_helm_valueFiles (List[str]): OpenAPI parameter corresponding to 'body_source_helm_valueFiles'
+
+            body_source_helm_values (str): OpenAPI parameter corresponding to 'body_source_helm_values'
+
+            body_source_helm_valuesObject_raw (str): Raw is the underlying serialization of this object.
+
+    TODO: Determine how to detect ContentType and ContentEncoding of 'Raw' data.
+
+            body_source_helm_version (str): OpenAPI parameter corresponding to 'body_source_helm_version'
+
+            body_source_kustomize_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_source_kustomize_commonAnnotations (Dict[str, Any]): OpenAPI parameter corresponding to 'body_source_kustomize_commonAnnotations'
+
+            body_source_kustomize_commonAnnotationsEnvsubst (bool): OpenAPI parameter corresponding to 'body_source_kustomize_commonAnnotationsEnvsubst'
+
+            body_source_kustomize_commonLabels (Dict[str, Any]): OpenAPI parameter corresponding to 'body_source_kustomize_commonLabels'
+
+            body_source_kustomize_components (List[str]): OpenAPI parameter corresponding to 'body_source_kustomize_components'
+
+            body_source_kustomize_forceCommonAnnotations (bool): OpenAPI parameter corresponding to 'body_source_kustomize_forceCommonAnnotations'
+
+            body_source_kustomize_forceCommonLabels (bool): OpenAPI parameter corresponding to 'body_source_kustomize_forceCommonLabels'
+
+            body_source_kustomize_ignoreMissingComponents (bool): OpenAPI parameter corresponding to 'body_source_kustomize_ignoreMissingComponents'
+
+            body_source_kustomize_images (List[str]): OpenAPI parameter corresponding to 'body_source_kustomize_images'
+
+            body_source_kustomize_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_source_kustomize_labelIncludeTemplates (bool): OpenAPI parameter corresponding to 'body_source_kustomize_labelIncludeTemplates'
+
+            body_source_kustomize_labelWithoutSelector (bool): OpenAPI parameter corresponding to 'body_source_kustomize_labelWithoutSelector'
+
+            body_source_kustomize_namePrefix (str): OpenAPI parameter corresponding to 'body_source_kustomize_namePrefix'
+
+            body_source_kustomize_nameSuffix (str): OpenAPI parameter corresponding to 'body_source_kustomize_nameSuffix'
+
+            body_source_kustomize_namespace (str): OpenAPI parameter corresponding to 'body_source_kustomize_namespace'
+
+            body_source_kustomize_patches (List[str]): OpenAPI parameter corresponding to 'body_source_kustomize_patches'
+
+            body_source_kustomize_replicas (List[str]): OpenAPI parameter corresponding to 'body_source_kustomize_replicas'
+
+            body_source_kustomize_version (str): OpenAPI parameter corresponding to 'body_source_kustomize_version'
+
+            body_source_name (str): Name is used to refer to a source and is displayed in the UI. It is used in multi-source Applications.
+
+            body_source_path (str): Path is a directory path within the Git repository, and is only valid for applications sourced from Git.
+
+            body_source_plugin_env (List[str]): OpenAPI parameter corresponding to 'body_source_plugin_env'
+
+            body_source_plugin_name (str): OpenAPI parameter corresponding to 'body_source_plugin_name'
+
+            body_source_plugin_parameters (List[str]): OpenAPI parameter corresponding to 'body_source_plugin_parameters'
+
+            body_source_ref (str): Ref is reference to another source within sources field. This field will not be used if used with a `source` tag.
+
+            body_source_repoURL (str): OpenAPI parameter corresponding to 'body_source_repoURL'
+
+            body_source_targetRevision (str): TargetRevision defines the revision of the source to sync the application to.
+    In case of Git, this can be commit, tag, or branch. If omitted, will equal to HEAD.
+    In case of Helm, this is a semver tag for the Chart's version.
+
+            body_sourceIndex (int): OpenAPI parameter corresponding to 'body_sourceIndex'
+
+            body_versionId (int): OpenAPI parameter corresponding to 'body_versionId'
+
+
+        Returns:
+            Dict[str, Any]: The JSON response from the API call.
+
+        Raises:
+            Exception: If the API request fails or returns an error.
+    """
     logger.debug("Making POST request to /api/v1/repositories/{source.repoURL}/appdetails")
 
     params = {}

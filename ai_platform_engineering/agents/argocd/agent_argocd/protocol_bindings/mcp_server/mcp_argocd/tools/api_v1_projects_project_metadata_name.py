@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -75,38 +51,38 @@ async def project_service__update(
     Update a project with the specified metadata and specifications.
 
     Args:
-        path_project_metadata_name (str): The unique name of the project within a namespace. Required for resource creation. Cannot be updated.
-        body_project_metadata_annotations (Dict[str, Any], optional): Annotations for the project metadata. Defaults to None.
-        body_project_metadata_creationTimestamp (str, optional): The creation timestamp of the project. Defaults to None.
-        body_project_metadata_deletionGracePeriodSeconds (int, optional): The grace period for deletion in seconds. Defaults to None.
-        body_project_metadata_deletionTimestamp (str, optional): The deletion timestamp of the project. Defaults to None.
-        body_project_metadata_finalizers (List[str], optional): Finalizers for the project metadata. Defaults to None.
-        body_project_metadata_generateName (str, optional): Prefix for generating a unique name if the Name field is not provided. Defaults to None.
-        body_project_metadata_generation (int, optional): The generation number of the project metadata. Defaults to None.
-        body_project_metadata_labels (Dict[str, Any], optional): Labels for the project metadata. Defaults to None.
-        body_project_metadata_managedFields (List[str], optional): Managed fields for internal housekeeping. Defaults to None.
-        body_project_metadata_name (str, optional): The name of the project metadata. Defaults to None.
-        body_project_metadata_namespace (str, optional): The namespace within which the name must be unique. Defaults to None.
-        body_project_metadata_ownerReferences (List[str], optional): Owner references for the project metadata. Defaults to None.
-        body_project_metadata_resourceVersion (str, optional): The internal version of the object for concurrency control. Defaults to None.
-        body_project_metadata_selfLink (str, optional): Self-link for the project metadata. Defaults to None.
-        body_project_metadata_uid (str, optional): The unique identifier for the project metadata. Defaults to None.
-        body_project_spec_clusterResourceBlacklist (List[str], optional): Blacklist of cluster resources. Defaults to None.
-        body_project_spec_clusterResourceWhitelist (List[str], optional): Whitelist of cluster resources. Defaults to None.
-        body_project_spec_description (str, optional): Description of the project specification. Defaults to None.
-        body_project_spec_destinationServiceAccounts (List[str], optional): Service accounts for application sync operations. Defaults to None.
-        body_project_spec_destinations (List[str], optional): Destinations for the project specification. Defaults to None.
-        body_project_spec_namespaceResourceBlacklist (List[str], optional): Blacklist of namespace resources. Defaults to None.
-        body_project_spec_namespaceResourceWhitelist (List[str], optional): Whitelist of namespace resources. Defaults to None.
-        body_project_spec_orphanedResources_ignore (List[str], optional): Resources to ignore as orphaned. Defaults to None.
-        body_project_spec_orphanedResources_warn (bool, optional): Flag to warn about orphaned resources. Defaults to None.
-        body_project_spec_permitOnlyProjectScopedClusters (bool, optional): Flag to permit only project-scoped clusters. Defaults to None.
-        body_project_spec_roles (List[str], optional): Roles for the project specification. Defaults to None.
-        body_project_spec_signatureKeys (List[str], optional): Signature keys for the project specification. Defaults to None.
-        body_project_spec_sourceNamespaces (List[str], optional): Source namespaces for the project specification. Defaults to None.
-        body_project_spec_sourceRepos (List[str], optional): Source repositories for the project specification. Defaults to None.
-        body_project_spec_syncWindows (List[str], optional): Sync windows for the project specification. Defaults to None.
-        body_project_status_jwtTokensByRole (Dict[str, Any], optional): JWT tokens by role for the project status. Defaults to None.
+        path_project_metadata_name (str): The unique name of the project within a namespace. This is required for resource creation and cannot be updated. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#names.
+        body_project_metadata_annotations (Dict[str, Any], optional): Annotations for the project metadata.
+        body_project_metadata_creationTimestamp (str, optional): The creation timestamp of the project metadata.
+        body_project_metadata_deletionGracePeriodSeconds (int, optional): The grace period in seconds before the project metadata is deleted.
+        body_project_metadata_deletionTimestamp (str, optional): The deletion timestamp of the project metadata.
+        body_project_metadata_finalizers (List[str], optional): Finalizers for the project metadata.
+        body_project_metadata_generateName (str, optional): A prefix used by the server to generate a unique name if the Name field is not provided.
+        body_project_metadata_generation (int, optional): The generation of the project metadata.
+        body_project_metadata_labels (Dict[str, Any], optional): Labels for the project metadata.
+        body_project_metadata_managedFields (List[str], optional): Managed fields for the project metadata.
+        body_project_metadata_name (str, optional): The name of the project metadata.
+        body_project_metadata_namespace (str, optional): The namespace of the project metadata.
+        body_project_metadata_ownerReferences (List[str], optional): Owner references for the project metadata.
+        body_project_metadata_resourceVersion (str, optional): The resource version of the project metadata.
+        body_project_metadata_selfLink (str, optional): The self link of the project metadata.
+        body_project_metadata_uid (str, optional): The unique identifier of the project metadata.
+        body_project_spec_clusterResourceBlacklist (List[str], optional): Cluster resource blacklist for the project specification.
+        body_project_spec_clusterResourceWhitelist (List[str], optional): Cluster resource whitelist for the project specification.
+        body_project_spec_description (str, optional): Description of the project specification.
+        body_project_spec_destinationServiceAccounts (List[str], optional): Service accounts to be impersonated for the application sync operation for each destination.
+        body_project_spec_destinations (List[str], optional): Destinations for the project specification.
+        body_project_spec_namespaceResourceBlacklist (List[str], optional): Namespace resource blacklist for the project specification.
+        body_project_spec_namespaceResourceWhitelist (List[str], optional): Namespace resource whitelist for the project specification.
+        body_project_spec_orphanedResources_ignore (List[str], optional): Orphaned resources to ignore for the project specification.
+        body_project_spec_orphanedResources_warn (bool, optional): Whether to warn about orphaned resources in the project specification.
+        body_project_spec_permitOnlyProjectScopedClusters (bool, optional): Whether to permit only project-scoped clusters in the project specification.
+        body_project_spec_roles (List[str], optional): Roles for the project specification.
+        body_project_spec_signatureKeys (List[str], optional): Signature keys for the project specification.
+        body_project_spec_sourceNamespaces (List[str], optional): Source namespaces for the project specification.
+        body_project_spec_sourceRepos (List[str], optional): Source repositories for the project specification.
+        body_project_spec_syncWindows (List[str], optional): Sync windows for the project specification.
+        body_project_status_jwtTokensByRole (Dict[str, Any], optional): JWT tokens by role for the project status.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call.

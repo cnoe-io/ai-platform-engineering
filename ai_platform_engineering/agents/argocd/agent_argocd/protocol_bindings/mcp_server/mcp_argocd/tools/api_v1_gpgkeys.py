@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -45,7 +21,7 @@ async def gpg_key_service__list(param_keyID: str = None) -> Dict[str, Any]:
         param_keyID (str, optional): The GPG key ID to query for. Defaults to None.
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call containing the list of GPG keys.
+        Dict[str, Any]: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
@@ -55,7 +31,8 @@ async def gpg_key_service__list(param_keyID: str = None) -> Dict[str, Any]:
     params = {}
     data = {}
 
-    params["keyID"] = str(param_keyID).lower() if isinstance(param_keyID, bool) else param_keyID
+    if param_keyID is not None:
+        params["keyID"] = str(param_keyID).lower() if isinstance(param_keyID, bool) else param_keyID
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
@@ -82,7 +59,7 @@ async def gpg_key_service__create(
 
     Args:
         body_fingerprint (str, optional): The fingerprint of the GPG key. Defaults to None.
-        body_keyData (str, optional): The key data of the GPG key. Defaults to None.
+        body_keyData (str, optional): The actual key data of the GPG key. Defaults to None.
         body_keyID (str, optional): The ID of the GPG key. Defaults to None.
         body_owner (str, optional): The owner of the GPG key. Defaults to None.
         body_subType (str, optional): The subtype of the GPG key. Defaults to None.
@@ -90,7 +67,7 @@ async def gpg_key_service__create(
         param_upsert (bool, optional): Whether to upsert already existing public keys. Defaults to False.
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call.
+        Dict[str, Any]: The JSON response from the API call, containing the result of the operation.
 
     Raises:
         Exception: If the API request fails or returns an error.
@@ -100,7 +77,8 @@ async def gpg_key_service__create(
     params = {}
     data = {}
 
-    params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
+    if param_upsert is not None:
+        params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
 
     flat_body = {}
     if body_fingerprint is not None:
@@ -130,20 +108,21 @@ async def gpg_key_service__delete(param_keyID: str = None) -> Dict[str, Any]:
     Delete specified GPG public key from the server's configuration.
 
     Args:
-        param_keyID (str): The GPG key ID to query for. If the key ID is a boolean, it will be converted to a lowercase string.
+        param_keyID (str, optional): The GPG key ID to query for. Defaults to None.
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call, containing the result of the delete operation.
+        Dict[str, Any]: The JSON response from the API call.
 
     Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
+        Exception: If the API request fails or returns an error.
     '''
     logger.debug("Making DELETE request to /api/v1/gpgkeys")
 
     params = {}
     data = {}
 
-    params["keyID"] = str(param_keyID).lower() if isinstance(param_keyID, bool) else param_keyID
+    if param_keyID is not None:
+        params["keyID"] = str(param_keyID).lower() if isinstance(param_keyID, bool) else param_keyID
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

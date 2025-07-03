@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -71,23 +47,30 @@ async def application_service__get(
     params = {}
     data = {}
 
-    params["refresh"] = str(param_refresh).lower() if isinstance(param_refresh, bool) else param_refresh
+    if param_refresh is not None:
+        params["refresh"] = str(param_refresh).lower() if isinstance(param_refresh, bool) else param_refresh
 
-    params["projects"] = str(param_projects).lower() if isinstance(param_projects, bool) else param_projects
+    if param_projects is not None:
+        params["projects"] = str(param_projects).lower() if isinstance(param_projects, bool) else param_projects
 
-    params["resourceVersion"] = (
-        str(param_resourceVersion).lower() if isinstance(param_resourceVersion, bool) else param_resourceVersion
-    )
+    if param_resourceVersion is not None:
+        params["resourceVersion"] = (
+            str(param_resourceVersion).lower() if isinstance(param_resourceVersion, bool) else param_resourceVersion
+        )
 
-    params["selector"] = str(param_selector).lower() if isinstance(param_selector, bool) else param_selector
+    if param_selector is not None:
+        params["selector"] = str(param_selector).lower() if isinstance(param_selector, bool) else param_selector
 
-    params["repo"] = str(param_repo).lower() if isinstance(param_repo, bool) else param_repo
+    if param_repo is not None:
+        params["repo"] = str(param_repo).lower() if isinstance(param_repo, bool) else param_repo
 
-    params["appNamespace"] = (
-        str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
-    )
+    if param_appNamespace is not None:
+        params["appNamespace"] = (
+            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
+        )
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
@@ -114,13 +97,13 @@ async def application_service__delete(
 
     Args:
         path_name (str): The name of the application to delete.
-        param_cascade (bool, optional): Whether to cascade the delete operation. Defaults to False.
-        param_propagationPolicy (str, optional): The propagation policy for the delete operation. Defaults to None.
+        param_cascade (bool, optional): If set to True, the deletion will cascade. Defaults to False.
+        param_propagationPolicy (str, optional): The policy for propagating the deletion. Defaults to None.
         param_appNamespace (str, optional): The namespace of the application. Defaults to None.
         param_project (str, optional): The project associated with the application. Defaults to None.
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call, containing the result of the delete operation.
+        Dict[str, Any]: The JSON response from the API call, containing the result of the deletion operation.
 
     Raises:
         Exception: If the API request fails or returns an error.
@@ -130,17 +113,23 @@ async def application_service__delete(
     params = {}
     data = {}
 
-    params["cascade"] = str(param_cascade).lower() if isinstance(param_cascade, bool) else param_cascade
+    if param_cascade is not None:
+        params["cascade"] = str(param_cascade).lower() if isinstance(param_cascade, bool) else param_cascade
 
-    params["propagationPolicy"] = (
-        str(param_propagationPolicy).lower() if isinstance(param_propagationPolicy, bool) else param_propagationPolicy
-    )
+    if param_propagationPolicy is not None:
+        params["propagationPolicy"] = (
+            str(param_propagationPolicy).lower()
+            if isinstance(param_propagationPolicy, bool)
+            else param_propagationPolicy
+        )
 
-    params["appNamespace"] = (
-        str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
-    )
+    if param_appNamespace is not None:
+        params["appNamespace"] = (
+            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
+        )
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

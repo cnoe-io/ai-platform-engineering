@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -67,10 +43,10 @@ async def repo_creds_service__update_write_repository_credentials(
         body_enableOCI (bool, optional): Flag to enable OCI support. Defaults to None.
         body_forceHttpBasicAuth (bool, optional): Flag to force HTTP Basic Authentication. Defaults to None.
         body_gcpServiceAccountKey (str, optional): GCP service account key. Defaults to None.
-        body_githubAppEnterpriseBaseUrl (str, optional): GitHub App enterprise base URL. Defaults to None.
+        body_githubAppEnterpriseBaseUrl (str, optional): Base URL for GitHub App Enterprise. Defaults to None.
         body_githubAppID (int, optional): GitHub App ID. Defaults to None.
-        body_githubAppInstallationID (int, optional): GitHub App installation ID. Defaults to None.
-        body_githubAppPrivateKey (str, optional): GitHub App private key. Defaults to None.
+        body_githubAppInstallationID (int, optional): GitHub App Installation ID. Defaults to None.
+        body_githubAppPrivateKey (str, optional): Private key for GitHub App. Defaults to None.
         body_noProxy (str, optional): No proxy setting. Defaults to None.
         body_password (str, optional): Password for authentication. Defaults to None.
         body_proxy (str, optional): Proxy setting. Defaults to None.

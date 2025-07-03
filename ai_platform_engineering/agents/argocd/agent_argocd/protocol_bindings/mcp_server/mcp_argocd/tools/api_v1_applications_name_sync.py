@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -64,20 +40,20 @@ async def application_service__sync(
     Args:
         path_name (str): The name of the application path.
         body_appNamespace (str, optional): The namespace of the application. Defaults to None.
-        body_dryRun (bool, optional): Indicates whether the sync should be a dry run. Defaults to None.
-        body_infos (List[str], optional): Additional information related to the sync process. Defaults to None.
+        body_dryRun (bool, optional): Indicates if the sync should be a dry run. Defaults to None.
+        body_infos (List[str], optional): Additional information for the sync process. Defaults to None.
         body_manifests (List[str], optional): The manifests to be applied during the sync. Defaults to None.
         body_name (str, optional): The name of the application. Defaults to None.
         body_project (str, optional): The project associated with the application. Defaults to None.
-        body_prune (bool, optional): Indicates whether resources should be pruned during the sync. Defaults to None.
+        body_prune (bool, optional): Indicates if resources should be pruned during sync. Defaults to None.
         body_resources (List[str], optional): Specific resources to be synced. Defaults to None.
         body_retryStrategy_backoff_duration (str, optional): Duration for backoff in retry strategy. Defaults to None.
         body_retryStrategy_backoff_factor (int, optional): Factor for backoff in retry strategy. Defaults to None.
         body_retryStrategy_backoff_maxDuration (str, optional): Maximum duration for backoff in retry strategy. Defaults to None.
-        body_retryStrategy_limit (int, optional): Maximum number of attempts for retrying a failed sync. Defaults to None.
+        body_retryStrategy_limit (int, optional): Maximum number of retry attempts for a failed sync. Defaults to None.
         body_revision (str, optional): The revision to be synced. Defaults to None.
         body_revisions (List[str], optional): List of revisions to be considered during sync. Defaults to None.
-        body_sourcePositions (List[str], optional): Positions of sources involved in the sync. Defaults to None.
+        body_sourcePositions (List[str], optional): Positions of sources in the sync process. Defaults to None.
         body_strategy_apply_force (bool, optional): Indicates whether to use the --force flag with `kubectl apply`. Defaults to None.
         body_strategy_hook_syncStrategyApply_force (bool, optional): Indicates whether to use the --force flag with `kubectl apply` for hooks. Defaults to None.
         body_syncOptions_items (List[str], optional): Additional sync options. Defaults to None.

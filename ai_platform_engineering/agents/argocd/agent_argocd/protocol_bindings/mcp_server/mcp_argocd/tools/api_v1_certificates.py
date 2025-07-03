@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -59,13 +35,18 @@ async def certificate_service__list_certificates(
     params = {}
     data = {}
 
-    params["hostNamePattern"] = (
-        str(param_hostNamePattern).lower() if isinstance(param_hostNamePattern, bool) else param_hostNamePattern
-    )
+    if param_hostNamePattern is not None:
+        params["hostNamePattern"] = (
+            str(param_hostNamePattern).lower() if isinstance(param_hostNamePattern, bool) else param_hostNamePattern
+        )
 
-    params["certType"] = str(param_certType).lower() if isinstance(param_certType, bool) else param_certType
+    if param_certType is not None:
+        params["certType"] = str(param_certType).lower() if isinstance(param_certType, bool) else param_certType
 
-    params["certSubType"] = str(param_certSubType).lower() if isinstance(param_certSubType, bool) else param_certSubType
+    if param_certSubType is not None:
+        params["certSubType"] = (
+            str(param_certSubType).lower() if isinstance(param_certSubType, bool) else param_certSubType
+        )
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
@@ -108,7 +89,8 @@ async def certificate_service__create_certificate(
     params = {}
     data = {}
 
-    params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
+    if param_upsert is not None:
+        params["upsert"] = str(param_upsert).lower() if isinstance(param_upsert, bool) else param_upsert
 
     flat_body = {}
     if body_items is not None:
@@ -153,13 +135,18 @@ async def certificate_service__delete_certificate(
     params = {}
     data = {}
 
-    params["hostNamePattern"] = (
-        str(param_hostNamePattern).lower() if isinstance(param_hostNamePattern, bool) else param_hostNamePattern
-    )
+    if param_hostNamePattern is not None:
+        params["hostNamePattern"] = (
+            str(param_hostNamePattern).lower() if isinstance(param_hostNamePattern, bool) else param_hostNamePattern
+        )
 
-    params["certType"] = str(param_certType).lower() if isinstance(param_certType, bool) else param_certType
+    if param_certType is not None:
+        params["certType"] = str(param_certType).lower() if isinstance(param_certType, bool) else param_certType
 
-    params["certSubType"] = str(param_certSubType).lower() if isinstance(param_certSubType, bool) else param_certSubType
+    if param_certSubType is not None:
+        params["certSubType"] = (
+            str(param_certSubType).lower() if isinstance(param_certSubType, bool) else param_certSubType
+        )
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

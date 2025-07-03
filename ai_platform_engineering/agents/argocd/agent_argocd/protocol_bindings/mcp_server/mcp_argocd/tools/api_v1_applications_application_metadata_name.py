@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -411,397 +387,941 @@ async def application_service__update(
     param_validate: bool = False,
     param_project: str = None,
 ) -> Dict[str, Any]:
-    '''
-    Update an application.
+    """
+        Update updates an application
 
-    Args:
-        path_application_metadata_name (str): The unique name of the application within a namespace. This is required for creating resources and cannot be updated.
-        body_metadata_annotations (Dict[str, Any], optional): Annotations for the application metadata.
-        body_metadata_creationTimestamp (str, optional): The creation timestamp of the application.
-        body_metadata_deletionGracePeriodSeconds (int, optional): The grace period in seconds before the application is deleted.
-        body_metadata_deletionTimestamp (str, optional): The deletion timestamp of the application.
-        body_metadata_finalizers (List[str], optional): Finalizers for the application metadata.
-        body_metadata_generateName (str, optional): A prefix used by the server to generate a unique name if the Name field is not provided.
-        body_metadata_generation (int, optional): The generation of the application metadata.
-        body_metadata_labels (Dict[str, Any], optional): Labels for the application metadata.
-        body_metadata_managedFields (List[str], optional): Managed fields for the application metadata.
-        body_metadata_name (str, optional): The name of the application metadata.
-        body_metadata_namespace (str, optional): The namespace of the application metadata.
-        body_metadata_ownerReferences (List[str], optional): Owner references for the application metadata.
-        body_metadata_resourceVersion (str, optional): The resource version of the application metadata.
-        body_metadata_selfLink (str, optional): The self link of the application metadata.
-        body_metadata_uid (str, optional): The unique identifier of the application metadata.
-        body_operation_info (List[str], optional): Information about the operation.
-        body_operation_initiatedBy_automated (bool, optional): Whether the operation was initiated automatically.
-        body_operation_initiatedBy_username (str, optional): The username that initiated the operation.
-        body_operation_retry_backoff_duration (str, optional): The duration for retry backoff.
-        body_operation_retry_backoff_factor (int, optional): The factor for retry backoff.
-        body_operation_retry_backoff_maxDuration (str, optional): The maximum duration for retry backoff.
-        body_operation_retry_limit (int, optional): The maximum number of retry attempts.
-        body_operation_sync_autoHealAttemptsCount (int, optional): The number of auto-heal attempts for sync.
-        body_operation_sync_dryRun (bool, optional): Whether the sync operation is a dry run.
-        body_operation_sync_manifests (List[str], optional): The manifests for the sync operation.
-        body_operation_sync_prune (bool, optional): Whether to prune during the sync operation.
-        body_operation_sync_resources (List[str], optional): The resources for the sync operation.
-        body_operation_sync_revision (str, optional): The revision for the sync operation.
-        body_operation_sync_revisions (List[str], optional): The revisions for the sync operation.
-        body_operation_sync_source_chart (str, optional): The chart for the sync source.
-        body_operation_sync_source_directory_exclude (str, optional): The directories to exclude for the sync source.
-        body_operation_sync_source_directory_include (str, optional): The directories to include for the sync source.
-        body_operation_sync_source_directory_jsonnet_extVars (List[str], optional): The Jsonnet external variables for the sync source.
-        body_operation_sync_source_directory_jsonnet_libs (List[str], optional): The Jsonnet libraries for the sync source.
-        body_operation_sync_source_directory_jsonnet_tlas (List[str], optional): The Jsonnet top-level arguments for the sync source.
-        body_operation_sync_source_directory_recurse (bool, optional): Whether to recurse directories for the sync source.
-        body_operation_sync_source_helm_apiVersions (List[str], optional): The Helm API versions for the sync source.
-        body_operation_sync_source_helm_fileParameters (List[str], optional): The Helm file parameters for the sync source.
-        body_operation_sync_source_helm_ignoreMissingValueFiles (bool, optional): Whether to ignore missing value files for the Helm sync source.
-        body_operation_sync_source_helm_kubeVersion (str, optional): The Kubernetes version for the Helm sync source.
-        body_operation_sync_source_helm_namespace (str, optional): The namespace for the Helm sync source.
-        body_operation_sync_source_helm_parameters (List[str], optional): The Helm parameters for the sync source.
-        body_operation_sync_source_helm_passCredentials (bool, optional): Whether to pass credentials for the Helm sync source.
-        body_operation_sync_source_helm_releaseName (str, optional): The release name for the Helm sync source.
-        body_operation_sync_source_helm_skipCrds (bool, optional): Whether to skip CRDs for the Helm sync source.
-        body_operation_sync_source_helm_skipSchemaValidation (bool, optional): Whether to skip schema validation for the Helm sync source.
-        body_operation_sync_source_helm_skipTests (bool, optional): Whether to skip tests for the Helm sync source.
-        body_operation_sync_source_helm_valueFiles (List[str], optional): The value files for the Helm sync source.
-        body_operation_sync_source_helm_values (str, optional): The values for the Helm sync source.
-        body_operation_sync_source_helm_valuesObject_raw (str, optional): The raw values object for the Helm sync source.
-        body_operation_sync_source_helm_version (str, optional): The version for the Helm sync source.
-        body_operation_sync_source_kustomize_apiVersions (List[str], optional): The Kustomize API versions for the sync source.
-        body_operation_sync_source_kustomize_commonAnnotations (Dict[str, Any], optional): The common annotations for the Kustomize sync source.
-        body_operation_sync_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Whether to substitute environment variables in common annotations for the Kustomize sync source.
-        body_operation_sync_source_kustomize_commonLabels (Dict[str, Any], optional): The common labels for the Kustomize sync source.
-        body_operation_sync_source_kustomize_components (List[str], optional): The components for the Kustomize sync source.
-        body_operation_sync_source_kustomize_forceCommonAnnotations (bool, optional): Whether to force common annotations for the Kustomize sync source.
-        body_operation_sync_source_kustomize_forceCommonLabels (bool, optional): Whether to force common labels for the Kustomize sync source.
-        body_operation_sync_source_kustomize_ignoreMissingComponents (bool, optional): Whether to ignore missing components for the Kustomize sync source.
-        body_operation_sync_source_kustomize_images (List[str], optional): The images for the Kustomize sync source.
-        body_operation_sync_source_kustomize_kubeVersion (str, optional): The Kubernetes version for the Kustomize sync source.
-        body_operation_sync_source_kustomize_labelIncludeTemplates (bool, optional): Whether to include label templates for the Kustomize sync source.
-        body_operation_sync_source_kustomize_labelWithoutSelector (bool, optional): Whether to label without selector for the Kustomize sync source.
-        body_operation_sync_source_kustomize_namePrefix (str, optional): The name prefix for the Kustomize sync source.
-        body_operation_sync_source_kustomize_nameSuffix (str, optional): The name suffix for the Kustomize sync source.
-        body_operation_sync_source_kustomize_namespace (str, optional): The namespace for the Kustomize sync source.
-        body_operation_sync_source_kustomize_patches (List[str], optional): The patches for the Kustomize sync source.
-        body_operation_sync_source_kustomize_replicas (List[str], optional): The replicas for the Kustomize sync source.
-        body_operation_sync_source_kustomize_version (str, optional): The version for the Kustomize sync source.
-        body_operation_sync_source_name (str, optional): The name of the sync source.
-        body_operation_sync_source_path (str, optional): The path of the sync source.
-        body_operation_sync_source_plugin_env (List[str], optional): The plugin environment for the sync source.
-        body_operation_sync_source_plugin_name (str, optional): The plugin name for the sync source.
-        body_operation_sync_source_plugin_parameters (List[str], optional): The plugin parameters for the sync source.
-        body_operation_sync_source_ref (str, optional): The reference for the sync source.
-        body_operation_sync_source_repoURL (str, optional): The repository URL for the sync source.
-        body_operation_sync_source_targetRevision (str, optional): The target revision for the sync source.
-        body_operation_sync_sources (List[str], optional): The sources for the sync operation.
-        body_operation_sync_syncOptions (List[str], optional): The sync options for the sync operation.
-        body_operation_sync_syncStrategy_apply_force (bool, optional): Whether to apply force for the sync strategy.
-        body_operation_sync_syncStrategy_hook_syncStrategyApply_force (bool, optional): Whether to apply force for the hook sync strategy.
-        body_spec_destination_name (str, optional): The name of the destination.
-        body_spec_destination_namespace (str, optional): The namespace of the destination.
-        body_spec_destination_server (str, optional): The server of the destination.
-        body_spec_ignoreDifferences (List[str], optional): The differences to ignore in the spec.
-        body_spec_info (List[str], optional): The information for the spec.
-        body_spec_project (str, optional): The project for the spec.
-        body_spec_revisionHistoryLimit (int, optional): The revision history limit for the spec.
-        body_spec_source_chart (str, optional): The chart for the spec source.
-        body_spec_source_directory_exclude (str, optional): The directories to exclude for the spec source.
-        body_spec_source_directory_include (str, optional): The directories to include for the spec source.
-        body_spec_source_directory_jsonnet_extVars (List[str], optional): The Jsonnet external variables for the spec source.
-        body_spec_source_directory_jsonnet_libs (List[str], optional): The Jsonnet libraries for the spec source.
-        body_spec_source_directory_jsonnet_tlas (List[str], optional): The Jsonnet top-level arguments for the spec source.
-        body_spec_source_directory_recurse (bool, optional): Whether to recurse directories for the spec source.
-        body_spec_source_helm_apiVersions (List[str], optional): The Helm API versions for the spec source.
-        body_spec_source_helm_fileParameters (List[str], optional): The Helm file parameters for the spec source.
-        body_spec_source_helm_ignoreMissingValueFiles (bool, optional): Whether to ignore missing value files for the Helm spec source.
-        body_spec_source_helm_kubeVersion (str, optional): The Kubernetes version for the Helm spec source.
-        body_spec_source_helm_namespace (str, optional): The namespace for the Helm spec source.
-        body_spec_source_helm_parameters (List[str], optional): The Helm parameters for the spec source.
-        body_spec_source_helm_passCredentials (bool, optional): Whether to pass credentials for the Helm spec source.
-        body_spec_source_helm_releaseName (str, optional): The release name for the Helm spec source.
-        body_spec_source_helm_skipCrds (bool, optional): Whether to skip CRDs for the Helm spec source.
-        body_spec_source_helm_skipSchemaValidation (bool, optional): Whether to skip schema validation for the Helm spec source.
-        body_spec_source_helm_skipTests (bool, optional): Whether to skip tests for the Helm spec source.
-        body_spec_source_helm_valueFiles (List[str], optional): The value files for the Helm spec source.
-        body_spec_source_helm_values (str, optional): The values for the Helm spec source.
-        body_spec_source_helm_valuesObject_raw (str, optional): The raw values object for the Helm spec source.
-        body_spec_source_helm_version (str, optional): The version for the Helm spec source.
-        body_spec_source_kustomize_apiVersions (List[str], optional): The Kustomize API versions for the spec source.
-        body_spec_source_kustomize_commonAnnotations (Dict[str, Any], optional): The common annotations for the Kustomize spec source.
-        body_spec_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Whether to substitute environment variables in common annotations for the Kustomize spec source.
-        body_spec_source_kustomize_commonLabels (Dict[str, Any], optional): The common labels for the Kustomize spec source.
-        body_spec_source_kustomize_components (List[str], optional): The components for the Kustomize spec source.
-        body_spec_source_kustomize_forceCommonAnnotations (bool, optional): Whether to force common annotations for the Kustomize spec source.
-        body_spec_source_kustomize_forceCommonLabels (bool, optional): Whether to force common labels for the Kustomize spec source.
-        body_spec_source_kustomize_ignoreMissingComponents (bool, optional): Whether to ignore missing components for the Kustomize spec source.
-        body_spec_source_kustomize_images (List[str], optional): The images for the Kustomize spec source.
-        body_spec_source_kustomize_kubeVersion (str, optional): The Kubernetes version for the Kustomize spec source.
-        body_spec_source_kustomize_labelIncludeTemplates (bool, optional): Whether to include label templates for the Kustomize spec source.
-        body_spec_source_kustomize_labelWithoutSelector (bool, optional): Whether to label without selector for the Kustomize spec source.
-        body_spec_source_kustomize_namePrefix (str, optional): The name prefix for the Kustomize spec source.
-        body_spec_source_kustomize_nameSuffix (str, optional): The name suffix for the Kustomize spec source.
-        body_spec_source_kustomize_namespace (str, optional): The namespace for the Kustomize spec source.
-        body_spec_source_kustomize_patches (List[str], optional): The patches for the Kustomize spec source.
-        body_spec_source_kustomize_replicas (List[str], optional): The replicas for the Kustomize spec source.
-        body_spec_source_kustomize_version (str, optional): The version for the Kustomize spec source.
-        body_spec_source_name (str, optional): The name of the spec source.
-        body_spec_source_path (str, optional): The path of the spec source.
-        body_spec_source_plugin_env (List[str], optional): The plugin environment for the spec source.
-        body_spec_source_plugin_name (str, optional): The plugin name for the spec source.
-        body_spec_source_plugin_parameters (List[str], optional): The plugin parameters for the spec source.
-        body_spec_source_ref (str, optional): The reference for the spec source.
-        body_spec_source_repoURL (str, optional): The repository URL for the spec source.
-        body_spec_source_targetRevision (str, optional): The target revision for the spec source.
-        body_spec_sourceHydrator_drySource_path (str, optional): The dry source path for the source hydrator.
-        body_spec_sourceHydrator_drySource_repoURL (str, optional): The dry source repository URL for the source hydrator.
-        body_spec_sourceHydrator_drySource_targetRevision (str, optional): The dry source target revision for the source hydrator.
-        body_spec_sourceHydrator_hydrateTo_targetBranch (str, optional): The target branch to hydrate to for the source hydrator.
-        body_spec_sourceHydrator_syncSource_path (str, optional): The sync source path for the source hydrator.
-        body_spec_sourceHydrator_syncSource_targetBranch (str, optional): The sync source target branch for the source hydrator.
-        body_spec_sources (List[str], optional): The sources for the spec.
-        body_spec_syncPolicy_automated_allowEmpty (bool, optional): Whether to allow empty automated sync policy.
-        body_spec_syncPolicy_automated_enable (bool, optional): Whether to enable automated sync policy.
-        body_spec_syncPolicy_automated_prune (bool, optional): Whether to prune automated sync policy.
-        body_spec_syncPolicy_automated_selfHeal (bool, optional): Whether to self-heal automated sync policy.
-        body_spec_syncPolicy_managedNamespaceMetadata_annotations (Dict[str, Any], optional): The annotations for the managed namespace metadata in sync policy.
-        body_spec_syncPolicy_managedNamespaceMetadata_labels (Dict[str, Any], optional): The labels for the managed namespace metadata in sync policy.
-        body_spec_syncPolicy_retry_backoff_duration (str, optional): The retry backoff duration for sync policy.
-        body_spec_syncPolicy_retry_backoff_factor (int, optional): The retry backoff factor for sync policy.
-        body_spec_syncPolicy_retry_backoff_maxDuration (str, optional): The retry backoff maximum duration for sync policy.
-        body_spec_syncPolicy_retry_limit (int, optional): The retry limit for sync policy.
-        body_spec_syncPolicy_syncOptions (List[str], optional): The sync options for sync policy.
-        body_status_conditions (List[str], optional): The conditions for the status.
-        body_status_controllerNamespace (str, optional): The controller namespace for the status.
-        body_status_health_lastTransitionTime (str, optional): The last transition time for health status.
-        body_status_health_message (str, optional): The message for health status.
-        body_status_health_status (str, optional): The health status.
-        body_status_history (List[str], optional): The history for the status.
-        body_status_observedAt (str, optional): The observed time for the status.
-        body_status_operationState_finishedAt (str, optional): The finished time for the operation state.
-        body_status_operationState_message (str, optional): The message for the operation state.
-        body_status_operationState_operation_info (List[str], optional): The operation info for the operation state.
-        body_status_operationState_operation_initiatedBy_automated (bool, optional): Whether the operation was initiated automatically in the operation state.
-        body_status_operationState_operation_initiatedBy_username (str, optional): The username that initiated the operation in the operation state.
-        body_status_operationState_operation_retry_backoff_duration (str, optional): The retry backoff duration for the operation in the operation state.
-        body_status_operationState_operation_retry_backoff_factor (int, optional): The retry backoff factor for the operation in the operation state.
-        body_status_operationState_operation_retry_backoff_maxDuration (str, optional): The retry backoff maximum duration for the operation in the operation state.
-        body_status_operationState_operation_retry_limit (int, optional): The retry limit for the operation in the operation state.
-        body_status_operationState_operation_sync_autoHealAttemptsCount (int, optional): The auto-heal attempts count for the sync operation in the operation state.
-        body_status_operationState_operation_sync_dryRun (bool, optional): Whether the sync operation is a dry run in the operation state.
-        body_status_operationState_operation_sync_manifests (List[str], optional): The manifests for the sync operation in the operation state.
-        body_status_operationState_operation_sync_prune (bool, optional): Whether to prune during the sync operation in the operation state.
-        body_status_operationState_operation_sync_resources (List[str], optional): The resources for the sync operation in the operation state.
-        body_status_operationState_operation_sync_revision (str, optional): The revision for the sync operation in the operation state.
-        body_status_operationState_operation_sync_revisions (List[str], optional): The revisions for the sync operation in the operation state.
-        body_status_operationState_operation_sync_source_chart (str, optional): The chart for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_directory_exclude (str, optional): The directories to exclude for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_directory_include (str, optional): The directories to include for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_directory_jsonnet_extVars (List[str], optional): The Jsonnet external variables for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_directory_jsonnet_libs (List[str], optional): The Jsonnet libraries for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_directory_jsonnet_tlas (List[str], optional): The Jsonnet top-level arguments for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_directory_recurse (bool, optional): Whether to recurse directories for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_apiVersions (List[str], optional): The Helm API versions for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_fileParameters (List[str], optional): The Helm file parameters for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_ignoreMissingValueFiles (bool, optional): Whether to ignore missing value files for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_kubeVersion (str, optional): The Kubernetes version for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_namespace (str, optional): The namespace for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_parameters (List[str], optional): The Helm parameters for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_passCredentials (bool, optional): Whether to pass credentials for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_releaseName (str, optional): The release name for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_skipCrds (bool, optional): Whether to skip CRDs for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_skipSchemaValidation (bool, optional): Whether to skip schema validation for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_skipTests (bool, optional): Whether to skip tests for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_valueFiles (List[str], optional): The value files for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_values (str, optional): The values for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_valuesObject_raw (str, optional): The raw values object for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_helm_version (str, optional): The version for the Helm sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_apiVersions (List[str], optional): The Kustomize API versions for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_commonAnnotations (Dict[str, Any], optional): The common annotations for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Whether to substitute environment variables in common annotations for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_commonLabels (Dict[str, Any], optional): The common labels for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_components (List[str], optional): The components for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_forceCommonAnnotations (bool, optional): Whether to force common annotations for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_forceCommonLabels (bool, optional): Whether to force common labels for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_ignoreMissingComponents (bool, optional): Whether to ignore missing components for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_images (List[str], optional): The images for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_kubeVersion (str, optional): The Kubernetes version for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_labelIncludeTemplates (bool, optional): Whether to include label templates for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_labelWithoutSelector (bool, optional): Whether to label without selector for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_namePrefix (str, optional): The name prefix for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_nameSuffix (str, optional): The name suffix for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_namespace (str, optional): The namespace for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_patches (List[str], optional): The patches for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_replicas (List[str], optional): The replicas for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_kustomize_version (str, optional): The version for the Kustomize sync source in the operation state.
-        body_status_operationState_operation_sync_source_name (str, optional): The name of the sync source in the operation state.
-        body_status_operationState_operation_sync_source_path (str, optional): The path of the sync source in the operation state.
-        body_status_operationState_operation_sync_source_plugin_env (List[str], optional): The plugin environment for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_plugin_name (str, optional): The plugin name for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_plugin_parameters (List[str], optional): The plugin parameters for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_ref (str, optional): The reference for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_repoURL (str, optional): The repository URL for the sync source in the operation state.
-        body_status_operationState_operation_sync_source_targetRevision (str, optional): The target revision for the sync source in the operation state.
-        body_status_operationState_operation_sync_sources (List[str], optional): The sources for the sync operation in the operation state.
-        body_status_operationState_operation_sync_syncOptions (List[str], optional): The sync options for the sync operation in the operation state.
-        body_status_operationState_operation_sync_syncStrategy_apply_force (bool, optional): Whether to apply force for the sync strategy in the operation state.
-        body_status_operationState_operation_sync_syncStrategy_hook_syncStrategyApply_force (bool, optional): Whether to apply force for the hook sync strategy in the operation state.
-        body_status_operationState_phase (str, optional): The phase of the operation state.
-        body_status_operationState_retryCount (int, optional): The retry count for the operation state.
-        body_status_operationState_startedAt (str, optional): The start time for the operation state.
-        body_status_operationState_syncResult_managedNamespaceMetadata_annotations (Dict[str, Any], optional): The annotations for the managed namespace metadata in the sync result.
-        body_status_operationState_syncResult_managedNamespaceMetadata_labels (Dict[str, Any], optional): The labels for the managed namespace metadata in the sync result.
-        body_status_operationState_syncResult_resources (List[str], optional): The resources for the sync result.
-        body_status_operationState_syncResult_revision (str, optional): The revision for the sync result.
-        body_status_operationState_syncResult_revisions (List[str], optional): The revisions for the sync result.
-        body_status_operationState_syncResult_source_chart (str, optional): The chart for the sync source in the sync result.
-        body_status_operationState_syncResult_source_directory_exclude (str, optional): The directories to exclude for the sync source in the sync result.
-        body_status_operationState_syncResult_source_directory_include (str, optional): The directories to include for the sync source in the sync result.
-        body_status_operationState_syncResult_source_directory_jsonnet_extVars (List[str], optional): The Jsonnet external variables for the sync source in the sync result.
-        body_status_operationState_syncResult_source_directory_jsonnet_libs (List[str], optional): The Jsonnet libraries for the sync source in the sync result.
-        body_status_operationState_syncResult_source_directory_jsonnet_tlas (List[str], optional): The Jsonnet top-level arguments for the sync source in the sync result.
-        body_status_operationState_syncResult_source_directory_recurse (bool, optional): Whether to recurse directories for the sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_apiVersions (List[str], optional): The Helm API versions for the sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_fileParameters (List[str], optional): The Helm file parameters for the sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_ignoreMissingValueFiles (bool, optional): Whether to ignore missing value files for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_kubeVersion (str, optional): The Kubernetes version for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_namespace (str, optional): The namespace for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_parameters (List[str], optional): The Helm parameters for the sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_passCredentials (bool, optional): Whether to pass credentials for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_releaseName (str, optional): The release name for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_skipCrds (bool, optional): Whether to skip CRDs for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_skipSchemaValidation (bool, optional): Whether to skip schema validation for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_skipTests (bool, optional): Whether to skip tests for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_valueFiles (List[str], optional): The value files for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_values (str, optional): The values for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_valuesObject_raw (str, optional): The raw values object for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_helm_version (str, optional): The version for the Helm sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_apiVersions (List[str], optional): The Kustomize API versions for the sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_commonAnnotations (Dict[str, Any], optional): The common annotations for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Whether to substitute environment variables in common annotations for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_commonLabels (Dict[str, Any], optional): The common labels for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_components (List[str], optional): The components for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_forceCommonAnnotations (bool, optional): Whether to force common annotations for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_forceCommonLabels (bool, optional): Whether to force common labels for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_ignoreMissingComponents (bool, optional): Whether to ignore missing components for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_images (List[str], optional): The images for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_kubeVersion (str, optional): The Kubernetes version for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_labelIncludeTemplates (bool, optional): Whether to include label templates for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_labelWithoutSelector (bool, optional): Whether to label without selector for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_namePrefix (str, optional): The name prefix for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_nameSuffix (str, optional): The name suffix for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_namespace (str, optional): The namespace for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_patches (List[str], optional): The patches for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_replicas (List[str], optional): The replicas for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_kustomize_version (str, optional): The version for the Kustomize sync source in the sync result.
-        body_status_operationState_syncResult_source_name (str, optional): The name of the sync source in the sync result.
-        body_status_operationState_syncResult_source_path (str, optional): The path of the sync source in the sync result.
-        body_status_operationState_syncResult_source_plugin_env (List[str], optional): The plugin environment for the sync source in the sync result.
-        body_status_operationState_syncResult_source_plugin_name (str, optional): The plugin name for the sync source in the sync result.
-        body_status_operationState_syncResult_source_plugin_parameters (List[str], optional): The plugin parameters for the sync source in the sync result.
-        body_status_operationState_syncResult_source_ref (str, optional): The reference for the sync source in the sync result.
-        body_status_operationState_syncResult_source_repoURL (str, optional): The repository URL for the sync source in the sync result.
-        body_status_operationState_syncResult_source_targetRevision (str, optional): The target revision for the sync source in the sync result.
-        body_status_operationState_syncResult_sources (List[str], optional): The sources for the sync result.
-        body_status_reconciledAt (str, optional): The reconciled time for the status.
-        body_status_resourceHealthSource (str, optional): The resource health source for the status.
-        body_status_resources (List[str], optional): The resources for the status.
-        body_status_sourceHydrator_currentOperation_drySHA (str, optional): The dry SHA for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_finishedAt (str, optional): The finished time for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_hydratedSHA (str, optional): The hydrated SHA for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_message (str, optional): The message for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_phase (str, optional): The phase for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_sourceHydrator_drySource_path (str, optional): The dry source path for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_sourceHydrator_drySource_repoURL (str, optional): The dry source repository URL for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_sourceHydrator_drySource_targetRevision (str, optional): The dry source target revision for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_sourceHydrator_hydrateTo_targetBranch (str, optional): The target branch to hydrate to for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_sourceHydrator_syncSource_path (str, optional): The sync source path for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_sourceHydrator_syncSource_targetBranch (str, optional): The sync source target branch for the current operation in the source hydrator.
-        body_status_sourceHydrator_currentOperation_startedAt (str, optional): The start time for the current operation in the source hydrator.
-        body_status_sourceHydrator_lastSuccessfulOperation_drySHA (str, optional): The dry SHA for the last successful operation in the source hydrator.
-        body_status_sourceHydrator_lastSuccessfulOperation_hydratedSHA (str, optional): The hydrated SHA for the last successful operation in the source hydrator.
-        body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_drySource_path (str, optional): The dry source path for the last successful operation in the source hydrator.
-        body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_drySource_repoURL (str, optional): The dry source repository URL for the last successful operation in the source hydrator.
-        body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_drySource_targetRevision (str, optional): The dry source target revision for the last successful operation in the source hydrator.
-        body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_hydrateTo_targetBranch (str, optional): The target branch to hydrate to for the last successful operation in the source hydrator.
-        body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_syncSource_path (str, optional): The sync source path for the last successful operation in the source hydrator.
-        body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_syncSource_targetBranch (str, optional): The sync source target branch for the last successful operation in the source hydrator.
-        body_status_sourceType (str, optional): The source type for the status.
-        body_status_sourceTypes (List[str], optional): The source types for the status.
-        body_status_summary_externalURLs (List[str], optional): The external URLs for the summary in the status.
-        body_status_summary_images (List[str], optional): The images for the summary in the status.
-        body_status_sync_comparedTo_destination_name (str, optional): The destination name for the sync compared to in the status.
-        body_status_sync_comparedTo_destination_namespace (str, optional): The destination namespace for the sync compared to in the status.
-        body_status_sync_comparedTo_destination_server (str, optional): The destination server for the sync compared to in the status.
-        body_status_sync_comparedTo_ignoreDifferences (List[str], optional): The differences to ignore for the sync compared to in the status.
-        body_status_sync_comparedTo_source_chart (str, optional): The source chart for the sync compared to in the status.
-        body_status_sync_comparedTo_source_directory_exclude (str, optional): The directories to exclude for the sync compared to in the status.
-        body_status_sync_comparedTo_source_directory_include (str, optional): The directories to include for the sync compared to in the status.
-        body_status_sync_comparedTo_source_directory_jsonnet_extVars (List[str], optional): The Jsonnet external variables for the sync compared to in the status.
-        body_status_sync_comparedTo_source_directory_jsonnet_libs (List[str], optional): The Jsonnet libraries for the sync compared to in the status.
-        body_status_sync_comparedTo_source_directory_jsonnet_tlas (List[str], optional): The Jsonnet top-level arguments for the sync compared to in the status.
-        body_status_sync_comparedTo_source_directory_recurse (bool, optional): Whether to recurse directories for the sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_apiVersions (List[str], optional): The Helm API versions for the sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_fileParameters (List[str], optional): The Helm file parameters for the sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_ignoreMissingValueFiles (bool, optional): Whether to ignore missing value files for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_kubeVersion (str, optional): The Kubernetes version for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_namespace (str, optional): The namespace for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_parameters (List[str], optional): The Helm parameters for the sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_passCredentials (bool, optional): Whether to pass credentials for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_releaseName (str, optional): The release name for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_skipCrds (bool, optional): Whether to skip CRDs for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_skipSchemaValidation (bool, optional): Whether to skip schema validation for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_skipTests (bool, optional): Whether to skip tests for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_valueFiles (List[str], optional): The value files for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_values (str, optional): The values for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_valuesObject_raw (str, optional): The raw values object for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_helm_version (str, optional): The version for the Helm sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_apiVersions (List[str], optional): The Kustomize API versions for the sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_commonAnnotations (Dict[str, Any], optional): The common annotations for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_commonAnnotationsEnvsubst (bool, optional): Whether to substitute environment variables in common annotations for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_commonLabels (Dict[str, Any], optional): The common labels for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_components (List[str], optional): The components for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_forceCommonAnnotations (bool, optional): Whether to force common annotations for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_forceCommonLabels (bool, optional): Whether to force common labels for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_ignoreMissingComponents (bool, optional): Whether to ignore missing components for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_images (List[str], optional): The images for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_kubeVersion (str, optional): The Kubernetes version for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_labelIncludeTemplates (bool, optional): Whether to include label templates for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_labelWithoutSelector (bool, optional): Whether to label without selector for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_namePrefix (str, optional): The name prefix for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_nameSuffix (str, optional): The name suffix for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_namespace (str, optional): The namespace for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_patches (List[str], optional): The patches for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_replicas (List[str], optional): The replicas for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_kustomize_version (str, optional): The version for the Kustomize sync compared to in the status.
-        body_status_sync_comparedTo_source_name (str, optional): The name of the sync source compared to in the status.
-        body_status_sync_comparedTo_source_path (str, optional): The path of the sync source compared to in the status.
-        body_status_sync_comparedTo_source_plugin_env (List[str], optional): The plugin environment for the sync source compared to in the status.
-        body_status_sync_comparedTo_source_plugin_name (str, optional): The plugin name for the sync source compared to in the status.
-        body_status_sync_comparedTo_source_plugin_parameters (List[str], optional): The plugin parameters for the sync source compared to in the status.
-        body_status_sync_comparedTo_source_ref (str, optional): The reference for the sync source compared to in the status.
-        body_status_sync_comparedTo_source_repoURL (str, optional): The repository URL for the sync source compared to in the status.
-        body_status_sync_comparedTo_source_targetRevision (str, optional): The target revision for the sync source compared to in the status.
-        body_status_sync_comparedTo_sources (List[str], optional): The sources for the sync compared to in the status.
-        body_status_sync_revision (str, optional): The revision for the sync in the status.
-        body_status_sync_revisions (List[str], optional): The revisions for the sync in the status.
-        body_status_sync_status (str, optional): The status for the sync in the status.
-        param_validate (bool, optional): Whether to validate the parameters.
-        param_project (str, optional): The project parameter.
+        OpenAPI Description:
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call.
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
+        Args:
+
+            path_application_metadata_name (str): Name must be unique within a namespace. Is required when creating resources, although
+    some resources may allow a client to request the generation of an appropriate name
+    automatically. Name is primarily intended for creation idempotence and configuration
+    definition.
+    Cannot be updated.
+    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#names
+    +optional
+
+            body_metadata_annotations (Dict[str, Any]): OpenAPI parameter corresponding to 'body_metadata_annotations'
+
+            body_metadata_creationTimestamp (str): Time is a wrapper around time.Time which supports correct
+    marshaling to YAML and JSON.  Wrappers are provided for many
+    of the factory methods that the time package offers.
+
+    +protobuf.options.marshal=false
+    +protobuf.as=Timestamp
+    +protobuf.options.(gogoproto.goproto_stringer)=false
+
+            body_metadata_deletionGracePeriodSeconds (int): OpenAPI parameter corresponding to 'body_metadata_deletionGracePeriodSeconds'
+
+            body_metadata_deletionTimestamp (str): Time is a wrapper around time.Time which supports correct
+    marshaling to YAML and JSON.  Wrappers are provided for many
+    of the factory methods that the time package offers.
+
+    +protobuf.options.marshal=false
+    +protobuf.as=Timestamp
+    +protobuf.options.(gogoproto.goproto_stringer)=false
+
+            body_metadata_finalizers (List[str]): OpenAPI parameter corresponding to 'body_metadata_finalizers'
+
+            body_metadata_generateName (str): GenerateName is an optional prefix, used by the server, to generate a unique
+    name ONLY IF the Name field has not been provided.
+    If this field is used, the name returned to the client will be different
+    than the name passed. This value will also be combined with a unique suffix.
+    The provided value has the same validation rules as the Name field,
+    and may be truncated by the length of the suffix required to make the value
+    unique on the server.
+
+    If this field is specified and the generated name exists, the server will return a 409.
+
+    Applied only if Name is not specified.
+    More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#idempotency
+    +optional
+
+            body_metadata_generation (int): OpenAPI parameter corresponding to 'body_metadata_generation'
+
+            body_metadata_labels (Dict[str, Any]): OpenAPI parameter corresponding to 'body_metadata_labels'
+
+            body_metadata_managedFields (List[str]): ManagedFields maps workflow-id and version to the set of fields
+    that are managed by that workflow. This is mostly for internal
+    housekeeping, and users typically shouldn't need to set or
+    understand this field. A workflow can be the user's name, a
+    controller's name, or the name of a specific apply path like
+    "ci-cd". The set of fields is always in the version that the
+    workflow used when modifying the object.
+
+    +optional
+    +listType=atomic
+
+            body_metadata_name (str): OpenAPI parameter corresponding to 'body_metadata_name'
+
+            body_metadata_namespace (str): Namespace defines the space within which each name must be unique. An empty namespace is
+    equivalent to the "default" namespace, but "default" is the canonical representation.
+    Not all objects are required to be scoped to a namespace - the value of this field for
+    those objects will be empty.
+
+    Must be a DNS_LABEL.
+    Cannot be updated.
+    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces
+    +optional
+
+            body_metadata_ownerReferences (List[str]): OpenAPI parameter corresponding to 'body_metadata_ownerReferences'
+
+            body_metadata_resourceVersion (str): An opaque value that represents the internal version of this object that can
+    be used by clients to determine when objects have changed. May be used for optimistic
+    concurrency, change detection, and the watch operation on a resource or set of resources.
+    Clients must treat these values as opaque and passed unmodified back to the server.
+    They may only be valid for a particular resource or set of resources.
+
+    Populated by the system.
+    Read-only.
+    Value must be treated as opaque by clients and .
+    More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+    +optional
+
+            body_metadata_selfLink (str): OpenAPI parameter corresponding to 'body_metadata_selfLink'
+
+            body_metadata_uid (str): UID is the unique in time and space value for this object. It is typically generated by
+    the server on successful creation of a resource and is not allowed to change on PUT
+    operations.
+
+    Populated by the system.
+    Read-only.
+    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names#uids
+    +optional
+
+            body_operation_info (List[str]): OpenAPI parameter corresponding to 'body_operation_info'
+
+            body_operation_initiatedBy_automated (bool): Automated is set to true if operation was initiated automatically by the application controller.
+
+            body_operation_initiatedBy_username (str): OpenAPI parameter corresponding to 'body_operation_initiatedBy_username'
+
+            body_operation_retry_backoff_duration (str): OpenAPI parameter corresponding to 'body_operation_retry_backoff_duration'
+
+            body_operation_retry_backoff_factor (int): OpenAPI parameter corresponding to 'body_operation_retry_backoff_factor'
+
+            body_operation_retry_backoff_maxDuration (str): OpenAPI parameter corresponding to 'body_operation_retry_backoff_maxDuration'
+
+            body_operation_retry_limit (int): Limit is the maximum number of attempts for retrying a failed sync. If set to 0, no retries will be performed.
+
+            body_operation_sync_autoHealAttemptsCount (int): OpenAPI parameter corresponding to 'body_operation_sync_autoHealAttemptsCount'
+
+            body_operation_sync_dryRun (bool): OpenAPI parameter corresponding to 'body_operation_sync_dryRun'
+
+            body_operation_sync_manifests (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_manifests'
+
+            body_operation_sync_prune (bool): OpenAPI parameter corresponding to 'body_operation_sync_prune'
+
+            body_operation_sync_resources (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_resources'
+
+            body_operation_sync_revision (str): Revision is the revision (Git) or chart version (Helm) which to sync the application to
+    If omitted, will use the revision specified in app spec.
+
+            body_operation_sync_revisions (List[str]): Revisions is the list of revision (Git) or chart version (Helm) which to sync each source in sources field for the application to
+    If omitted, will use the revision specified in app spec.
+
+            body_operation_sync_source_chart (str): Chart is a Helm chart name, and must be specified for applications sourced from a Helm repo.
+
+            body_operation_sync_source_directory_exclude (str): OpenAPI parameter corresponding to 'body_operation_sync_source_directory_exclude'
+
+            body_operation_sync_source_directory_include (str): OpenAPI parameter corresponding to 'body_operation_sync_source_directory_include'
+
+            body_operation_sync_source_directory_jsonnet_extVars (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_directory_jsonnet_extVars'
+
+            body_operation_sync_source_directory_jsonnet_libs (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_directory_jsonnet_libs'
+
+            body_operation_sync_source_directory_jsonnet_tlas (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_directory_jsonnet_tlas'
+
+            body_operation_sync_source_directory_recurse (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_directory_recurse'
+
+            body_operation_sync_source_helm_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_operation_sync_source_helm_fileParameters (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_fileParameters'
+
+            body_operation_sync_source_helm_ignoreMissingValueFiles (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_ignoreMissingValueFiles'
+
+            body_operation_sync_source_helm_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_operation_sync_source_helm_namespace (str): Namespace is an optional namespace to template with. If left empty, defaults to the app's destination namespace.
+
+            body_operation_sync_source_helm_parameters (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_parameters'
+
+            body_operation_sync_source_helm_passCredentials (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_passCredentials'
+
+            body_operation_sync_source_helm_releaseName (str): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_releaseName'
+
+            body_operation_sync_source_helm_skipCrds (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_skipCrds'
+
+            body_operation_sync_source_helm_skipSchemaValidation (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_skipSchemaValidation'
+
+            body_operation_sync_source_helm_skipTests (bool): SkipTests skips test manifest installation step (Helm's --skip-tests).
+
+            body_operation_sync_source_helm_valueFiles (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_valueFiles'
+
+            body_operation_sync_source_helm_values (str): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_values'
+
+            body_operation_sync_source_helm_valuesObject_raw (str): Raw is the underlying serialization of this object.
+
+    TODO: Determine how to detect ContentType and ContentEncoding of 'Raw' data.
+
+            body_operation_sync_source_helm_version (str): OpenAPI parameter corresponding to 'body_operation_sync_source_helm_version'
+
+            body_operation_sync_source_kustomize_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_operation_sync_source_kustomize_commonAnnotations (Dict[str, Any]): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_commonAnnotations'
+
+            body_operation_sync_source_kustomize_commonAnnotationsEnvsubst (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_commonAnnotationsEnvsubst'
+
+            body_operation_sync_source_kustomize_commonLabels (Dict[str, Any]): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_commonLabels'
+
+            body_operation_sync_source_kustomize_components (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_components'
+
+            body_operation_sync_source_kustomize_forceCommonAnnotations (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_forceCommonAnnotations'
+
+            body_operation_sync_source_kustomize_forceCommonLabels (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_forceCommonLabels'
+
+            body_operation_sync_source_kustomize_ignoreMissingComponents (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_ignoreMissingComponents'
+
+            body_operation_sync_source_kustomize_images (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_images'
+
+            body_operation_sync_source_kustomize_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_operation_sync_source_kustomize_labelIncludeTemplates (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_labelIncludeTemplates'
+
+            body_operation_sync_source_kustomize_labelWithoutSelector (bool): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_labelWithoutSelector'
+
+            body_operation_sync_source_kustomize_namePrefix (str): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_namePrefix'
+
+            body_operation_sync_source_kustomize_nameSuffix (str): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_nameSuffix'
+
+            body_operation_sync_source_kustomize_namespace (str): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_namespace'
+
+            body_operation_sync_source_kustomize_patches (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_patches'
+
+            body_operation_sync_source_kustomize_replicas (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_replicas'
+
+            body_operation_sync_source_kustomize_version (str): OpenAPI parameter corresponding to 'body_operation_sync_source_kustomize_version'
+
+            body_operation_sync_source_name (str): Name is used to refer to a source and is displayed in the UI. It is used in multi-source Applications.
+
+            body_operation_sync_source_path (str): Path is a directory path within the Git repository, and is only valid for applications sourced from Git.
+
+            body_operation_sync_source_plugin_env (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_plugin_env'
+
+            body_operation_sync_source_plugin_name (str): OpenAPI parameter corresponding to 'body_operation_sync_source_plugin_name'
+
+            body_operation_sync_source_plugin_parameters (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_source_plugin_parameters'
+
+            body_operation_sync_source_ref (str): Ref is reference to another source within sources field. This field will not be used if used with a `source` tag.
+
+            body_operation_sync_source_repoURL (str): OpenAPI parameter corresponding to 'body_operation_sync_source_repoURL'
+
+            body_operation_sync_source_targetRevision (str): TargetRevision defines the revision of the source to sync the application to.
+    In case of Git, this can be commit, tag, or branch. If omitted, will equal to HEAD.
+    In case of Helm, this is a semver tag for the Chart's version.
+
+            body_operation_sync_sources (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_sources'
+
+            body_operation_sync_syncOptions (List[str]): OpenAPI parameter corresponding to 'body_operation_sync_syncOptions'
+
+            body_operation_sync_syncStrategy_apply_force (bool): Force indicates whether or not to supply the --force flag to `kubectl apply`.
+    The --force flag deletes and re-create the resource, when PATCH encounters conflict and has
+    retried for 5 times.
+
+            body_operation_sync_syncStrategy_hook_syncStrategyApply_force (bool): Force indicates whether or not to supply the --force flag to `kubectl apply`.
+    The --force flag deletes and re-create the resource, when PATCH encounters conflict and has
+    retried for 5 times.
+
+            body_spec_destination_name (str): Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.
+
+            body_spec_destination_namespace (str): OpenAPI parameter corresponding to 'body_spec_destination_namespace'
+
+            body_spec_destination_server (str): Server specifies the URL of the target cluster's Kubernetes control plane API. This must be set if Name is not set.
+
+            body_spec_ignoreDifferences (List[str]): OpenAPI parameter corresponding to 'body_spec_ignoreDifferences'
+
+            body_spec_info (List[str]): OpenAPI parameter corresponding to 'body_spec_info'
+
+            body_spec_project (str): Project is a reference to the project this application belongs to.
+    The empty string means that application belongs to the 'default' project.
+
+            body_spec_revisionHistoryLimit (int): RevisionHistoryLimit limits the number of items kept in the application's revision history, which is used for informational purposes as well as for rollbacks to previous versions.
+    This should only be changed in exceptional circumstances.
+    Setting to zero will store no history. This will reduce storage used.
+    Increasing will increase the space used to store the history, so we do not recommend increasing it.
+    Default is 10.
+
+            body_spec_source_chart (str): Chart is a Helm chart name, and must be specified for applications sourced from a Helm repo.
+
+            body_spec_source_directory_exclude (str): OpenAPI parameter corresponding to 'body_spec_source_directory_exclude'
+
+            body_spec_source_directory_include (str): OpenAPI parameter corresponding to 'body_spec_source_directory_include'
+
+            body_spec_source_directory_jsonnet_extVars (List[str]): OpenAPI parameter corresponding to 'body_spec_source_directory_jsonnet_extVars'
+
+            body_spec_source_directory_jsonnet_libs (List[str]): OpenAPI parameter corresponding to 'body_spec_source_directory_jsonnet_libs'
+
+            body_spec_source_directory_jsonnet_tlas (List[str]): OpenAPI parameter corresponding to 'body_spec_source_directory_jsonnet_tlas'
+
+            body_spec_source_directory_recurse (bool): OpenAPI parameter corresponding to 'body_spec_source_directory_recurse'
+
+            body_spec_source_helm_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_spec_source_helm_fileParameters (List[str]): OpenAPI parameter corresponding to 'body_spec_source_helm_fileParameters'
+
+            body_spec_source_helm_ignoreMissingValueFiles (bool): OpenAPI parameter corresponding to 'body_spec_source_helm_ignoreMissingValueFiles'
+
+            body_spec_source_helm_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_spec_source_helm_namespace (str): Namespace is an optional namespace to template with. If left empty, defaults to the app's destination namespace.
+
+            body_spec_source_helm_parameters (List[str]): OpenAPI parameter corresponding to 'body_spec_source_helm_parameters'
+
+            body_spec_source_helm_passCredentials (bool): OpenAPI parameter corresponding to 'body_spec_source_helm_passCredentials'
+
+            body_spec_source_helm_releaseName (str): OpenAPI parameter corresponding to 'body_spec_source_helm_releaseName'
+
+            body_spec_source_helm_skipCrds (bool): OpenAPI parameter corresponding to 'body_spec_source_helm_skipCrds'
+
+            body_spec_source_helm_skipSchemaValidation (bool): OpenAPI parameter corresponding to 'body_spec_source_helm_skipSchemaValidation'
+
+            body_spec_source_helm_skipTests (bool): SkipTests skips test manifest installation step (Helm's --skip-tests).
+
+            body_spec_source_helm_valueFiles (List[str]): OpenAPI parameter corresponding to 'body_spec_source_helm_valueFiles'
+
+            body_spec_source_helm_values (str): OpenAPI parameter corresponding to 'body_spec_source_helm_values'
+
+            body_spec_source_helm_valuesObject_raw (str): Raw is the underlying serialization of this object.
+
+    TODO: Determine how to detect ContentType and ContentEncoding of 'Raw' data.
+
+            body_spec_source_helm_version (str): OpenAPI parameter corresponding to 'body_spec_source_helm_version'
+
+            body_spec_source_kustomize_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_spec_source_kustomize_commonAnnotations (Dict[str, Any]): OpenAPI parameter corresponding to 'body_spec_source_kustomize_commonAnnotations'
+
+            body_spec_source_kustomize_commonAnnotationsEnvsubst (bool): OpenAPI parameter corresponding to 'body_spec_source_kustomize_commonAnnotationsEnvsubst'
+
+            body_spec_source_kustomize_commonLabels (Dict[str, Any]): OpenAPI parameter corresponding to 'body_spec_source_kustomize_commonLabels'
+
+            body_spec_source_kustomize_components (List[str]): OpenAPI parameter corresponding to 'body_spec_source_kustomize_components'
+
+            body_spec_source_kustomize_forceCommonAnnotations (bool): OpenAPI parameter corresponding to 'body_spec_source_kustomize_forceCommonAnnotations'
+
+            body_spec_source_kustomize_forceCommonLabels (bool): OpenAPI parameter corresponding to 'body_spec_source_kustomize_forceCommonLabels'
+
+            body_spec_source_kustomize_ignoreMissingComponents (bool): OpenAPI parameter corresponding to 'body_spec_source_kustomize_ignoreMissingComponents'
+
+            body_spec_source_kustomize_images (List[str]): OpenAPI parameter corresponding to 'body_spec_source_kustomize_images'
+
+            body_spec_source_kustomize_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_spec_source_kustomize_labelIncludeTemplates (bool): OpenAPI parameter corresponding to 'body_spec_source_kustomize_labelIncludeTemplates'
+
+            body_spec_source_kustomize_labelWithoutSelector (bool): OpenAPI parameter corresponding to 'body_spec_source_kustomize_labelWithoutSelector'
+
+            body_spec_source_kustomize_namePrefix (str): OpenAPI parameter corresponding to 'body_spec_source_kustomize_namePrefix'
+
+            body_spec_source_kustomize_nameSuffix (str): OpenAPI parameter corresponding to 'body_spec_source_kustomize_nameSuffix'
+
+            body_spec_source_kustomize_namespace (str): OpenAPI parameter corresponding to 'body_spec_source_kustomize_namespace'
+
+            body_spec_source_kustomize_patches (List[str]): OpenAPI parameter corresponding to 'body_spec_source_kustomize_patches'
+
+            body_spec_source_kustomize_replicas (List[str]): OpenAPI parameter corresponding to 'body_spec_source_kustomize_replicas'
+
+            body_spec_source_kustomize_version (str): OpenAPI parameter corresponding to 'body_spec_source_kustomize_version'
+
+            body_spec_source_name (str): Name is used to refer to a source and is displayed in the UI. It is used in multi-source Applications.
+
+            body_spec_source_path (str): Path is a directory path within the Git repository, and is only valid for applications sourced from Git.
+
+            body_spec_source_plugin_env (List[str]): OpenAPI parameter corresponding to 'body_spec_source_plugin_env'
+
+            body_spec_source_plugin_name (str): OpenAPI parameter corresponding to 'body_spec_source_plugin_name'
+
+            body_spec_source_plugin_parameters (List[str]): OpenAPI parameter corresponding to 'body_spec_source_plugin_parameters'
+
+            body_spec_source_ref (str): Ref is reference to another source within sources field. This field will not be used if used with a `source` tag.
+
+            body_spec_source_repoURL (str): OpenAPI parameter corresponding to 'body_spec_source_repoURL'
+
+            body_spec_source_targetRevision (str): TargetRevision defines the revision of the source to sync the application to.
+    In case of Git, this can be commit, tag, or branch. If omitted, will equal to HEAD.
+    In case of Helm, this is a semver tag for the Chart's version.
+
+            body_spec_sourceHydrator_drySource_path (str): OpenAPI parameter corresponding to 'body_spec_sourceHydrator_drySource_path'
+
+            body_spec_sourceHydrator_drySource_repoURL (str): OpenAPI parameter corresponding to 'body_spec_sourceHydrator_drySource_repoURL'
+
+            body_spec_sourceHydrator_drySource_targetRevision (str): OpenAPI parameter corresponding to 'body_spec_sourceHydrator_drySource_targetRevision'
+
+            body_spec_sourceHydrator_hydrateTo_targetBranch (str): OpenAPI parameter corresponding to 'body_spec_sourceHydrator_hydrateTo_targetBranch'
+
+            body_spec_sourceHydrator_syncSource_path (str): Path is a directory path within the git repository where hydrated manifests should be committed to and synced
+    from. If hydrateTo is set, this is just the path from which hydrated manifests will be synced.
+
+            body_spec_sourceHydrator_syncSource_targetBranch (str): OpenAPI parameter corresponding to 'body_spec_sourceHydrator_syncSource_targetBranch'
+
+            body_spec_sources (List[str]): OpenAPI parameter corresponding to 'body_spec_sources'
+
+            body_spec_syncPolicy_automated_allowEmpty (bool): OpenAPI parameter corresponding to 'body_spec_syncPolicy_automated_allowEmpty'
+
+            body_spec_syncPolicy_automated_enable (bool): OpenAPI parameter corresponding to 'body_spec_syncPolicy_automated_enable'
+
+            body_spec_syncPolicy_automated_prune (bool): OpenAPI parameter corresponding to 'body_spec_syncPolicy_automated_prune'
+
+            body_spec_syncPolicy_automated_selfHeal (bool): OpenAPI parameter corresponding to 'body_spec_syncPolicy_automated_selfHeal'
+
+            body_spec_syncPolicy_managedNamespaceMetadata_annotations (Dict[str, Any]): OpenAPI parameter corresponding to 'body_spec_syncPolicy_managedNamespaceMetadata_annotations'
+
+            body_spec_syncPolicy_managedNamespaceMetadata_labels (Dict[str, Any]): OpenAPI parameter corresponding to 'body_spec_syncPolicy_managedNamespaceMetadata_labels'
+
+            body_spec_syncPolicy_retry_backoff_duration (str): OpenAPI parameter corresponding to 'body_spec_syncPolicy_retry_backoff_duration'
+
+            body_spec_syncPolicy_retry_backoff_factor (int): OpenAPI parameter corresponding to 'body_spec_syncPolicy_retry_backoff_factor'
+
+            body_spec_syncPolicy_retry_backoff_maxDuration (str): OpenAPI parameter corresponding to 'body_spec_syncPolicy_retry_backoff_maxDuration'
+
+            body_spec_syncPolicy_retry_limit (int): Limit is the maximum number of attempts for retrying a failed sync. If set to 0, no retries will be performed.
+
+            body_spec_syncPolicy_syncOptions (List[str]): OpenAPI parameter corresponding to 'body_spec_syncPolicy_syncOptions'
+
+            body_status_conditions (List[str]): OpenAPI parameter corresponding to 'body_status_conditions'
+
+            body_status_controllerNamespace (str): OpenAPI parameter corresponding to 'body_status_controllerNamespace'
+
+            body_status_health_lastTransitionTime (str): Time is a wrapper around time.Time which supports correct
+    marshaling to YAML and JSON.  Wrappers are provided for many
+    of the factory methods that the time package offers.
+
+    +protobuf.options.marshal=false
+    +protobuf.as=Timestamp
+    +protobuf.options.(gogoproto.goproto_stringer)=false
+
+            body_status_health_message (str): Deprecated: this field is not used and will be removed in a future release.
+
+            body_status_health_status (str): OpenAPI parameter corresponding to 'body_status_health_status'
+
+            body_status_history (List[str]): OpenAPI parameter corresponding to 'body_status_history'
+
+            body_status_observedAt (str): Time is a wrapper around time.Time which supports correct
+    marshaling to YAML and JSON.  Wrappers are provided for many
+    of the factory methods that the time package offers.
+
+    +protobuf.options.marshal=false
+    +protobuf.as=Timestamp
+    +protobuf.options.(gogoproto.goproto_stringer)=false
+
+            body_status_operationState_finishedAt (str): Time is a wrapper around time.Time which supports correct
+    marshaling to YAML and JSON.  Wrappers are provided for many
+    of the factory methods that the time package offers.
+
+    +protobuf.options.marshal=false
+    +protobuf.as=Timestamp
+    +protobuf.options.(gogoproto.goproto_stringer)=false
+
+            body_status_operationState_message (str): Message holds any pertinent messages when attempting to perform operation (typically errors).
+
+            body_status_operationState_operation_info (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_info'
+
+            body_status_operationState_operation_initiatedBy_automated (bool): Automated is set to true if operation was initiated automatically by the application controller.
+
+            body_status_operationState_operation_initiatedBy_username (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_initiatedBy_username'
+
+            body_status_operationState_operation_retry_backoff_duration (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_retry_backoff_duration'
+
+            body_status_operationState_operation_retry_backoff_factor (int): OpenAPI parameter corresponding to 'body_status_operationState_operation_retry_backoff_factor'
+
+            body_status_operationState_operation_retry_backoff_maxDuration (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_retry_backoff_maxDuration'
+
+            body_status_operationState_operation_retry_limit (int): Limit is the maximum number of attempts for retrying a failed sync. If set to 0, no retries will be performed.
+
+            body_status_operationState_operation_sync_autoHealAttemptsCount (int): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_autoHealAttemptsCount'
+
+            body_status_operationState_operation_sync_dryRun (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_dryRun'
+
+            body_status_operationState_operation_sync_manifests (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_manifests'
+
+            body_status_operationState_operation_sync_prune (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_prune'
+
+            body_status_operationState_operation_sync_resources (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_resources'
+
+            body_status_operationState_operation_sync_revision (str): Revision is the revision (Git) or chart version (Helm) which to sync the application to
+    If omitted, will use the revision specified in app spec.
+
+            body_status_operationState_operation_sync_revisions (List[str]): Revisions is the list of revision (Git) or chart version (Helm) which to sync each source in sources field for the application to
+    If omitted, will use the revision specified in app spec.
+
+            body_status_operationState_operation_sync_source_chart (str): Chart is a Helm chart name, and must be specified for applications sourced from a Helm repo.
+
+            body_status_operationState_operation_sync_source_directory_exclude (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_directory_exclude'
+
+            body_status_operationState_operation_sync_source_directory_include (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_directory_include'
+
+            body_status_operationState_operation_sync_source_directory_jsonnet_extVars (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_directory_jsonnet_extVars'
+
+            body_status_operationState_operation_sync_source_directory_jsonnet_libs (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_directory_jsonnet_libs'
+
+            body_status_operationState_operation_sync_source_directory_jsonnet_tlas (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_directory_jsonnet_tlas'
+
+            body_status_operationState_operation_sync_source_directory_recurse (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_directory_recurse'
+
+            body_status_operationState_operation_sync_source_helm_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_status_operationState_operation_sync_source_helm_fileParameters (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_fileParameters'
+
+            body_status_operationState_operation_sync_source_helm_ignoreMissingValueFiles (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_ignoreMissingValueFiles'
+
+            body_status_operationState_operation_sync_source_helm_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_status_operationState_operation_sync_source_helm_namespace (str): Namespace is an optional namespace to template with. If left empty, defaults to the app's destination namespace.
+
+            body_status_operationState_operation_sync_source_helm_parameters (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_parameters'
+
+            body_status_operationState_operation_sync_source_helm_passCredentials (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_passCredentials'
+
+            body_status_operationState_operation_sync_source_helm_releaseName (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_releaseName'
+
+            body_status_operationState_operation_sync_source_helm_skipCrds (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_skipCrds'
+
+            body_status_operationState_operation_sync_source_helm_skipSchemaValidation (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_skipSchemaValidation'
+
+            body_status_operationState_operation_sync_source_helm_skipTests (bool): SkipTests skips test manifest installation step (Helm's --skip-tests).
+
+            body_status_operationState_operation_sync_source_helm_valueFiles (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_valueFiles'
+
+            body_status_operationState_operation_sync_source_helm_values (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_values'
+
+            body_status_operationState_operation_sync_source_helm_valuesObject_raw (str): Raw is the underlying serialization of this object.
+
+    TODO: Determine how to detect ContentType and ContentEncoding of 'Raw' data.
+
+            body_status_operationState_operation_sync_source_helm_version (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_helm_version'
+
+            body_status_operationState_operation_sync_source_kustomize_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_status_operationState_operation_sync_source_kustomize_commonAnnotations (Dict[str, Any]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_commonAnnotations'
+
+            body_status_operationState_operation_sync_source_kustomize_commonAnnotationsEnvsubst (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_commonAnnotationsEnvsubst'
+
+            body_status_operationState_operation_sync_source_kustomize_commonLabels (Dict[str, Any]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_commonLabels'
+
+            body_status_operationState_operation_sync_source_kustomize_components (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_components'
+
+            body_status_operationState_operation_sync_source_kustomize_forceCommonAnnotations (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_forceCommonAnnotations'
+
+            body_status_operationState_operation_sync_source_kustomize_forceCommonLabels (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_forceCommonLabels'
+
+            body_status_operationState_operation_sync_source_kustomize_ignoreMissingComponents (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_ignoreMissingComponents'
+
+            body_status_operationState_operation_sync_source_kustomize_images (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_images'
+
+            body_status_operationState_operation_sync_source_kustomize_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_status_operationState_operation_sync_source_kustomize_labelIncludeTemplates (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_labelIncludeTemplates'
+
+            body_status_operationState_operation_sync_source_kustomize_labelWithoutSelector (bool): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_labelWithoutSelector'
+
+            body_status_operationState_operation_sync_source_kustomize_namePrefix (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_namePrefix'
+
+            body_status_operationState_operation_sync_source_kustomize_nameSuffix (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_nameSuffix'
+
+            body_status_operationState_operation_sync_source_kustomize_namespace (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_namespace'
+
+            body_status_operationState_operation_sync_source_kustomize_patches (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_patches'
+
+            body_status_operationState_operation_sync_source_kustomize_replicas (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_replicas'
+
+            body_status_operationState_operation_sync_source_kustomize_version (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_kustomize_version'
+
+            body_status_operationState_operation_sync_source_name (str): Name is used to refer to a source and is displayed in the UI. It is used in multi-source Applications.
+
+            body_status_operationState_operation_sync_source_path (str): Path is a directory path within the Git repository, and is only valid for applications sourced from Git.
+
+            body_status_operationState_operation_sync_source_plugin_env (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_plugin_env'
+
+            body_status_operationState_operation_sync_source_plugin_name (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_plugin_name'
+
+            body_status_operationState_operation_sync_source_plugin_parameters (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_plugin_parameters'
+
+            body_status_operationState_operation_sync_source_ref (str): Ref is reference to another source within sources field. This field will not be used if used with a `source` tag.
+
+            body_status_operationState_operation_sync_source_repoURL (str): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_source_repoURL'
+
+            body_status_operationState_operation_sync_source_targetRevision (str): TargetRevision defines the revision of the source to sync the application to.
+    In case of Git, this can be commit, tag, or branch. If omitted, will equal to HEAD.
+    In case of Helm, this is a semver tag for the Chart's version.
+
+            body_status_operationState_operation_sync_sources (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_sources'
+
+            body_status_operationState_operation_sync_syncOptions (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_operation_sync_syncOptions'
+
+            body_status_operationState_operation_sync_syncStrategy_apply_force (bool): Force indicates whether or not to supply the --force flag to `kubectl apply`.
+    The --force flag deletes and re-create the resource, when PATCH encounters conflict and has
+    retried for 5 times.
+
+            body_status_operationState_operation_sync_syncStrategy_hook_syncStrategyApply_force (bool): Force indicates whether or not to supply the --force flag to `kubectl apply`.
+    The --force flag deletes and re-create the resource, when PATCH encounters conflict and has
+    retried for 5 times.
+
+            body_status_operationState_phase (str): OpenAPI parameter corresponding to 'body_status_operationState_phase'
+
+            body_status_operationState_retryCount (int): OpenAPI parameter corresponding to 'body_status_operationState_retryCount'
+
+            body_status_operationState_startedAt (str): Time is a wrapper around time.Time which supports correct
+    marshaling to YAML and JSON.  Wrappers are provided for many
+    of the factory methods that the time package offers.
+
+    +protobuf.options.marshal=false
+    +protobuf.as=Timestamp
+    +protobuf.options.(gogoproto.goproto_stringer)=false
+
+            body_status_operationState_syncResult_managedNamespaceMetadata_annotations (Dict[str, Any]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_managedNamespaceMetadata_annotations'
+
+            body_status_operationState_syncResult_managedNamespaceMetadata_labels (Dict[str, Any]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_managedNamespaceMetadata_labels'
+
+            body_status_operationState_syncResult_resources (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_resources'
+
+            body_status_operationState_syncResult_revision (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_revision'
+
+            body_status_operationState_syncResult_revisions (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_revisions'
+
+            body_status_operationState_syncResult_source_chart (str): Chart is a Helm chart name, and must be specified for applications sourced from a Helm repo.
+
+            body_status_operationState_syncResult_source_directory_exclude (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_directory_exclude'
+
+            body_status_operationState_syncResult_source_directory_include (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_directory_include'
+
+            body_status_operationState_syncResult_source_directory_jsonnet_extVars (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_directory_jsonnet_extVars'
+
+            body_status_operationState_syncResult_source_directory_jsonnet_libs (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_directory_jsonnet_libs'
+
+            body_status_operationState_syncResult_source_directory_jsonnet_tlas (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_directory_jsonnet_tlas'
+
+            body_status_operationState_syncResult_source_directory_recurse (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_directory_recurse'
+
+            body_status_operationState_syncResult_source_helm_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_status_operationState_syncResult_source_helm_fileParameters (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_fileParameters'
+
+            body_status_operationState_syncResult_source_helm_ignoreMissingValueFiles (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_ignoreMissingValueFiles'
+
+            body_status_operationState_syncResult_source_helm_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_status_operationState_syncResult_source_helm_namespace (str): Namespace is an optional namespace to template with. If left empty, defaults to the app's destination namespace.
+
+            body_status_operationState_syncResult_source_helm_parameters (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_parameters'
+
+            body_status_operationState_syncResult_source_helm_passCredentials (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_passCredentials'
+
+            body_status_operationState_syncResult_source_helm_releaseName (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_releaseName'
+
+            body_status_operationState_syncResult_source_helm_skipCrds (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_skipCrds'
+
+            body_status_operationState_syncResult_source_helm_skipSchemaValidation (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_skipSchemaValidation'
+
+            body_status_operationState_syncResult_source_helm_skipTests (bool): SkipTests skips test manifest installation step (Helm's --skip-tests).
+
+            body_status_operationState_syncResult_source_helm_valueFiles (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_valueFiles'
+
+            body_status_operationState_syncResult_source_helm_values (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_values'
+
+            body_status_operationState_syncResult_source_helm_valuesObject_raw (str): Raw is the underlying serialization of this object.
+
+    TODO: Determine how to detect ContentType and ContentEncoding of 'Raw' data.
+
+            body_status_operationState_syncResult_source_helm_version (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_helm_version'
+
+            body_status_operationState_syncResult_source_kustomize_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_status_operationState_syncResult_source_kustomize_commonAnnotations (Dict[str, Any]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_commonAnnotations'
+
+            body_status_operationState_syncResult_source_kustomize_commonAnnotationsEnvsubst (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_commonAnnotationsEnvsubst'
+
+            body_status_operationState_syncResult_source_kustomize_commonLabels (Dict[str, Any]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_commonLabels'
+
+            body_status_operationState_syncResult_source_kustomize_components (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_components'
+
+            body_status_operationState_syncResult_source_kustomize_forceCommonAnnotations (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_forceCommonAnnotations'
+
+            body_status_operationState_syncResult_source_kustomize_forceCommonLabels (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_forceCommonLabels'
+
+            body_status_operationState_syncResult_source_kustomize_ignoreMissingComponents (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_ignoreMissingComponents'
+
+            body_status_operationState_syncResult_source_kustomize_images (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_images'
+
+            body_status_operationState_syncResult_source_kustomize_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_status_operationState_syncResult_source_kustomize_labelIncludeTemplates (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_labelIncludeTemplates'
+
+            body_status_operationState_syncResult_source_kustomize_labelWithoutSelector (bool): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_labelWithoutSelector'
+
+            body_status_operationState_syncResult_source_kustomize_namePrefix (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_namePrefix'
+
+            body_status_operationState_syncResult_source_kustomize_nameSuffix (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_nameSuffix'
+
+            body_status_operationState_syncResult_source_kustomize_namespace (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_namespace'
+
+            body_status_operationState_syncResult_source_kustomize_patches (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_patches'
+
+            body_status_operationState_syncResult_source_kustomize_replicas (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_replicas'
+
+            body_status_operationState_syncResult_source_kustomize_version (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_kustomize_version'
+
+            body_status_operationState_syncResult_source_name (str): Name is used to refer to a source and is displayed in the UI. It is used in multi-source Applications.
+
+            body_status_operationState_syncResult_source_path (str): Path is a directory path within the Git repository, and is only valid for applications sourced from Git.
+
+            body_status_operationState_syncResult_source_plugin_env (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_plugin_env'
+
+            body_status_operationState_syncResult_source_plugin_name (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_plugin_name'
+
+            body_status_operationState_syncResult_source_plugin_parameters (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_plugin_parameters'
+
+            body_status_operationState_syncResult_source_ref (str): Ref is reference to another source within sources field. This field will not be used if used with a `source` tag.
+
+            body_status_operationState_syncResult_source_repoURL (str): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_source_repoURL'
+
+            body_status_operationState_syncResult_source_targetRevision (str): TargetRevision defines the revision of the source to sync the application to.
+    In case of Git, this can be commit, tag, or branch. If omitted, will equal to HEAD.
+    In case of Helm, this is a semver tag for the Chart's version.
+
+            body_status_operationState_syncResult_sources (List[str]): OpenAPI parameter corresponding to 'body_status_operationState_syncResult_sources'
+
+            body_status_reconciledAt (str): Time is a wrapper around time.Time which supports correct
+    marshaling to YAML and JSON.  Wrappers are provided for many
+    of the factory methods that the time package offers.
+
+    +protobuf.options.marshal=false
+    +protobuf.as=Timestamp
+    +protobuf.options.(gogoproto.goproto_stringer)=false
+
+            body_status_resourceHealthSource (str): OpenAPI parameter corresponding to 'body_status_resourceHealthSource'
+
+            body_status_resources (List[str]): OpenAPI parameter corresponding to 'body_status_resources'
+
+            body_status_sourceHydrator_currentOperation_drySHA (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_currentOperation_drySHA'
+
+            body_status_sourceHydrator_currentOperation_finishedAt (str): Time is a wrapper around time.Time which supports correct
+    marshaling to YAML and JSON.  Wrappers are provided for many
+    of the factory methods that the time package offers.
+
+    +protobuf.options.marshal=false
+    +protobuf.as=Timestamp
+    +protobuf.options.(gogoproto.goproto_stringer)=false
+
+            body_status_sourceHydrator_currentOperation_hydratedSHA (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_currentOperation_hydratedSHA'
+
+            body_status_sourceHydrator_currentOperation_message (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_currentOperation_message'
+
+            body_status_sourceHydrator_currentOperation_phase (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_currentOperation_phase'
+
+            body_status_sourceHydrator_currentOperation_sourceHydrator_drySource_path (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_currentOperation_sourceHydrator_drySource_path'
+
+            body_status_sourceHydrator_currentOperation_sourceHydrator_drySource_repoURL (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_currentOperation_sourceHydrator_drySource_repoURL'
+
+            body_status_sourceHydrator_currentOperation_sourceHydrator_drySource_targetRevision (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_currentOperation_sourceHydrator_drySource_targetRevision'
+
+            body_status_sourceHydrator_currentOperation_sourceHydrator_hydrateTo_targetBranch (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_currentOperation_sourceHydrator_hydrateTo_targetBranch'
+
+            body_status_sourceHydrator_currentOperation_sourceHydrator_syncSource_path (str): Path is a directory path within the git repository where hydrated manifests should be committed to and synced
+    from. If hydrateTo is set, this is just the path from which hydrated manifests will be synced.
+
+            body_status_sourceHydrator_currentOperation_sourceHydrator_syncSource_targetBranch (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_currentOperation_sourceHydrator_syncSource_targetBranch'
+
+            body_status_sourceHydrator_currentOperation_startedAt (str): Time is a wrapper around time.Time which supports correct
+    marshaling to YAML and JSON.  Wrappers are provided for many
+    of the factory methods that the time package offers.
+
+    +protobuf.options.marshal=false
+    +protobuf.as=Timestamp
+    +protobuf.options.(gogoproto.goproto_stringer)=false
+
+            body_status_sourceHydrator_lastSuccessfulOperation_drySHA (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_lastSuccessfulOperation_drySHA'
+
+            body_status_sourceHydrator_lastSuccessfulOperation_hydratedSHA (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_lastSuccessfulOperation_hydratedSHA'
+
+            body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_drySource_path (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_drySource_path'
+
+            body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_drySource_repoURL (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_drySource_repoURL'
+
+            body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_drySource_targetRevision (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_drySource_targetRevision'
+
+            body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_hydrateTo_targetBranch (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_hydrateTo_targetBranch'
+
+            body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_syncSource_path (str): Path is a directory path within the git repository where hydrated manifests should be committed to and synced
+    from. If hydrateTo is set, this is just the path from which hydrated manifests will be synced.
+
+            body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_syncSource_targetBranch (str): OpenAPI parameter corresponding to 'body_status_sourceHydrator_lastSuccessfulOperation_sourceHydrator_syncSource_targetBranch'
+
+            body_status_sourceType (str): OpenAPI parameter corresponding to 'body_status_sourceType'
+
+            body_status_sourceTypes (List[str]): OpenAPI parameter corresponding to 'body_status_sourceTypes'
+
+            body_status_summary_externalURLs (List[str]): ExternalURLs holds all external URLs of application child resources.
+
+            body_status_summary_images (List[str]): Images holds all images of application child resources.
+
+            body_status_sync_comparedTo_destination_name (str): Name is an alternate way of specifying the target cluster by its symbolic name. This must be set if Server is not set.
+
+            body_status_sync_comparedTo_destination_namespace (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_destination_namespace'
+
+            body_status_sync_comparedTo_destination_server (str): Server specifies the URL of the target cluster's Kubernetes control plane API. This must be set if Name is not set.
+
+            body_status_sync_comparedTo_ignoreDifferences (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_ignoreDifferences'
+
+            body_status_sync_comparedTo_source_chart (str): Chart is a Helm chart name, and must be specified for applications sourced from a Helm repo.
+
+            body_status_sync_comparedTo_source_directory_exclude (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_directory_exclude'
+
+            body_status_sync_comparedTo_source_directory_include (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_directory_include'
+
+            body_status_sync_comparedTo_source_directory_jsonnet_extVars (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_directory_jsonnet_extVars'
+
+            body_status_sync_comparedTo_source_directory_jsonnet_libs (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_directory_jsonnet_libs'
+
+            body_status_sync_comparedTo_source_directory_jsonnet_tlas (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_directory_jsonnet_tlas'
+
+            body_status_sync_comparedTo_source_directory_recurse (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_directory_recurse'
+
+            body_status_sync_comparedTo_source_helm_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_status_sync_comparedTo_source_helm_fileParameters (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_fileParameters'
+
+            body_status_sync_comparedTo_source_helm_ignoreMissingValueFiles (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_ignoreMissingValueFiles'
+
+            body_status_sync_comparedTo_source_helm_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_status_sync_comparedTo_source_helm_namespace (str): Namespace is an optional namespace to template with. If left empty, defaults to the app's destination namespace.
+
+            body_status_sync_comparedTo_source_helm_parameters (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_parameters'
+
+            body_status_sync_comparedTo_source_helm_passCredentials (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_passCredentials'
+
+            body_status_sync_comparedTo_source_helm_releaseName (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_releaseName'
+
+            body_status_sync_comparedTo_source_helm_skipCrds (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_skipCrds'
+
+            body_status_sync_comparedTo_source_helm_skipSchemaValidation (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_skipSchemaValidation'
+
+            body_status_sync_comparedTo_source_helm_skipTests (bool): SkipTests skips test manifest installation step (Helm's --skip-tests).
+
+            body_status_sync_comparedTo_source_helm_valueFiles (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_valueFiles'
+
+            body_status_sync_comparedTo_source_helm_values (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_values'
+
+            body_status_sync_comparedTo_source_helm_valuesObject_raw (str): Raw is the underlying serialization of this object.
+
+    TODO: Determine how to detect ContentType and ContentEncoding of 'Raw' data.
+
+            body_status_sync_comparedTo_source_helm_version (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_helm_version'
+
+            body_status_sync_comparedTo_source_kustomize_apiVersions (List[str]): APIVersions specifies the Kubernetes resource API versions to pass to Helm when templating manifests. By default,
+    Argo CD uses the API versions of the target cluster. The format is [group/]version/kind.
+
+            body_status_sync_comparedTo_source_kustomize_commonAnnotations (Dict[str, Any]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_commonAnnotations'
+
+            body_status_sync_comparedTo_source_kustomize_commonAnnotationsEnvsubst (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_commonAnnotationsEnvsubst'
+
+            body_status_sync_comparedTo_source_kustomize_commonLabels (Dict[str, Any]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_commonLabels'
+
+            body_status_sync_comparedTo_source_kustomize_components (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_components'
+
+            body_status_sync_comparedTo_source_kustomize_forceCommonAnnotations (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_forceCommonAnnotations'
+
+            body_status_sync_comparedTo_source_kustomize_forceCommonLabels (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_forceCommonLabels'
+
+            body_status_sync_comparedTo_source_kustomize_ignoreMissingComponents (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_ignoreMissingComponents'
+
+            body_status_sync_comparedTo_source_kustomize_images (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_images'
+
+            body_status_sync_comparedTo_source_kustomize_kubeVersion (str): KubeVersion specifies the Kubernetes API version to pass to Helm when templating manifests. By default, Argo CD
+    uses the Kubernetes version of the target cluster.
+
+            body_status_sync_comparedTo_source_kustomize_labelIncludeTemplates (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_labelIncludeTemplates'
+
+            body_status_sync_comparedTo_source_kustomize_labelWithoutSelector (bool): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_labelWithoutSelector'
+
+            body_status_sync_comparedTo_source_kustomize_namePrefix (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_namePrefix'
+
+            body_status_sync_comparedTo_source_kustomize_nameSuffix (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_nameSuffix'
+
+            body_status_sync_comparedTo_source_kustomize_namespace (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_namespace'
+
+            body_status_sync_comparedTo_source_kustomize_patches (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_patches'
+
+            body_status_sync_comparedTo_source_kustomize_replicas (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_replicas'
+
+            body_status_sync_comparedTo_source_kustomize_version (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_kustomize_version'
+
+            body_status_sync_comparedTo_source_name (str): Name is used to refer to a source and is displayed in the UI. It is used in multi-source Applications.
+
+            body_status_sync_comparedTo_source_path (str): Path is a directory path within the Git repository, and is only valid for applications sourced from Git.
+
+            body_status_sync_comparedTo_source_plugin_env (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_plugin_env'
+
+            body_status_sync_comparedTo_source_plugin_name (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_plugin_name'
+
+            body_status_sync_comparedTo_source_plugin_parameters (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_plugin_parameters'
+
+            body_status_sync_comparedTo_source_ref (str): Ref is reference to another source within sources field. This field will not be used if used with a `source` tag.
+
+            body_status_sync_comparedTo_source_repoURL (str): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_source_repoURL'
+
+            body_status_sync_comparedTo_source_targetRevision (str): TargetRevision defines the revision of the source to sync the application to.
+    In case of Git, this can be commit, tag, or branch. If omitted, will equal to HEAD.
+    In case of Helm, this is a semver tag for the Chart's version.
+
+            body_status_sync_comparedTo_sources (List[str]): OpenAPI parameter corresponding to 'body_status_sync_comparedTo_sources'
+
+            body_status_sync_revision (str): OpenAPI parameter corresponding to 'body_status_sync_revision'
+
+            body_status_sync_revisions (List[str]): OpenAPI parameter corresponding to 'body_status_sync_revisions'
+
+            body_status_sync_status (str): OpenAPI parameter corresponding to 'body_status_sync_status'
+
+            param_validate (bool): OpenAPI parameter corresponding to 'param_validate'
+
+            param_project (str): OpenAPI parameter corresponding to 'param_project'
+
+
+        Returns:
+            Dict[str, Any]: The JSON response from the API call.
+
+        Raises:
+            Exception: If the API request fails or returns an error.
+    """
     logger.debug("Making PUT request to /api/v1/applications/{application.metadata.name}")
 
     params = {}
     data = {}
 
-    params["validate"] = str(param_validate).lower() if isinstance(param_validate, bool) else param_validate
+    if param_validate is not None:
+        params["validate"] = str(param_validate).lower() if isinstance(param_validate, bool) else param_validate
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
     flat_body = {}
     if body_metadata_annotations is not None:

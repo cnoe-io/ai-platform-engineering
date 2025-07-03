@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -39,13 +15,13 @@ logger = logging.getLogger("mcp_tools")
 
 async def project_service__list(param_name: str = None) -> Dict[str, Any]:
     '''
-    List returns list of projects.
+    List returns a list of projects.
 
     Args:
         param_name (str, optional): OpenAPI parameter corresponding to 'param_name'. Defaults to None.
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call.
+        Dict[str, Any]: The JSON response from the API call containing the list of projects.
 
     Raises:
         Exception: If the API request fails or returns an error.
@@ -55,7 +31,8 @@ async def project_service__list(param_name: str = None) -> Dict[str, Any]:
     params = {}
     data = {}
 
-    params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
+    if param_name is not None:
+        params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
@@ -106,38 +83,38 @@ async def project_service__create(
     Create a new project.
 
     Args:
-        body_project_metadata_annotations (Dict[str, Any], optional): Annotations for the project metadata.
-        body_project_metadata_creationTimestamp (str, optional): The creation timestamp of the project.
-        body_project_metadata_deletionGracePeriodSeconds (int, optional): Grace period for deletion in seconds.
-        body_project_metadata_deletionTimestamp (str, optional): The deletion timestamp of the project.
-        body_project_metadata_finalizers (List[str], optional): Finalizers for the project metadata.
-        body_project_metadata_generateName (str, optional): Prefix for generating a unique name if not provided.
-        body_project_metadata_generation (int, optional): Generation number of the project metadata.
-        body_project_metadata_labels (Dict[str, Any], optional): Labels for the project metadata.
-        body_project_metadata_managedFields (List[str], optional): Managed fields for internal housekeeping.
-        body_project_metadata_name (str, optional): Name of the project metadata.
-        body_project_metadata_namespace (str, optional): Namespace within which the name must be unique.
-        body_project_metadata_ownerReferences (List[str], optional): Owner references for the project metadata.
-        body_project_metadata_resourceVersion (str, optional): Internal version of the object for concurrency control.
-        body_project_metadata_selfLink (str, optional): Self-link of the project metadata.
-        body_project_metadata_uid (str, optional): Unique identifier for the project metadata.
-        body_project_spec_clusterResourceBlacklist (List[str], optional): Blacklist of cluster resources.
-        body_project_spec_clusterResourceWhitelist (List[str], optional): Whitelist of cluster resources.
-        body_project_spec_description (str, optional): Description of the project.
-        body_project_spec_destinationServiceAccounts (List[str], optional): Service accounts for application sync.
-        body_project_spec_destinations (List[str], optional): Destinations for the project.
-        body_project_spec_namespaceResourceBlacklist (List[str], optional): Blacklist of namespace resources.
-        body_project_spec_namespaceResourceWhitelist (List[str], optional): Whitelist of namespace resources.
-        body_project_spec_orphanedResources_ignore (List[str], optional): Resources to ignore for orphaned resources.
-        body_project_spec_orphanedResources_warn (bool, optional): Warn about orphaned resources.
-        body_project_spec_permitOnlyProjectScopedClusters (bool, optional): Restrict to project-scoped clusters.
-        body_project_spec_roles (List[str], optional): Roles associated with the project.
-        body_project_spec_signatureKeys (List[str], optional): Signature keys for the project.
-        body_project_spec_sourceNamespaces (List[str], optional): Source namespaces for the project.
-        body_project_spec_sourceRepos (List[str], optional): Source repositories for the project.
-        body_project_spec_syncWindows (List[str], optional): Sync windows for the project.
-        body_project_status_jwtTokensByRole (Dict[str, Any], optional): JWT tokens by role for the project status.
-        body_upsert (bool, optional): Whether to upsert the project.
+        body_project_metadata_annotations (Dict[str, Any], optional): Annotations for the project metadata. Defaults to None.
+        body_project_metadata_creationTimestamp (str, optional): Timestamp of project creation. Defaults to None.
+        body_project_metadata_deletionGracePeriodSeconds (int, optional): Grace period for project deletion in seconds. Defaults to None.
+        body_project_metadata_deletionTimestamp (str, optional): Timestamp of project deletion. Defaults to None.
+        body_project_metadata_finalizers (List[str], optional): Finalizers for the project metadata. Defaults to None.
+        body_project_metadata_generateName (str, optional): Prefix for generating a unique project name. Defaults to None.
+        body_project_metadata_generation (int, optional): Generation number of the project metadata. Defaults to None.
+        body_project_metadata_labels (Dict[str, Any], optional): Labels for the project metadata. Defaults to None.
+        body_project_metadata_managedFields (List[str], optional): Managed fields for the project metadata. Defaults to None.
+        body_project_metadata_name (str, optional): Name of the project metadata. Defaults to None.
+        body_project_metadata_namespace (str, optional): Namespace of the project metadata. Defaults to None.
+        body_project_metadata_ownerReferences (List[str], optional): Owner references for the project metadata. Defaults to None.
+        body_project_metadata_resourceVersion (str, optional): Resource version of the project metadata. Defaults to None.
+        body_project_metadata_selfLink (str, optional): Self-link of the project metadata. Defaults to None.
+        body_project_metadata_uid (str, optional): UID of the project metadata. Defaults to None.
+        body_project_spec_clusterResourceBlacklist (List[str], optional): Cluster resource blacklist for the project spec. Defaults to None.
+        body_project_spec_clusterResourceWhitelist (List[str], optional): Cluster resource whitelist for the project spec. Defaults to None.
+        body_project_spec_description (str, optional): Description of the project spec. Defaults to None.
+        body_project_spec_destinationServiceAccounts (List[str], optional): Service accounts for destination sync operations. Defaults to None.
+        body_project_spec_destinations (List[str], optional): Destinations for the project spec. Defaults to None.
+        body_project_spec_namespaceResourceBlacklist (List[str], optional): Namespace resource blacklist for the project spec. Defaults to None.
+        body_project_spec_namespaceResourceWhitelist (List[str], optional): Namespace resource whitelist for the project spec. Defaults to None.
+        body_project_spec_orphanedResources_ignore (List[str], optional): Orphaned resources to ignore in the project spec. Defaults to None.
+        body_project_spec_orphanedResources_warn (bool, optional): Warn about orphaned resources in the project spec. Defaults to None.
+        body_project_spec_permitOnlyProjectScopedClusters (bool, optional): Permit only project-scoped clusters in the project spec. Defaults to None.
+        body_project_spec_roles (List[str], optional): Roles for the project spec. Defaults to None.
+        body_project_spec_signatureKeys (List[str], optional): Signature keys for the project spec. Defaults to None.
+        body_project_spec_sourceNamespaces (List[str], optional): Source namespaces for the project spec. Defaults to None.
+        body_project_spec_sourceRepos (List[str], optional): Source repositories for the project spec. Defaults to None.
+        body_project_spec_syncWindows (List[str], optional): Sync windows for the project spec. Defaults to None.
+        body_project_status_jwtTokensByRole (Dict[str, Any], optional): JWT tokens by role for the project status. Defaults to None.
+        body_upsert (bool, optional): Whether to upsert the project. Defaults to None.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call.

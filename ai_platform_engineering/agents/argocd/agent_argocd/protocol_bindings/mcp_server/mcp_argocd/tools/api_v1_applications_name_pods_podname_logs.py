@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into valid parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -69,7 +45,7 @@ async def application_service__pod_logs(
         param_sinceTime_seconds (str, optional): Represents seconds of UTC time since Unix epoch 1970-01-01T00:00:00Z. Must be from 0001-01-01T00:00:00Z to 9999-12-31T23:59:59Z inclusive. Defaults to None.
         param_sinceTime_nanos (int, optional): Non-negative fractions of a second at nanosecond resolution. Must be from 0 to 999,999,999 inclusive. Defaults to None.
         param_tailLines (str, optional): The number of lines from the end of the logs to show. Defaults to None.
-        param_follow (bool, optional): Whether to stream the logs continuously. Defaults to False.
+        param_follow (bool, optional): Whether to stream the logs. Defaults to False.
         param_untilTime (str, optional): The time until which logs should be fetched. Defaults to None.
         param_filter (str, optional): A filter to apply to the logs. Defaults to None.
         param_kind (str, optional): The kind of resource. Defaults to None.
@@ -78,10 +54,10 @@ async def application_service__pod_logs(
         param_previous (bool, optional): Whether to fetch logs from the previous instance of the pod. Defaults to False.
         param_appNamespace (str, optional): The namespace of the application. Defaults to None.
         param_project (str, optional): The project associated with the application. Defaults to None.
-        param_matchCase (bool, optional): Whether to match the case in filters. Defaults to False.
+        param_matchCase (bool, optional): Whether to match case in filters. Defaults to False.
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call containing the log entries.
+        Dict[str, Any]: The JSON response from the API call containing the logs.
 
     Raises:
         Exception: If the API request fails or returns an error.
@@ -91,47 +67,65 @@ async def application_service__pod_logs(
     params = {}
     data = {}
 
-    params["namespace"] = str(param_namespace).lower() if isinstance(param_namespace, bool) else param_namespace
+    if param_namespace is not None:
+        params["namespace"] = str(param_namespace).lower() if isinstance(param_namespace, bool) else param_namespace
 
-    params["container"] = str(param_container).lower() if isinstance(param_container, bool) else param_container
+    if param_container is not None:
+        params["container"] = str(param_container).lower() if isinstance(param_container, bool) else param_container
 
-    params["sinceSeconds"] = (
-        str(param_sinceSeconds).lower() if isinstance(param_sinceSeconds, bool) else param_sinceSeconds
-    )
+    if param_sinceSeconds is not None:
+        params["sinceSeconds"] = (
+            str(param_sinceSeconds).lower() if isinstance(param_sinceSeconds, bool) else param_sinceSeconds
+        )
 
-    params["sinceTime_seconds"] = (
-        str(param_sinceTime_seconds).lower() if isinstance(param_sinceTime_seconds, bool) else param_sinceTime_seconds
-    )
+    if param_sinceTime_seconds is not None:
+        params["sinceTime_seconds"] = (
+            str(param_sinceTime_seconds).lower()
+            if isinstance(param_sinceTime_seconds, bool)
+            else param_sinceTime_seconds
+        )
 
-    params["sinceTime_nanos"] = (
-        str(param_sinceTime_nanos).lower() if isinstance(param_sinceTime_nanos, bool) else param_sinceTime_nanos
-    )
+    if param_sinceTime_nanos is not None:
+        params["sinceTime_nanos"] = (
+            str(param_sinceTime_nanos).lower() if isinstance(param_sinceTime_nanos, bool) else param_sinceTime_nanos
+        )
 
-    params["tailLines"] = str(param_tailLines).lower() if isinstance(param_tailLines, bool) else param_tailLines
+    if param_tailLines is not None:
+        params["tailLines"] = str(param_tailLines).lower() if isinstance(param_tailLines, bool) else param_tailLines
 
-    params["follow"] = str(param_follow).lower() if isinstance(param_follow, bool) else param_follow
+    if param_follow is not None:
+        params["follow"] = str(param_follow).lower() if isinstance(param_follow, bool) else param_follow
 
-    params["untilTime"] = str(param_untilTime).lower() if isinstance(param_untilTime, bool) else param_untilTime
+    if param_untilTime is not None:
+        params["untilTime"] = str(param_untilTime).lower() if isinstance(param_untilTime, bool) else param_untilTime
 
-    params["filter"] = str(param_filter).lower() if isinstance(param_filter, bool) else param_filter
+    if param_filter is not None:
+        params["filter"] = str(param_filter).lower() if isinstance(param_filter, bool) else param_filter
 
-    params["kind"] = str(param_kind).lower() if isinstance(param_kind, bool) else param_kind
+    if param_kind is not None:
+        params["kind"] = str(param_kind).lower() if isinstance(param_kind, bool) else param_kind
 
-    params["group"] = str(param_group).lower() if isinstance(param_group, bool) else param_group
+    if param_group is not None:
+        params["group"] = str(param_group).lower() if isinstance(param_group, bool) else param_group
 
-    params["resourceName"] = (
-        str(param_resourceName).lower() if isinstance(param_resourceName, bool) else param_resourceName
-    )
+    if param_resourceName is not None:
+        params["resourceName"] = (
+            str(param_resourceName).lower() if isinstance(param_resourceName, bool) else param_resourceName
+        )
 
-    params["previous"] = str(param_previous).lower() if isinstance(param_previous, bool) else param_previous
+    if param_previous is not None:
+        params["previous"] = str(param_previous).lower() if isinstance(param_previous, bool) else param_previous
 
-    params["appNamespace"] = (
-        str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
-    )
+    if param_appNamespace is not None:
+        params["appNamespace"] = (
+            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
+        )
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
-    params["matchCase"] = str(param_matchCase).lower() if isinstance(param_matchCase, bool) else param_matchCase
+    if param_matchCase is not None:
+        params["matchCase"] = str(param_matchCase).lower() if isinstance(param_matchCase, bool) else param_matchCase
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

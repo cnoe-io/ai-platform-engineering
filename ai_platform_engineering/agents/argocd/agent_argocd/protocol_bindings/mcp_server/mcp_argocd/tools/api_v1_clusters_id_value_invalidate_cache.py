@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -41,11 +17,15 @@ async def cluster_service__invalidate_cache(path_id_value: str) -> Dict[str, Any
     '''
     Invalidate the cache for a specified cluster.
 
+    This function sends a POST request to the cluster service to invalidate the cache
+    associated with the given cluster identifier, which can be either a cluster server URL
+    or a cluster name.
+
     Args:
-        path_id_value (str): The identifier for the cluster, which can be either the cluster server URL or the cluster name.
+        path_id_value (str): The identifier for the cluster, which can be a server URL or a cluster name.
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call, containing the result of the cache invalidation operation.
+        Dict[str, Any]: The JSON response from the API call, containing the result of the cache invalidation request.
 
     Raises:
         Exception: If the API request fails or returns an error, an exception is raised with the error details.

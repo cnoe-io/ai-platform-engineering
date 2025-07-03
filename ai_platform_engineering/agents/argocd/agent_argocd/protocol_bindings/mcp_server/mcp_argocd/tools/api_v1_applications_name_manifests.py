@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested structure.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -46,15 +22,15 @@ async def application_service__get_manifests(
     param_revisions: List[str] = None,
 ) -> Dict[str, Any]:
     '''
-    Get application manifests.
+    GetManifests returns application manifests.
 
     Args:
-        path_name (str): The name of the application path.
-        param_revision (str, optional): The revision parameter for the application. Defaults to None.
+        path_name (str): The name of the path for the application.
+        param_revision (str, optional): The revision of the application. Defaults to None.
         param_appNamespace (str, optional): The namespace of the application. Defaults to None.
         param_project (str, optional): The project associated with the application. Defaults to None.
-        param_sourcePositions (List[str], optional): Source positions for the application. Defaults to None.
-        param_revisions (List[str], optional): List of revisions for the application. Defaults to None.
+        param_sourcePositions (List[str], optional): The source positions for the application. Defaults to None.
+        param_revisions (List[str], optional): The list of revisions for the application. Defaults to None.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call containing the application manifests.
@@ -67,19 +43,24 @@ async def application_service__get_manifests(
     params = {}
     data = {}
 
-    params["revision"] = str(param_revision).lower() if isinstance(param_revision, bool) else param_revision
+    if param_revision is not None:
+        params["revision"] = str(param_revision).lower() if isinstance(param_revision, bool) else param_revision
 
-    params["appNamespace"] = (
-        str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
-    )
+    if param_appNamespace is not None:
+        params["appNamespace"] = (
+            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
+        )
 
-    params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
 
-    params["sourcePositions"] = (
-        str(param_sourcePositions).lower() if isinstance(param_sourcePositions, bool) else param_sourcePositions
-    )
+    if param_sourcePositions is not None:
+        params["sourcePositions"] = (
+            str(param_sourcePositions).lower() if isinstance(param_sourcePositions, bool) else param_sourcePositions
+        )
 
-    params["revisions"] = str(param_revisions).lower() if isinstance(param_revisions, bool) else param_revisions
+    if param_revisions is not None:
+        params["revisions"] = str(param_revisions).lower() if isinstance(param_revisions, bool) else param_revisions
 
     flat_body = {}
     data = assemble_nested_body(flat_body)

@@ -6,31 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request
-
-
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
-    '''
-    Convert a flat dictionary with underscore-separated keys into a nested dictionary.
-
-    Args:
-        flat_body (Dict[str, Any]): A dictionary where keys are underscore-separated strings representing nested paths.
-
-    Returns:
-        Dict[str, Any]: A nested dictionary constructed from the flat dictionary.
-
-    Raises:
-        ValueError: If the input dictionary contains invalid keys that cannot be split into parts.
-    '''
-    nested = {}
-    for key, value in flat_body.items():
-        parts = key.split("_")
-        d = nested
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-    return nested
-
+from agent_argocd.protocol_bindings.mcp_server.mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -77,7 +53,7 @@ async def repo_creds_service__update_repository_credentials(
         body_sshPrivateKey (str, optional): SSH private key. Defaults to None.
         body_tlsClientCertData (str, optional): TLS client certificate data. Defaults to None.
         body_tlsClientCertKey (str, optional): TLS client certificate key. Defaults to None.
-        body_type (str, optional): Type of the repository credentials, either "git" or "helm". Defaults to "git" if empty or absent.
+        body_type (str, optional): Type of the repository credentials, either "git" or "helm". Defaults to None.
         body_url (str, optional): URL associated with the credentials. Defaults to None.
         body_useAzureWorkloadIdentity (bool, optional): Flag to use Azure Workload Identity. Defaults to None.
         body_username (str, optional): Username for authentication. Defaults to None.
