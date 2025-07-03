@@ -5,16 +5,14 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
 ---
-**[Getting Started](https://github.com/cnoe-io/agentic-ai/wiki/Getting%E2%80%90Started)**
 
+## Agentic AI SIG
+
+- [Getting Started Wiki](https://github.com/cnoe-io/agentic-ai/wiki/Getting%E2%80%90Started)
 - [Agentic AI SIG Meetings](https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai)
 - [Project Roadmap](https://github.com/orgs/cnoe-io/projects/9)
-- [Milestones](https://github.com/cnoe-io/agentic-ai/milestones)
-- [Discussions](https://github.com/cnoe-io/agentic-ai/discussions)
-- [Issues](https://github.com/cnoe-io/agentic-ai/issues)
-- [Releases](https://github.com/cnoe-io/agentic-ai/wiki/Release-1.0)
 
-## [Meeting Recordings](https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings)
+### [Meeting Recordings](https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings)
 
 ## 🚀 Overview
 
