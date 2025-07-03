@@ -1740,6 +1740,26 @@ rich = ["rich (>=13.9.4)"]
 ws = ["websockets (>=15.0.1)"]
 
 [[package]]
+name = "mcp-argocd"
+version = "0.1.0"
+description = "ArgoCD MCP Server"
+optional = false
+python-versions = ">=3.13,<4.0"
+groups = ["main"]
+files = []
+develop = false
+
+[package.dependencies]
+httpx = ">=0.24.0"
+mcp = ">=1.9.0"
+pydantic = ">=2.0.0"
+python-dotenv = ">=1.0.0"
+
+[package.source]
+type = "directory"
+url = "../../mcp/argocd"
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 description = "Markdown URL utilities"
@@ -3735,4 +3755,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "619aa0588376e93c4b114367b5a12fc75e80a1905a7e801a70744c2136c2c467"
+content-hash = "fb2f2c64dd5e25f66564146b773c85fecd3dcff5bdf32f3d6ba6b50375acf6fb"

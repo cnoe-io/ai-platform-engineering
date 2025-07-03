@@ -35,7 +35,7 @@ services:
     command: platform-engineer
   # Agent ArgoCD
   agent-argocd:
-    image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
+    image: docker.io/library/agent-argocd:a2a-latest
     container_name: agent-argocd
     volumes:
       - ./.env:/app/.env
