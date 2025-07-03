@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "ai-platform-engineer.fullname" . }}
+  name: {{ include "agent.fullname" . }}
   labels:
-    {{- include "ai-platform-engineer.labels" . | nindent 4 }}
+    {{- include "agent.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "ai-platform-engineer.selectorLabels" . | nindent 6 }}
+      {{- include "agent.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -18,7 +18,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "ai-platform-engineer.labels" . | nindent 8 }}
+        {{- include "agent.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -27,7 +27,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "ai-platform-engineer.serviceAccountName" . }}
+      serviceAccountName: {{ include "agent.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -44,6 +44,24 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          envFrom:
+            {{- if .Values.global.externalSecrets.enabled }}
+            {{- range .Values.externalSecrets.secretNames }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+            {{- else }}
+            # Traditional secret handling when external secrets are disabled
+            - secretRef:
+                name: {{ .Values.secrets.secretName | default (printf "%s-secret" (include "agent.fullname" .)) }}
+            {{- end }}
+          {{- if .Values.env }}
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
