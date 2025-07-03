@@ -554,7 +554,7 @@ def main():
     mcp.tool()(api_version.version_service__version)
 
     # Run the MCP server
-    mcp.run()
+    mcp.run(transport=MCP_MODE.lower())
 
 
 if __name__ == "__main__":

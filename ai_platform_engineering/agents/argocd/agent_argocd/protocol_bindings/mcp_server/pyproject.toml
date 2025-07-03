@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 
 [tool.poetry.scripts]
-mcp_argocd = "mcp_argocd.server:main"
+mcp_argocd = "mcp_argocd.__main__:main"
 
 [tool.setuptools]
 packages = ["mcp_argocd"]
