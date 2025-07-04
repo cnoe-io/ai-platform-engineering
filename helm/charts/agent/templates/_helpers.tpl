@@ -97,15 +97,15 @@ Determine external secret names - global takes precedence
 {{- define "agent.externalSecrets.secretNames" -}}
 {{- if hasKey .Values.global "externalSecrets" -}}
 {{- if hasKey .Values.global.externalSecrets "secretNames" -}}
-{{- .Values.global.externalSecrets.secretNames -}}
+{{- .Values.global.externalSecrets.secretNames | join "," -}}
 {{- else -}}
 {{- if .Values.global.externalSecrets.enabled -}}
-{{- list "llm-secret" (printf "%s-secret" (include "agent.name" .)) -}}
+{{- printf "llm-secret,%s-secret" (include "agent.name" .) -}}
 {{- else -}}
-{{- list -}}
+{{- "" -}}
 {{- end -}}
 {{- end -}}
 {{- else -}}
-{{- .Values.externalSecrets.secretNames | default list -}}
+{{- .Values.externalSecrets.secretNames | default list | join "," -}}
 {{- end -}}
 {{- end -}}

@@ -1,3 +1,7 @@
+global:
+  secrets: # Secret for your LLM provider
+    secretName: "" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
+
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
   enabled: true
