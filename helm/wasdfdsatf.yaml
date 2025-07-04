@@ -1,0 +1,316 @@
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-agent-argocd
+  labels:
+    helm.sh/chart: agent-argocd-0.1.0
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-agent-pagerduty
+  labels:
+    helm.sh/chart: agent-pagerduty-0.1.0
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agent-argocd-secret
+  labels:
+    helm.sh/chart: agent-argocd-0.1.0
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agent-pagerduty-secret
+  labels:
+    helm.sh/chart: agent-pagerduty-0.1.0
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+---
+# Source: ai-platform-engineering/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: llm-secret
+  labels:
+    helm.sh/chart: ai-platform-engineering-0.1.0
+    app.kubernetes.io/name: ai-platform-engineering
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-agent-argocd
+  labels:
+    helm.sh/chart: agent-argocd-0.1.0
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: release-name
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-agent-pagerduty
+  labels:
+    helm.sh/chart: agent-pagerduty-0.1.0
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: release-name
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-agent-argocd
+  labels:
+    helm.sh/chart: agent-argocd-0.1.0
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-argocd
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-argocd-0.1.0
+        app.kubernetes.io/name: agent-argocd
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: release-name-agent-argocd
+      containers:
+        - name: agent-argocd
+          image: "ghcr.io/cnoe-io/agent-argocd:a2a-stable"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            # Traditional secret handling when external secrets are disabled
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-argocd-secret
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-agent-pagerduty
+  labels:
+    helm.sh/chart: agent-pagerduty-0.1.0
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-pagerduty
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-pagerduty-0.1.0
+        app.kubernetes.io/name: agent-pagerduty
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: release-name-agent-pagerduty
+      containers:
+        - name: agent-pagerduty
+          image: "ghcr.io/cnoe-io/agent-pagerduty:a2a-stable"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            # Traditional secret handling when external secrets are disabled
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-pagerduty-secret
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-agent-argocd
+  labels:
+    helm.sh/chart: agent-argocd-0.1.0
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "agent-argocd.local"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: release-name-agent-argocd
+                port:
+                  number: 8000
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-agent-pagerduty
+  labels:
+    helm.sh/chart: agent-pagerduty-0.1.0
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "agent-pagerduty.local"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: release-name-agent-pagerduty
+                port:
+                  number: 8000
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "release-name-agent-argocd-test-connection"
+  labels:
+    helm.sh/chart: agent-argocd-0.1.0
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['release-name-agent-argocd:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "release-name-agent-pagerduty-test-connection"
+  labels:
+    helm.sh/chart: agent-pagerduty-0.1.0
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['release-name-agent-pagerduty:8000']
+  restartPolicy: Never
