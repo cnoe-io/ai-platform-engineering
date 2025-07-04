@@ -1,0 +1,36 @@
+apiVersion: v2
+appVersion: 0.1.0
+name: ai-platform-engineering
+description: Parent chart to deploy multiple agent subcharts as different platform agents
+sources:
+- https://github.com/cnoe-io/ai-platform-engineering/charts
+version: 0.1.0
+dependencies:
+  # Single agent chart used multiple times with different aliases
+  - name: agent
+    version: 0.1.0
+    alias: agent-argocd
+    condition: agent-argocd.enabled
+  - name: agent
+    version: 0.1.0
+    alias: agent-atlassian
+    condition: agent-atlassian.enabled
+  - name: agent
+    version: 0.1.0
+    alias: agent-backstage
+    condition: agent-backstage.enabled
+  - name: agent
+    version: 0.1.0
+    alias: agent-github
+    condition: agent-github.enabled
+  - name: agent
+    version: 0.1.0
+    alias: agent-pagerduty
+    condition: agent-pagerduty.enabled
+  - name: agent
+    version: 0.1.0
+    alias: agent-slack
+    condition: agent-slack.enabled
+  # Separate chart for external secrets
+  - name: external-secrets-configuration
+    version: 0.0.3
