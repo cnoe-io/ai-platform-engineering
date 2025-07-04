@@ -67,9 +67,17 @@ false
 Determine if we should use a custom secret name
 */}}
 {{- define "ai-platform-engineering.useCustomSecretName" -}}
-{{- if and (hasKey .Values "global") (hasKey .Values.global "secrets") .Values.global.secrets.secretName -}}
-true
-{{- else -}}
-false
+{{- $hasCustomSecret := false -}}
+{{- if hasKey .Values "global" -}}
+  {{- if hasKey .Values.global "secrets" -}}
+    {{- if kindIs "map" .Values.global.secrets -}}
+      {{- if hasKey .Values.global.secrets "secretName" -}}
+        {{- if .Values.global.secrets.secretName -}}
+          {{- $hasCustomSecret = true -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
 {{- end -}}
+{{- $hasCustomSecret -}}
 {{- end -}}
