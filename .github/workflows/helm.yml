@@ -2,8 +2,11 @@ name: 📦 Publish Helm Chart to GHCR
 
 on:
   push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
+    branches:
+      - main
+    paths:
+      - helm/**
+  pull_request:
     paths:
       - helm/**
 
@@ -12,9 +15,63 @@ permissions:
   packages: write
 
 jobs:
+  check-version-bump:
+    name: Check Chart Version Bump
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Check for helm changes and version bump
+        run: |
+          echo "Checking if helm directory has changes..."
+          
+          # Get the base branch (usually main or master)
+          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+          
+          # Check if there are any changes in the helm directory
+          HELM_CHANGES=$(git diff --name-only origin/$BASE_BRANCH...HEAD | grep "^helm/" || true)
+          
+          if [ -z "$HELM_CHANGES" ]; then
+            echo "No changes in helm directory, skipping version check"
+            exit 0
+          fi
+          
+          echo "Changes detected in helm directory:"
+          echo "$HELM_CHANGES"
+          
+          # Get current chart version
+          CURRENT_VERSION=$(grep "^version:" helm/Chart.yaml | awk '{print $2}')
+          echo "Current chart version: $CURRENT_VERSION"
+          
+          # Get base branch chart version
+          git checkout origin/$BASE_BRANCH -- helm/Chart.yaml
+          BASE_VERSION=$(grep "^version:" helm/Chart.yaml | awk '{print $2}')
+          echo "Base branch chart version: $BASE_VERSION"
+          
+          # Restore current version
+          git checkout HEAD -- helm/Chart.yaml
+          
+          # Compare versions
+          if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
+            echo "❌ Error: Helm chart has changes but version was not bumped!"
+            echo "Current version: $CURRENT_VERSION"
+            echo "Base version: $BASE_VERSION"
+            echo "Please update the version in helm/Chart.yaml"
+            exit 1
+          else
+            echo "✅ Chart version was bumped from $BASE_VERSION to $CURRENT_VERSION"
+          fi
+
   publish:
     name: Push Helm Chart to GHCR
     runs-on: ubuntu-latest
+    # Publish only on merge to main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check-version-bump
 
     steps:
       - name: 📥 Checkout repository
@@ -28,13 +85,6 @@ jobs:
       - name: 🔐 Login to GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: 📝 Update image.tag in values.yaml
-        run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/}"
-          yq e -i '.image.tag = strenv(TAG_VERSION)' helm/${{ github.event.repository.name }}/values.yaml
-        env:
-          TAG_VERSION: ${{ github.ref_name }}
 
       - name: 📦 Package Helm Chart
         run: |
