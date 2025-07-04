@@ -72,7 +72,7 @@ class ArgoCDAgent:
       async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
-          server_path = args.get("server_path", "./agent_argocd/protocol_bindings/mcp_server/mcp_argocd/server.py")
+          server_path = args.get("server_path", "./mcp/argocd/mcp_argocd/server.py")
           print(f"Launching MCP server at: {server_path}")
 
           argocd_token = os.getenv("ARGOCD_TOKEN")
