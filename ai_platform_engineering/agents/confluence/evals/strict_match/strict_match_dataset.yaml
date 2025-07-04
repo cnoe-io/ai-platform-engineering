@@ -1,0 +1,27 @@
+tests:
+  confluence_agent_1:
+    input: |
+      show confluence version
+    reference_trajectory:
+      solution_1: __start__;agent_confluence
+    metadata:
+      comments: |
+        Shows the version of the confluence Server Version.
+
+  confluence_agent_2:
+    input: |
+      show confluence app health status in project jarvis-agent-dev
+    reference_trajectory:
+      solution_1: __start__;agent_confluence
+    metadata:
+      comments: |
+        Shows the health status of all applications in the jarvis-agent-dev project.
+
+  confluence_agent_3:
+    input: |
+      show confluence unhealthy apps in project jarvis-agent-dev
+    reference_trajectory:
+      solution_1: __start__;agent_confluence
+    metadata:
+      comments: |
+        Lists all unhealthy applications in the jarvis-agent-dev project.
