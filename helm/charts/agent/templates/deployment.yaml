@@ -57,6 +57,10 @@ spec:
             {{- if .Values.secrets.secretName }}
             - secretRef:
                 name: {{ .Values.secrets.secretName }}
+            {{- if .Values.global.secrets.secretName }}
+            - secretRef:
+                name: {{ .Values.global.secrets.secretName }}
+            {{- end }}
             {{- else }}
             - secretRef:
                 name: llm-secret
