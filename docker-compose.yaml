@@ -41,7 +41,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: platform-engineer
+    container_name: platform-engineer-tracing
     profiles:
       - tracing
     depends_on:
@@ -83,7 +83,7 @@ services:
     command: platform-engineer
   # Agent ArgoCD
   agent-argocd:
-    image: docker.io/library/agent-argocd:a2a-latest
+    image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
     container_name: agent-argocd
     volumes:
       - ./.env:/app/.env
