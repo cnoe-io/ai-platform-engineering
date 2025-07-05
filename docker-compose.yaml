@@ -152,6 +152,7 @@ services:
       - BACKSTAGE_URL=${BACKSTAGE_URL}
 
   # Langfuse Tracing Services (use --profile tracing to enable)
+  # Reference: https://github.com/langfuse/langfuse/blob/main/docker-compose.yml
   langfuse-worker:
     image: langfuse/langfuse-worker:3
     container_name: langfuse-worker
