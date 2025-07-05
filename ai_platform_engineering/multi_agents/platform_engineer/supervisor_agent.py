@@ -3,14 +3,23 @@
 
 import logging
 import uuid
-
+import os
 from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph_supervisor import create_supervisor
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
-
 from cnoe_agent_utils import LLMFactory
+
+# Conditional langfuse import based on ENABLE_TRACING
+if os.getenv("ENABLE_TRACING", "false").lower() == "true":
+    from langfuse import observe
+else:
+    # No-op decorator when tracing is disabled
+    def observe(**kwargs):
+        def decorator(func):
+            return func
+        return decorator
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt,
@@ -94,6 +103,7 @@ class AIPlatformEngineerMAS:
     logger.debug("LangGraph supervisor created and compiled successfully.")
     return graph
 
+  @observe(name="Supervisor Agent - Process Request")
   async def serve(self, prompt: str):
     """
     Processes the input prompt and returns a response from the graph.
