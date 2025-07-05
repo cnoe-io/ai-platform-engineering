@@ -65,7 +65,7 @@ Just describe your task—**the platform intelligently routes your request to th
    cd ai-platform-engineering
    ```
 
-3. **Configure environment variables**
+2. **Configure environment variables**
 
    ```bash
    cp .env.example .env
@@ -117,6 +117,37 @@ Just describe your task—**the platform intelligently routes your request to th
    uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
    ```
 ---
+
+## 📊 Tracing & Evaluation
+
+Enable observability and evaluation with Langfuse v3:
+
+1. **In .env file**
+   ```bash
+   ENABLE_TRACING=true
+   ```
+
+2. **Start with tracing enabled**
+   ```bash
+   docker-compose down
+   docker-compose --profile tracing up
+   ```
+
+3. **Access Langfuse dashboard** at `http://localhost:3000` and create an account and apply for API key
+
+4. **Configure Langfuse keys in `.env` and rebuild the platform-engineer**
+   ```bash
+   LANGFUSE_PUBLIC_KEY=your-public-key
+   LANGFUSE_SECRET_KEY=your-secret-key
+   ```
+
+   ```bash
+   docker-compose --profile tracing build ai-platform-engineer-tracing
+   ```
+
+5. **Add LLM keys for evaluator in Langfuse settings** for automated trace analysis
+
+
 
 ## 🤝 Contributing
 
