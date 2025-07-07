@@ -61,7 +61,7 @@ Just describe your task—**the platform intelligently routes your request to th
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/your-org/ai-platform-engineering.git
+   git clone https://github.com/cnoe-io/ai-platform-engineering.git
    cd ai-platform-engineering
    ```
 
