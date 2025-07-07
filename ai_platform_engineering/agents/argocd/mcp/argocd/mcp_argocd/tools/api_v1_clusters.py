@@ -6,7 +6,7 @@
 
 import logging
 from typing import Dict, Any, List
-from mcp_argocd.api.client import make_api_request, assemble_nested_body
+from api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)

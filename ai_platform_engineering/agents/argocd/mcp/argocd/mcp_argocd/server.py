@@ -16,165 +16,165 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 
-from mcp_argocd.tools import api_v1_account
+from tools import api_v1_account
 
-from mcp_argocd.tools import api_v1_account_can_i_resource_action_subresource
+from tools import api_v1_account_can_i_resource_action_subresource
 
-from mcp_argocd.tools import api_v1_account_password
+from tools import api_v1_account_password
 
-from mcp_argocd.tools import api_v1_account_name
+from tools import api_v1_account_name
 
-from mcp_argocd.tools import api_v1_account_name_token
+from tools import api_v1_account_name_token
 
-from mcp_argocd.tools import api_v1_account_name_token_id
+from tools import api_v1_account_name_token_id
 
-from mcp_argocd.tools import api_v1_applications
+from tools import api_v1_applications
 
-from mcp_argocd.tools import api_v1_applications_manifestswithfiles
+from tools import api_v1_applications_manifestswithfiles
 
-from mcp_argocd.tools import api_v1_applications_application_metadata_name
+from tools import api_v1_applications_application_metadata_name
 
-from mcp_argocd.tools import (
+from tools import (
     api_v1_applications_applicationname_managed_resources,
 )
 
-from mcp_argocd.tools import api_v1_applications_applicationname_resource_tree
+from tools import api_v1_applications_applicationname_resource_tree
 
-from mcp_argocd.tools import api_v1_applications_name
+from tools import api_v1_applications_name
 
-from mcp_argocd.tools import api_v1_applications_name_events
+from tools import api_v1_applications_name_events
 
-from mcp_argocd.tools import api_v1_applications_name_links
+from tools import api_v1_applications_name_links
 
-from mcp_argocd.tools import api_v1_applications_name_logs
+from tools import api_v1_applications_name_logs
 
-from mcp_argocd.tools import api_v1_applications_name_manifests
+from tools import api_v1_applications_name_manifests
 
-from mcp_argocd.tools import api_v1_applications_name_operation
+from tools import api_v1_applications_name_operation
 
-from mcp_argocd.tools import api_v1_applications_name_pods_podname_logs
+from tools import api_v1_applications_name_pods_podname_logs
 
-from mcp_argocd.tools import api_v1_applications_name_resource
+from tools import api_v1_applications_name_resource
 
-from mcp_argocd.tools import api_v1_applications_name_resource_actions
+from tools import api_v1_applications_name_resource_actions
 
-from mcp_argocd.tools import api_v1_applications_name_resource_links
+from tools import api_v1_applications_name_resource_links
 
-from mcp_argocd.tools import (
+from tools import (
     api_v1_applications_name_revisions_revision_chartdetails,
 )
 
-from mcp_argocd.tools import (
+from tools import (
     api_v1_applications_name_revisions_revision_metadata,
 )
 
-from mcp_argocd.tools import api_v1_applications_name_rollback
+from tools import api_v1_applications_name_rollback
 
-from mcp_argocd.tools import api_v1_applications_name_spec
+from tools import api_v1_applications_name_spec
 
-from mcp_argocd.tools import api_v1_applications_name_sync
+from tools import api_v1_applications_name_sync
 
-from mcp_argocd.tools import api_v1_applications_name_syncwindows
+from tools import api_v1_applications_name_syncwindows
 
-from mcp_argocd.tools import api_v1_applicationsets
+from tools import api_v1_applicationsets
 
-from mcp_argocd.tools import api_v1_applicationsets_generate
+from tools import api_v1_applicationsets_generate
 
-from mcp_argocd.tools import api_v1_applicationsets_name
+from tools import api_v1_applicationsets_name
 
-from mcp_argocd.tools import api_v1_applicationsets_name_resource_tree
+from tools import api_v1_applicationsets_name_resource_tree
 
-from mcp_argocd.tools import api_v1_certificates
+from tools import api_v1_certificates
 
-from mcp_argocd.tools import api_v1_clusters
+from tools import api_v1_clusters
 
-from mcp_argocd.tools import api_v1_clusters_id_value
+from tools import api_v1_clusters_id_value
 
-from mcp_argocd.tools import api_v1_clusters_id_value_invalidate_cache
+from tools import api_v1_clusters_id_value_invalidate_cache
 
-from mcp_argocd.tools import api_v1_clusters_id_value_rotate_auth
+from tools import api_v1_clusters_id_value_rotate_auth
 
-from mcp_argocd.tools import api_v1_gpgkeys
+from tools import api_v1_gpgkeys
 
-from mcp_argocd.tools import api_v1_gpgkeys_keyid
+from tools import api_v1_gpgkeys_keyid
 
-from mcp_argocd.tools import api_v1_notifications_services
+from tools import api_v1_notifications_services
 
-from mcp_argocd.tools import api_v1_notifications_templates
+from tools import api_v1_notifications_templates
 
-from mcp_argocd.tools import api_v1_notifications_triggers
+from tools import api_v1_notifications_triggers
 
-from mcp_argocd.tools import api_v1_projects
+from tools import api_v1_projects
 
-from mcp_argocd.tools import api_v1_projects_name
+from tools import api_v1_projects_name
 
-from mcp_argocd.tools import api_v1_projects_name_detailed
+from tools import api_v1_projects_name_detailed
 
-from mcp_argocd.tools import api_v1_projects_name_events
+from tools import api_v1_projects_name_events
 
-from mcp_argocd.tools import api_v1_projects_name_globalprojects
+from tools import api_v1_projects_name_globalprojects
 
-from mcp_argocd.tools import api_v1_projects_name_links
+from tools import api_v1_projects_name_links
 
-from mcp_argocd.tools import api_v1_projects_name_syncwindows
+from tools import api_v1_projects_name_syncwindows
 
-from mcp_argocd.tools import api_v1_projects_project_metadata_name
+from tools import api_v1_projects_project_metadata_name
 
-from mcp_argocd.tools import api_v1_projects_project_roles_role_token
+from tools import api_v1_projects_project_roles_role_token
 
-from mcp_argocd.tools import api_v1_projects_project_roles_role_token_iat
+from tools import api_v1_projects_project_roles_role_token_iat
 
-from mcp_argocd.tools import api_v1_repocreds
+from tools import api_v1_repocreds
 
-from mcp_argocd.tools import api_v1_repocreds_creds_url
+from tools import api_v1_repocreds_creds_url
 
-from mcp_argocd.tools import api_v1_repocreds_url
+from tools import api_v1_repocreds_url
 
-from mcp_argocd.tools import api_v1_repositories
+from tools import api_v1_repositories
 
-from mcp_argocd.tools import api_v1_repositories_repo_repo
+from tools import api_v1_repositories_repo_repo
 
-from mcp_argocd.tools import api_v1_repositories_repo
+from tools import api_v1_repositories_repo
 
-from mcp_argocd.tools import api_v1_repositories_repo_apps
+from tools import api_v1_repositories_repo_apps
 
-from mcp_argocd.tools import api_v1_repositories_repo_helmcharts
+from tools import api_v1_repositories_repo_helmcharts
 
-from mcp_argocd.tools import api_v1_repositories_repo_refs
+from tools import api_v1_repositories_repo_refs
 
-from mcp_argocd.tools import api_v1_repositories_repo_validate
+from tools import api_v1_repositories_repo_validate
 
-from mcp_argocd.tools import api_v1_repositories_source_repourl_appdetails
+from tools import api_v1_repositories_source_repourl_appdetails
 
-from mcp_argocd.tools import api_v1_session
+from tools import api_v1_session
 
-from mcp_argocd.tools import api_v1_session_userinfo
+from tools import api_v1_session_userinfo
 
-from mcp_argocd.tools import api_v1_settings
+from tools import api_v1_settings
 
-from mcp_argocd.tools import api_v1_settings_plugins
+from tools import api_v1_settings_plugins
 
-from mcp_argocd.tools import api_v1_stream_applications
+from tools import api_v1_stream_applications
 
-from mcp_argocd.tools import (
+from tools import (
     api_v1_stream_applications_applicationname_resource_tree,
 )
 
-from mcp_argocd.tools import api_v1_write_repocreds
+from tools import api_v1_write_repocreds
 
-from mcp_argocd.tools import api_v1_write_repocreds_creds_url
+from tools import api_v1_write_repocreds_creds_url
 
-from mcp_argocd.tools import api_v1_write_repocreds_url
+from tools import api_v1_write_repocreds_url
 
-from mcp_argocd.tools import api_v1_write_repositories
+from tools import api_v1_write_repositories
 
-from mcp_argocd.tools import api_v1_write_repositories_repo_repo
+from tools import api_v1_write_repositories_repo_repo
 
-from mcp_argocd.tools import api_v1_write_repositories_repo
+from tools import api_v1_write_repositories_repo
 
-from mcp_argocd.tools import api_v1_write_repositories_repo_validate
+from tools import api_v1_write_repositories_repo_validate
 
-from mcp_argocd.tools import api_version
+from tools import api_version
 
 
 def main():
