@@ -191,3 +191,6 @@ a2a-python
 helm/values-secrets.yaml
 helm/values-ingress.yaml
 helm/values-external-secrets.yaml
+
+.aider*
+.aider.*
