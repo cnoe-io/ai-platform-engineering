@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langchain_core.runnables.config import (
     RunnableConfig,
 )
-from langchain_openai import AzureChatOpenAI
+from cnoe_agent_utils import LLMFactory
 from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -102,8 +102,7 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
 
     def __init__(self):
       # Setup the komodor agent and load MCP tools
-      self.model = AzureChatOpenAI(
-          model="gpt-4o")
+      self.model = LLMFactory().get_llm()
       self.graph = None
       async def _async_komodor_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
