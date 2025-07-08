@@ -10,5 +10,10 @@ These interfaces empower users to build and manage sophisticated multi-agent sys
 
 > **Note:** Authorization and scope validation are currently handled by MCP servers. Additional details regarding this process will be provided in future updates.
 
+## Agent Chat CLI
+
 - [CLI](https://github.com/cnoe-io/agent-chat-cli)
+
+## Agent Forge Backstage Plugin
+
 - [Backstage Agent Forge Plugin](https://github.com/backstage/community-plugins/tree/main/workspaces/agent-forge)

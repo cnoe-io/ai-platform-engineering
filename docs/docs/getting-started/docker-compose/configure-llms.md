@@ -2,7 +2,7 @@
 sidebar_position: 3
 ---
 
-# Setup different LLM Providers
+# Configure LLM Providers in a Docker Compose setup
 
 AI Platform Engineering leverages the [`cnoe-io/cnoe-agent-utils`](https://github.com/cnoe-io/cnoe-agent-utils) utility library to configure the `LLMFactory` class, enabling dynamic switching between LLM providers.
 
