@@ -155,12 +155,8 @@ const config: Config = {
           title: 'Docs',
           items: [
             {
-              label: 'Intro',
-              to: '/docs/intro',
-            },
-            {
               label: 'Getting Started',
-              to: '/docs/getting-started',
+              to: '/getting-started',
             },
             {
               label: 'Architecture',
@@ -168,11 +164,11 @@ const config: Config = {
             },
             {
               label: 'Installation',
-              to: '/docs/installation',
+              to: '/installation',
             },
             {
               label: 'Contributing',
-              to: '/docs/contributing',
+              to: '/contributing',
             },
           ],
         },

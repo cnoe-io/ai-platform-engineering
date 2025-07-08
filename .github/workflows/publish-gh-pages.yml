@@ -27,6 +27,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
+        with:
+          egress-policy: audit
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Node.js
