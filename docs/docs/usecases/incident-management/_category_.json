@@ -1,0 +1,8 @@
+{
+  "label": "Incident Management",
+  "position": 3,
+  "link": {
+    "type": "generated-index",
+    "description": "Incident Management Use Case"
+  }
+}
