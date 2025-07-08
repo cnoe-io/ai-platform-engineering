@@ -148,7 +148,34 @@ Enable observability and evaluation with Langfuse v3:
 
 5. **Add LLM keys for evaluator in Langfuse settings** for automated trace analysis
 
+---
 
+## 🛠️ Adding New Agents
+
+When adding a new agent to the system:
+
+1. **Create the agent code** in `ai_platform_engineering/agents/your-agent-name/`
+
+2. **Auto-generate Helm configuration** by running:
+   ```bash
+   python scripts/add-new-agent-helm-chart.py
+   ```
+   
+   This script will automatically:
+   - Add new dependency in `helm/Chart.yaml`
+   - Bump the chart version
+   - Add agent sections to all values files
+   - Generate ingress and secrets configurations
+
+3. **Review and customize** the generated configuration files as needed
+
+4. **Test the configuration**:
+   ```bash
+   helm template ./helm
+   helm dependency update ./helm
+   ```
+
+---
 
 ## 🤝 Contributing
 
