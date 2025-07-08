@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  ai-platform-engineer:
+    depends_on:
+      - agent-komodor
+    environment:
+      - ENABLE_KOMODOR=true
+
+  ai-platform-engineer-tracing:
+    depends_on:
+      - agent-komodor
+    environment:
+      - ENABLE_KOMODOR=true
+
+  # Agent Komodor
+  agent-komodor:
+    image: ghcr.io/cnoe-io/agent-komodor:a2a-166e5fc
+    container_name: agent-komodor
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      # Expose the Komodor agent on port 8080
+      - "8008:8000"

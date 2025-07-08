@@ -82,10 +82,18 @@ Just describe your task—**the platform intelligently routes your request to th
 1. **Launch with Docker Compose**
 
    ```bash
-   docker-compose up
+   docker compose up
    ```
 
-2. **Connect to the A2A agent (host network)**
+2. **Launching with Komodor Agent**
+
+   To include the Komodor agent in your deployment, run Docker Compose with the override file:
+
+   ```bash
+   docker compose -f docker-compose.yaml -f docker-compose.komodor.yaml up
+   ```
+
+3. **Connect to the A2A agent (host network)**
 
    ```bash
    docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
