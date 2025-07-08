@@ -1,10 +1,11 @@
-# Sample workflow for building and deploying a Jekyll site to GitHub Pages
-name: Deploy Jekyll with GitHub Pages dependencies preinstalled
+# Workflow for building and deploying a Docusaurus site to GitHub Pages
+name: Publish Docs
 
 on:
   # Runs on pushes targeting the default branch
   push:
     branches: ["main"]
+    tags: ["*"]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -26,17 +27,28 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
+        with:
+          egress-policy: audit
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Build with Jekyll
-        uses: actions/jekyll-build-pages@v1
+      - name: Install Node.js
+        uses: actions/setup-node@v3
         with:
-          source: ./docs
-          destination: ./_site
+          node-version: 'lts/*'  # Use the latest LTS version of Node.js
+      - name: Install dependencies
+        run: |
+          cd docs
+          npm install
+      - name: Build Docusaurus site
+        run: |
+          cd docs
+          npm run build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build
 
   # Deployment job
   deploy:
