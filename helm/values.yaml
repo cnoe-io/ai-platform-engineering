@@ -34,3 +34,21 @@ agent-slack:
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
+
+agent-confluence:
+  enabled: false
+  nameOverride: "agent-confluence"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-confluence"
+
+agent-jira:
+  enabled: false
+  nameOverride: "agent-jira"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-jira"
+
+agent-reflection:
+  enabled: false
+  nameOverride: "agent-reflection"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-reflection"

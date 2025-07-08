@@ -4,7 +4,7 @@ name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
-version: 0.1.0
+version: 0.1.1
 dependencies:
   # Single agent chart used multiple times with different aliases
   - name: agent
@@ -31,6 +31,18 @@ dependencies:
     version: 0.1.0
     alias: agent-slack
     condition: agent-slack.enabled
+  - name: agent
+    version: 0.1.0
+    alias: agent-confluence
+    condition: agent-confluence.enabled
+  - name: agent
+    version: 0.1.0
+    alias: agent-jira
+    condition: agent-jira.enabled
+  - name: agent
+    version: 0.1.0
+    alias: agent-reflection
+    condition: agent-reflection.enabled
   # Separate chart for external secrets
   - name: external-secrets-configuration
     version: 0.0.3
