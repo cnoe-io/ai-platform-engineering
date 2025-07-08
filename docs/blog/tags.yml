@@ -1,0 +1,14 @@
+release:
+  label: release
+  permalink: /releases
+  description: Release tag description
+
+articles:
+  label: articles
+  permalink: /articles
+  description: Technical articles and tutorials
+
+faqs:
+  label: faqs
+  permalink: /faqs
+  description: Frequently Asked Questions

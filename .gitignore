@@ -194,3 +194,9 @@ helm/values-external-secrets.yaml
 
 .aider*
 .aider.*
+
+# Documentation
+## Only allow svg
+*.png
+*.jpg
+*.jpeg
