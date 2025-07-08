@@ -9,9 +9,13 @@ This script will:
 
 import os
 import sys
-import yaml
 import re
 from pathlib import Path
+from ruamel.yaml import YAML
+
+yaml = YAML()
+yaml.preserve_quotes = True
+yaml.width = 4096  # Prevent line wrapping
 
 def get_script_dir():
     """Get the directory where this script is located."""
@@ -57,7 +61,7 @@ def get_agent_chart_version():
     
     try:
         with open(agent_chart_file, 'r') as f:
-            chart_data = yaml.safe_load(f)
+            chart_data = yaml.load(f)
         
         version = chart_data.get('version', '0.1.0')
         print(f"📦 Using agent chart version: {version}")
@@ -67,7 +71,7 @@ def get_agent_chart_version():
         return "0.1.0"
 
 def bump_chart_version(chart_file):
-    """Bump the main chart version (minor bump for new agents)."""
+    """Bump the main chart version (patch bump for new agents)."""
     with open(chart_file, 'r') as f:
         content = f.read()
     
@@ -82,7 +86,7 @@ def bump_chart_version(chart_file):
         
         print(f"Parsed version - major: {major}, minor: {minor}, patch: {patch}")
         
-        # Bump minor version, reset patch to 0
+        # Bump patch version
         new_patch = patch + 1
         new_version = f"{major}.{minor}.{new_patch}"
         
@@ -102,7 +106,7 @@ def bump_chart_version(chart_file):
         with open(chart_file, 'w') as f:
             f.write(new_content)
         
-        print(f"✓ Bumped main chart version to {new_version} (minor bump)")
+        print(f"✓ Bumped main chart version to {new_version} (patch bump)")
         return new_version
     else:
         print("Warning: Could not find main version in Chart.yaml")
@@ -290,20 +294,24 @@ def get_configured_agents():
         print(f"Error: Chart.yaml not found at {chart_file}")
         return []
     
-    with open(chart_file, 'r') as f:
-        chart_data = yaml.safe_load(f)
-    
-    dependencies = chart_data.get('dependencies', [])
-    configured_agents = []
-    
-    for dep in dependencies:
-        alias = dep.get('alias', '')
-        if alias.startswith('agent-'):
-            # Extract agent name from alias (e.g., 'agent-slack' -> 'slack')
-            agent_name = alias[6:]  # Remove 'agent-' prefix
-            configured_agents.append(agent_name)
-    
-    return sorted(configured_agents)
+    try:
+        with open(chart_file, 'r') as f:
+            chart_data = yaml.load(f)
+        
+        dependencies = chart_data.get('dependencies', [])
+        configured_agents = []
+        
+        for dep in dependencies:
+            alias = dep.get('alias', '')
+            if alias.startswith('agent-'):
+                # Extract agent name from alias (e.g., 'agent-slack' -> 'slack')
+                agent_name = alias[6:]  # Remove 'agent-' prefix
+                configured_agents.append(agent_name)
+        
+        return sorted(configured_agents)
+    except Exception as e:
+        print(f"Error reading Chart.yaml: {e}")
+        return []
 
 def main():
     """Main function to automatically detect and process new agents."""
@@ -342,7 +350,6 @@ def main():
         # 2. Update values files
         add_to_values_file(helm_dir / "values.yaml", agent_name)
         add_to_existing_secrets_file(helm_dir / "values-existing-secrets.yaml", agent_name)
-        add_to_ingress_file(helm_dir / "values-ingress.yaml.example", agent_name)
         add_to_ingress_file(helm_dir / "values-ingress.yaml.example", agent_name)
         
         # 3. Update external secrets file

@@ -77,3 +77,39 @@ agent-slack:
       # - secretName: agent-slack-tls
       #   hosts:
       #     - agent-slack.local
+
+agent-confluence:
+  ingress:
+    hosts:
+      - host: agent-confluence.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: agent-confluence-tls
+      #   hosts:
+      #     - agent-confluence.local
+
+agent-jira:
+  ingress:
+    hosts:
+      - host: agent-jira.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: agent-jira-tls
+      #   hosts:
+      #     - agent-jira.local
+
+agent-reflection:
+  ingress:
+    hosts:
+      - host: agent-reflection.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: agent-reflection-tls
+      #   hosts:
+      #     - agent-reflection.local
