@@ -17,32 +17,32 @@ const sidebars: SidebarsConfig = {
   gettingStartedSidebar: [
     {
       type: 'doc',
-      id: 'getting-started/index',
+      id: 'index', // docs/index.md
       label: 'Introduction',
     },
     {
       type: 'doc',
-      id: 'getting-started/quick-start', // quick-start.md
+      id: 'getting-started/quick-start', // docs/getting-started/quick-start.md
       label: 'Quick Start',
     },
     {
       type: 'doc',
-      id: 'getting-started/setup-llms', // setup-llms.md
+      id: 'getting-started/setup-llms', // docs/getting-started/setup-llms.md
       label: 'Setup LLM Providers',
     },
     {
       type: 'doc',
-      id: 'getting-started/configuring-secrets', // configuring-secrets.md
+      id: 'getting-started/configuring-secrets', // docs/getting-started/configuring-secrets.md
       label: 'Configuring Secrets',
     },
     {
       type: 'doc',
-      id: 'getting-started/user-interfaces', // user-interfaces.md
+      id: 'getting-started/user-interfaces', // docs/getting-started/user-interfaces.md
       label: 'User Interfaces',
     },
     {
       type: 'doc',
-      id: 'getting-started/next-steps', // next-steps.md
+      id: 'getting-started/next-steps', // docs/getting-started/next-steps.md
       label: 'Next Steps',
     },
   ],
