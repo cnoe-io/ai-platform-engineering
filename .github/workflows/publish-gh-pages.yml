@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: 'lts/*'  # Use the latest LTS version of Node.js
       - name: Change directory to documentation
-        run: cd documentation
+        run: cd docs
       - name: Install dependencies
         run: npm install
       - name: Build Docusaurus site
