@@ -42,3 +42,6 @@ agent_prompts:
   slack:
     system_prompt: |
       If the user's prompt is related to Slack operations, such as sending a message to a channel, listing workspace members, creating or archiving a channel, or posting a notification, assign the task to the Slack agent.
+  komodor:
+    system_prompt: |
+      If the user's prompt is related to Komodor operations, such as getting the status of a cluster, fetching health risks, triggering a RCA, or getting RCA results, assign the task to the Komodor agent.

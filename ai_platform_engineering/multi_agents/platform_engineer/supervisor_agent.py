@@ -32,11 +32,15 @@ from ai_platform_engineering.agents.pagerduty.agent import pagerduty_agent
 from ai_platform_engineering.agents.github.agent import github_agent
 from ai_platform_engineering.agents.slack.agent import slack_agent
 from ai_platform_engineering.agents.backstage.agent import backstage_agent
-import os
-
 from ai_platform_engineering.utils.models.generic_agent import (
   ResponseFormat
 )
+import os
+
+# Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
+KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
+if KOMODOR_ENABLED:
+    from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -81,17 +85,20 @@ class AIPlatformEngineerMAS:
       checkpointer = InMemorySaver()
       store = InMemoryStore()
 
-    graph = create_supervisor(
-      model=model,
-      agents=[
+    agents = [
         argocd_agent,
         atlassian_agent,
         pagerduty_agent,
         github_agent,
         slack_agent,
         backstage_agent,
-        # Add other agents here as needed
-      ],
+    ]
+    if KOMODOR_ENABLED:
+        agents.append(komodor_agent)
+
+    graph = create_supervisor(
+      model=model,
+      agents=agents,
       prompt=system_prompt,
       add_handoff_back_messages=False,
       output_mode="last_message",

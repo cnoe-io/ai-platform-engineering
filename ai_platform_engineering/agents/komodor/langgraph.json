@@ -1,0 +1,13 @@
+{
+  "dockerfile_lines": [
+    "ENV PYTHONPATH=./agent_komodor"
+  ],
+  "graphs": {
+    "JARVIS": "agent_komodor.graph:graph"
+  },
+  "env": "./.env",
+  "python_version": "3.13",
+  "dependencies": [
+    "."
+  ]
+}
