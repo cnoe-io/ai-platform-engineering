@@ -2,7 +2,7 @@
 sidebar_position: 6
 ---
 
-# User nterfaces
+# User Interfaces
 
 The AI Platform Engineering Multi-agent Systems provide robust user interfaces that facilitate seamless interaction between agents using the Agent-to-Agent (A2A) protocol. These interfaces are designed to support secure communication and collaboration among agents, leveraging OAuth for authentication to ensure data integrity and privacy.
 
