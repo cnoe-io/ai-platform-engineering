@@ -20,7 +20,7 @@ Setup AI Platform Engineering to run in a docker environment on a latop or a vir
    ```
 
    Update `.env` with your configuration.
-   📚 See the [Setup LLM Providers](../configure/configure-llms-in-docker.md) for more details.
+   📚 See the [Setup LLM Providers](configure-llms.md) for more details.
 
 ---
 
