@@ -8,15 +8,17 @@ This website is built using [Docusaurus](https://docusaurus.io/), a modern stati
 npm install
 ```
 
-## Local Development
+## Local Development with auto-reload
+
+> **Note:** This site will auto-reload on new changes
 
 ```bash
-yarn start
+npm run start
 ```
 
 This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
 
-## Build
+## Build Static Site
 
 ```bash
 npm run build
@@ -30,14 +32,6 @@ This command generates static content into the `build` directory and can be serv
 npm run serve
 ```
 
-## Server Dynamic Site
-
-> **Note:** This site will auto-reload on new changes
-
-```bash
-npm run start
-```
-
-## Github Actions
+## Deployment with Github Actions
 
 [![Publish Docs](https://github.com/cnoe-io/ai-platform-engineering/actions/workflows/publish-gh-pages.yml/badge.svg)](https://github.com/cnoe-io/ai-platform-engineering/actions/workflows/publish-gh-pages.yml)
