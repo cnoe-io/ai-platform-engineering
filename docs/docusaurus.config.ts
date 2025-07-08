@@ -48,6 +48,21 @@ const config: Config = {
           editUrl:
             'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
         },
+        blog: {
+          showReadingTime: true,
+          feedOptions: {
+            type: ['rss', 'atom'],
+            xslt: true,
+          },
+          // Please change this to your repo.
+          // Remove this to remove the "edit this page" links.
+          editUrl:
+            'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
+          // Useful options to enforce blogging best practices
+          onInlineTags: 'warn',
+          onInlineAuthors: 'warn',
+          onUntruncatedBlogPosts: 'warn',
+        },
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -80,10 +95,24 @@ const config: Config = {
         },
         {
           type: 'docSidebar',
+          sidebarId: 'securitySidebar',
+          dirName: 'docs/security',
+          position: 'left',
+          label: 'Security',
+        },
+        {
+          type: 'docSidebar',
           sidebarId: 'agentsSidebar',
           dirName: 'docs/agents',
           position: 'left',
           label: 'Agents',
+        },
+        {
+          type: 'docSidebar',
+          sidebarId: 'evaluationsSidebar',
+          dirName: 'docs/evaluations',
+          position: 'left',
+          label: 'Evaluations',
         },
         {
           type: 'docSidebar',
@@ -101,11 +130,19 @@ const config: Config = {
         },
         {
           type: 'docSidebar',
+          sidebarId: 'agentOpsSidebar',
+          dirName: 'docs/agent-ops',
+          position: 'left',
+          label: 'Agent Ops',
+        },
+        {
+          type: 'docSidebar',
           sidebarId: 'contributingSidebar',
           dirName: 'docs/contributing',
           position: 'left',
           label: 'Contributing',
         },
+        {to: '/blog', label: 'Blog', position: 'left'},
         // Uncomment the following lines to enable versioning
         // {
         //   type: 'docsVersionDropdown',
