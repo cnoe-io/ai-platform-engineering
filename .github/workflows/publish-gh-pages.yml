@@ -33,16 +33,18 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 'lts/*'  # Use the latest LTS version of Node.js
-      - name: Change directory to documentation
-        run: cd docs
       - name: Install dependencies
-        run: npm install
+        run: |
+          cd docs
+          npm install
       - name: Build Docusaurus site
-        run: npm run build
+        run: |
+          cd docs
+          npm run build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: build
+          path: docs/build
 
   # Deployment job
   deploy:
