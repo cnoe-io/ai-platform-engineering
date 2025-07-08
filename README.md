@@ -157,7 +157,7 @@ When adding a new agent to the system:
 
 2. **Auto-generate Helm configuration** by running:
    ```bash
-   python scripts/add-new-agent.py
+   python scripts/add-new-agent-helm-chart.py
    ```
    
    This script will automatically:
