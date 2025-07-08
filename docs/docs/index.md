@@ -2,15 +2,13 @@
 sidebar_position: 1
 ---
 
-# Intro
-
-Welcome to the AI Platform Engineering!
+# Introduction
 
 ## What is AI Platform Engineering
 
-As [Platform Engineering](https://platformengineering.org/blog/what-is-platform-engineering), [SRE](https://en.wikipedia.org/wiki/Site_reliability_engineering) and [DevOps](https://en.wikipedia.org/wiki/DevOps) environments grow in complexity, traditional approaches can introduce delays and increase operational overhead for teams. Developers may experience frustration when workflows become inefficient or manual processes accumulate.
+As [Platform Engineering](https://platformengineering.org/blog/what-is-platform-engineering), [SRE](https://en.wikipedia.org/wiki/Site_reliability_engineering) and [DevOps](https://en.wikipedia.org/wiki/DevOps) environments grow in complexity, traditional approaches to problem solving can introduce delays and increase operational overhead for teams. Developers may experience frustration when workflows become inefficient or manual processes accumulate.
 
-Using *Multi-Agentic Systems* Platform Engineering teams can address these challenges in platform engineering. This approach enables teams to:
+Using *Multi-Agentic Systems* Platform Engineering teams can address the said challenges.
 
 <!-- - Automate repetitive and routine tasks
 - Streamline development workflows
