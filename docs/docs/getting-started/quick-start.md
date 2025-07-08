@@ -18,7 +18,7 @@ sidebar_position: 2
    ```
 
    Update `.env` with your configuration.
-   📚 See the [Getting Started Guide](https://github.com/cnoe-io/agentic-ai/wiki/Getting%E2%80%90Started) for more details.
+   📚 See the [Setup LLM Providers](setup-llms.md) for more details.
 
 ---
 
