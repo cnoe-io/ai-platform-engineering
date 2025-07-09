@@ -2,11 +2,25 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import os
 
 from collections.abc import AsyncIterable
 from typing import Any, Literal, Dict
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
+
+# Conditional langfuse import for tracing
+if os.getenv("ENABLE_TRACING", "false").lower() == "true":
+    from langfuse import observe
+    from langfuse.langchain import CallbackHandler
+    TRACING_ENABLED = True
+else:
+    # No-op decorator when tracing is disabled
+    def observe(**kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    TRACING_ENABLED = False
 
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langchain_core.runnables.config import (
@@ -19,7 +33,6 @@ from langgraph.prebuilt import create_react_agent  # type: ignore
 
 
 import asyncio
-import os
 
 from agent_argocd.state import (
     AgentState,
@@ -178,6 +191,14 @@ class ArgoCDAgent:
       print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
       inputs: dict[str, Any] = {'messages': [('user', query)]}
       config: RunnableConfig = {'configurable': {'thread_id': context_id}}
+      
+      # Add langfuse callback handler for LangGraph tracing
+      if TRACING_ENABLED:
+          langfuse_handler = CallbackHandler()
+          if 'callbacks' not in config:
+              config['callbacks'] = []
+          config['callbacks'].append(langfuse_handler)
+          logger.info("🔍 LangGraph tracing enabled for astream in stream method")
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
@@ -200,6 +221,8 @@ class ArgoCDAgent:
               }
 
       yield self.get_agent_response(config)
+
+      
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
       debug_print(f"Fetching agent response with config: {config}")
       current_state = self.graph.get_state(config)

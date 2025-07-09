@@ -95,6 +95,8 @@ services:
       - .env
     volumes:
       - ./.env:/app/.env
+      # Mount source code 
+      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/agent_argocd
     environment:
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
