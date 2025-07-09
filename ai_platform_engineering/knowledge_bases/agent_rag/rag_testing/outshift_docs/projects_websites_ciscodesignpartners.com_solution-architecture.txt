@@ -1,0 +1,7 @@
+Solution architecture
+Solution Architecture:âââââââ
+¶
+ciscodesignpartners.com is deployed to ETI SRE shared clusters.
+Deployment
+¶
+2022-02-24

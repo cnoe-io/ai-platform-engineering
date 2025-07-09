@@ -1,0 +1,26 @@
+sandbox infra
+Cloud Sandbox Infrastructure
+¶
+Cloud sandboxes provide free-form access to cloud resources with security guard rails set by the ET&I SRE team.
+Introductions
+¶
+Overview
+-- Sandbox environment introduction and overview
+Creation
+-- guide to sandbox environment creation
+Access
+-- guide to sandbox environment access via SSH
+VPC diagram
+-- for a visual overview
+How-tos
+¶
+Creating a VPC
+Creating an EKS cluster
+Examples
+¶
+Creating (Terraform) Resources -- Configuration Examples
+Repositories
+¶
+sre-tf-infra
+sre-tf-iam
+2023-09-21

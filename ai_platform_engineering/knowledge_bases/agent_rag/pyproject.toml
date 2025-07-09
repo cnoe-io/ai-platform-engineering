@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "agent-rag"
+version = "0.1.0"
+description = "A RAG agent that ingests documentation from any URL and answers questions using RAG with Milvus."
+authors = ["Your Name <your.email@example.com>"]
+license = "Apache-2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.13,<4.0"
+langchain = "^0.2.0"
+langchain-milvus = "^0.1.10"
+langchain-openai = "^0.1.0"
+openai = "^1.0.0"
+uvicorn = "^0.29.0"
+beautifulsoup4 = "^4.12.3"
+httpx = "^0.28.1"
+python-dotenv = "^1.0.0"
+click = "^8.1.7"
+a2a-python = ">=0.0.1"
+a2a-sdk = ">=0.2.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+ruff = "^0.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api" 

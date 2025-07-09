@@ -1,0 +1,22 @@
+2021-06-14 - Hardware failure on Cisco IT OpenStack Project
+¶
+When:
+2021-06-14
+Summary:
+Hardware failure on one of the hypervisor in ALLN Cloud Region of Cisco IT OpenStack Project. As a result, 2 Jenkins Nodes impacted and had to restart them manually.
+Timeline:
+2021-06-14
+1235: Email from Cisco IT: Action Required: Please review your Application on Cisco IT OpenStack Project
+1336: SRE team send a message to AppNet & SecureCN about the failure
+1349: some SecureCN still failed with "Error: docker: Error response from Daemon: layer does not exist"
+1400: SRE team fix issue on the nodes (see Analysis) and restart some jobs to ensure ETI pipeline service is back
+1453: everything is back to normal, message sent to teams impacted
+Analysis
+¶
+2 nodes went back.
+Some issues with the docker daemon, restarting it solve the issue.
+eti-jenkins-common-large-10 was disconnected from the our dedicated Jenkins instance eti-sre , just had to manually relaunch the agent.
+Takeaway
+¶
+Short-term: Check PD alert configuration.
+2022-05-05

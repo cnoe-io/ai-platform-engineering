@@ -1,0 +1,7 @@
+sre team docs
+SRE Team Docs
+¶
+This section contains information about the SRE team: how we work, what our ceremonies are, etc.
+Team Ceremonies
+Team SRE Standards/Conventions
+2023-10-24

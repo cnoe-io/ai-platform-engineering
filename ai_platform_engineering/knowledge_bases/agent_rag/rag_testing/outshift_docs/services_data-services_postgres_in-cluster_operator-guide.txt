@@ -1,0 +1,103 @@
+Operator guide
+¶
+Installation
+¶
+Prerequisites:
+Target cluster
+added to ArgoCD
+The Postgres Operator is generally managed using ArgoCD by adding the target cluster to the
+postgres-operator applicationset
+.
+Check out the
+sre-cluster-configs
+repository and create a new directory for the target cluster.
+Important:
+Unfortunately, the Postgres Operator
+does not apply owner references to child resources at the moment
+.
+As a result, both the operator and Postgres itself have to be installed with special parameters.
+Specifically, the operator ApplicationSet needs the list of ArgoCD application key labels in order to allow managing Postgres instances with ArgoCD.
+Instead of linking
+config.json
+files of the appropriate clusters, copy them to the config directory and add the application key label under
+argocd_instance_label_key
+.
+(Check out the existing examples and the instructions below)
+export
+CLUSTER_NAME
+=
+my-cluster-1
+export
+ARGOCD_LABEL
+=
+argocd.prod.eticloud.io
+git
+clone
+git@wwwin-github.cisco.com:eti/sre-cluster-configs.git
+git
+checkout
+-b
+install-postgres-operator-
+$CLUSTER_NAME
+cd
+sre-cluster-configs
+cd
+sre/postgres-operator
+mkdir
+$CLUSTER_NAME
+cd
+$CLUSTER_NAME
+# Link the cluster config
+cp
+../../_cluster-config/
+$CLUSTER_NAME
+/config.json
+.
+jq
+".argocd_instance_label_key = \"
+$ARGOCD_LABEL
+\""
+config.json
+>
+config.json.tmp
+mv
+config.json.tmp
+config.json
+# Commit and push changes
+git
+add
+.
+git
+commit
+-m
+'install postgres-operator on $CLUSTER_NAME'
+git
+push
+-u
+origin
+install-postgres-operator-
+$CLUSTER_NAME
+# Create a pull-request
+open
+https://wwwin-github.cisco.com/eti/sre-cluster-configs/pull/new/install-postgres-operator-
+$CLUSTER_NAME
+Before merging the PR/pushing the change to master, make sure to enable the
+https://opensource.zalando.com/postgres-operator/charts/postgres-operator
+repository for the project (cluster) you are installing it on:
+argocd
+proj
+add-source
+$CLUSTER_NAME
+.eticloud.io
+https://opensource.zalando.com/postgres-operator/charts/postgres-operator
+Upgrade
+¶
+TBD
+Monitoring
+¶
+TBD
+References
+¶
+https://github.com/zalando/postgres-operator/issues/498
+https://github.com/zalando/postgres-operator/issues/1766
+2022-10-10

@@ -1,0 +1,1904 @@
+active kubernetes clusters
+active resources
+k8s clusters
+Active K8s Clusters
+¶
+Note: This file was automatically generated on 02/05/2025, 21:27:35
+Source Code
+. To regenerate the markdown file, execute
+runme.sh
+Microk8s Clusters
+¶
+Cluster Name
+Region
+p3-prod-alln-1
+Allen, Texas
+Openstack Clusters
+¶
+Cluster Name
+Region
+p3-prod-2
+Allen, Texas
+p3-dev-1
+Richardson, Texas
+eti-argocd-bootstrap
+Allen, Texas
+eti-gitops-1
+Allen, Texas
+eti-gitops-2
+Richardson, Texas
+eti-gitops-3
+Allen, Texas
+gbear-gitops-1
+Amsterdam
+gbear-gitops-2
+Amsterdam
+p3-capi-control
+Richardson, Texas
+EKS Clusters
+¶
+EKS Clusters in lightspin-dev (346196940956)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+cspm-dev-euw1-1
+1.30
+observability.cspm-dev-euw1-1.dev.panoptica.app
+Jul 21, 2024
+eu-west-1
+-
+coredns
+:v1.11.1-eksbuild.11
+-
+kube-proxy
+:v1.30.3-eksbuild.2
+-
+vpc-cni
+:v1.18.3-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+-
+vpc-cni config
+:
+- ENABLE_PREFIX_DELEGATION : true
+- WARM_PREFIX_TARGET : 1
+-
+ApplicaitonName:
+cspm-dev-euw1-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+lightspin-dev-1
+1.25
+observability.lightspin-dev-1.dev.eticloud.io
+May 25, 2023
+eu-west-1
+-
+amazon-cloudwatch-observability
+:v3.1.0-eksbuild.1
+-
+aws-ebs-csi-driver
+:v1.22.0-eksbuild.2
+-
+coredns
+:v1.9.3-eksbuild.3
+-
+eks-node-monitoring-agent
+:v1.0.1-eksbuild.2
+-
+kube-proxy
+:v1.25.6-eksbuild.2
+-
+vpc-cni
+:v1.12.6-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+vpc-cni config
+:
+- ENABLE_PREFIX_DELEGATION : true
+- WARM_PREFIX_TARGET : 1
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+eu-west-1-lightspin-dev-1
+-
+ResourceOwner:
+ETI SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+EnvironmentName:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in genai-common (958653173565)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+ray-nvpod-xDCN
+1.29
+Jan 10, 2025
+eu-central-1
+-
+aws-ebs-csi-driver
+:v1.38.1-eksbuild.1
+-
+aws-efs-csi-driver
+:v2.1.4-eksbuild.1
+-
+eks-pod-identity-agent
+:v1.3.4-eksbuild.1
+â ï¸ Required Tags Not Setup
+EKS Clusters in lightspin-prod (145875358567)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+cspm-prod-use2-1
+1.29
+Aug 14, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.33.0-eksbuild.1
+-
+coredns
+:v1.11.1-eksbuild.11
+-
+kube-proxy
+:v1.29.7-eksbuild.2
+-
+vpc-cni
+:v1.18.3-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+cspm-prod-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+lightspin-prod-1
+1.25
+observability.lightspin-prod-1.prod.eticloud.io
+Jul 24, 2023
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.28.0-eksbuild.1
+-
+coredns
+:v1.9.3-eksbuild.11
+-
+kube-proxy
+:v1.25.16-eksbuild.2
+-
+vpc-cni
+:v1.15.1-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+vpc-cni config
+:
+- ENABLE_PREFIX_DELEGATION : true
+- WARM_PREFIX_TARGET : 1
+- AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG : true
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+lightspin-prod-1
+-
+ResourceOwner:
+ETI SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+EnvironmentName:
+Prod
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+recon-prod-use1-1
+1.28
+Jul 08, 2024
+us-east-1
+-
+aws-ebs-csi-driver
+:v1.32.0-eksbuild.1
+-
+coredns
+:v1.10.1-eksbuild.11
+-
+kube-proxy
+:v1.28.8-eksbuild.5
+-
+vpc-cni
+:v1.18.2-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+recon-prod-use1-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in eticloud-cil (642677561837)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+eks-cil-1
+1.25
+Feb 14, 2023
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.13.0-eksbuild.2
+-
+coredns
+:v1.8.7-eksbuild.3
+-
+kube-proxy
+:v1.23.13-eksbuild.2
+-
+vpc-cni
+:v1.12.0-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ResourceOwner:
+chartsoo
+-
+Email:
+chartsoo@cisco.com
+-
+Environment:
+development
+-
+Team:
+CIL
+eks-cil-2
+1.24
+May 11, 2023
+us-west-1
+-
+aws-ebs-csi-driver
+:v1.13.0-eksbuild.2
+-
+coredns
+:v1.8.7-eksbuild.3
+-
+kube-proxy
+:v1.23.13-eksbuild.2
+-
+vpc-cni
+:v1.12.0-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ResourceOwner:
+chartsoo
+-
+Email:
+chartsoo@cisco.com
+-
+Environment:
+development
+-
+Team:
+CIL
+eks-cil-3
+1.24
+May 10, 2023
+us-west-1
+-
+aws-ebs-csi-driver
+:v1.13.0-eksbuild.2
+-
+coredns
+:v1.8.7-eksbuild.3
+-
+kube-proxy
+:v1.23.13-eksbuild.2
+-
+vpc-cni
+:v1.12.0-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ResourceOwner:
+chartsoo
+-
+Email:
+chartsoo@cisco.com
+-
+Environment:
+development
+-
+Team:
+CIL
+EKS Clusters in vowel-genai-dev (961088030672)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+pi-dev-use2-1
+1.28
+observability.pi-dev-use2-1.dev.outshift.ai
+Feb 28, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.28.0-eksbuild.1
+-
+coredns
+:v1.10.1-eksbuild.7
+-
+kube-proxy
+:v1.28.6-eksbuild.2
+-
+vpc-cni
+:v1.16.3-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+pi-dev-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+vowel-dev-1
+1.29
+observability.vowel-dev-1.dev.eticloud.io
+Aug 11, 2023
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.26.0-eksbuild.1
+-
+coredns
+:v1.9.3-eksbuild.10
+-
+kube-proxy
+:v1.25.16-eksbuild.1
+-
+vpc-cni
+:v1.16.0-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+vpc-cni config
+:
+- ENABLE_PREFIX_DELEGATION : false
+- WARM_PREFIX_TARGET : 0
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+vowel-dev-1
+-
+ResourceOwner:
+ETI SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+EnvironmentName:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in eticloud (626007623524)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+eks-prod-3
+1.25
+observability.eks-prod-3.prod.eticloud.io
+Nov 25, 2022
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.17.0-eksbuild.1
+-
+coredns
+:v1.9.3-eksbuild.2
+-
+kube-proxy
+:v1.25.6-eksbuild.1
+-
+vpc-cni
+:v1.12.2-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+us-east-2-eks-dev-3
+-
+ResourceOwner:
+ETI SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+EnvironmentName:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+eks-prod-4
+1.26
+observability.eks-prod-4.prod.eticloud.io
+Jul 05, 2023
+us-west-2
+-
+aws-ebs-csi-driver
+:v1.20.0-eksbuild.1
+-
+coredns
+:v1.9.3-eksbuild.5
+-
+kube-proxy
+:v1.26.6-eksbuild.1
+-
+vpc-cni
+:v1.13.2-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+eks-prod-4-eks
+-
+ResourceOwner:
+eti sre
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+Prod
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in cisco-research (509581005347)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+eks-ajajoo-1
+1.28
+Apr 24, 2024
+us-west-2
+-
+aws-ebs-csi-driver
+:v1.29.1-eksbuild.1
+-
+coredns
+:v1.10.1-eksbuild.7
+-
+kube-proxy
+:v1.28.8-eksbuild.2
+-
+vpc-cni
+:v1.18.0-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+eks-ajajoo-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in eti-ci (009736724745)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+argocd-bootstrap-1
+1.26
+observability.argocd-bootstrap-1.prod.eticloud.io
+Aug 11, 2023
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.21.0-eksbuild.1
+-
+coredns
+:v1.9.3-eksbuild.3
+-
+kube-proxy
+:v1.25.9-eksbuild.1
+-
+vpc-cni
+:v1.12.6-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+-
+vpc-cni config
+:
+- ENABLE_PREFIX_DELEGATION : false
+- WARM_PREFIX_TARGET : 0
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+argocd-bootstrap-1
+-
+ResourceOwner:
+ETI SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+EnvironmentName:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+eks-gitops-1
+1.26
+observability.eks-gitops-1.prod.eticloud.io
+Aug 11, 2023
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.21.0-eksbuild.1
+-
+aws-efs-csi-driver
+:v2.0.2-eksbuild.1
+-
+coredns
+:v1.9.3-eksbuild.3
+-
+kube-proxy
+:v1.25.9-eksbuild.1
+-
+vpc-cni
+:v1.12.6-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+-
+vpc-cni config
+:
+- ENABLE_PREFIX_DELEGATION : false
+- WARM_PREFIX_TARGET : 0
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+eks-gitops-1
+-
+ResourceOwner:
+ETI SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+EnvironmentName:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+eks-gitops-genai-1
+1.27
+observability.eks-gitops-genai-1.prod.eticloud.io
+Sep 13, 2023
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.28.0-eksbuild.1
+-
+coredns
+:v1.10.1-eksbuild.7
+-
+kube-proxy
+:v1.27.10-eksbuild.2
+-
+vpc-cni
+:v1.16.3-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+eks-gitops-genai-1-eks
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+Prod
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+eks-gitops-cnapp-1
+1.27
+observability.eks-gitops-cnapp-1.prod.eticloud.io
+Sep 01, 2023
+eu-north-1
+-
+aws-ebs-csi-driver
+:v1.28.0-eksbuild.1
+-
+coredns
+:v1.10.1-eksbuild.7
+-
+kube-proxy
+:v1.27.10-eksbuild.2
+-
+vpc-cni
+:v1.16.3-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+eks-gitops-cnapp-1-eks
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+Prod
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in lightspin-eu-prod (157782766354)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+lightspin-prod-eu-1
+1.25
+observability.lightspin-prod-eu-1.prod.eticloud.io
+Oct 19, 2023
+eu-central-1
+-
+aws-ebs-csi-driver
+:v1.22.0-eksbuild.2
+-
+coredns
+:v1.9.3-eksbuild.3
+-
+kube-proxy
+:v1.25.6-eksbuild.2
+-
+vpc-cni
+:v1.12.6-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+vpc-cni config
+:
+- ENABLE_PREFIX_DELEGATION : true
+- WARM_PREFIX_TARGET : 1
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+lightspin-prod-eu-1
+-
+ResourceOwner:
+ETI SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+EnvironmentName:
+Prod
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in cybear-prod (963140933587)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+cybear-prod-use2-1
+1.27
+observability.cybear-prod-use2-1.prod.panoptica.app
+Dec 13, 2023
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.26.0-eksbuild.1
+-
+coredns
+:v1.10.1-eksbuild.6
+-
+kube-proxy
+:v1.27.6-eksbuild.2
+-
+vpc-cni
+:v1.15.4-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+cybear-prod-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+cybear-prod-euc1-1
+1.27
+observability.cybear-prod-euc1-1.prod.panoptica.app
+Dec 13, 2023
+eu-central-1
+-
+aws-ebs-csi-driver
+:v1.26.0-eksbuild.1
+-
+coredns
+:v1.10.1-eksbuild.6
+-
+kube-proxy
+:v1.27.6-eksbuild.2
+-
+vpc-cni
+:v1.15.4-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+cybear-prod-euc1-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in apisec-prod (292858862941)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+apisec-prod-1
+1.28
+observability.apisec-prod-1.prod.eticloud.io
+Apr 03, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.28.0-eksbuild.1
+-
+aws-efs-csi-driver
+:v1.7.5-eksbuild.2
+-
+coredns
+:v1.10.1-eksbuild.7
+-
+kube-proxy
+:v1.27.8-eksbuild.4
+-
+vpc-cni
+:v1.18.0-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+vpc-cni config
+:
+- ENABLE_PREFIX_DELEGATION : false
+- WARM_PREFIX_TARGET : 2
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+apisec-prod-1
+-
+ResourceOwner:
+ETI SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+EnvironmentName:
+Prod
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+apisec-prod-eu-1
+1.28
+observability.apisec-prod-eu-1.prod.eticloud.io
+Apr 04, 2024
+eu-central-1
+-
+aws-ebs-csi-driver
+:v1.28.0-eksbuild.1
+-
+aws-efs-csi-driver
+:v1.7.5-eksbuild.2
+-
+coredns
+:v1.10.1-eksbuild.7
+-
+kube-proxy
+:v1.27.8-eksbuild.4
+-
+vpc-cni
+:v1.18.0-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+vpc-cni config
+:
+- ENABLE_PREFIX_DELEGATION : false
+- WARM_PREFIX_TARGET : 2
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+apisec-prod-eu-1
+-
+ResourceOwner:
+ETI SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+EnvironmentName:
+Prod
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in outshift-common-prod (058264538874)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+comn-prod-use2-1
+1.29
+observability.comn-prod-use2-1.prod.eticloud.io
+Jun 16, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.34.0-eksbuild.1
+-
+coredns
+:v1.11.1-eksbuild.11
+-
+kube-proxy
+:v1.29.7-eksbuild.2
+-
+vpc-cni
+:v1.18.3-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+comn-prod-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+plat-prod-use2-1
+1.30
+observability.plat-prod-use2-1.prod.eticloud.io
+Sep 12, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.34.0-eksbuild.1
+-
+coredns
+:v1.11.3-eksbuild.1
+-
+kube-proxy
+:v1.30.3-eksbuild.5
+-
+vpc-cni
+:v1.18.3-eksbuild.3
+-
+vpc-cni status
+: DEGRADED
+-
+ApplicaitonName:
+plat-prod-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+comn-prod-usw2-1
+1.29
+observability.comn-prod-usw2-1.prod.eticloud.io
+Jun 16, 2024
+us-west-2
+-
+aws-ebs-csi-driver
+:v1.34.0-eksbuild.1
+-
+coredns
+:v1.11.1-eksbuild.11
+-
+kube-proxy
+:v1.29.7-eksbuild.2
+-
+vpc-cni
+:v1.18.3-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+comn-prod-usw2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in outshift-common-staging (637423531539)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+comn-staging-use2-1
+1.29
+observability.comn-staging-use2-1.staging.eticloud.io
+Aug 01, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.34.0-eksbuild.1
+-
+coredns
+:v1.11.1-eksbuild.11
+-
+kube-proxy
+:v1.29.7-eksbuild.2
+-
+vpc-cni
+:v1.18.3-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+comn-staging-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+comn-staging-usw2-1
+1.29
+observability.comn-staging-usw2-1.staging.eticloud.io
+Jun 10, 2024
+us-west-2
+-
+aws-ebs-csi-driver
+:v1.34.0-eksbuild.1
+-
+coredns
+:v1.11.1-eksbuild.11
+-
+kube-proxy
+:v1.29.7-eksbuild.2
+-
+vpc-cni
+:v1.18.3-eksbuild.2
+-
+vpc-cni status
+: DEGRADED
+-
+ApplicaitonName:
+comn-staging-usw2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in outshift-common-dev (471112537430)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+comn-dev-use2-1
+1.29
+observability.comn-dev-use2-1.dev.eticloud.io
+Jun 11, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.38.1-eksbuild.2
+-
+coredns
+:v1.11.4-eksbuild.2
+-
+kube-proxy
+:v1.29.11-eksbuild.2
+-
+vpc-cni
+:v1.19.2-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+comn-dev-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+ephemeral-pulumi
+1.30
+Jan 13, 2025
+us-east-2
+-
+coredns
+:v1.11.1-eksbuild.11
+-
+eks-pod-identity-agent
+:v1.3.0-eksbuild.1
+-
+kube-proxy
+:v1.29.7-eksbuild.2
+-
+vpc-cni
+:v1.18.3-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+Outshift Platform Pulumi Test
+-
+ResourceOwner:
+Outshift Platform Engineering
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operational Data
+gitops-dev-use2-1
+1.31
+observability.gitops-dev-use2-1.dev.eticloud.io
+Jan 22, 2025
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.38.1-eksbuild.2
+-
+coredns
+:v1.11.4-eksbuild.2
+-
+kube-proxy
+:v1.31.3-eksbuild.2
+-
+vpc-cni
+:v1.19.2-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+gitops-dev-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+jarvis-sandbox
+1.30
+observability.jarvis-sandbox.dev.eticloud.io
+Sep 19, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.37.0-eksbuild.1
+-
+coredns
+:v1.11.3-eksbuild.2
+-
+kube-proxy
+:v1.30.6-eksbuild.3
+-
+vpc-cni
+:v1.19.0-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+jarvis-sandbox
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+plat-dev-use2-1
+1.30
+observability.plat-dev-use2-1.dev.eticloud.io
+Sep 11, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.37.0-eksbuild.1
+-
+coredns
+:v1.11.3-eksbuild.2
+-
+kube-proxy
+:v1.30.6-eksbuild.3
+-
+vpc-cni
+:v1.19.0-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+-
+ApplicaitonName:
+plat-dev-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+beautiful-grunge-crab
+1.31
+Jan 09, 2025
+us-east-1
+-
+metrics-server
+:v0.7.2-eksbuild.1
+EKS Clusters in hypershield-devops (654654525765)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+hs-argoctl-use2-1
+1.29
+observability.argoctl.devops.hypershield.engineering
+Jul 11, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.36.0-eksbuild.1
+-
+coredns
+:v1.11.3-eksbuild.2
+-
+kube-proxy
+:v1.29.9-eksbuild.1
+-
+vpc-cni
+:v1.18.6-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-argoctl-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+hs-argodev-use2-1
+1.29
+observability.argodev.devops.hypershield.engineering
+Jul 11, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.36.0-eksbuild.1
+-
+coredns
+:v1.11.3-eksbuild.2
+-
+kube-proxy
+:v1.29.9-eksbuild.1
+-
+vpc-cni
+:v1.18.6-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-argodev-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+hs-argoprod-use2-1
+1.29
+observability.argoprod.devops.hypershield.engineering
+Jun 19, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.36.0-eksbuild.1
+-
+coredns
+:v1.11.3-eksbuild.2
+-
+kube-proxy
+:v1.29.9-eksbuild.1
+-
+vpc-cni
+:v1.18.6-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-argoprod-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+hs-dev-cd-use2-1
+1.29
+observability.hs-dev-cd-use2-1.devops.hypershield.engineering
+Sep 04, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.36.0-eksbuild.1
+-
+coredns
+:v1.11.3-eksbuild.2
+-
+kube-proxy
+:v1.29.9-eksbuild.1
+-
+vpc-cni
+:v1.18.6-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-dev-cd-use2-1
+-
+ResourceOwner:
+Hypershield DevOps
+-
+Email:
+daf_coreteam_eng_devops@cisco.com
+-
+Environment:
+NONPROD
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+hs-devops-use2-1
+1.29
+observability.hs-devops-use2-1.devops.hypershield.engineering
+Jun 14, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.36.0-eksbuild.1
+-
+coredns
+:v1.11.3-eksbuild.2
+-
+kube-proxy
+:v1.29.9-eksbuild.1
+-
+vpc-cni
+:v1.18.6-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-devops-use2-1
+-
+ResourceOwner:
+Outshift SRE
+-
+Email:
+eti-sre-admins@cisco.com
+-
+Environment:
+NonProd
+-
+DataClassification:
+Cisco Confidential
+-
+DataTaxonomy:
+Cisco Operations Data
+EKS Clusters in hypershield-dev (936879674857)
+¶
+Cluster Name
+EKS Version
+Observability Endpoint
+Creation Date
+Region
+AddOns
+Tags
+hs-dev-eks-use2-1
+1.29
+observability.hs-dev-eks-use2-1.dev.hypershield.engineering
+Jul 16, 2024
+us-east-2
+-
+amazon-cloudwatch-observability
+:v2.2.1-eksbuild.1
+-
+aws-ebs-csi-driver
+:v1.38.1-eksbuild.2
+-
+coredns
+:v1.11.4-eksbuild.2
+-
+kube-proxy
+:v1.29.11-eksbuild.2
+-
+vpc-cni
+:v1.19.2-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-dev-eks-use2-1
+-
+ResourceOwner:
+Hypershield DevOps
+-
+Email:
+daf_coreteam_eng_devops@cisco.com
+-
+Environment:
+NONPROD
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+hs-dev-tsa-use2-1
+1.29
+Aug 28, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.33.0-eksbuild.1
+-
+coredns
+:v1.11.1-eksbuild.11
+-
+kube-proxy
+:v1.29.7-eksbuild.2
+-
+vpc-cni
+:v1.18.3-eksbuild.2
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-dev-tsa-use2-1
+-
+ResourceOwner:
+Hypershield DevOps
+-
+Email:
+daf_coreteam_eng_devops@cisco.com
+-
+Environment:
+NONPROD
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+hs-tsa-ci-use2-1
+1.29
+observability.hs-tsa-ci-use2-1.dev.hypershield.engineering
+Sep 05, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.38.1-eksbuild.2
+-
+coredns
+:v1.11.4-eksbuild.2
+-
+kube-proxy
+:v1.29.11-eksbuild.2
+-
+vpc-cni
+:v1.19.2-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-tsa-ci-use2-1
+-
+ResourceOwner:
+Hypershield DevOps
+-
+Email:
+daf_coreteam_eng_devops@cisco.com
+-
+Environment:
+NONPROD
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+hs-tsa-ci-use2-2
+1.29
+observability.hs-tsa-ci-use2-2.dev.hypershield.engineering
+Dec 11, 2024
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.38.1-eksbuild.2
+-
+coredns
+:v1.11.4-eksbuild.2
+-
+kube-proxy
+:v1.29.11-eksbuild.2
+-
+vpc-cni
+:v1.19.2-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-tsa-ci-use2-2
+-
+ResourceOwner:
+Hypershield DevOps
+-
+Email:
+daf_coreteam_eng_devops@cisco.com
+-
+Environment:
+NONPROD
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+hs-tsa-seg-use2-1
+1.29
+observability.hs-tsa-seg-use2-1.dev.hypershield.engineering
+Jan 24, 2025
+us-east-2
+-
+aws-ebs-csi-driver
+:v1.38.1-eksbuild.2
+-
+coredns
+:v1.11.4-eksbuild.2
+-
+kube-proxy
+:v1.29.11-eksbuild.2
+-
+vpc-cni
+:v1.19.2-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-tsa-seg-use2-1
+-
+ResourceOwner:
+Hypershield DevOps
+-
+Email:
+daf_coreteam_eng_devops@cisco.com
+-
+Environment:
+NONPROD
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+hs-dev-eks-usw2-1
+1.29
+observability.hs-dev-eks-usw2-1.dev.hypershield.engineering
+Nov 11, 2024
+us-west-2
+-
+aws-ebs-csi-driver
+:v1.36.0-eksbuild.1
+-
+coredns
+:v1.11.3-eksbuild.2
+-
+kube-proxy
+:v1.29.9-eksbuild.1
+-
+vpc-cni
+:v1.18.6-eksbuild.1
+-
+vpc-cni status
+: ACTIVE
+â ï¸ Required Tags Not Setup
+-
+ApplicaitonName:
+hs-dev-eks-usw2-1
+-
+ResourceOwner:
+Hypershield DevOps
+-
+Email:
+daf_coreteam_eng_devops@cisco.com
+-
+Environment:
+NONPROD
+-
+DataClassification:
+Cisco Restricted
+-
+DataTaxonomy:
+Cisco Operations Data
+GKE Clusters
+¶
+Azure Clusters
+¶
+2025-02-09

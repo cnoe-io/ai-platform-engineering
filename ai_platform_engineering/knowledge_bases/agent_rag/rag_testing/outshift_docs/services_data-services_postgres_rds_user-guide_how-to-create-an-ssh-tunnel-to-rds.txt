@@ -1,0 +1,68 @@
+create ssh tunnel aurora postgres rds
+How to create an SSH tunnel to an RDS instnace
+¶
+Sometimes it is necessary to access an RDS instance from a local environment for development.  These instructions will create an ssh tunnel through a bastion server to an RDS instance
+Development is the
+only
+time this kind of SSH tunnel should be used.
+Pre-requisites
+¶
+An Aurora Postgres RDS cluster in AWS.
+Connection information for the instance. An SRE team member can get you this information and will store it as a secret in Vault.
+Read/write endpoint for the cluster;
+$DB_ENDPOINT
+below
+Bastion hostname or IP address;
+$BASTION_ADDRESS
+below
+Username for the bastion;
+$BASTION_USERNAME
+below
+SSH key for the bastion;
+The ssh key should be copied from Keeper to your local
+~/.ssh/
+directory.
+MacOS requires
+0600
+permissions on the key file.
+The path
+~/.ssh/$BASTION_KEY
+will be used as
+$BASTION_KEY_PATH
+below.
+Instructions
+¶
+CLI
+¶
+At your command line, enter:
+ssh
+-i
+$BASTION_KEY_PATH
+-l
+$BASTION_USERNAME
+-N
+-L
+5432
+:
+$DB_ENDPOINT
+:5432
+$BASTION_ADDRESS
+If the connection worked correctly, there will be a hanging prompt at the command line.
+Local connection
+¶
+Opening this tunnel allows you to connect to the database directly, but through the localhost, rather than the database endpoint. So you will need to change your DB connection to
+localhost
+or
+127.0.0.1
+instead of the database endpoint
+Trouble-shooting
+¶
+Key permissions
+¶
+MacOS requires User-only read/write permissions on SSH keys. If those are not correct, MacOS will throw an error:
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+To fix this error, run:
+chmod 0600 $BASTION_KEY_PATH
+2023-05-18

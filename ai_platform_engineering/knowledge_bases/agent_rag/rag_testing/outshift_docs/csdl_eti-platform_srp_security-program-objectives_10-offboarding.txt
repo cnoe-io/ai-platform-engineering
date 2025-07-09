@@ -1,0 +1,29 @@
+IAM-02.06
+IAM-02.08
+offboarding
+Review and finish current offboarding processes and documentation
+¶
+Target Date: FY??Q?
+¶
+Risk(s) Addressed
+¶
+Possible gaps in employee offboarding process may lead to unauthorized access to restricted systems
+Description
+¶
+There is a documentation already started on the ET&I SRE team offboarding process.
+This documentation need to be reviewed and complemented by a(n):
+Cisco employee offboarding who has access to certain components on the ET&I Platform
+ETI Platform application offboarding
+Definition of Done
+¶
+There are documented offboarding processes that cover:
+SRE team member offboarding
+Cisco employee offboarding who has access to certain components on the ET&I Platform
+ETI Platform application offboarding
+Relevant Controls
+¶
+IAM-02.06
+IAM-02.08
+Objective Status: Not Started
+¶
+2023-04-19

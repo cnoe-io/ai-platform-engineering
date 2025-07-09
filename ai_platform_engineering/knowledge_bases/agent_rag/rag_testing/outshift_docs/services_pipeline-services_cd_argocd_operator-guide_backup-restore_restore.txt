@@ -1,0 +1,15 @@
+How to restore ArgoCD from backup
+¶
+Pre-requisite
+¶
+Install argocd-util
+Setup K8s context for target cluster
+Retrieve argocd backup
+¶
+link
+Import backup
+¶
+argocd-util
+import
+argocd-back.yaml
+2022-11-16

@@ -1,0 +1,42 @@
+Evolute
+¶
+Motivation
+¶
+Today, telemetry data streams are typically collected and analyzed by separate technology stacks:
+* User Behavior - typically analyzed via business analytics platforms like Google Analytics
+* APIs / Microservice Usage - typically collected via operational metrics platforms (such as Prometheus) and analyzed via tools like APIClarity
+* Infrastructure Cost - typically collected and analyzed via dedicated tools, including Cloud Providers' native tools (e.g., AWS Cost Explorer)
+Many analytics tools and products tend to focus on one or two of the above data categories, but none attempt to synthesize data from all three realms, which is necessary to make optimal business decisions. Today, humans bear the burden of correlating data points from these three separate silos to gain a more comprehensive view of how end-user behavior influences usage and load on technical components (and vice versa), due to the complexity of data collected by various mechnanisms in disparate formats. Existing tools that nominally claim to visualize these correlations often require labor-intensive instrumentation and/or comprehensive attribution efforts which most businesses cannot or will not prioritize over feature/product development.
+Evolute aims to eliminate this heavy burden of correlating data across these separate silos to map end-user behavior to the
+specific
+technical components with
+minimal
+upfront effort required to instrument or tag all features/components.
+Proposed Solution
+¶
+In order to enable an automated system to correlate user behavioral data with telemetry emitted by technical components, the solution must embed and
+propagate
+correlation IDs in the data collected across the behavioral, operational, and cost metrics. For such a solution to be viable for adoption in the real world, this propagation must be enabled in a way that does
+not
+require heavy engineering effort at the application level.
+Thus, we aim to define a correlation ID dedicated to mapping end-user facing features to usage of technical components, and leverage existing tracing solutions that already proprate low-level user transaction IDs to include and propagate these "feature IDs" across distributed systems (for example, by designating the first few nibbles of the 8-byte Span IDs as the Feature ID marker).
+One of the challenges with automating feature correlation lies in the ambiguity around what traceable entity or entities constitute an "end-user feature". Humans can grapple with the complexity of this ambiguity, but an automated system requires a more concrete definition. We aim to do this by identifying two types of traceable "features":
+1. Low-level UI components that an end user interacts with (e.g., an "Add to Cart" UI button)
+2. A User's experience/journey for attaining a specific goal (e.g., finding an item to add to cart)
+We refer to the first type (1) of features as "Feature Building Blocks," because the second type (2) of features, i.e., end-user experiences, are
+composed
+of various invocations of the former over time. Feature Building Blocks (FBB) can be labeled and tracked along with userids and timestamps to track user experience; characteristic "bundles" of these FFB's distinguish one high-level end-user experience (which we refer to as Features) from others. In other words:
+* A Feature is uniquely defined as a particular
+set
+of FBBs that are invoked by the
+same user
+in a particular
+order
+* Any given FBB may be involved in multiple Features
+Feature Building Blocks are the individual components an end-user interacts with. These can be labeled with unique identifiers. Invocations of these components can then be traced via existing application tracing solutions.
+An end-user Feature is a specific
+set
+of FBB's that are invoked in a
+particular order
+by the same user within a characteristic timeframe.
+2022-04-25

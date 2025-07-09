@@ -1,0 +1,74 @@
+Generic Developer Vault Access
+¶
+Note
+Only use personal VAULT Tokens for local development.
+Do
+NOT
+add them to git or Jenkins
+Every App folder in Jenkins has short-lived VAULT_TOKEN that was created and rotated by SRE team.
+Pre-requisites
+¶
+Access
+¶
+Team members need to be part
+venture-vault-developer
+for developer role
+venture-vault-admin
+for admin role
+Please contact
+eti-sre-admins@cisco.com
+if you need appnet vault access
+Vault cli
+¶
+Install latest
+vault cli
+Vault UI Access
+¶
+Navigate to
+https://keeper.cisco.com/ui/vault/secrets?namespace=eticloud%2Fapps%2Fostinato
+Select Method "OIDC Provider"
+Leave Role as Empty for "developer role"
+Use Role as "admin" for "admin role"
+Copy vault token
+Vault CLI
+¶
+export
+VAULT_TOKEN
+=
+<COPY
+TOKEN
+FROM
+STEP
+ABOVE>
+export
+VAULT_ADDR
+=
+https://keeper.cisco.com
+export
+VAULT_NAMESPACE
+=
+eticloud/apps/ostinato
+Generate ECR read-only access
+¶
+!!! note
+This token will automatically expire in 30 days
+export
+VAULT_TOKEN
+=
+<COPY
+TOKEN
+FROM
+STEP
+ABOVE>
+export
+VAULT_ADDR
+=
+https://keeper.cisco.com
+export
+VAULT_NAMESPACE
+=
+eticloud/apps/ostinato
+vault
+read
+aws_eticloud/creds/ecr-readonly
+2025-02-11

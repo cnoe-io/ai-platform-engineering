@@ -1,0 +1,162 @@
+ArgoCD Deployments
+ArgoCD Instances
+ArgoCD shards
+argocd
+Current ArgoCD Installations
+¶
+ArgoCD Instances
+¶
+These ArgoCD instances now reside in EKS clusters.  They are created/updating using this
+bootstrap ArgoCD
+and the baseapps for these clusters are controlled using this
+repo
+Workload
+URL
+Cluster
+Workloads
+Vault Secret
+App Status
+ArgoCD Common (In-Use â)
+https://argocd-common.eticloud.io
+Cluster:
+eks-gitops-1
+Account:
+eti-ci
+Region:
+us-east-2
+- Platform Apps
+- Websites
+- IAM
+- Marvin
+- Genie
+- Cisco Research
+- PLG
+Vault
+ArgoCD Bootstrap (In-Use â)
+https://argocd-bootstrap.eticloud.io
+Cluster:
+eks-gitops-bootstrap-1
+Account:
+eti-ci
+Region:
+us-east-2
+- ArgoCD CNAPP
+- ArgoCD Common
+- ArgoCD Dev
+- ArgoCD Gitops
+- ArgoCD Dev Gitops
+Vault
+ArgoCD Dev (In-Use â)
+https://argocd.dev.eticloud.io
+Cluster:
+eks-dev-gitops-1
+Account:
+eti-ci
+Region:
+us-east-2
+- Platform Engineering Development
+Vault
+ArgoCD CNAPP
+https://argocd-cnapp.eticloud.io
+Cluster:
+eks-gitops-cnapp-1
+Account:
+eti-ci
+Region:
+eu-north-1
+- CNAPP - APISec
+- CNAPP - CWPP
+- CNAPP - CSPM (lightspin)
+- CNAPP - Cybear
+- CNAPP - Dragonfly
+- CNAPP - Marvin
+- CNAPP - Rosey
+- CNAPP - SCS
+Vault
+ArgoCD GenAI
+https://argocd-genai.eticloud.io
+Cluster:
+eks-gitops-genai-1
+Account:
+eti-ci
+Region:
+us-east-2
+- Motific
+- Prompt Intel
+Vault
+ArgoCD Internal (In-Use â)
+https://argocd-internal.eticloud.io
+Cluster:
+p3-prod-alln-1
+Account:
+Openstack
+Region:
+cloud-rcdn
+- ETI Data Dashboard
+- Safe settings
+- Github Webhook Receiver
+Vault
+ArgoCD Baseapps configs
+¶
+ArgoCD Instance Config Repo:
+https://github.com/cisco-eti/sre-argocd-instances
+Name
+Cluster
+BaseApps Repo
+ArgoCD Project Config Repo
+ArgoCD Grafana Dashboard
+ArgoCD Bootstrap
+argocd-bootstrap-1 (eti-ci AWS - us-east-2)
+sre-baseapps-configs-argocd
+N/A
+Grafana Dashboard
+ArgoCD Common Production
+eks-gitops-1 (eti-ci AWS - us-east-2)
+sre-baseapps-configs-common
+Project Config Repo
+Grafana Dashboard
+ArgoCD CNAPP
+eks-gitops-cnapp-1 (eti-ci AWS - eu-north-1)
+sre-baseapps-configs-cnapp
+Project Config Repo
+Grafana Dashboard
+ArgoCD GenAI
+eks-gitops-genai-1 (eti-ci AWS - us-east-2)
+sre-baseapps-configs-genai
+Project Config Repo
+Grafana Dashboard
+ArgoCD Dev
+eks-dev-gitops-1 (eti-ci AWS - us-east-2)
+sre-baseapps-configs-dev
+Project Config Repo
+Grafana Dashboard
+Legacy ArgoCD Installations (deprecated)
+¶
+Name
+Cluster
+URL
+Status
+Secrets
+Details
+SRE Prod
+eti-gitops-1
+https://argocd.prod.eticloud.io
+Manually setup
+Vault
+Installation details
+SRE Self-service Clusters
+p3-prod-1
+https://argocd-clusters.prod.eticloud.io
+Manually setup
+Vault
+Installation details](argocd-operator/current-installations/argocd-clusters.md)
+SRE Dev
+p3-dev-1
+https://argocd.dev.eticloud.io
+Vault
+Installation details
+AppNet Dev
+eti-gitops-1
+http://argocd-appnet.dev.eticloud.io
+Installation details
+2025-02-13

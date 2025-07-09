@@ -1,0 +1,32 @@
+offboarding
+remove sre
+remove team member
+Remove ET&I SRE team member
+¶
+When a team member leaves the team or Cisco, it is important to remove them from access to our resources.
+Remove from all AD groups
+¶
+Remove them from all AD groups via
+sre-cisco-groups-automation
+ðââï¸
+Github web search
+or
+git grep saahn
+will show where to make changes.
+âï¸ Bulk changes in a single PR is preferred over multiple PRs
+Follow the
+Jenkins job that applies the change
+ð© In some cases if the user has already been removed from the HR systems, AD groups need to be synchronized with changes in AD tree. Please re-run the Jenkins job with SYNC option and follow the webex notifications to apply the changes back to git
+PageDuty
+¶
+Remove the user from the
+primary schedule
+Â andÂ
+secondary schedule
+it PagerDuty and from theÂ
+team
+âââââââ
+Secret Rotation
+¶
+Rotate all static AWS IAM users used by Atlantis
+2023-08-15

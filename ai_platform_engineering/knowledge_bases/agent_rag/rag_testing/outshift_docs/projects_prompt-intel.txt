@@ -1,0 +1,72 @@
+ETI Prompt-Intel
+Outshift Prompt-Intel
+Outshift Prompt-Intel Docs
+¶
+Table of Contents
+¶
+Outshift Prompt-Intel Docs
+Table of Contents
+Intro
+Engineering Documentation
+Platform Architecture
+Components
+Pipeline Architecture
+Environments
+CSDL
+Playbooks
+How-tos
+Quick-links
+Intro
+¶
+Prompt Intel is a platform that provides GenAI insights and recommendations to customers.
+It is designed as an API first solution and hosted by
+Outshift's SRE Platform
+.
+Engineering Documentation
+¶
+Here
+you can find design & architecture choices, system flows, APIs documentation and Integration examples.
+Platform Architecture
+¶
+Components
+¶
+prompt-intel-api
+: Prompt-Intel Backend API
+Pipeline Architecture
+¶
+Lucid chart source
+Environments
+¶
+Dev
+: Developer environment with auto-promotion
+Preview
+: Preview environment with manual-promotion
+Prod
+: Prod environment with manual-promotion
+CSDL
+¶
+Outshift Prompt-Intel CSDL Overview
+Corona
+Blackduck
+Playbooks
+¶
+Access Prompt-Intel Logs
+Access Prompt-Intel Dashboards
+How-tos
+¶
+Prompt-Intel Secrets
+AWS Access
+See the
+Prompt-Intel Resources
+page for details.
+Quick-links
+¶
+Outshift Prompt-Intel Logs
+Outshift Prompt-Intel CI
+Outshift Prompt-Intel CD
+Outshift Prompt-Intel Github Repo
+Outshift Prompt-Intel Docs
+Outshift Prompt-Intel Argo
+Outshift Prompt-Intel Observability
+Outshift Prompt-Intel Healthz
+2024-07-19

@@ -1,0 +1,73 @@
+baseapps
+checklist
+Baseapps Applications Status Checklist
+¶
+ArgoCD UI
+¶
+Step 1: Log In to Argo CD
+¶
+Enter your credentials to log in to the
+ArgoCD
+UI. Use Cisco-SSO (LOG IN VIA CISCO).
+Step 2: View the Applications on the UI
+¶
+Once logged in, you will be presented with the Argo CD UI. This UI provides an overview of all the applications managed by Argo CD.
+In the search box, enter the cluster name. Example
+motf-staging-use2-1
+.
+You will see all the baseapps for that cluster.
+To see the all apps in a single page, change the
+Items per page
+to
+all
+.
+Skim over the apps in the UI and check if there are errors, make sure all of the apps are healthy.
+Step 3: Check Individual Application Status
+¶
+To check the status of a specific application, follow these steps:
+Click on the application tile you are interested in. This will take you to the application's details page.
+On the application details page, you will see additional information.
+Step 4: Take Action if Necessary
+¶
+If an application is
+OutOfSync
+, you can manually sync it by clicking on the
+SYNC
+button.
+If an application is not
+Healthy
+, investigate the cause by reviewing the events and logs.
+Apps Healthy Checker  Script
+¶
+Argo CD provides a user-friendly web interface that allows you to monitor and manage the status of the applications. Additionally, you can use this Python script to automate the status checking process. Here's how to set up and run the script:
+Prerequisites
+¶
+Before running the Python script, make sure you have the following prerequisites met:
+- Python installed on your machine.
+- Argocd CLI installed and configured to communicate with your Argo CD server.
+- Admin user
+credentials
+used for argocd cli login.
+Step 1: clone this repo
+¶
+git
+clone
+https://github.com/cisco-eti/sre-utilities.git
+Step 2: Run the Python Script
+¶
+Change directory to
+sre-utilities/scripts/argocd
+cd
+sre-utilities/scripts/argocd
+- Execute the script by running the following command in the terminal
+python3
+baseapps-healthy-cheker.py
+The script will prompt a user input, put the
+clustername
+hit
+enter
+.
+Step 3: Review the Output
+¶
+Review the output in the terminal to see the status of your applications. If there are any issues with the applications' health status, the script will print the relevant information.
+2024-04-17

@@ -1,0 +1,86 @@
+User Guide: Jenkins Cloud Agents
+¶
+This document describes typical use cases for leveraging the  Jenkins "Cloud Agents" and how to configure specific build automation stages to run on these external worker nodes.
+Goal
+¶
+Enable ETI Platform Jenkins to run jobs on non-Cisco public cloud nodes
+Background
+¶
+Currently ETI Platform's Jenkins node agents are hosted in Cisco IT's OpenStack environment known as P3. Network traffic in and out of P3 environment must pass through firewalls managed by Cisco IT. These firewall rules restrict all inbound access to the Cisco network from external networks, and (more recently) it also restricts egress traffic that have not been specifically reviewed and approved by InfoSec. This latter restriction prevents executing tasks that require making many dynamic outbound requests (e.g., validation tests that invoke multiple varying external endpoints). 
+In response to this limitation, the SRE team implemented a mechanism for provisioning "cloud agents". These cloud agent worker nodes are provisioned in public cloud environments (AWS) and therefore lie outside the Cisco network, meaning outbound traffic access is no longer limited by Cisco IT's static firewall rules. These cloud agents are registered with the existing ETI Platform's Jenkins master and labeled as cloud-node, so any existing jobs can be configured to run stages that require permissive outbound access on these external worker nodes (see Configuring Jobs to Run on Cloud Agents).
+Configuring Jobs to Run on Cloud Agents
+¶
+Since the cloud agents are created in a public cloud environment, it will not be able to connect to resources in internal Cisco network (e.g., Cisco IT's Github Enterprise). You can leverage the Jenkins
+stash
+and
+unstash
+steps to checkout needed source code on the Jenkins master (which is inside Cisco's P3 environment and therefore can access Cisco resources) and copy it to the cloud agent nodes.
+For example, wrapping the code checkout steps with a
+stash stage
+enables a stage configured to run on a cloud agent via
+label "cloud-node"
+to
+unstash
+that checked out code on the cloud agent itself. Note that you should also specify
+skipDefaultCheckout()
+for the stage that runs on the cloud-agent to prevent Jenkins from attempting to check out code directly from the internal Github Enterprise service (which will fail).
+In summary:
+Add
+label "cloud-node"
+to specify that a given step needs to run on one of the cloud agents.
+If that step requires access to code hosted in Cisco's internal network:
+Wrap the step that check outs the code with a
+Stash
+stage that runs on the Jenkins
+master
+:
+stage ( 'Stash' ) {
+agent {
+label 'master'
+}
+steps {
+script {
+<checkout code to <REPO_FOLDER>
+sh 'tar -czvf <ARTIFACT_NAME>.tar.gz <REPO_FOLDER>'
+stash name: '<STASH_NAME>', includes: '<ARTIFACT_NAME>.tar.gz'
+}
+}
+}
+* In the step that executes on the cloud-agent but needs access to the stashed code:
+Disable the default code checkout mechanism:
+options { skipDefaultCheckout() }
+Specify that the stage needs to run on a cloud agent:
+label "cloud-node"
+Use
+unstash '<STASH_NAME>'
+to copy the code checked out on Jenkins master:
+stage
+(
+'loveisinthecloud'
+)
+{
+agent
+{
+label
+"cloud-node"
+}
+}
+steps
+{
+unstash
+'<STASH_NAME>'
+sh
+'tar -xvf <ARTIFACT_NAME>.tar.gz --strip-components=1 -C $WORKSPACE'
+script
+{
+//
+now
+you
+can
+run
+your
+stuff
+}
+}
+}
+2022-09-07

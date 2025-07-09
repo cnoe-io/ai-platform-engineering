@@ -1,0 +1,11 @@
+create a jupyter notebook in sagemaker studio
+Create a Jupyter notebook in AWS SageMaker studio
+¶
+Tip
+Login to
+AWS Console via Cisco SSO
+Using Jupyter Labs
+¶
+Using SageMaker Studio Classic
+¶
+2024-05-12

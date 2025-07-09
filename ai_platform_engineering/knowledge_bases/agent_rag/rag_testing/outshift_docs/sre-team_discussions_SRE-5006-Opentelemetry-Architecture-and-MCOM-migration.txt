@@ -1,0 +1,94 @@
+2023-04-05 Opentelemetry Deployment Architecture and Migration from MCOM
+¶
+Current State
+¶
+Notes:
+OTEL Collector deployment modes:
+daemonset
+(currently used for OTEL receivers)
+(+) locally scrapes metrics - minimizes cross-node traffic
+(-) increase cluster resource requirement
+(-) cannot scale beyond 1 per node
+deployment
+(currently used for OTEL shippers)
+(-) requires Target Allocator and OTEL Operator to shard scrape endpoints
+(?) horizontal scalability (caveat: pull-based receivers requires manual sharding or Target Allocator )
+(?) more efficient compute usage
+statefulset
+(+) no SPOF
+(+) more efficient compute usage
+(+) horizontal scalability
+(-) architectural complexity
+(-) HA not available
+(-) autoscaling still beta
+Refs:
+https://opentelemetry.io/docs/collector/scaling/#scaling-the-scrapers
+https://docs.lightstep.com/docs/otel-collector-plan-deployment-k8s
+https://medium.com/opentelemetry/deploying-the-opentelemetry-collector-on-kubernetes-2256eca569c9
+Discussion Points
+¶
+Should OTEL-shippers be per-cluster or shared per-region?
+¶
+If shared per-region:
+dedicated k8s cluster per region?
+Can deploy SDM in same cluster as shippers
+need to move source-cluster attribution processor to OTEL-receiver
+Do we need/want local Kafka buffers for logs?
+¶
+Cost vs reliability
+If AppD Cloud, uptime guarantees?
+Decision: Start with
+aggregate
+Kafka (local to Mimir) only
+* Provide service protection for Mimir without the "overkill" of per-cluster Kafka deployment
+Do we need/want aggregate Kafka buffer for metrics?
+¶
+Cost vs reliability
+Decision: YES
+* Replace per-cluster local Kafka buffer with one aggregate Kafka - more cost-effective and improves reliability of backend storage
+Should OTEL receivers be deployed as Daemonset or Deployment?
+¶
+If Deployment, should we use the OTEL Operator to leverage Target Allocator to shard endpoints?
+From
+OTEL Docs - Scaling the Scrapers
+:
+    >Some receivers are actively obtaining telemetry data to place in the pipeline, like the hostmetrics and prometheus receivers. While getting host metrics isnât something weâd typically scale up, we might need to split the job of scraping thousands of endpoints for the Prometheus receiver. And we canât simply add more instances with the same configuration, as each Collector would try to scrape the same endpoints as every other Collector in the cluster, causing even more problems, like out-of-order samples.
+[...]
+Another way of scaling the Prometheus receiver is to use the Target Allocator: itâs an extra binary that can be deployed as part of the OpenTelemetry Operator and will split the share of Prometheus jobs for a given configuration across the cluster of Collectors using a consistent hashing algorithm. 
+*
+OTEL Operator - Target Allocator
+Decision: NO
+* Daemonset deployment ensures that only pods within the same node are scraped - minimizes cross-node traffic
+* Avoid complexity of OTEL Operator (for now)
+What do we lose when MCOM goes away?
+¶
+Prometheus Operator
+ServiceMonitor for endpoint discovery
+PrometheusRule for alerts as-code
+Alertmanager
+cluster-local alerting
+Grafana Operator
+Grafana, dashboards as-code
+Fluentbit, FluentD
+Built-in one-eye dashboards
+can export and deploy ourselves
+AppD Cloud for logs?
+¶
+Decision: YES
+* AppD Operator provides easiest deployment of logs pipeline (OSS filebeat does not support OTEL protocol; AppD's version does)
+Do we want separate Mimir deployments for dev and prod?
+¶
+(+) non-prod env to test changes to obs stack
+(+) separate prod and nonprod envs
+(-) cost
+Decision: YES
+* We need to be able to test/validate telemetry pipeline changes in a non-prod environment
+Tech Debt / Gaps
+¶
+Datasource missing on Grafana restart
+Enforce auth for Mimir endpoint
+Migrate away from eks-obs-1
+Mimir deployment for prod (?)
+Future State
+¶
+2023-08-25

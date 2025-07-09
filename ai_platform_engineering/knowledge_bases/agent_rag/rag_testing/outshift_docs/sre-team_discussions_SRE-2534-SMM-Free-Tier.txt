@@ -1,0 +1,100 @@
+SMM Free Tier Artifact Distribution
+¶
+This document captures the design discussion for SMM Free Tier artifact distribution.
+High-Level Goals
+Functional Requirements
+Discussion Points
+Different artifact distribution options?
+[Preferred Option]
+Next Steps
+High-Level Goals
+¶
+(A) Evaluate all the options to support SMM Free Tier PLG (product led growth) effort
+(B) Capture the workflows for the preferred option
+(C) Identity SRE team's deliverables
+Discussion Points
+¶
+Different artifact distribution options
+¶
+[TBD: Mark's lucidchart diagrams]
+Preferred Option
+¶
+Harbor Workflow
+Source
+Next Steps
+¶
+Start the development with harbor.eticloud.io
+¶
+Give Sam the necessary access so he can start working on his side of the integration.
+Installing Harbor
+¶
+Dependencies
+¶
+Kubernetes cluster
+¶
+We need a cluster we can install Harbor on.
+The cluster needs to be able to authenticate against AWS APIs using IAM service accounts (OIDC issuer must be registered in AWS IAM).
+Postgres database
+¶
+As a team consensus we prefer using Aurora for production databases. We started working on an Aurora TF module a while ago.
+If we can use that module to spin up a new Aurora instance: great. If not, let's spin one up manually.
+The database needs to be able to accessible from the designated Kubernetes cluster. Related todos:
+- VPC subnet configuration
+- SecurityGroup setup
+Harbor requires three databases:
+- core
+- notaryserver
+- notarysigner
+Harbor also requires a dedicated user with access to the above databases.
+Here is an example:
+https://github.com/sagikazarmark/harbor-perf-test/blob/master/infrastructure/modules/database/main.tf
+The credentials should be saved in Keeper.
+Redis
+¶
+Similarly to Aurora, we want to use ElastiCache, but the current authentication options don't really work well with Harbor (password auth is only available with TLS that doesn't seem to work with Harbor at the moment).
+However, Redis is only used for caching, so it's not really a problem if it gets lost (compared to a database or storage loss).
+As a result, we should just be able to use the Redis operator.
+S3 bucket
+¶
+Harbor needs an S3 bucket to store the replicated images.
+IAM role
+¶
+Access to AWS services should be available through IAM service accounts.
+Harbor needs to access:
+- The S3 bucket
+- ECR (to replicate images from)
+Kubernetes service account
+¶
+Create a service account with the IAM role to assume.
+(Needs a Kubernetes namespace as well)
+Harbor Operator (optional)
+¶
+We can use the operator to spin Harbor up. It's more future proof.
+Install Harbor
+¶
+We can install Harbor using the operator or the Helm chart. Regardless of which way we go, we should use ArgoCD.
+I recommend using the operator, because it's a more future proof solution.
+Additional details:
+- For now we probably don't need OIDC, we can use the admin credential (BUT: we cannot create users manually, because that makes OIDC unavailable.....don't ask)
+- We need to configure SMM replication from ECR
+Monitoring Harbor
+¶
+At the very least we should added to external URL monitoring.
+In addition, we should monitor latency and error rates.
+More details TBD.
+Remaining decisions
+¶
+Registry URL? (eg. registry01.eticloud.io)
+I don't think this necessarily has to be a moving URL. We should be able to ask free tier people to refetch their creds?
+We can go with something more generic (eg. registry.outshift.com), BUT: it isn't necessarily true that we can just magically shove another solution behind this URL and everything continues working.
+Additional protection in front of the Harbor API?
+Currently only the admin user can access the API (that's not 100% true, but.....don't ask)
+Giving the ETI platform the admin credential is a security risk
+Add a proxy (api gateway) in front of the API
+Authenticate requests using custom credentials
+Limit access to certain API endpoints
+Modify requests (add admin credential, replace Host header, etc)
+Issued credentials
+The description should contain information that helps identifying the user (both human and machine readable. JSON?)
+  The account name should probably be just a hash?
+2023-12-09

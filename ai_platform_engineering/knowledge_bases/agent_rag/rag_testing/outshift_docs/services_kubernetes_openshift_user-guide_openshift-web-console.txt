@@ -1,0 +1,12 @@
+Redhat web console login
+¶
+Access
+Redhat Hybrid Cloud Console
+Select a ROSA cluster (example cluster)
+Click on "Open Console"
+Use cluster-admin username/password
+Using
+Admin Credentials
+created prior
+Access ROSA dashboard
+2023-07-11

@@ -1,0 +1,54 @@
+aurora postgres rds restore from snapshot
+How to Restore an RDS Database from Snapshot
+¶
+This document describes how to restore an postgres database that was recovered from a RDS snapshot to the original Aurora RDS instance that has a potential data loss.
+In general, the recommendation is to create a net-new postgres database in the target RDS instance, restore the snapshot data to that database, then redeploy the application to read from the new database.
+Pre-requisites
+¶
+Ensure you have
+pg_dump
+and
+psql
+installed
+To install on MacOS:
+brew install libpq
+echo 'export PATH="/usr/local/opt/libpq/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+Restore the desired back-up snapshot to a new instance. This is a necessary step, even if only a subset of data/tables in the impacted instance needs to be restored, because
+a snapshot cannot be restored to an existing DB instance
+:
+    >You can't restore from a DB snapshot to an existing DB instance; a new DB instance is created when you restore.
+Ensure that default VPC and Security Group settings are overridden to match those of the impacted the DB instance (
+ref
+)
+Steps
+¶
+Use
+pg_dump
+to create a dump file for the database you want to restore:
+pg_dump --dbname=postgresql://<USER>:<PASSWORD>@<RDS_ENDPOINT>:5432/<DB_NAME> > db.txt
+For example:
+pg_dump --dbname=postgresql://postgres:<PASSWORD>@eti-aws-db-2-2022-03-31-snapshot.cwsoyvpg7bag.us-east-1.rds.amazonaws.com:5432/helloworld > helloworld.txt
+Follow the steps
+here
+to create a new Postgres database where you want to restore the data dumped in the previous step.
+For example:
+CREATE DATABASE helloworld_restore_test;
+Use
+psql
+to restore the backup to the target postgreSQL instance.
+psql --username <USERNAME> --dbname=postgresql://<RDS_ENDPOINT>:5432/<TARGET_DB_NAME> -f <PGDUMP_FILE>
+For example:
+psql --username postgres --dbname=postgresql://eti-aws-db-2-2022-03-31-snapshot.cwsoyvpg7bag.us-east-1.rds.amazonaws.com:5432/helloworld_restore_test -f helloworld.txt
+Verify that the restored database contains expected data.
+You can use the
+psql
+command
+\dt
+to list the tables in the restored database:
+Then you can count the number of records for some of the tables by running the following query:
+SELECT COUNT(*) FROM <TABLE NAME>
+## References
+ *
+AWS Docs: Restoring from a DB snapshot
+2023-05-18

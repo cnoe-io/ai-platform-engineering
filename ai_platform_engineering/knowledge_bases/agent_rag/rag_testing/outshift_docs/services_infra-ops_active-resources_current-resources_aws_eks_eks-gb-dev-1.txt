@@ -1,0 +1,36 @@
+dedicated eks
+eks-gb-dev-1
+eks-gb-dev-1
+¶
+Dedicated Dev/Prod EKS Cluster for Greatbear
+EKS Architecture
+EKS Cluster Access Setup
+Workloads
+Terraform Code
+¶
+eks-gb-dev-1 terraform
+Cluster Access
+¶
+Access
+Details
+K8s Version
+1.21
+URL
+AWS Console access
+Account
+eticloud
+Region
+eu-west-1
+VPC
+greatbear-eu-west-1-vpc
+Bastion
+SSH access
+K8s node ssh
+K8s Node SSH access
+Dashboards
+¶
+Access
+Details
+Platform Health
+dashboard
+2023-12-10

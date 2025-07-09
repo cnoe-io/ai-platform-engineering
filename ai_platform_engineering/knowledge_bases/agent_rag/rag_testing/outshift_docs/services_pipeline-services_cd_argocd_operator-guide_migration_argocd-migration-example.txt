@@ -1,0 +1,27 @@
+ArgoCD Migration
+¶
+Pre-requisite
+¶
+Install argocd-util
+Setup K8s context
+ArgoCD export from current cluster
+¶
+Reference
+Setup k8s context on current cluster
+¶
+Export ArgoCD config
+¶
+argocd-util
+export
+argocd-back.yaml
+ArgoCD import to target cluster
+¶
+Reference
+Setup k8s context on target cluster
+¶
+Import ArgoCD config
+¶
+argocd-util
+import
+argocd-back.yaml
+2022-11-16

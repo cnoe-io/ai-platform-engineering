@@ -1,0 +1,10 @@
+Access VM via SSH
+¶
+Get the private-key from vault or ask SRE.
+Change the private-key mode to 600
+Access the VM with the SSH private-key.
+Example
+¶
+chmod 600 priv-key
+ssh -i priv-key ubuntu@vm-name
+2022-05-10

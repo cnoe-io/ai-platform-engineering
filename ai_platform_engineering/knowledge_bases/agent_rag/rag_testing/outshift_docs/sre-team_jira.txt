@@ -1,0 +1,18 @@
+jira
+organization
+SRE Team Project Management
+¶
+SRE team leverages Jira to capture, prioritize, and track work.
+Note:
+Please watch JIRA Organization Webex Recording
+Quick Links
+¶
+SRE Platform Plan
+SRE Stand-Up KanBan Board
+Jira Cheat Sheet
+Prioritization of Work
+¶
+See
+ETI SRE Prioritization
+for details.
+2023-01-20

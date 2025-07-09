@@ -1,0 +1,12 @@
+baseapps
+sigstore policy controller
+Sigstore Policy Controller
+¶
+Sigstore Policy Controller is used to verify the signature of Docker images signed by SWIMS.
+For more info, see:
+Image signing
+On-cluster image signature verification ADR
+External References
+:
+Sigstore - Kubernetes Policy Controller
+2023-10-03

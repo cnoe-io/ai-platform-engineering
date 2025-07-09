@@ -1,0 +1,153 @@
+troubleshooting oncall
+Troubleshooting RDS
+¶
+Table of Contents
+¶
+Background
+Incident
+Troubleshooting steps
+Communication
+Interpret the error message
+Check the database connections
+Fixing the problem
+Options
+Getting into the database
+Clearing the connections
+Find the problematic queries
+Capture the queries
+Make backups
+Clear the connections
+Conclusion
+Background
+¶
+Figuring out the details of what is happening when there are problems with an RDS cluster can be difficult. This document is intended to be a rough guide to that trouble-shooting via a specific incident.
+An RDS cluster generally has a primary write instance and one or more read-only instances. There is also a write endpoint and a read endpoint. The write endpoint points to the write instance and the read endpoint is load-balanced across the read-only instances.
+In this incident, we discuss the
+eks-kosha-dev
+EKS cluster and the
+rds-dev-1
+RDS cluster.
+Incident
+¶
+On 2022-11-14, the Kosha team reported that their Design Partner could not access the Kosha app. After some digging through logs, they came up with the error:
+{"level":"error","ts":1668462825.5317023,"caller":"app/connector_router.go:83","msg":"Error fetching connector list: pq: remaining connection slots are reserved for non-replication superuser and rds_superuser connections\n","app":"connector-api","stacktrace":"github.com/kosha/connector-api/pkg/app.(*App).getConnectors\n\t/build/pkg/app/connector_router.go:83\nnet/http.HandlerFun
+Troubleshooting steps
+¶
+Communication
+¶
+The most important part of troubleshooting database issues is communication. Inform everyone involved as you find out information and do not take any steps without telling the stakeholders what you're doing. Databases are opaque to most development teams and data is sacred. So if you're unsure on how much to communicate, err on the side of too much rather than too little. It might be irritating, but it will make everyone feel better.
+Interpret the error message
+¶
+The error message is telling us that the problem is there are no more connections available to the database.
+Check the database connections
+¶
+The first place to check is from within the database itself. Creating connection info to a cluster can be found
+here
+. Unfortunately, even administrative connections were unavailable.
+The second place to check or confirm the status of the instance is the AWS RDS console. We login to the correct AWS account, select the proper region, and then the RDS console. Because there is only one write instance, we have to select that write instance and then click on the monitoring tab. The DB Connections are indeed maxed out
+It is also useful to modify the metric and extend the timeline as far back as we can to see if this is a problem that has built up slowly or there has been a sudden spike in the number of connections. In this case, this has been a slow buildup of connections.
+Fixing the problem
+¶
+Options
+¶
+Restart the DB instance
+This will definitely solve the connection problem, but will probably interfere with applications that depend on the service.
+Failover the cluster
+RDS failover process typically happens in under a second without interupting transactions. However, it will also probably retain the idle connections since they're connecting to the write endpoint, not the instances directly.
+Modify cluster parameters to allow more connections (administrative or standard), then clear the connections from inside the cluster.
+We chose this option as it would give us the most information with the least interuption to other services that depend on the databases besides Kosha.
+Getting into the database
+¶
+We don't have direct access to the configuration files of an RDS instance or cluster like we would if we ran these clusters on EC2 instances. However, we do have access to DB and cluster parameter groups. During creation of the resources, both a DB and cluster parameter group specific to the cluster are created so we can freely modify the options available without worrying about interfering with other instances or clusters.
+In this case, we needed to modify the cluster parameter group. Searching for
+connection
+in the parameter group yielded:
+rds.rds_superuser_reserved_connections (
+2
+): Sets the number of connection slots reserved for rds_superusers; 2 by default.
+max_connections (
+LEAST({DBInstanceClassMemory/9531392},5000)
+): Sets the maximum number of concurrent connections; 5000 or the amount of RAM divided by 953192, whichever is least by default.
+Modifying the number of rds_superuser connections had no effect, so we hardcoded the number of connections to 4000.
+Clearing the connections
+¶
+Find the problematic queries
+¶
+As the
+root
+user, we run a query to determine which application is causing the problem:
+SELECT
+datname
+,
+state
+,
+count
+(
+*
+)
+from
+pg_stat_activity
+group
+by
+datname
+,
+state
+order
+by
+count
+desc
+;
+This query counts the number of connections to a particular database with a particular connection state and then orders them in descending order.
+This showed us that the overwhelming majority of connections were from Kosha and were in the
+idle
+state.
+Capture the queries
+¶
+Before we get to clearing the connections, we want to ensure we can tell the developers what the problematic queries are. So, we run:
+select
+*
+from
+pg_stat_activity
+where
+pid
+<>
+pg_backend_pid
+()
+and
+datname
+=
+'kosha'
+Then we save that data to a .csv and pass it along to the developers.
+Make backups
+¶
+You're about to make irreversible changes to the database. Back it up. You have two options and should do both.
+Take a snapshot from the RDS web console.
+Take a local backup of the database you're about to modify from pgAdmin.
+Clear the connections
+¶
+To clear the connections, we ran:
+SELECT
+*
+,
+pg_terminate_backend
+(
+pid
+)
+FROM
+pg_stat_activity
+WHERE
+pid
+<>
+pg_backend_pid
+()
+AND
+datname
+=
+'kosha'
+This query both shows us all the information from the problematic queries (the same as
+capturing the queries
+above), while terminating the queries themselves. This small bit of duplication is useful for double-checking that you've terminated the correct processes within the database.
+Conclusion
+¶
+Trouble-shooting any database issue can be an exercise in frustration. Remember to investigate the problem thoroughly, take backups, and communicate excessively.
+2023-05-18

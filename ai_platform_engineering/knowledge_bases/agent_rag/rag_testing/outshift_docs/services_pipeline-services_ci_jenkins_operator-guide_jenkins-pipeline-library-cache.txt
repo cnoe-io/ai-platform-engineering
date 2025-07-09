@@ -1,0 +1,22 @@
+jenkins pipeline library cache
+Jenkins pipeline library cache
+Jenkins pipeline library is cached on the "master" node for 7 days for download and network optimization
+Jenkins Settings
+¶
+Jenkins Home
+- Select "Manage Jenkins"
+Configure Jenkins
+Navigate to
+Global Pipeline Libraries
+Select
+Library
+->
+srePipeline
+Check
+Cache fetched versions on master for quick retrieval
+Testing
+¶
+When testing a Jenkins library change, add the pipeline library branch to the
+Versions to exclude
+text box
+2023-09-21

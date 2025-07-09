@@ -1,0 +1,17 @@
+delete new myid-groups.cisco.com
+remove ad group from automation
+Remove AD Group YAML from Automation
+¶
+Remove the AD group YAML files from the respective directories
+Remove files from git and commit the changeset
+This proces will automatically remove the AD group from automation consideration.
+Archive group if nofe ready to delete
+¶
+Archived groups will use
+.txt
+extension instead of
+.yaml
+extension to skip automation.
+Some archieved groups have been moved under
+groups_yaml/teams/_archive
+2023-09-21

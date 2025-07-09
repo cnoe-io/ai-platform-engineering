@@ -1,0 +1,46 @@
+codeartifact operator guide
+Operator guide
+CodeArtifact AWS Account
+¶
+Codeartifact is setup in
+eticloud
+(626007623524) aws account and 'us-east-2' region
+Terraform for domain and repo creation
+¶
+link
+Domain/Repository convention
+¶
+Domain:
+outshift
+Repository:
+product-venture-private
+(example: cnapp-scs-private) - one repository can be used for multiple types of packages (pypi, npm etc..)
+Access
+¶
+Developers access role
+link
+GitHub actions access role
+link
+Examples
+¶
+Reusable github action for python binary upload -
+link
+usage example
+name: Publish Python
+on:
+push:
+branches:
+- yev-gh-actions
+workflow_dispatch:
+jobs:
+call-codeartifact-publish:
+name: Call CodeArtifact publish
+uses: cisco-eti/gh-reusable-workflows/.github/workflows/codeartifact-publish-python.yaml@main
+secrets:
+vault-approle-role-id: ${{ secrets.VAULT_APPROLE_ROLE_ID }}
+vault-approle-secret-id: ${{ secrets.VAULT_APPROLE_SECRET_ID }}
+with:
+domain: outshift
+repository: cnapp-scs-private
+package_path: example_package
+2024-08-18

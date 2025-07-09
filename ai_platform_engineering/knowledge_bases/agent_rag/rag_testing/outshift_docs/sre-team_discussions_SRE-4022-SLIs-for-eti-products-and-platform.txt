@@ -1,0 +1,129 @@
+SLIs for ETI Products and Platform
+¶
+SLIs are metrics that answer the question,
+"Is <service> working?"
+by quantifying "good" user experience events.
+It is important to first decide which user experiences (i.e., "user journeys") to track via SLI's. This will depend entirely on the product/service.
+This document outlines how we can define and capture SLIs to improve our existing monitoring solutions for two specific product/services: Calisti and Platform base apps.
+Calisti
+¶
+Current State
+¶
+Blackbox monitoring
+Future State
+¶
+Define SLI measurements and implementations
+User Journeys
+¶
+User -> Website -> Registry
+a. Can user successfully download images?
+Can user successfully authenticate (via IAM)?
+b. Can user download images with low latency?
+Assumption: AWS S3 will serve images
+What is the latency for serving the signed url?
+Calisti Controller -> Registry
+a. Did the Calisti controller-triggered image download succeed?
+User -> Website -> Gated Asset
+a. Can authenticated user access gated content?
+These are examples of user journeys that matter for Calisti. We need to understand what those are before we can decide how to capture metrics that reflect the quality of those journeys (i.e., the SLIs). SLOs would be the target
+thresholds
+we want to monitor the SLI metrics against.
+This approach is described
+here
+under
+SLO process overview
+:
+List out critical user journeys and order them by business impact.
+Determine which metrics to use as service-level indicators (SLIs) to most accurately track the user experience.
+Determine SLO target goals and the SLO measurement period.
+...
+SLI Implementation
+¶
+1A: Can user successfully download images?
+¶
+Capture response counts for
+api/download-smm.js
+via Prometheus client
+SLI = (
+api/download-smm.js
+requests that returned 200 response) / (requests made to
+api/download-smm.js
+) - (requests made by user not in EULA) * 100
+good events = requests made to
+api/download-smm.js
+that returned 200 response
+valid events = (requests made to
+api/download-smm.js
+) - (requests made by user not in EULA)
+Possible code instrumentation points:
+https://wwwin-github.cisco.com/eti/calisti.app/blob/main/calisti.app/pages/api/download-smm.js#L124
+1B: Can user download images with low latency?
+¶
+SLI = (# of downloads that took <
+some_threshold
+) / ( total # of downlaods )
+good events (TBD): requests with duration between clicking download and serving signed URL <
+x
+ms
+valid events (TBD): # of download requests by authorized users
+2A: Did the Calisti controller-triggered image download succeed?
+¶
+SLI = ( # of successful image downloads from registry ) / ( total # of attempted image downloads from registry )
+Instrument controller to emit metrics to a public endpoint (See
+Discussion - Client metrics
+)
+3A: Can authenticated user access gated content?
+¶
+SLI = ( # of successful gated asset page loads ) / ( # of total gated asset page loads )
+Possible code instrumentation points:
+https://wwwin-github.cisco.com/eti/calisti.app/blob/main/calisti.app/components/gatedassets/AssetForm.tsx#L506
+https://wwwin-github.cisco.com/eti/calisti.app/blob/main/calisti.app/components/gatedassets/AssetForm.tsx#L240
+Discussion
+¶
+Synthetic tests
+What: Automate periodic invocations of synthesized customer actions to validate health even in absence of real end-user activity
+Why:
+End-user activity may be low/zero during quiet hours (e.g. night), but we still need to validate our services 24/7
+Validate service after new deployments
+Example:
+Harbor integration tests via Jenkins
+Use same SLI metrics as above, but capture user-agent as a label to separate real traffic from synthetic ones
+Client
+metrics
+What: Instrument clients/apps running in customer environments (e.g. Calisti controller) to emit metrics about success/failure to a metrics endpoint (e.g., Segment)
+Why: most direct measurement of success/failure from customers' perspective
+ignore details of complex flows specific to service implementations (e.g., harbor and expected auth failures)
+PII
+must not leak into
+operational
+data stores
+Platform Base Apps
+¶
+Current State
+¶
+Blackbox monitoring for deployed websites (partial "canaries")
+Synthetic tests:
+Harbor integration tests via Jenkins
+Future State
+¶
+Distill metrics into SLI definitions
+Expand validation via Canary Apps
+platform-demo
+invoke all critical baseapps
+track "good events" via health endpoint
+SLI = ( # of "OK" health checks ) / ( # of periodic checks )
+periodically redeploy to exercise baseapps
+health endpoints of any/all deployed apps
+can we see canary apps' metrics?
+can we see canary apps' logs?
+References
+¶
+(Google Cloud) Setting SLOs: a step-by-step guide
+:
+    >SLO process overview
+    >* List out critical user journeys and order them by business impact.
+    >* Determine which metrics to use as service-level indicators (SLIs) to most accurately track the user experience.
+    >* Determine SLO target goals and the SLO measurement period.
+    >* Create SLI, SLO, and error budget consoles.
+    >* Create SLO alerts.
+2023-08-25

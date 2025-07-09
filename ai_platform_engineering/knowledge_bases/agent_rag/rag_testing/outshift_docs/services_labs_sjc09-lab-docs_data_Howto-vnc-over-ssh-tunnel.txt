@@ -1,0 +1,81 @@
+ssh tunnel
+vnc
+VNC Tunneling through SSH
+¶
+VNC is a generally well-known and widely used protocol for remote desktop access. While useful, it does not provide data encryption on its own; to accomplish this, either a VPN or SSH tunnel is used. The focus of this document is on how to use SSH tunneling to establish a secure VNC connection to a remote host.
+Pre-requisite
+¶
+A remote server with
+OpenSSH Server
+installed.
+A graphical user interface, for instance
+ubuntu-desktop
+.
+Installing VNC on Ubuntu server
+¶
+Follow this
+installation guide
+Securing VNC with SSH
+¶
+Assuming that you have already installed and tested VNC, now you need to limit VNC port(5901) access to localhost.
+Apply firewall on port 5901.
+ufw
+deny
+5901
+/tcp
+Stop all the running VNC sessions.
+vncserver
+-kill
+:1
+Start a session listening only for internal connections.
+vncserver
+-localhost
+Open VNC  service configuration file.
+nano
+/etc/systemd/system/vncserver.service
+change the line that starts at
+ExecStart
+to
+ExecStart=/usr/bin/vncserver -localhost
+, save and exit, then reload systemd.
+systemctl
+daemon-reload
+Check that port
+5901
+is listening only on localhost(127.0.0.1)
+lsof
+-nP
+-iTCP:5901
+-sTCP:LISTEN
+Establishing the SSH tunnel
+¶
+Run the following commands on your machine.
+ssh -L 5689:localhost:5901 username@remote-server
+The first port number(5689) can be any random number as long as it's not in-use, it's for the client side local port-mapping.
+Check that your local machine(client) is listening 127.0.0.1 with locally mapped port.
+Connect to the remote-host
+¶
+After everything above is set, you can start to connect to the remote host.
+Using the built-in Screen Sharing application in Mac, enter the following command in the Terminal.
+open
+vncâ://127.0.0.1:5689
+In the popup dialog box put the vnc password you setup during the vnc-installation.
+You are all set!
+Troubleshooting Tips
+¶
+If you see a grey screen upon connecting, install the
+lxde
+package to resolve this issue.
+sh
+   apt-get install lxde
+   cd .vnc/ 
+   sudo nano xstartup
+add
+/usr/bin/startlxde
+at the EOF.
+save and exit.
+finally, restart the vnc-service.
+sh
+   vncserver -kill :1
+   vncserver -localhost
+2023-02-16

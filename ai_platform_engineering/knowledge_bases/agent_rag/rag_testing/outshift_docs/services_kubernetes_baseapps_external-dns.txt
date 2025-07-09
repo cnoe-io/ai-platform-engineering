@@ -1,0 +1,28 @@
+baseapps external-dns
+external-dns
+External DNS
+¶
+ExternalDNS makes Kubernetes resources discoverable via public DNS servers.
+It retrieves a list of resources (Services, Ingresses, etc.) from theÂ
+Kubernetes API
+Â to determine a desired list of DNS records.Â
+ExternalDNS is not a DNS server itself, but merely configures other DNS providers accordingly
+It does not manage hosted zones, thus the zone in which domains will be created/updated (or deleted even) by externalDNS need to already exist.
+SRE team uses
+AWS Route 53
+Â to configure External DNS
+When you create a new cluster, make sure to add domain filters to the
+external-dns
+config with the Route53 hosted zones that the cluster uses:
+external-dns:
+txtOwnerId: "eks-dev-4"
+extraArgs:
+- "--annotation-filter=external-dns.alpha.kubernetes.io/exclude notin (true)"
+- "--domain-filter=dev.eticloud.io"
+interval: 10m
+To list the domains in use, use the following command:
+kubectl get ingress --all-namespaces|awk '{print $1 " | " $4 }'
+External References
+-
+kubernetes-sigs external-dns docs
+2024-03-08

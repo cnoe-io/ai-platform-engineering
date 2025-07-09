@@ -1,0 +1,146 @@
+- motific pagerduty
+¶
+Motific PagerDuty
+¶
+!!! warning This documentation is deprecated, Motific project has been shut down and is no longer maintained
+Infra Services
+¶
+Services:
+AWS Managed Services, Kubernetes, Outshift Platform Baseapps
+Prod
+¶
+Service Name
+Support Level
+Motific Prod Infra High Priority
+SRE Oncall Rotation
+Motific Prod Infra Low Priority
+SRE Business Hours
+Staging
+¶
+Service Name
+Support Level
+Motific Staging Infra High Priority
+SRE Oncall Rotation
+Motific Staging Infra Low Priority
+SRE Business Hours
+Dev
+¶
+Service Name
+Support Levl
+Motific Dev Infra High Priority
+SRE Business Hours
+Motific Dev Infra Low Priority
+SRE Business Hours
+RAG
+¶
+Services:
+Motific RAG Pipeline
+Prod
+¶
+Service Name
+Support Level
+Motific Prod RAG High Priority
+SRE Oncall Rotation
+Motific Prod RAG Low Priority
+SRE Business Hours
+Staging
+¶
+Service Name
+Support Level
+Motific Staging RAG High Priority
+SRE Oncall Rotation
+Motific Staging RAG Low Priority
+SRE Business Hours
+Dev
+¶
+Service Name
+Support Levl
+Motific Dev RAG High Priority
+SRE Business Hours
+Motific Dev RAG Low Priority
+SRE Business Hours
+Control Plane
+¶
+Services:
+Motific Control Plane Services
+Prod
+¶
+Service Name
+Support Level
+Motific Prod Control Plane High Priority
+SRE Oncall Rotation
+Motific Prod Control Plane Low Priority
+SRE Business Hours
+Staging
+¶
+Service Name
+Support Level
+Motific Staging Control Plane High Priority
+SRE Oncall Rotation
+Motific Staging Control Plane Low Priority
+SRE Business Hours
+Dev
+¶
+Service Name
+Support Levl
+Motific Dev Control Plane High Priority
+SRE Business Hours
+Motific Dev Control Plane Low Priority
+SRE Business Hours
+UI
+¶
+Services:
+Motific Console UI Service
+Prod
+¶
+Service Name
+Support Level
+Motific Prod UI High Priority
+SRE Oncall Rotation
+Motific Prod UI Low Priority
+SRE Business Hours
+Staging
+¶
+Service Name
+Support Level
+Motific Staging UI High Priority
+SRE Oncall Rotation
+Motific Staging UI Low Priority
+SRE Business Hours
+Dev
+¶
+Service Name
+Support Levl
+Motific Dev UI High Priority
+SRE Business Hours
+Motific Dev UI Low Priority
+SRE Business Hours
+ML Plugins
+¶
+Services:
+Motific ML Plugins
+Prod
+¶
+Service Name
+Support Level
+Motific Prod ML Plugins High Priority
+SRE Oncall Rotation
+Motific Prod ML Plugins Low Priority
+SRE Business Hours
+Staging
+¶
+Service Name
+Support Level
+Motific Staging ML Plugins High Priority
+SRE Oncall Rotation
+Motific Staging ML Plugins Low Priority
+SRE Business Hours
+Dev
+¶
+Service Name
+Support Levl
+Motific Dev ML Plugins High Priority
+SRE Business Hours
+Motific Dev ML Plugins Low Priority
+SRE Business Hours
+2025-06-20

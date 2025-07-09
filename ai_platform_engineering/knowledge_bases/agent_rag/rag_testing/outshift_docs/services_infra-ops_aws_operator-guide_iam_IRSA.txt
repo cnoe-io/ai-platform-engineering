@@ -1,0 +1,217 @@
+aws iam irsa
+IRSA
+¶
+Purpose
+¶
+To both secure and improve how we handle SA (Service Account) permissions inside the cluster, Outshift Platform team uses IRSA feature provided by AWS IAM. This feature allows the platform team to bind IAM roles/policies to a service account that needs to access AWS services outside of the cluster; by using the AssumeWebIdentity/Role function.
+How it works
+¶
+The IRSA feature uses an IAM role that is bound to a service account in the cluster.
+The service account then assumes this role when it needs to access AWS services outside of the cluster.
+How to create an IRSA
+¶
+Prerequisites
+¶
+You must know what role policies/permissions you want to create for the service account(s).
+You should have a good understanding of how to use Terraform. For more information, please see the
+Terraform
+section of our platform docs.
+You should have a good understanding of how to use Atlantis. For more information on how to use Atlantis, please see the
+Atlantis
+section of our platform docs.
+AWS account where IRSA is setup. For more information on how to do this, please see the
+AWS Account Creation
+section of our platform docs.
+You should have all the infrastructure/Terraform for your EKS cluster setup. For more information on how to do this, please see the
+EKS
+section of our platform docs.
+Creating the IRSA Role(s) with Terraform
+¶
+First you will need to create the IAM role(s) for your eks cluster that will later on be assumed by the service account(s). You can create a new Terraform file in your eks cluster folder, under
+<cluster name>-eks-iam
+folder. In addition you will need to attach a policy to it from the corresponding
+resources
+folder. For example, if you want to create an IAM role for a service account that needs to access SQS/SNS, you will need to create a new Terraform file with the name
+eks-sqs-sns-admin-role.tf
+file, and attach the
+aws_sqs_sns_admin_policy
+policy to it.
+EXAMPLE:
+-
+eks-sqs-sns-admin-role
+-
+aws_sqs_sns_admin_policy
+Note
+The
+assume_role_policy
+in the IAM role terraform should be explicit for service accounts you are using, or you may leave an empty array
+[]
+to be filled in later by another workflow (an example of one will be shown in the document below).
+Second make sure that all the information in your newly created Terraform file for the role(s) is specific to your eks cluster/AWS Account you are using.
+Lastly make sure to add the new Terraform file/directory path to your Atlantis workflow, and run the workflow (using a PR) to create the IAM role(s).
+This should be done in the following file:
+atlantis.yaml
+There is a section for it in the file labeled
+# IAM
+EXAMPLE:
+# EKS IAM Roles
+## securecn-dev
+-
+name
+:
+cwpp-dev-1-eks-iam
+dir
+:
+aws-cwpp-dev/eks/eu-west-1/cwpp-dev-1-eks-iam
+workflow
+:
+standard
+terraform_version
+:
+v1.5.2
+-
+name
+:
+cwpp-pr-1-eks-iam
+dir
+:
+aws-cwpp-dev/eks/eu-west-1/cwpp-pr-1-eks-iam
+workflow
+:
+standard
+terraform_version
+:
+v1.5.2
+Updating the Assume Role Policy
+¶
+Using IAC
+¶
+One way of keeping your assume role policy up to date is by using Terraform (with Atlantis). This will stick to our regular best practice of using GITOPS, and will allow us to keep track of all changes made to the assume role policy.
+This is done by modifying the existing Terraform file for the IAM role(s) created above and applying it with Atlantis.
+Using GHA (GitHub Actions) workflow + script
+¶
+Another way of keeping your assume role policy up to date is by using a GHA workflow + script. This allows us to use automation for keeping the attachment policy up to date and makes it easier for developers, and will also allow us to use the same workflow for multiple clusters/service accounts.
+[Optional] Use the existing bash script that was created for the CWPP team, it is generic enough for usage anywhere:
+sa_binding_script.sh
+[Optional] Use a copy of the existing GHA reusable workflow in the
+cwpp-backend
+repo:
+run_sa_scripts.yaml
+For the workflow/script to work you will need to authenticate to AWS with an assumed role, for this you will need to make sure the Github OIDC provider is setup in your AWS account. For more information on how to do this, please see the
+OIDC Provider
+section of our platform docs.
+Warning
+Please update the
+switch-case
+step to include the information for your eks cluster(s)/AWS Accounts/etc.
+To use it with your GHA workflow, you may call the reusable workflow as such:
+################################## SA Bindings #################################
+#################################################################################
+sa-bindings
+:
+name
+:
+sa-bindings
+needs
+:
+[
+call-docker-build-push
+]
+uses
+:
+./.github/workflows/run_sa_scripts.yaml
+strategy
+:
+matrix
+:
+clusters
+:
+-
+cluster-name
+:
+'cwpp-dev-1'
+namespace
+:
+'cwpp-backend'
+aws
+:
+true
+gcp
+:
+false
+-
+cluster-name
+:
+'cwpp-pr-1'
+namespace
+:
+'cwpp-backend'
+aws
+:
+true
+gcp
+:
+false
+-
+cluster-name
+:
+'cwpp-staging-1'
+namespace
+:
+'cwpp-backend'
+aws
+:
+true
+gcp
+:
+true
+gcp-project-name
+:
+'k8sec-dev'
+secrets
+:
+# Vault Approle for the Venture namespace access
+vault-venture-approle-role-id
+:
+${{ secrets.VAULT_SECURECN_APPROLE_ROLE_ID }}
+vault-venture-approle-secret-id
+:
+${{ secrets.VAULT_SECURECN_APPROLE_SECRET_ID }}
+#######
+ghcr-username
+:
+${{ secrets.GHCR_USERNAME }}
+ghcr-token
+:
+${{ secrets.GHCR_TOKEN }}
+ghcr-org-token
+:
+${{ secrets.GHCR_TOKEN }}
+with
+:
+runner-group
+:
+CWPP-Runners
+aws
+:
+${{ matrix.clusters.aws }}
+gcp
+:
+${{ matrix.clusters.gcp }}
+gcp-project-name
+:
+${{ matrix.clusters.gcp-project-name }}
+cluster-name
+:
+${{ matrix.clusters.cluster-name }}
+namespace
+:
+${{ matrix.clusters.namespace }}
+helmchart-path
+:
+"$GITHUB_WORKSPACE/helm-charts"
+!!! note
+      You will need to ensure you have the Vault approle setup for your venture's namespace in Keeper. For more information on how to do this, please see the
+Create Vault Approle
+section of our platform docs.
+2024-06-07

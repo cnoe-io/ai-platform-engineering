@@ -1,0 +1,67 @@
+frontline.gen
+frontline.gen encrypted password rotation
+¶
+Usage:
+¶
+Cisco Groups Automation
+Steps to rotate password:
+¶
+Step 1: Notify in ETI Platform Status space
+¶
+Notify in
+ETI Platform Status
+space about frontline.gen
+Notification template:
+# frontline.gen generic user password rotation
+**What:** frontline.gen generic user password is being rotated every 90 days
+**When:** May 3rd 2022, 2:00PM US Central time (GMT-6)
+**Impact:** sre-cisco-groups-automation is unable during this change
+Step 2: Create new password
+¶
+Create a new password from commandline shell
+# Works on mac or linux
+LC_ALL
+=
+C
+tr
+-dc
+'A-Za-z0-9!#%=?@^_`{|}~'
+</dev/urandom
+|
+head
+-c
+18
+Step 3: Set the password in adam
+¶
+Note:
+adam is cisco's active directory account management tool
+Login to
+https://adam.cisco.com
+with Cisco username/password
+Click on
+User->Generic Accounts->Search
+Lookup
+frontline.gen
+Verify
+existing password
+Set password
+Note:
+A new generic user password takes between 15-45 mins to propogate to all the systems.
+Step 5: Update Vault
+¶
+Update vault paths
+Vault
+#1
+-
+https://keeper.cisco.com/ui/vault/secrets/secret/show/jenkins/cisco-groups/frontline-gen-user?namespace=eticloud%2Fjenkins
+Vault
+#2
+-
+https://keeper.cisco.com/ui/vault/secrets/secret/show/generic_users/frontline.gen?namespace=eticloud%2Fteamsecrets
+Step 7: Run sre-cisco-groups-automation sync job
+¶
+Trigger
+this jenkins job
+Select "SYNC-CHECK" option
+Verify job succeeds
+2023-09-21

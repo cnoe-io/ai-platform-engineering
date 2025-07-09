@@ -1,0 +1,103 @@
+Send SRE-ETI Inventory In SJC16 To Repo Depot
+¶
+As we are not planning to continue using SJC16 lab anymore and already powered off most of our(ET&I) assets, we have to empty/clear out the lab space that's being allocated for us.
+SJC16 is a shared lab that many organizations use for their development/test environments, as you can see in the lab-map diagram.\
+The lab space allocation renewal is done on a yearly basis by WPR and it will be renewed in the first week of May, 2022. So, ET&I will be charged if the inventory is not moved out from the allocated space before the last week of April.
+Related ticket 
+- Opened a
+ticket in toolbox
+and requested WPR to send ET&I assets to repo-depot.
+Whole Lab-Map
+¶
+All the racks from Row8A to Row13A will be scrapped(repo-depo) except the VPP marked racks, TBD racks will be treated as repo-depo(x) if we don't get a confirmation from the owner.
+Row8A
+Row9A
+Row10A
+Row11A
+Row12A
+Row13A
+X
+R1:TBD
+X
+X
+R1:VPP
+X
+R2:VPP
+X
+X
+X
+R2:TBD
+X
+X
+R3:VPP
+X
+X
+R3:TBD
+R3:VPP
+X
+X
+X
+X
+R4:TBD
+X
+X
+X
+X
+X
+R5:VPP
+X
+X
+X
+X
+X
+R6:VPP
+X
+X
+X
+X
+X
+R7:VPP
+X
+R8:VPP
+X
+X
+X
+X
+X
+X
+X
+X
+X
+R9:VPP
+X
+R10:VPP
+X
+X
+X
+R10:VPP
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+To make the moving process simpler or easier to do or understand we have marked the racks with a colored stickers, red-sticker for the racks that will be scrapped and green-sticker for those who will stay or not to be moved. However, there are couple of racks in Row13A that VPP team requested to keep the TopOfRack switches (
+Row13A: rack2, rack5, rack7 and rack8
+) and it has been marked per item with a green-sticker .
+Sample pictures.
+¶
+This plan will be executed before April 30,2022. All the possibly affected parties will informed and shared with this information before any action is taken.
+2023-08-25

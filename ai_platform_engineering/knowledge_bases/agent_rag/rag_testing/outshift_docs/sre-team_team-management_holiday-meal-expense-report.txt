@@ -1,0 +1,19 @@
+Holiday 2023 meal expense report
+¶
+Budget guidance for holiday meal is under $50 per person or what ever the equivalent is in your local country to get a dinner
+How to submit expense report:
+Login to
+concur.cisco.com
+Setup profile if it is your first time
+Create report
+Report Details
+You can ignore EventID
+Inside the expense report, add a new expense
+Search for "Business Meal-Internal" as expense category
+Enter expense details
+For expenses paid via personal credit card or cash use the category as "cash"
+If you paid with company credit card, the expense will automatically sync with concur
+Upload the receipt (important step)
+Check the alerts and fix the issues
+Submit the expense
+2023-12-19

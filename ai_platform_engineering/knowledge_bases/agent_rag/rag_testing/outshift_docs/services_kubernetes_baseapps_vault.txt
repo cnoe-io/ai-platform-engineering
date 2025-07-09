@@ -1,0 +1,421 @@
+baseapps vault
+postgresql vault
+Vault
+¶
+Vault is a Hashicorp product that stores secrets.
+This is an outline on adding a cluster level Vault for storing customer secrets.
+Setup
+¶
+The installation of Vault is multi-step process as you need to install vault, initialize it, unseal it.  Vault in this example is using RDS postgres backend.
+First, we need to create a database in RDS for the vault.  Follow the direction on how to
+connect pgadmin to RDS
+.
+Create an admin user first and set the password for it.  Store the password in Keeper.
+Here
+Set the user's memberships.
+Create the database for Vault.
+Set the definition.
+Set the security.
+Set the priviledges.
+Run the following SQL to create the tables and indexes.
+CREATE
+TABLE
+vault_kv_store
+(
+parent_path
+TEXT
+COLLATE
+"C"
+NOT
+NULL
+,
+path
+TEXT
+COLLATE
+"C"
+,
+key
+TEXT
+COLLATE
+"C"
+,
+value
+BYTEA
+,
+CONSTRAINT
+pkey
+PRIMARY
+KEY
+(
+path
+,
+key
+)
+);
+CREATE
+INDEX
+parent_path_idx
+ON
+vault_kv_store
+(
+parent_path
+);
+CREATE
+TABLE
+vault_ha_locks
+(
+ha_key
+TEXT
+COLLATE
+"C"
+NOT
+NULL
+,
+ha_identity
+TEXT
+COLLATE
+"C"
+NOT
+NULL
+,
+ha_value
+TEXT
+COLLATE
+"C"
+,
+valid_until
+TIMESTAMP
+WITH
+TIME
+ZONE
+NOT
+NULL
+,
+CONSTRAINT
+ha_key
+PRIMARY
+KEY
+(
+ha_key
+)
+);
+Create a cluster specific vault folder in baseapps.  For example you can look at
+eks-kosha-dev-2
+.  Create a values.yaml and set the values as
+vault
+:
+injector
+:
+enabled
+:
+false
+server
+:
+standalone
+:
+enabled
+:
+true
+replicas
+:
+1
+config
+:
+|
+ui = false
+listener "tcp" {
+tls_disable = 1
+address = "[::]:8200"
+cluster_address = "[::]:8201"
+}
+extraArgs
+:
+"-config=/etc/vault/config/config.json"
+volumes
+:
+-
+name
+:
+postgres-config
+secret
+:
+secretName
+:
+vault-postgres-config
+volumeMounts
+:
+-
+mountPath
+:
+/etc/vault/config
+name
+:
+postgres-config
+readOnly
+:
+true
+externalSecrets
+:
+-
+name
+:
+"vault-postgres-config"
+namespace
+:
+"vault"
+secretStoreRef
+:
+name
+:
+"vault-kosha"
+kind
+:
+"ClusterSecretStore"
+target
+:
+name
+:
+vault-postgres-config
+data
+:
+-
+secretKey
+:
+config.json
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+dev/vault/eks-kosha-dev-2
+version
+:
+"1"
+property
+:
+vaultPostgresConfig
+Add vault as a baseapp to the cluster's value.yaml
+baseAppRepoURL
+:
+https://github.com/cisco-eti/sre-baseapps-configs-genai
+baseapps
+:
+vault
+:
+namespace
+:
+vault
+version
+:
+0.25.0-8
+Sync the baseapps in ArgoCD for the cluster and make sure the vault-0 connects to the postgres by examining the logs.
+==> Vault server configuration:
+Api Address: http://10.2.2.177:8200
+Cgo: disabled
+Cluster Address: https://eks-kosha-dev-2-vault-0.eks-kosha-dev-2-vault-internal:8201
+Environment Variables: EKS_KOSHA_DEV_2_VAULT_PORT, EKS_KOSHA_DEV_2_VAULT_PORT_8200_TCP, EKS_KOSHA_DEV_2_VAULT_PORT_8200_TCP_ADDR, EKS_KOSHA_DEV_2_VAULT_PORT_8200_TCP_PORT, EKS_KOSHA_DEV_2_VAULT_PORT_8200_TCP_PROTO, EKS_KOSHA_DEV_2_VAULT_PORT_8201_TCP, EKS_KOSHA_DEV_2_VAULT_PORT_8201_TCP_ADDR, EKS_KOSHA_DEV_2_VAULT_PORT_8201_TCP_PORT, EKS_KOSHA_DEV_2_VAULT_PORT_8201_TCP_PROTO, EKS_KOSHA_DEV_2_VAULT_SERVICE_HOST, EKS_KOSHA_DEV_2_VAULT_SERVICE_PORT, EKS_KOSHA_DEV_2_VAULT_SERVICE_PORT_HTTP, EKS_KOSHA_DEV_2_VAULT_SERVICE_PORT_HTTPS_INTERNAL, GODEBUG, HOME, HOSTNAME, HOST_IP, KUBERNETES_PORT, KUBERNETES_PORT_443_TCP, KUBERNETES_PORT_443_TCP_ADDR, KUBERNETES_PORT_443_TCP_PORT, KUBERNETES_PORT_443_TCP_PROTO, KUBERNETES_SERVICE_HOST, KUBERNETES_SERVICE_PORT, KUBERNETES_SERVICE_PORT_HTTPS, NAME, PATH, POD_IP, PWD, SHLVL, SKIP_CHOWN, SKIP_SETCAP, VAULT_ADDR, VAULT_API_ADDR, VAULT_CLUSTER_ADDR, VAULT_K8S_NAMESPACE, VAULT_K8S_POD_NAME, VERSION
+Go Version: go1.20.5
+Listener 1: tcp (addr: "[::]:8200", cluster address: "[::]:8201", max_request_duration: "1m30s", max_request_size: "33554432", tls: "disabled")
+Log Level:
+Mlock: supported: true, enabled: false
+Recovery Mode: false
+Storage: postgresql (HA available)
+Version: Vault v1.14.0, built 2023-06-19T11:40:23Z
+Version Sha: 13a649f860186dffe3f3a4459814d87191efc321
+==> Vault server started! Log data will stream in below:
+2023-09-23T13:09:24.506Z [INFO]  proxy environment: http_proxy="" https_proxy="" no_proxy=""
+2023-09-23T13:09:24.525Z [INFO]  core: Initializing version history cache for core
+2023-09-23T13:09:33.839Z [INFO]  core: security barrier not initialized
+Run the following commands (changing the vault-0 pod name).
+kubectl -n vault exec eks-kosha-dev-2-vault-0 -- vault operator init -key-shares=1 -key-threshold=1 -format=json > cluster-keys.json
+VAULT_UNSEAL_KEY=$(cat cluster-keys.json | jq -r ".unseal_keys_b64[]")
+kubectl -n vault exec eks-kosha-dev-2-vault-0 -- vault operator unseal $VAULT_UNSEAL_KEY
+kubectl -n vault exec eks-kosha-dev-2-vault-0 -- vault status
+CLUSTER_ROOT_TOKEN=$(cat cluster-keys.json | jq -r ".root_token")
+kubectl -n vault exec eks-kosha-dev-2-vault-0 -- vault login $CLUSTER_ROOT_TOKEN
+kubectl -n vault exec eks-kosha-dev-2-vault-0 -- vault secrets enable -path=secret kv-v2
+kubectl -n vault exec eks-kosha-dev-2-vault-0 -- vault auth enable kubernetes
+Take the value of the VAULT_UNSEAL_KEY and update the
+secret
+in Keeper with the new value.
+Update the Vault values.yaml in baseapps to include the new external secret.  Your values should look like the following.
+Note
+The version of the secret should be bumped to 2 now.
+vault
+:
+injector
+:
+enabled
+:
+false
+server
+:
+standalone
+:
+enabled
+:
+true
+replicas
+:
+1
+config
+:
+|
+ui = false
+listener "tcp" {
+tls_disable = 1
+address = "[::]:8200"
+cluster_address = "[::]:8201"
+}
+extraArgs
+:
+"-config=/etc/vault/config/config.json"
+postStart
+:
+-
+/bin/sh
+-
+-c
+-
+sleep 10; cat /etc/vault/unseal/unseal | xargs -n 1 vault operator unseal
+volumes
+:
+-
+name
+:
+postgres-config
+secret
+:
+secretName
+:
+vault-postgres-config
+-
+name
+:
+unseal
+secret
+:
+secretName
+:
+vault-unseal
+volumeMounts
+:
+-
+mountPath
+:
+/etc/vault/config
+name
+:
+postgres-config
+readOnly
+:
+true
+-
+mountPath
+:
+/etc/vault/unseal
+name
+:
+unseal
+readOnly
+:
+true
+externalSecrets
+:
+-
+name
+:
+"vault-postgres-config"
+namespace
+:
+"vault"
+secretStoreRef
+:
+name
+:
+"vault-kosha"
+kind
+:
+"ClusterSecretStore"
+target
+:
+name
+:
+vault-postgres-config
+data
+:
+-
+secretKey
+:
+config.json
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+dev/vault/eks-kosha-dev-2
+version
+:
+"2"
+property
+:
+vaultPostgresConfig
+-
+name
+:
+"vault-unseal"
+namespace
+:
+"vault"
+secretStoreRef
+:
+name
+:
+"vault-kosha"
+kind
+:
+"ClusterSecretStore"
+target
+:
+name
+:
+vault-unseal
+data
+:
+-
+secretKey
+:
+unseal
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+dev/vault/eks-kosha-dev-2
+version
+:
+"2"
+property
+:
+unseal
+Run a sync with replace on the vault in ArgoCD and you are done.
+External References
+:
+Postgresql Storage Backend
+Vault installation to Amazon Elastic Kubernetes Service via Helm
+2023-09-23

@@ -1,0 +1,231 @@
+Overview
+¶
+This page summarizes the creation of the kubernetes cluster in P3 enviroment using terraform.
+Overview
+Problem
+Solution
+Requirements
+Steps to create a new cluster
+Step 1: Create a new generic user
+Step 2: Create a new runon openstack project
+Step 3: Create SSH keypair
+Step 3: Update sre-tf-infra
+Step 4: Update eti-infra
+Step 5: Setup secrets in vault
+Find ClusterAPI Values
+Setup Runon Secret
+Create Openstack Runon Secret
+Setup Control Cluster Certs
+Step 6: Approve the PR and create the cluster**
+Future work
+References
+Problem
+¶
+We currently setup kubernetes cluster in P3 using a pre-generated yaml file from ClusterAPI and run kubectl apply -f locally.  This pre-generated yaml file has sensitive information and we are not able to audit and validate the cluster creation.
+Solution
+¶
+We will terraform and atlantis workflow to automate the cluster creation.
+Requirements
+¶
+Create a management cluster.  See the
+document
+Stand up a cluster in our Runon
+P3
+.
+Create an image
+for OpenStack that has kubernetes tools baked into it.
+Create calico CNI on the management cluster use instructions
+here
+Steps to create a new cluster
+¶
+We will use
+eti-gitops-2
+as an example.
+Step 1:
+Create a new generic user
+¶
+Step 2: Create a new runon openstack project
+¶
+Step 3: Create SSH keypair
+¶
+Setup API Access from command line
+source eti-gitops-3-openrc.sh
+Download configuration file
+Access they
+openstack keypair
+Create openstack keypair
+openstack keypair create --public-key ~/.ssh/ops1.pub ops1
+Verify keypair
+openstack keypair list
+Step 3: Update sre-tf-infra
+¶
+Create a new project directory in
+sre-tf-infra
+git
+clone
+https://wwwin-github.cisco.com/eti/sre-tf-infra/
+cd
+sre-tf-infra
+cp
+-r
+runon/capo/cloud-alln-1/eti-gitops-2
+runon/capo/cloud-alln-1/eti-gitops-3
+Update variables in runon/capo/cloud-alln-1/eti-gitops-3/k8s/main.tf
+change cluster name from eti-gitops-2 to eti-gitops-3
+sed -i 's/eti-gitops-2/eti-gitops-3/g' p3/capo/cloud-alln-1/eti-gitops-2/*
+Update atlantis.yaml in sre-tf-infra
+Look for
+#runnon
+in
+atlantis.yaml
+-
+name
+:
+p3-dev-1
+dir
+:
+p3/capo/cloud-rcdn-1/p3-dev-1
+workflow
+:
+standard
+type
+:
+s3
+environment
+:
+runon-p3-dev-1
+terraform_version
+:
+v1.1.9
+NOTE:
+- Due current limitation of clusterapi that deletes the security group rules when a instnace is live migrated,
+managedSecurityGroups
+is set to
+false
+and are managed via terraform
+here
+Step 4: Setup secrets in vault
+¶
+Find ClusterAPI Values
+¶
+Navigate to
+https://cloud-alln-1.cisco.com/dashboard/project/api_access/
+Setup Runon Secret
+¶
+Clone the secrets for
+eti-gitops-2
+Copy the JSON
+Create a new one called
+cluster-name-xx
+).
+Note:
+Following fields are used by terraform for openstack to create security groups in the new project.
+a. Update following fields
+Project URL
+Project ID
+Openstack AUTH url.
+b. Update
+cloud_credentials
+field
+Sample
+plain text
+cloud_credentials
+[Global]
+auth-url=https://cloud-rcdn-1.cisco.com:5000/v3
+username="eti_sre_us-int-3.gen"
+password=""
+tenant-id="b60d3144136e4c6aa08789bb9cf8b221"
+tenant-name="p3-dev-1"
+domain-name="cisco"
+region="cloud-rcdn-1"
+Open an editor like VS Code or vi and update the above contents in
+cloud_credentials.conf
+Create a base64 encoded string from the config
+cat cloud_credentials.conf | base64
+Copy and paste the base64 string to
+cloud_credentials
+field
+c. Update
+cloud_credentials_secret
+field
+Sample
+plain text
+cloud_credentials
+clouds:
+openstack:
+auth:
+auth_url: https://cloud-rcdn-1.cisco.com:5000/v3
+username: "eti_sre_us-int-3.gen"
+password: ""
+project_id: b60d3144136e4c6aa08789bb9cf8b221
+project_name: "p3-dev-1"
+user_domain_name: "cisco"
+region_name: "cloud-rcdn-1"
+interface: "public"
+identity_api_version: 3
+Open an editor like VS Code or vi and update the above contents in
+cloud_credentials_secret.conf
+Create a base64 encoded string from the config
+cat cloud_credentials_secret.conf | base64
+Copy and paste the base64 string to
+cloud_credentials_secret
+field
+Create Openstack Runon Secret
+¶
+OpenStack user/password keeper location -
+production
+eti-gitops-3
+development
+gbear
+test
+Setup Control Cluster Certs
+¶
+Set access to the control cluster where the ClusterAPI is running.
+Easiest way to find these values is use the kube config for the control cluster.
+ca-certs and key are in
+.kube/config
+terraform code example
+host
+=
+data.vault_generic_secret.test-kevin-cluster.data
+[
+"cluster_endpoint"
+]
+cluster_ca_certificate
+=
+base64decode
+(
+data.vault_generic_secret.test-kevin-cluster.data
+[
+"cluster_ca_cert"
+])
+client_certificate
+=
+base64decode
+(
+data.vault_generic_secret.test-kevin-cluster.data
+[
+"cluster_client_cert"
+])
+client_key
+=
+base64decode
+(
+data.vault_generic_secret.test-kevin-cluster.data
+[
+"cluster_client_key"
+])
+Step 5: Approve the PR and create the cluster**
+¶
+You should be good to now run atlantis apply on the cluster in the PR for the sre-tf-infra changes.
+atlantis plan -p p3-dev-1
+Future work
+¶
+Write ansible script to automate the steps above
+Use ClusterResourceSet to automate the clouds.yaml.  Currently, it's hardcoded in multiple resources and updating password is a challenge.
+References
+¶
+ClusterAPI Contepts
+Jacob Baek's Blog - Cluster-API (in Korean)
+Scott Lowe's Blog - Bootstrapping a Cluster API Management Cluster
+2023-08-29

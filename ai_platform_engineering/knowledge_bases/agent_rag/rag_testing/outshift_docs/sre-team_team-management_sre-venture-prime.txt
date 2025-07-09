@@ -1,0 +1,26 @@
+sre venture prime
+SRE Venture Prime
+¶
+Reference
+:
+Platform Engineering Miro Board
+(Access required)
+Role
+¶
+Your role is key to ensure that ventures are successful on the Outshift Platform Engineering offerings and that ventures realize the accelerated benefits of a platform play in a sustainable way.
+Itâs critical that you understand the context and maintain high touchpoint contacts to both manage the relationship and effectively realize their requirements in-line with the overall platform direction.
+Responsibilities
+¶
+Understand goals and objectives of application owners
+Map out a pragmatic sequence to meet service owner objectives in-line with direction of the platform including security and cost considerations
+Flag and track deviations from desired direction and any tech debt
+Maintain a good relationship with stakeholders
+Track confidence level and risks involved on commitments
+Accountable For
+¶
+Driving committed roadmap items for the venture in quarterly planning
+Driving resolution of service owner escalations to incidents and defects
+Remarks
+¶
+While the primes coordinate incoming requests from the venture team, they are not tasked with executing all of the work. Please work your SRE Product Owner, Team Lead or your manager to coordinate the work.
+2024-05-04

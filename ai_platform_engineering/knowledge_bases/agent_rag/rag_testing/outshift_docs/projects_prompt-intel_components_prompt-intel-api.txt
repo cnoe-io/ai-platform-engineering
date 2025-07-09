@@ -1,0 +1,20 @@
+Outshift prompt-intel-api
+¶
+Quick-links
+¶
+Code repo
+Deployment repo
+CI
+Jenkins url
+CD
+Dev
+Preview
+Prod
+Runbooks
+¶
+prompt-intel-api pod down
+¶
+Check the logs on Elastic Search
+Dev/Test/Preview
+Prod
+2024-07-19

@@ -1,0 +1,205 @@
+How to Renew Atlantis Vault Tokens
+¶
+Automation Jenkins Job
+¶
+â  READ THIS BEFORE YOU PROCEED
+There is now a jenkins job to automate vault token rotation:
+atlantis-token-rotation
+. Once the job is finished, it will automatatically generate a vault token and save it in
+keeper-atlantis
+. The job also takes care of updating the vault secret in kubernetes cluster and restarting the pod.
+Jenkins job details as outlined
+here
+.
+Manual Resolution
+¶
+Symptoms
+¶
+Atlantis
+plan
+or
+apply
+commands fail with the following error:
+*
+permission
+denied:
+unable
+to
+read
+secret
+or
+â
+Error:
+failed
+to
+lookup
+token,
+err
+=
+Error
+making
+API
+request.
+â
+â
+Namespace:
+eticloud
+â
+URL:
+GET
+https://keeper.cisco.com/v1/auth/token/lookup-self
+â
+Code:
+403
+.
+Errors:
+â
+â
+*
+2
+errors
+occurred:
+â
+*
+permission
+denied
+â
+*
+invalid
+token
+This error is most likely due to an expired Vault token.
+Background
+¶
+Atlantis uses Vault tokens to retrieve AWS IAM credentials for Terraform operations.
+There are two Vault tokens, each created as "orphan" tokens with a 768 hour (30 day) lifetime:
+Vault Token in
+eti-gitops-3
+:
+Namespace:
+eticloud
+Policy:
+vault_admin
+Step 1: renew token
+¶
+A convenience script to accomplish this is located
+here
+.
+See the
+script documentation
+for more information.
+Step 2: Renew secret and restart Atlantis Pod
+¶
+Restart the Atlantis pod
+in the appropriate cluster
+. For example:
+Via CLI:
+export
+CLUSTERNAME
+=
+eti-gitops-3
+kubectl
+config
+use-context
+$CLUSTERNAME
+kubectl
+delete
+secret
+$CLUSTERNAME
+-atlantis-vault
+-n
+atlantis
+--ignore-not-found
+# wait for the secret $CLUSTERNAME-atlantis-vault to be created
+kubectl
+get
+secrets
+-n
+atlantis
+kubectl
+-n
+atlantis
+rollout
+restart
+statefulset
+$CLUSTERNAME
+-atlantis
+kubectl
+get
+pods
+-n
+atlantis
+-w
+Via ArgoCD: go to the
+Atlantis application
+and restart the Stateful Set there.
+Troubleshooting
+¶
+In order to make sure the token has been applied in Atlantis or if Atlantis commands still fail with permission denied errors:
+Get the vault token in the appropriate instance of Atlantis:
+kubectl
+config
+use-context
+eks-gitops-1
+kubectl
+get
+secret
+eks-gitops-1-atlantis-vault
+-n
+atlantis
+-o
+json
+|
+jq
+-r
+'.data.token'
+|
+base64
+--decode
+In the output, you'll see the
+base64-decoded
+version of the
+VAULT_TOKEN
+.
+Check if this worked:
+VAULT_TOKEN
+=
+$BASE64_DECODED_VAULT_TOKEN
+VAULT_NAMESPACE
+=
+eticloud
+vault
+token
+lookup
+If this is not working, compare that above token with your admin token:
+export
+VAULT_TOKEN
+=
+$(
+vault
+login
+-method
+=
+oidc
+-format
+=
+json
+|
+jq
+-r
+.auth.client_token
+)
+Update the token in Keeper (
+vault-token
+secret
+, create a new version of the secret, paste the token gotten from running the above
+vault login...
+command.
+Refresh the secrets via ArgoCD. Go to the
+Atlantis application
+and remove the external secrets named
+external-secret-vault-token
+.
+If the secrets (still) do not refresh, this may be due to external secret token expiration; refer to
+this guide
+to resolve this issue.
+2025-04-25

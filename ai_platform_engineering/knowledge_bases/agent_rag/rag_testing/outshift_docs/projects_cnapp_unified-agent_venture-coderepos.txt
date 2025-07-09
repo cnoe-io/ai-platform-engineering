@@ -1,0 +1,30 @@
+code
+development
+repos
+ua
+unified agent
+ventures
+Code/Repos
+¶
+All the current Panoptica - Unified Agent repositories are held in
+GHEC
+under our
+cisco-eti
+organization.
+They are manged and used by the
+Agent
+team.
+The list of repositories used:
+panoptica-kubernetes-integration-chart
+panoptica-cli
+panoptica-cluster-service-deployment
+Note
+If you currently do not have access, please refer to the following
+GHEC documentation
+For assistance in being assigned to the
+Agent
+team, please reach out to
+Dan Neduva
+and/or
+Alexei Kravtsov
+2024-03-05

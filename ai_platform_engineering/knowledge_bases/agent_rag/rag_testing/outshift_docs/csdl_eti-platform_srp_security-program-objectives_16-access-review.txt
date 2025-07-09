@@ -1,0 +1,22 @@
+IAM-01.01
+Perform regular access reviews and revoke unnecessary privileges
+¶
+Target Date: FY??Q?
+¶
+Risk(s) Addressed
+¶
+Unnecessarily broad permissions may lead to privilege escalation
+Description
+¶
+Perform regular access reviews (either for users and applications) and revoke unnecessary privileges considering the least privilege principle.
+Limit the capability of applications to be executed as users with elevated privileges.
+Provide recommendations and best practices for the venture teams about access and privilege management.
+Definition of Done
+¶
+Regular access reviews are performed and unnecessary privileges revoked.
+Relevant Controls
+¶
+IAM-01.01
+Objective Status: Not Started
+¶
+2023-04-19

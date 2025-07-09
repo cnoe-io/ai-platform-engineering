@@ -1,0 +1,73 @@
+SRE-3752 -- Build infra optimisation
+¶
+Objectives (as on Jira issue)
+¶
+As part of the build optimisation for Great Bear, we've decided to investigate the ec2 plugin which can be a way to dynamically manage our AWS CI infra recently up due to the P3 outbound limitation.
+Different approaches
+¶
+As per the investigation, we will discuss different approaches such as:
+using ec2 plugin
+managing build infra based on our GitOps implementation using TF
+EC plugin in Jenkins
+¶
+The
+EC2 Jenkins plugin
+is a way to dynamically manage your build infra in AWS. This looks quite good in term of build optimisation and costs. I'm going to run through the test done in the context of Great Bear to illustrate the usage of the plugin, from configuration to having dynamic infra running the build.
+Configuring the cloud provider
+¶
+First of all, you will need to set-up a new cloud provider
+here
+. One first thing once setting up the cloud provider is that this is currently going to store the AAWS key ID / secret in Jenkins credentials, something we already identify as an issue per STO recommandation.
+So before creating the new cloud provider, you will need to set up a new AWS IAM user with the right policy as per the
+ec2 plugin IAM configuration
+which in our case, will be in
+AWS eti-ci IAM
+as per:
+Once done, this will generate AWS key ID and secret which is currently stored in keeper
+here
+Then, create a new cloud provider with the AWS key ID/Secret stored in Jenkins credentials.
+You should have this configuration for example:
+Setting up AMI and provider configuration
+¶
+The cloud provider configuration is the first part, the other one is really all the EC2 configuration which is kind of long list of parameters and required lot of details. At the end, this gives us low flexibility as one cloud provider is then not generic but more use case specific, in the current context, we've defined a cloud provider for Great Bear use case, having other requirements for different ventures might required one or more provider.
+The first part is about setting up the AMI and instance type as per:
+As you can see, we need to use the Cisco Hardened image and also set the instance type.
+Then, you will need to switch to the advanced mode in order to set up lot of required parameters such as the security group names, where I found an issue, this should be commas separated as per
+this doc
+. If you put a space or something else, the plugin will not work and you will be stuck without much errors nor logs/informations available. Having the right security group is quite key as for us, this will enable ingress access but also internet access as defined in the default group. Also, you will need to define labels, in our case, we do specify dedicated label for a yocto build. Here is our current setup:
+After, you will need to setup the init script in order to make the jenkins node compliant with Jenkins, by this I mean that this requires installing java so the remote.jar library will be loaded once the node is up. But in our case, you will need also the docker engine setup. In this part, there is also the number of executor settings:
+The next part is about setting up the Subnet ID which is linked then to the VPC and also the VM tags as per:
+Last part is also key as this is where you will specify the storage of the AMIs with the block device mapping which is also key. In our case, we did set sda1 to 200G instead of 8 by default. There is also a key part in this setting section where you define the minimum of instances and the spares ones. There is also the connection strategi, in our case, we're using the public IP.
+Finally, as you can see, a cloud provider config is really limited top a specific configuration which is not really what we need in term of flexibility.
+EC2 pluging pros/cons
+¶
+pros:
+possible to manage build infra as VMs or containers
+cons:
+AWS key / ID are stored in AWS
+this is currently limited in term of features and also required lot of setting definition per project / use case
+this is really ideal when your build infra is 100% cloud as the plugin is considering infra loads, in our case, we're hybrid with on-prem in P3 and Cloud in AWS CI
+duplicating the Ansible roles in the init script
+only covering EC2 scope (no VPC nor SG)
+Using TF following our curent GitOps approach
+¶
+THe other option will be to enhance the sre-pipeline-library in order to call or TF code in order to bootstrap specific node base on our main repo code, like this is currently done for the image builder
+here
+we've got a script called from the JenkinsFile which then clone and execute the TF code from the main repo
+here
+.
+With this approach, we're keeping the GitOps approach and enabling more dynamic infra where this will also use our ansible playbook to well setup nodes depending on the use cases.
+GitOps pros/cons
+¶
+pros:
+this will follow our current standard managing infra through GitOps
+better flexibility using TF and Ansible
+cons:
+kind of re-doing the ec2 plugin which is too limited with some gaps
+not reallying on Atlantis
+Conclusion
+¶
+Based on the above, we can conclude that the EC2 plugin is not meeting our needs and so we will not use it. Currently, the solution using TF and Ansible is enough for ventures needs, including GB.
+We're going to investigate another approach through
+this JIRA task
+2023-08-29

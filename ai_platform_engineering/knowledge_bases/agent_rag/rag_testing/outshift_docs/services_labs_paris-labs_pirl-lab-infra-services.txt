@@ -1,0 +1,81 @@
+PIRL Lab Infra Services
+¶
+Infra Services Summary
+¶
+Name
+Description
+Access
+Observium
+The PIRL Lab resources
+Monitoring tool
+Credentials
+PIRL CPNR Regional
+Credentials
+PIRL CPNR Local-1
+Local
+Backup DHCP Server
+& IP management UI
+Credentials
+PIRL CPNR Local-2
+Local Primary DHCP Server
+& IP management UI
+Credentials
+PIRL phpLDAPadmin
+The web based administration interface used
+to manage our LDAP server DIT, users and groups
+Credentials
+PIRL-vCenter
+Management Software that provides a centralized platform
+for controlling the VMware ESXi hosts and clusters
+Credentials
+Racktables
+Open Source tool we use to document the
+lab hardware inventory and rack layouts
+Credentials
+UCS Manager
+Management system software integrated with fabric interconnects
+used for access, configure, administer and monitor the network and server resources connected to the fabric interconnect.
+Credentials
+PIRL VMware ESXi Environment
+¶
+A VMware ESXi infra is running in the Datacenter made of  two clusters discribed below:
+The
+Infra cluster
+made of two ESXi hosts as shown in the image above hosting the labs services VMs like
+DHCP Servers
+and some
+Jenkins agents
+The
+TKG Cluster
+or Tanzu Kubernetes Grid cluster made of 4 ESXi hosts with GPU cards
+to allow lab users to create and manage Kubernetes clusters
+on the lab VMware environment
+Please find the hosts login credentials
+here
+PIRL DHCP Service configuration
+¶
+DHCP is running within PIRL labs. The tool used for this is CPNR (Cisco Network Prime Registrar). The architecture is made of a regional server and 2 local servers as the following:
+Regional server:
+PIRL CPNR REGIONAL
+10.60.17.42 (VM named "PIRL-CPNR-REGIONAL") and hosted in the PIRL Infra ESXi host cluster.
+Local server
+#1
+:
+PIRL CPNR LOCAL-1
+, 10.60.17.43 (VM named "pirl-cpnr-local-1") and also hosted in the PIRL Infra ESXi host cluster.
+Local server
+#2
+:
+PIRL CPNR LOCAL-2
+, 10.60.17.41 (VM named "cpnr_8_3_1_local-2" and hosted in the PIRL Infra ESXi host cluster as well. It's the main local server.
+NTP Configuration
+¶
+NTP Server Corp - Stratum 2:
+ntp.esl.cisco.com
+(173.38.201.115)
+NTP Relay (each GW of each subnet is a NTP relay):
+- 10.60.16.254
+- 10.60.17.254
+- 10.60.18.254
+- 10.60.19.254
+2023-08-29

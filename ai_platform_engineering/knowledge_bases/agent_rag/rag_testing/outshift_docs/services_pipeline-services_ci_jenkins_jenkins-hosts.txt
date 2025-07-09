@@ -1,0 +1,319 @@
+active jenkins agents
+Active Jenkins Agents
+¶
+Note: This file was automatically generated on 10/17/2023, 22:59:22
+Source Code
+. To regenerate the markdown file, execute
+rume.sh
+Jenkins Hosts
+Host Name
+Host Flavor
+Host Environment
+Labels
+Number of exectutors
+Built-In Node
+Linux
+P3 Openstack VM
+- built-in
+0
+appnet-sdm-1
+Linux
+P3 Openstack VM
+- appnet-sdm
+- appnet-sdm-1
+4
+appnet-smm-1
+Linux
+P3 Openstack VM
+- appnet-smm
+- appnet-smm-1
+- rslatter
+1
+eti-cloud-agent-1.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-1.ci.eticloud.io
+4
+eti-cloud-agent-10.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-10.ci.eticloud.io
+2
+eti-cloud-agent-11.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-11.ci.eticloud.io
+2
+eti-cloud-agent-12.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- eti-cloud-agent-12.ci.eticloud.io
+2
+eti-cloud-agent-13.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-13.ci.eticloud.io
+2
+eti-cloud-agent-14.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-14.ci.eticloud.io
+2
+eti-cloud-agent-15.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-15.ci.eticloud.io
+2
+eti-cloud-agent-16.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-16.ci.eticloud.io
+1
+eti-cloud-agent-17.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-17.ci.eticloud.io
+1
+eti-cloud-agent-18.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-18.ci.eticloud.io
+1
+eti-cloud-agent-19.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-19.ci.eticloud.io
+1
+eti-cloud-agent-2.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- eti-cloud-agent-2.ci.eticloud.io
+- wip
+1
+eti-cloud-agent-20.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-20.ci.eticloud.io
+1
+eti-cloud-agent-3.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-3.ci.eticloud.io
+1
+eti-cloud-agent-4.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- cloud-node
+- eti-cloud-agent-4.ci.eticloud.io
+1
+eti-cloud-agent-5.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- cloud-node
+- eti-cloud-agent-5.ci.eticloud.io
+1
+eti-cloud-agent-6.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- eti-cloud-agent-6.ci.eticloud.io
+2
+eti-cloud-agent-7.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-7.ci.eticloud.io
+2
+eti-cloud-agent-8.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-8.ci.eticloud.io
+2
+eti-cloud-agent-9.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- cloud-build
+- eti-cloud-agent-9.ci.eticloud.io
+2
+eti-dedicated-cloud-agent-1.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- eti-dedicated-cloud-agent-1.ci.eticloud.io
+- great-bear-yocto-large
+1
+eti-dedicated-cloud-agent-2-1.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- eti-dedicated-cloud-agent-2-1.ci.eticloud.io
+- great-bear-yocto-large
+1
+eti-jenkins-ansible-large-1
+Linux
+P3 Openstack VM
+- ansible
+- eti-jenkins-ansible-large-1
+1
+eti-jenkins-canary-test-1
+Linux
+P3 Openstack VM
+- canary
+- eti-jenkins-canary-test-1
+1
+eti-jenkins-common-xlarge-1
+Linux
+P3 Openstack VM
+- alcor
+- eti-jenkins-common-xlarge-1
+- xlarge
+4
+eti-jenkins-common-xlarge-10
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-10
+- portshift
+- xlarge
+4
+eti-jenkins-common-xlarge-11
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-11
+- portshift
+- xlarge
+4
+eti-jenkins-common-xlarge-12
+Linux
+P3 Openstack VM
+- eti-jenkins-common-xlarge-12
+- wip
+6
+eti-jenkins-common-xlarge-13
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-13
+- xlarge
+6
+eti-jenkins-common-xlarge-14
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-14
+- xlarge
+6
+eti-jenkins-common-xlarge-15
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-15
+- xlarge
+6
+eti-jenkins-common-xlarge-2
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-2
+- xlarge
+4
+eti-jenkins-common-xlarge-3
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-3
+- wcm
+- xlarge
+4
+eti-jenkins-common-xlarge-4
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-4
+- wcm
+- xlarge
+4
+eti-jenkins-common-xlarge-5
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-5
+- wcm
+- xlarge
+4
+eti-jenkins-common-xlarge-6
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-6
+- securecn
+- xlarge
+4
+eti-jenkins-common-xlarge-7
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-7
+- securecn
+- xlarge
+4
+eti-jenkins-common-xlarge-8
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-8
+- securecn
+- xlarge
+4
+eti-jenkins-common-xlarge-9
+Linux
+P3 Openstack VM
+- build
+- eti-jenkins-common-xlarge-9
+- securecn
+- xlarge
+4
+eti-jenkins-kosha-xlarge-1
+Linux
+P3 Openstack VM
+- eti-jenkins-kosha-xlarge-1
+4
+eti-jenkins-kosha-xlarge-2
+Linux
+P3 Openstack VM
+- eti-jenkins-kosha-xlarge-2
+- kosha
+4
+eti-jenkins-sjc-blackduck-1
+Linux
+P3 Openstack VM
+- blackduck
+- eti-jenkins-sjc-blackduck-1
+- paris
+1
+eti-jenkins-sjc-large-1
+Linux
+P3 Openstack VM
+- eti-jenkins-sjc-large-1
+- sjc-jenkins
+1
+sre-imagebuilder-1.ci.eticloud.io
+Linux
+AWS EC2 Instance
+- imagebuilder
+- sre-imagebuilder-1.ci.eticloud.io
+1
+2023-10-17

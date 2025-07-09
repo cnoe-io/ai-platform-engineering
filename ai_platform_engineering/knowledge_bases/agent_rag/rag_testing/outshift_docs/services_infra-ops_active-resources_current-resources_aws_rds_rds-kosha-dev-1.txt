@@ -1,0 +1,21 @@
+rds-kosha-dev-1
+rds-kosha-dev-1 RDS Cluster
+¶
+RDS cluster in the
+kosha-dev
+AWS account, us-east-2 region.
+Terraform Code
+¶
+rds-kosha-dev-1
+VPC
+¶
+rds-kosha-dev-1-vpc
+Cluster Access
+¶
+How to setup PgAdmin
+How to create an SSH Tunnel to RDS
+VPC Bastion Access
+Connection details
+¶
+rds-kosha-dev-1 connection in Keeper
+2023-09-20

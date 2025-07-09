@@ -1,0 +1,71 @@
+RAG Kafka Queue Drain
+¶
+Sometimes the ingestion pipeline gets backed up and the services cannot process
+all of the messages quickly enough. Check this dashboard for the current state
+of the Kafka Lag:
+https://observability.outshift.io/d/f7eeb66c-65ef-4304-8081-b7f92dad326c/aws-msk-for-motific
+Kafka Lag
+: The number of unprocessed messages sitting in a kafka topic
+waiting to be dequeued.
+Drain the Queue Overview
+¶
+Disconnect all consumers from the
+(consumer_group, topic)
+pair that needs
+   to be drained.
+Connect to a bastion sever to run a Kafka admin CLI to reset the offsets of
+   that topic and consumer group
+Reconnect the consumers to their respective topics
+The RAG (consumer_group, topic) tuples
+¶
+rag-ingestion-manager, audits
+acq-consumer-group, ingestion_tasks
+rag_doc_processor, raw_documents
+rag_doc_indexing, processed_documents
+1. Disconnect Consumers
+¶
+All services that are consuming the desired topic need to be disconnected. This
+means updating the deployment configs to no longer listen to that topic or use
+the consumer group. Here is an example of disconnecting the ingestion-manager
+and indexing service in the staging environment:
+https://github.com/cisco-eti/vowel-deployment/commit/a02ec0c0242bfdee953558507ade62406aef2300
+By changing the topic name and consumer group id, the consumer group becomes
+"inactive" and possible to be reset in Step
+#2
+.
+Wait for these changes to be deployed.
+2. Reset Offsets with Kafka Admin CLI
+¶
+Initialize a few helpful env vars.
+BS
+, here, are the dev Kafka bootstrap
+servers. Replace this value with the corresponding environments bootstrap
+servers
+export BS="b-1.mskvoweldev1.azgemx.c6.kafka.us-east-2.amazonaws.com:9096,b-2.mskvoweldev1.azgemx.c6.kafka.us-east-2.amazonaws.com:9096,b-3.mskvoweldev1.azgemx.c6.kafka.us-east-2.amazonaws.com:9096"
+export KAFKA_OPTS=-Djava.security.auth.login.config=/home/ec2-user/kafka_2.12-3.5.1/bin/users_jaas.conf
+It might be necessary to copy JVM certs:
+cp /usr/lib/jvm/jre-11-openjdk/lib/security/cacerts /tmp/kafka.client.truststore.jks
+Change directory into dir with kafka bins
+cd kafka_2.12-3.5.1/bin/
+Some commands to help check the status of things
+¶
+./kafka-consumer-groups.sh --bootstrap-server ${BS} --command-config client_sasl.properties --describe --all-groups
+./kafka-consumer-groups.sh --bootstrap-server ${BS} --command-config client_sasl.properties --describe --group rag-ingestion-manager --group acq-consumer-group --group rag_doc_processor --group rag_doc_indexing
+./kafka-topics.sh --bootstrap-server ${BS} --command-config client_sasl.properties --list
+./kafka-topics.sh --bootstrap-server ${BS} --command-config client_sasl.properties --describe --topic raw_documents
+Dry runs commands to reset offsets
+./kafka-consumer-groups.sh --bootstrap-server ${BS} --command-config client_sasl.properties --group "rag_doc_indexing" --topic "processed_documents" --reset-offsets --to-latest --dry-run
+./kafka-consumer-groups.sh --bootstrap-server ${BS} --command-config client_sasl.properties --group "rag-ingestion-manager" --topic "audits" --reset-offsets --to-latest --dry-run
+Commands to reset offsets. This is dangerous and will effectively drop all unprocessed messages in the queues. Be careful.
+./kafka-consumer-groups.sh --bootstrap-server ${BS} --command-config client_sasl.properties --group "rag_doc_indexing" --topic "processed_documents" --reset-offsets --to-latest --execute
+./kafka-consumer-groups.sh --bootstrap-server ${BS} --command-config client_sasl.properties --group "rag-ingestion-manager" --topic "audits" --reset-offsets --to-latest --execute
+3. Reconnect Consumers
+¶
+Revert the changes made in Step
+#1
+to reconnect the services to their topics.
+Here is an example reverting the 1
+st
+example:
+https://github.com/cisco-eti/vowel-deployment/commit/f2a1c883e0382de0e7b424fed30713ff065f8ea7
+2024-07-11

@@ -1,0 +1,24 @@
+baseapps canary-tests
+canary-tests
+canary-tests
+¶
+Canary tests are intended to verify various baseapps functionality.
+Here are the following checks canary-test verify:
+Ingress Public:
+Verify that the platform-demo public ingress is publicly accessible on the internet
+Ingress Private:
+Verify that the platform-demo internal ingress is only accessible from Cisco Network
+External DNS:
+Verify platform-demomDNS automation is successful and user is able to access the public/private ingress urls
+Cert-manager:
+Generate a TLS certificate for the sub-domain under test.
+Example:
+https://canary-test-public.baseapps-test-1.dev.eticloud.io
+We are verify if the TLS certificate is a validate certificate issued by Let's encrypt
+Navigate to the URL in the browser and verify the TLS certificate
+If the certificate is invalid or not signed by a browser trusted CA, the user will receive an error accessing the URL
+Imagepullsecrets
+Verify platform-demo container is pulled
+Observability
+Verify platform-demo sample dashboards are installed in Grafana
+2024-07-11

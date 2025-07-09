@@ -1,0 +1,76 @@
+p3 developer vms
+Developer VMs
+¶
+VM Name
+Owner
+Size
+Notes
+eti-lab-inventory
+ETI SRE (ahismail)
+4(CPU) 440GB(SSD) 32GB(RAM)
+ETI Lab Inventory
+eti-in
+ETI SRE (ahismail)
+2 (CPU) 50GB(SSD) 8GB(RAM)
+ETI Internal Website redirection
+appnet-sdm-1
+rslatter
+8(CPU) 440GB(SSD) 32GB(RAM)
+Developer VM
+appnet-smm-1
+shridhsh
+16(CPU) 50GB(SSD) 32GB(RAM)
+Developer VM
+eti-hliu4-1
+hliu4
+4(CPU) 440GB(SSD) 32GB(RAM)
+Developer VM
+issa-ubuntu-vm
+imangass
+1 (CPU) 50GB(SSD) 4GB(RAM)
+Developer VM
+eti-jdetiber-1
+jdetiber
+8(CPU) 440GB(SSD) 64GB(RAM)
+Developer VM
+eti-rslatter-2
+rslatter
+16(CPU) 50GB(SSD) 32GB(RAM)
+Developer VM
+eti-saolds-1
+saolds
+8(CPU) 440GB(SSD) 64GB(RAM)
+Developer VM
+eti-shridhsh-1
+shridhsh
+8(CPU) 440GB(SSD) 32GB(RAM)
+Developer VM
+eti-shridhsh-2
+shridhsh
+8(CPU) 440GB(SSD) 32GB(RAM)
+Developer VM
+eti-sushroff-1
+sushroff
+8(CPU) 440GB(SSD) 64GB(RAM)
+Developer VM
+eti-rnasani-1
+rnasani
+16(CPU) 1500GB(SSD) 32GB(RAM)
+Developer VM
+eti-giheron-1
+giheron
+4(CPU) 220GB(SSD) 16GB(RAM)
+Developer VM
+eti-aortego-1
+aortego
+16(CPU) 50GB(SSD) 32GB(RAM)
+Developer VM
+eti-mkotrako-1
+mkotrako
+16(CPU) 50GB(SSD) 32GB(RAM)
+Developer VM
+eti-lflorit-1
+lflorit
+4(CPU) 50GB(SSD) 16GB(RAM)
+Developer VM
+2023-11-09

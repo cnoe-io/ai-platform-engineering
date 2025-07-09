@@ -1,0 +1,13 @@
+Outshift Prompt-Intel Observability
+¶
+Logs
+¶
+Check the logs on AppDynamics
+Dev/Test/Preview
+Prod
+Dashboards
+¶
+Dev
+Preview
+Prod
+2024-07-11

@@ -1,0 +1,22 @@
+How to ssh to k8s node via bastion
+¶
+Tags: Kubernetes k8s node ssh
+Pre-requisite
+¶
+Identify bastion host and setup ssh
+Setup K8s kubectl access
+EKS
+P3
+GKE
+Setup SSH tunnel via bastion
+¶
+Identify the K8s nodes
+kubectl get nodes
+Edit ~/.ssh/config and add the following:
+Host <K8s node IP or hostname> <<K8s node IP or hostname>
+Hostname <bastion host ip or hostname>
+User ec2-user
+IdentityFile "~/.ssh/bastion-host.key"
+SSH to k8s node
+ssh <K8s node IP or hostname>
+2023-01-04

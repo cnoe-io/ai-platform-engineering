@@ -1,0 +1,448 @@
+Lab Emergency On-Call Procedure
+¶
+Emergency Expectations
+¶
+Lab Emergency On-Call Procedure
+Emergency Expectations
+Lab Emergency Points Of Contact
+InfoSec Lab Vulnerability Alert
+Lab Non-Compliant Status Alert
+Device remote access loss (CIMC)
+DHCP Lease issue
+Configure Server CIMC IP
+Verify/Fix physical links
+Configure user LDAP access to PIRL VMware env
+Create the user's LDAP Account
+Configure the user's permissions in the PIRL-vCenter
+Test User Access
+Change user temporary password
+Lab Emergency Points Of Contact
+¶
+Point Of Contact
+Service
+Emergency
+Lobar Kodirova
+,
+Belinda Bornil
+WPR HelpDesk -
+wpr-helpdesk-france@cisco.com
+General requests
+Michael Levy
+,
+Sylla Mbaye
+SSBR (Security)
+People to contact when you lose your badge or for some reason you lose access to all the spaces to which your badge allowed you to access. Sometimes the badge reader on the rack do not work, so ask them to fix that issue and give you the rack's key while waiting
+Camila Mantilla
+Safety & Security
+Employee safety questions, Building and lab access authorizations
+Franck Bonneau
+,
+Benoit Mercier
+(Backup)
+Shared Lab Primes
+Person to contact for any technical questions related to the shared lab and DMZ shared ressources (Building gateway, patch panels interconnection rack, cooling issues ...)
+Nathan Skrzypczak
+,
+David Gaumont
+,
+Thao Le Thien
+Lab Users
+People who have access to the labs and who can help with an emergency intervention in case they are on site
+Fahad Mushtaq
+,
+Privin P
+InfoSec
+Lab vulnerability or Lab Non-Compliant urgent issues
+InfoSec Lab Vulnerability Alert
+¶
+Sometimes we receive a lab vulnerability notification from InfoSec. And we need to fix it as soon as its severity requires in order to avoid any network restrictions by InfoSec (Lab decommission or blackholing). The fisrt thing to do is to check the notification to pick  Please follow the following procedure for the vulnerability mitigation:
+Pick the vulnerability's description from the notification
+Check the vulnerability's severity level to have an idea of the delay we have to fix the issue
+Collect the IP addresses concerned by the vulnerability
+Check the
+VLAN usage table
+to determine which team is using the vulnerable IPs
+With the information collected previously, if the impacted IP belongs to us, please
+fix the vulnerability by following the workaround and  required actions indicated in InfoSec email notification
+Otherwise,
+contact the concerned
+team with the vulnerability's details and
+tell them to fix it in time
+.
+For any reason if the vulnerability is not mitigate in time, please follow the steps below to create an ACL rule on the lab gateway to block to the vulnerable IP/Port:
+â¯
+ssh
+-oKexAlgorithms
+=
++diffie-hellman-group-exchange-sha1
+-oHostKeyAlgorithms
+=
++ssh-rsa
+-c
+aes256-cbc
+admin@pirl-corp-gw.cisco.com
+Pick the password from
+keeper
+PIRL-CORP-GW#conf
+t
+PIRL-CORP-GW
+(
+config
+)
+#access-list 105 deny tcp any host 10.60.16.106 eq 427
+This
+command
+above
+is
+an
+extended
+ACL
+rule
+which
+blocks
+traffic
+from
+any
+source
+IP
+to
+the
+10
+.60.16.106
+destination
+host
+on
+TCP
+port
+427
+(
+Vulnerable
+SLP
+service
+)
+.
+Please
+repeat
+this
+command
+for
+the
+remaining
+vulnerable
+IP/Ports
+PIRL-CORP-GW
+(
+config
+)
+#permit ip any any
+PIRL-CORP-GW
+(
+config
+)
+#int g0/0/0
+PIRL-CORP-GW
+(
+config-if
+)
+#ip access-group 105 in
+- Inform InfoSec that the vulnerabilty has been mitigated
+Lab Non-Compliant Status Alert
+¶
+This issue can also lead to the lab decommission or blackholing if it's not fixed in time.
+- You need to be Primary or Backup PoC to access the Lab Registry Tool
+- Dcumentation for
+Updating the Backup POC
+- Visit the
+Lab Registry Tool
+to check le labs compliance state
+- Select from list the lab in
+non-compliant
+state
+- Click on
+Fix Non Compliance
+- Follow the required actions in the email notification to fix the lab non-compliance status
+- You will receive a confirmation email indicating the lab compliance status change.
+- Check again in the
+Lab Registry Tool
+that the state has changed to compliant
+Device remote access loss
+¶
+Usually the lab users contact us when they loose SSH or CIMC access to their standalone servers. This usually happens when the concerned device is shutdown for some reason ( in the case of a power outage in the lab for exemple), and the device is not configured to reboot automatically when the power is restored, or even if this is the case, the SSH or CIMC IP has not been statically configured.
+In this case, fixing the CIMC access issue might be sufficient to allow the user to get remote access to the server and fix ssh access by himself.
+Ask the user for the server's
+hostname name
+Visit the
+lab inventory page
+to locate the server in the racks
+Find in the lab's corner a table with the KIT for direct connection to the server's front panel (a VGA connector combined with dual USB ports, a monitor screen, a keyboard and a mouse)
+Connect the VGA connector to the server's front panel KVM connector
+Plug the monitor screen to power source
+Boot the server
+The CIMC IP should be displayed in the boot screen, foward it to the user so that he can manage the host IP from the KVM Console in the CIMC interface
+Otherwise, if you get a
+0.0.0.0
+CIMC IP in the boot screen, you need to perform the following verifications:
+Check the management cable (red ethernet cable) at the back of the server. The port LED should be ON (left Solid green and right blinking green)
+Check the link also on the
+pirl-corp-sw
+side
+Reboot the server, then a new CIMC IP should be displayed.
+Foward the CIMC IP to the user so that he can manage the IP for SSH Access
+NOTE
+: The servers that are connected to the Fabric Interconnects can be managed from the
+UCS Manager
+interface
+DHCP Lease issue
+¶
+The
+Primary DHCP Server VM
+is hosted on the
+eti-pirl-esxi-c1
+server of
+the pirl-vcenter INFRA Cluster
+- Access the
+server's vSphere client
+to boot DHCP Server VM
+cpnr_8_3_1_local-2
+- If the vSphere Client in not accessible the server might be shutdown:
+    - Boot it from the
+pirl-vcenter vSphere Client
+or
+host CIMC
+- Boot the DHCP Server VM
+cpnr_8_3_1_local-2
+- Once the
+cpnr_8_3_1_local-2
+host is started, ask the user to check if DHCP Lease is working for his server
+- If the problem persists:
+    - ssh to the
+PIRL-NXS-A
+or [PIRL-NXS-B]:
+ssh -oHostKeyAlgorithms=+ssh-rsa admin@pirl-nxs-a.cisco.com
+- Check the interfaces status:
+show interface status
+- Find the hostname and check the port status from the output:
+--------------------------------------------------------------------------------
+Port
+Name
+Status
+Vlan
+Duplex
+Speed
+Type
+--------------------------------------------------------------------------------
+Eth1/1
+PIRL-CORP-GW
+connected
+trunk
+full
+10G
+SFP-H10GB-C
+Eth1/2
+eti-pirl-esxi-gp1
+sfpAbsent
+16
+full
+1000
+--
+Eth1/3
+to
+ASR9K-6DC
+sfpAbsent
+trunk
+full
+10G
+--
+Eth1/4
+eti-pirl-esxi-gp2
+notconnec
+16
+full
+1000
+--
+Eth1/5
+eti-pirl-esxi-gpu2
+connected
+trunk
+full
+1000
+SFP-1000BAS
+Eth1/6
+eti-pirl-esxi-gp3
+sfpAbsent
+16
+full
+1000
+--
+...
+- In case of
+sfpAbsent
+Status, you need to check on the switch if the SFP transceiver is well inserted in the correspondant port
+    - For the
+notconnec
+Status, please check the cable connection on the server's LAN Port at the back.
+Configure Server CIMC IP
+¶
+The Cisco Integrated Management Controller (CIMC) is used for remote management/monitoring of C-Series Rack servers. When you setup a new server in the rack, you need to configure the CIMC IP to allow users to access and manage the server.
+Procedure:
+- Connect the server's management port to one the ports of the
+PIRL-CORP-SW
+- If the new server and the PIRL-CORP-SW are on two different racks, connect each device on an available ethernet port on the patch panel at the top of its rack, then go to the Rack_CR_3 for the patch panel ports interconnection.
+- Connect at least one LAN port of the server to interface of the PIRL-NXS-A or PIRL-NXS-B, then configure the nexus interface as an access port to allow the server to get an IP address in a particular VLAN. Example:
+â¯
+ssh
+-oKexAlgorithms
+=
++diffie-hellman-group-exchange-sha1
+-oHostKeyAlgorithms
+=
++ssh-rsa
+-c
+aes256-cbc
+admin@pirl-nxs-a.cisco.com
+(
+admin@pirl-nxs-a.cisco.com
+)
+Password:
+...
+PIRL-NXS-A#
+conf
+t
+PIRL-NXS-A
+(
+config
+)
+# interface Ethernet1/7
+PIRL-NXS-A
+(
+config-if
+)
+# description eti-pirl-ldap
+PIRL-NXS-A
+(
+config-if
+)
+# switchport mode access
+PIRL-NXS-A
+(
+config-if
+)
+# switchport access vlan 16
+PIRL-NXS-A
+(
+config-if
+)
+# speed 1000
+PIRL-NXS-A
+(
+config-if
+)
+# no shut
+- Boot the server
+- At the BIOS screen, press F8 to access the CIMC utility. If you are accessing the CIMC utility for the first time, the BIOS displays a message indicating that the IP address of the CIMC interface could not be obtained.
+- The CIMC Utility page appears, enable the parameters as shown below:
+-  Press F10 to save the settings
+- After 45 seconds, press F5 to see the new CIMC IP settings
+- To change the CIMC password, press F1, then type and confirm the new CIMC Password
+- Press F10 to save the settings
+- Pres ESC to exit the CIMC Utility page
+-
+Verify/Fix physical links
+¶
+Sometimes you may need to verify and repair a physical cable link in the data center when a server experiences network connectivity loss. In such cases, please refer to the following document:
+PIRL Projects physical topology diagrams
+. This document is especially helpful for troubleshooting links between devices in different racks. It provides a detailed representation of the connections between two devices located in separate racks, interconnected through three patch panels.
+Configure user LDAP access to PIRL VMware env
+¶
+When a new lab user asks for access to the PIRL VMware environment, we need to
+create his LDAP Account
+and
+configure the user's permissions in the PIRL-vCenter
+:
+Create the user's LDAP Account
+¶
+Access the
+PHPLdapAdmin GUI
+On the left pane, select
+People
+Select
+testuser
+under
+People
+then click on
+Copy or move this entry
+In the
+Destination DN
+line
+change the user ID (uid)
+with his/her Cisco ID then click on
+copy
+In the next page, remove the values in the
+cn fields
+and keep or put the user's group name (e.g
+vc-users-cil
+if it's a CIL group member)
+Change the other user (gid Number, Password...) attributes except for the shadow values
+Click on
+Create object
+then
+Commit
+Under
+Group
+in the left pane, select the user's group
+Click on
+modify group members
+in the central pane
+Add the new user to the group
+Save the changes
+### Configure the user's permissions in the PIRL-vCenter
+ - If the user is part of a group which permissions have already been setup on the pirl-vcenter components, the no further actions are needed.
+ - If the group's permissions have not been setup yet, please proceed as follows:
+    1. Access the
+PIRL vCenter vSphere Client
+interface
+    2. From the
+vSphere Client Menu
+, click on
+Inventory
+3. Right click on the
+pirl-vcenter.cisco.com
+component, then click on
+Add Permission
+4. Add the permissions on the component as follows:
+5. Repeat steps 3 & 4 for the remaining components of the Cluster Inventory (2 to 5)
+6. Select
+Folders
+in the Inventory then under
+PIRL-DC
+,
+create a the group folder
+that will hold the group's VMs to be created
+7. Add the permissions on the component as you did in step 4
+    8. In Datastores, add the permissions on
+*-c1 and *-c2 Datastores
+9. In Networking, add the permissions on
+VM Network
+### Test User Access
+ - Access the
+pirl-vcenter vSphere Client
+- Username:
+user_cisco_ID@pirl.lab
+- Temporary password:
+ ### Change user temporary password
+ To finish, please tell the user to proceed as follows in order to change his/her temporary password:
+ ```sh
+ ssh testuser@10.60.17.207
+ testuser@10.60.17.207's password:
+ Creating directory '/home/testuser'.
+ Welcome to Ubuntu 20.04.5 LTS (GNU/Linux 5.4.0-137-generic x86_64)
+ â¦
+testuser@eti-pirl-ldap-client:~$ passwd
+ Enter login(LDAP) password:
+ New password:
+ Re-enter new password:
+ LDAP password information changed for testuser
+ passwd: password updated successfully
+ testuser@eti-pirl-ldap-client:~$
+```
+2024-05-23

@@ -1,0 +1,8 @@
+gcp kubernetes
+gke kubernetes
+GCP Kubernetes (GKE)
+¶
+Currently GKE is only used in CNAPP. CNAPP Workloads are being migrated to AWS/EKS.
+For dev GKE instance creation see this link
+self-service GKE creation
+2023-11-10

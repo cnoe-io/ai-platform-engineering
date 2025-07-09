@@ -1,0 +1,91 @@
+Manage TKG management-cluster
+¶
+This document describes how to access the TKG management-cluster in the PIRL lab from your environment, enabling you to create, delete and manage Tanzu Kubernetes (TKG(I)) clusters.
+Prerequisites:
+The following tools need to be installed on your machine.
+-
+kubectl
+-- compatible with TKG cluster K8s version
+-
+TKG-CLI version 1.2.x
+Note: The steps below work only for versions 1.2.x or below!
+TODO:
+Rewrite this document when upgrading to a version > 1.2.x
+Add
+.tkg/config.yaml
+configuration to your local environment
+¶
+Edit
+~/.tkg/config.yaml
+(
+vi .tkg/config.yaml
+)
+Copy and paste
+.tkg/config.yaml
+values from
+vault
+into
+~/.tkg/config.yaml
+.
+Add your ssh public-key at
+VSPHERE_SSH_AUTHORIZED_KEY: |-
+in config file that you copied from vault.
+Make sure you set the URL path under provider section in your
+~/.tkg/config.yaml
+file to your user path.
+Save changes and exit.
+Add tkg management-cluster config to
+~/.kube/config
+¶
+Note: depending on your specific configuration, it may be necessary to use/edit the
+~/.kube-tkg/config
+file here instead.
+Edit
+~/.kube/config
+(
+vi .kube/config
+)
+Copy and paste
+.kube/config
+values from
+vault
+into
+~/.kube/config
+Save changes and exit.
+Run the following commands to verify:
+¶
+tkg get management-cluster
+tkg set management-cluster tkg-mgmt-vsphere-20211011171724
+tkg get management-cluster --output json
+[
+{
+"name": "tkg-mgmt-vsphere-20211011171724",
+"context": "tkg-mgmt-vsphere-20211011171724-admin@tkg-mgmt-vsphere-20211011171724",
+"file": "/root/.kube-tkg/config",
+"isCurrentContext": true
+}
+]
+Create a cluster:
+¶
+tkg create cluster sre-demo-cluster --plan dev --worker-machine-count 3
+See more options on how to create TKG clusters
+here
+.
+Get the cluster credentials to kubectl
+¶
+tkg get credentials sre-demo-cluster
+Swich to the new cluster
+¶
+kubectl config use-context sre-demo-cluster-admin@sre-demo-cluster
+tkg get clusters
+kubectl get nodes
+PIRL-vcenter
+¶
+pirl-vcenter.cisco.com
+access-credentials
+Helpful Links
+¶
+Tanzu Kubernetes guide
+Merge new kube-config with an existing config file
+How to access Vault
+2023-08-29

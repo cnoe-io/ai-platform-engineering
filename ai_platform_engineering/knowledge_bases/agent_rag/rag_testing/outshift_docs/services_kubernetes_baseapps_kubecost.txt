@@ -1,0 +1,31 @@
+baseapps kubecost
+kubecost
+Kubecost
+¶
+kubecost helps you monitor cost inside a single kubernetes cluster.
+SRE team
+does not support
+the paid verion of kubecost that has multi-cluster cost visibility.
+Cluster configuration
+¶
+In order to configure
+kube-prometheus-stack
+in your cluster, follow this
+generic example
+, for your
+sre-baseapps-configs*
+instance.
+Note that the prometheus service name (from the
+kube-prometheus-stack
+baseapp)
+must
+be included. It can be found in ArgoCD, by filtering on
+Service
+resources.
+The service itself will have the
+app: kube-prometheus-stack-prometheus
+label in its live manifest.
+External References
+:
+kubecost
+2023-11-30

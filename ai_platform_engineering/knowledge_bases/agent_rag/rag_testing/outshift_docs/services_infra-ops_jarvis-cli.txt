@@ -1,0 +1,162 @@
+jarvis
+sandbox infra
+Jarvis CLI
+¶
+The goal of jarvis-cli is to enable container sandbox functionality as well as
+be another jarvis client.
+Jarvis Container Sandbox
+¶
+While cloud sandboxes provide free-form access to cloud resources, Jarvis Container Sandbox enables deployment of containers to a sandbox kubernetes cluster.
+The goal is to reduce sandbox EC2 creation and enable developer testing of applications in containers without performing a full CI/CD release.
+Introductions
+¶
+Pushing containers to ECR is achieved by enabling limited developer access via vault.
+Deploy with
+Jarvis
+-- tell Jarvis a command such as: deploy 626007623524.dkr.ecr.us-east-2.amazonaws.com/sandbox/slowserver:latest to sandbox-jawren create a service for it on port 8080
+Port forwarding to a service is done via
+Komodor
+There is a vidcast covering most of this document available
+here
+.
+Requirements
+¶
+Be a member of the
+outshift-komodor-users
+AD group.
+A vault account with sandbox role in
+eticloud/outshift-users
+vault namespace.
+(optional, recommended) Podman or Docker.
+(optional, advanced) The vault command line tool.
+brew install vault
+.
+(optional, advanced) The aws command line tool.
+brew install awscli
+.
+(optional, advanced, developer) Go compiler.
+Installing and Using jarvis-cli
+¶
+jarvis-cli calls
+docker login
+or
+podman login
+providing access to ECR.
+Download
+Releases on Github
+and install in your PATH.
+Or install from source (a Go compiler is required):
+git
+config
+--global
+url.git@github.com:.insteadOf
+https://github.com/
+export
+GOPRIVATE
+=
+github.com/cisco-eti
+go
+install
+github.com/cisco-eti/jarvis-agent/jarvis-cli@latest
+Login via Backstage
+¶
+When
+jarvis-cli
+first attempts to connect to jarvis it will try to obtain a security token from backstage.
+By default, the default browser is opened to fetch the token. This can be disabled with the
+-skip-browser
+command line flag.
+Warning
+The Safari web browser may display an error during this backstage login.
+Check the jarvis-cli for the
+Token Recieved. You may close the browser.
+message.
+VAULT environment
+¶
+If you have vault environment variables set (VAULT_NAMESPACE, VAULT_ADDR, VAULT_TOKEN)
+then the
+ecr-login
+and
+ecr-create-repo
+command will attempt to use that VAULT_TOKEN
+to get credentials from vault.
+The VAULT_NAMESPACE must be
+eticloud/outshift-users
+because that is where the engine is defined.
+If you do not have vault environment variables set (VAULT_NAMESPACE, VAULT_ADDR, VAULT_TOKEN) then the
+ecr-login
+and
+ecr-create-repo
+command will launch a browser to login to vault automatically. This can be disabled with the
+-skip-browser
+command line flag.
+If you do not normally use the
+eticloud/outshift-users
+VAULT_NAMESPACE but do have environment variables exported for other uses of vault, you may unset them to allow
+jarvis-cli
+to automatically login.
+VAULT_NAMESPACE
+=
+VAULT_ADDR
+=
+jarvis-cli
+Authorizing podman:
+jarvis-cli
+ecr-sandbox
+Create a new ECR sandbox repo:
+jarvis-cli
+ecr-create-repo
+myapp
+Once logged in you can push tagged container images.
+Example pushing an existing myapp image
+¶
+e.g.
+podman push myapp 626007623524.dkr.ecr.us-east-2.amazonaws.com/sandbox/myapp:latest
+Example tagging and pushing an existing myapp image
+¶
+e.g.
+podman tag myapp:latest 626007623524.dkr.ecr.us-east-2.amazonaws.com/sandbox/myapp:latest
+podman push 626007623524.dkr.ecr.us-east-2.amazonaws.com/sandbox/myapp:latest
+Deploy the App to Sandbox
+¶
+Run
+jarvis-cli
+without a command to start interactive mode or Log onto the
+Outshift Developer Portal
+and ask Jarvis to do the following:
+Get your container images from ECR
+Create a deployment for your chosen image in sandbox on the port that your application is listening on, e.g. port 80
+Or,
+update your deployment with a new image
+Jarvis will automatically create your
+sandbox-<cec>
+K8s namespace and has read-write permissions for namespaced resources in
+v1
+of the base Kubernetes API, such as
+pods
+,
+deployments
+,
+statefulsets
+, and more. For the full list of objects you can ask Jarvis,
+What k8s api-resources are supported in sandbox?
+Jarvis can also run workflows that require multiple steps, such as troubleshooting, e.g.
+Why is my pod crashlooping?
+Conversations in the same browser tab will be persisted and you can make concurrent requests over multiple tabs. The following section has instructions on how to access your deployed application.
+jarvis-cli commands
+¶
+jarvis-cli supports getting, setting, editing config maps and secrets via the get-cm, set-cm, edit-cm, get-secret, set-secret, edit-secret commands.
+Type
+help
+to get more detail about each command.
+You can ask jarvis to create a deployment using secrets and config maps and then use the edit-secret and edit-cm commands to set the values for the keys used in the deployment.
+Port Forward to Your localhost
+¶
+Login to
+Komodor
+Navigate to Kubernetes Services and select the service
+In the actions menu on the left select "Port Forward"
+(one time) Install komocli --
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/komodorio/komocli/HEAD/scripts/install.sh)"
+Run the given komocli command
+2025-02-19

@@ -1,0 +1,85 @@
+baseapps on k8s
+install baseapps on kubernetes
+troubleshooting baseapps
+Troubleshooting Baseapps
+¶
+Baseapps argocd error with helm values
+¶
+Execute the following
+helm template
+command to verify dependencies
+Step 1: Add helm repo
+helm
+repo
+add
+eti
+https://chartmuseum.prod.eticloud.io
+Clone shared and speific baseapps repos
+Note
+Find your baseapps repo
+here
+rm
+-rf
+/tmp/baseapps-repos
+&&
+mkdir
+-p
+/tmp/baseapps-repos
+Clone shared baseapps repo:
+git
+clone
+https://github.com/cisco-eti/sre-baseapps-configs-shared.git
+/tmp/baseapps-repos/sre-baseapps-configs-shared
+Clone baseapps repo:
+git
+clone
+https://github.com/cisco-eti/sre-baseapps-configs.git
+/tmp/baseapps-repos/sre-baseapps-configs
+Example kubecost
+:
+helm
+template
+--dependency-update
+-f
+/tmp/baseapps-repos/sre-baseapps-configs-shared/common/kubecost/values.yaml
+-f
+/tmp/baseapps-repos/sre-baseapps-configs/clusters/eks-dev-3/kubecost/values.yaml
+--version
+'1.104.4'
+eti/kubecost
+Example aws-alb-controller
+:
+helm
+template
+--dependency-update
+-f
+/tmp/baseapps-repos/sre-baseapps-configs-shared/common/cert-manager/values.yaml
+-f
+/tmp/baseapps-repos/sre-baseapps-configs/clusters/eks-dev-3/cert-manager/values.yaml
+--version
+'1.12.4-1'
+eti/cert-manager
+Hard refresh after update helm chart
+¶
+If you have recently updated your helm chart and argocd is not picking up the changes, please use the hard refresh button. This will invalidate the argocd redis caches and fetch new git values.
+External secrets errors
+¶
+If an argocd app fails sync on external secret error
+External secret failure
+Check events
+Check manifest for errors
+Fix the errors and verify sync is successful
+For further information on
+external-secrets
+baseapp and troubleshooting go
+here
+External DNS errors
+¶
+When upgrading the kubernetes-baseapps helm chart version (i.e. 0.0.28->0.0.3~), if you see the following error:
+Check to see if the external dns manifest in ArgoCD is showing that there is a difference in the rollout/deployment strategy. If so, then you will need to manually delete the external dns deployment and let ArgoCD recreate it.
+The reason for this being is that we have changed the strategy in the helm charts for external dns in the newer versions of the k8s baseapps helm chart (0.0.3~ versions). Switching from
+rollout
+strategy to
+recreate
+.
+2024-07-11

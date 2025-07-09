@@ -1,0 +1,131 @@
+1.21
+1.22
+eks
+kuberenetes
+operations
+upgrade
+In Place EKS upgrades
+¶
+Table of Contents
+¶
+Copying AMI to our account
+Manual upgrade
+Create a new version of the Launch Template
+Node group options
+Create a new node group
+New node group creation
+Delete the old node group
+Update the original node group
+Automated upgrade
+Requirements
+Copying AMI to our account
+¶
+Not allowed per Cloud 9 policy.
+Manual upgrade
+¶
+There are two potential
+paths to follow
+. In the
+the first option
+, we create a new node group, cordon and drain the old nodes, and then delete the old node group. In
+the second option
+, we update the node group with a new version and perform a rolling update of the cluster.
+Option 1 is more methodical and as a result will take longer on an individual basis and has more room for manual error.
+Option 2 is faster and follows the same steps. EKS' rolling update starts new instances, cordons and drains them, and then terminates the old instances.
+Both methods will run run into trouble if there are pod disruption budgets.
+Create a new version of the Launch Template
+¶
+EC2 -> Launch Templates
+Name:
+<cluster_name>-1.21-private-<datetime-stamp>
+Create a new version
+Search for AMI
+`Application and OS Images (Amazon Machine Images)
+Name:
+<cluster_name>-1.22-private-<datetime-stamp>
+AMI:
+CiscoHardened-EKS1.22AmazonLinux2-amd64
+Select the latest version (from 12-01)
+EBS Volumes: ← when you use a new AMI, the EBS volume settings are reset and must be manually entered
+Size: 100GB
+Volume type: gp3
+Encrypted: Yes
+The new version that is created will be used in both options below.
+Node group options
+¶
+Create a new node group
+¶
+New node group creation
+¶
+EKS console
+Select the cluster
+Compute
+Node groups
+Note instance types in node group
+Select
+Add node group
+Name:
+<cluster_name>-private-YYYYMMDD
+Node IAM role:
+<cluster_name>-private-node-group-<datetime-stamp>
+Use launch template: yes/true
+Launch template name: from above
+Launch template version: from above
+Capacity Type:
+On Demand
+Instance Types: Get from earlier node group
+Subnet: search for
+private
+and select the three that are returned
+Wait until the new nodes come up
+Cordon and drain nodes
+log in to aws account with duo-sso
+add cluster to kubectl context
+aws eks update-kubeconfig --name <cluster_name> --alias <cluster_name> --region <region>
+list nodes in kubectl
+kubectl get nodes
+kubectl cordon node <node_name>
+kubectl drain --ignore-daemonsets --delete-emptydir-data <node_name>
+NOTE: if any of the pods have a disruption budget, this will fail.
+Confirm all nodes are drained
+kubectl get pods --all-namespaces -o wide --field-selector spec.nodeName=<node_name>
+Delete the old node group
+¶
+Only move forward if the nodes are drained.
+EKS Console
+Select the cluster
+Compute
+Select the old node group
+Click
+Delete
+Enter the full name of the node group and confirm.
+Update the original node group
+¶
+EKS console
+Select the cluster
+Compute
+Select the
+Change version
+link to the right of the
+Launch Template
+name.
+Select the version of the Launch Template from above
+Keep
+Rolling Update
+as the option for
+Update Strategy
+NOTE: if any of the pods have a disruption budget, this will fail.
+Automated upgrade
+¶
+Requirements
+¶
+updating the EKS module to use more specific node group names
+the current TF creates a node group name with a datetime stamp. When the a plan is run after initial creation, a new node group is
+always
+created.
+testing the upgrade process and monitoring for:
+total elapsed time
+any service interruption
+creating a plan for regularly updating the AMI's (1x or 2x per month)
+creating a plan for regularly side-grading clusters (1x per quarter)
+2023-08-25

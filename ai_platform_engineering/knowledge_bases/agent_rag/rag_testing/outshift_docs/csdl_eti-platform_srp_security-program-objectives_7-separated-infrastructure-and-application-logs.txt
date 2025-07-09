@@ -1,0 +1,21 @@
+IVS-01.01
+logging
+Route infrastructure and application logs into separate ElasticSearch indexes
+¶
+Target Date: FY??Q?
+¶
+Risk(s) Addressed
+¶
+No separated storage for infrastructure and hosted application logs, excessive amount of application logs can make the infrastructure log pipeline unreliable
+Description
+¶
+Route infrastructure (external-secrets, ingress, secret-manager, etc) and application logs into separate ElasticSearch indexes.
+Definition of Done
+¶
+The logs of the ET&I Platform hosted applications and applications used for managing the infrastructure are stored in separate ElasticSearch indexes.
+Relevant Controls
+¶
+IVS-01.01
+Objective Status: Not Started
+¶
+2023-05-09

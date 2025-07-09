@@ -1,0 +1,31 @@
+Firefly
+Firefly terraform
+Firefly
+¶
+Firefly is a tool the SRE has licenced to enable us to get better control and of our cloud accounts and terraform code.  The following is the "sales pitch" for the product.
+Firefly's Cloud Asset Management solution enables DevOps, SREs, and platform engineering teams to control their entire cloud footprint and manage it more efficiently and consistently using Infrastructure-as-Code. Firefly is a read-only platform, which means it's non-intrusive to your existing cloud environments.
+Benefits
+¶
+Enhance your ability to monitor and track changes made to your cloud resources
+Optimize cloud asset management by using our codification feature to manage assets that are not managed with code
+Replace manual effort and human error with code that converts to a pull request
+Detect and fix drifts to prevent service failures and unpredictable costs
+Provide useful insights for overall better CloudOps governance
+Manage a single inventory of cloud resources across AWS, Kubernetes, Google Cloud, and multiple SaaS deployments
+Operations
+¶
+Firefly is enabled in github.com.  It is a github app and the repos are defined in the
+settings
+and utilize eti-atlantis (generic) user.
+Jira access is controlled using the jira user, damarcil and a token created for it.
+PagerDurty is configured using a
+service
+Links
+¶
+Login
+Outshift access group
+Documentation
+Webex Firefly Issues space
+Webex trial space
+How to videos
+2023-11-01

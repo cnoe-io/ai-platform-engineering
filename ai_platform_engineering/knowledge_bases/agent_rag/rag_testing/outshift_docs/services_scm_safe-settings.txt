@@ -1,0 +1,84 @@
+github safe settings
+safe-settings
+GitHub Safe Settings
+¶
+Safe Settings
+is an Platform App to manage Github repos with policy-as-code and apply repository settings across an organization
+Purpose
+¶
+We based off this
+Open Source Project
+to manage our repo
+policy-as-code
+and have a
+SSOT(Single Source Of Truth)
+for all repository configurations across both our
+GHEC
+and
+GHE
+organizations. That is to say a
+GITOPS
+solution for repository management.
+How does it work?
+¶
+The self-managed GitHub app is a Node JS based application that listens to webhook events sent by the GitHub instance when repository policies/configurations are made. In-turn the application then uses the robust
+GitHub REST API
+to apply settings that are kept in YAML formatted files held in our
+admin
+main repositories.
+The App listens to the following webhook events:
+push
+: If the settings are created or modified, that is, if  push happens in the
+default
+branch of the
+admin
+repo and the file added or changed is
+.github/settings.yml
+or
+.github/repos/*.yml
+or
+.github/suborgs/*.yml
+, then the settings would be applied either globally to all the repos, or specific repos. For each repo, the settings that is actually applied depend on the default settings for the org, overlayed with settings for the suborg that the repo belongs to, overlayed with the settings for that specific repo.
+repository.created
+: If a repository is created in the org, the settings for the repo - the default settings for the org, overlayed with settings for the suborg that the repo belongs to, overlayed with the settings for that specific repo - is applied.
+branch_protection_rule
+: If a branch protection rule is modified or deleted,
+safe-settings
+will
+sync
+the settings to prevent any unauthorized changes.
+repository.edited
+: If the
+default
+branch is changed if the the settings that would be applied for the repo
+pull_request.opened
+,
+pull_request.reopened
+,
+check_suite.requested
+: If the settings are changed, but it is not in the
+default
+branch, and there is an existing PR, the code will validate the settings changes by running safe-settings in
+nop
+mode and update the PR with the
+dry-run
+status.
+Please refer to the
+Operator Guide
+for more information.
+How should it be used?
+¶
+The SRE team uses the main admin repository in both
+GHEC
+and
+GHE
+, respectively, to manage repository policies/configurations across our GitHub organization. This way we are able to apply standards for how our repositories should be managed, who can access them, what branch protection rules should be applied, etc.
+That being said, this is a more safe/functional way to also create new repositories with the use of cloning/renaming existing YAML files and applying all configurations in one go through a protected PR process
+(GITOPS)
+.
+Let's Get Started!
+¶
+Please refer to the
+User Guide
+for more information.
+2024-08-17

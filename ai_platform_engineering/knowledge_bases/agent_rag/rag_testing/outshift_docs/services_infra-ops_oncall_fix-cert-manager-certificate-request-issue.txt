@@ -1,0 +1,103 @@
+Fix cert-manager certificate request issue
+¶
+Symptoms
+¶
+If you receive a page on NGINXCertificateExpiry like
+this one
+* permission denied: unable to read secret
+This is most likely due to certificate request blocking renewing it.
+Background
+¶
+This issue was mentioned
+here
+which should have been fixed since cert-manager 1.5.x
+If you want to check this is currently happening in the cluster, connect to the cluster using duo-sso and update your kubeconfig:
+duo-sso
+aws
+eks
+update-kubeconfig
+--name
+$CLUSTER_NAME
+--region
+$AWS_REGION
+--alias
+$CLUSTER_NAME
+check for cert-manager logs using:
+k
+get
+pods
+-n
+cert-manager
+This should give you the right instance of the cert-manager as for example:
+NAME
+READY
+STATUS
+RESTARTS
+AGE
+eks-prod-1-cert-manager-576b467d5-29kwv
+1
+/1
+Running
+0
+2d1h
+eks-prod-1-cert-manager-cainjector-77bd868f87-r4qn2
+1
+/1
+Running
+1
+230d
+eks-prod-1-cert-manager-webhook-6896cfc67d-tqg45
+1
+/1
+Running
+0
+230d
+from the previous request, get the logs using:
+k
+logs
+eks-prod-1-cert-manager-576b467d5-29kwv
+-n
+cert-manager
+-f
+If you see this kind in the messages in the logs:
+I1004
+07
+:45:50.339219
+1
+controller.go:161
+]
+cert-manager/controller/certificates-key-manager
+"msg"
+=
+"re-queuing item due to optimistic locking on resource"
+"key"
+=
+"research-website-prod-blue/blue-a-research-website-prod-app-tls"
+"error"
+=
+"Operation cannot be fulfilled on certificates.cert-manager.io \"blue-a-research-website-prod-app-tls\": the object has been modified; please apply your changes to the latest version and try again"
+E1004
+07
+:45:46.942825
+1
+requestmanager_controller.go:136
+]
+cert-manager/controller/certificates-request-manager
+"msg"
+=
+"certificate not found for key"
+"error"
+=
+"certificate.cert-manager.io \"blue-a-research-website-prod-app-tls\" not found"
+"key"
+=
+"research-website-prod-blue/blue-a-research-website-prod-app-tls"
+This shows that a certificate request is blocking the renewing of the certificate
+Manual Resolution
+¶
+Go the the right ArgoCD application, from the previous example, this was the
+research blue-a prod application
+.
+Click on the ... of the certificate request in order to delete it as per the screenshot:
+Normally, if you sync the application, it will generate a new certification request and then the certificate should be update with a new one.
+2022-10-06

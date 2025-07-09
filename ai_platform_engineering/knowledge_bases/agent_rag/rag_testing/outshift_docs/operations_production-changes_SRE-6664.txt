@@ -1,0 +1,40 @@
+Production Roll-Out Plan
+¶
+Updating the eti.cisco.com SSL Certificate in AWS Certificate Manager
+Table of Contents
+¶
+Deprecation notice
+Preparation Steps
+Execute Change
+Post-Validation
+Roll-Back
+Deprecation notice
+¶
+Add additional sub-domains (outshift.cisco.com and outshift-staging.cisco.com),
+SRE-6664
+.
+The run book for updating a cisco.com SSL certificate in AWS Certificate Manager (ACM)
+Preparation Steps
+¶
+Create Certificate Signing Request
+Save CSR and Private Key in
+east.keeper.cisco.com
+Execute Change
+¶
+Post notice in the
+ET&I Platform Status
+space about this change:
+# Updating the eti.cisco.com SSL Certificate.
+What:  Adding  additional sub-domains (outshift.cisco.com and outshift-staging.cisco).
+When: Oct 26th 2023, 2:00PM US Pacific Daylight Time (PDT).
+Impact: There should be no affect on eti.cisco.com availability.
+*
+Import the new SSL certificate
+* Will require the private key and CSR stored in Keeper above.
+Post-Validation
+¶
+Confirm site is responding as expected with the new SSL certificate.
+Roll-Back
+¶
+Roll-back to the old certificate if it doesn't work as expected.
+2023-10-26

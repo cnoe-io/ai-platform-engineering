@@ -1,0 +1,97 @@
+2022-09-19; SRE-3766; argocd-gbear unavailable
+¶
+Table of Contents
+¶
+Summary
+When
+Timeline
+Impact
+System(s) impacted?
+Teams impacted?
+Analysis
+Takeaways
+Summary
+¶
+Users reported that
+argocd-gbear
+was unavailable. Unable to connect kubectl to cluster and found 3 of the 5 instances in p3 in shutdown state.
+When
+¶
+MÃ¡rk SÃ¡gi-KazÃ¡r reported that ArgoCD was unavailable at 11:50am EST on Sept 19
+Timeline
+¶
+A detailed timeline of what happened. If possible, down to the minute, with your local timezone specified.
+2022-09-19 ArgoCD outage.
+1150 EDT - Users reported to MÃ¡rk about ArgoCD being down.
+1156 EDT - 3 of the 5 instances in the gbear-gitops p3 project were in a shutdown state.  Started the instances and the ArgoCD was back up and running.
+1212 EDT - Opened ticket with CiscoIT.
+1230 EDT - Noticed that one control-plane and one worker node was not attaching to the cluster.  Spent the rest of the day trying to get it to attach.  kublet would not start on this instances.  See below for more details.
+2022-09-20
+Worked with level 1 support throughout the day
+1500 EDT - bumped to level 2 support
+1542 EDT - remaining 2 instances back online.  Cluster is green.
+Impact
+¶
+We were told ArgoCD for Great Bear was unaccessible and kubectl was not connecting with the cluster.  After looking in P3, noticed 2 control plane instances and one worker instance were in shutdown state (they were shutdown on different days over the last month and a bit).  I started the instances back up and 1 control plane connected but the other control plane did not and neither did the worker node.  I opened a ticket with CiscoIT and started with level 1 support and continued to dig.  Eventually noticed that kublet was failing to start and the reason for that is the instance could not connect to the Openstack Metadata service (this runs on the hypervisor - which I had to explain to level 1).
+Sep 19 20:59:33 gbear-gitops-md-0-cgpqs kubelet[37937]: E0919 20:59:33.336690   37937 server.go:292] "Failed to run kubelet" err="failed to run Kubelet: error fetching current node name from cloud provider: error fetching http://169.254.169.254/openstack/2012-08-10/meta_data.json: Get \"http://169.254.169.254/openstack/2012-08-10/meta_data.json\": dial tcp 169.254.169.254:80: connect: connection refused"
+Level 1 could not tell me why the instances were shut down.  Fast forward to today and after level 1 asking me to rebuild for a solution, I asked to escalate because the issue was not security groups or external access from P3.
+The Openstack metadata service, provides instance information and is available at 169.254.169.254.  Level 1 support wanted me to contact InfoSec about opening that IP up from CiscoIT Openstack.  I explained that the service is running on the hypervisor and is not external.
+```curl
+http://169.254.169.254
+curl: (7) Failed to connect to 169.254.169.254 port 80: Connection refused
+when it should
+```curl http://169.254.169.254
+1.0
+2007-01-19
+2007-03-01
+2007-08-29
+2007-10-10
+2007-12-15
+2008-02-01
+2008-09-01
+2009-04-04
+root@gbear-gitops-md-0-mpg2d:/var/log# curl http://169.254.169.254/openstack/2012-08-10/meta_data.json | jq 
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  1049  100  1049    0     0   3914      0 --:--:-- --:--:-- --:--:--  3914
+{
+  "uuid": "d46bc39a-ae18-4367-b09f-632e93e9c253",
+  "availability_zone": "cloud-aer-1-a",
+  "keys": [
+    {
+      "data": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDfk8BXOMYGPtG453029dOGEwWa6JyZCzXzr+9L1bA8U4HoJRFIyl0U1BnmEJElrOr5A5oUUQCfqQ+0jnj3GoJyDqv05VbwUroA4qH7MpLCRnE5hKgHTkDEtce15iEbGDitL1y1s3xh7naiAaCEt+l5a164Xwj5HEdOX9oGq910wxjxdESl6sDEbTDN/N0vMUF2RdlkAG4Y09U99OoXX9YTGJmRu2GNgBeAMlNu320GopWd0vYunDP8QkKVGfh0D2dqpTFPKK+kLauBpIqfYsbkK+H0PfRy9H06Om0TDSZRm+ydTaI5i2FPxPIYsADXWJ5iY4d71MTlc29RkdW+xFOh webex\n",
+      "type": "ssh",
+      "name": "ops1"
+    }
+  ],
+  "hostname": "gbear-gitops-md-0-mpg2d.cisco.com",
+  "launch_index": 0,
+  "public_keys": {
+    "ops1": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDfk8BXOMYGPtG453029dOGEwWa6JyZCzXzr+9L1bA8U4HoJRFIyl0U1BnmEJElrOr5A5oUUQCfqQ+0jnj3GoJyDqv05VbwUroA4qH7MpLCRnE5hKgHTkDEtce15iEbGDitL1y1s3xh7naiAaCEt+l5a164Xwj5HEdOX9oGq910wxjxdESl6sDEbTDN/N0vMUF2RdlkAG4Y09U99OoXX9YTGJmRu2GNgBeAMlNu320GopWd0vYunDP8QkKVGfh0D2dqpTFPKK+kLauBpIqfYsbkK+H0PfRy9H06Om0TDSZRm+ydTaI5i2FPxPIYsADXWJ5iY4d71MTlc29RkdW+xFOh webex\n"
+  },
+  "name": "gbear-gitops-md-0-mpg2d"
+}
+Eventually once I got to level 2 support,  he indicated that they had installed a change that was causing a memory leak on the hypervisor.
+System(s) impacted?
+¶
+Kubernetes running in gbear-gitops was not in a functioning state wihtout at least 2 control-plane instances.
+Teams impacted?
+¶
+Great Bear team was without their ArgoCD for a few minutes.
+Analysis
+¶
+Detailed descriptions of what went wrong. This can include:
+ArgoCD for Great Bear needs to be monitored by Blackbox.
+CiscoIT - INC7860726
+Initially was dealing with the first level of support for 2 days.  Their initial response to rebuild the instance.  I pushed back on doing that as we need to determine why the instances were in shutdown state.
+Incident was escalated.  This is when we found the cause and helped fix.
+Bryan Kramer (brykrame)
+was the contact that provided the following and helped get the last 2 instances working.
+We had a somewhat recent change ( CHG1400096 ) to upgrade the opflex agent on the hypervisors in this datacenter.  This agent helps with "coordination" between our hypervisors and ACI network fabric.  We have found over time this agent has a memory leak issue and will eventually cause the operating system to invoke the oom killer.  In the case of these three instances, the oom killer chose to terminate your instance(s).  We are in the process of downgrading these agents to mitigate this issue.  For the metadata issue I see mentioned in this case, the oom killer most likely got that process.  Please either hard reboot ( from Openstack perspective ) or stop/start your instance ( again from Openstack perspective ).  This will respawn that metadata process and should resolve your issue.
+"Chatted with David and found the issue still existed after instance restart.  The two instances with the problem were on the same hypervisor.  Restarted the metadata agent on that host and David confirmed he is able to fetch metadata now.  There may be another cluster with similar issue.  Keeping the case open once David gets some time to bring up the cluster and verify status of the instances."
+Process failure
+Human failures.
+Takeaways
+¶
+Need to establish some alerting.  First, add argocd-gbear to blackbox. Second, need to turn on alerting for the gbear-gitops cluster.  Currently not paging anyone (even low priority room).
+2022-09-22

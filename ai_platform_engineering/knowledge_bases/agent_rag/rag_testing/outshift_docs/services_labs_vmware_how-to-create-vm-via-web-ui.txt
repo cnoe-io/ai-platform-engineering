@@ -1,0 +1,112 @@
+Sandbox VM Creation in vSphere (Manual)
+¶
+This document provides a step-by-step guide on how to manually create a new, independent virtual machine (VM) using
+vSphere in one of the ET&I labs, with emphasis on configuring said VM with access to GPU hardware.
+This document assumes some basic familiarity with virtualization and with the vSphere web UI.
+Note: The process described here is a manual process using the vSphere web UI. The ET&I SRE team recommends using Terraform when possible; to do so, please see
+Sandbox VM Creation in vSphere (Terraform)
+.
+Prerequisites
+Create from Template
+VM Hardware Customization
+VM Hardware Configuration/Settings
+Modifying CPU and RAM
+Modifying the Network
+Attaching a GPU
+Prerequisites
+¶
+Access to vSphere in one or more of ET&I's labs
+Appropriate permission to create virtual machines within the vSphere environment
+Note that each lab has its own specifications, credentials and IP spaces.
+Create from Template
+¶
+The quickest and easiest way to create a new VM is by using an existing template.
+Log into vSphere:
+SJC Building 9 lab
+PIRL lab
+Browse to vSphere's Inventory and click on the "Templates" tab:
+Select the template you'd like to use to create the new VM.
+Important: if a GPU is to be attached to the VM, the selected template
+MUST
+be configured to use EFI -- NOT BIOS.
+In this example, we'll use a template named
+sre-ubuntu2004-template
+, but
+any other template may be selected
+.
+Right-click the template and
+   select
+New VM from this Template
+Complete the
+Deploy From Template
+workflow as required. In general:
+Name the VM and select where it should be stored
+Select a host machine for the new VM
+Select where the VM's files will be located (storage location)
+Select any additional VM options; typically (and to attach a GPU), you'll want to
+   select
+Customize this virtual machine's hardware
+. See below for more detail.
+Complete the workflow and vSphere will begin the process of creating the virtual machine.
+VM Hardware Customization
+¶
+When creating or working with virtual machines, virtual hardware changes are typically required. In most cases, at very least CPU, memory (RAM) and network customization is required. Many modern application are also requesting access to GPU hardware. This section reviews how to make these changes.
+VM Hardware Configuration/Settings
+¶
+During VM creation (step 5, item 4 above) or post-creation, VM settings can be changed. To open settings
+after
+VM creation, click on the VM inventory tab, select a VM and click the
+Edit Settings
+button:
+Assuming the VM is powered off, any setting may be changed. Note that when the VM is powered on, some settings may
+not
+be changed, such as CPU or RAM.
+Modifying CPU and RAM
+¶
+The number of CPU cores or amount of memory (RAM) may be changed by modifying their respective fields. Note that they are constrained by resources available on the host system.
+Modifying the Network
+¶
+To modify the network the VM is attached to, click on the drop-down box in the Network section and then click "Browse...". This will open a child dialog box allowing you to select a different network to attach to the VM. (Configuring new VM networks is outside the scope of this document, but it is possible nonetheless.)
+Attaching a GPU
+¶
+In order to attach a GPU to a VM:
+The VM's host machine
+must be equipped with GPU hardware
+The VM (or template it was created from)
+must be configured to use EFI -- NOT BIOS.
+Note that this cannot be (easily) changed after the VM is created.
+The following process illustrates how to attach a GPU to a VM in
+pass-through mode
+only.
+Click "Add New Device" (top right).
+Select "PCI Device" from the drop-down menu that appears.
+The new PCI device will be added to the VM's settings, similar to this:
+Modify these settings as required -- in general, the defaults are acceptable for most use cases.
+Next, click on the "VM Options" tab near the top of the settings dialog box.
+Expand the "Advanced" section and click the "Edit Configuration..." link/button near the bottom:
+We must add two additional configuration parameters to properly "connect" the GPU to the VM. Click the blue "Add Configuration Params" near the top right of the dialog box and add them as shown below. They are:
+pciPassthru.64bitMMIOSizeGB
+-- value must be set to at least
+64
+pciPassthru.64bitMMIOSizeGB
+-- value must be set to
+TRUE
+\
+Apply and close the (new/updated) VM settings by clicking the blue "OK" buttons to the bottom right of each remaining dialog box.
+With the new/updated VM settings applied, it is now safe to power on the VM!
+If you are using
+Ubuntu-20.04-Template
+make sure to disable cloud.cfg network with the below command.
+sudo
+echo
+"network: {config: disabled}"
+|
+sudo
+tee
+/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+After creating the VM, be sure to add the resource's information to
+racktables
+. The credentials are available in
+Vault
+.
+2023-08-29

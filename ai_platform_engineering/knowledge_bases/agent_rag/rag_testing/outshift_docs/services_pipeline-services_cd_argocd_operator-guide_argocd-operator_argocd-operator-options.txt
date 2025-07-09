@@ -1,0 +1,29 @@
+ArgoCD operator options used in ETI ArgoCD instances
+¶
+Setup:
+¶
+Applicationset Controller
+with version pinning
+Application Controller
+version pinning
+Setup applicationInstanceLabelKey
+-
+ArgoCD FAQ reference
+Authn/Authz:
+¶
+Dex - Githuh OAuth
+GH teams based RBAC
+Disable Admin login, only SSO
+HA:
+¶
+Redis HA
+Security:
+¶
+TLS
+Insights:
+¶
+Prometheus/Grafana Insights
+Backups with S3:
+¶
+Automated Backups
+2022-05-02

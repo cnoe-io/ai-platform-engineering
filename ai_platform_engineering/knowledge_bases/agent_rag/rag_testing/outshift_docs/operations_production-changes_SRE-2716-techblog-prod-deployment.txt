@@ -1,0 +1,74 @@
+SRE-2716: Techblog production deployment
+¶
+SRE-2716: Techblog production deployment
+Preparation Steps
+Execute Change
+Post-Validation
+Roll-Back
+Preparation Steps
+¶
+Create PRs for deploying the new application version and helm chart that were validated in staging
+PR to upgrade the
+b
+site
+(currently the CloudFront origin group secondary)
+PR to upgrade the
+a
+site
+(to be merged after
+b
+site has been validated via internal urls)
+Take screen shots of current production CloudFront configuration (in case we need to roll-back)
+Execute Change
+¶
+Merge the PR to update
+b
+site (created in
+Preparation Steps
+steps)
+Sync the blue-b, green-b apps in ArgoCD
+validate site successfully deployed via internal urls
+https://techblog-blue-b.prod.ciscotechblog.com/
+https://techblog-green-b.prod.ciscotechblog.com/
+Merge the PR to update
+a
+site (created in
+Preparation Steps
+steps)
+Sync the blue-a, green-a apps in ArgoCD
+validate site successfully deployed via internal urls
+https://techblog-blue-a.prod.ciscotechblog.com/
+https://techblog-green-a.prod.ciscotechblog.com/
+Update
+production CloudFront config
+to match changes made to
+staging CloudFront config
+:
+Remove "Default root object"
+Create a new behavior setting for
+_next/*
+patterns to match the one created for staging
+Enable "all query strings" to include in the cache key in the behaviors settings for both
+*
+and
+_next/*
+path patterns
+Post-Validation
+¶
+Open browser and enter:
+https://techblog.cisco.com/
+Verify new site is up
+Verify that browser redirects to
+https://ciscotechblog.com/blog/introducing-media-streaming-mesh/
+Re-enable the
+production deploy job
+Roll-Back
+¶
+If the
+https://ciscotechblog.com
+page fails to load after the change:
+* immediately revert
+a
+site PR and sync app via ArgoCD
+* revert CloudFront configuration changes
+2023-10-16

@@ -1,0 +1,11 @@
+blackduck artifactory
+configure blackduck scan
+How to configure blackduck artifactory scan
+¶
+Generate Blackduck GitLFS Artifactory Token
+Vault Secret Location
+Jenkins Credential
+References:
+How to generate Artifactory Token
+Use Blackduck script
+2024-02-25

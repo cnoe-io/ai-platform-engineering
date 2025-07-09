@@ -1,0 +1,50 @@
+production changes
+production environment changes
+standard procedure
+SRE Production Environment Changes
+¶
+As a SRE team best practice, we need to follow a standard procedure for
+production environment
+changes.
+Here is the standard procedure to follow:
+A.  Create a
+"Method of Procedure (MoP)" document
+that will be referenced during the production change.
+This will act a playbook during production change and any unaccounted changes are reconciled in the MoP.
+B.  Notify
+Outshift Platform Status
+and/or other relevant spaces.
+Use the
+Notification template
+for notification in the space.
+C.  Pair up with an observer to watch over shoulders for significant changes.
+Note
+SRE Production environments include anything our ventures depend on for their day-to-day operations, not just end customer production environments. For example: eks-dev-3 is our production environment, where as eks-sre-4 is our test environment.
+Change Plan
+¶
+Steps for executing the changes should be clearly identified and validated in nonprod environments (i.e., dev/staging)
+prior
+to scheduling the roll-out to production.
+Steps in the change plan should be written in such a way that anyone on the team can successfully execute the change.
+Be
+specific
+about the action required. E.g., Include the full command that needs to be executed.
+Example:
+Log into cluster with
+<the complete login command>
+Do
+NOT
+assume prior knowledge/context necessary for successfully executing the change.
+Change Roll-Out
+¶
+Once the steps have been verified, a "buddy system" will be leveraged for rolling the changes out to
+production
+environments, as described below.
+At a minimum, there should be at least 2 individuals engaged in the roll-out process:
+the
+Driver
+who executes the changes.
+the
+Observer
+who provides a "second pair of eyes" as the driver exeuctes the changes. The Observer should also take notes on any gaps, findings, or otherwise noteworthy discoveries encountered during the execution of the change.
+2023-10-16

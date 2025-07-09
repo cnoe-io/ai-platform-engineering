@@ -1,0 +1,51 @@
+ETI Quantum Cloud Resource Access
+¶
+How to access cloud resources for the ETI Quantum team.
+Table of Contents
+¶
+AWS
+AWS Web Console
+AWS CLI
+Kubernetes
+Install kubectl
+Set up kubeconfig
+Use kubectl
+AWS
+¶
+AWS Web Console
+¶
+To access the AWS Web console:
+1. follow the link to
+Cisco SSO AWS access
+2. Select the correct role in the correct AWS account.
+AWS CLI
+¶
+Download the AWS ClI tool
+appropriate for your OS.
+Choose, download, and configure an AWS login tool.
+DUO SSO
+AWS SAML API
+Interact
+Kubernetes
+¶
+Install kubectl
+¶
+Kubernetes.io instructions for kubectl installation
+Set up kubeconfig
+¶
+These instructions are specifically for MacOS and the EKS cluster eks-quantum-1.
+1. Required information:
+   1. Cluster name: eks-quantum-1
+   2. AWS Region: us-west-2
+2. Log in to the AWS CLI with the quantum role for 380642323071 (eticloud scratch)
+3. Run:
+`aws eks update-kubeconfig --name eks-quantum-1 --alias eks-quantum-1 --region us-west-2`
+Use kubectl
+¶
+To use kubectl, you must first be logged in to the the AWS account via the command-line. Once you have logged in run:
+kubectl config use-context eks-quantum-1
+Source of Truth:
+https://wwwin-github.cisco.com/eti/eti-platform-docs/blob/main/projects/quantum/quantum_cloud.md
+Published at:
+https://cisco.sharepoint.com/sites/IRE-SiteReliabilityEngineering/SitePages/ETI-SRE-Quantum-Documentation.aspx
+2021-10-28

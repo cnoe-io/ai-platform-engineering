@@ -1,0 +1,32 @@
+JenkinsTooManyJobsQueued
+oncall
+JenkinsTooManyJobsQueued
+¶
+JenkinsTooManyJobsQueued
+Symptoms
+Summary
+Resolution
+Symptoms
+¶
+Example Alert:
+FIRING:1 JenkinsTooManyJobsQueued eti-sre-monitoring.cisco.com engci-private-sjc.cisco.com:443 jenkins_master_metrics jenkins warning  was triggered by the SRE Pipeline Warnings service
+Summary
+¶
+Either Jenkins primary node is down or not responding
+Or one or more Jenkins worker nodes are offline
+Resolution
+¶
+Check if
+Jenkins primary is down
+Contact Eng IT on mailer
+engit-ci-support@cisco.com
+Open a
+ticket
+with EngIT
+Check if any of the [nodes are down]
+References:
+-
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/
+-
+https://engit.cisco.com/ci/#/request/question
+2023-01-20

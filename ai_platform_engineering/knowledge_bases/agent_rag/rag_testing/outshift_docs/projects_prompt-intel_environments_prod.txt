@@ -1,0 +1,25 @@
+Outshift Prompt-Intel Prod Environment
+¶
+Production
+¶
+Note
+: This is the production environment:
+REST Endpoints
+¶
+REST API Endpoint
+:
+https://api.pi.outshift.ai/v1alpha1
+gRPC API Endpoint
+: grpc.api.pi.outshift.ai
+UI Endpoint
+:
+https://pi.outshift.ai
+Monitoring
+¶
+Monitoring Dashboard:
+APIs
+Gateway
+Platform State
+Healthz Check:
+APIs
+2024-07-19

@@ -1,0 +1,28 @@
+baseapps komodor
+komodor
+komodor agent
+Komodor
+¶
+Komodor is a K8s monitoring & reliability tool, helps you manage and maintain your k8s workloads in the cluster.
+Cluster configuration
+¶
+In order to configure
+komodor-agent
+in your cluster, follow this
+generic example
+, for your
+sre-baseapps-configs*
+instance.
+Note that the apiKey must be extracted through Komodor API using this script:
+Komodor API Script
+.
+First get the admin vault token by running this command :
+export VAULT_TOKEN=$(vault login -method=oidc role=vault_admin -format=json | jq -r .auth.client_token)
+.
+Then run the script
+./komodor-agent-apikey.sh
+, enter the clusterName, then get the apiKey for the deployment.
+External References
+:
+komodor
+2024-08-20

@@ -1,0 +1,40 @@
+ETI Model Compression
+¶
+Table of Contents
+¶
+Infra Details
+Infra Details
+¶
+The current infra in in the eticloud-scratch-c account in the eu-west-1 region.
+There is different clusters, here is the ssh config for accessing the small / large instance:
+Host
+mc-bastion
+Hostname
+ec2-54-216-173-156.eu-west-1.compute.amazonaws.com
+user
+REPLACE_WITH_YOUR_CECID
+IdentityFile
+"~/.ssh/KEYFILE"
+UserKnownHostsFile
+=
+/dev/null
+Host
+mc-1
+Hostname
+ip-10-33-1-193.eu-west-1.compute.internal
+user
+REPLACE_WITH_YOUR_CECID
+IdentityFile
+"~/.ssh/KEYFILE"
+ProxyCommand
+ssh
+-qW%h:%p
+mc-bastion
+UserKnownHostsFile
+=
+/dev/null
+With regards to the ssh keys, you will find them on keeper,
+here for the bastion
+and
+here for the instances
+2023-09-21

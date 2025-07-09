@@ -1,0 +1,11 @@
+P3 ClusterAPI Oncall
+¶
+ð§â
+docs reorganization in-progress.
+Contact
+David Marcil
+if you have questions on ClusterAPI (CAPI)
+Table of Contents
+¶
+How to recover cinder CSI PVC failures
+2022-10-20

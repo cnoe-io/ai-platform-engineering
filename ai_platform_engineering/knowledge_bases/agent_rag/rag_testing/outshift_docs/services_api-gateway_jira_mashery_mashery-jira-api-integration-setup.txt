@@ -1,0 +1,51 @@
+Mashery JIRA API Integration Setup
+¶
+Overview
+Create a estore.cisco.com order for Mashery
+Mashery<>Aspenify JIRA Integration API ID
+Request change of generic user password
+References
+Overview
+¶
+Mashery is the API gateway to proxy between SJC4 JIRA and api.cisco.com/api/jira
+Create a estore.cisco.com order for Mashery
+¶
+Mashery<>Aspenify JIRA Integration API ID
+¶
+Cisco IT provisioned Mashery with
+SJC4 JIRA
+instance and [
+https://api.cisco.com/api/jira
+] API Key using
+eti-sre-cicd.gen generic user
+credentials
+Once the provision is done, the admin who requested the integration got this email
+Thank you for registering your application!  You can find your key(s) below.
+>  API KEY: 6jkcgry7p6jeympznbyjb8t9
+>  Status: active
+
+>  The secret for this key can be found at https://apiconsole.cisco.com/apps/mykeys
+ð¡ Note: API Keys/Secrets can be accessed from
+vault
+Request change of generic user password
+¶
+Only Cisco IT has access to provisioning Mashery with
+SJC4 JIRA
+credentials
+Open a
+case with Cisco IT
+Search for Mashery
+Select "Tibco Mashery API Management"
+Click on "Open a case"
+Case Details
+Case Description:
+Update generic user password for ciscojiraprod
+Case Notes:
+ciscojiraprod (Cisco JIRA SJC4 Production API Client) integration has been setup with eti-sre-cicd.gen generic user. Generic user passwords are rotated every 90 days. We need to update the generic user's password in the Mashery integration. Please contact the ticket user on Webex to get the generic user password
+Sample case screeshot
+References
+¶
+Mashery Prod access
+Cisco eStore Access
+Mashery IT Support
+2023-08-29

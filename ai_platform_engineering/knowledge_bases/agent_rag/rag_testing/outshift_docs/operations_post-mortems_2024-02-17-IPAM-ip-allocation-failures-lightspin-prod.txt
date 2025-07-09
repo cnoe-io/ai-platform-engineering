@@ -1,0 +1,42 @@
+EKS addons
+Node groups
+lightspin
+post mortem
+vpc cni
+2024-02-17; VPC CNI IPAMD Failure to allocate IP addresses to Pods (pending for >60 minutes)
+¶
+Summary
+¶
+SRE were notified on multiple health alerts for the unstability of lightspin-prod-1 cluster
+When
+¶
+2024-02-17 23:23 IST - 2024-02-18 03:23 IST
+Timeline
+¶
+2024-02-13
+23:23 IST - SRE were  notified in lightspin low priority space on multiple health alerts
+00:00 IST - Upon further investigation turned out there are multiple different issues triggering the alerts; main issue is related to VPC CNI plugin and it's failure to allocate IPs to new pods
+01:00 IST - Other issues were discovered by SRE while investigating the root cause; 1. EKS Addons for (CSI) were degraded hence PVCs were not created, 2. EKS node group that services SRE Platform services (AKA baseapps) is unable to auto-scale to minimum number of nodes due to AMI unavailability (very old machine image)
+02:00 IST - SRE addressed all these issues and fixed them by updating All EKS addons, replacing the launch template to use AmazonLinux2 to recover the nodegroup.
+Impact
+¶
+System(s) impacted?
+¶
+Lightspin Prod environment on lightspin-prod-1 cluster
+Teams impacted?
+¶
+Lightspin
+Analysis
+¶
+IP addresses were not assigned to pods
+EKS Addons were degraded (CNI, CSI)
+Default node group won't auto-scale due to AMI being unavailable
+  Solution:
+Updating the EKS addon version and replacing the laucnh template to AmazonLinux2
+Takeaways
+¶
+- Alerting\incident response and shared responsibility should be discussed for building a clear process for much faster mitigation time. [Tracking Jira](https://cisco-eti.atlassian.net/browse/SRE-7597)
+- Route dedicated SRE services alerts + EKS addons controllers (e.g. VPC CNI [CNI metrics helper](https://github.com/aws/amazon-vpc-cni-k8s/blob/master/cmd/cni-metrics-helper/README.md)) to SRE on-call
+- Discuss setting ENABLE_PREFIX_DELEGATION to false while still keeping WARM_PREFIX_TARGET to true, as we have been told in the past by AWS that using ENABLE_PREFIX_DELEGATION will quickly exhaust the IPs on for a given node.
+Add synthetic tests that can verify that production is still in a functional state after infrastructure changes.
+2024-02-22

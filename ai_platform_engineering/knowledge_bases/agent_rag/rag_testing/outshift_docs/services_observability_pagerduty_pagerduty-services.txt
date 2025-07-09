@@ -1,0 +1,100 @@
+pagerduty services
+pagerduty integration keys
+PagerDuty Services
+¶
+Warning
+In the service directory of
+Outshift PagerDuty
+are all the services that we are currently creating pages on.
+Pages are triggered by
+alerts
+that are sent to PagerDuty via an integration key
+To obtain an integration key, select a service, and then the Integrations to find the key
+The following chart is a snapshot in time of the services and the integration keys.
+Panoptica PagerDuty Services
+¶
+Venture
+Integration Key
+On-call Schedule
+Webex Room
+CSPM - Infra Monitoring
+ab7677cabb5b4702d0582316f890b1ba
+f1f7063158754d0bc012140601c1f159
+e0c35f1aceb94e0dc0817b44ebca796b
+Dev Null
+Lightspin Low Priority PagerDuty Alerts
+APISec High Priority
+04ee2b398e61420bd09de9e2b8b785c6
+APISEC - High Priority-ep
+APISEC (CNAPP) PagerDuty Alerts
+APISEC - Low Priority
+f43ac6c84782460dc031b85fb54810e9
+ccb1c89cd7224d04d09ac52621cd65ae
+Dev Null
+Currently using
+PagerDuty Low Priority Alerts
+Needs new room created
+CWPP (Naor's Team)
+3705a7924d2c4b05c083796a6d5eca81
+Dev Null
+CWPP Alerts
+Cybear - High Priority
+04c7c59c84bb4c01c00e71e6a9bd8655
+Dev Null
+Cybear High Priority PagerDuty Alerts
+Cybear - Low Priority
+3508decffb0f4100c0d3e4f63cecac0c
+Dev Null
+Cybear Low Priority Pager Duty Alerts
+Dragonfly
+1881e256ba354a06c05692e984b7b17a
+Dev Null
+Dragonfly PagerDuty Alerts
+SCS (CNAPP)
+98b1f13c95304f0ac05e99a464d2f48c
+Dev Null
+SCS (CNAPP) PagerDuty Alerts
+Motific PagerDuty Services
+¶
+Outshift Common PagerDuty Services
+¶
+Venture
+Integration Key
+On-call Schedule
+Webex Room
+Identity
+08b3cd704579450cd0f5df5f8fad8c31
+Identity
+ETI Identity PagerDuty Alerts
+On Demand Demos
+15a573258890460dd02b46a7c59c6cca
+d589ac0c32b64c0ed0179fd76fe9c5b9 (CloudWatch)
+Dev Null
+On Demand Demos PagerDuty Alerts
+Websites
+50df751d61cf4c0ed0dfabed0de9e2db - CloudWatch
+Websites-ep
+No webex room
+Outshift Platform Engineering PagerDuty Services
+¶
+Venture
+Integration Key
+On-call Schedule
+Webex Room
+Firefly
+cbd8026bc1a64008d08cd2a2d19fc325
+Dev Null
+Firefly Notifications
+Production Prometheus Alertmanager
+8b52d5de34b4440ed0c8ed0aee7f5163
+ETI SRE - Escalation Policy
+No webex space
+Prometheus Alertmanager Low Priority
+9526c5960e934308c079ef321e8a141b
+Dev Null
+PagerDuty Low Priority Alerts
+SRE Urgent PagerDuty Service
+d61da640319a4aa789ac7acc750643fb
+ETI SRE - Escalation Policy
+No webex room
+2025-06-20

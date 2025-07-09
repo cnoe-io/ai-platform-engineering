@@ -1,0 +1,15 @@
+Redhat Openshift
+¶
+ð§â
+documentation in-progress.
+Contact
+Sri Aradhyula
+if you have questions on Redhat openshift
+Red Hat OpenShift is Kubernetes platform that can be deployed to multiple cloud-providers like AWS, Azure, GCP, IBM as well on-prem IaaS like vSphere
+SRE team is currently investigating ROSA (**R**ed Hat **O**penShift **S**ervice on **A**WS)
+Table of Contents
+¶
+User-guide
+Operator-guide
+On-call
+2022-08-17

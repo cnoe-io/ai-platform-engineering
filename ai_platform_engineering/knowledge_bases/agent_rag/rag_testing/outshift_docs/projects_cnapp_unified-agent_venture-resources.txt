@@ -1,0 +1,105 @@
+access
+resources
+unified-agent
+ventures
+Resources
+¶
+The main resources for the dev/staging/production environments of the product are manged in GCP. Other cloud providers are used for testing some cloud agnostic features such as
+Serverless Security
+.
+ArgoCD Baseapps
+¶
+SRE Baseapps
+Environment
+Description
+Regions
+CWPP-Dev-1 Baseapps
+Development
+Dev environments that are created per user in a
+namespace
+shared cluster
+eu-west-1
+CWPP-Staging-1 Baseapps
+Staging
+Staging environment shared static cluster
+eu-west-1
+CNAPP-Prod-USE2-1 Baseapps
+Production (US)
+Production environment static shared CNAPP cluster for US region
+us-east-2
+CNAPP-Prod-EUC1-1 Baseapps
+Production (EU)
+Production environment static shared CNAPP cluster for EU region (GDPR)
+eu-central-1
+AWS Accounts
+¶
+Account
+Description
+Regions
+CWPP-Dev (579418176921)
+Development AWS Account
+eu-west-1
+CWPP-Staging (146629084143)
+Staging AWS Account
+eu-west-1
+CNAPP-Prod (590184006103)
+Production AWS Account
+us-east-2
+/
+eu-central-1
+ETICloud (626007623524)
+CISCO ETI Cloud Account for Common infra management + ECR (Private and Public)
+us-east-2
+Monitoring
+¶
+Tool
+Environment
+Description
+Regions
+AppD Pre-Prod
+Dev
+Logs and observability tool
+us-east-1
+AppD Pre-Prod
+Staging
+Logs and observability tool
+us-east-1
+AppD Prod
+Production US
+Logs and observability tool
+us-east-1
+AppD Prod
+Production EU
+Logs and observability tool
+us-east-1
+Grafana Dev
+Dev
+(in cluster) Monitoring and observability tool
+eu-west-1
+Grafana Staging
+Staging
+(in cluster) Monitoring and observability tool
+eu-west-1
+Grafana Prod
+Production US
+(in cluster) Monitoring and observability tool
+us-east-2
+Grafana Prod
+Production EU
+(in cluster) Monitoring and observability tool
+eu-central-1
+AMP Grafana Prod
+Production US/EU
+Monitoring and observability tool
+us-east-2
+Secret Store
+¶
+Keeper Prod Secrets
+Keeper Prod Common Secrets
+Keeper Prod-EU Secrets
+Keeper Prod-EU Common Secrets
+Keeper Staging Secrets
+Keeper Staging Common Secrets
+Keeper Dev Secrets
+Keeper Dev Common Secrets
+2024-07-11

@@ -1,0 +1,6 @@
+GHEC eti-sre-cicd Personal Access Token
+¶
+SRE team uses eti-sre-cicd generic user to generic user to generate a personal access token
+Github.com PAT
+Jenkins Credential
+2023-06-01

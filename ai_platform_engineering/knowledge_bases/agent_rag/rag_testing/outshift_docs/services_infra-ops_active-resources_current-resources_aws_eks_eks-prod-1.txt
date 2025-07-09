@@ -1,0 +1,37 @@
+eks-prod-1
+eks-prod-1 (DEPRECATED)
+¶
+Shared Prod EKS Cluster
+EKS Architecture
+EKS Cluster Access Setup
+Workloads
+Terraform Code
+¶
+eks-prod-1 terraform
+Cluster Access
+¶
+Access
+Details
+K8s Version
+1.21
+Created
+Feb 2022
+URL
+AWS Console access
+Account
+eticloud
+Region
+us-east-2
+VPC
+eks-prod-1-vpc
+Bastion
+SSH access
+K8s node ssh
+K8s Node SSH access
+Dashboards
+¶
+Access
+Details
+Platform Health
+dashboard
+2023-12-10

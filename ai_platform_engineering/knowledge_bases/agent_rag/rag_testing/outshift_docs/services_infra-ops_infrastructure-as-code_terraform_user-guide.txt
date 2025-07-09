@@ -1,0 +1,421 @@
+terraform locally
+terraform module list
+terraform module updates
+terraform module usage
+Outshift Terraform
+¶
+The Outshift SRE team has customized a series of public modules from the
+Terraform public module registry
+. The SRE modules limit the available options available from the public modules and ensure that the resources created are compliant and secure.
+Available modules
+¶
+AWS
+¶
+VPC
+EKS
+S3
+EC2
+RDS Aurora PostgreSQL cluster
+Cloudfront
+Un-modularized AWS resources
+¶
+These resources have reference code, but are not currently modularized.
+VPC Peering
+VPC secondary CIDR
+EKS AWS ALB IAM
+EKS aws-auth configmap
+IAM resources
+MSK
+Openstack Modules
+¶
+sre-tf-module-openstack-vm
+Vault Resources
+¶
+Vault resources are managed in
+https://github.com/cisco-eti/platform-terraform-infra/tree/main/keeper
+.
+There are not currently modules available for Vault.
+Module Updates
+¶
+If a module needs functionality that is not currently available or the module does not exist, the SRE team will add the necessary code for the requestor. The requestor should
+create a Jira story
+with the appropriate details and reach out the SRE team in the
+Ask Outshift SRE
+or the dedicated SRE and Team WebEx space. The SRE team will work with the requestor to define, test, and validate that the required resources in the required configuration are created, usable, and functional.
+Platform Resource Creation
+¶
+To create Platform resources, a series of details must first be specified in the root Terraform module:
+Terraform Backend
+S3 bucket
+key
+path
+AWS account
+Account Vault Provider
+Account Vault Secret
+Account AWS Provider
+Module specific dependencies and parameters
+Terraform Backend
+¶
+Terraform tracks the resources it manages as
+state data
+that maps the "desired" states of these resources declared via Terraform configuration to the "real world" state of those resources in their respective environments. Terraform supports multiple options for storing this state data via various
+backend
+solutions.
+Backend template:
+terraform
+{
+backend
+"s3"
+{
+bucket
+=
+"eticloud-tf-state-<env>"
+# <env> can be: prod, nonprod, or sandbox
+key
+=
+"terraform-state/<aws_account_name>/<resource_type_short_name>/<region>/<complete_resource_name>.tfstate"
+# The statefile name should be descriptive and must be unique.
+region
+=
+"us-east-2"
+# Do not change.
+}
+}
+Backend S3 Bucket
+¶
+The Outshift Platform leverages the
+S3 Backend
+to store Terraform state. All Terraform for the Outshift Platform should define
+one
+of the following S3 buckets as its backend, depending on the service level (i.e., scratch/sandbox, dev/staging, prod) of the managed resources in question:
+eticloud-tf-state-sandbox
+- store state for resources in
+scratch
+or
+sandbox
+environments
+These resources should be
+tagged
+as
+Environment: Sandbox
+eticloud-tf-state-nonprod
+- store state for resources in
+dev
+or
+staging
+environments
+These resources should be
+tagged
+as
+Environment: NonProd
+eticloud-tf-state-prod
+- store state for resources in
+production
+environments
+These resources should be
+tagged
+as
+Environment: Prod
+Backend Key path
+¶
+Each module instantiation/Atlantis project must have a unique statefile. To isolate those projects, we specify the statefile path and name in the backend S3 bucket with the
+key
+parameter.
+The
+key
+parameter will be constructed using the
+naming conventions
+and must include:
+The AWS account name
+The region
+The resource type short name
+The complete resource name
+AWS Account
+¶
+By design,
+Outshift Production Atlantis
+only has read/write access to the
+backend S3 buckets
+. In parallel, production Atlantis only has access to the
+eticloud
+namespace in
+Keeper
+. Currently (2023-09-26), all AWS credentials are stored in the
+eticloud/eticcprod
+namespace. To specify that resources be created in a particular AWS account (including production), several Terraform blocks must be defined:
+Account Vault Provider
+Account Vault Secret
+Account AWS Provider
+Account Vault Provider
+¶
+Our AWS credentials are stored in the
+eticloud/eticcprod
+namespace. To access those credentials, we must explicitly specify and alias a Vault provider for the
+eticloud/eticcprod
+namespace.
+Example Terraform
+provider
+"vault"
+{
+alias
+=
+"eticcprod"
+address
+=
+"https://keeper.cisco.com"
+namespace
+=
+"eticloud/eticcprod"
+}
+The
+alias
+is not standardized, but should clearly define which namespace is being used.
+Account Vault Secret
+¶
+A
+vault_generic_secret
+data source with the path to an AWS secret pair using the
+account Vault provider
+.
+Example Terraform
+# Change `path = "secret/eticcprod/infra/<account_name>/aws" to specify the account in which the resources will be created.
+# Must match the account in which the VPC was created.
+data
+"vault_generic_secret"
+"aws_infra_credential"
+{
+path
+=
+"secret/eticcprod/infra/prod/aws"
+provider
+=
+vault.eticcprod
+}
+Tthe
+provider = vault.<vault_provider_alias>
+must match the
+alias
+defined in the
+Account Vault Provider
+.
+Account AWS Provider
+¶
+Example Terraform
+provider
+"aws"
+{
+access_key
+=
+data.vault_generic_secret.aws_infra_credential.data
+[
+"AWS_ACCESS_KEY_ID"
+]
+secret_key
+=
+data.vault_generic_secret.aws_infra_credential.data
+[
+"AWS_SECRET_ACCESS_KEY"
+]
+region
+=
+"us-west-2"
+max_retries
+=
+3
+default_tags
+{
+# These tags are required for security compliance.
+# For more information on Data Classification and Data Taxonomy, please talk to the SRE team.
+tags
+=
+{
+ApplicationName
+=
+"eks-prod-4-eks"
+CiscoMailAlias
+=
+"eti-sre-admins@cisco.com"
+DataClassification
+=
+"Cisco Restricted"
+DataTaxonomy
+=
+"Cisco Operations Data"
+Environment
+=
+"Prod"
+ResourceOwner
+=
+"Outshift SRE"
+}
+}
+}
+Resource Tags
+¶
+Every resource created must be tagged for identification by the SRE team and the Security & Trust Office. These requirements are defined in the
+Tagging Requirements documentation
+. Also see this document for our SRE tagging guidlines - [FinOps Tagging] (
+https://cisco-eti.atlassian.net/wiki/spaces/SRE/pages/835747844/FinOps+Cost+Attribution+and+Usage+Reports
+).
+The
+tags
+map in the
+default_tags
+block in the
+Account AWS Provider
+is required and defines those tags.
+ApplicationName
+: A descriptive name of the application for which the resources are being created.
+CiscoMailAlias
+: Who to contact in case of any issues with/queries about a particular resource. Must be a Cisco email address.
+DataClassification
+: The
+Cisco Data Classification
+of the created resources. The options are:
+Cisco Public
+Cisco Confidential
+Cisco Highly Confidential
+Cisco Restricted
+Preproduction resources will be tagged
+Cisco Confidential
+and production resources will be tagged
+Cisco Highly Confidential
+.
+DataTaxonomy
+: The
+Cisco Data Taxonomy
+of the created resources. The options are:
+Administrative
+Cisco Strategic Data
+Customer Data
+Entrusted Data
+Finance Data
+Human Resources Data
+Operations Data
+The SRE team tags mostly uses
+Cisco Operations Data
+, but this particular tag should always be reviewed before resources are created.
+Environment
+: Which type of environment the resources are created in. The options are:
+Prod
+Nonprod
+Sandbox
+The
+Environment
+tag should match the
+Backend S3 bucket
+.
+ResourceOwner
+: Which team is responsible for the resources. By default, this tag should be
+ETI SRE
+or
+Outshift SRE
+.
+Module Specific Dependencies and Parameters
+¶
+Once Terraform has been configured correctly, a module can be defined. Each module has its own parameters and dependencies. Those parameters and dependencies are described in the module repositories'
+README.md
+files'
+Variables/Inputs
+and
+Prerequisites
+sections.
+There will always be up-to-date examples of module instantiation in the
+examples
+folder in the root of each module repository. The example Terraform files will also have comments describing both the required and optional parameters.
+Terraform Standards
+¶
+Terraform Files
+¶
+When we instantiate a root module, we don't have a consistent style for the files that we create.
+Resource Naming Conventions
+¶
+Naming things is difficult. These conventions have not been agreed to and are not consistent.
+There is an active
+GitHub Discussion
+to formalize these conventions.
+AWS Resources
+¶
+VPCs
+¶
+SRE VPCs tend follow the pattern:
+<identifier>-<environment>-<number>-vpc
+Examples:
+eks-prod-1-vpc
+rds-prod-1-vpc
+Venture VPCs tend to follow the pattern:
+<identifier>-<team_name>-<environment>-<number>-vpc
+Examples:
+eks-gbear-prod-1-vpc
+rds-gbear-prod-1-vpc
+EKS clusters
+¶
+SRE EKS clusters tend to follow the pattern:
+eks-<environment>-<number>
+Example:
+eks-prod-1
+Venture EKS clusters tend to follow one of the patterns:
+eks-<team_name>-<environment>
+eks-<team_name>-<environment>-<number>
+Examples:
+eks-kosha-staging
+eks-kosha-dev-1
+RDS Clusters
+¶
+SRE RDS clusters tend to follow the pattern:
+rds-<environment>-<number>
+Example:
+rds-prod-1
+Venture RDS clusters tend to follow the pattern:
+rds-<team_name>-<environment>-<number>
+Example:
+rds-greatbear-prod-1
+IAM Resources
+¶
+There is not a naming convention for IAM resources.
+S3 Buckets
+¶
+There is not a naming convetion for S3 buckets.
+Cloudfront
+¶
+There is not a naming convention for Cloudfront CDNs.
+Running Terraform locally
+¶
+All changes are applied and propagated using Atlantis. 
+However, it can be useful to initialize the Terraform providers and run some commands locally on your workstation (in order to inspect a tf state for instance).
+Avoid applying a change from your workstation
+, the below is useful to run read-only commands.
+From a given directory where Terraform configuration is defined, you will need to:
+get a Vault token with
+export VAULT_TOKEN=$(vault login -method=oidc -format=json | jq -r .auth.client_token)
+Run
+duo-sso
+to assume the required IAM role that allows to connect to a given AWS account (when the Terraform config initializes and uses the AWS provider).
+platform-terraform-infra/aws/<subfolders>/config
+git:
+(
+<branch>
+)
+terraform
+init
+...
+Initializing
+the
+backend...
+Initializing
+modules...
+Initializing
+provider
+plugins...
+...
+...
+terraform
+state
+list
+terraform
+state
+show
+'<resource_name>'
+terraform
+plan
+2025-01-28

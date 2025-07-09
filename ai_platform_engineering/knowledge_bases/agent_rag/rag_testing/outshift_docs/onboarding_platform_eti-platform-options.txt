@@ -1,0 +1,29 @@
+ETI Platform Options
+¶
+Shared K8s Clusters
+¶
+Shared K8s Clusters
+are available for consumption for all team developing containerized cloud-native applications
+This is the preferred option for most teams
+Sandboxes in Shared VPC
+¶
+Compute sandboxes in a shared VPC managed by SRE team with adherence Cisco security requirements
+Dedicated K8s Clusters
+¶
+Dedicated K8s clusters
+are special use-cases when shared k8s clusters do not meet the meets of the team
+Some examples of dedicated clusters:
+Product tests that is disruptive to other tenants
+Frequent disruptive activies to bases apps like setup and tear down of base operators
+Production dedicated clusters
+ETI Labs
+¶
+ETI labs in SJC and Paris
+are available for
+Projects that need to to validate edge usecases
+Heavy duty use-cases like GPU nodes
+Developer VMs
+â¬ï¸âto "Platform Onboarding"
+â¬ï¸âto "Getting Started"
+â¬ï¸âto "Home Page"
+2023-08-25

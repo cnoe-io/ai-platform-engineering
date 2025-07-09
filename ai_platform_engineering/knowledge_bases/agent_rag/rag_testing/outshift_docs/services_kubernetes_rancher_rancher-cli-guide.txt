@@ -1,0 +1,24 @@
+rancher cli
+Rancher Cli Guide
+¶
+Pre-requisites
+¶
+kubectl
+Rancher CLI
+Step 1: Setup Kubectl access
+¶
+./rancher login https://<SERVER_URL> --token <BEARER_TOKEN>
+Step 2: Switch context to your project
+¶
+./rancher
+context
+switch
+Step 3: Verify kubectl access
+¶
+./rancher
+kubectl
+get
+pods
+For more information about Rancher CLI please see the
+Rancher documentation
+2023-09-03

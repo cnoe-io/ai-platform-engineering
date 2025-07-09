@@ -1,0 +1,489 @@
+argocd
+Create a new ArgoCD instance using ArgoCD Operator
+¶
+Prerequisites
+¶
+ArgoCD Operator already installed
+External Secrets Operator
+is installed (manually or using shared services)
+CLI access to Keeper
+Optional (for ArgoCD managed installation):
+CLI access
+to
+argocd.prod.eticloud.io
+Optional (for manual installation):
+Kube context is set to
+access the target cluster
+Preparations
+¶
+Gather the following information:
+Which team this instance is for? (eg.
+sre
+,
+appnet
+,
+gbear
+, etc)
+What environment is it? (eg.
+dev
+,
+prod
+)
+Based on these details you can determine the instance URL:
+https://argocd-TEAM.ENV.eticloud.io
+export
+VAULT_NAMESPACE
+=
+eticloud
+export
+ARGOCD_TEAM
+=
+"sre"
+export
+ARGOCD_ENV
+=
+"dev"
+export
+ARGOCD_NAMESPACE
+=
+"argocd"
+export
+ARGOCD_HOST
+=
+"argocd-
+$ARGOCD_TEAM
+.
+$ARGOCD_ENV
+.eticloud.io"
+export
+ARGOCD_DEX_REDIRECT_URI
+=
+"https://
+$ARGOCD_HOST
+/api/dex/callback"
+# You will need these later
+echo
+$ARGOCD_HOST
+echo
+$ARGOCD_DEX_REDIRECT_URI
+Prepare authentication (using Cisco SSO)
+¶
+ArgoCD requires users interacting with the API (either directly, through the UI or the CLI) to authenticate themselves.
+We use Cisco SSO as a standard way to authenticate Cisco employees.
+Follow the
+instructions
+to set up a new OIDC application in the Cisco SSO self-serve tool.
+You are going to need a client ID a client secret and the redirect URI from above.
+export
+ARGOCD_OIDC_CLIENT_ID
+=
+"eti-sre-argocd-
+$ARGOCD_TEAM
+-
+$ARGOCD_ENV
+"
+export
+ARGOCD_OIDC_CLIENT_SECRET
+=
+"
+$(
+openssl
+rand
+-hex
+32
+)
+"
+# You will need these later
+echo
+$ARGOCD_OIDC_CLIENT_ID
+echo
+$ARGOCD_OIDC_CLIENT_SECRET
+Create a secret in Keeper:
+export
+ARGOCD_DEX_SECRET_PATH
+=
+"argocd/
+$ARGOCD_TEAM
+/
+$ARGOCD_ENV
+/cisco-sso"
+vault
+kv
+put
+secret/
+$ARGOCD_DEX_SECRET_PATH
+oidc.ciscosso.clientId
+=
+$ARGOCD_OIDC_CLIENT_ID
+oidc.ciscosso.clientSecret
+=
+$ARGOCD_OIDC_CLIENT_SECRET
+oidc.ciscosso.redirectUri
+=
+$ARGOCD_DEX_REDIRECT_URI
+# You will need this later
+echo
+$ARGOCD_DEX_SECRET_PATH
+Prepare backup
+¶
+ArgoCD operator can make regular backups of ArgoCD (called
+exports
+).
+Exports are uploaded to an object store (AWS S3 in this case) and are encrypted using a secret key.
+First, setup a new S3 backup for ArgoCD.
+TODO:
+Link to S3 bucket documentation
+Checkout the
+sre-tf-infra
+repository
+and create a new S3 bucket under
+aws-eticloud/s3/us-east-2
+.
+git
+clone
+git@wwwin-github.cisco.com:eti/sre-tf-infra.git
+cd
+sre-tf-infra
+cd
+aws-eticloud/s3/us-east-2
+Use one of the existing
+cisco-eti-argocd-*
+buckets as example.
+export
+ARGOCD_EXPORT_S3_BUCKET
+=
+"cisco-eti-argocd-
+$ARGOCD_TEAM
+-
+$ARGOCD_ENV
+-backup"
+# You will need this later
+echo
+$ARGOCD_EXPORT_S3_BUCKET
+Make sure to add the new module to
+atlantis.yaml
+in the repo root.
+Next, generate a secret key for encrypting backups and create a secret in Keeper:
+export
+ARGOCD_EXPORT_BACKUP_KEY
+=
+$(
+</dev/urandom
+tr
+-dc
+'!@#$%A-Z-a-z-0-9'
+|
+head
+-c32
+;
+echo
+""
+)
+export
+ARGOCD_EXPORT_SECRET_PATH
+=
+"argocd/
+$ARGOCD_TEAM
+/
+$ARGOCD_ENV
+/s3-backup"
+vault
+kv
+put
+secret/
+$ARGOCD_EXPORT_SECRET_PATH
+aws.bucket.name
+=
+$ARGOCD_EXPORT_S3_BUCKET
+backup.key
+=
+$ARGOCD_EXPORT_BACKUP_KEY
+# You will need this later
+echo
+$ARGOCD_EXPORT_SECRET_PATH
+Note:
+The backup secret key generation is similar to how the ArgoCD operator does it
+here
+.
+Finally, create a secret in Keeper for the IAM user:
+TODO:
+Link to IAM user documentation
+TODO:
+SRE-2896
+: use AWS secret engine
+Note:
+This is a temporary process mimicking how the
+AWS secret enging
+works.
+export
+ARGOCD_EXPORT_IAM_ACCESS_KEY
+=
+$(
+vault
+kv
+get
+-field
+access_key
+secret/argocd-s3-backup
+)
+export
+ARGOCD_EXPORT_IAM_SECRET_KEY
+=
+$(
+vault
+kv
+get
+-field
+secret_key
+secret/argocd-s3-backup
+)
+export
+ARGOCD_EXPORT_IAM_USER_SECRET_PATH
+=
+"argocd/
+$ARGOCD_TEAM
+/
+$ARGOCD_ENV
+/s3-backup-iam-user"
+vault
+kv
+put
+secret/
+$ARGOCD_EXPORT_IAM_USER_SECRET_PATH
+access_key
+=
+$ARGOCD_EXPORT_IAM_ACCESS_KEY
+secret_key
+=
+$ARGOCD_EXPORT_IAM_SECRET_KEY
+# You will need this later
+echo
+$ARGOCD_EXPORT_IAM_USER_SECRET_PATH
+Create a DNS record in Route53
+¶
+TODO:
+Explain how to get the external IP.
+TODO:
+Script the record creation using AWS CLI.
+Get the external IP address of the Ingress Controller in the cluster.
+Point the ArgoCD host (see above) to the external IP.
+Create ArgoCD manifests
+¶
+Checkout the
+argocd-instances
+repository
+and create a new directory for the new instance.
+Copy and customize the files of an existing instance or create the necessary manifests from scratch.
+git
+clone
+git@wwwin-github.cisco.com:eti/argocd-instances.git
+cd
+argocd-instances
+mkdir
+-p
+$ARGOCD_TEAM
+/
+$ARGOCD_ENV
+cd
+$ARGOCD_TEAM
+/
+$ARGOCD_ENV
+# Create argocd.yaml
+cat
+<< EOF > argocd.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: ArgoCD
+metadata:
+name: argocd
+labels:
+environment: $ARGOCD_TEAM-$ARGOCD_ENV
+spec:
+applicationInstanceLabelKey: $ARGOCD_HOST/application
+version: v2.2.5
+applicationSet:
+version: v0.4.0
+server:
+host: $ARGOCD_HOST
+ingress:
+tls:
+- hosts:
+- $ARGOCD_HOST
+secretName: argocd-tls
+EOF
+# Create external-secret.yaml
+cat
+<< EOF > external-secret.yaml
+apiVersion: external-secrets.io/v1alpha1
+kind: ExternalSecret
+metadata:
+name: argocd-s3-backup
+labels:
+app.kubernetes.io/part-of: argocd
+spec:
+secretStoreRef:
+kind: ClusterSecretStore
+name: vault-eticloud
+target:
+creationPolicy: Owner
+name: argocd-s3-backup
+refreshInterval: 1h
+dataFrom:
+- key: $ARGOCD_EXPORT_SECRET_PATH
+data:
+- secretKey: aws.access.key.id
+remoteRef:
+key: $ARGOCD_EXPORT_IAM_USER_SECRET_PATH
+property: access_key
+- secretKey: aws.secret.access.key
+remoteRef:
+key: $ARGOCD_EXPORT_IAM_USER_SECRET_PATH
+property: secret_key
+---
+apiVersion: external-secrets.io/v1alpha1
+kind: ExternalSecret
+metadata:
+name: argocd-dex
+labels:
+app.kubernetes.io/part-of: argocd
+spec:
+secretStoreRef:
+kind: ClusterSecretStore
+name: vault-eticloud
+target:
+creationPolicy: Owner
+name: argocd-dex
+refreshInterval: 1h
+dataFrom:
+- key: $ARGOCD_DEX_SECRET_PATH
+EOF
+# Create namespace.yaml
+cat
+<< EOF > namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+name: $ARGOCD_NAMESPACE
+EOF
+# Create kustomization.yaml
+cat
+<< EOF > kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: $ARGOCD_NAMESPACE
+resources:
+- namespace.yaml
+- external-secret.yaml
+- ./../../base
+patchesStrategicMerge:
+- argocd.yaml
+EOF
+Make any changes to the above resources as necessary.
+Important:
+Make sure to use appropriate versions (see
+argocd.yaml
+).
+Commit and push the changes:
+git add .
+git commit -m "prepare $ARGOCD_TEAM/$ARGOCD_ENV instance"
+Installation
+¶
+Using SRE Prod ArgoCD
+¶
+Note:
+It's recommended to install ArgoCD manually first and then add it to ArgoCD to manager.
+See the
+Manual installation
+section below for details.
+Create a new application in the
+argocd
+project:
+argocd
+app
+create
+argocd-
+$ARGOCD_TEAM
+-
+$ARGOCD_ENV
+--project
+argocd
+--repo
+https://wwwin-github.cisco.com/eti/argocd-instances
+--path
+$ARGOCD_TEAM
+/
+$ARGOCD_ENV
+--dest-server
+https://kubernetes.default.svc
+Wait for ArgoCD to synchronize or trigger a synchronization manually on the UI.
+Manual installation
+¶
+Apply the manifest manually to the target cluster:
+kustomize
+build
+|
+kubectl
+apply
+-f
+-
+A word about export secrets
+¶
+You may notice that the ExternalSecret for ArgoCD Export above uses a
+Owner
+.
+Unfortunately, this often causes synchronization issues:
+there is a race condition between the ArgoCD Operator and ESO for creating the secret
+and the first one usually wins, resulting in ESO refusing to take ownership of the secret.
+Merge
+policy doesn't work either, because it cannot overwrite an existing key (
+backup.key
+).
+As a result, when first installing an ArgoCD instance the ExternalSecret resources
+MUST
+be applied first:
+kubectl
+apply
+-f
+namespace.yaml
+kubectl
+-n
+argocd
+apply
+-f
+external-secret.yaml
+Alternatively, comment out the base in
+kustomization.yaml
+first.
+Once the secret is created by ESO you can (put back the base and) apply all resource:
+kustomize
+build
+|
+kubectl
+apply
+-f
+-
+This isn't ideal and hopefully will improve in the future, so we can revise this strategy.
+See the following links for discussions:
+https://github.com/external-secrets/external-secrets/issues/935
+https://github.com/argoproj-labs/argocd-operator/issues/600
+Installing other ArgoCD components
+¶
+ArgoCD Operator supports additional ArgoCD components (right now, only ApplicationSet controller).
+There are other components that can be installed manually.
+For example, add the following to the
+kustomization.yaml
+to install the ArgoCD Image Updater:
+apiVersion
+:
+kustomize.config.k8s.io/v1beta1
+kind
+:
+Kustomization
+# ...
+resources
+:
+#...
+# ArgoCD Image Updater
+-
+https://raw.githubusercontent.com/argoproj-labs/argocd-image-updater/v0.12.0/manifests/install.yaml
+Make sure always use versions that are compatible with each other.
+2023-10-04

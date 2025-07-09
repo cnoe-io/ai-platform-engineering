@@ -1,0 +1,12 @@
+Libraries/Modules/Packages
+¶
+JFrog Artifactory hosted by Cisco IT provide internal registry for
+- go private modules
+- pypi packages
+- maven packages
+Go Mod Private Proxy
+¶
+A GOPROXY controls the source of your Go module downloads and can help assure builds are deterministic and secure.
+More info on
+how to use go mod private proxy in ETI Platform
+2025-02-11

@@ -1,0 +1,153 @@
+argocd add project
+argocd add projectapp
+argocd project
+argocd projectApp
+Application Deployment Operator Guide
+¶
+Application Deployment Repo
+¶
+Before going further please verify that the application's deployment repo is configured following the folder organization described
+here
+BaseApps configuration
+¶
+If needed you can update the baseapps configuration for a given Kubernetes cluster where the application will be deployed. You can find here:
+The
+sre-baseapps-configs
+repo for the
+SRE managed clusters
+The
+sre-baseapps-configs-cnapp
+repo for the
+CNAPP projects dedicated clusters
+The
+sre-baseapps-configs-genai
+repo for the
+GenAI projects dedicated clusters
+The
+sre-baseapps-configs-argocd
+repo for the
+ArgoCD instances dedicated clusters
+The
+sre-baseapps-configs-shared
+if you need to update baseapps Helm values common to all the clusters
+Then please follow this path:
+clusters/<target_cluster>/<new-base-app>/values.yaml
+and modify the
+values.yaml
+file to add the venture's application config.
+Learn more details about baseapps in
+this documentation
+Note
+You may need to allow retrieving secrets from keeper and make it available to the application to be deployed. 
+- So please
+create a Vault namespace in keeper using Terraform
+for that particular venture application if it doesn't exist already
+- See
+how to create Vault Role/policy
+for your venture application in
+this doc
+- Then add the application's namespace in the target cluster's external-secrets baseapp values file under
+secretstores
+as shown in the below example:
+- name: vault-eticloud-apps-ppu
+kind: ClusterSecretStore
+namespace: external-secrets
+vault:
+server: "https://keeper.cisco.com"
+path: "secret"
+namespace: "eticloud/apps/ppu"
+version: "v2"
+kubernetes:
+mountPath: "eks-dev-3"
+role: "external-secrets-dev"
+serviceAccountRef:
+name: "external-secrets-vault"
+namespace: "external-secrets"
+You also need to add the same block under
+accesstest
+which will allow you to test if the secrets can be downloaded.
+Then please follow the below steps to run the script which will configure the external secrets:
+Setup AWS CLI access to the target cluster
+Export
+VAULT_TOKEN
+& the application's
+VAULT_NAMESPACE
+environment variables
+Clone the
+sre-utilities repository
+Go to the
+sre-utilities/scripts/argocd/
+directory and run the
+argocd_external_secrets.sh
+specifying the target cluster's name.
+bash
+argocd_external_secrets.sh
+<cluster_name>
+Go to the
+ArgoCD instance
+related to your base application deployment
+Search for the external-secrets application related to your cluster, meaning
+<target_cluster>-external-secrets
+Select the baseapp, sync the application then check if your external secret is successfully created
+Venture Application's ArgoCD Project Configuration
+¶
+Previously SRE or Ventures were responsible for ArgoCD projects or applicationsets creation by running a manual parametrized jenkins job and adding argocdWorkflow on Jenkinsfile to deployment repo for each microservice that the venture team manages.
+SRE team automated the CD promotion for both Jenkins CI/CD and Github Actions (GHA) workflows. Here are more details:
+We created dedicated repository for argocd configs for each product. Right now we have
+argocd-cnapp-configs
+argocd-genai-configs
+These repos contain argocd project definition (which was before created via argocd CLI) and argocd projectapp which is an argocd application that will create argocd applications for the dedicated project.
+In each config repo, we should create 2 folders and respect naming convention:
+argo-projectapps
+argocd-projects
+For each of these projects, we should manually argocd application to automate argocd project and argocd appProject.
+In case we got request from venture to add new argocd project, we should select the right argocd configs repository:
+All
+cnapp projects
+will be on
+argocd-cnapp-configs
+,
+All
+genai related projects
+will be added to
+argocd-genai-configs
+.
+In case there is no repository for the requested project, we should create new one with the similar configs as the existing configs repository.
+After updating config repo, we should follow below steps:
+1. First, we should login to the appropritate argocd instance (
+argocd-cnapp
+,
+argocd-genai
+, ...). 
+2. Search for argocd-xxx-configs application. 
+3. Check sync status, if the application is not synced, please sync manually.
+In case the argocd configs application on argocd is not created we have to create it manually via argocd UI. Below screenshot for argocd configs to be defined.
+ArgoCD Project
+¶
+Argocd Projects provide a logical grouping of applications, which is useful when Argo CD is used by multiple teams.
+Projects provide the following features:
+restrict what may be deployed (trusted Git source repositories)
+restrict where apps may be deployed to (destination clusters and namespaces)
+restrict what kinds of objects may or may not be deployed (e.g. RBAC, CRDs, DaemonSets, NetworkPolicy etc...)
+defining project roles to provide application RBAC (bound to OIDC groups and/or JWT tokens)
+Documentations
+¶
+Projects documentation
+example yaml
+Argocd projectApps
+¶
+Argocd projectapps are argocd applications that creates argocd applicationsets which creates later your argo applications with the appropriate kubernetes resources defined on your helm charts repository.
+Ventures RBAC
+¶
+Creating AD Group
+¶
+If your venture hasn't already an AD group created, plase follow
+add-new-ad-group-automation
+documentation.
+Argocd RBAC
+¶
+Update Argocd config in order to add required permissions on
+argocd-instances
+repository.
+Please choose the appropriate argocd instance folder, select overlays folder and then update argocd-rbac-cm.yaml file by adding AD group created above.
+2024-02-01

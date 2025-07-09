@@ -1,0 +1,21 @@
+rds-dev-3
+rds-dev-3 RDS Cluster
+¶
+RDS cluster hosting  databases. In the
+eticloud-preprod
+AWS account, us-east-2 region.
+Terraform Code
+¶
+rds-dev-3
+VPC
+¶
+nonprod-db-vpc-3-vpc
+Cluster Access
+¶
+How to setup PgAdmin
+How to create an SSH Tunnel to RDS
+VPC Bastion Access
+Connection details
+¶
+rds-dev-3 connection in Keeper
+2023-05-18

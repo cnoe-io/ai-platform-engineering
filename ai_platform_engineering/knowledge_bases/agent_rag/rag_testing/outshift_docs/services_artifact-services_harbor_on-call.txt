@@ -1,0 +1,157 @@
+On-call
+¶
+Quick Links
+¶
+Dashboards
+See links for
+registry.outshift.com
+and
+harbor.eticloud.io
+Registry password / unauthorized errors
+¶
+In case you see unauthorized / password issues in the logs, try restarting the core and registry components:
+# In case the harbor instance is not called "harbor", find the relevant deployment names:
+# kubectl get deploy
+kubectl
+rollout
+restart
+deploy
+harbor-harbor-harbor-core
+kubectl
+rollout
+restart
+deploy
+harbor-harbor-harbor-registry
+Explanation: in some cases the operator recreates a secret, but fails to restart the relevant components (or at least some of them)
+which leads to these communication issues.
+Trigger manual replication
+¶
+Replications are normally executed on a schedule, but sometimes manually triggering replications may be necessary:
+After a registry outage during which replications couldn't complete
+At the request of development teams to quickly rollout a patch
+To manually trigger a replication:
+Log in to Harbor
+Go to
+Administration / Replications
+Select a replication job to run
+Click on
+Replicate
+A single product might have more than one job (eg. SMM has
+smm
+and
+smm-dependencies
+).
+Make sure to run all replications necessary.
+Database Pod CrashLoopBackOff
+¶
+Helm chart managed instances only.
+If you are seeing errors with database pod CrashLoopBackOff there is anÂ
+issue
+Â that provides a fix.Â Â
+kubectl
+patch
+statefulset
+harbor-harbor-database
+-p
+'{"spec": { "template": { "spec": { "initContainers": [{"args":["-c","[ ! -d /var/lib/postgresql/data/pgdata ] && mkdir -m 0700 /var/lib/postgresql/data/pgdata && [ -e /var/lib/postgresql/data/postgresql.conf ] && mv /var/lib/postgresql/data/* /var/lib/postgresql/data/pgdata/ || chmod 0700 /var/lib/postgresql/data/pgdata && ls -l /var/lib/postgresql/data || true"],"command":["/bin/sh"],"image":"goharbor/harbor-db:dev","imagePullPolicy":"IfNotPresent","name":"data-migrator","resources":{},"terminationMessagePath":"/dev/termination-log","terminationMessagePolicy":"File","volumeMounts":[{"mountPath":"/var/lib/postgresql/data","name":"database-data"}]}] } } } }'
+HarborComponentDown
+Alert
+¶
+Check Harbor health in
+Grafana Dashboard
+:
+Check the logs of the down services:
+kubectl -n harbor logs -f <HARBOR_POD_ID>
+If you see many
+remote error: tls: bad certificate
+error logs, but the certificates themselves are not expired (
+kubectl -n harbor get certificate -o yaml | grep message
+), the services are failing due to a
+known issue with Harbor Operator < v1.4
+where renewed certificates are not automatically reloaded by running pods (
+SRE-3791
+tracks the long-term fix to upgrade Harbor Operator)
+Recover services by manually restarting the failed pods:
+Do a rolling restart of all services (
+kubectl -n harbor rollout restart deployment <DEPLOYMENT_NAME>
+) and tail the service logs to verify successful restart
+Verify all services are reporting up in the health dashboard:
+If you have a component in CrashLoopBackOff as per:
+k
+get
+pods
+-n
+harbor
+NAME
+READY
+STATUS
+RESTARTS
+AGE
+harbor-harbor-harbor-chartmuseum-6f9d8994b5-j2pv7
+1
+/1
+Running
+0
+40m
+harbor-harbor-harbor-core-7b67d44565-2n9c9
+1
+/1
+Running
+0
+43s
+harbor-harbor-harbor-exporter-65dbf958b4-rbq77
+1
+/1
+Running
+0
+45d
+harbor-harbor-harbor-jobservice-6654fb8749-b89gl
+0
+/1
+CrashLoopBackOff
+6
+5m35s
+harbor-harbor-harbor-jobservice-864cf66bcb-wxgnd
+1
+/1
+Running
+6
+5m35s
+harbor-harbor-harbor-portal-678668dd9d-t58j2
+1
+/1
+Running
+0
+39m
+harbor-harbor-harbor-registry-c498cc9bf-srxk6
+2
+/2
+Running
+0
+39m
+rfr-harbor-redis-0
+2
+/2
+Running
+0
+42d
+rfs-harbor-redis-86485b6659-vw5m6
+2
+/2
+Running
+0
+42d
+where the error looks like:
+2022-11-25T12:49:27Z [INFO] [/pkg/config/rest/rest.go:47]: get configuration from url: https://harbor-harbor-harbor-core:443/api/v2.0/internalconfig
+2022-11-25T12:49:27Z [ERROR] [/pkg/config/rest/rest.go:50]: Failed on load rest config err:Get "https://harbor-harbor-harbor-core:443/api/v2.0/internalconfig": x509: certificate has expired or is not yet valid: current time 2022-11-25T12:49:27Z is after 2022-11-25T12:14:03Z, url:https://harbor-harbor-harbor-core:443/api/v2.0/internalconfig
+2022-11-25T12:49:27Z [ERROR] [/jobservice/job/impl/context.go:75]: Job context initialization error: failed to load rest config
+that means you will need to roullout restart the harbor core:
+kubectl
+-n
+harbor
+rollout
+restart
+deployment
+harbor-harbor-harbor-core
+Page should auto-resolve at this time.
+2023-12-09

@@ -1,0 +1,79 @@
+client sent too long header line
+cloud9
+hardened
+large_client_header_buffers
+nginx
+post mortem
+2023-02-16; smm-docs.eticloud.io redirect to docs.calisti.app did not work in certain cases
+¶
+Summary
+¶
+The smm-docs.eticloud.io redirect to docs.calisti.app did not work in certain cases.
+When
+¶
+2023-01-30 18:20 CET - 2023-02-16 19:20 CET
+Timeline
+¶
+2023-02-16
+¶
+17:05 CET: In the SRE for AppNet Webex space, a team member indicated that the redirect set for
+smm-docs.eticloid.io
+->
+docs.calisti.app
+did not work for him, he received an HTTP (400) error
+17:12 CET: the SRE team started to check and confirm the issue, in most of the cases the redirect worked, nonetheless some members received the same error
+17:25 CET: we identified from the logs that the nginx used for the redirects logged
+client sent too long header line
+error messages related to the problem
+17:46 CET: we identified that in the Cloud 9 hardened nginx image,
+large_client_header_buffers
+was set to
+2 1k
+(in the default nginx config it's
+4 8k
+). For the people who received the HTTP 400 errors, the size of the cookies set for the
+.eticloud.io
+domain exceeded the limit set by Cloud 9.
+19:13 CET: we fixed the issue by overwriting the config set by Cloud 9 with the default shipped with nginx
+19:20 CET: we confirmed that the fix worked
+2023-02-17
+¶
+10:17 CET: the AppNet team confirmed that the issue was resolved
+Impact
+¶
+System(s) impacted?
+¶
+The manifestation of the underlying condition was that the smm-docs.eticloud.io -> docs.calisti.app didn't work in certain cases, but other systems can be impacted (the ones that use the Cloud 9 hardened nginx image). 
+We confirmed this by sending a request with a cookie header that exceeds the Cloud 9's limit to another application and got the same 400 HTTP error code.
+Teams impacted?
+¶
+AppNet
+Analysis
+¶
+In this case the problem arose from a combination of two circumstances:
+Based on CIS benchmark recommendation the
+large_client_header_buffers
+is set to
+2 1k
+in the Cloud 9 hardened nginx image to prevent buffer overflow attacks.
+If a HTTP header exceeds the
+1k
+limit the nginx rejects the request with a
+HTTP 400 - client sent too long header line
+error.
+Some of the applications/websites are served under the
+eticloud.io
+domain. Despite that these applications are under a subdomain, they are setting cookies for the apex/root domain
+.eticloud.io
+, after which these cookies are concatenated and sent on every request.
+For example in one case the error was caused by cookies set by Atlassian Jira Servicedesk and Kubecost (that was sending analytics data to Mixpanel):
+cookie: ajs_anonymous_id=c22becec-da00-4d99-bead-2302c592b7af; ajs_user_id=sraradhy@cisco.com; mp_9bfb1dea1874f9ea59453846a9ccd7d3_mixpanel=%7B%22distinct_id%22%3A%20%22184e3e95c351137-06d0903884bca7-3f626b4b-384000-184e3e95c36262e%22%2C%22%24device_id%22%3A%20%22184e3e95c351137-06d0903884bca7-3f626b4b-384000-184e3e95c36262e%22%2C%22%24initial_referrer%22%3A%20%22https%3A%2F%2Fargocd.prod.eticloud.io%2F%22%2C%22%24initial_referring_domain%22%3A%20%22argocd.prod.eticloud.io%22%2C%22host%22%3A%20%22kubecost.gbear.scratch.eticloud.io%22%2C%22appVersion%22%3A%20%221.98.0%22%2C%22product_key%22%3A%20%22*******************************df98%22%2C%22product_tier%22%3A%20%22free%22%2C%22kubecostToken%22%3A%20%22not-applied%22%7D; _ga_YKTRD8RNPR=GS1.1.1671134963.4.1.1671134991.0.0.0; _ga=GA1.1.1409077692.1669234923; OptanonConsent=isGpcEnabled=0&datestamp=Thu+Dec+15+2022+08%3A58%3A55+GMT-0600+(Central+Standard+Time)&version=6.39.0&isIABGlobal=false&hosts=&consentId=c92d0097-17f9-4398-afbb-75a4c86aca6b&interactionCount=
+However it can occur by several ways that are difficult to predict or control:
+cookies set by multiple applications under the same root domain
+cookies set by third party Javascript libraries
+too long cookie(s) set by an application itself (JWT tokens, etc)
+Takeaways
+¶
+we reached out the Cloud 9 team for further guidance and documentation of the Cloud 9 hardened image settings
+the SRE team should be aware of these settings and in which cases should be set differently - and to raise awareness among the venture teams
+2023-02-21

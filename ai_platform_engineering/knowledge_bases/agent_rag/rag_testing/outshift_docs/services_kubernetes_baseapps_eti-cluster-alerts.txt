@@ -1,0 +1,10 @@
+baseapps alert
+eti-cluster-alerts
+ETI Cluster Alerts
+¶
+Cluster Alerts are defined with thresholds for most common trouble scenarios
+References
+:
+Alerts Helm Chart
+ETI Alerting
+2023-09-03

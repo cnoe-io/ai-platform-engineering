@@ -1,0 +1,28 @@
+Baseapp Configuration Repositories
+¶
+To facilitate sharding of applications amongst ArgoCD Instances the configuration of base applications is divided into repositories specific to the owning ArgoCD.
+ð
+Note
+The common and environment specific configuration is not sharded.
+It is hosted in the following repository:
+sre-baseapps-configs-shared
+Baseapps Repo
+Shared Repo
+ArgoCD Project Configs
+CNAPP
+https://github.com/cisco-eti/sre-baseapps-configs-cnapp
+https://github.com/cisco-eti/sre-baseapps-configs-shared
+https://github.com/cisco-eti/argocd-cnapp-configs
+GenAI
+https://github.com/cisco-eti/sre-baseapps-configs-genai
+https://github.com/cisco-eti/sre-baseapps-configs-shared
+https://github.com/cisco-eti/argocd-genai-configs
+Common
+https://github.com/cisco-eti/sre-baseapps-configs-common
+https://github.com/cisco-eti/sre-baseapps-configs-shared
+https://github.com/cisco-eti/argocd-common-configs
+ArgoCD Baseapps Shards
+¶
+These are the ArgoCD shards. This list should be updated as additional ArgoCD instances are added.
+ArgoCD Installations
+2024-03-05

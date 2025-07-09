@@ -1,0 +1,493 @@
+jenkins approle
+jenkins vault plugin
+How to use the Vault Plugin
+¶
+This document describes how to create a Vault AppRole to enable Jenkins to access secrets stored in Vault and allow Jenkins to access AWS resources.
+See this
+Jenkins Vault Plugin
+doc for architecture details.
+Pre-Requisites
+¶
+Jenkins Vault Plugin
+has been installed (already done for
+ETI Jenkins
+)
+Vault CLI
+Accessing Secrets
+¶
+NOTE: Using the CLI is possible, but the SRE team has migrated to using Terraform to manage resources in Keeper in the
+https://github.com/cisco-eti/platform-terraform-infra
+. The resources below have not been imported, yet.
+In this guide, we will enable jobs under the
+SRE Jenkins folder
+to access secrets in the
+eticloud/teamsecrets
+Vault namespace. At a high level, this requires the following steps:
+Enable AppRole auth method for the Vault namespace Jenkins needs to access
+Create a AppRole policy for read-only access to secrets in the namespace
+Create an AppRole called
+jenkins
+and attach the policy created above
+Store the AppRole credentials (RoleID and SecretID) as a
+Folder-level Jenkins Credential
+. (See the
+Jenkins Credentials Store
+doc for more details about Jenkins Credentials)
+Reference the needed secrets in a Jenkins job via the
+withVault
+method provided by the Vault Plugin
+Step 1: Configure your environment for CLI access to Vault
+¶
+Follow the
+Vault CLI access
+doc. Ensure that your environment variables are configured with the Vault namespace Jenkins needs to access.
+For example, to enable Jenkins access to the
+eticloud/teamsecrets
+namespace:
+export
+VAULT_TOKEN
+=
+<YOUR_TOKEN>
+export
+VAULT_ADDR
+=
+https://keeper.cisco.com
+export
+VAULT_NAMESPACE
+=
+eticloud/teamsecrets
+Step 2: Enable AppRole auth method
+¶
+Run the following:
+vault
+auth
+enable
+approle
+Note the approle path in the output message (should default to
+approle/
+:
+Success! Enabled approle auth method at: approle/
+)
+Step 3: Create a
+jenkins
+policy
+¶
+Create a
+jenkins
+policy for
+read-only
+access to the appropriate path in this namespace. The example below enables access to all secrets under the
+secret/
+path; adjust the path as needed.
+vault
+policy
+write
+jenkins
+-
+<<EOF
+# Read-only permission on secrets stored at 'secret/*'
+path "secret/*" {
+capabilities = [ "read" ]
+}
+EOF
+Step 4: Create a
+jenkins
+role and attach the
+jenkins
+policy
+¶
+Run the following:
+vault
+write
+auth/approle/role/jenkins
+token_policies
+=
+"jenkins"
+\
+token_ttl
+=
+1h
+token_max_ttl
+=
+4h
+Step 5: Retrieve the RoleID and SecretID for the
+jenkins
+AppRole
+¶
+Retrieve the RoleID:
+vault
+read
+auth/approle/role/jenkins/role-id
+Retrieve the SecretID:
+vault
+write
+-force
+auth/approle/role/jenkins/secret-id
+Note
+:
+Run
+vault read auth/approle/role/jenkins
+and verify that the
+secret_id_num_uses
+and
+secred_id_ttl
+are both set to
+0
+:
+â
+vault
+read
+auth/approle/role/jenkins
+Key
+Value
+---
+-----
+bind_secret_id
+true
+local_secret_ids
+false
+secret_id_bound_cidrs
+<nil>
+secret_id_num_uses
+0
+secret_id_ttl
+0s
+token_bound_cidrs
+[]
+token_explicit_max_ttl
+0s
+token_max_ttl
+4h
+token_no_default_policy
+false
+token_num_uses
+0
+token_period
+0s
+token_policies
+[
+jenkins
+]
+token_ttl
+1h
+token_type
+default
+Step 6: Store the AppRole's RoleID and SecretID as a Jenkins Credential
+¶
+Navigate to the Jenkins Folder that requires access and click on
+Credentials
+in the left navigation bar:
+Scroll down and click on the store scoped to the folder (in this case the SRE folder):
+Click on
+Global credentials (unrestricted)
+, then
+Add Credentials
+on the left:
+Select
+Vault App Role Credential
+for the
+Kind
+drop-down field and populate the form with the RoleID and SecretID we retrieved in the previous steps:
+Note:
+Path:
+should specify the
+approle auth method
+path (default:
+approle
+) from
+Step 2
+ID:
+the convention is to prefix
+-jenkins-approle
+with the target Vault namespace
+Step 7: Reference secrets from Vault in Jenkinsfile
+¶
+Now that Vault AppRole has been created and its credentials stored in Jenkins, you can update existing jobs to reference secrets with the
+withVault
+method
+.
+This method takes in two parameters:
+configuration
+: a map that specifies the url, credentials, and other details for the Vault instance Jenkins need to access
+vaultSecrets
+: a map that specifies the Vault
+path
+,
+engineVersion
+, and a
+secretValues
+list of
+envVar
+and
+vaultKey
+pairs
+Example:
+def
+configuration
+=
+[
+vaultUrl:
+'https://keeper.cisco.com'
+,
+vaultCredentialId:
+'teamsecrets-jenkins-approle'
+,
+vaultNamespace:
+'eticloud/teamsecrets'
+,
+engineVersion:
+2
+,
+prefixPath:
+'secret/'
+]
+def
+secrets
+=
+[
+[
+path:
+"p3/p3-prod-2"
+,
+engineVersion:
+2
+,
+secretValues:
+[
+[
+envVar:
+'P3_KUBECONFIG'
+,
+vaultKey:
+'kubeconfig-b64'
+]
+]
+]
+]
+withVault
+([
+configuration:
+configuration
+,
+vaultSecrets:
+secrets
+])
+{
+sh
+'''#!/bin/bash -e
+echo "$P3_KUBECONFIG" | base64 -d > /tmp/p3-prod-2
+'''
+}
+Accessing AWS resources
+¶
+Required Resources
+¶
+Accessing AWS resources from Jenkins requires the follwoing resources to be created.
+Vault AWS Secrets Engine
+Vault AWS Secrets Engine Role
+AWS IAM user
+AWS IAM policy or policies
+AWS IAM role or roles
+These are mostly created by Terraform.
+Example terraform for eticloud/ci-aws-eticloud-scratch
+Vault AWS Secrets Engine
+¶
+The secrets engine is bound to the
+created AWS IAM
+user via that user's secret key and secret access key. That IAM user's AWS account and
+IAM policy or policies
+determine is authorizations.
+Example terraform
+The secrets engine will return credentials for one of the assumed roles defined in the
+secrets engine role
+.
+Vault AWS Secrets Engine Role
+¶
+The secret engine role limits access to an assumed
+IAM role or roles
+in the target AWS account.
+Example terraform
+AWS IAM user
+¶
+The AWS IAM user is a user created specifically for the secrets engine. It can only assume roles that a defined in the attached user policy.
+The secret key and secret access key are created, but not stored in Keeper. They are directly injected into the required Vault AWS secrets engine.
+Example terraform for IAM user
+Example terramform for IAM user policy
+AWS IAM policy or policies
+¶
+AWS IAM policies:
+Allow the Vault AWS secrets engine IAM user to assume AWS IAM roles.
+Allow AWS IAM roles to be assumed by the Vault AWS secrets engine IAM user.
+Example AWS IAM user policy
+EXample AWS IAM role policy
+AWS IAM role or roles
+¶
+AWS IAM roles:
+Vault AWS secrets engine IAM user to assume AWS IAM roles.
+Define authorization for access to AWS resources.
+Example AWS IAM role for Vault AWS secrets engine IAM user
+Example AWS IAM role policy for Vault AWS secrets engine IAM user
+There are occassions when a role external to the Terraform in platform-terraform-infra needs to be assumed. To do so, you must add the role ARN to the AWS IAM policy for the Vault secrets engine AWS IAM user. You must also ensure that the role being assumed can be assumed by Vault secrets engine AWS IAM user.
+Example external role attached to Vault AWS secrets engine IAM user
+Many of our AWS IAM roles already allow any user in the account to assume the role. You can look at the role trust policy to see if it allows the account root to assume the role.
+Example AWS IAM role policy code
+Example eticloud role trust relationship web console
+Usage in pipelines
+¶
+The sre-pipeline-library has a
+function to login to AWS with an approle
+. There are assumptions built in and to use the function correctly, you need several parameters set correctly.
+Assumptions
+¶
+The Vault AWS secrets engine is in the
+eticloud
+namespace in Keeper.
+Parameters
+¶
+We will use the following example code to explain the parameters.
+@Library
+([
+'srePipeline'
+])
+_
+def
+globalparams
+=
+[
+VAULT_ADDR:
+'https://keeper.cisco.com'
+,
+awsDefaultRegion:
+'eu-west-1'
+,
+]
+pipeline
+{
+agent
+{
+docker
+{
+image
+'containers.cisco.com/eti-sre/gbear-pyats'
+registryUrl
+'https://containers.cisco.com'
+registryCredentialsId
+'botuser_containers_cisco_com'
+args
+"-d --network=host -it \
+-v /var/run/docker.sock:/var/run/docker.sock"
+}
+}
+stages
+{
+stage
+(
+'eks-gbear-3'
+)
+{
+steps
+{
+script
+{
+sreUtils
+.
+figlet
+(
+"eks-gbear-3"
+)
+def
+vaultparams
+=
+[
+awsVaultEnv:
+'ci-aws-eticloud-scratch'
+,
+accountId:
+'380642323071'
+,
+roleName:
+'gbear'
+,
+vaultrolename:
+'ci-vault-role'
+jenkinsApproleCredsId:
+'ci-jenkins-approle'
+]
+globalparams
+=
+globalparams
+<<
+vaultparams
+sreAWS
+.
+awsLogin
+(
+globalparams
+,
+'gbear'
+)
+{
+sh
+'''
+set -x
+rm -rf /home/ubuntu/.aws
+aws eks update-kubeconfig --name eks-gbear-3 --alias eks-gbear-3 --region eu-west-1
+kubectl config use-context eks-gbear-3
+kubectl get pods -A
+'''
+}
+}
+// script
+}
+// steps
+}
+// stage('eks-gbear-3')
+}
+// stages
+}
+globalparams
+:
+VAULT_ADDR:
+should always be
+'https://keeper.cisco.com'
+awsDefaultRegion:
+whatever region you'd like to access resources in. Can be moved to
+vaultparams
+if access to multiple regions is required across stages. The
+aws
+command called in the script can also specify the region with
+--region
+defined.
+vaultparams
+:
+awsVaultEnv:
+The Vault AWS secrets engine to use.
+accountId:
+The AWS account ID to be accessed.
+Helps define the ARN of the AWS IAM role to be assumed.
+It must match the AWS Account ID the Vault AWS secrets engine uses.
+It is combined with the
+roleName
+parameter.
+roleName:
+The name AWS IAM role to assume.
+Helps define the ARM AWS IAM role to be be assumed.
+It is combined with the
+accountId
+parameter.
+vaultrolename:
+The Vault AWS secrets engine role name.
+Each Vault role only has access to specific AWS IAM roles.
+jenkinsApproleCredsId:
+The name of the Jenkins credentials to use for accessing Keeper.
+ci-jenkins-approle
+is the only approle with credentials currently in Jenkins.
+ci-jenkins-approle
+is the default for the awsLoginWithApprole function.
+The parameter is not necessary until multiple Approles are created.
+References
+¶
+Jenkins Credentials Store
+(Hashicorp Vault Tutorial) AppRole Pull Authentication
+(Jenkins Plugins) HashiCorp Vault
+2024-06-07

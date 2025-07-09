@@ -1,0 +1,22 @@
+How to ssh to bastion hosts on AWS
+¶
+Pre-requisite
+¶
+Identity your VPC from
+here
+Add your public ip to security group
+To identity your public ip run this command
+dig +short myip.opendns.com @resolver1.opendns.com
+Add your public ip or Cisco CIDR from
+Address Management tool
+:
+https://am-admin.cisco.com
+to the security inbound rules
+ALLOW Protocol:TCP Port:22
+Retrieve SSH Private key from vault and copy to your
+~/.ssh
+directory
+SSH to host
+¶
+ssh -i ~/.ssh/<PRIVATE_KEY> ec2-user@<IP_ADDRESS>
+2023-09-21

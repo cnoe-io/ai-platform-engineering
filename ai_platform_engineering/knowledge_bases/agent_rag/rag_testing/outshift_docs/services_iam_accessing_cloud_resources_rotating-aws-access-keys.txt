@@ -1,0 +1,66 @@
+Rotating aws access keys
+The AWS access key need to be rotated every 90 days or they will show in the CSB report.Â  To rotate the access key, create a new access key (if there is an inactive key, delete that first) and update the Keeper with the new access key and secret.
+AWS user
+Vault Namespace
+Used By
+Improvements
+Active Key
+Inactive Key
+Last Rotated
+Last Rotated By
+eti-sre-racktables-user
+aws/eticloud
+Rename rackspace-s3-backup
+jenkins-eks-user
+configure aws_eticloud
+aws_eticloud jenkins-user
+Pipeline deployment dynamic vault creds
+Rename to vault-jenkins-eticloud-engine
+AKIAZDQHWI5SOT72UMUA
+AKIAZDQHWI5SIWM7VKXM
+Aug 16
+th
+2021
+sraradhy@cisco.com
+eti-aws-dev-1
+prod/eksctl-ops
+eticcprod/infra/prod/aws
+eticcprod/infra/prod/aws-us-east-2a
+eticcprod/infra/dev/aws-dev-1
+eticcprod/infra/dev/dev-useast-1d
+also edit the secret in scratch-aws-1 (until we remove that cluster).
+k edit secret aws-secret -n kube-system
+Atlantis and eksctl-ops
+Recreate user as atlantis-infra-superadmin Remove eksctl-ops
+jenkins-ecr-user
+dev/scratch-aws-1/aws
+create new version dev/generic/scratch-aws-1/aws
+appnet-vault-developer-ecronly
+Configure AWS
+vault-jenkins-aws-engine
+eti_control_plane
+eticcprod/infra/route53
+eticloud_keeper
+Rotate Root IAM Credentials
+curl --header "X-Vault-Token: ???????" --header "X-Vault-Namespace: eticloud" --request GET https://keeper.cisco.com/v1/aws/config/root  {"request_id":"c3de51af-e75c-1ce3-d79b-8b7007263d1d","lease_id":"","renewable":false,"lease_duration":0,"data":{"access_key":"","iam_endpoint":"","max_retries":-1,"region":"","sts_endpoint":""},"wrap_info":null,"warnings":null,"auth":null}
+This is the root IAM token for Keeper
+vault-websites-aws-engine
+Configure AWS aws_eticloud
+Jenkins dynamic credentials
+eks-image-pull-secrets
+ecr-pull-secret
+eks-development-1-certmanager
+route53-dev-eticloud
+Then you need to update and occurrence of route53-dev-eticloud in sre-cluster-config
+route53-prod-readwrite
+route53-prod-eticloud
+The edit everywhere in sre-cluster-configs that uses route53-prod-eticloud bumping the version.
+harbor-1-replication
+harbor/harbor-1/banzai-customer-aws-ecr
+Update the Banzai ECR registry in Harbor.
+registry.outshift.com
+We could automate renewing the key in Harbor using API calls.
+cloudinfo
+Cloudinfo which is a Banzai service. It was shut down in March because we had to shut down Pipeline, so the plan was to get Cloudinfo back, because it was a "community service". But since we only received one complaint since March, it wasn't a high priority. I think we can delete it, I don't see Cloudinfo being restored any time soon.
+De-commissioned
+2023-12-09

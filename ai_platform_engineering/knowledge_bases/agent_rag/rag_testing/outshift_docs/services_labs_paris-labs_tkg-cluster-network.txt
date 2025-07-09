@@ -1,0 +1,93 @@
+TKG cluster compute and network setup
+¶
+In this documentation we will be focusing on general overview about the networking topology requirements to enable Tanzu Kubernetes Grid in vSphere. And the way the
+TKG
+cluster in Pirl-vCenter has been configured.
+vSphere cluster
+¶
+TKG
+cluster  is created under
+PIRL-DC
+datacenter in the vSphere UI with HA and RDS enabled.
+In order to create a cluster in vSphere ui, follow the
+vmware docs instructions
+and ensure to enable
+HA and RDS
+.
+TKG-vDS
+¶
+We have also created
+TKG-vDS
+virtual distributed switch in the vSphere UI, with a 3 port-groups(
+mgmt-network
+,
+workload-network
+and
+frontend-network
+). Each portGroup is mapped to it's correspondent vlan-id by using
+virtual switch vlan tagging
+.
+To create a vDS follow these steps in the vmware official page
+documentations
+.
+The below screenshot shows the vDS topology and PortGroup and VLAN mapping.
+Tanzu cluster network requirements
+¶
+To enable Tanzu Workload-Management supervisor cluster in vSphere, a certain network setup requirements should be in placed. At least 2 separate broadcast domains(subnets) are required, as you can use the same subnet for the
+workload
+and
+frontend
+networks. However, you have to use static IP ranges that do not overlap. Hence, having 3 distinct networks are preferred, as we did in Pirl
+TKG
+clutser.
+Network
+IP Range
+VLAN
+Description
+mgmt-network
+10.60.16.0/24
+16
+Communicating with Center and NSX ALB
+workload-network
+10.60.19.0/24
+19
+IP addresses for Kubernetes Nodes
+frontend-network
+10.60.17.0/24
+17
+Virtual IP range for Kubernetes clusters
+vSwitch VLAN tagging (VST Mode)
+¶
+For the virtual distributed switch we have used
+VST
+which allows us a consistent network with high-availability or redundant physical links from the esxi hosts to the TopOfRack switch.
+TopOfRack switches (
+pirl-nxs-a
+&
+pirl-nxs-b
+) configuration.
+¶
+Each esxi host has 2 physical links to the top of rack switches, these links are configured as
+trunks
+along with 3 allowed vlans(16,17,19).
+switch interface config snippet
+!Command: show running-config interface Ethernet1/38
+!Time: Wed Jun  8 19:06:32 2022
+version 7.1(0)N1(1a)
+interface Ethernet1/38
+switchport mode trunk
+switchport trunk allowed vlan 16-17,19
+no shutdown
+The below diagram shows the overall view of the network topology for the TKG cluster.
+Manage and add ESXI hosts to vDS
+¶
+Find the instruction about adding and managing ESXI hosts into a vDS in vmware
+documentations
+page.
+This diagram is the overall picture about TKG cluster in Pirl lab after workload-management supervisor cluster is enabled.
+useful links:
+¶
+Kubectl
+Docker
+VMware Tanzu CLI
+2022-06-16

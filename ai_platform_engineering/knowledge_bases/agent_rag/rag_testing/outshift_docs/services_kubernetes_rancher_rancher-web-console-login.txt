@@ -1,0 +1,15 @@
+rancher web login
+Rancher Web Console Login
+¶
+Navigate to
+https://rancher.dev.eticloud.io/dashboard/
+Reach out to
+eti-sre-admins@cisco.com
+to be onboarded to ETI Rancher access
+Current admins are
+Sri Aradhyula
+,
+Sally Ahn
+,
+David Marcil
+2023-09-03

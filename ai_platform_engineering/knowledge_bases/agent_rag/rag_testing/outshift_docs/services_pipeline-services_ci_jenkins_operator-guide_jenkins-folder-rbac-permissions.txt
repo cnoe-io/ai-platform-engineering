@@ -1,0 +1,30 @@
+jenkins folder rbac permissions
+Add Jenkins Folder Level RBAC Permissions
+¶
+Summary
+¶
+In Jenkins, RBAC can be set a project folder/sub-folder level
+RBAC can be a Cisco userid or AD group
+SRE team created a convenient job that adds folder level RBAC groups
+Steps
+¶
+Create folder RBAC groups
+Run
+SRE RBAC Utility Job
+Click on
+Build with Parameters
+Copy the URL of the target folder to enable RBAC groups
+Example:
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/job/Demos/
+Update build parameter with copied url
+Once the job is finished, verify the folder rbac url looks like the screenshot below
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/job/Demos/groups/
+Add Cisco user/AD group to a specific folder RBAC group
+Select the RBAC group like
+Folder Administrators
+and search for user
+Verify that the user has been added to the RBAC group
+References
+¶
+Cloudbees RBAC docs
+2023-09-21

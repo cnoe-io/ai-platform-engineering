@@ -1,0 +1,17 @@
+SCF-IAM-01.01
+csdl secrets management
+Applications deployed on ET&I Platform can access secrets of other applications or secrets that used for managing the underlying infrastructure
+¶
+Description
+¶
+The ET&I Platform uses external-secrets for syncronizing Kubernetes Secret resources from she secret storage (Keeper).
+It is possible to deploy such a configuration that can be used for accessing secrets of other applications or secrets that used for managing the underlying infrastructure. This can lead to a wide range of security problems and possible risks.
+Business Impacts
+¶
+Customer Confidentiality
+Service Compromise
+Likelihood: Medium
+¶
+Risk Level Category: High
+¶
+2025-02-09

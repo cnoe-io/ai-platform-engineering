@@ -1,0 +1,119 @@
+User Management
+¶
+Adding multiple users to multiple projects at the same time
+¶
+First, grab the Harbor URL and admin password from the list of managed instances.
+TODO: Use Vault CLI commands below.
+export
+HARBOR_URL
+=
+https://harbor.eticloud.io/api/v2.0
+export
+HARBOR_PASSWORD
+=
+<Vault
+password>
+Then grab the list of usernames. Most probably, this is going to be a manually compiled list:
+users
+=(
+user1
+user2
+)
+Then grab a list of project IDs. This can be either manual or you can use the API to search for projects:
+project_ids
+=(
+$(
+curl
+-u
+"admin:
+${
+HARBOR_PASSWORD
+}
+"
+"
+${
+HARBOR_URL
+}
+/projects?page=1&page_size=25&name=PROJECT_NAME"
+|
+jq
+-r
+".[].project_id | @sh"
+)
+)
+Note:
+verify the list of projects manually first.
+Decide the role the users should have within the projects:
+Role ID
+Role name
+1
+Project admin
+2
+Developer
+3
+Guest
+4
+Maintainer
+5
+Limited guest
+role_id
+=
+1
+Finally, run the following script:
+for
+user
+in
+$users
+;
+do
+for
+project_id
+in
+$project_ids
+;
+do
+curl
+-u
+"admin:
+${
+HARBOR_PASSWORD
+}
+"
+-H
+"Content-Type: application/json"
+-X
+POST
+-d
+"{\"role_id\":
+${
+role_id
+}
+, \"member_user\": {\"username\": \"
+${
+user
+}
+\"}}"
+"
+${
+HARBOR_URL
+}
+/projects/
+${
+project_id
+}
+/members"
+done
+done
+If you receive an error like the following, it means the user is already a member:
+{
+"errors"
+:[{
+"code"
+:
+"CONFLICT"
+,
+"message"
+:
+"Failed to add project member, already exist group or project member, groupMemberID:0"
+}]}
+2022-08-16

@@ -1,0 +1,5 @@
+EC2 Ops
+¶
+Creating EC2 instances
+Added users to EC2 instances
+2023-05-02

@@ -1,0 +1,54 @@
+jenkins lockable resources
+Jenkins Lockable Resources
+¶
+Jenkins lockable resources plugin allows admins to define resources like K8s clusters, VMs, other mutex that can be use by builds
+How to create or update a lockable resource
+¶
+Step 1: Jenkins Admin
+¶
+In Manage Jenkins > Configure System go to Lockable Resources Manager
+Select Add Lockable Resource
+Add/Update lockable resource
+Step 2: Verify or Visualize lockable Resource
+¶
+Navigate to
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/lockable-resources
+If a resource is in use, the job that acquired the lock will be displayed next to it
+Declarative Jenkins Example
+¶
+Code Example
+pipeline
+{
+agent
+any
+stages
+{
+stage
+(
+'Lockable Resource Test'
+)
+{
+steps
+{
+script
+{
+lock
+(
+"devops-pipeline-validation-mutex"
+)
+{
+sh
+'''
+echo "Executing critical section"
+'''
+}
+}
+}
+}
+}
+}
+// pipeline
+References
+:
+https://plugins.jenkins.io/lockable-resources/
+2023-09-21

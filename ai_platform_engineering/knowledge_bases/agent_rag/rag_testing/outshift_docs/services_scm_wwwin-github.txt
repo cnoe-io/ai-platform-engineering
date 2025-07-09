@@ -1,0 +1,20 @@
+github enterprise
+wwwin-github
+GitHub Enterprise
+¶
+Table of Contents
+¶
+User Guide
+Operator Guide
+What is GHES?
+¶
+GitHub Enterprise (GHE)
+is a Cisco IT instance of GitHub SCM inside the Cisco network
+This GHE instance is hosted and manged by Cisco IT
+wwwin-github.cisco.com
+is available to all Cisco employees
+Note:
+Public repositories hosted on this server can be viewed by anyone within Cisco even if they do not have a license.
+Reference:
+https://engit.cisco.com/code/github/service-urls-github
+2023-09-21

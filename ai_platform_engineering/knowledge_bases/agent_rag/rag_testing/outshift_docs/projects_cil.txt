@@ -1,0 +1,21 @@
+CIL
+¶
+This is the index page for platform-related documentation for CIL.
+CI/CD links
+¶
+GitHub repos
+Jenkins jobs
+Secret Store
+¶
+Vault UI Access
+EKS Access
+¶
+Setting up EKS Access
+Projects
+¶
+Interlab
+inclusive language
+â¬ï¸âto Projects
+â¦
+â¬ to Home
+2022-11-28

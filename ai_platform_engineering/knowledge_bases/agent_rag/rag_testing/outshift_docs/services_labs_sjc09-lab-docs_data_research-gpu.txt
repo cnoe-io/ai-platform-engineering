@@ -1,0 +1,40 @@
+GPU
+gpu
+Research GPU servers documentation
+¶
+Asset information
+¶
+Hostname
+Location
+IP Address
+CIMC Address
+Owner
+Access-info
+eti-ra6-dev18
+SJC09 Lab
+10.200.103.180
+10.200.100.231
+Research Team
+vault
+eti-ra6-dev19
+SJC09 Lab
+10.200.103.181
+10.200.100.232
+Research Team
+vault
+eti-ra6-dev20
+SJC09 Lab
+10.200.103.182
+10.200.100.233
+Research Team
+vault
+eti-ra6-dev21
+SJC09 Lab
+10.200.103.183
+10.200.100.234
+Research Team
+vault
+Network Topology
+¶
+For more information please contact jasriniv | ahismail.
+2023-08-29

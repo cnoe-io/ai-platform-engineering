@@ -1,0 +1,72 @@
+cloning
+github enterprise user guide
+wwwin-github user guide
+GitHub Enterprise (GHE) User Guide
+¶
+Login and access ET&I Org
+¶
+URL:
+https://wwwin-github.cisco.com/orgs/eti
+Everyone in the HR managed AD group
+group.lrajaram
+is automatically added to the GHE
+eti
+org (
+CN=group.lrajaram,OU=Organizational,OU=Cisco Groups,DC=cisco,DC=com
+)
+Verify your access by searching for the username:
+Git config
+¶
+Run:
+git
+config
+--global
+user.email
+"<username>@cisco.com"
+git
+config
+--global
+user.name
+"Your User Name"
+in order to set your account's default identity.
+Omit --global to set the identity only in a given repository.
+Cloning repos
+¶
+Note:
+GitHub supports cloning repos using either
+personal access tokens
+or
+SSH keys
+GitHub clone url schema will change based on the chosen method
+Cloning with SSH keys
+¶
+Setting up an SSH key to clone is generally more convenient than using personal tokens
+github.com doc to setup ssh key
+Copy the GitHub URL as shown:
+Example:
+git
+clone
+git@wwwin-github.cisco.com:eti/platform-demo.git
+If you're getting an access denied message, you can run the below command:
+ssh
+-vT
+git@wwwin-github.cisco.com
+Check the SSH keys tried during the login process, and if yours has been addded to the
+ssh-agent
+.
+github.com doc to add a key to the ssh-agent
+.
+Cloning with Personal Access tokens
+¶
+Create a
+personal access token
+Note:
+Personal access tokens are secrets and should
+NOT
+be shared with others.
+Copy the GitHub URL as shown:
+Example:
+git
+clone
+https://wwwin-github.cisco.com/eti/platform-demo.git
+2023-10-03

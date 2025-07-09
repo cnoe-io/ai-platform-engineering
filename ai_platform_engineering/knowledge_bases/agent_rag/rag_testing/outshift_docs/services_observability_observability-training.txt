@@ -1,0 +1,46 @@
+observability training
+outshift observability training
+Observability Training Course
+¶
+!!! warning This documentation is deprecated, We are using splunk for observability and Motific project has been shut down and is no longer maintained
+Start with
+Observability Architecture
+Central Grafana Overview
+Cluster Local Observability Overview
+Observability Terminology
+PagerDuty Overview
+PagerDuty Motific Services
+PagerDuty Motific Esclation Policies
+PagerDuty Schedules
+Metrics Deep-dive
+How to scrape metrics via cluster local kube-prometheus-stack
+How to send metrics to Amazon Managed Prometheus
+Dashboards
+How to create a cluster local Grafana dashboard
+How to create a Central Grafana dashboard
+Alert Routing
+Central Grafana Alert Routing, Notification Policies, and Contact Points
+How to setup an cluster alert and route it to the appropriate team
+How to setup an Central Grafana alert and route it to the appropriate team
+Logs
+Webex Recording
+¶
+Motific Observability Training Webex Recording
+Motific Observability Training-20240723 2011-1
+Password: CaYNDCS2
+ChaptersÂ AI-generated
+00:00:00 Observability Architecture Overview
+00:08:55 Observability Platform and Dashboards
+00:18:34 Using Explorer for Metrics Access
+00:27:49 Terminology and Definitions
+00:30:51 Understanding Service Level Agreements
+00:40:58 Pager Duty Overview
+00:48:20 Scraping Metrics with Prometheus and OpenTelemetry
+00:54:53 Push Strategy in Open Telemetry
+01:06:01 Recommendation for Metric Collection and Alert Routing
+01:13:29 Creating Dashboards
+01:16:21 Managing Dashboards in Grafana
+01:25:26 RDS Dashboard Metrics
+01:34:55 Setting Up Alert Routing
+01:51:46 Prometheus Monitoring Approaches
+2025-06-20

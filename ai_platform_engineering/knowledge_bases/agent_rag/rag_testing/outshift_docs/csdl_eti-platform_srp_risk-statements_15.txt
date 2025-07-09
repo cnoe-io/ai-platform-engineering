@@ -1,0 +1,18 @@
+BCR-01.01
+backups
+Lack of copy of the backups under a different account with limited access may result in data loss in case of the compromise of the eticloud AWS account
+¶
+Description
+¶
+The ETI SRE team currently stores the backups under the eticloud account which has unnecessarily broad access by users and certain services.
+In the event of the compromise of the AWS account (through the hosted applications, or API keys used for specific services, or by an internal malicious actor), backups could be deleted which makes the recovery impossible from such a disastrous situation.
+Business Impacts
+¶
+Customer Data Loss
+Business Continuity
+Reputational Damage
+Likelihood: Low
+¶
+Risk Level Category: Medium
+¶
+2023-03-14

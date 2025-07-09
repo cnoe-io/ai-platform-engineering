@@ -1,0 +1,38 @@
+Cisco AD Groups
+groups.cisco.com
+myid-groups.cisco.com
+What are Cisco AD Groups?
+¶
+Cisco MyID Groups
+Â is Cisco's self-service tool to manage
+Active Directory
+groups and memberships.
+AD group membership is used to provide
+Role Based Access Control (RBAC)
+for various Cisco applications that use
+Cisco SSO
+.
+Note
+Cisco SSO itself does not perform any authorization, it passes the
+member_of
+group claims to the target application to perform further claims checks and authorization.
+Some of the example of applications that use Cisco AD groups are
+AWS SAML Assume roles
+,
+wwwin-github
+,
+Keeper (vault)
+, etc.
+Managing AD groups using automation
+¶
+SRE team maintains aÂ
+sre-cisco-groups-automation repo
+Â that automates AD groups using YAML files.
+Here are some helpful guides to get started in managing AD groups:
+Create a new AD group from myid-groups.cisco.com UI
+Delete AD group from myid-groups.cisco.com UI
+sre-cisco-groups-automation overview
+sre-cisco-groups-automation - add new AD group
+sre-cisco-groups-automation - update group
+sre-cisco-groups-automation - remove group
+2023-09-21

@@ -1,0 +1,81 @@
+jenkins create pipeline job
+How to Create CI/CD Jobs in Jenkins
+¶
+There are three primary types of Jenkins jobs as described
+here
+;
+our recommended approach is to create "Multibranch" pipeline jobs using automation as described below.
+Creating a Multibranch Pipeline Job -- the Automated Way
+¶
+Using our automated job creation job is recommended.
+Navigate to the
+create_new_multibranch_pipeline_job
+in Jenkins
+Click on
+Build with Parameters
+in the navigation bar on the left
+Populate the build parameters/text fields as required:
+GIT_URL
+is the GHE instance in which the repo resides
+GIT_REPO
+is the name of the repo
+only
+. As indicated,
+do not add the full GitHub URL
+.
+FOLDER_NAME
+must be
+Demos
+. (We will move the job later.)
+GIT_ORG
+is the GitHub organization in which the repo resides. Set as appropriate.
+JOB_NAME
+may be set as required.
+CREDENTIAL_ID
+leave unchanged/use the default.
+Click on the "Build" button at the bottom
+Create a Folder
+¶
+Create a folder for the venture's Jenkins job(s).
+Note:
+If the application is for demo purposes, please leave the job at its default location.
+Navigate to the
+eti-sre
+folder
+Click on
+New Item
+Enter a
+Folder Name
+according to that particular Venture
+Select
+Folder
+in the options then click
+OK
+Move the Job
+¶
+Move the Jenkins Job into the venture's folder.
+Navigate to the
+Demos folder
+where the job was created
+Select your application's job folder as created earlier (
+venture-test-folder
+in this example)
+Click on
+Move/Copy/Promote
+in the navigation bar on the left
+Select the path to your application's new folder:
+Click on
+Move
+Next Steps
+¶
+Navigate to your Jenkins job location to follow its progress
+You'll notice that a
+deploy
+folder has been created in addition to the
+build
+folder.
+This is related to the deploy stage of the current CI pipeline where the linked deployment job results will be shown.
+You'll need to create an application in ArgoCD to manage its deployment; please follow
+this guide
+.
+2023-09-21

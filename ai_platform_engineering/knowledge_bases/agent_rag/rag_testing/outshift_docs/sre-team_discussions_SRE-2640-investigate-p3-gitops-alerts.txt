@@ -1,0 +1,176 @@
+Overview
+Problem
+Solution
+Investigation
+Overview
+¶
+This page summarizes the issues about the our current ClusterAPI setup.
+Problem
+¶
+When we create new clusters in Cisco internal Openstack and install MCOM (one-eye) on the cluster, we get alerts in prometheus for KubeController, KubeSscheduler, KubeProxy and etcd.
+Solution
+¶
+In order to fix this alerts we need to change clusterAPI so that the following happens.
+Change binding from 127.0.0.1 for Etcd, Kube Controller, Kube Scheduler, kube-proxy
+Open ports 9100 and 10249 on both cluster-control-plane and cluster-md Security Group
+Open port 2381 for Etcd, 10257 for kube control manager, 10259 for kube scheduler in cluster-control-plane so cluster-md can collect metrics
+Modify one-eye observer to use https for kube-controller, kube-scheduler on port 10257 and 10259
+Investigation
+¶
+clusterAPI has 3 security groups: cluster-bastion, cluster-control-plane and cluster-md or worker node.  Prometheus which runs in worker nodes has issues collecting metrics from Etcd, Kube Controller, Kube Scheduler, kube-proxy, and node exporter.
+Etcd, Kube Controller, Kube Scheduler, kube-proxy bind on 127.0.0.1 instead of 0.0.0.0 for security reasons.
+The current prometheus has wrong port configuration for etcd Kube Controller, Kube Scheduler.
+The current setup:
+Prometheus is checking Etcd on port 2379 and etcd is running on port 2379 but the --listen-metrics-urls=
+http://127.0.0.1:2381
+is on port 2381 that is restricted localhost only.
+Prometheus is checking Kube Controller on port 10252. kube-control-manager is on port 10257 that is restricted to 127.0.0.1.
+Promeheus is checking Kube Scheduler on port 10251. kube-scheduler is on port 10259 that is restricted to 127.0.0.1.
+Prometheus is checking Kube Proxy on port 10249. kube proxy is running on port 10249 that is restricted to 127.0.0.1.
+We currently have 2 production management clusters:
+eti-control-cluster: included 2 clusters below and running on version 0.4.7
+  - eti-gitops-1
+  - eti-gitops-2
+eti-control-cluster-rtp: included 2 clusters below and running on version 1.1.1
+  - eti-gitops-rtp
+  - p3-prod-1
+To determine how to change the bind-address and ports, I created a test management cluster and test worker cluster to mimick eti-cc (with eti-gitops-1 and 2)
+I created the cluster with clusterctl 0.4.7 and created test-kevin-cluster with a similar config of eti-gitops-1 and gitops-2. The config is called test-kevin-cluster.yaml.
+I installed mmcom through helm chart
+   ```
+   helm repo add eti-charts s3://cisco-eti-banzai-charts/charts/
+   helm upgrade --install one-eye --version 0.9.0 -n one-eye-system --create-namespace eti-charts/one-eye 
+   kubectl apply -f 0_observer.yaml -n one-eye-system
+   David sent me 0_observer.yaml file.
+Modify the current test-kevin-cluster.yaml config and run kubectl apply -f test-kevin-cluster.yaml to change binding config for etcd, kube-control and kube-scheduler.  Make sure to run this on the management cluster.
+Basically, I only added "bind-address: 0.0.0.0, authorization-always-allow-paths: /metrics for controllerManager, scheduler and the ectd block.
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha4
+kind: KubeadmControlPlane
+metadata:
+name: test-kevin-cluster-control-plane
+namespace: default
+spec:
+kubeadmConfigSpec:
+clusterConfiguration:
+apiServer:
+extraArgs:
+cloud-config: /etc/kubernetes/cloud.conf
+cloud-provider: openstack
+extraVolumes:
+- hostPath: /etc/kubernetes/cloud.conf
+mountPath: /etc/kubernetes/cloud.conf
+name: cloud
+readOnly: true
+controllerManager:
+extraArgs:
+cloud-config: /etc/kubernetes/cloud.conf
+cloud-provider: openstack
+bind-address: 0.0.0.0
+authorization-always-allow-paths: /metrics
+extraVolumes:
+- hostPath: /etc/kubernetes/cloud.conf
+mountPath: /etc/kubernetes/cloud.conf
+name: cloud
+readOnly: true
+- hostPath: /etc/certs/cacert
+mountPath: /etc/certs/cacert
+name: cacerts
+readOnly: true
+scheduler:
+extraArgs:
+bind-address: 0.0.0.0
+authorization-always-allow-paths: /metrics
+etcd:
+local:
+extraArgs:
+listen-metrics-urls: http://0.0.0.0:2381
+imageRepository: k8s.gcr.io
+Make change binding change for kube-proxy
+kubenetes edit cm kube-proxy -n kube-system
+change metricsBindAddress from "" to  0.0.0.0:10249
+   There is a PR
+here
+on the new version.  If we upgrade our management cluster, we might be able to automate this process.
+Note: we have to delete the current kube-proxy pods with this command below:
+for i in `kubectl get pods -n kube-system |grep kube-proxy |awk '{print $1}'`;do kubectl delete pod $i -n kube-system;done
+pod "kube-proxy-5kmj6" deleted
+pod "kube-proxy-gcgdd" deleted
+pod "kube-proxy-nbg45" deleted
+Open port 9100 for node exporter, 10249 for kube-proxy, 2381 for Etcd, 10257 for kube control manager, 10259 for kube scheduler in cluster-control-plane so cluster-md in Openstack manually for now.
+Change managedSecurityGroups: true to managedSecurityGroups: false in test-kevin-cluster.yaml and run kubectl apply -f test-kevin-cluster.yaml again.  This step will prevent cluster API to overwrite the security group rules.
+Modify one-eye observer:
+Find the prometheusOperatorChart and modify with this block of code below:
+The current config looks like this:
+prometheus:
+prometheusSpec:
+retention: 30d
+kubeControllerManager:
+enabled: false
+kubeScheduler:
+enabled: false
+kubeProxy:
+enabled: false
+kubeEtcd:
+enabled: false
+modify that to look like:
+k edit observer one-eye
+kubeControllerManager:
+enabled: true
+service:
+targetPort: 10257
+serviceMonitor:
+https: true
+insecureSkipVerify: true
+kubeScheduler:
+enabled: true
+service:
+targetPort: 10259
+serviceMonitor:
+https: true
+insecureSkipVerify: true
+kubeProxy:
+enabled: true
+kubeEtcd:
+enabled: true
+service:
+targetPort: 2381
+7. Verify one-eye UI:
+k config use-context test-kevin-cluster-admin@test-kevin-cluster
+one-eye ingress connect -n one-eye-system
+Browse
+http://localhost:8080/prometheus/targets
+Check and make sure that all targets are green
+Issues found
+¶
+When we set "managedSecurityGroups: true", cluster api will create 3 security groups for control nodes, worker nodes and bastion node.  There is no easy way to add additional ports.  We can create custom security groups, add rules manually and attach those security group to OpenStackMachineTemplate.
+To create custom security group, we can use openstack cli.
+openstack security group create --project-domain Default secgroup-controlplane
+openstack security group create --project-domain Default secgroup-worker
+openstack security group create --project-domain Default secgroup-bastion
+openstack security group rule create secgroup-bastion --protocol tcp --dst-port 22:22 --remote-ip 0.0.0.0/0
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 6443:6443 --remote-ip 0.0.0.0/0
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 9100:9100 --remote-group secgroup-worker
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 22:22 --remote-group secgroup-bastion
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 179:179 --remote-group secgroup-controlplane
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 179:179 --remote-group secgroup-worker
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 2379:2380 --remote-group secgroup-controlplane
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 2381:2381 --remote-group secgroup-worker
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 10250:10250 --remote-group secgroup-controlplane
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 10250:10250 --remote-group secgroup-worker
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 10257:10257 --remote-group secgroup-worker
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 10259:10259 --remote-group secgroup-worker
+openstack security group rule create secgroup-controlplane --protocol tcp --dst-port 10249:10249 --remote-group secgroup-worker
+openstack security group rule create secgroup-controlplane --protocol 4  --remote-group secgroup-worker
+openstack security group rule create secgroup-controlplane --protocol 4  --remote-group secgroup-controlplane
+openstack security group rule create secgroup-worker --protocol 4  --remote-group secgroup-worker
+openstack security group rule create secgroup-worker --protocol 4  --remote-group secgroup-controlplane
+openstack security group rule create secgroup-worker --protocol tcp --dst-port 22:22 --remote-group secgroup-bastion
+openstack security group rule create secgroup-worker --protocol tcp --dst-port 179:179 --remote-group secgroup-controlplane
+openstack security group rule create secgroup-worker --protocol tcp --dst-port 179:179 --remote-group secgroup-worker
+openstack security group rule create secgroup-worker --protocol tcp --dst-port 10250:10250 --remote-group secgroup-controlplane
+openstack security group rule create secgroup-worker --protocol tcp --dst-port 10250:10250 --remote-group secgroup-worker
+openstack security group rule create secgroup-worker --protocol tcp --dst-port 9100:9100 --remote-group secgroup-worker
+openstack security group rule create secgroup-worker --protocol tcp --dst-port 30000:32767 --remote-group secgroup-worker
+We can't apply custom security groups after the cluster is created.  A workaround is to create additional ports manually in Openstack UI or to use cli and change managedSecurityGroups: true to managedSecurityGroups: false.
+There might be a way to add additional ports during the cluster initial setup but I couldn't find the answer at this moment.
+2023-08-25

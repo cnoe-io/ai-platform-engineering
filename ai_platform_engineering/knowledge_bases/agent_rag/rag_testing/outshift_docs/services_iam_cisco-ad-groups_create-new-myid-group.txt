@@ -1,0 +1,13 @@
+create new ad group
+create new myid-groups.cisco.com
+Creating a new AD Group via MyID Groups UI
+¶
+Navigate to
+myid-groups.cisco.com/groups
+and click on
+Create Group
+Add group name
+Add group details
+Add group owners and click on
+Create Group
+2023-09-21

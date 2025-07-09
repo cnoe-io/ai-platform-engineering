@@ -1,0 +1,18 @@
+update ad group automation
+update ad group in automation
+update sre-cisco-groups-automation ad group
+Updating existing groups via automation
+¶
+Navigate to the YAML file for the Cisco AD Group you want to update (each file is named after the AD group it manages)
+sre-cisco-groups-automation repo
+Update the
+member_users
+by adding or removing users' CEC ids as desired.
+See the
+GitOps Via GitHub GUI
+page for step-by-step workflow for updating these files in GitHub.
+Create a pull request for your change and submit it for review/merge, as described in the
+GitOps Via GitHub GUI
+page.
+After the PR is merged, the desired changes are automatically applied
+2023-09-21

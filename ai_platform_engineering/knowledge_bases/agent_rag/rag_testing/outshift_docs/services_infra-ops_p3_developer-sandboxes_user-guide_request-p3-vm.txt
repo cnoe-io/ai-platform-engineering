@@ -1,0 +1,25 @@
+Requesting P3 Developer VMs
+¶
+Follow the steps below to request a developer VM in
+P3
+from SRE team.
+Clone
+this Jira ticket
+Update the Summary title to say
+Developer VM Creation Request
+and click on
+Clone
+Update the
+Description
+with your desired vm specs and
+Reporter
+to reflect the VM requester. Click
+Save
+.
+SRE team leads groom newly created Jiras daily and will update the Jira with an assignee.
+Once assigned, an SRE engineer will reach out and share the private SSH key you can use to access your vm, as described
+here
+Please
+reach out to SRE team
+if you have any questions.
+2023-01-23

@@ -1,0 +1,33 @@
+Developer ECR Access
+¶
+This tutorial helps setup ecr readonly access to SRE team's AWS eticloud account.
+Pre-requisite
+¶
+Setup duo-sso
+Setup
+¶
+Use ecronly role
+-
+Setup AWS Access
+ECR CLI Access
+¶
+# ECR access
+aws
+ecr
+get-login-password
+--region
+us-east-2
+|
+docker
+login
+--username
+AWS
+--password-stdin
+626007623524
+.dkr.ecr.us-east-2.amazonaws.com
+#Verify access
+docker
+pull
+626007623524
+.dkr.ecr.us-east-2.amazonaws.com/appn/wcmd:latest
+2025-02-11

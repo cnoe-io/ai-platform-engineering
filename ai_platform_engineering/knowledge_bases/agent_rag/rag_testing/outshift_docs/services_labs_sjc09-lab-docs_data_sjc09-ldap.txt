@@ -1,0 +1,94 @@
+How to add a user to SJC09 LDAP-server
+¶
+Prerequisites
+¶
+Make sure to have either
+gsed
+or
+sed
+installed on your machine.
+brew
+install
+gsed
+Clone sre-build-labs-ansible repo
+¶
+Clone sre-build-labs-ansible.
+git
+clone
+https://wwwin-github.cisco.com/eti/sre-build-labs-ansible.git
+Update ldap-users.ldif file
+¶
+Export new user information as an environment variables
+export
+CEC
+=[
+cisco-id
+]
+export
+NEW_UID
+=[
+Last
+UID+1
+]
+#check ldap-users.ldif file and increment the last UID number by 1.
+export
+FIRSTNAME
+=[
+user-firstname
+]
+export
+LASTNAME
+=[
+user-lastname
+]
+Change directory to ldap/templates/defaults.
+cd
+ldap/templates/defaults
+Run the
+./replace.sh
+script to update the
+ldap-users.ldif
+file.
+./replace.sh
+Commit changes
+¶
+Commit the changes, open a new PR and ask for SRE approval.
+Verify that the user is created
+¶
+Verify that
+LDAP-user-add
+jenkins job is completed with success.
+Check if you can access
+sre-sj9-bastion
+host with the new user-id and the default
+temporary password
+.
+You can also
+login
+into the LDAP
+GUI
+and check that the user is created.
+Give sudo access to the user
+¶
+If we want to grant sudo rights to a user for a specific host:
+Get the ssh-key from
+vault
+and access into the host you want to add the user as
+sudoer
+.
+Run the below command in the dev host.
+echo
+"
+$USER_ID
+ALL=(ALL) NOPASSWD:ALL"
+|
+sudo
+tee
+/etc/sudoers.d/
+$USER_ID
+Share the new credentials with the user
+¶
+Share the new credentials with the users and ask them to change the temporary password on their first login using
+sre-sj9-bastion
+. Please be sure that the users change the temporary password before they proceed, this is very important.
+2023-11-07

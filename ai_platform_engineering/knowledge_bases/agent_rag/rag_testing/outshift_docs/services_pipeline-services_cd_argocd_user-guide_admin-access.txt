@@ -1,0 +1,44 @@
+Administrative access
+¶
+Users logged in via SSO can be granted full access to ArgoCD.
+As a result, the builtin administrative user is usually disabled.
+Use the admin credentials only if something goes wrong and logging in via SSO does not work properly.
+Credentials for the admin user are stored in Keeper (check out the
+list of ArgoCD instances
+).
+When the admin user is enabled, a login form shows up on the web UI login screen.
+To login as admin from the CLI, lose the
+--sso
+flag from the login command:
+argocd
+login
+--grpc-web
+argocd.yourdomain.com
+Username:
+admin
+Password:
+<Admin
+password>
+Kubernetes secret
+¶
+That admin password is included in the
+argocd-initial-admin-secret
+Kubernetes secret in the
+argocd
+namespace of a given ArgoCD Kubernetes cluster:
+kubectl
+-n
+argocd
+get
+secret
+--context
+<argocd-k8s-cluster>
+argocd-initial-admin-secret
+-o
+jsonpath
+=
+"{.data.password}"
+|
+base64
+-d
+2024-10-18

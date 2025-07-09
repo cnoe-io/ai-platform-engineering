@@ -1,0 +1,106 @@
+disk
+lvm
+resize
+How to resize Ubuntu disk partition in vSphere
+¶
+Overview
+¶
+This document will outline the general steps involved in extending an LVM volume group, logical volume, and file system. Please note that these instructions are applicable to Ubuntu versions that support LVM.
+Here are the steps to extend LVM in Ubuntu
+¶
+Step1: Edit the VM specs in the vCenter UI
+¶
+Go to
+eti-sj9-vcenter
+, and navigate to the VM you want to add more storage. You can get vcenter access information in
+vault
+.
+PowerOff the VM,
+Edit Sittings...
+, in the
+Virtual Hardware
+tab, choose the new VM specs.
+In
+VM Options
+,
+CPU Topology
+section, specify  CPU
+Cores per Socket
+if needed.
+PowerOn the VM.
+Step2: check the memory and cpu cores available
+¶
+CPU cores and Memory will be automatically increased when the machine is powered on.
+check the CPU cores,
+cat /proc/cpuinfo | grep 'cores' | uniq
+check the available memory,
+lsmem | grep 'memory' | uniq
+Step3: Resize the disk partition
+¶
+Run
+sudo fdisk /dev/sda
+command, then type
+p
+to print the partition table.
+Delete the partition you want to extend, press
+d
+to delete it, choose the partition number and hit
+enter
+. Don't worry deletion won't take effect as the data is not written to the disk until you
+write
+the changes to the disk.
+use
+n
+to create a new primary partition. Make sure it starts the same number as the old
+/dev/sda3
+used to have. For the end cylinder agree with the default choice, which is to make the partition to span the whole disk.
+Finally, use
+w
+, to write the changes.
+It will ask you,
+Do you want to remove the signature? [Y]es/[N]o: N
+, make sure you select
+N
+.
+Reboot the VM,
+sudo reboot
+.
+when the VM powers on, you can verify its presence using tools like
+lsblk
+or
+fdisk
+.
+Step4: Extend the LVM space
+¶
+To check for existing free space on the default Volume Group, run the command
+vgdisplay
+.
+Run
+pvresize /dev/sda3
+to extend the Physical Volume (PV).
+Check the Physical Volume (PV) is extended,
+sudo pvdisplay
+.
+As the
+PV
+is now resized, run
+lvextend -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
+to extend the logical volume (LV)to the maximum size usable.
+Run
+lvdisplay
+one more time to make sure it changed.
+At this point, we increased the block volume where the
+root
+filesystem
+resides, we still need to extend the
+filesystem
+on top of it.
+Run
+resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv
+command to extend the filesystem.
+Finally,
+df -h
+to verify that the extension was successful.
+It's important to note that working with LVM and storage devices involves potential risks, such as data loss if not performed correctly. Make sure to have a backup of important data and exercise caution while executing these steps. Additionally, the specific commands and device paths may vary based on your system's configuration, so adapt the instructions accordingly.
+Consider consulting the official Ubuntu documentation or relevant online resources for detailed and up-to-date instructions on extending LVM in Ubuntu.
+2023-08-29

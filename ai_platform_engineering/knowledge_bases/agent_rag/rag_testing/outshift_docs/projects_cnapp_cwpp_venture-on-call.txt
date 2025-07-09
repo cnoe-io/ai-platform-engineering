@@ -1,0 +1,20 @@
+CWPP Pager Duty Setup
+¶
+CWPP (Naor's Team)
+pager duty service has been setup but is currently not scheduled with the team/escalation policy
+    - Everything is being sent to
+Dev Null
+and directed to the
+CWPP Alerts
+webex space.
+CWPP Escalation Policy
+determines the order of pageduty escalations
+What is being monitored
+¶
+K8sec system tests
+CWPP Prod Alerts
+Run-Books
+¶
+Add Cluster To Demo Instance
+System Test Metrics
+2024-02-25

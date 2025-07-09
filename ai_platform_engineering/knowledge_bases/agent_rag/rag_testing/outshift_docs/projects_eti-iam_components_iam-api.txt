@@ -1,0 +1,21 @@
+ETI iam-api
+¶
+Quick-links
+¶
+Code repo
+Deployment repo
+CI
+Jenkins url
+CD
+dev
+test
+staging
+prod
+Runbooks
+¶
+iam-api pod down
+¶
+Check the logs on Elastic Search
+Dev/Test
+Staging/Prod
+2022-09-30

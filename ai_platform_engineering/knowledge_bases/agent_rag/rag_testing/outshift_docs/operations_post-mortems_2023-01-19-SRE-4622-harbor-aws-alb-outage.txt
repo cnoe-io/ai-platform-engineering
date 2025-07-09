@@ -1,0 +1,45 @@
+aws alb
+harbor
+post mortem
+2023-01-19; SRE-4622; Harbor AWS ALB outage
+¶
+Summary
+¶
+After updating the private node group for eks-prod-1 with a new AMI, Harbor did not come back online. After investigation, it was determined that the AWS ALB operator required new environment variables to function correctly.
+When
+¶
+2023-01-19
+Timeline
+¶
+2021-06-21
+0540 ET: Jeremie found that pods were being research website pods were being evited.
+0800 ET: We received reports of an application running out of resources in eks-prod-1. I checked the cluster and one node had gone offline. The AMI was no longer available.
+0830 ET: I started creating a new private node group.
+0950 ET: I finished migrating pods to the new node group.
+0951 ET: Sri noticed that the AWS ALB controller was failing and that Harbor was not functioning.
+0952 ET: I start troubleshooting.
+1100 ET: Sri and Mark join the troubleshooting.
+1115 ET: Mark and I find a potential solution. Sri opens a support case with AWS.
+1130 ET: Mark implements manual fix. Outage is resolved.
+1208 ET: Mark submits PR for permanent fix.
+Impact
+¶
+System(s) impacted?
+¶
+Harbor (registry.eticloud.io)
+Teams impacted?
+¶
+AppNet teams
+GreatBear teams
+Analysis
+¶
+When the nodes for the private node group were started, the AMI started using
+Instance Metadata Service Version 2
+(IMDSv2) by default. The AWS ALB controller requires that when using IMDSv2, you must use the flags:
+--aws-region
+--aws-vpc-id
+The lack of these flags caused the AWS ALB Controller to fail to start.
+Takeaways
+¶
+The ETI SRE team needs to regularly update AMIs in our EKS clusters following our Production Change process.
+2023-01-30

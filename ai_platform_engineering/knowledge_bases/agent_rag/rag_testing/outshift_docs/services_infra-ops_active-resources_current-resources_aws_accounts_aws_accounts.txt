@@ -1,0 +1,217 @@
+AWS
+accounts
+AWS Accounts
+¶
+A list of the active AWS accounts for which the Outshift SRE team is responsible. This list is generated from the
+RunOn Tenants
+AWS cloud account lists.
+ETI SRE AWS accounts
+ETI SRE PROD AWS accounts
+Account Name
+Account Name
+RunOn Tenant
+Lifecyle
+Terraform user
+Purpose
+apisec-dev
+815522013822
+Outshift CNAPP
+NONPROD
+N/A
+apisec-staging
+718131334402
+Outshift CNAPP
+NONPROD
+N/A
+apisec-prod
+292858862941
+Outshift CNAPP Prod
+PROD
+N/A
+cil
+642677561837
+ETI SRE
+NONPROD
+terraform_admin
+cisco-research
+509581005347
+Outshift Research
+NONPROD
+terraform_admin
+cnapp-datasecurity-dev
+092302803460
+Outshift CNAPP
+NONPROD
+terraform_admin
+cnapp-datasecurity-prod
+337267831050
+Outshift CNAPP Prod
+NONPROD
+terraform_admin
+cnapp-datasecurity-staging
+422788697802
+Outshift CNAPP
+NONPROD
+terraform_admin
+cnapp-ui-dev
+406629679737
+Outshift CNAPP
+NONPROD
+cnapp-ui-production
+485685194216
+Outshift CNAPP Prod
+NONPROD
+cwpp-staging-new
+146629084143
+Outshift CNAPP
+NONPROD
+cybear-dev
+378966386491
+Outshift CNAPP
+NONPROD
+cybear-staging
+512868976107
+Outshift CNAPP
+NONPROD
+cybear-prod
+963140933587
+Outshift CNAPP
+PROD
+terraform-admin
+dragonfly-staging
+947352569831
+Outshift CNAPP
+NONPROD
+dragonfly-production
+651416187950
+Outshift CNAPP Prod
+NONPROD
+terraform_admin
+eti-ci
+009736724745
+Outshift Platform Prod
+PROD
+terraform_admin
+eticloud
+626007623524
+Outshift Platform Prod
+PROD
+Websites, IAM, Genie
+eticloud-demos
+075967417574
+Outshift PLG
+NONPROD
+terraform_admin
+eticloud-plg
+510206737266
+Outshift PLG
+NONPROD
+terraform_admin
+eticloud-plg-prod
+730335524490
+Outshift PLG
+NONPROD
+terraform_admin
+genai-common
+958653173565
+Outshift GenAI
+NONPROD
+terraform_admin
+hypershield-dev
+936879674857
+Outshift Hypershield
+NONPROD
+terraform_admin
+Hypershield dev
+lightspin-dev
+346196940956
+Outshift CNAPP
+NONPROD
+N/A
+lightspin-e2e-tests
+273406332051
+Outshift CNAPP
+NONPROD
+N/A
+lightspin-iam
+460146075389
+Outshift CNAPP
+NONPROD
+terraform_admin
+lightspin-iam-eu
+365334924617
+Outshift CNAPP
+NONPROD
+terraform_admin
+lightspin-prod
+145875358567
+Outshift CNAPP Prod
+PROD
+terraform_admin
+Panoptica CSPM
+lightspin-prod-eu
+157782766354
+Outshift CNAPP Prod
+PROD
+lightspin-staging
+523054802825
+Outshift CNAPP
+NONPROD
+terraform_admin
+outshift-common-dev
+471112537430
+Outshift Platform
+NONPROD
+terraform_admin
+outshift-common-prod
+058264538874
+Outshift Platform Prod
+NONPROD
+terraform_admin
+Prompt Intel, Marvin
+outshift-common-staging
+637423531539
+Outshift Platform
+NONPROD
+terraform_admin
+scs-sandbox
+301412127564
+Outshift CNAPP
+NONPROD
+terraform_admin
+securecn
+975854676552
+Outshift CNAPP Prod
+PROD
+N/A
+securecn-dev
+579418176921
+Outshift CNAPP
+NONPROD
+terraform_admin
+sscs-dev
+710476389780
+Outshift CNAPP
+NONPROD
+terraform_admin
+sscs-production
+105928782844
+Outshift CNAPP Prod
+NONPROD
+terraform_admin
+sscs-staging
+127494549027
+Outshift CNAPP
+NONPROD
+N/A
+vowel-genai-dev
+961088030672
+Outshift GenAI
+NONPROD
+terraform_admin
+genai-data
+590184031634
+Outshift GenAI
+NONPROD
+N/A
+2025-01-24

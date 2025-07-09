@@ -1,0 +1,32 @@
+CLI access
+¶
+Make sure the
+ArgoCD CLI is installed
+:
+MacOS:
+brew
+install
+argocd
+Linux:
+curl
+-sSL
+-o
+/usr/local/bin/argocd
+https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+chmod
++x
+/usr/local/bin/argocd
+CLI access also uses SSO login (through browser).
+Execute the following and follow the instructions on screen:
+argocd
+login
+--grpc-web
+--sso
+argocd.yourdomain.com
+Example output:
+Opening browser for authentication
+Performing authorization_code flow login: https://argocd.yourdomain.com/...
+Authentication successful
+'you@cisco.com' logged in successfully
+Context 'argocd.yourdomain.com' update
+2022-05-17

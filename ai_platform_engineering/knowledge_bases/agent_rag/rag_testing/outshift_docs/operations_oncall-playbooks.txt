@@ -1,0 +1,89 @@
+oncall playbooks sitemap
+ETI SRE On-Call Playbooks Sitemap
+¶
+This directory contains runbooks for known issues.
+This should be the starting point from which all on-call runbooks link out to new or existing runbooks for recovering a service.
+ETI SRE On-Call Playbooks Sitemap
+Support for Cisco services
+Cisco Customer Identity (CCI)
+Build and Deploy Pipeline
+Jenkins
+Current Known Issues
+More Playbooks
+Shared K8s
+Automation Access Issues
+EKS Clusters
+How-to access k8s clusters
+P3 Openstack Clusters
+Observability
+Logs
+Metrics
+Labs
+SJC09
+Support for Cisco services
+¶
+Cisco Customer Identity (CCI)
+¶
+Major cases:
+Widespread critical issues that impact multiple users to login Cisco product sites
+Contact Enterprise Operations Command Center (EOC)
++1-408-527-0007
++1-408-527-0008
+EOC will epage the required support teams into incident bridge as needed to bring the service back to operational
+Other cases:
+impact an individual user
+Create a ServiceNow support case (ESP Service offering:
+"Cisco Customer Identity"
+)
+CCI support mailer:
+cci-ops@cisco.com
+Reference
+:
+CCI Operational Support Sharepoint page
+Build and Deploy Pipeline
+¶
+Jenkins
+¶
+Current Known Issues
+¶
+Jenkins Cloud-Node Disk Full
+JenkinsTooManyJobsQueued: Lot of pending jobs in the queue
+Jenkins InstanceDown: Jenkins is not reachable
+Mitigate docker.io rate limits
+More Playbooks
+¶
+More on-call playbooks for Jenkins at:
+CI Jenkins On-Call Page
+Shared K8s
+¶
+Automation Access Issues
+¶
+Rotate AWS keys (90 day limits)
+Rotate Generic User password (ADAM)
+How to renew atlantis vault tokens
+Fix cert-manager certificate request issue
+How to resolve Route53 throttling issues
+EKS Clusters
+¶
+How-to access k8s clusters
+¶
+Access EKS Clusters
+Access P3 Clusters
+Access GKE Clusters
+P3 Openstack Clusters
+¶
+Observability
+¶
+Logs
+¶
+Observability
+Metrics
+¶
+Labs
+Observability
+Labs
+¶
+SJC09
+¶
+Troubleshoot KVMs
+2023-12-10

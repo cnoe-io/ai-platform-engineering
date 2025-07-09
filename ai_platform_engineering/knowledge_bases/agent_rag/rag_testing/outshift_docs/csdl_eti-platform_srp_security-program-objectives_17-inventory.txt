@@ -1,0 +1,29 @@
+DSP-01.02
+Filling the gaps of the inventory of production system assets
+¶
+Target Date: FY??Q?
+¶
+Risk(s) Addressed
+¶
+Production systems inventories are insufficiently detailed
+Production systems are not well defined
+Description
+¶
+Fill the gaps of the current inventory of production system assets, which includes:
+- S3 buckets, their purpose, and ownership
+- Database clusters
+- Databases, their purpose, and ownership
+If possible develop an automatic inventory generation mechanism based on tags, labels, and annotations, that includes:
+- resource name
+- environment (define the criteria system based the environment should be determined)
+- purpose
+- ownership
+Definition of Done
+¶
+The gaps are filled in the current inventory, and the SRE team performs regular inventory (quarterly) reconciliation.
+Relevant Controls
+¶
+DSP-01.02
+Objective Status: Not Started
+¶
+2023-04-19

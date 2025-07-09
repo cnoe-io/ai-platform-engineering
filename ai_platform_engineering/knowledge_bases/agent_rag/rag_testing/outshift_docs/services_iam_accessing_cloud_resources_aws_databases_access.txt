@@ -1,0 +1,47 @@
+Accessing Managed Databases in AWS
+¶
+Table of Contents
+¶
+Overview
+Pre-requisites
+Steps to set up local access
+Overview
+¶
+The ETI SRE team uses AWS managed databases and accesing them is not intuitively easy. This document describes setting up access locally.
+Pre-requisites
+¶
+Access to an IAM role in an AWS account. See
+sre-cisco-groups-automation
+.
+Access to the
+eticloud\eticcprod namespace
+in Keeper.
+pgAdmin
+installed locally.
+Steps to set up local access
+¶
+Determine the VPC ssh bastion endpoint. That information is available in the AWS EC2 console.
+Determine the RDS Cluster connection information. That information is available in Keeper in the
+aurora-pg
+section. The cluster information is divided by region, then by cluster name.
+Download the SSH key for the bastion from Keeper.
+The SSH key will be located in the
+infra folder
+of Keeper. The sub-folders are named after the VPC's.
+Gather to the 'root' (default controlling user) password for the cluster.
+Open pgAdmin
+Right-click on 'Servers' and select 'Register' and 'Server`
+In the 'Name' section, enter a name that you will remember (this is local only)
+Click the 'Connection' tab at the top. Enter the connection information.
+Click the 'SSH Tunnel' tab at the top.
+Click the 'Use SSH Tunneling' switch
+Enter the 'Tunnel host' (the VPC ssh bastion from above)
+Enter the 'Username' (typically ec2-user)
+Select the 'Identity File' button
+Select the path to the private key downloaded above
+Click 'Save'. pgAdmin will attempt a connection and throw an error is there is incorrect information.
+For more information, refer the related documentations for
+rds-dev-3 RDS Cluster
+here
+.
+2023-08-29

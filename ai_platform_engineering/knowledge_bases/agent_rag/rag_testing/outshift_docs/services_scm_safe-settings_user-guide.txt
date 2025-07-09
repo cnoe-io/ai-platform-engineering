@@ -1,0 +1,191 @@
+safe settings user guide
+GitHub Safe Settings User Guide
+¶
+Policy as Code Convention
+¶
+Please follow the following standards when working with
+ETI Safe Settings:
+Always keep the file names consistent with the naming structure in the existing repo.
+Note: the
+.yaml
+file extension is ignored, always use
+.yml
+.
+i.e.
+suborgs/<team and/or org name>.yml
+;
+repos/<repo name>.yml
+It is important to note that you should ALWAYS follow the
+YAML Scheme
+described below when introducing new files or editing exiting ones.
+You should also note that the placement of your file in the
+Settings Hierarchy
+listed below will also directly affect which new policies/rules are applied and where.
+BE EXTRA CAREFUL
+where you place them.
+Try to be consistent when creating new repositories, and use the safe settings to do so together with
+repo-templates
+(instead of doing it through the UI). For more info on creating repo templates please go
+here
+It is ALWAYS best practice to have a
+CODEOWNERS
+file in each one of your repositories with the respective teams/users that are in charge of reviewing code. Yes, this also applies to
+Internal/Private
+repos
+Applying the following setting WITHOUT having a
+CODEOWNERS
+file in the repo will cause issues in the PR(s)
+require_code_owner_reviews
+:
+true
+The ADMIN Repo
+¶
+The
+admin
+repo is used as the main repository for hosting all the
+policy-as-code
+YAML files. Here you may edit your Safe-Settings YAML(s) per your needs and submit a PR for review by the SRE team.
+New Repo Creation
+¶
+You can create new repositories by creating new repo YAML files under the
+repos
+folder. This is a preferred method as repository settings will be applied right away and you may use
+repo-templates
+to create them from existing ones.
+When setting the following setting to true, Safe-Settings will use the GitHub API to create your new repository and apply all the configured policies right away
+force_create
+:
+true
+Although this is great for
+initial
+creation and first time usage of the repository, at some point it is recommended that the repo should be merged with the
+suborg
+settings for the owner team/sub-org. In order to do this, all you will need to do is to include it in the list of repos for that suborg (i.e. the
+suborgrepos:
+value); after which you may delete the repositoy specific YAML previously created
+Pull Requests
+¶
+When a PR is submitted the
+Safe-Settings Validator Plugin
+should kick in to help you note which repositories will be effected by your change and what is being done. This is in addition to the regular PR verifications/UI.
+You may find it under the PR
+checks
+tab
+PRs are to be reviewed by the dedicated
+SRE team ONLY
+- as we are the CODEOWNERS for this repo
+Top Level YAML Scheme
+¶
+The YAML scheme is based of the
+GitHub REST API
+calls and their relative parameters. Knowing that, some parameters can be added to the YAML(s) to expand the options of the Safe-Settings.
+One such example is we added this to our safe-settings YAML and it worked
+repository
+:
+...
+allow_update_branch
+:
+true
+...
+this is a parameter part of the
+repository update API
+that was not included in the initial Safe Settings Open Source examples
+If you have created the
+admin
+repo from the
+admin-template
+you will note some
+example YAMLs
+have already been created for you in each of the settings hierarchy folder. Please refer to these and feel free to clone them for your needs.
+Using the settings YAML, the following things could be configured:
+Repository settings
+- home page, url, visibility, has_issues, has_projects, wikis, etc.
+default branch
+naming and renaming
+Repository Topics
+Teams and permissions
+Collaborators and permissions
+Issue labels
+Branch protections
+. If the name of the branch is
+default
+in the settings, it is applied to the
+default
+branch of the repo.
+Autolinks
+repository name validation
+using regex pattern
+AND MORE! - We can modify the code to introduce more capabilities
+ONLY RELATES TO SUB-ORG/TEAM YAML(S)
+# Here you may list the repos belonging to the sub-org/team
+# You are allowed to use Glob Patterns/wildcards
+suborgrepos
+:
+# The sub-org/team name (if the above is not provided, settings will apply to *ALL* repos under this team's ownership)
+suborgteams
+:
+# This is the main entry for repository settings
+# All repository related configurations should be listed here
+repository
+:
+# Under the Labels section you may configure a list of GitHub labels for Issues/Pull Requests
+# Note these apply to all the repos in the org and are not necessarily repo specific
+labels
+:
+# Here you can manage specific username and/or GitHub teams access/permissions to the repository/org/sub-org
+# This depends on where this YAML file is hosted in the settings hierarchy
+collaborators
+:
+teams
+:
+# Here you may provide a list of *autolinks*, these are used to integrate with 3rd party links such as JIRA issues for example
+# A provided key_prefix is used to automatically link commits/branches/comments when used
+autolinks
+:
+More Info
+# This is where you may configure the branch protection rules for your repository
+branches
+:
+# This is used to validate that the repository naming convention is held in accordance to a regex pattern
+# For example if the pattern: '[a-zA-Z0-9_-]+_[a-zA-Z0-9_-]+.*' is set, repository creation must abide by it, otherwise it will not let you create one
+validator
+:
+Settings Hierarchy
+¶
+.github/
+| settings.yml
+|__ suborgs/*.yml(s)
+|__ repos/*.yml(s)
+The
+settings.yml
+is for organizational level settings and should be sued with caution as it applies to every repo in the org.
+The
+suborgs/*yml(s)
+are to be extensively used with corelation to the GitHub Teams that are setup in the organization, more information on setting up a team can be found
+here
+The
+repos/*yml(s)
+are used for repo specific settings and/or edge cases where they cannot be applied on upper levels of the hierarchy
+It is best to keep these at a minimum as in most cases teams should be following a standard
+Note
+Higher level settings in the hierarchy
+ALWAYS
+take precedence, so be wary of where you put your YAML file(s)
+- Example: if you have a branch protection rule that includes the following in the
+sub-org/test-team.yml
+enforce_admins
+:
+true
+And you try to override it with the following in a
+repos/test.yml
+which belongs to the
+test-team
+enforce_admins
+:
+false
+The
+former
+setting WILL take precedence and
+CANNOT
+be overridden.
+2024-10-08

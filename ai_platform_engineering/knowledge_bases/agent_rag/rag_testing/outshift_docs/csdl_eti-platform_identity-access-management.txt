@@ -1,0 +1,225 @@
+IAM-01.01
+IAM-01.02
+IAM-02.02
+IAM-02.04
+IAM-02.06
+IAM-02.08
+IAM-02.09
+IAM-02.40
+ccf
+Identity and Access Management
+¶
+Production Systems Restrictions
+¶
+CCF: IAM-01.01
+Production AWS Account Access
+¶
+Access to production systems is limited by membership in Active Directory groups.
+All ET&I AWS accounts are created through
+RunOn
+. As a result, all access to AWS is controlled through Cisco Active Directory (AD) as described on
+this page
+.
+The ET&I SRE team creates other AD groups associated with AWS accounts to further restrict access. Group membership is defined in the
+sre-cisco-groups-automation
+repository. The IAM roles associated with those AD in AWS accounts are defined in the
+sre-tf-iam
+repository.
+The following Cisco AD groups are currently active in the
+eticloud
+account:
+Active Directory Group
+IAM role
+AWS-626007623524-admin
+admin *
+AWS-626007623524-alcor
+alcor
+AWS-626007623524-cilappnet
+cilappnet
+AWS-626007623524-devops
+devops *
+AWS-626007623524-ecronly
+ecronly
+AWS-626007623524-eksdeveloper
+eksdeveloper
+AWS-626007623524-eti-identity
+eti-identity
+AWS-626007623524-great-bear
+great-bear
+AWS-626007623524-kosha
+kosha
+AWS-626007623524-maqy
+maqy
+AWS-626007623524-symphony-cerebrum
+symphony-cerebrum
+* NOTE: the
+admin
+and
+devops
+AD groups and IAM roles are created and configured by the RunOn team at the time of account creation.
+Production EKS Cluster Access
+¶
+Access to production EKS systems is limited by membership in Active Directory groups.
+All ET&I AWS accounts are created through
+RunOn
+. As a result, all access to AWS is controlled through Cisco Active Directory (AD) as described on
+this page
+.
+The ET&I SRE team creates other AD groups associated with AWS accounts to further restrict access. Group membership is defined in the
+sre-cisco-groups-automation
+repository. The IAM roles associated with those AD groups in AWS accounts are defined in the
+sre-tf-iam
+repository.
+EKS Production SSH Access
+¶
+SSH Access to production EKS clusters is not allowed to end users, except in the limited case of trouble-shooting a production issue. The ETI SRE team needs to document the process by which that access is granted and revoked.
+Production RDS Access
+¶
+Access to production RDS clusters is not well controlled. The ETI SRE team needs to enact and document the process by which access is granted and revoked.
+Production Application Change Deployment Access
+¶
+Access to ArgoCD is controlled by Active Directory and SSO.
+By default, users are granted read-only access.
+- [Production ArgoCD Role Based Access Control](https://wwwin-github.cisco.com/eti/argocd-instances/blob/main/sre/prod/argocd.yaml) (RBAC)
+Administrative users can delete or refresh resources, but those changes are
+logged
+.
+Production Infrastructure Change Deployment Access
+¶
+Outside of indvidual users manually creating resources (), production infrastructure changes are deployed via
+Atlantis
+.
+    -
+Production Atlantis
+There is currently no access control for Atlantis, but the only functions that are possible through the Atlantis UI are removing the current plans and locks.
+Infrastructure creation, updates, and deletes through Atlantis require a Pull Request and approval by an ETI SRE team member.
+Production Access Improvements
+¶
+Limiting individual user authorization in the production AWS account.
+Defining non-ETI SRE team member grant and revocation processes to:
+EKS Clusters
+Bastion hosts
+RDS
+Migrating ArgoCD RBAC to git.
+Implementing authorization controls for Atlantis.
+Audit Trails
+¶
+CCF: IAM-01.02
+AWS Account logs
+¶
+Cloudtrail logs (which log API usage) are sent to ST&O's Splunk and are not modifiable by anyone outside of S&TO.
+Application and Infrastructure logs
+¶
+EKS logs and application logs are sent directly to our
+production Elastic logging stack
+. Those logs are not modifiable without removing the Elastic indexes. No one outside of the ETI SRE team is given the authorization to delete indexes.
+Application Change logs
+¶
+Applications are deployed to production via
+ArgoCD
+.
+    -
+Production ArgoCD
+The logs from ArgoCD are shipped to our
+production Elastic logging stack
+.
+Infrastructure Change logs
+¶
+Infrastructure changes are deployed via
+Atlantis
+.
+    -
+Production Atlanits
+The logs from Atlantis are shipped to our
+production Elastic logging stack
+.
+Audit log improvements
+¶
+Individual RDS cluster access logs should be shipped to a centralized secure service.
+SSH bastion logs should be shipped to a centralized secure service.
+Remote Access Restrictions
+¶
+CCF: IAM-02.02
+AWS Account Remote Access Restrictions
+¶
+Access to the production AWS account is restricted by RunOn to Cisco SSO accounts via Cisco VPN.
+EKS Cluster Remote Access Restrictions
+¶
+Access to EKS clusters requires access to the AWS account and inherits the requirements of Cisco SSO via Cisco VPN.
+EKS Production SSH Remote Access Restrictions
+¶
+Access to production SSH servers is restricted by security group to Cisco CIDRs only.
+    -
+Bastion Security Group
+-
+Bastion CIDR definition
+Currently, Cisco SSO is not enabled.
+Production RDS Remote Access Restrictions
+¶
+Access to production RDS clusters requires SSH access and inherits its restrictions its limitation to Cisco CIDRs.
+Access to production RDS clusters also inherits SSH access' lack of Cisco SSO requirement.
+Production Application Change Deployment Remote Access Restrictions
+¶
+Production ArgoCD runs in the cloud-alln-1 data center. Access to the ArgoCD UI and underlying kubernetes cluster requires the Cisco VPN and Cisco SSO.
+    -
+ArgoCD deployment
+Production Infrastructure Change Deployment Remote Access Restrictions
+¶
+Production Atlantis runs in the cloud-alln-1 data center. Access to the Atlantis UI and the underlying kubernetes cluster requires the Cisco VPN and Cisco SSO.
+    -
+Atlantis deployment
+Access Request Documentation
+¶
+CCF: IAM-02.04
+When a user requires access to a production system, they will create a Pull Request for the appropriate Git repo and a Technical Lead or Manager from their team as well as a member of the ETI SRE team will approve the Pull Request.
+Requests for access to production systems is documented in
+sre-cisco-groups-automation
+Pull Requests and automation.
+Example Pull Request
+Periodic Access Reviews
+¶
+CCF: IAM-02.06
+A user access review of production systems occurs quarterly.
+Access reviews are stored in the
+Access Review folder
+Access Requires Cisco Credentials
+¶
+CCF: IAM-02.08
+Access to Production systems requires both membership in an Active Directory group and MFA for login capabilities.
+AWS Web Console
+¶
+When logging in to the AWS web console, a user must already be a part of an Active Directory Group. The SAML login then requires that a user authenticate through Duo, which requires MFA.
+AWS CLI
+¶
+When logging in to the AWS CLI, a user must already be a part of an Active Directory group. The CLI tools that give access to the IAM role require authentication with username, password, and MFA.
+The ET&I team recommends that users who require CLI access use the
+duo-sso tool
+.
+Password Requirements
+¶
+CCF: IAM-02.09
+Passwords, whether for an individual user, generic user, or service account, on the platform will always conform to
+Cisco's Strong Password Requirements
+.
+User privilege escalation requirements
+¶
+CCF: IAM-02.40
+AWS Root Account
+¶
+Users are not allowed to access the AWS root account. Access to root credentials is limited to ETI SRE team managers and directors only.
+Instance sudo access
+¶
+End users are not allowed sudo access, except in the case of production troubleshooting when observability tools have not proven sufficient.
+The ETI SRE team needs to develop a process for granting and revoking sudo access in that case.
+AWS RDS cluster root account access
+¶
+Users are not allowed access to the root account of an RDS cluster.
+The ETI SRE team occasionally uses the root account to create new databases within the cluster.
+The ETI SRE team needs to create a process by which ETI SRE team members have individual access that allows them to manage clusters.
+Code Deployment Administrative Access
+¶
+Administrative access to ArgoCD is available only to ETI SRE team members.
+Infrastructure Deployment Administrative Access
+¶
+There is no Role Based Access Control for the Atlantis UI.
+2024-04-04

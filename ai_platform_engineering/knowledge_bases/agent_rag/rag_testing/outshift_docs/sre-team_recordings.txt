@@ -1,0 +1,61 @@
+Recordings Index
+¶
+Recordings Index
+Working Sessions
+Design Discussions
+Demos
+Venture Meetings
+Working Sessions
+¶
+2021/05/07:
+Dex EKS OIDC demo record
+Password:
+kMrxBP7y
+2021/09/20:
+Dex Working Session
+Password:
+nFdRw5mv
+Extra Links:
+Cisco SSO
+and
+Customize Dex
+Design Discussions
+¶
+2023-September-14: AppD CIS Architecture Q&A
+Code: dCrJnpA6
+Topics: AppD Data ingestion pipeline architecture
+Outshift Platform Demos
+¶
+November 16
+th
+2023
+¶
+Webex Recording
+Code: Uad2SpPm
+Topics: 
+- Cilium network policy
+2023-October-12
+¶
+Webex Recording
+Code: nCmCkci9
+Topics:
+- Atlantis recovery
+- ArgoCD Matrix Design
+2023-October-05
+¶
+Webex Recording
+Code: Zp2kpui2
+2023-September-28
+Code: XqrAP9mA
+2023-September-21
+Code: RmjffQA3
+2023-September-14
+Code: mRWM2GVg
+Venture Meetings
+¶
+2021/10/14:
+Symphony-Cerebrum: Database Requirements
+Password:
+vVPgEDW7
+Topics: Symphony-Cerebrum, datastore requirements, postgres, DynamoDB, MongoDB
+2024-02-16

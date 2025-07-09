@@ -1,0 +1,6 @@
+IAM Static Assets
+¶
+https://assets.id.eticloud.io/sample.txt
+S3 Bucket
+Cloudfront
+2022-09-27

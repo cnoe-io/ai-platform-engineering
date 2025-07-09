@@ -1,0 +1,33 @@
+post mortem
+YYYY-MM-DD; Jira ID; Short Description
+¶
+Summary
+¶
+A brief, no more than two sentence, description of the problem.
+When
+¶
+When the incident occurred, from start to finish
+Timeline
+¶
+A detailed timeline of what happened. If possible, down to the minute, with your local timezone specified.
+2021-06-21
+Assigned myself creation of this template.
+2021-06-22
+0955 EDT - Created this template.
+0956 EDT - Edited this template.
+Impact
+¶
+System(s) impacted?
+¶
+Teams impacted?
+¶
+Analysis
+¶
+Detailed descriptions of what went wrong. This can include:
+    - Technical failures
+    - Process failures
+    - Human failures.
+Takeaways
+¶
+Concrete, detailed actions to be taken in the future to correct issues in Analysis
+2023-10-30

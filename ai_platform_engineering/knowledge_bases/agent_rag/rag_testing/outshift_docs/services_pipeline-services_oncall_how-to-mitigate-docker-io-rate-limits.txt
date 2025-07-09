@@ -1,0 +1,153 @@
+mitigate docker.io rate limits
+How to mitigate docker.io rate limits
+¶
+Symptoms
+¶
+Team/Developer experiences Jenkins/Desktop build failures when pulling images from external docker hub (docker.io)
+Example build failure from Jenkins output:
+16
+-Feb
+[
+13
+:08:01.601
+]
+Step
+1
+/11
+:
+FROM
+node:lts
+as
+dependencies
+16
+-Feb
+[
+13
+:08:02.061
+]
+toomanyrequests:
+You
+have
+reached
+your
+pull
+rate
+limit.
+You
+may
+increase
+the
+limit
+by
+authenticating
+and
+upgrading:
+https://www.docker.com/increase-rate-limit
+Background
+¶
+Docker
+implemented rate limits
+on Docker hub external registry (sometimes referred to as docker.io)
+Summary of rate limits:
+Anonymous and Free Docker Hub users are limited to 100 and 200 container image pull requests per six hours respectively.
+ETI Mitigation Strategy
+¶
+Option 1 (Preferred): Use Cisco hardened images
+¶
+Cisco STO Cloud9 team publishes hardened base images
+Hardened base images are required for CSDL/SCF process
+Teams can create containers based on hardened containers or use them as is.
+Hardened image references:
+-
+https://wwwin-github.cisco.com/pages/sto-ccc/cloud9-docs/containers/hardened_containers/
+https://containers.cisco.com/organization/sto-ccc-cloud9
+https://engci-maven-master.cisco.com/artifactory/webapp/#/artifacts/browse/tree/General/sto-ccc-docker
+https://wwwin-github.cisco.com/sto-ccc/cloud9-ci-images
+Advantages of using this option
+¶
+Know your software supply chain
+Better visibility to software supply chain vulnerabilities which have become prevelant recently
+Internal registries are scanned for vulnerabilities and flagged with an potential issues.
+Here is an example screenshot of container scans from containers.cisco.com:
+Improved security posture using STO hardened images
+Reduce dependency on external registries
+Using internal registries reduces the dependency on external registry for:
+upstream deletion of images
+pulling incorrect layers for "ambigous" tags like latest
+registry outages
+rate limits
+Option 2 : Use SRE Base images
+¶
+SRE team creates build/runtime containers based on STO hardended images which include additional common tools
+Teams can create containers based on SRE containers or use them as is
+Examples:
+- Pipeline Docker
+    -
+Code
+-
+Images
+- Go Docker
+    -
+Code
+-
+Images
+- Python Docker
+    -
+Code
+-
+Images
+- NodeJS Docker
+    -
+Code
+-
+Images
+Option 3. Use Cisco Docker Proxy
+¶
+If the images you need are
+not
+available in Option 1 and 2, and your team needs to pull from upstream docker.io, then use
+Cisco docker proxy
+(
+dockerhub.cisco.com/docker.io/<image>
+) to mitigate rate limits.
+Cisco Docker Proxy is an IT hosted Artifactory (JFrog Enterprise) which caches docker.io images on-demand.
+Note
+: If the container layers are not already cached in the Cisco Docker Proxy, there may be additional delays until Cisco Docker Proxy pulls and caches.
+Example Change
+Current Dockerfile:
+FROM
+ubuntu:20.04
+New Dockerfile:
+FROM
+dockerhub.cisco.com/docker.io/ubuntu:20.04
+Option 4. Re-publish the image to internal registries
+¶
+During the development phase, the developer can pull the image to their desktop, re-tag and push to one of Cisco's internal registries
+Here are list of Cisco internal registries:
+containers.cisco.com
+dockerhub.cisco.com
+Current Dockerfile:
+FROM
+klakegg/hugo:0.73.0-ext-alpine
+During development:
+docker
+pull
+klakegg/hugo:0.73.0-ext-alpine
+docker
+tag
+klakegg/hugo:0.73.0-ext-alpine
+containers.cisco.com/eti-sre/hugo:0.73.0-ext-alpine
+docker
+push
+containers.cisco.com/eti-sre/hugo:0.73.0-ext-alpine
+New Dockerfile
+FROM
+containers.cisco.com/eti-sre/hugo:0.73.0-ext-alpine
+References:
+-
+https://www.docker.com/increase-rate-limits
+-
+https://engit.cisco.com/build/dockerhub
+-
+https://engit.cisco.com/build/artifactory/documentation-artifactory
+2023-02-09

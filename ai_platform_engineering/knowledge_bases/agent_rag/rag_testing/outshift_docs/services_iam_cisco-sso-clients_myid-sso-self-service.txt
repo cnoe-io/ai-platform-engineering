@@ -1,0 +1,9 @@
+MyID SSO Self Service
+myid-sso.cisco.com
+MyID SSO Self Service
+¶
+MyID SSO
+myid-sso.cisco.com
+is self-service portal to enable users to create OIDC clients for internal/external applications
+Setup Instructions
+2024-07-08

@@ -1,0 +1,12 @@
+ETI IAM Observability
+¶
+Logs
+¶
+Check the logs on Elastic Search
+Dev/test
+Staging/Prod
+Dashboards
+¶
+Dev
+Prod
+2024-02-26

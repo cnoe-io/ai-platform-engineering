@@ -1,0 +1,69 @@
+Introduction to Cloud
+¶
+ð§â
+Documentation in-progress.
+Please reach out to us in
+ETI Platform Documentation webex space
+if you have questions or feedback.
+What is an Application / Microservice?
+¶
+A
+cloud application
+is a software program runs on a public/private cloud.
+Microservice
+architecture structures an application as a collection of services that are
+Highly maintainable and testable
+Loosely coupled
+Independently deployable
+Organized around business capabilities
+Owned by a small team
+References:
+Microservices
+What are cloud applications?
+Application Anatomy
+¶
+Core software program what executes functional business logic
+Plain text configuration data to run the program in a given environment
+Secrets configuration data to connect to other programs or 3
+rd
+party services
+What are "Cloud-Native" Apps?
+¶
+The term
+cloud native
+refers to the concept of building and running applications to take advantage of the distributed computing offered by the cloud delivery model.
+Cloud native apps are designed and built to exploit the scale, elasticity, resiliency, and flexibility the cloud provides.
+As defined by the Cloud Native Computing Foundation (CNCF), Cloud native technologies empower organizations to build and run scalable applications in public, private, and hybrid clouds.
+Features such as containers, service meshes, microservices, immutable infrastructure, and declarative application programming interfaces (APIs) best illustrate this approach.
+These features enable loosely coupled systems that are resilient, manageable, and observable. They allow engineers to make high-impact changes frequently and with minimal effort.
+References:
+What is cloud native
+12 Factor App Principles
+¶
+Codebase:
+One codebase tracked in revision control, many deploys
+Dependencies:
+Explicitly declare and isolate dependencies
+Config:
+Store config in the environment
+Backing services:
+Treat backing services as attached resources
+Build, release, run:
+Strictly separate build and run stages
+Processes:
+Execute the app as one or more stateless processes
+Port binding:
+Export services via port binding
+Concurrency:
+Scale out via the process model
+Disposability:
+Maximize robustness with fast startup and graceful shutdown
+Dev/prod parity:
+Keep development, staging, and production as similar as possible
+Logs:
+Treat logs as event streams
+Admin processes:
+Run admin/management tasks as one-off processes
+References:
+12 Factor App
+2023-05-30

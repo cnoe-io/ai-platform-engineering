@@ -1,0 +1,147 @@
+os hardening build environment
+Enable OS Hardening on build environment
+¶
+Because of security requirements, we have to enable os hardening on our build environments as per InfoSec
+BES-INF-HARDEN
+This is linked
+SRE-4312 - CT2162: BES-INF-HARDEN: Build Host Hardening (10)
+OS Harden installation
+¶
+In order to test the OS Hardening installation on the build environments, we deployed OS harden on "eti-jenkins-canary-test-1" machine.
+As you know, our build infra system is managed through
+Ansible automation repo
+with the
+sre-build-infra-ansible job
+.
+For installing OS Hardening, we're using the
+OS Harden ansible playbook
+and linked it in our
+requirements
+. This will be installed by default once running our automation job.
+In our case, we do have several environments: our current production build environment contains p3 and cloud nodes
+common jenkins nodes
+and
+jenkins coud nodes
+To enable OS Hardening, we have defined a
+OS Harden role
+which is using the default configuration as per the OS Hardening documentation
+-
+name
+:
+Run OS Hardening
+hosts
+:
+eti-jenkins-canary-test-1
+become
+:
+yes
+become_user
+:
+root
+become_method
+:
+sudo
+roles
+:
+-
+role
+:
+ansible-os_hardening
+Current status
+¶
+Installing OS Harden takes more than 10 hours on our existing jenkins nodes because it checks ownership of all (log/docker cache) files. So each time we try to install it it starts and then finish with session timeout (even through jenkins jobs or from local machine).
+The best way to install it is to redeploy our current jenkins agent node by node and install OS harden on it while re-deploying (because node will be clean it will be very fast).
+Below OS Harden install status:
+P3 (common) Jenkins agent
+OS Harden Enabled/Not
+eti-jenkins-common-xlarge-1
+Enabled
+eti-jenkins-common-xlarge-2
+InProgress (WIP)
+eti-jenkins-common-xlarge-3
+Not Enabled
+eti-jenkins-common-xlarge-4
+Not Enabled
+eti-jenkins-common-xlarge-5
+Not Enabled
+eti-jenkins-common-xlarge-6
+Not Enabled
+eti-jenkins-common-xlarge-7
+Not Enabled
+eti-jenkins-common-xlarge-8
+Not Enabled
+eti-jenkins-common-xlarge-9
+Not Enabled
+eti-jenkins-common-xlarge-10
+Not Enabled
+eti-jenkins-common-xlarge-11
+Not Enabled
+eti-jenkins-common-xlarge-12
+InProgress (WIP)
+eti-jenkins-common-xlarge-13
+Not Enabled
+eti-jenkins-common-xlarge-14
+Not Enabled
+eti-jenkins-common-xlarge-15
+Not Enabled
+eti-jenkins-kosha-xlarge-1
+Not Enabled
+eti-jenkins-kosha-xlarge-2
+Not Enabled
+eti-jenkins-24cpu-64gb-1
+Not Enabled
+eti-jenkins-24cpu-64gb-2
+Not Enabled
+eti-jenkins-24cpu-64gb-3
+Not Enabled
+eti-jenkins-24cpu-64gb-4
+Not Enabled
+eti-jenkins-common-test-1
+Not Enabled
+Cloud Jenkins agent
+OS Harden Enabled/Not
+eti-cloud-agent-1.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-2.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-3.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-4.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-5.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-6.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-7.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-8.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-9.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-10.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-11.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-12.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-13.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-14.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-15.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-16.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-17.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-18.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-19.ci.eticloud.io
+Not Enabled
+eti-cloud-agent-20.ci.eticloud.io
+Not Enabled
+eti-cloud-test-1.ci.eticloud.io
+Not Enabled
+Notes:
+After enabling os harden, be sure to restart docker on the build environment otherwise we will face network (timeout) issues on jenkins jobs. In order to validate no network issue, please execute some curl commands from docker build container from jenkins nodes.
+2024-02-22

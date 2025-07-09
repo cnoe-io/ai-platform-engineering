@@ -1,0 +1,20 @@
+Outshift Prompt-Intel Grafana Dashboards
+¶
+Outshift Prompt-Intel logs are accessible in
+AppDynamics/FSO
+Dev
+¶
+APIs
+Gateway
+Platform State
+Preview
+¶
+APIs
+Gateway
+Platform State
+Prod
+¶
+APIs
+Gateway
+Platform State
+2024-07-11

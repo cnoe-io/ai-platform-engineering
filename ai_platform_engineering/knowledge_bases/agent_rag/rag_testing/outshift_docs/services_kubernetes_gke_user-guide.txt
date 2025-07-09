@@ -1,0 +1,189 @@
+Provisioning New GKE Clusters
+¶
+This is an automated procedure for provisioning new GKE clusters in GCP
+Provisioning New GKE Clusters
+How It Works
+How To Use It
+Create
+a new cluster
+Manually
+destroy
+an existing cluster
+Update an existing cluster
+Retention Process
+How It Works
+¶
+We utilize a general
+Terraform
+module managed by the SRE team called
+sre-tf-module-gcp-gke
+This module is based off of other
+Google Provider
+managed modules in the Terraform registry
+The module is used in another SRE managed repository
+sre-gke-cluster-provisioning
+that is setup to provision clusters via a Jenkinsfile configured pipeline
+With the combination of Jenkin's
+groovy
++
+sre pipeline library
++
+Terraform
+, the
+gke-dev-cluster-provisioning
+pipeline is able to provision user configured GKE clusters
+The Jenkins parameters passed in by the user are then passed to the Terraform via environment variables
+Once the pipeline runs, Terraform uses a
+pre-configured
+GCP
+service-account
+for the specified
+project-ID
+to provision the resources via API
+The Terraform
+state
+files are all kept in an SRE manages
+AWS S3 Bucket
+The GCP
+service-account
+JSON OAUTH key file is kept in
+Vault
+with the secret name being the
+project-ID
+There is a
+retention policy
+configured to these clusters via the labels added as part of the terraform configuration
+How To Use It
+¶
+Create
+a new cluster
+¶
+In order to provision a new GKE cluster, with this automated process, please do the following:
+Run a new job in the
+gke-dev-cluster-provisioning
+pipeline, by clicking
+Build With Parameters
+Select
+CREATE
+and the configurations you want for your cluster and run the job
+Tip
+Please make sure to read the instructions/information in the
+HELP
+section of each parameter.
+There are a few limitations on the configurations you can select, these are:
+- CLUSTER_NAME_OVERRIDE: You may use a maximum of 21 characters for the cluster name
+- DAYS_TO_RETAIN: You may use a maximum of 90 days and a minimum of 1 day
+If you do not abide by these limitations, the pipeline will fail and throw an error.
+Note
+Using the defaults will provision a
+3-Node-Zonal
+cluster in
+us-east1
+with your username and
+dev
+suffix, under the
+k8sec-dev
+project*
+An approval request will be sent to you once the
+terraform plan
+is complete, make sure to take note of the changes made
+Once the process is complete, you will receive a notification in
+WebEx
+with all the needed information to connect to your newly provisioned cluster
+(Optional) If the created cluster is a target environment for applications deployed by ArgoCD, follow the steps described
+here
+to add it to ArgoCD
+Manually
+destroy
+an existing cluster
+¶
+In order to
+destroy/delete
+an existing cluster manually
+BEFORE
+the retention period of the cluster passes, please do the following:
+Run a new job in the
+gke-dev-cluster-provisioning
+pipeline, by clicking
+Build With Parameters
+Select
+DESTROY
+and the
+EXACT
+project that it was created in as well as the
+EXACT
+name of the cluster in the
+CLUSTER_NAME_OVERRIDE
+Note
+The
+CLUSTER_NAME_OVERRIDE
+is the name of the cluster with the
+-cluster
+omitted from the end
+An approval request will be sent to you once the
+terraform plan
+is complete, make sure to take note of the changes made
+Once the process is complete you will receive a notification in
+WebEx
+with confirmation
+Update an existing cluster
+¶
+In order to update an existing cluster, please do the following:
+Run a new job in the
+gke-dev-cluster-provisioning
+pipeline, by clicking
+Build With Parameters
+Select
+CREATE
+and the
+EXACT
+project that it was created in as well as the
+EXACT
+name of the cluster in the
+CLUSTER_NAME_OVERRIDE
+Note
+The
+CLUSTER_NAME_OVERRIDE
+is the name of the cluster with the
+-cluster
+omitted from the end
+Select the configurations you want for your cluster and run the job
+Select the
+AUTO_APPROVE
+checkbox and run the job
+If you are running this with
+RE-CREATE
+the
+AUTO-APPROVE
+checkbox will only take effect after the
+terraform destroy
+is complete, during the
+terraform apply
+phase
+Note
+In some cases your update might fail, such cases can include the following:
+- You are trying to update a cluster with a different `zone` or `region`
+- You are trying to update a cluster with a different `node-count`
+- You are trying to update a cluster with a different `machine-type`
+- You are trying to update a cluster with a different `network` or `subnetwork` - this usually happens when increasing resources (which triggers a new node pool to be created/subnets to change)
+If this does happen to you, run the pipeline again with
+RE-CREATE
+selected, and follow the steps in the
+Create a new cluster
+section
+Retention Process
+¶
+The retention process/workflow is currently handled by the
+gke-self-service-cluster-retention
+pipeline. This pipeline is configured to run every day at
+1 AM UTC
+and will check for any clusters that are past their retention period. The pipeline will then trigger the
+gke-dev-cluster-provisioning
+pipeline with the
+DESTROY
+option selected for each cluster that is past its retention period.
+Note
+The SRE team gets notified in the
+[Automated] Jenkins Notifications
+webex space if there are any failures in the retention process.
+2023-10-09

@@ -1,0 +1,146 @@
+2022-11-02 Clean-up Jenkins AWS policies
+¶
+Current State
+¶
+Currently, Jenkins can assume any of the following roles, which are defined in terms of the
+category
+of Cloud resource types it can access.
+AWS Roles Used by Jenkins Today
+¶
+jenkins-cloudfront-full-access
+ghe search
+sre-pipeline-library/vars/sreAWS.groovy
+- invoked in 4 places
+Permissions Needed:
+create-invalidation
+get-distribution-config
+update-distribution
+jenkins-s3-full-access
+ghe search
+sre-pipeline-library/vars/sreHelm.groovy
+helm buckets
+sjc-ldap-backup
+cisco-eti-sre-backups
+sre-pipeline-library/vars/sreAWS.groovy s3Sync
+â
+any bucket
+called in srePipeline stage
+jenkins-ecr-push-role
+ghe search
+sre-pipeline-library/vars/sreAWS.groovy
+- 3 invocation
+Permissions Needed
+get-login-password
+â for
+any repository
+describe-repositories
+â for
+any repository
+cisco-app-networking/edgedoor-system
+â project discontinued?
+Permissions Needed:
+get-login-password
+jenkins-labs-s3
+ghe search
+Note:
+managed by terraform
+here
+sre-racktables/backup/prod/Jenkinsfile
+Permissions Needed:
+aws s3 ls
+aws s3 cp
+to bucket
+cisco-eti-racktables-backup
+jenkins-sts-assumerole
+ghe search
+sre-pipeline-library/vars/sreAWS.groovy assumeRoleSessionLogin
+invoked in the following
+places
+cisco-app-networking/appn-pipeline
+sre-pipeline-library/vars/sreKubeConfig.groovy eksKubeConfigSetup
+-
+aws eks update-kubeconfig
+sre-utilities
+also in
+Jenkinsfile.parallel
+jenkins
+Further investigation needed to understand current scope.
+Future State
+¶
+Background and Motivation
+¶
+One limitation with how the roles are defined and scoped today (as
+delineated above
+) is that they are centered around the
+types
+of cloud resources they allow/restrict access to (e.g., Cloudfront, S3, etc.). These roles are then assumed by a shared pipeline library code snippets with parametrized target resource objects. This means that the scope of the access cannot be limited in terms of neither the actors (anyone with access to the shared pipeline library can invoke the code to assume this role) nor affected resources (they can specify any target resource as a parameter of the shared pipline library code). The access policies of the existing roles do provide limits on which resources are accessible, but those limits are rendered meaningless if those policies allow wide access (e.g. to all Cloundfront distributions, any S3 buckets, etc.), which becomes necessary by design for the shared pipeline library to be a tool leveraged by many different teams across (and even beyond) ET&I.
+Another important consideration for defining the scope of these roles is how
+sustainable
+it is to maintain the policies assigned to each role. Restricting access too finely can lead to unnecessary operational burden and friction for developers, if they need to request permission to every instance of any cloud resource and wait for SRE team to provision that access.
+Proposal
+¶
+In order to provide a
+reasonable
+level of resource protection without incurring an unjustifiably high operational overhead, the proposal is to refactor the definition of these roles to be centered around
+who
+is granted access to a set of cloud resources. I.e., each role will be mapped to a specific
+team
+, rather than a broad
+category
+of cloud resource types. This model allows each role to be scoped to the specific
+instances
+of any resource (e.g., a
+website-foo-*
+Cloudfront distribution, or a
+team-bar-*
+S3 bucket, etc.) that a particular team requires. Scoped in this manner, these
+team-centric
+roles effectively restricts the
+blast-radius
+of a change initiated by any individual to resources granted to that individual's team.
+The mapping of these refactored roles to specific teams need to be
+enforced
+; i.e., a role meant to be assumed by team A should
+only
+be available to team A, and not team B, C, etc.
+One way to implement this restriction may be to leverage the existing team-based
+Vault namespaces
+and
+Vault AppRoles
+that only allows a team's role name in Keeper to be accessed by that team's jobs via
+Jenkins's folder-scoped credentials
+.
+Example
+¶
+As a concrete example, today, the
+jenkins-s3-full-access
+role is leveraged by:
+a reusable
+sreHelm pipeline stage
+to push objects to a parametrized S3 bucket for helm (in this case, either the
+eti-helm-charts-private
+or
+ciscoeti
+buckets)
+an
+sjc lab ldap backup job
+to access the
+cisco-eti-sre-backups
+bucket
+a reusable
+s3Sync
+pipeline stage that parametrizes the source and target buckets.
+This structure prevents restricting access to a small set of buckets without breaking the functionality of the shared library model, which by design, can be invoked by a wide audience of users. If we were to refactor this structure in a
+team-centric
+way as proposed above, we would instead define the roles as follows:
+jenkins-pipeline-library
+- this role will allow the minimal access needed by the pipeline library to publish helm charts; i.e., write access to
+only
+the helm chart buckets
+jenkins-labs
+- this role will allow the minimal access needed by the lab ldap backup job; i.e., write access to
+only
+the designated
+cisco-eti-sre-backups
+bucket
+2023-08-25

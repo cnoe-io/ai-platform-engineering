@@ -1,0 +1,171 @@
+guide
+port forwarding
+sandbox
+ssh
+Accessing Sandbox Infrastructure via SSH
+¶
+This document outlines SSH access to the sandbox environments -- how it works, how to configure it on your workstation
+and how to use it. Note that it is not a complete SSH tutorial; it simply aims to briefly explain some of the required SSH configuration and why we use it.
+SSH Access Overview
+¶
+Bastion hosts are provided to permit access to a range of hosts through a single, shared entry point.
+Bastion hosts are similar to other SSH hosts with two exceptions:
+They are very thin/lightweight instances
+They are designated/reserved for forwarding SSH connections through to permit access to other hosts within a
+   protected network/VPC.
+It works something like this:
++-----+                  +--------------+                +--------+
+| you |                  | bastion host |                | server |
+|     | <====ssh=tunnel=through=bastion=host===========> |        |
++-----+                  +--------------+                +--------+
+This is done largely to enhance security -- only the bastion host needs to be reachable to allow access to a range of
+other hosts. This approach forms an additional layer of security for hosts that reside within the protected part of
+the network, since they are not directly exposed to the Internet. It also simplifies management of the infrastructure
+because there are fewer points of exposure to monitor and maintain.
+In the diagram above, it's probably clear that bastion hosts create an extra "step" in terms of access. Even so,
+gaining access to the "server" (as seen above) can be accomplished in a way that is completely transparent to "you"
+(also as seen above) thanks to configuration we can add into the
+~/.ssh/config
+file (see below).
+Security
+¶
+Unless specifically requested, cloud sandbox instances do
+not
+have public IP addresses and therefore may only be
+accessed via Cisco internal networks -- in other words, you must be connected to the VPN to reach them.
+Also note that cloud sandboxes do
+not
+have access to resources located within Cisco's internal
+networks/infrastructure. This is intended/by design as Cisco policy does not permit this connectivity.
+Workstation/Local Configuration
+¶
+SSH client configuration is placed into the
+~/.ssh/config
+file. We use this to configure a variety of host-specific
+options, from identity files (aka (private) keys) to bastion hosts.
+Here's an example of some configuration we might use in the
+~/.ssh/config
+file to access a sandbox environment as
+described above:
+Host bastion-host
+Hostname bastion-host.some-zone.compute.amazonaws.com
+user some-user
+IdentityFile ~/.ssh/bastion_key
+UserKnownHostsFile /dev/null
+StrictHostkeyChecking no
+Host my-server
+Hostname server.some-zone.compute.internal
+user my-user
+IdentityFile ~/.ssh/my_key
+UserKnownHostsfile /dev/null
+StrictHostkeyChecking No
+ProxyCommand ssh -q bastion-host nc %h 22
+This example contains two
+Host
+entries, one for each of the two steps (bastion and server).
+SSH Usage
+¶
+To connect to your sandbox environment, you'll simply run
+a single SSH command:
+ssh
+my-server
+The SSH client will find the "my-server"
+Host
+entry in the
+~/.ssh/config
+file and build its connection as
+configured there -- in this case, the
+ProxyCommand
+line tells it to connect through "bastion-host", enabling you to
+reach the desired host/server
+without interacting with the bastion at all.
+Note: DO NOT SSH into the bastion host.
+Here's why:
+The bastion host is a
+shared resource
+and it should
+not
+be used (or configured) for workloads.
+The bastion host does not contain the hardware resources or configuration to support your workloads.
+This introduces an extra step to the connection process which is simply not necessary when the configuration
+  described above is in place.
+SSH Port Forwarding
+¶
+Note that it is also possible to tunnel other ports and protocols through the bastion host. This is typically done to
+access an application running in/on the sandbox environment.
+In general, port forwarding can be achieved by adding some parameters to the SSH command:
+ssh
+-N
+-L
+<local_port>:<remote_host_dns_name>:<remote_port>
+<bastion_host>
+In practice, the command might look like this:
+ssh
+-N
+-L
+8888
+:server.some-zone.compute.internal:8888
+bastion-host
+It is important to note that the remote host's
+DNS name
+must be used,
+not
+the
+Host
+name specified in the
+~/.ssh/config
+file. In other words,
+<remote_host_dns_name>
+(as shown above) should come from the
+Hostname
+line for the server (not bastion) in
+~/.ssh/config
+,
+not
+the
+Host
+line. Finally, the trailing
+<bastion_host>
+name should be the name of the bastion
+Host
+as it appears in the
+~/.ssh/config
+file.
+Connecting with Port Forwarding
+¶
+Due to the use of the bastion host, port forwarding requires some extra steps; an additional instance of SSH is
+required. The procedure to do this is as follows:
+Log in as normal:
+ssh my-server
+Start the desired application
+Start a second SSH tunnel to forward port(s). For example:
+ssh
+-N
+-L
+8888
+:ip-10-20-1-219.us-east-2.compute.internal:8888
+accel-1-bastion
+Note that this session will appear to "hang" -- you won't see any output. This is expected. Press
+Control-C
+to close the session.
+Once the above is complete, the port forwarding should be active and you may access your app locally via the forwarded port(s).
+Is Your Service Running?
+¶
+When using port forwarding (as described above), make sure the service is running on the remote host! Connection
+errors will result if it is not. It might seem obvious, but it's easy to overlook. Port forwarding can't work if no
+service is providing responses to forward.
+For example, suppose that you configure SSH to forward port 8888 (as shown above). When you attempt to connect to the
+remote instance, you receive an error similar to this:
+channel
+x:
+open
+failed:
+connect
+failed:
+Connection
+refused
+If this happens, please ensure your application is functioning as expected (perhaps it is crashing?) and be sure you
+have followed
+the steps described above
+, then try the connection again.
+2023-02-10

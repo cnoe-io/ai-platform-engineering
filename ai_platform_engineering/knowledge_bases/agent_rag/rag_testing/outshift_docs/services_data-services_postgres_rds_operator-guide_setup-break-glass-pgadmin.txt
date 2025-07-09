@@ -1,0 +1,461 @@
+Break-Glass
+DB Access
+PgAdmin
+RDS
+Setup
+Setup Break-glass solution for accessing PostgreSQL
+¶
+Purpose
+¶
+This document provides a guide for setting up the break-glass solution for accessing PostgreSQL databases in case the primary method of access is not available. It is meant for read-only access to the database and should not be used for any write operations. While the solution is targeted to be as secure as possible, it is not recommended to use this method to do any development operations on the database in production.
+Pre-requisites
+¶
+You have an RDS instance running and connected to the EKS Cluster
+You have created a DB user with read-only access or the necessary permissions for the application database
+You have access to the
+SRE-Baseapps-<shard>
+repo in Github where all the EKS cluster's baseapps are configured
+You have access to the ArgoCD instance where the EKS cluster's baseapps are deployed
+You have access to all the necessary Vault (Keeper) secrets for the RDS instance (endpoints, users, passwords, etc.)
+You have access and necessary permissions to the
+CISCO MyID SSO site
+External Secrets baseapp is installed and configured in the EKS cluster
+Steps
+¶
+Open the
+SRE-Baseapps-<shard>
+repo in Github and navigate to the clusters baseapp folder. Open the
+values.yaml
+file that holds the list of all the installed baseapp + overrides.
+Edit the file and add the new
+pgadmin4
+baseapp to the list of installed baseapps.
+baseAppRepoURL
+:
+https://github.com/cisco-eti/sre-baseapps-configs-common
+baseapps
+:
+...
+pgadmin4
+:
+exclude
+:
+false
+version
+:
+1.26.0-4
+Create a new folder under the clusters baseapp folder and name it
+pgadmin4
+. This folder will hold the
+values.yaml
+overrides file for the
+pgadmin4
+baseapp.
+Login to the
+CISCO MyID SSO site
+and create a new OIDC endpoint using the
++ Add New
+button on the top right corner.
+Fill in the necessary details for the OIDC endpoint. Ensure that the
+Redirect URI
+is set to the
+pgadmin4
+baseapp URL. Once the OIDC endpoint is created, you will be provided with the necessary configurations for the OIDC endpoint. You may follow the following guid for setting up the new endpoint:
+OIDC Endpoint Setup
+Note
+Make sure that you are setting it up using
+OpenID
+type and not
+SAML
+Login to the
+Keeper vault namespace
+and create the necessary secrets for the
+pgadmin4
+baseapp under the path:
+common/pgadmin4/<cluster name>/
+. One for the
+OIDC
+configurations (used for SSO auth, and using the information from the above step) and another for the
+pgpass
+file (the shared DB user password that was generated).
+Make sure to add all the required secret keys
+(you may look at the examples from other clusters if you are not sure).
+Note
+The
+pgpass
+file is used to store the shared DB user password in the container. This is to ensure that the password is not exposed in the
+values.yaml
+file. The
+pgpass
+file is mounted as a volume in the container and the
+pgadmin4
+baseapp reads the password from the secured file with limited access permissions so as to improve security. The
+pgpass
+file should be created with the following format:
+hostname:port:database:username:password
+(wildcards are supported for the first three fields).
+Edit the newly created
+values.yaml
+file and add the necessary override values/configurations for the
+pgadmin4
+baseapp.
+pgadmin4
+:
+## Server definitions will be loaded at launch time. This allows connection
+## information to be pre-loaded into the instance of pgAdmin4 in the container.
+## Note that server definitions are only loaded on first launch,
+## i.e. when the configuration database is created, and not on subsequent launches using the same configuration database.
+## Ref: https://www.pgadmin.org/docs/pgadmin4/latest/import_export_servers.html
+##
+serverDefinitions
+:
+## If true, server definitions will be created
+##
+enabled
+:
+true
+## The resource type to use for deploying server definitions.
+## Can either be ConfigMap or Secret
+resourceType
+:
+Secret
+servers
+:
+1
+:
+Name
+:
+"<RDS
+instance
+name>"
+Group
+:
+"Servers"
+Port
+:
+5432
+Username
+:
+"<DB
+User>"
+SharedUsername
+:
+"<DB
+User>"
+Host
+:
+"<Read-Only
+RDS
+Endpoint>"
+SSLMode
+:
+"prefer"
+MaintenanceDB
+:
+"postgres"
+BGColor
+:
+"#CCCCCC"
+FGColor
+:
+"#A2C4C9"
+UseSSHTunnel
+:
+0
+TunnelPort
+:
+"22"
+TunnelAuthentication
+:
+0
+PassFile
+:
+"../../file.pgpass"
+KerberosAuthentication
+:
+false
+Shared
+:
+true
+## Ingress
+## Ref: https://kubernetes.io/docs/concepts/services-networking/ingress/
+ingress
+:
+enabled
+:
+true
+annotations
+:
+# To secure the ingress, only the internal nginx ingress controller should be used!
+kubernetes.io/spec.ingressClassName
+:
+nginx-internal
+# nginx.ingress.kubernetes.io/ssl-redirect: "false"
+# nginx.ingress.kubernetes.io/backend-protocol: HTTP
+cert-manager.io/cluster-issuer
+:
+letsencrypt
+nginx.ingress.kubernetes.io/rewrite-target
+:
+/
+# kubernetes.io/tls-acme: "true"
+ingressClassName
+:
+nginx-internal
+hosts
+:
+-
+host
+:
+pgadmin4.<cluster name>.<environment>.eticloud.io
+paths
+:
+-
+path
+:
+/
+pathType
+:
+Prefix
+tls
+:
+-
+secretName
+:
+pgadmin4-tls
+hosts
+:
+-
+pgadmin4.<cluster name>.<environment>.eticloud.io
+## Additional environment variables from Secrets
+envVarsFromSecrets
+:
+-
+pgadmin4-oauth2-secret
+## Additional environment variables
+envVarsExtra
+:
+-
+name
+:
+OAUTH2_ADDITIONAL_CLAIMS
+value
+:
+'["CN=<AD
+Group
+name
+for
+giving
+access>,OU=Cisco
+Groups,DC=cisco,DC=com"]'
+## @param existingSecret Name of existing secret to use for default pgadmin credentials. `env.password` will be ignored and picked up from this secret.
+##
+existingSecret
+:
+""
+## @param secretKeys.pgadminPasswordKey Name of key in existing secret to use for default pgadmin credentials. Only used when `existingSecret` is set.
+##
+secretKeys
+:
+pgadminPasswordKey
+:
+password
+# Add any external secrets configurations
+externalSecrets
+:
+-
+name
+:
+"pgadmin4-oauth2-secret"
+# annotations:
+#   argocd.argoproj.io/hook: PreSync
+secretStoreRef
+:
+name
+:
+"vault-eticloud"
+kind
+:
+"ClusterSecretStore"
+target
+:
+name
+:
+pgadmin4-oauth2-secret
+data
+:
+-
+secretKey
+:
+DISCOVERY_URL
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+common/pgadmin4/<cluster name>/oidc
+property
+:
+DISCOVERY_URL
+-
+secretKey
+:
+OAUTH2_CLIENT_ID
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+common/pgadmin4/<cluster name>/oidc
+property
+:
+OAUTH2_CLIENT_ID
+-
+secretKey
+:
+OAUTH2_CLIENT_SECRET
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+common/pgadmin4/<cluster name>/oidc
+property
+:
+OAUTH2_CLIENT_SECRET
+-
+secretKey
+:
+OAUTH2_API_BASE_URL
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+common/pgadmin4/<cluster name>/oidc
+property
+:
+OAUTH2_API_BASE_URL
+-
+secretKey
+:
+OAUTH2_AUTHORIZATION_URL
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+common/pgadmin4/<cluster name>/oidc
+property
+:
+OAUTH2_AUTHORIZATION_URL
+-
+secretKey
+:
+OAUTH2_TOKEN_URL
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+common/pgadmin4/<cluster name>/oidc
+property
+:
+OAUTH2_TOKEN_URL
+-
+name
+:
+"pgpassfile"
+secretStoreRef
+:
+name
+:
+"vault-eticloud"
+kind
+:
+"ClusterSecretStore"
+target
+:
+name
+:
+pgpassfile
+data
+:
+-
+secretKey
+:
+pgpassfile
+remoteRef
+:
+conversionStrategy
+:
+Default
+decodingStrategy
+:
+None
+key
+:
+common/pgadmin4/<cluster name>/pgpass
+property
+:
+pgpassfile
+Warning
+It is recommended that you use a read-only DB user for the
+pgadmin4
+baseapp. This is to ensure that no write operations are performed using this method. If write permissions were approved, ensure that the user has the necessary permissions to perform write operations and change the endpoint configurations accordingly. Usage of the
+root
+default users is not recommended.
+Commit the changes to the
+SRE-Baseapps-<shard>
+repo and create a PR to merge the changes to the
+main
+branch. Once the PR is approved and merged, the ArgoCD instance will automatically deploy the new
+pgadmin4
+baseapp to the EKS cluster.
+Navigate to the ArgoCD instance and monitor the deployment of the
+pgadmin4
+baseapp. Once the deployment/sync is successful, monitor the logs as shown below to see that the pgadmin4 baseapp is up and running.
+You should now be able to access the
+pgadmin4
+baseapp by navigating to the URL:
+https://pgadmin4.<cluster name>.<environment>.eticloud.io
+. You will see a prompt to login with your Cisco credentials using SSO.
+Once you have logged in, you will see the
+pgadmin4
+dashboard. Click on the upper
+Servers
+tab on the left-hand side.
+Once the
+Servers
+tab is selected, you should be able to see the list of servers/databases that you have access to.
+2024-07-01

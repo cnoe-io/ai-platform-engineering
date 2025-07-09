@@ -1,0 +1,19 @@
+Outshift Projects
+¶
+Common Developer Access
+CNAPP
+CWPP
+CNDR
+CSPM
+SCS
+Unified Agent
+GenAI
+Motific
+Prompt-Intel
+ETI Identity(IAM)
+Genie
+Flame
+PLG
+Quantum
+Websites
+2025-02-11

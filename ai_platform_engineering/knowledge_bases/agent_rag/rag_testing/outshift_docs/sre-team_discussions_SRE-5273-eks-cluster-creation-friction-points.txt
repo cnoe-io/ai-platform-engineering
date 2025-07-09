@@ -1,0 +1,75 @@
+EKS cluster creation improvements
+¶
+This document captures points of friction encountered while spinning up
+eks-obs-2
+for
+SRE-5273
+Friction Points
+¶
+Manual creation of a new k8s cluster in ArgoCD via argocd CLI
+Friction
+: As of k8s v1.24,
+argocd cluster add <cluster-context> --name <cluster-name>
+results in the following error:
+WARNING: This will create a service account `argocd-manager` on the cluster referenced by context `eks-obs-2` with full cluster level admin privileges. Do you want to continue [y/N]? y
+INFO[0002] ServiceAccount "argocd-manager" already exists in namespace "kube-system"
+INFO[0003] ClusterRole "argocd-manager-role" updated
+INFO[0003] ClusterRoleBinding "argocd-manager-role-binding" updated
+FATA[0033] Failed to wait for service account secret: timed out waiting for the condition
+Workaround
+is to manually create a k8s secret for the argocd-manager-token:
+cat <<EOF | kubectl apply -n kube-system -f -
+apiVersion: v1
+kind: Secret
+metadata:
+annotations:
+kubernetes.io/service-account.name: argocd-manager
+name: argocd-manager-token
+namespace: kube-system
+type: kubernetes.io/service-account-token
+EOF
+sa_token=$(kubectl -n kube-system get secret | grep argocd-manager-token | awk '{print $1}')
+kubectl -n kube-system patch sa argocd-manager -p '{"secrets": [{"name": "'"${sa_token}"'"}]}'
+Recommendation
+: TBD
+Hard-coded AWS Access Key IDs in template values.yaml files
+Friction
+: We use template helm charts under
+sre-cluster-configs/scripts/resources
+to automate generating the values for baseapps in a new cluster via the
+add_cluster.sh
+script. Some of these template values have environment-specific hard-coded values, such as the
+external-dns AWS Access Key ID
+.
+Workaround
+is to manually override this value in individual deployment values files for each cluster.
+Recommendation
+: Update the
+external-dns
+helm chart to read the Access Key ID from Vault, along with the secret. That way, each target cluster can read the appropriate values from templated Vault paths.
+CSI Driver requires manual serviceaccount annotation update and csi-controller restart:
+Workaround
+: run the following to update the trust policy for the
+AmazonEKS_EBS_CSI_DriverRole
+IAM role
+export ACCOUNT_ID=$(aws sts get-caller-identity | jq -r '.Account')
+kubectl annotate serviceaccount ebs-csi-controller-sa \
+-n kube-system \
+eks.amazonaws.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/AmazonEKS_EBS_CSI_DriverRole
+kubectl rollout restart deployment ebs-csi-controller -n kube-system
+one-eye/MCOM fails to deploy with:
+"loggings.logging.banzaicloud.io" is invalid: metadata.annotations: Too long: must have at most 262144 ...
+Friction
+: one-eye deployment fails with the above error.
+Workaround
+: manually delete the annotation in the
+loggings.logging.banzaicloud.io
+CRD
+Fix
+: leverage
+Server-Side Apply
+in the one-eye Applicationset, which provides
+Better CRD support
+Note: this was fixed via
+this PR
+2023-08-25

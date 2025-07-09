@@ -1,0 +1,24 @@
+DDoS
+DoS
+IVS-13.02
+denial of service
+Implement tools and processes for detecting and mitigating Denial of Service attacks
+¶
+Target Date: FY??Q?
+¶
+Risk(s) Addressed
+¶
+Denial of Service tooling is not as robust as possible
+Description
+¶
+Implement Denial of Service detection tools based on loadbalancer and/or ingress metrics.
+In addition develop tools and best practices to mitigate these type of attacks with the utilization of blacklists and rate limits.
+Definition of Done
+¶
+The ET&I Platform has metrics, tools and best practices to detect and mitigate (D)DoS attacks.
+Relevant Controls
+¶
+IVS-13.02
+Objective Status: Not Started
+¶
+2023-04-19

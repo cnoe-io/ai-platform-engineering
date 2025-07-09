@@ -1,0 +1,69 @@
+Creating/Managing Resources Requirements
+¶
+When creating new resources in your AWS account, there are some security requirements that need to be address and kept in mind.
+All of our cloud accounts are monitored by CISCO approved tools (i.e
+wiz.io
+/
+JupiterOne
+), to alert the SRE team (and/or owners of the accounts) of any security risks/findings.
+This document will list the current requirements given by InfoSec in relation to certain resources that are created/managed in
+any
+AWS account that was created under RunOn (Cloud Ops).
+S3 Buckets
+¶
+New policies require that all S3 buckets remain secure, whether they are private and/or public buckets. It is the developer's/owner's responsibility to keep track of this and modify the access settings appropriately.
+Currently there are two main options:
+For private S3 buckets (usually in cases of dev work or internal buckets of the backend services), you must create an
+ACL
+(Access Control List) which limits access to specific service accounts/roles
+Example:
+JSON
+{
+ "Version": "2012-10-17",
+"Statement": [
+   {
+       "Sid": "AWSCloudTrailAclCheck20150319",
+       "Effect": "Allow",
+       "Principal": {
+           "Service": "cloudtrail.amazonaws.com"
+       },
+       "Action": "s3:GetBucketAcl",
+       "Resource": "arn:aws:s3:::demo-trail2-s3-bucket"
+   },
+   {
+       "Sid": "AWSCloudTrailWrite20150319",
+       "Effect": "Allow",
+       "Principal": {
+           "Service": "cloudtrail.amazonaws.com"
+       },
+       "Action": "s3:PutObject",
+       "Resource": "arn:aws:s3:::demo-trail2-s3-bucket/AWSLogs/579418176921/*",
+       "Condition": {
+           "StringEquals": {
+               "s3:x-amz-acl": "bucket-owner-full-control",
+               "AWS:SourceArn": "arn:aws:cloudtrail:us-east-1:579418176921:trail/demo-trail"
+           }
+       }
+   }
+]
+}
+For public facing S3 buckets (which are purposefully intended to be so), you need to tag it
+Key:
+IntendedPublic
+Value:
+True
+.
+JupiterOne
+uses this tag to filter out/ignore alerts for these buckets.
+Note
+Please be wary and do not abuse this option, should only be used for truly Public accessed buckets which usually do not hold confidential data
+IAM Users
+¶
+New policies require that all IAM users that are created in AWS be secured with MFA, for this we usually setup DUO MFA. Any administrative account or user account that can be elevated to privileged access must be configured with Multi-Factor Authentication (MFA).
+Tip
+You may follow the the CISCO provided documentation
+here
+.
+It is also recommended to ensure a log metric filter and alarm exists for sing-ins without MFA, provided documentation
+here
+2023-07-04

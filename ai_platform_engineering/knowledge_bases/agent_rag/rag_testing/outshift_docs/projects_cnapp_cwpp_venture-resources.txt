@@ -1,0 +1,200 @@
+access
+development
+gke
+panoptica
+resources
+ventures
+Resources
+¶
+The main resources for the dev/staging/production environments of the product are manged in GCP. Other cloud providers are used for testing some cloud agnostic features such as
+Serverless Security
+.
+ArgoCD Projects/Deployments
+¶
+SRE Baseapps
+Environment
+Description
+Regions
+cwpp-dev-baseapps
+cwpp-dev-project
+Dev environments that are created per user in a
+namespace
+cluster
+eu-west-1
+cwpp-staging-baseapps
+cwpp-staging-project
+Staging environment static cluster
+eu-west-1
+TBD
+TBD
+Production environment static cluster
+eu-west-2/us-east-1
+GCP Accounts
+¶
+Project
+Project ID
+Description
+Regions
+k8sec-dev
+gcp-etigcp-nprd-12855
+Dev->Staging environments are found here and separated as
+namespace
+clusters - Staging cluster scans the Dev clusters while the Dev clusters scan either
+demo
+mock data or a custom cluster of Dev's choosing
+panoptica-dev
+:
+us-central1-c
+staging
+:
+us-east1
+k8sec-production
+gcp-k8secproduction-prd-29834
+Only Production resources are found here and this cluster is client facing - This cluster also scans the
+staging
+environment
+production
+:
+us-east1
+AWS Accounts
+¶
+These are mainly used for developing and testing the serverless features - Lambda Functions Integration Tests
+RunOn
+Managed Account: CWPP-dev (579418176921)
+Roles: admin, devops
+RunOn
+Managed Account: CWPP-staging (146629084143)
+Roles: admin, devops
+RunOn
+Managed Account: CWPP-prod (975854676552)
+Roles: admin, devops
+There are privately owned (not CISCO related) accounts in the venture used for
+Serverless
+feature testing via
+Stack-Sets
+. This was because currently CloudOps (RunOn) does not allow access to the root account for AWS (org level) which is required in order to test these features.
+Azure Subscriptions
+¶
+These are mainly used for developing and testing the serverless features - Azure Functions Integration Tests
+Cisco-ETI-Cloud Directory
+Managed Subscription
+SecureCN-Dev
+Please reach out to the SRE team for access as this is a
+"sub domain"
+and not part of the Cisco.com AD. Users are added as
+guests
+in this directory.
+As of right now the following developers are global admins on our tenant:
+The reason that some developers have global admin privileges is because they require it for testing resource deployment on a subscription/tenant level for the
+Serverless
+feature.
+This is currently only allowed in our SRE managed tenant and NOT on CloudOp's RunOn
+How-To: Access GCP Clusters
+¶
+Pre-Requisites
+¶
+kubectl
+needs to be installed and configured
+GCloud CLI
+needs to be installed and configured
+Run
+gcloud init
+and perform the login process
+If you would like to access the GCP clusters in a project (i.e.k8sec-dev/k8sec-production), you must first initiate the cluster in your kubectl config context. This may be done by following these steps:
+Make sure you have
+gcloud auth plugin
+with
+gke-gcloud-auth-plugin --version
+If not you may install it with the following command:
+gcloud components install gke-gcloud-auth-plugin
+Enable to plugin by modifying your
+.bashrc
+/
+.zshrc
+and adding the line
+export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+Update the
+kubectl
+configuration to use the plugin:
+gcloud container clusters get-credentials <CLUSTER_NAME> --project <PROJECT_ID> --region <CLUSTER_REGION>
+If you would like to switch between clusters/environments you may do so by
+kubectl config get-contexts
+to see the currently configured contexts; then
+kubectl config use-context <NAME_OF_CONTEXT>
+Development and Testing
+¶
+Developers usually work with their own feature driven environments that are
+cloned
+clusters in decoupled namespaces created by the
+k8sec-server-dev
+pipeline.
+Agent clusters are currently created
+automatically
+through the
+GKE Cluster Provisioning Process
+These agent clusters are created on Dev's request and for specific use cases (i.e. product/marketing teams need a test agent cluster).
+The clusters are simple, empty, test clusters with 1-3 nodes used for installing an
+Panoptica agent
+on them and testing some client-side features.
+Similar to
+user installation
+The agent then communicates with either the Dev's
+management
+cluster (i.e. namespaces clusters they created), or the main
+panoptica-dev
+cluster.
+Production Resources Secure Access
+¶
+Production Cluster
+¶
+Make sure you are connected to the CISCO AnyConnect VPN (Tel Aviv gateway)
+then use the same method as stated
+above
+, cluster name is
+production
+PostgreSQL Access
+¶
+There is a dedicated Linux VM instance in the GCP project that is used for connecting securely to the PostgreSQL server, via
+Cloud SQL Proxy
+.
+In order to gain access to the server, please use the following commands in your terminal OR in
+GCP cloud shell
+:
+Create a secure tunneled ssh connection to the VM instance:
+gcloud compute ssh --zone "us-east1-c" "postgresql-access"  --project "gcp-k8secproduction-prd-29834" --tunnel-through-iap
+Configure the Cloud SQL Proxy to use the production PostgerSQL instance:
+/usr/local/cloud_sql_proxy -instances=gcp-k8secproduction-prd-29834:us-east1:postgresql=tcp:5432 &
+Run the local
+psql
+client to connect to the production instance via the Cloud SQL Proxy
+For default DB (using your login name):
+psql "host=127.0.0.1 port=5432 sslmode=disable user=postgres"
+For specific DB(s)
+psql "host=127.0.0.1 port=5432 sslmode=disable user=postgres dbname=<DB NAME>"
+Monitoring
+¶
+We currently use GCP built in monitoring tools to monitor Production and Staging/Dev environments. This is done via the monitoring dashboards and
+custom
+log based metrics we have configured:
+Production monitoring dashboards
+Custom Pub/Sub Dashboard
+- Used on regular bases because of the
+queue processing issue
+Development/Staging monitoring dashboards
+SLI Dashboard
+Cost Management
+¶
+You may see billing related data and cost management straight from the GCP Billing tabs:
+k8sec-dev
+k8sec-production
+Or you may look into the high level
+GCP Cloud Health Reports
+For GCP Instance costs information, you may find
+this link useful
+Secret Store
+¶
+Vault UI Access
+Lab Account Access
+¶
+Tanzu access
+2024-07-11

@@ -1,0 +1,59 @@
+post mortem
+rosey
+2024-04-04-05; SRE-7995 Rosey Dev Cluster downtime
+¶
+Summary
+¶
+While moving the existing Rosey staging cluster deployment to the common cnapp staging cluster; during the deletion of the old staging cluster, some of the dev cluster resources in the same account got deleted. This required a recreation of the existing dev cluster. The next day the developers noticed that the dev cluster was unable to communicate with the redis cluster, which was causing the application to fail.
+When
+¶
+2024-04-04 13:00 IST - 2024-04-05 15:00 IST
+Timeline
+¶
+2024-04-04 13:00 IST - SRE team started conversing with the Rosey dev team on potentially moving the current unstable staging cluster deployment to a newer cnapp staging common cluster. It seems this work was already underway before by Marwa.
+2024-04-04 13:05 IST - Rosey Team has agreed to move the staging cluster to the cnapp staging cluster.
+2024-04-04 13:10 IST - SRE team started the process of moving the staging cluster to the cnapp staging cluster (EUC).
+2024-04-04 15:15 IST - The staging cluster deployment was successfully moved to the cnapp staging cluster (EUC).
+2024-04-04 15:20 IST - SRE team asked if the legacy staging resources can be removed from the
+rosey-test
+aws account.
+2024-04-04 15:25 IST - Upon agreement SRE team started the process of removing the legacy staging resources from the
+rosey-test
+aws account.
+2024-04-04 18:00 IST - SRE team was notified that the rosey dev cluster was not working.
+2024-04-04 18:05 IST - SRE team started investigating the issue, and noticed that the dev cluster resources were also deleted on accident during the deletion process of the staging cluster, due to a matter of copy pasting the wrong atlantis project name.
+2024-04-04 18:20 IST - After investigation into the matter, Rosey team was notified of the issue and the SRE team started recreating the dev cluster resources using the existing Terraform.
+2024-04-04 18:50 IST - While working on the dev cluster recreation, Rosey team notified that there were some configuration issues with the new staging cluster deployment.
+2024-04-04 19:00 IST - SRE team fixed the issues in the staging cluster deployment, while dev cluster was still being recreated.
+2024-04-04 19:30 IST - Dev cluster was successfully recreated and the baseapps were redployed on it successfully with a new version equivalent to the new cnapp staging cluster deployment.
+2024-04-04 20:30 IST - SRE team was asked to recreate the redis staging cluster because it was not working for them.
+2024-04-04 20:35 IST - SRE team recreated the new staging redis cluster and confirmed that everything was working there.
+2024-04-05 10:40 IST - Rosey team notified that the dev cluster was not working well for them.
+2024-04-05 10:45 IST - Rosey team noticed that there were still some left-overs not cleaned up from the old staging cluster in the
+rosey-test
+aws account.
+2024-04-05 12:15 IST - Rosey team notified that the dev cluster was not able to communicate with the existing redi cluster (which was not recreated and/or deleted at any time).
+2024-04-05 12:20 IST - Rosey team was trying to make contact with the SRE team to resolve the issue. A JIRA issue was created to track the issue:
+SRE-7995
+2024-04-05 18:00 IST - First time SRE made contact in the webex space and tried assisting (the SRE team member was officially on his day off/weekend).
+2024-04-05 18:30 IST - SRE team member was able to make contact with the Rosey team and started investigating the issue.
+2024-04-05 22:30 IST - After a long period of time, another senior SRE team member was able to make contact and fully investigate the issue.
+2024-04-05 00:00 IST - After a full investigation into the matter, the SRE team found that there was an issue with the VPC peering between the dev cluster and the existing redis cluster. They resolved the issue and double checked that it was working.
+Impact
+¶
+Dev team was unable to deploy to their dedicated dev environment during a Friday (which is a work day in the UAE, but a day off in IST).
+Teams impacted
+¶
+Rosey Dev team
+Analysis
+¶
+The high overload of atlantis projects in our terraform infra repository caused the SRE team to copy paste the wrong project name, which caused the deletion of the dev cluster resources. The dev cluster was recreated, but the redis cluster VPC peering was not updated. It also took a very long time for the SRE team to respond, take note of the issue, and investigate it.
+Takeaways
+¶
+The SRE team needs a better process for handling the deletion of resources, Atlantis/Terraform doesn't always delete everything and sometimes there are resources left behind and/or cause issues during deletions (usually because they are taken up by dependencies/resources that were created outside of terraform).
+The Atlantis yaml file has become abundantly large and messy, leaving a lot of room for human error.
+The IaC environment creation process has a large abundance of manual processes that leave for a lot of human error, multiple PRs and lack of proper review processes.
+Lack of SRE team member resources (especially when going on PTOs), leaves the team in a bad position when trying to resolve outstanding issues, and long response times.
+Lack of context for team members not currently working with the venture to provide assistance causes a lot of time to be wasted on trying to understand the current state of the environment.
+The dev teams are highly dependent on the SRE team for their environment creation and maintenance. This is to say on manual labor/processes and not on automation which is less prone to human error.
+2024-04-08

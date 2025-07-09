@@ -1,0 +1,114 @@
+The next step of Infrastructure as Code
+¶
+Where are we now?
+¶
+Original Requirements
+¶
+Not clearly defined
+Evolved over time, with tactical/incremental changes but not strategic goals
+Standards
+¶
+AI: Publish standards
+Development
+¶
+Operations
+¶
+Difficulties with the status quo
+¶
+No definition of the goal of our IaC systems
+No definition of the requirements for our IaC tooling
+No definition of a "stack"
+No definition of the layers of a stack
+Ease of instantiation of a new "stack"
+Any updates require manual intervention
+No easily reproducible methods for updating a stack
+The future
+¶
+What is the goal?
+¶
+The goal of the Outshift Platform IaC system is to abstract away the supporting resources as possible for an application development teams' everyday work. This document refers to cloud resources, but the same goal can be applied to the Outshift Platform build and deploy systems.
+Design Principles
+¶
+High cohesion
+Loose coupling
+Transparency
+Information portability
+High Cohesion
+¶
+Each unit of work is self-contained and performs a single task.
+Each unit of work is known as a "something".
+Each unit of work should be instantiated by itself.
+Loose Coupling
+¶
+Transparency
+¶
+Functional Requirements
+¶
+Scalable
+Operable
+Securable
+Observable
+Scalability
+¶
+Can we instantiate a layer multiple times
+Operability
+¶
+Securability
+¶
+Observability
+¶
+What is a stack?
+¶
+A stack is the totality of all the resources to create an application deployment target. Each stack is made up of a series of layers. Each layer is dependent on the
+Is there such a thing as a "default" stack?
+    - If so, define that "default"
+The "Somethings"
+¶
+A layer is a group of resources that are managed as a single unit. For example, an Elastic Kubernetes Service (EKS) cluster is made up of a control plane and worker nodes. In the layering model described, both the control plane and worker nodes are managed as a single unit, rather than managing them as the separate AWS resources they are, so they are all a single layer.
+From the largest administrative unit to the smallest:
+RunOn Tenant
+AWS Account
+AWS Region
+AWS VPC
+AWS Services
+RunOn Tenant
+¶
+AWS Account
+¶
+AWS VPC
+¶
+AWS Services
+¶
+EKS
+¶
+RDS
+¶
+MSK
+¶
+VPC Peering
+¶
+EC2
+¶
+Layer technical boundaries
+¶
+Layer information sharing
+¶
+Intra-team boundaries
+¶
+How do we instantiate a stack?
+¶
+How do we make instantiation:
+easier
+faster
+more transparent
+How do we operate a stack?
+¶
+TODO: Define operational requirements for:
+Day 0
+Day 1
+Day 2
+How are we communicating about our delivery?
+¶
+What story are we telling our customers?
+What contract do we make with our customers?
+2023-09-26

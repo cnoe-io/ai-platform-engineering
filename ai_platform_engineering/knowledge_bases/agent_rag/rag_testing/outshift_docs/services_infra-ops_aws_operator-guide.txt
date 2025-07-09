@@ -1,0 +1,22 @@
+AWS Infra Ops
+AWS Infra Ops Operator Guide
+¶
+Please reach out to us in
+ETI Platform Documentation webex space
+if you have questions or feedback.
+Creating account
+AWS SSO Login Setup
+Infrastructure as Code Guidance
+VPC Ops
+Create VPC
+EKS Cluster Ops
+Create EKS Cluster
+EKS Cluster Topology
+R53
+Hosted Zone Backup and Restore
+Create R53 for new account
+IAM
+EC2 Ops
+Cloud Sandboxes
+CDN
+2024-06-07

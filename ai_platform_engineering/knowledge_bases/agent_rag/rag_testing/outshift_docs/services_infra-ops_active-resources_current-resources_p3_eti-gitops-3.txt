@@ -1,0 +1,65 @@
+eti-gitops-3
+¶
+Shared Production Openstack K8s Cluster in Cisco IT Datacenter (Internal to Cisco)
+P3 Cluster Setup
+Workloads
+Terraform Code
+¶
+eti-gitops-3 terraform
+Cluster Access
+¶
+Access
+Details
+K8s Version
+1.23
+URL
+P3 Console access
+Account
+P3
+Region
+cloud-alln-1
+Node SSH
+SSH Node via bastion host
+Dashboards
+¶
+Access
+Details
+Platform Health
+dashboard
+SSH Node access via bastion host
+¶
+Download
+ops1
+SSH private key from vault(keeper) under the path:
+eticloud/teamsecrets/secret/infra/p3/ssh/ops1
+to ~/.ssh
+Set permission on ops1
+chmod 600 ~/.ssh/ops1
+Get Bastion IP from P3 project
+instances
+SSH to bastion node via bastion
+ssh
+-i
+~/.ssh/ops1
+ubuntu@10.6.0.30
+-o
+"proxycommand ssh -W %h:%p -i ~/.ssh/ops1 ubuntu@10.31.59.186"
+Alternate SSH Node access via utilities
+¶
+Clone the
+sre-utilities
+repo and run the
+setup-ssh-config.sh
+script to update the ssh config file. If this is your first time doing so, please follow the
+instructions
+to setup.
+Run
+eti-gitops-3
+to generate a kubeconfig and access the cluster via
+kubectl
+commands. OR Run
+ssh <node instance name>
+to ssh into the bastion host and access the node via
+ssh
+.
+2023-12-10

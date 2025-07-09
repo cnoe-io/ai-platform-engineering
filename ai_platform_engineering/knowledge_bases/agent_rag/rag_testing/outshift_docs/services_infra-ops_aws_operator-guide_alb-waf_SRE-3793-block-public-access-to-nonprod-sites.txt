@@ -1,0 +1,43 @@
+SRE-3793: Block Public Access to Non-Prod Sites
+¶
+Problem
+Solution
+References
+Problem
+¶
+Staging websites (e.g., staging.panoptica.app) are publicly visible
+PLG team would like to restrict access to non-prod sites to Cisco employees
+Solution
+¶
+Since the websites in question are already being served behind CloudFront along with
+AWS WAF
+to implement
+export controls
+, SRE team has decided to leverage WAF to also restrict access to requests originating from Cisco's network by using the
+IP set match rule statement
+feature of AWS WAF.
+The
+cisco-internal-web-traffic
+Web ACL in the
+eticloud
+account was updated to include 2 rules:
+cisco_cidr_internal
+- this rule ensures that access is restricted to source IPs that matches one of the Cisco CIDRs specified in the
+cf_cisco_cidr_internal IP set
+ThreatSTOP-Managed_ITAR_OFAC
+- this rule ensures that we continue to block traffic from embargo countries, as per pre-existing requirement
+The pre-existing CloudFront resource for the website in question (in this case, staging.panoptica.app) was updated to reference the above
+cisco-internal-web-traffic
+Web ACL described above, instead of the
+eti-website-threatstop (WAFv2)
+Web ACL (which only includes the ThreatSTOP managed Web ACL rule).
+Making the above change for pre-existing CloudFront distributions managed by terraform requires a single change to update the
+web_acl_id
+attribute referenced by the cloudfront module, as was done in
+this commit
+Validate the change is in effect by navigating to the site with VPN disabled. You should see the following message:
+References
+¶
+Cloudfront WAF Docs
+AWS WAF: IP set match rule statement
+2022-10-18

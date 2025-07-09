@@ -1,0 +1,33 @@
+2021-08-04 Docker permissions issue on eti-jenkins-dedicated-large-9 node
+¶
+When:
+2021-08-04 at 18:14 CET to 2021-08-05 at 11:47 CET
+Summary:
+A new dedicated node just created had configuration issue on docker socks which ends on docker permission issues and not able to run any jenkins job.
+Context:
+2021-04-28 - 5:00AM to 9:00AM PST: EngIT upgrade our jenkins instance to CloudBees Jenkins Enterprise 2.222.42.0.3
+2021-07-19 - 17:00 CET: Kevin Vu update docker playbook on develop
+2021-08-04 - 12:04 CET: Jeremie Garnier fixed issue on jenkins registration script see SRE-1499 and create a new node in dedicated cluster
+Timeline:
+A detailed timeline of what happened. If possible, down to the minute, with your local timezone specified.
+2021-08-04 - 18:14 CET: Daniel Vladco report an issue on his job which failed due to docker permission issue.
+2021-08-04 - 18h15: Sri Aradhyula check the nodes
+2021-08-04 - 18h20: Franck Backet identified this is only on eti-jenkins-dedicated-large-9
+2021-08-04 - 18h30: Sri Aradhyula put the node in quarantine so that SecureCN team is no more having build issue on that node and create a ticket for Jeremie Garnier
+2021-08-05 - 11h47: Jeremie Garnier identified the issue as this was docker.sock file permission, 660 instead of 666. Put the node back online with a test label. Tests done in a k8sec branch before putting back the portshift label so that the node is back on the pool.
+Impact:
+SecureCN build running on eti-jenkins-dedicated-large-9 failed during less than 1h
+Analysis
+I did fix an issue on our script which automatically register node in Jenkins and was testing the automation on a new dedicated node which works fine after doing it on canary.
+I note that a bug was introduce previously on our ansible script as running them on live node did not restart docker. But we're changing docker.sock permission on docker restart so that we can do docker-on-docker.
+After identifying this issue, I provide a fix where docker.sock permission is changed at the end of our docker playbook.
+Takeaways:
+Jenkins documentation is not up to date - Jeremie Garnier to update it
+Automation was broken due to:
+a major Jenkins upgrade. In version 2.222.x, CSRF is enable by default which causes our script to failed due to invalid password. see
+https://www.jenkins.io/doc/upgrade-guide/2.222/#always-enabled-csrf-protection
+. Had to generate a API token and use that in order to retrieve the CRUMB before using the Jenkins Restless API. - Jeremie Garnier fixed it see SRE-1499 . Here is the link to the script which register a SSH node in Jenkinsâââââââ
+we need to test ansible playbook on canary cluster but also run an application deployment to make sure nothing is broken - Jeremie Garnier to update the documentation in order to details testing required once doing ansible changes.
+Add docker monitoring (run docker command that check docker runtime issue)
+design a daily ansible run inside canary with apps deployment for full tests
+2022-05-05

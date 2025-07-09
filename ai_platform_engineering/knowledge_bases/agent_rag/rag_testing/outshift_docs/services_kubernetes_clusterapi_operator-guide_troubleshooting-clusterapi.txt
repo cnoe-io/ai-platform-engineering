@@ -1,0 +1,83 @@
+Troubleshooting ClusterAPI
+¶
+Cluster Creation Failed
+¶
+Identity the management cluster
+eti-cc
+p3-capi-control
+Setup kubeconfig for the management cluster
+Cluster status
+¶
+Check cluster status
+kubectl
+get
+clusters.cluster.x-k8s.io
+# Example output
+NAME              PHASE         AGE     VERSION
+eti-gitops-2      Provisioned   42d
+eti-gitops-3      Provisioned   21h
+p3-capi-control   Provisioned   43d
+p3-dev-1          Provisioned   43d
+p3-prod-1         Provisioned   6h24m
+- Check capi-kubeadm-control-plane-controller-manager logs
+  - Get capi-kubeadm-control-plane-system
+kubectl
+get
+pods
+-A
+|
+grep
+capi-kubeadm-control-plane-system
+- Tail logs and search for the cluster
+kubectl
+get
+logs
+capi-kubeadm-control-plane-controller-manager-6447fbd65c-clzc4
+-n
+capi-kubeadm-control-plane-system
+Clean-up failed cluster creation
+¶
+If a clusterapi cluster creation failed, the following clusterapi cluster resources need to be deleted before cluster creation is retried
+Remove existing cloud-config secret
+¶
+Identity the cloud-config secret and remove it
+kubectl delete secret <YOUR CLUSTER>-cloud-config -n default
+Remove finalizer in clusters.cluster.x-k8s.io
+¶
+Edit the cluster definition and remove
+finalizer
+cluster.cluster.x-k8s.io
+kubectl
+edit
+clusters.cluster.x-k8s.io
+eti-gitops-3
+# Example cluster configuration
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+finalizers:
+- cluster.cluster.x-k8s.io
+generation: 2
+Remove openstackmachines.infrastructure.cluster.x-k8s.io
+¶
+Get Openstack VMs that were created
+kubectl get openstackmachines.infrastructure.cluster.x-k8s.io
+# Example openstackmachines
+NAME                                  CLUSTER           INSTANCESTATE   READY   PROVIDERID                                          MACHINE
+eti-gitops-2-control-plane-bbst5      eti-gitops-2      ACTIVE          true    openstack:///278fa521-725f-4660-a71e-5e5a243603db   eti-gitops-2-control-plane-vqmd8
+eti-gitops-2-control-plane-p8p4t      eti-gitops-2      ACTIVE          true    openstack:///2f1adaf4-b5a2-46bb-b49f-57cd45fe01e7   eti-gitops-2-control-plane-zvdhs
+eti-gitops-2-control-plane-q88qt      eti-gitops-2      ACTIVE          true    openstack:///dafef97f-9cb7-4b2e-a8b8-79ed8a6f9b84   eti-gitops-2-control-plane-lcqsx
+- Remove VMs that need to be cleaned up
+kubectl delete openstackmachines.infrastructure.cluster.x-k8s.io <VM-NAME>
+ClusterAPI nodes are NotReady
+¶
+Openstack ClusterAPI requires calico CNI
+Please install calico using
+these instructions
+Check cluster status
+PVC are in pending state
+¶
+Follow
+these instructions
+to set the correct annotation on the nodes
+2022-11-16

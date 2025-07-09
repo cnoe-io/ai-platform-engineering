@@ -1,0 +1,82 @@
+Managed ArgoCD
+¶
+Intro
+¶
+The ETI platform has a shared ArgoCD instance that provides a unified deployment pipeline to ventures consuming the platform.
+That shared ArgoCD instance comes with a few perks and limitations though:
+Fully managed by the SRE team
+Venture teams have limited access to it (due to limitations in authorization)
+As a result: clusters projects and applications are managed by the SRE team
+It is deployed in P3 which means it has access to wwwin GitHub
+Secret management is solved using Keeper and External secrets
+Applications and clusters are backed up, so they can be easily restored if something happens to ArgoCD
+These limitations are in place to ensure that none of the tenants can disrupt the service.
+Requirements
+¶
+Elevated access to ArgoCD to manage apps, projects and clusters directly
+Dedicated environment to reduce the blast radius and to separate dev environments from production
+Deploy into environments that our shared instance cannot access (Paris lab)
+Fully managed instance with upgrades, monitoring, backups and disaster recovery plan
+Proper secret management
+Should support several deployment targets (P3, lab, AWS,
+)
+Open questions
+¶
+User access
+What level of access do we want to provide that allows us to keep our SLA?
+ArgoCD admin access?
+Access to the underlying cluster
+Probably not necessary (arcgocd tool should work)
+User authentication
+Cisco SSO? (using Dex?)
+User-password?
+Backups
+Existing backup process?
+Velero?
+Monitoring?
+Technical details
+¶
+Secret management
+Our go to solution right now is External secrets
+The way it's currently configured requires Keeper to be able to talk to the Kubernetes API server (not always possible, eg. labs)
+Alternatives:
+External secrets talks directly to Keeper with a Vault token
+How do we rotate that?
+External secrets requires envelope encryption
+Sealed secrets: secrets encrypted with a public key
+Secret can be in VCS
+Lifecycle management
+ArgoCD can manage itself
+Pros:
+Lifecycle management can be the same across the different deployment targets
+Cons:
+If something goes wrong, the fix is always manual (okay, as long as we have a clear documentation on the how)
+Upgrades
+Run upgrades in test env first
+Run in venture dev envs
+Run in shared envs
+Monitoring
+Next steps
+¶
+Figure out how ArgoCD managing itself works?
+Try to break it
+Write an installation and a troubleshooting guide
+Is our current ArgoCD backup documented?
+If so, review it and see if it can be easily replicated (ie. prefer something running in Kubernetes next to ArgoCD over a Jenkins job)
+Take a look at Velero
+Come up with a list of secret management strategies that work in all deployment targets
+External secrets in P3
+External secrets with Vault token rotation OR Sealed secrets in labs
+Phases
+¶
+Phase 1 (LA)
+We need a good understanding of how installation, upgrades and troubleshooting works before we can give it to users
+Secret management is also a must have for the first solution
+Phase 2 (GA)
+Backups
+Monitoring
+Final thoughts
+¶
+Once we have one or two managed ArgoCD instances up and running, we should "convert" the shared instance to a managed instance
+(in terms of lifecycle management, backups, monitoring).
+2023-08-25

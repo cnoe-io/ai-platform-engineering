@@ -1,0 +1,149 @@
+cd continuous deployment
+ci continuous integration
+pipelines
+CI/CD
+¶
+What is a CI/CD pipeline?
+¶
+Continuous Integration (CI) and Continuous Delivery (CD) refers to a practice in software industry around automating the end-to-end process (i.e., "pipeline") that builds, tests, and deploys a change in code to a target runtime environment.
+Why is CI/CD Important?
+¶
+In a nutshell, Continuous Integration (CI) and Continuous Delivery (CD) ensures that software changes are
+securely
+,
+reliably
+, and
+efficiently
+rolled out to a production environment by
+automating
+the build (including testing and scanning) and deployment of new code.
+CI/CD accelerates the development lifecycle by ensuring that changes are automatically captured as
+versioned, immutable artificats
+. This ensures that every change can be built, tested, scanned, and validated in a dev environment before the
+same
+artifact version (i.e., validated change) is promoted to a production environment. Versioned artifacts (e.g., application container/docker images, helm charts, or application binaries) ensure
+consistent
+deployment of a particular change to multiple environments. This enables service reliability (
+only
+validated changes are promoted to production) and scalability (the same change is consistently applied to multiple
+instances
+of the application).
+In accordance with the
+Twelve Factor app's "build, release, run" design pattern
+, Continuous Integration (i.e, "build/release" stage) is decoupled from Continuous Deployment (i.e., "run" phase).
+CI/CD in ETI
+¶
+The following diagram describes a summary of Continuous Integration (CI) and Continuous Deployment(CD) workflows
+Quick CI/CD links
+¶
+The
+platform-demo
+project provides a
+Tutorial
+for getting started with an ETI CI/CD pipeline for a new project.
+ETI Platform uses
+Jenkins
+as the tool for continous integration of developer code.
+Extensive documentation about ETI Pipeline library can be found
+here
+ETI Platform uses
+ArgoCD
+for continuous deployment of apps
+Basic Workflows
+¶
+Local Development
+¶
+Application-specific. See README.md in the application source repo.
+Publish Application Changes
+¶
+Create a new branch in your application source code repo
+Make the needed changes to your applications in the new branch
+Create a pull request for your branch, meet any peer review/approval requirements, and merge your branch to
+main
+[Automated] Jenkins detects changes merged to main and starts building a new artifact (e.g., Docker image) with the latest changes.
+[Automated] Jenkins publishes the newly built and versioned image to an repository (e.g., ECR).
+The tagged image is now available to be deployed to a target environment (see below).
+Deploy Application Changes to a Target Environment
+¶
+Build and Deploy Jobs in Jenkins
+¶
+The build (CI) jobs and deploy (CD) jobs for each application are located in their respective "build" and "deploy" subfolders.
+Application Build Pipelines
+¶
+The build jobs implement automated pipelines for packaging the latest version of the application code and publishing them (as versioned docker images and helm charts) to their respective repositories. In accordance with the
+GitOps
+model, application source repos are configured to automatically run these build jobs when a change is pushed to the
+main
+/
+master
+branch.
+In addition to creating and publishing application artifacts, the ETI build pipelines also provide built-in
+security scanning
+and options to enable pre-defined stages, such as
+inclusive lint
+. See the
+ETI Pipeline Library Docs
+for more details on all available stage options.
+To leverage the ETI build pipeline, include the following at the root level of your application's source directory:
+Jenkinsfile
+- a file that specifies the
+pipeline stages
+for this application's build job. See the example
+in the platform-demo repo
+.
+build-docker.sh
+- a script that defines how the application docker image should be built. This is the entrypoint for the Jenkins build job. See the example
+in the platform-demo repo
+deploy/<app_name>-app
+- a subfolder that contains helm charts for the application and its Grafana dashboards. See examples of these
+in the platform-demo repo
+.
+Application Deploy Jobs
+¶
+Environment-specific deployment configuration are defined as "overlay" values for the application's Helm chart. These overlay values are specified in separate,
+GitOps
+-enabled
+<application>-deployment
+repos that are decoupled from the application source repos. Thus, the mechanism for deploying a new version of an application to a target environment is to create and merge a Pull Request that sets the version attribute of your application to the desired version value. The same applies for updating the version of the application's Helm Chart.
+Since pushing a new application version to a Dev environment and promoting the same version to Staging and/or Production environments is a common task, the SRE team also provides "Deploy" Jenkins jobs for each target environment. Trigger these "convenience" jobs by choosing "Build with Parameters" and entering the desired application version in the
+APP_CONTAINER_VERSION
+input field; Jenkins will handle updating the application's deployment repo to trigger the GitOps-enabled deployment of that version of your application.
+Tutorial
+- Invoking Jenkins Build and Deploy jobs
+¶
+This tutorial describes the step-by-step process for deploying a specific version of your application to the
+dev
+environment and promoting that same version to be deployed to the
+prod
+environment. (The screenshots are examples based on the CI/CD pipeline for
+kdm-docs
+.)
+Navigate to your application's build job. The link to the job should be available in the Quick Links section of your application's SharePoint page; reach out to SRE team if you cannot find it.
+You should see the results of the jobs triggered by any changes that were pushed to the
+main
+/
+master
+branch of your application's GitHub repository. The Build History also shows the application's docker image version that was generated and tagged for the set of changes captured in that build.
+To deploy a specific version to the Dev environment, navigate to your application's deploy job for the
+dev
+environment, and click on "Build with Parameters".
+Copy and paste the version published by a completed build job that you want to deploy, and click on "Build." Click on the terminal icon in the new running job under Build History to see the output and verify it succeeds.
+To promote a version from a successful (and validated) deploy in
+dev
+to production, copy the version from the successful dev deployment build and paste it into the
+APP_CONTAINER_VERSION
+input field for the prod deploy job, and click on "Build."
+Demo Recording
+¶
+See
+this recording of the OpenMic ETI Platform Update
+for a demo of using the CI/CD pipelines as described above.
+Workflow Details
+¶
+The
+Basic Workflows
+section above describes the high-level workflows for deploying changes to their target environments.
+In some cases, the deploy pipelines include additional logic to support deployment-topology specific features (such as blue-green application upgrades). See the
+Deployment Pipeline Details page
+for more details.
+2023-02-13

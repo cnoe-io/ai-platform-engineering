@@ -1,0 +1,171 @@
+jarvis
+sandbox infra
+Jarvis Container Sandbox
+¶
+While cloud sandboxes provide free-form access to cloud resources, Jarvis Container Sandbox enables deployment of containers to a sandbox kubernetes cluster.
+The goal is to reduce sandbox EC2 creation and enable developer testing of applications in containers without performing a full CI/CD release.
+Warning
+ecr-sandbox command is now part of
+jarvis-cli
+Introductions
+¶
+Pushing containers to ECR is achieved by enabling limited developer access via vault.
+Deploy with
+Jarvis
+-- tell Jarvis a command such as: deploy 626007623524.dkr.ecr.us-east-2.amazonaws.com/sandbox/slowserver:latest to sandbox-jawren create a service for it on port 8080
+Port forwarding to a service is done via
+Komodor
+Requirements
+¶
+Be a member of the
+outshift-komodor-users
+AD group.
+A vault account with sandbox role in
+eticloud/outshift-users
+vault namespace.
+(optional, advanced) The vault command line tool.
+brew install vault
+.
+(optional, advanced) The aws command line tool.
+brew install awscli
+.
+Installing and Using ecr-sandbox
+¶
+ecr-sandbox calls
+docker login
+or
+podman login
+providing access to ECR.
+Download
+Releases on Github
+and install in your PATH.
+Or install from source:
+git
+config
+--global
+url.git@github.com:.insteadOf
+https://github.com/
+export
+GOPRIVATE
+=
+github.com/cisco-eti
+go
+install
+github.com/cisco-eti/sre-utilities/scripts/ecr-sandbox@latest
+Once it is installed, obtain a VAULT TOKEN:
+If you are unfamiliar with vault, you may try the experimental
+-login-to-vault
+flag
+login to vault and get a vault token
+Navigate to
+keeper
+Use namespace
+eticloud/outshift-users
+, method
+OIDC
+, and leave role blank
+In the upper left click the ð¤ button and select
+Copy token
+from the menu
+export VAULT_TOKEN in your shell
+Authorizing podman:
+export
+VAULT_TOKEN
+=
+$(
+vault
+login
+-method
+=
+oidc
+-format
+=
+json
+|
+jq
+-r
+.auth.client_token
+)
+export
+VAULT_NAMESPACE
+=
+eticloud/outshift-users
+ecr-sandbox
+One can also create a new ECR sandbox repo:
+export
+VAULT_TOKEN
+=
+...
+export
+VAULT_NAMESPACE
+=
+eticloud/outshift-users
+ecr-sandbox
+-create-repo
+sandbox/myapp
+Once logged in you can push tagged container images.
+Example pushing an existing myapp image
+¶
+e.g.
+podman push myapp 626007623524.dkr.ecr.us-east-2.amazonaws.com/sandbox/myapp:latest
+Example tagging and pushing an existing myapp image
+¶
+e.g.
+podman tag myapp:latest 626007623524.dkr.ecr.us-east-2.amazonaws.com/sandbox/myapp:latest
+podman push 626007623524.dkr.ecr.us-east-2.amazonaws.com/sandbox/myapp:latest
+Deploy the App to Sandbox
+¶
+Log onto the
+Outshift Developer Portal
+and ask Jarvis to do the following:
+Get your container images from ECR
+Create a deployment for your chosen image in sandbox on the port that your application is listening on, e.g. port 80
+Or,
+update your deployment with a new image
+Jarvis will automatically create your
+sandbox-<cec>
+K8s namespace and has read-write permissions for namespaced resources in
+v1
+of the base Kubernetes API, such as
+pods
+,
+deployments
+,
+statefulsets
+, and more. For the full list of objects you can ask Jarvis,
+What k8s api-resources are supported in sandbox?
+Jarvis can also run workflows that require multiple steps, such as troubleshooting, e.g.
+Why is my pod crashlooping?
+Conversations in the same browser tab will be persisted and you can make concurrent requests over multiple tabs. The following section has instructions on how to access your deployed application.
+Port Forward to Your localhost
+¶
+Login to
+Komodor
+Navigate to Kubernetes Services and select the service
+In the actions menu on the left select "Port Forward"
+(one time) Install komocli --
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/komodorio/komocli/HEAD/scripts/install.sh)"
+Run the given komocli command
+The harder way
+¶
+don't look here, thar be dragons
+Login and Push to ECR
+¶
+The overall process of logging into ECR is:
+create an account using vault --
+VAULT_NAMESPACE=eticloud/outshift-users vault read -format=json dev-sandbox-aws-eticloud/creds/dev-sandbox-vault-role
+(one time or as needed) use the given account to create a repo --
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... aws ecr create-repository --repository-name "sandbox/..." --region us-east-2
+(one time or as needed) use the given account to login to podman or docker --
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... aws ecr get-login-password --region us-east-2 | podman login --username AWS --password-stdin 626007623524.dkr.ecr.us-east-2.amazonaws.com
+push an image to the repository --
+podman push 626007623524.dkr.ecr.us-east-2.amazonaws.com/sandbox/myapp:latest
+The repository-name must start with sandbox/
+¶
+e.g.
+aws ecr create-repository --repository-name sandbox/myapp --region us-east-2
+A helper script to automate login
+¶
+ecr-sandbox.sh
+is a script which calls vault and aws command to do the same as ecr-sandbox Go program. Prefer using the Go program.
+2025-02-18

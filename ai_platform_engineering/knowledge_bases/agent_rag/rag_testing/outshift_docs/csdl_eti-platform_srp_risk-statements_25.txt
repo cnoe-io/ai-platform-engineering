@@ -1,0 +1,15 @@
+SCF-IAM-02.02
+monitoring
+Production monitoring system is publicly accessible from the Internet without Cisco VPN connection and may be vulnerable to man-in-the-middle attacks or zero-day vulnerabilities in the third-party authentication system
+¶
+Description
+¶
+Some components of the ET&I Platform's monitoring system (MCOM) are accessible from the Internet without Cisco VPN connection. Even if these components are restricted by an authentication mechanism, they might be still vulnerable to man-in-the-middle attacks or zero-day vulnerabilities in the third-party authentication system.
+Business Impacts
+¶
+Service Compromise
+Likelihood: Low
+¶
+Risk Level Category: Medium
+¶
+2025-02-09
