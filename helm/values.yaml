@@ -18,7 +18,7 @@ agent-github:
     repository: "ghcr.io/cnoe-io/agent-github"
 
 agent-atlassian:
-  enabled: false
+  enabled: true
   nameOverride: "agent-atlassian"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
