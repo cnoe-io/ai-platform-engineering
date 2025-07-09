@@ -91,4 +91,4 @@ Licensed under the [Apache-2.0 License](LICENSE).
 
 ---
 
-*Made with ❤️ by the [CNOE Contributors](https://cnoe.io/)
+*Made with ❤️ by the [CNOE Contributors](https://cnoe.io/)*
