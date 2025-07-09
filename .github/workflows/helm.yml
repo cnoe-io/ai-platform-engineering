@@ -87,10 +87,28 @@ jobs:
 
       - name: 📦 Package Helm Chart
         run: |
-          helm dependency update helm/${{ github.event.repository.name }}
-          helm package helm/${{ github.event.repository.name }} --destination ./
+          helm dependency update helm/
+          helm package helm/ --destination ./
 
       - name: 🚀 Push Chart to GHCR
         run: |
-          CHART_VERSION=$(helm show chart ./${{ github.event.repository.name }}-*.tgz | grep '^version:' | awk '{print $2}')
-          helm push ./${{ github.event.repository.name }}-${CHART_VERSION}.tgz oci://ghcr.io/${{ github.repository_owner }}/helm-charts
+          # Get the actual chart name and version from the packaged file
+          CHART_FILE=$(ls ./*.tgz)
+          CHART_VERSION=$(helm show chart "$CHART_FILE" | grep '^version:' | awk '{print $2}')
+          CHART_NAME=$(helm show chart "$CHART_FILE" | grep '^name:' | awk '{print $2}')
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/helm-charts"
+          
+          echo "Chart file: $CHART_FILE"
+          echo "Chart name: $CHART_NAME"
+          echo "Version: $CHART_VERSION"
+          echo "Registry: $REGISTRY"
+          
+          # Check if this version already exists
+          if helm pull $REGISTRY/$CHART_NAME --version $CHART_VERSION --destination /tmp 2>/dev/null; then
+            echo "⚠️  Chart version $CHART_VERSION already exists in registry, skipping push"
+            echo "If you intended to update the chart, please bump the version in helm/Chart.yaml"
+          else
+            echo "✅ Version $CHART_VERSION does not exist, proceeding with push"
+            helm push "$CHART_FILE" $REGISTRY
+            echo "🎉 Successfully pushed $CHART_NAME:$CHART_VERSION to $REGISTRY"
+          fi
