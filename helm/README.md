@@ -151,6 +151,7 @@ ingress:
 ```bash
 helm install ai-platform-engineering . --values [EXISTING_VALUES_FILE] --values values-ingress.yaml
 ```
+where `EXISTING_VALUES_FILE` is one of `values-secrets.yaml`, `values-existing-secrets.yaml` or `values-external-secrets.yaml` depending on your secret management choice.
 
 Or upgrade if already deployed:
 
