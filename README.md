@@ -72,16 +72,24 @@ Simply describe your task—**the platform intelligently routes your request to 
 - [Run Agents for Tracing & Evaluation](https://cnoe-io.github.io/ai-platform-engineering/getting-started/local-development#-run-agents-for-tracing--evaluation)
 - [Adding new agents](https://cnoe-io.github.io/ai-platform-engineering/getting-started/local-development#%EF%B8%8F-adding-new-agents)
 
+Absolutely! Here’s a more welcoming and friendly version:
+
+---
+
 ## 🤝 Contributing
 
-Contributions welcome!
-To get started:
+We’d love your contributions! To get started:
 
-1. **Fork** this repository
-2. **Create a branch** for your feature or fix
-3. **Open a Pull Request** with a clear description
+1. **Fork** this repo
+2. **Create a branch** for your changes
+3. **Open a Pull Request**—just add a clear description so we know what you’re working on
 
-For larger changes, open an [discussion](https://github.com/cnoe-io/ai-platform-engineering/discussions) first to discuss.
+Thinking about a big change? Feel free to [start a discussion](https://github.com/cnoe-io/ai-platform-engineering/discussions) first so we can chat about it together.
+
+* Browse our [open issues](https://github.com/cnoe-io/ai-platform-engineering/issues) to see what needs doing
+* New here? Check out the [good first issues](https://github.com/cnoe-io/ai-platform-engineering/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) for some beginner-friendly tasks
+
+We’re excited to collaborate with you!
 
 ---
 
