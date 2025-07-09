@@ -21,7 +21,7 @@ agent-atlassian:
   enabled: true
   nameOverride: "agent-atlassian"
   image:
-    repository: "ghcr.io/cnoe-io/agent-jira"
+    repository: "ghcr.io/cnoe-io/agent-atlassian"
 
 agent-backstage:
   enabled: false
