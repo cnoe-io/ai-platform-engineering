@@ -100,7 +100,11 @@ Determine external secret names - global takes precedence
 {{- .Values.global.externalSecrets.secretNames | join "," -}}
 {{- else -}}
 {{- if .Values.global.externalSecrets.enabled -}}
+{{- if .Values.isMultiAgent -}}
+{{- printf "" -}}
+{{- else -}}
 {{- printf "llm-secret,%s-secret" (include "agent.name" .) -}}
+{{- end -}}
 {{- else -}}
 {{- "" -}}
 {{- end -}}
@@ -114,7 +118,7 @@ Determine external secret names - global takes precedence
 Generate multi-agent environment variables
 */}}
 {{- define "agent.multiAgentEnvVars" -}}
-{{- if .Values.isMultiAgent -}}
+{{- if and .Values.isMultiAgent .Values.multiAgentConfig -}}
 {{- $releasePrefix := include "agent.fullname" . -}}
 {{- $port := .Values.multiAgentConfig.port | default "8000" -}}
 {{- $protocol := .Values.multiAgentConfig.protocol | default "a2a" -}}

@@ -61,7 +61,7 @@ spec:
             - secretRef:
                 name: {{ .Values.global.secrets.secretName }}
             {{- end }}
-            {{- else }}
+            {{- else if not .Values.isMultiAgent }}
             - secretRef:
                 name: llm-secret
             - secretRef:
