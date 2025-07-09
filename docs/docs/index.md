@@ -8,16 +8,24 @@ sidebar_position: 1
 
 As [Platform Engineering](https://platformengineering.org/blog/what-is-platform-engineering), [SRE](https://en.wikipedia.org/wiki/Site_reliability_engineering) and [DevOps](https://en.wikipedia.org/wiki/DevOps) environments grow in complexity, traditional approaches to problem solving can introduce delays and increase operational overhead for teams. Developers may experience frustration when workflows become inefficient or manual processes accumulate.
 
-Using *Multi-Agentic Systems* Platform Engineering teams can address the said challenges.
-
-<!-- - Automate repetitive and routine tasks
-- Streamline development workflows
-- Reduce manual intervention in day-to-day operations
-- Focus engineering efforts on higher-value work -->
-
 ![Intro](images/intro.svg)
 
-By incorporating Agentic AI, platform engineering shifts from manual, task-driven processes to more adaptive and efficient operations, allowing teams to better support development and business goals.
+**AI Platform Engineering** provides a multi-agent system that streamlines platform operations through persona-driven “usecase agents” such as _Platform Engineer_, _Incident Engineer_, and _Product Owner_ etc. Each usecase agent is empowered by a set of specialized sub-agents that integrate seamlessly with essential engineering tools. Below are some common platform agents leveraged by the persona agents:
+
+* 🚀 **ArgoCD Agent** for continuous deployment
+* 🚨 **PagerDuty Agent** for incident management
+* 🐙 **GitHub Agent** for version control
+* 🗂️ **Jira Agent** for project management
+* 💬 **Slack Agent** for team communication
+
+Together, these sub-agents enable automated, high-fidelity operations across your platform by executing tasks, invoking APIs, and interacting with tools on behalf of the user. The system also includes:
+
+* **A curated prompt library**: This is a carefully evaluated collection of prompts designed for high accuracy and optimal workflow performance in multi-agent systems. These prompts guide persona agents (such as "Platform Engineer" or "Incident Engineer") using standardized instructions and questions, ensuring effective collaboration, incident response, platform operations, and knowledge sharing.
+* **Developer APIs and end-user interfaces**: Easily invoke agentic workflows programmatically or through intuitive UIs, enabling seamless integration with existing engineering processes.
+* **End-to-end security**: Secure agentic communication and task execution across all agents, ensuring data privacy and compliance for enterprise environments.
+
+Simply describe your task—**the platform intelligently routes your request to the appropriate persona agent, which coordinates with the relevant platform agents to interact with the right tools**, ensuring efficient and reliable execution across all your engineering workflows.
+
 
 ## Goals of the project
 
