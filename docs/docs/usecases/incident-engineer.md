@@ -1,4 +1,9 @@
-# Use-case: Incident Management
+---
+sidebar_position: 2
+---
+
+# Use-case: Incident Engineer
+
 ## Enhanced Incident Management with PagerDuty, Jira, Agents, and Runbooks
 
 ### Overview

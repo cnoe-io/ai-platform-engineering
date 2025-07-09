@@ -1,3 +1,7 @@
+---
+sidebar_position: 3
+---
+
 # Use-case: Product Owner
 
 ## Tools and Agents
