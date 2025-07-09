@@ -44,8 +44,6 @@ Simply describe your task—**the platform intelligently routes your request to 
 
 *...and many more platform agents are available for additional tools and use cases. For detailed information on project goals and our community, head to our [documentation site](https://cnoe-io.github.io/ai-platform-engineering/).*
 
----
-
 ## 💡 Examples
 
 **AI Platform Engineer** can handle a wide range of operational requests. Here are some sample prompts you can try:
@@ -61,8 +59,6 @@ Simply describe your task—**the platform intelligently routes your request to 
 * 🚀 *Sync the ‘production’ ArgoCD application to the latest commit*
 * 🚀 *Get the status of the 'frontend' ArgoCD application*
 
----
-
 ## 📦 Quick Doc Links
 
 - [Quick Start Guide](https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start)
@@ -73,8 +69,6 @@ Simply describe your task—**the platform intelligently routes your request to 
 - [Adding new agents](https://cnoe-io.github.io/ai-platform-engineering/getting-started/local-development#%EF%B8%8F-adding-new-agents)
 
 Absolutely! Here’s a more welcoming and friendly version:
-
----
 
 ## 🤝 Contributing
 
@@ -91,12 +85,10 @@ Thinking about a big change? Feel free to [start a discussion](https://github.co
 
 We’re excited to collaborate with you!
 
----
-
 ## 📄 License
 
 Licensed under the [Apache-2.0 License](LICENSE).
 
 ---
 
-> *Made with ❤️ by the [CNOE Contributors](https://cnoe.io/)
+*Made with ❤️ by the [CNOE Contributors](https://cnoe.io/)
