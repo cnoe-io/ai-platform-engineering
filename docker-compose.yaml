@@ -87,10 +87,19 @@ services:
     command: platform-engineer
   # Agent ArgoCD
   agent-argocd:
-    image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
+    build:
+      context: ./ai_platform_engineering/agents/argocd
+      dockerfile: build/Dockerfile.a2a
     container_name: agent-argocd
+    env_file:
+      - .env
     volumes:
       - ./.env:/app/.env
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     ports:
       # Expose the ArgoCD agent on port 8080
       - "8001:8000"
