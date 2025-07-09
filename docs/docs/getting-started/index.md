@@ -18,7 +18,7 @@ Just describe your task — **the platform intelligently routes your request to 
 
 
 > In this guide, you’ll be running the **Platform Engineer** multi-agent system as the baseline example. This setup is designed to showcase core features and integrations for platform operations.
-> For additional persona-based use cases (such as SRE, Developer, or custom workflows), please refer to the [usecases](../usecases) section of the documentation.
+> For additional persona-based use cases (such as SRE, Developer, or custom workflows), please refer to the [usecases](../usecases/platform-engineer.md) section of the documentation.
 
 ---
 
