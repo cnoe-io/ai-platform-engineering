@@ -71,7 +71,6 @@ jobs:
     runs-on: ubuntu-latest
     # Publish only on merge to main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: check-version-bump
 
     steps:
       - name: 📥 Checkout repository
