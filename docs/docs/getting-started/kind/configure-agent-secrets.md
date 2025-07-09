@@ -4,6 +4,8 @@ sidebar_position: 4
 
 # Configure Agent Secrets for KinD Cluster
 
+🚧 This page is still under construction 🚧
+
 Configuring platform secrets is a critical step in ensuring the security and integrity of your applications and integrations. Secrets such as API keys, credentials, and tokens must be stored securely to prevent unauthorized access and potential breaches. This guide provides examples and best practices for managing secrets across various tools and platforms using Kubernetes secrets. Follow the instructions below to configure secrets for your environment.
 
 ## ArgoCD
