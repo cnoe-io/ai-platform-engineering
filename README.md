@@ -22,21 +22,27 @@
 * Not in CNCF Slack? [Join here first](https://communityinviter.com/apps/cloud-native/cncf)
 * [Join #cnoe-sig-agentic-ai channel](https://cloud-native.slack.com/archives/C08N0AKR52S)
 
-## Overview
+## What is AI Platform Engineering?
 
-**AI Platform Engineer** is a multi-agent system that streamlines platform operations by integrating with essential engineering tools:
+As Platform Engineering, SRE, and DevOps environments grow in complexity, traditional approaches often lead to delays, increased operational overhead, and developer frustration. By adopting Multi-Agentic Systems and Agentic AI, Platform Engineering teams can move from manual, task-driven processes to more adaptive and automated operations, better supporting development and business goals.
 
-* 🚨 **PagerDuty** for incident management
-* 🐙 **GitHub** for version control
-* 🗂️ **Jira** for project management
-* 💬 **Slack** for communication
-* 🚀 **ArgoCD** for continuous deployment
+**AI Platform Engineering** provides a multi-agent system that streamlines platform operations through persona-driven “usecase agents” such as _Platform Engineer_, _Incident Engineer_, and _Product Owner_ etc. Each usecase agent is empowered by a set of specialized sub-agents that integrate seamlessly with essential engineering tools. Below are some common platform agents leveraged by the persona agents:
 
-Each tool is managed by a specialized agent that automatically handles user requests such as acknowledging incidents, merging pull requests, creating Jira tickets, sending Slack messages, and syncing ArgoCD applications.
+* 🚀 **ArgoCD Agent** for continuous deployment
+* 🚨 **PagerDuty Agent** for incident management
+* 🐙 **GitHub Agent** for version control
+* 🗂️ **Jira Agent** for project management
+* 💬 **Slack Agent** for team communication
 
-Just describe your task—**the platform intelligently routes your request to the right agent and tool**, ensuring efficient, reliable execution across your engineering workflows.
+Together, these sub-agents enable automated, high-fidelity operations across your platform by executing tasks, invoking APIs, and interacting with tools on behalf of the user. The system also includes:
 
-> *If your request isn’t supported, you’ll get a friendly message letting you know!*
+* **A curated prompt library**: This is a carefully evaluated collection of prompts designed for high accuracy and optimal workflow performance in multi-agent systems. These prompts guide persona agents (such as "Platform Engineer" or "Incident Engineer") using standardized instructions and questions, ensuring effective collaboration, incident response, platform operations, and knowledge sharing.
+* **Developer APIs and end-user interfaces**: Easily invoke agentic workflows programmatically or through intuitive UIs, enabling seamless integration with existing engineering processes.
+* **End-to-end security**: Secure agentic communication and task execution across all agents, ensuring data privacy and compliance for enterprise environments.
+
+Simply describe your task—**the platform intelligently routes your request to the appropriate persona agent, which coordinates with the relevant platform agents to interact with the right tools**, ensuring efficient and reliable execution across all your engineering workflows.
+
+*...and many more platform agents are available for additional tools and use cases. For detailed information on project goals and our community, head to our [documentation site](https://cnoe-io.github.io/ai-platform-engineering/).*
 
 ---
 
@@ -57,133 +63,14 @@ Just describe your task—**the platform intelligently routes your request to th
 
 ---
 
-## 📦 Installation
+## 📦 Quick Doc Links
 
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/cnoe-io/ai-platform-engineering.git
-   cd ai-platform-engineering
-   ```
-
-2. **Configure environment variables**
-
-   ```bash
-   cp .env.example .env
-   ```
-
-   Update `.env` with your configuration.
-   📚 See the [Getting Started Guide](https://github.com/cnoe-io/agentic-ai/wiki/Getting%E2%80%90Started) for more details.
-
----
-
-## 🏁 Getting Started
-
-1. **Launch with Docker Compose**
-
-   ```bash
-   docker compose up
-   ```
-
-2. **Launching with Komodor Agent**
-
-   To include the Komodor agent in your deployment, run Docker Compose with the override file:
-
-   ```bash
-   docker compose -f docker-compose.yaml -f docker-compose.komodor.yaml up
-   ```
-
-3. **Connect to the A2A agent (host network)**
-
-   ```bash
-   docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
-   ```
-
-   *Or, clone and run the chat client:*
-
-   ```bash
-   uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
-   ```
-
----
-
-## 💡 Local Development
-
-1. **Start the application**
-
-   ```bash
-   make run-ai-platform-engineer
-   ```
-
-2. **Run the client**
-   ```bash
-   docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
-   ```
-
-   *Or, clone and run the chat client:*
-
-   ```bash
-   uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
-   ```
----
-
-## 📊 Tracing & Evaluation
-
-Enable observability and evaluation with Langfuse v3:
-
-1. **In .env file**
-   ```bash
-   ENABLE_TRACING=true
-   ```
-
-2. **Start with tracing enabled**
-   ```bash
-   docker-compose down
-   docker-compose --profile tracing up
-   ```
-
-3. **Access Langfuse dashboard** at `http://localhost:3000` and create an account and apply for API key
-
-4. **Configure Langfuse keys in `.env` and rebuild the platform-engineer**
-   ```bash
-   LANGFUSE_PUBLIC_KEY=your-public-key
-   LANGFUSE_SECRET_KEY=your-secret-key
-   ```
-
-   ```bash
-   docker-compose --profile tracing build ai-platform-engineer-tracing
-   ```
-
-5. **Add LLM keys for evaluator in Langfuse settings** for automated trace analysis
-
----
-
-## 🛠️ Adding New Agents
-
-When adding a new agent to the system:
-
-1. **Create the agent code** in `ai_platform_engineering/agents/your-agent-name/`
-
-2. **Auto-generate Helm configuration** by running:
-   ```bash
-   python scripts/add-new-agent-helm-chart.py
-   ```
-   
-   This script will automatically:
-   - Add new dependency in `helm/Chart.yaml`
-   - Bump the chart version
-   - Add agent sections to all values files
-   - Generate ingress and secrets configurations
-
-3. **Review and customize** the generated configuration files as needed
-
-4. **Test the configuration**:
-   ```bash
-   helm template ./helm
-   helm dependency update ./helm
-   ```
-
----
+- [Quick Start Guide](https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start)
+- Setup
+    - [Docker Compose](https://cnoe-io.github.io/ai-platform-engineering/getting-started/docker-compose/setup)
+- [Local Development setup](https://cnoe-io.github.io/ai-platform-engineering/getting-started/local-development)
+- [Run Agents for Tracing & Evaluation](https://cnoe-io.github.io/ai-platform-engineering/getting-started/local-development#-run-agents-for-tracing--evaluation)
+- [Adding new agents](https://cnoe-io.github.io/ai-platform-engineering/getting-started/local-development#%EF%B8%8F-adding-new-agents)
 
 ## 🤝 Contributing
 
@@ -204,4 +91,4 @@ Licensed under the [Apache-2.0 License](LICENSE).
 
 ---
 
-> *Made with ❤️ by the CNOE Contributors
+> *Made with ❤️ by the [CNOE Contributors](https://cnoe.io/)
