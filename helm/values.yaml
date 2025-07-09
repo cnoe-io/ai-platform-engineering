@@ -1,3 +1,21 @@
+# AI Platform Engineer Multi-Agent
+ai-platform-engineering:
+  enabled: true
+  nameOverride: "ai-platform-engineering"
+  isMultiAgent: true
+  image:
+    repository: "ghcr.io/cnoe-io/ai-platform-engineering"
+    tag: "stable"
+  multiAgentConfig:
+    protocol: "a2a"
+    port: "8000"
+    releasePrefix: "ai-platform-engineering"
+    agents:
+      - argocd
+      - atlassian
+      - pagerduty
+      - github
+      - slack
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
   enabled: true
@@ -21,7 +39,7 @@ agent-atlassian:
   enabled: false
   nameOverride: "agent-atlassian"
   image:
-    repository: "ghcr.io/cnoe-io/agent-jira"
+    repository: "ghcr.io/cnoe-io/agent-atlassian"
 
 agent-backstage:
   enabled: false

@@ -109,3 +109,24 @@ Determine external secret names - global takes precedence
 {{- .Values.externalSecrets.secretNames | default list | join "," -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Generate multi-agent environment variables
+*/}}
+{{- define "agent.multiAgentEnvVars" -}}
+{{- if .Values.isMultiAgent -}}
+{{- $releasePrefix := include "agent.fullname" . -}}
+{{- $port := .Values.multiAgentConfig.port | default "8000" -}}
+{{- $protocol := .Values.multiAgentConfig.protocol | default "a2a" -}}
+- name: AGENT_PROTOCOL
+  value: {{ $protocol | quote }}
+{{- range .Values.multiAgentConfig.agents }}
+{{- $agentName := . -}}
+{{- $envPrefix := upper (replace "-" "_" $agentName) }}
+- name: {{ $envPrefix }}_AGENT_HOST
+  value: {{ printf "%s-agent-%s" $releasePrefix $agentName | quote }}
+- name: {{ $envPrefix }}_AGENT_PORT
+  value: {{ $port | quote }}
+{{- end -}}
+{{- end -}}
+{{- end -}}

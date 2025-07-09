@@ -68,12 +68,15 @@ spec:
                 name: {{ printf "%s-secret" (include "agent.name" .) }}
             {{- end }}
             {{- end }}
-          {{- if .Values.env }}
+          {{- if or .Values.env .Values.isMultiAgent }}
           env:
+            {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- end }}
+            {{- include "agent.multiAgentEnvVars" . | nindent 12 }}
           {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
