@@ -1,7 +1,6 @@
 # 🤖 AI Platform Engineering Multi-Agent System
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue?logo=python)](https://www.python.org/)
-[![Docker](https://img.shields.io/badge/docker-%231572B6.svg?logo=docker\&logoColor=white)](https://www.docker.com/)
 [![Publish Docs](https://github.com/cnoe-io/ai-platform-engineering/actions/workflows/publish-gh-pages.yml/badge.svg)](https://github.com/cnoe-io/ai-platform-engineering/actions/workflows/publish-gh-pages.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
