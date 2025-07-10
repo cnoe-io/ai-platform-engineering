@@ -52,21 +52,4 @@ Setup AI Platform Engineering to run in a docker environment on a latop or a vir
 
 ---
 
-## 💡 Local Development
-
-1. **Start the application**
-
-   ```bash
-   make run-ai-platform-engineer
-   ```
-
-2. **Run the client**
-   ```bash
-   docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
-   ```
-
-   *Or, clone and run the chat client:*
-
-   ```bash
-   uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
-   ```
+> 🛠️ *For local development setup, check out the [Local Development Guide](local-development.md).*

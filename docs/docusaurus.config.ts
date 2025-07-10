@@ -155,9 +155,6 @@ const config: Config = {
             <a href="https://github.com/cnoe-io/ai-platform-engineering" target="_blank" rel="noopener" style="margin-right: 8px;">
               <img alt="GitHub stars" src="https://img.shields.io/github/stars/cnoe-io/ai-platform-engineering?style=social" style="vertical-align: middle;" />
             </a>
-            <a href="https://github.com/cnoe-io/ai-platform-engineering/fork" target="_blank" rel="noopener" style="margin-right: 8px;">
-              <img alt="GitHub forks" src="https://img.shields.io/github/forks/cnoe-io/ai-platform-engineering?style=social" style="vertical-align: middle;" />
-            </a>
             <a href="https://github.com/cnoe-io/ai-platform-engineering/issues" target="_blank" rel="noopener">
               <img alt="GitHub issues" src="https://img.shields.io/github/issues/cnoe-io/ai-platform-engineering?style=social" style="vertical-align: middle;" />
             </a>
