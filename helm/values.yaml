@@ -31,7 +31,7 @@ backstage-plugin-agent-forge:
   service:
     port: "3000"
   env:
-    AGENT_FORGE_BASE_URL: "http://ai-platform-engineering:8000"
+    APP_CONFIG_agentForge_baseUrl: "http://ai-platform-engineering:8000"
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
   enabled: true
