@@ -5,8 +5,6 @@
 [![Publish Docs](https://github.com/cnoe-io/ai-platform-engineering/actions/workflows/publish-gh-pages.yml/badge.svg)](https://github.com/cnoe-io/ai-platform-engineering/actions/workflows/publish-gh-pages.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
----
-
 ## Agentic AI SIG Community
 
 🚀 [Getting Started](https://github.com/cnoe-io/agentic-ai/wiki/Getting%E2%80%90Started) | 🎥 [Meeting Recordings](https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings) | 🏛️ [Governance](https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai) | 🗺️ [Roadmap](https://github.com/orgs/cnoe-io/projects/9)
@@ -26,7 +24,7 @@
 
 As Platform Engineering, SRE, and DevOps environments grow in complexity, traditional approaches often lead to delays, increased operational overhead, and developer frustration. By adopting Multi-Agentic Systems and Agentic AI, Platform Engineering teams can move from manual, task-driven processes to more adaptive and automated operations, better supporting development and business goals.
 
-**AI Platform Engineering** provides a multi-agent system that streamlines platform operations through persona-driven “usecase agents” such as _Platform Engineer_, _Incident Engineer_, and _Product Owner_ etc. Each usecase agent is empowered by a set of specialized sub-agents that integrate seamlessly with essential engineering tools. Below are some common platform agents leveraged by the persona agents:
+**AI Platform Engineering** provides a *secure*, *enterprise-ready*, and *cloud deployable* reference multi-agent system that streamlines platform operations through persona-driven “usecase agents” such as _Platform Engineer_, _Incident Engineer_, and _Product Owner_ etc. Each usecase agent is empowered by a set of specialized sub-agents that integrate seamlessly with essential engineering tools. Below are some common platform agents leveraged by the persona agents:
 
 * 🚀 **ArgoCD Agent** for continuous deployment
 * 🚨 **PagerDuty Agent** for incident management
@@ -34,15 +32,16 @@ As Platform Engineering, SRE, and DevOps environments grow in complexity, tradit
 * 🗂️ **Jira Agent** for project management
 * 💬 **Slack Agent** for team communication
 
-Together, these sub-agents enable automated, high-fidelity operations across your platform by executing tasks, invoking APIs, and interacting with tools on behalf of the user. The system also includes:
+*...and many more platform agents are available for additional tools and use cases.*
 
-* **A curated prompt library**: This is a carefully evaluated collection of prompts designed for high accuracy and optimal workflow performance in multi-agent systems. These prompts guide persona agents (such as "Platform Engineer" or "Incident Engineer") using standardized instructions and questions, ensuring effective collaboration, incident response, platform operations, and knowledge sharing.
-* **Developer APIs and end-user interfaces**: Easily invoke agentic workflows programmatically or through intuitive UIs, enabling seamless integration with existing engineering processes.
-* **End-to-end security**: Secure agentic communication and task execution across all agents, ensuring data privacy and compliance for enterprise environments.
+Together, these sub-agents enable users to perform complex operations using agentic workflows by invoking relavant APIs using MCP tools. The system also includes:
 
-Simply describe your task—**the platform intelligently routes your request to the appropriate persona agent, which coordinates with the relevant platform agents to interact with the right tools**, ensuring efficient and reliable execution across all your engineering workflows.
+* **A curated prompt library**: A carefully evaluated collection of prompts designed for high accuracy and optimal workflow performance in multi-agent systems. These prompts guide persona agents (such as "Platform Engineer" or "Incident Engineer") using standardized instructions and questions, ensuring effective collaboration, incident response, platform operations, and knowledge sharing.
+* **Multiple End-user interfaces**: Easily invoke agentic workflows programmatically using standard A2A protocol or through intuitive UIs, enabling seamless integration with existing systems like Backstage (Internal Developer Portals).
+* **End-to-end security**: Secure agentic communication and task execution across all agents, ensuring API RBACs to meet enterprise requirements.
+* **Enterprise-ready cloud deployment architecture**: Reference deployment patterns for scalable, secure, and resilient multi-agent systems in cloud and hybrid environments
 
-*...and many more platform agents are available for additional tools and use cases. For detailed information on project goals and our community, head to our [documentation site](https://cnoe-io.github.io/ai-platform-engineering/).*
+*For detailed information on project goals and our community, head to our [documentation site](https://cnoe-io.github.io/ai-platform-engineering/).*
 
 ## 💡 Examples
 
@@ -67,8 +66,6 @@ Simply describe your task—**the platform intelligently routes your request to 
 - [Local Development setup](https://cnoe-io.github.io/ai-platform-engineering/getting-started/local-development)
 - [Run Agents for Tracing & Evaluation](https://cnoe-io.github.io/ai-platform-engineering/getting-started/local-development#-run-agents-for-tracing--evaluation)
 - [Adding new agents](https://cnoe-io.github.io/ai-platform-engineering/getting-started/local-development#%EF%B8%8F-adding-new-agents)
-
-Absolutely! Here’s a more welcoming and friendly version:
 
 ## 🤝 Contributing
 
