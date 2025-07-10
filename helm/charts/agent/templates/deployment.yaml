@@ -75,6 +75,9 @@ spec:
             {{- end }}
             {{- else if not .Values.isBackstagePlugin}}
             - secretRef:
+            {{- if .Values.global.secrets.secretName }}
+                name: {{ .Values.global.secrets.secretName }}
+            {{- else }}
                 name: llm-secret
             {{- if not .Values.isMultiAgent }}
             - secretRef:
