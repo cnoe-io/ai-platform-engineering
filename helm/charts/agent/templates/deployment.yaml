@@ -73,11 +73,13 @@ spec:
             - secretRef:
                 name: {{ .Values.global.secrets.secretName }}
             {{- end }}
-            {{- else if not .Values.isMultiAgent }}
+            {{- else if not .Values.isBackstagePlugin}}
             - secretRef:
                 name: llm-secret
+            {{- if not .Values.isMultiAgent }}
             - secretRef:
                 name: {{ printf "%s-secret" (include "agent.name" .) }}
+            {{- end }}
             {{- end }}
             {{- end }}
           {{- if or .Values.env .Values.isMultiAgent }}

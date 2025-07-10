@@ -27,7 +27,7 @@ backstage-plugin-agent-forge:
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
     tag: "latest"
-  isMultiAgent: true
+  isBackstagePlugin: true
   service:
     port: "3000"
 
