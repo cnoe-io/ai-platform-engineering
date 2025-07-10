@@ -1,0 +1,58 @@
+name: _stale
+
+on:
+  workflow_call:
+    inputs:
+      days-until-stale:
+        type: number
+        required: false
+        default: 15
+      days-until-close:
+        type: number
+        required: false
+        default: 30
+      stale-label:
+        type: string
+        required: false
+        default: "stale"
+      exempt-label:
+        type: string
+        required: false
+        default: "keep"
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📆 mark stale activity
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-stale: ${{ inputs.days-until-stale }}
+          days-before-close: ${{ inputs.days-until-close }}
+          stale-issue-label: ${{ inputs.stale-label }}
+          stale-pr-label: ${{ inputs.stale-label }}
+          exempt-issue-labels: ${{ inputs.exempt-label }}
+          exempt-pr-labels: ${{ inputs.exempt-label }}
+          stale-issue-message: >
+            Thank you for your contribution! This issue has been automatically
+            marked as `stale` because it has no recent activity in the last
+            ${{ inputs.days-until-stale }} days. It will be closed in
+            ${{ inputs.days-until-close }} days, if no further activity
+            occurs. If this issue is still relevant, please leave a comment to
+            let us know, and the `stale` label will be automatically removed.
+          stale-pr-message: >
+            Thank you for your contribution! This PR has been automatically
+            marked as `stale` because it has no recent activity in the last
+            ${{ inputs.days-until-stale }} days. It will be closed in
+            ${{ inputs.days-until-close }} days, if no further activity occurs.
+            If this pull request is still relevant, please leave a comment to
+            let us know, and the `stale` label will be automatically removed.
+          close-issue-message: >
+            This issue has been marked `stale` for ${{ inputs.days-until-close }}
+            days, and is now closed due to inactivity. If the issue is still
+            relevant, please re-open this issue or file a new one. Thank you!
+          close-pr-message: >
+            This PR has been marked `stale` for ${{ inputs.days-until-close }}
+            days, and is now closed due to inactivity. If this contribution is
+            still relevant, please re-open this PR or file a new one. Thank you!
