@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ai-platform-engineering
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    # Main chart from GHCR
+    - chart: ai-platform-engineering
+      repoURL: ghcr.io/cnoe-io/helm-charts
+      targetRevision: 0.1.2
+      helm:
+        valueFiles:
+          - $values/helm/values.yaml
+          - $values/helm/values-existing-secrets.yaml
+    # Values files from Git repository (your custom branch)
+    - repoURL: https://github.com/cnoe-io/ai-platform-engineering.git
+      targetRevision: argcd-app-deploy
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ai-platform-engineering
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  revisionHistoryLimit: 10

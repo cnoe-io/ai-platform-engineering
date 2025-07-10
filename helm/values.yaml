@@ -16,6 +16,7 @@ ai-platform-engineering:
       - pagerduty
       - github
       - slack
+      - komodor
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
   enabled: true
