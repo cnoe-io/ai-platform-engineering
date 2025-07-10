@@ -51,7 +51,7 @@ agent-atlassian:
     repository: "ghcr.io/cnoe-io/agent-atlassian"
 
 agent-backstage:
-  enabled: false
+  enabled: true
   nameOverride: "agent-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
