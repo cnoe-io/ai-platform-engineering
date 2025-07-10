@@ -76,7 +76,7 @@ spec:
             {{- else if not .Values.isBackstagePlugin}}
             - secretRef:
                 name: llm-secret
-            {{- else if not .Values.isMultiAgent }}
+            {{- if not .Values.isMultiAgent }}
             - secretRef:
                 name: {{ printf "%s-secret" (include "agent.name" .) }}
             {{- end }}
