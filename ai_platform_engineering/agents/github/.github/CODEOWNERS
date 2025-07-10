@@ -1,0 +1,15 @@
+####################################################
+#
+# List of approvers for the Jira Agent project
+#
+#####################################################
+#
+# Learn about CODEOWNERS file format:
+#  https://help.github.com/en/articles/about-code-owners
+#
+
+# These owners will be the default owners for everything in
+# the repository. Unless a later match takes precedence,
+# the following users/teams will be requested for
+# review when someone opens a pull request.
+* @sriaradhyula

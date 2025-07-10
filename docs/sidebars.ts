@@ -87,6 +87,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'doc',
+      id: 'getting-started/local-development', // docs/getting-started/local-development.md
+      label: 'Local Development',
+    },
+    {
+      type: 'doc',
       id: 'getting-started/user-interfaces',    // docs/getting-started/user-interfaces.md
       label: 'User Interfaces',
     },

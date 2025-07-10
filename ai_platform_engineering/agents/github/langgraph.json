@@ -1,0 +1,13 @@
+{
+  "dockerfile_lines": [
+    "ENV PYTHONPATH=./agent_github"
+  ],
+  "graphs": {
+    "graph": "agent_slack.graph:AGENT_GRAPH"
+  },
+  "env": "./.env",
+  "python_version": "3.11",
+  "dependencies": [
+    "."
+  ]
+}

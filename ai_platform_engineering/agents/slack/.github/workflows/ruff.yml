@@ -1,0 +1,44 @@
+---
+name: Ruff Linter
+
+on:
+  push:
+    # Run superlinter on pushes to default branch
+    branches:
+      - main
+  # Run superlinter on pull request events
+  pull_request:
+
+# Declare default permissions as read-only
+permissions: read-all
+
+jobs:
+  linter:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      statuses: write
+    steps:
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@0634a2670c59f64b4a01f0f96f84700a4088b9f0 # v2.12.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f # v4.1.7
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.2"
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+        env:
+          POETRY_HOME: /opt/poetry
+      - name: Add Poetry to PATH
+        run: echo "/opt/poetry/bin" >> $GITHUB_PATH
+      - name: Install ruff with Poetry
+        run: poetry add --dev ruff
+      - name: Run ruff linter # python linting
+        run: make lint

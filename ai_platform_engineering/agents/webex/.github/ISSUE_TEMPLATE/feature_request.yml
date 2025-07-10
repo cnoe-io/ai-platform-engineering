@@ -1,0 +1,55 @@
+---
+name: Feature Request
+description: Suggest a feature for this project.
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to request a feature or enhancement!
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem Statement
+      description: |
+        Please describe the problem or limitation to be addressed by
+        the proposed feature
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: |
+        Please describe what you envision the solution to this
+        problem would look like
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: |
+        Please briefly describe which alternatives, if any, have been
+        considered, including merits of alternate approaches and any tradeoffs
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Please provide any other information that may be relevant
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      description: By submitting this request, you agree to the following
+      options:
+        - label: I have read the [contributing guidelines](CONTRIBUTING.md)
+          required: true
+        - label: |
+            I have verified this does not duplicate an existing feature request
+          required: true

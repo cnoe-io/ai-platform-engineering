@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-slack.fullname" . }}
+  labels:
+    {{- include "agent-slack.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "agent-slack.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "agent-slack.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "agent-slack.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-slack.fullname" . }}-secrets
+                  key: slack-bot-token
+            - name: SLACK_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-slack.fullname" . }}-secrets
+                  key: slack-app-token
+            - name: SLACK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-slack.fullname" . }}-secrets
+                  key: slack-signing-secret
+            - name: SLACK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-slack.fullname" . }}-secrets
+                  key: slack-client-secret
+            - name: SLACK_TEAM_ID
+              value: {{ .Values.slack.teamId | quote }}
+            - name: LLM_PROVIDER
+              value: {{ .Values.llm.provider | quote }}
+            {{- if .Values.llm.azure }}
+            - name: AZURE_OPENAI_ENDPOINT
+              value: {{ .Values.llm.azure.endpoint | quote }}
+            - name: AZURE_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-slack.fullname" . }}-secrets
+                  key: azure-openai-key
+            - name: AZURE_OPENAI_DEPLOYMENT
+              value: {{ .Values.llm.azure.deployment | quote }}
+            - name: AZURE_OPENAI_API_VERSION
+              value: {{ .Values.llm.azure.apiVersion | quote }}
+            {{- end }}
+            {{- if .Values.llm.google }}
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-slack.fullname" . }}-secrets
+                  key: google-api-key
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

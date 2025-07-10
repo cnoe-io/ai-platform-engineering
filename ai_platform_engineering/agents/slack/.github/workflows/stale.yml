@@ -1,0 +1,26 @@
+---
+name: stale
+
+on:
+  schedule:
+    # Run weekly on Saturdays
+    - cron: "30 1 * * 6"
+  # Run the workflow manually
+  workflow_dispatch:
+
+# Declare default permissions as read-only
+permissions: read-all
+
+jobs:
+  mark-stale:
+    # Call reusable workflow file
+    uses: cnoe-io/agent-template/.github/workflows/_stale.yml@main
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    with:
+      days-until-stale: 60
+      days-until-close: 7
+      stale-label: "stale"
+      exempt-label: "keep"

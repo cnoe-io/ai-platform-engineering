@@ -4,8 +4,18 @@ name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
-version: 0.1.1
+version: 0.1.2
 dependencies:
+  # AI Platform Engineer Multi-Agent
+  - name: agent
+    version: 0.1.0
+    alias: ai-platform-engineering
+    condition: ai-platform-engineering.enabled
+  # Backstage plugin agent forge
+  - name: agent
+    version: 0.1.0
+    alias: backstage-plugin-agent-forge
+    condition: backstage-plugin-agent-forge.enabled
   # Single agent chart used multiple times with different aliases
   - name: agent
     version: 0.1.0
