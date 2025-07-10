@@ -6,6 +6,8 @@ ai-platform-engineering:
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
     tag: "stable"
+    command: ["poetry", "run", "ai-platform-engineering"]
+    args: ["platform-engineer"]
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
@@ -17,6 +19,7 @@ ai-platform-engineering:
       - github
       - slack
       - komodor
+
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
   enabled: true
@@ -27,15 +30,16 @@ backstage-plugin-agent-forge:
   isMultiAgent: true
   service:
     port: "3000"
+
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
-  enabled: true
+  enabled: false
   nameOverride: "agent-argocd"
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
 
 agent-pagerduty:
-  enabled: true
+  enabled: false
   nameOverride: "agent-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"

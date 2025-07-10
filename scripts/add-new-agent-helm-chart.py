@@ -7,7 +7,6 @@ This script will:
 3. Add new agent sections to values files with empty configurations
 """
 
-import os
 import sys
 import re
 from pathlib import Path
@@ -366,13 +365,13 @@ def main():
     print("\n📝 Manual steps required:")
     for agent_name in new_agents:
         print(f"\nFor agent-{agent_name}:")
-        print(f"  1. Review and update configuration in:")
-        print(f"     - helm/values.yaml")
-        print(f"     - helm/values-existing-secrets.yaml") 
-        print(f"     - helm/values-external-secrets.yaml.example")
-        print(f"  2. Add specific secrets and environment variables")
-    print(f"\n3. Test the configuration with: helm template ./helm")
-    print(f"4. Run: helm dependency update ./helm")
+        print("  1. Review and update configuration in:")
+        print("     - helm/values.yaml")
+        print("     - helm/values-existing-secrets.yaml") 
+        print("     - helm/values-external-secrets.yaml.example")
+        print("  2. Add specific secrets and environment variables")
+    print("\n3. Test the configuration with: helm template ./helm")
+    print("4. Run: helm dependency update ./helm")
 
 if __name__ == "__main__":
     main()
