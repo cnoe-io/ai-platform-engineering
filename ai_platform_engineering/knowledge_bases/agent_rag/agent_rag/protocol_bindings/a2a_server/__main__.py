@@ -4,12 +4,10 @@
 import click
 import httpx
 import uvicorn
-import os
-import logging
 from dotenv import load_dotenv
 
-from .agent import RAGAgent  # type: ignore[import-untyped]
-from .agent_executor import RAGAgentExecutor  # type: ignore[import-untyped]
+from agent_rag.protocol_bindings.a2a_server.agent import RAGAgent  # type: ignore[import-untyped]
+from agent_rag.protocol_bindings.a2a_server.agent_executor import RAGAgentExecutor  # type: ignore[import-untyped]
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -20,44 +18,25 @@ from a2a.types import (
     AgentSkill,
 )
 
-# Configure root logger
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
 load_dotenv()
 
 @click.command()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=8000)
-def main(host: str, port: int):
-    logger = logging.getLogger(__name__)
+@click.option('--milvus-uri', 'milvus_uri', default='http://localhost:19530')
+def main(host: str, port: int, milvus_uri: str):
     client = httpx.AsyncClient()
-    
-    # Get Milvus URI from environment variable, default to localhost
-    milvus_uri = os.getenv('MILVUS_URI', 'http://localhost:19530')
-    logger.debug(f"Using Milvus URI: {milvus_uri}")
-    
-    # Initialize RAGAgent with Milvus URI
-    logger.info("Initializing RAG Agent...")
-    rag_agent = RAGAgent(milvus_uri=milvus_uri)
-    
-    logger.info("Setting up request handler...")
     request_handler = DefaultRequestHandler(
-        agent_executor=RAGAgentExecutor(agent=rag_agent),
+        agent_executor=RAGAgentExecutor(milvus_uri=milvus_uri),
         task_store=InMemoryTaskStore(),
         push_notifier=InMemoryPushNotifier(client),
     )
 
-    logger.info("Building server application...")
     server = A2AStarletteApplication(
         agent_card=get_agent_card(host, port), http_handler=request_handler
     )
-    app = server.build()
-    
-    logger.info(f"Starting server on {host}:{port}")
-    uvicorn.run(app, host=host, port=port, log_level="debug")
+
+    uvicorn.run(server.build(), host=host, port=port)
 
 
 def get_agent_card(host: str, port: int):
@@ -66,24 +45,25 @@ def get_agent_card(host: str, port: int):
     skill = AgentSkill(
         id='rag',
         name='Documentation Q&A',
-        description='Ingests documentation from a URL and answers questions using RAG.',
-        tags=['rag', 'documentation', 'qa', 'milvus'],
+        description='Answers questions about documentation using RAG.',
+        tags=['rag', 'documentation', 'qa', 'milvus', 'vector_search'],
         examples=[
-            'Ingest documentation from https://example.com/docs',
             'What is the API rate limit?',
-            'How do I authenticate with the service?'
+            'How do I authenticate with the service?',
+            'What are the supported configuration options?',
+            'Explain how the deployment process works.',
+            'What are the best practices for error handling?'
         ],
     )
     return AgentCard(
         name='RAG Documentation Agent',
-        description='A RAG agent that ingests documentation from any URL and answers questions using Retrieval-Augmented Generation (RAG) with Milvus.',
+        description='Agent for answering questions about documentation using Retrieval-Augmented Generation (RAG).',
         url=f'http://{host}:{port}/',
         version='1.0.0',
-        defaultInputModes=['text', 'text/plain'],
-        defaultOutputModes=['text', 'text/plain'],
+        defaultInputModes=RAGAgent.SUPPORTED_CONTENT_TYPES,
+        defaultOutputModes=RAGAgent.SUPPORTED_CONTENT_TYPES,
         capabilities=capabilities,
         skills=[skill],
-        authentication={"schemes": ["public"]},
     )
 
 

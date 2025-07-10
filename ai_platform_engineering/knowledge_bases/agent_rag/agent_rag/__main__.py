@@ -1,11 +1,12 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import click
 import httpx
+import logging
 from dotenv import load_dotenv
 
-from agent_rag.protocol_bindings.a2a_server.agent import RAGAgent  # type: ignore[import-untyped]
 from agent_rag.protocol_bindings.a2a_server.agent_executor import RAGAgentExecutor  # type: ignore[import-untyped]
 
 from a2a.server.apps import A2AStarletteApplication
@@ -19,15 +20,23 @@ from a2a.types import (
 
 from starlette.middleware.cors import CORSMiddleware
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 load_dotenv()
 
 @click.command()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=8000)
-def main(host: str, port: int):
+@click.option('--milvus-uri', 'milvus_uri', default='http://localhost:19530', help='Milvus server URI')
+def main(host: str, port: int, milvus_uri: str):
+    logger.info(f"Starting RAG agent with Milvus URI: {milvus_uri}")
+    
+    # Initialize components
     client = httpx.AsyncClient()
     request_handler = DefaultRequestHandler(
-        agent_executor=RAGAgentExecutor(),
+        agent_executor=RAGAgentExecutor(milvus_uri=milvus_uri),
         task_store=InMemoryTaskStore(),
         push_notifier=InMemoryPushNotifier(client),
     )
@@ -37,15 +46,16 @@ def main(host: str, port: int):
     )
     app = server.build()
 
-    # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
+    # Add CORSMiddleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Allow all origins
-        allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-        allow_headers=["*"],  # Allow all headers
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     import uvicorn
+    logger.info(f"Starting server on {host}:{port}")
     uvicorn.run(app, host=host, port=port)
 
 
@@ -55,17 +65,17 @@ def get_agent_card(host: str, port: int):
     skill = AgentSkill(
         id='rag',
         name='Documentation Q&A',
-        description='Ingests documentation from a URL and answers questions using RAG.',
+        description='Answers questions about documentation using RAG.',
         tags=['rag', 'documentation', 'qa', 'milvus'],
         examples=[
-            'Ingest documentation from https://example.com/docs',
             'What is the API rate limit?',
-            'How do I authenticate with the service?'
+            'How do I authenticate with the service?',
+            'What are the supported configuration options?'
         ],
     )
     return AgentCard(
         name='RAG Documentation Agent',
-        description='A RAG agent that ingests documentation from any URL and answers questions using Retrieval-Augmented Generation (RAG) with Milvus.',
+        description='A RAG agent that answers questions about documentation using Retrieval-Augmented Generation (RAG) with Milvus.',
         url=f'http://{host}:{port}/',
         version='1.0.0',
         defaultInputModes=['text', 'text/plain'],
