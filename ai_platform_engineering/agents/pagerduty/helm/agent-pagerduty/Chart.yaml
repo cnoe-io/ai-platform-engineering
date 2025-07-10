@@ -1,0 +1,10 @@
+apiVersion: v2
+name: agent-pagerduty
+description: A Helm chart for deploying the PagerDuty Agent
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+maintainers:
+  - name: Rehan
+    email: rehagraw@cisco.com 
