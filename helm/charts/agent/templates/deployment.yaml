@@ -79,6 +79,7 @@ spec:
                 name: {{ .Values.global.secrets.secretName }}
             {{- else }}
                 name: llm-secret
+            {{- end }}
             {{- if not .Values.isMultiAgent }}
             - secretRef:
                 name: {{ printf "%s-secret" (include "agent.name" .) }}
