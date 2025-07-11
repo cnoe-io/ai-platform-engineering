@@ -33,13 +33,13 @@ backstage-plugin-agent-forge:
 
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
-  enabled: false
+  enabled: true
   nameOverride: "agent-argocd"
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
 
 agent-pagerduty:
-  enabled: false
+  enabled: true
   nameOverride: "agent-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
@@ -51,7 +51,7 @@ agent-github:
     repository: "ghcr.io/cnoe-io/agent-github"
 
 agent-atlassian:
-  enabled: false
+  enabled: true
   nameOverride: "agent-atlassian"
   image:
     repository: "ghcr.io/cnoe-io/agent-atlassian"
@@ -63,7 +63,7 @@ agent-backstage:
     repository: "ghcr.io/cnoe-io/agent-backstage"
 
 agent-slack:
-  enabled: false
+  enabled: true
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
