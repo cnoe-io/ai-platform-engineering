@@ -1,7 +1,3 @@
-## Core Maintainers
+## Maintainers
 
-- Rehan Agrawal <rehagraw@cisco.com>
-
-## Emeritus Maintainers
-
-- None yet 
+- [sriaradhyula](https://github.com/sriaradhyula)
