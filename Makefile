@@ -80,13 +80,20 @@ langgraph-dev: setup-venv ## Run langgraph in development mode
 
 lint: setup-venv ## Lint the code using Ruff
 	@echo "Linting the code..."
-	@poetry run ruff check .
+	@poetry run ruff check . --select E,F --ignore F403 --line-length 320
+
+lint-fix: setup-venv ## Automatically fix linting issues using Ruff
+	@echo "Fixing linting issues..."
+	@poetry run ruff check . --select E,F --ignore F403 --line-length 320 --fix
 
 ## ========== Test ==========
 
 test: setup-venv install ## Install dependencies and run tests using pytest
 	@echo "Installing ai_platform_engineering, agents, and argocd..."
 	@poetry add ./ai_platform_engineering/agents/argocd --no-interaction --group unittest
+	@poetry add ./ai_platform_engineering/agents/komodor --no-interaction --group unittest
+	@poetry add pytest-asyncio --group unittest --no-interaction
+
 	@echo "Running tests..."
 	@poetry run pytest
 

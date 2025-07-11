@@ -78,11 +78,11 @@ uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```mermaid
 flowchart TD
   subgraph Client Layer
-    A[User Client ACP/A2A]
+    A[User Client A2A]
   end
 
   subgraph Agent Transport Layer
-    B[AGNTCY ACP<br/>or<br/>Google A2A]
+    B[Google A2A]
   end
 
   subgraph Agent Graph Layer
@@ -113,14 +113,10 @@ flowchart TD
 ---
 
 
-### 2️⃣ Start Workflow Server (ACP or A2A)
+### 2️⃣ Start A2A Agent
 
-You can start the workflow server in either ACP or A2A mode:
+Start A2A agent:
 
-- **ACP Mode:**
-  ```bash
-  make run-acp
-  ```
 - **A2A Mode:**
   ```bash
   make run-a2a
