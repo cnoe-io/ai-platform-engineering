@@ -1,5 +1,5 @@
 [project]
-name = "multi_agents"
+name = "ai_platform_engineering"
 version = "0.1.0"
 description = "AI Platform Engineering Multi-Agent Systems"
 authors = [
