@@ -1,10 +1,13 @@
-name: Agent Parallel A2A Docker Build and Push
+name: Agent A2A Docker Build and Push
 
 on:
   push:
     paths:
       - 'ai_platform_engineering/agents/**'
-
+  pull_request:
+    paths:
+      - 'ai_platform_engineering/agents/**'
+  workflow_dispatch:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -14,7 +17,7 @@ jobs:
 
     strategy:
       matrix:
-        agent: [argocd, atlassian, github, pagerduty, slack, backstage]
+        agent: [argocd, backstage, confluence, github, jira, komodor, pagerduty, slack, webex]
       fail-fast: false
 
     env:

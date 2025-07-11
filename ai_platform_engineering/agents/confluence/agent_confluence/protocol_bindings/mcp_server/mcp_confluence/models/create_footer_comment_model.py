@@ -5,8 +5,7 @@
 
 """Model for Createfootercommentmodel"""
 
-from typing import Dict, List, Optional
-from datetime import datetime
+from typing import List, Optional
 from pydantic import BaseModel, Field
 from .base import APIResponse, PaginationInfo
 

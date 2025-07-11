@@ -15,11 +15,6 @@ import os
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
-# Load environment variables first
-load_dotenv()
-
-#used tools
-
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import attachments
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import blogposts
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import labels
@@ -29,7 +24,10 @@ from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import s
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import footer_comments
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import inline_comments
 
+# Load environment variables first
+load_dotenv()
 
+#used tools
 '''from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import admin_key
 
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.tools import attachments_id

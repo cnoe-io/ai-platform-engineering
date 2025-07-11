@@ -1,5 +1,5 @@
 [project]
-name = "ai-platform-engineering"
+name = "ai_platform_engineering"
 version = "0.1.0"
 description = "AI Platform Engineering Multi-Agent Systems"
 authors = [
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ai-platform-engineering = "ai_platform_engineering.__main__:main"
+ai-platform-engineering = "ai_platform_engineering.multi_agents.__main__:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -36,4 +36,15 @@ langgraph-cli = "^0.3.3"
 
 [tool.poetry.group.unittest.dependencies]
 agent-argocd = {path = "ai_platform_engineering/agents/argocd"}
+agent-komodor = {path = "ai_platform_engineering/agents/komodor"}
+pytest-asyncio = "^1.0.0"
 
+[tool.ruff]
+# Allow lines to be as long as 300.
+line-length = 300
+# Number of spaces per indentation level
+indent-width = 2
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["F403"]
