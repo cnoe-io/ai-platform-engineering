@@ -52,4 +52,4 @@ Setup AI Platform Engineering to run in a docker environment on a latop or a vir
 
 ---
 
-> 🛠️ *For local development setup, check out the [Local Development Guide](local-development.md).*
+> 🛠️ *For local development setup, check out the [Local Development Guide](../local-development.md).*
