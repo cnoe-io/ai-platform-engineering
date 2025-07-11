@@ -11,7 +11,7 @@ spec:
     # Main chart from GHCR
     - chart: ai-platform-engineering
       repoURL: ghcr.io/cnoe-io/helm-charts
-      targetRevision: 0.1.3
+      targetRevision: 0.1.6
       helm:
         valueFiles:
           - $values/helm/values.yaml
