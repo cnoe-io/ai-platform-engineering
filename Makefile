@@ -98,6 +98,18 @@ test: setup-venv install ## Install dependencies and run tests using pytest
 	@poetry run pytest
 
 
+validate:
+	@echo "Validating code..."
+	@echo "========================================"
+	@echo "Running linting to check code quality..."
+	@echo "========================================"
+	@$(MAKE) lint
+
+	@echo "========================================"
+	@echo "Running tests to ensure code correctness..."
+	@echo "========================================"
+	@$(MAKE) test
+	@echo "Validation complete."
 ## ========== Help ==========
 
 help: ## Show this help message
