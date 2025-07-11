@@ -1,10 +1,10 @@
 services:
   # AI Platform Engineering Multi-Agent System (stable image)
-  ai-platform-engineering:
+  platform-engineer:
     build:
-      context: ai_platform_engineering/multi_agents
-      dockerfile: build/Dockerfile.a2a
-    container_name: ai-platform-engineering
+      context: .
+      dockerfile: build/Dockerfile
+    container_name: platform-engineering
     profiles:
       - build
     depends_on:
@@ -37,7 +37,7 @@ services:
       - KOMODOR_AGENT_HOST=agent-komodor
       - KOMODOR_AGENT_PORT=8006
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      # - PAGERDUTY_AGENT_PORT=8007
+      - PAGERDUTY_AGENT_PORT=8007
       - SLACK_AGENT_HOST=agent-slack
       - SLACK_AGENT_PORT=8008
       - WEBEX_AGENT_HOST=agent-webex
