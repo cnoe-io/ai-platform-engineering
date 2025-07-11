@@ -75,11 +75,11 @@ const sidebars: SidebarsConfig = {
             },
             {
               type: 'doc',
-              id: 'getting-started/eks/configure-llms',
+              id: 'getting-started/eks/configure-agent-secrets',
             },
             {
               type: 'doc',
-              id: 'getting-started/eks/configure-agent-secrets',
+              id: 'getting-started/eks/configure-llms',
             },
           ],
         },
