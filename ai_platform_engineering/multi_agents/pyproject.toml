@@ -1,5 +1,5 @@
 [project]
-name = "ai-platform-engineering"
+name = "multi_agents"
 version = "0.1.0"
 description = "AI Platform Engineering Multi-Agent Systems"
 authors = [
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ai-platform-engineering = "ai_platform_engineering.__main__:main"
+ai-platform-engineering = "ai_platform_engineering.multi_agents.__main__:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -32,8 +32,4 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
 langgraph-cli = "^0.3.3"
-
-
-[tool.poetry.group.unittest.dependencies]
-agent-argocd = {path = "ai_platform_engineering/agents/argocd"}
 
