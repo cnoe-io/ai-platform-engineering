@@ -6,25 +6,29 @@ from ai_platform_engineering.agents.argocd.a2a_agent_client.agentcard import (
   argocd_agent_card,
   argocd_agent_skill
 )
-from ai_platform_engineering.agents.atlassian.a2a_agentcards import  (
-  atlassian_agent_card,
-  atlassian_agent_skill
+from ai_platform_engineering.agents.backstage.agent_backstage.a2a_agent_client.agentcard import (
+  backstage_agent_card,
+  backstage_agent_skill
 )
-from ai_platform_engineering.agents.github.a2a_agentcards import (
+from ai_platform_engineering.agents.confluence.a2a_agent_client.agentcard import (
+  confluence_agent_card,
+  confluence_agent_skill
+)
+from ai_platform_engineering.agents.github.a2a_agent_client.agentcard import (
   github_agent_card,
   github_agent_skill
 )
-from ai_platform_engineering.agents.pagerduty.a2a_agentcards import (
+from ai_platform_engineering.agents.jira.a2a_agent_client.agentcard import (
+  jira_agent_card,
+  jira_agent_skill
+)
+from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agentcard import (
   pagerduty_agent_card,
   pagerduty_agent_skill
 )
-from ai_platform_engineering.agents.slack.a2a_agentcards import (
+from ai_platform_engineering.agents.slack.a2a_agent_client.agentcard import (
   slack_agent_card,
   slack_agent_skill
-)
-from ai_platform_engineering.agents.backstage.a2a_agentcards import (
-  backstage_agent_card,
-  backstage_agent_skill
 )
 from ai_platform_engineering.agents.komodor.a2a_agent_client.agentcard import (
   komodor_agent_card,
@@ -62,12 +66,14 @@ def get_agent_system_prompt(agent_key: str) -> str:
 
 tools = {
   argocd_agent_card.name: argocd_agent_skill.examples,
-  atlassian_agent_card.name: atlassian_agent_skill.examples,
-  pagerduty_agent_card.name: pagerduty_agent_skill.examples,
-  github_agent_card.name: github_agent_skill.examples,
-  slack_agent_card.name: slack_agent_skill.examples,
   backstage_agent_card.name: backstage_agent_skill.examples,
+  confluence_agent_card.name: confluence_agent_skill.examples,
+  github_agent_card.name: github_agent_skill.examples,
+  jira_agent_card.name: jira_agent_skill.examples,
+  pagerduty_agent_card.name: pagerduty_agent_skill.examples,
+  slack_agent_card.name: slack_agent_skill.examples,
 }
+
 if os.getenv("ENABLE_KOMODOR", "false").lower() == "true":
     tools[komodor_agent_card.name] = komodor_agent_skill.examples
 
@@ -129,9 +135,12 @@ system_prompt = generate_system_prompt(tools)
 
 print("System Prompt Generated:\n", system_prompt)
 
-response_format_instruction : str = config.get(
+response_format_instruction: str = config.get(
   "response_format_instruction",
-  'Select status as completed if the request is complete'
-  'Select status as input_required if the input is a question to the user'
-  'Set response status to error if the input indicates an error'
+  (
+    "Respond in markdown format. Ensure that any URLs provided in the response are updated with clickable links.\n\n"
+    "Select status as completed if the request is complete.\n"
+    "Select status as input_required if the input is a question to the user.\n"
+    "Set response status to error if the input indicates an error."
+  )
 )
