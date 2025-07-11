@@ -15,6 +15,16 @@
   --ifm-color-primary-lightest: #3cad6e;
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  
+  /* Custom code highlighting colors */
+  --prism-color-keyword: #d73a49;
+  --prism-color-string: #032f62;
+  --prism-color-function: #6f42c1;
+  --prism-color-operator: #d73a49;
+  --prism-color-comment: #6a737d;
+  --prism-color-variable: #e36209;
+  --prism-color-number: #005cc5;
+  --prism-color-property: #005cc5;
 }
 
 /* For readability concerns, you should choose a lighter palette in dark mode. */
@@ -27,4 +37,118 @@
   --ifm-color-primary-lighter: #32d8b4;
   --ifm-color-primary-lightest: #4fddbf;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  
+  /* Custom code highlighting colors for dark mode */
+  --prism-color-keyword: #ff7b72;
+  --prism-color-string: #a5d6ff;
+  --prism-color-function: #d2a8ff;
+  --prism-color-operator: #ff7b72;
+  --prism-color-comment: #8b949e;
+  --prism-color-variable: #ffa657;
+  --prism-color-number: #79c0ff;
+  --prism-color-property: #79c0ff;
+}
+
+/* Enhanced Code Block Styling */
+.prism-code {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Line numbers styling */
+.token-line {
+  line-height: 1.5;
+}
+
+/* Apply custom colors to tokens */
+.token.keyword {
+  color: var(--prism-color-keyword) !important;
+}
+
+.token.string {
+  color: var(--prism-color-string) !important;
+}
+
+.token.function {
+  color: var(--prism-color-function) !important;
+}
+
+.token.operator {
+  color: var(--prism-color-operator) !important;
+}
+
+.token.comment {
+  color: var(--prism-color-comment) !important;
+  font-style: italic;
+}
+
+/* Bash-specific comment styling */
+.language-bash .token.comment,
+.language-shell .token.comment,
+.language-sh .token.comment {
+  color: #22863a !important; /* Green color for bash comments in light mode */
+  font-style: italic;
+  font-weight: 500;
+}
+
+/* Bash comments in dark mode */
+[data-theme='dark'] .language-bash .token.comment,
+[data-theme='dark'] .language-shell .token.comment,
+[data-theme='dark'] .language-sh .token.comment {
+  color: #7ce38b !important; /* Lighter green for dark mode */
+}
+
+/* Bash-specific string styling */
+.language-bash .token.string,
+.language-shell .token.string,
+.language-sh .token.string {
+  color: #e36209 !important; /* Orange color for bash strings in light mode */
+  font-weight: 500;
+}
+
+/* Bash strings in dark mode */
+[data-theme='dark'] .language-bash .token.string,
+[data-theme='dark'] .language-shell .token.string,
+[data-theme='dark'] .language-sh .token.string {
+  color: #ffa657 !important; /* Lighter orange for dark mode */
+}
+
+.token.variable {
+  color: var(--prism-color-variable) !important;
+}
+
+.token.number {
+  color: var(--prism-color-number) !important;
+}
+
+.token.property {
+  color: var(--prism-color-property) !important;
+}
+
+/* Line highlighting */
+.docusaurus-highlight-code-line {
+  background-color: var(--docusaurus-highlighted-code-line-bg);
+  display: block;
+  margin: 0 calc(-1 * var(--ifm-pre-padding));
+  padding: 0 var(--ifm-pre-padding);
+  border-left: 3px solid var(--ifm-color-primary);
+}
+
+/* Code block title styling */
+.prism-code .code-block-title {
+  background: var(--ifm-color-emphasis-300);
+  color: var(--ifm-color-content);
+  font-size: var(--ifm-code-font-size);
+  font-weight: bold;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-300);
+}
+
+/* Copy button styling */
+.clean-btn {
+  transition: opacity 0.2s;
+}
+
+.clean-btn:hover {
+  opacity: 0.8;
 }
