@@ -34,8 +34,8 @@ services:
       - GITHUB_AGENT_PORT=8004
       - JIRA_AGENT_HOST=agent-jira
       - JIRA_AGENT_PORT=8005
-      - KOMODOR_AGENT_HOST=agent-komodor
-      - KOMODOR_AGENT_PORT=8006
+      # - KOMODOR_AGENT_HOST=agent-komodor
+      # - KOMODOR_AGENT_PORT=8006
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
       - PAGERDUTY_AGENT_PORT=8007
       - SLACK_AGENT_HOST=agent-slack
