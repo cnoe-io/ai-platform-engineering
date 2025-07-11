@@ -4,7 +4,10 @@ on:
   push:
     paths:
       - 'ai_platform_engineering/agents/**'
-
+  pull_request:
+    paths:
+      - 'ai_platform_engineering/agents/**'
+  workflow_dispatch:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
