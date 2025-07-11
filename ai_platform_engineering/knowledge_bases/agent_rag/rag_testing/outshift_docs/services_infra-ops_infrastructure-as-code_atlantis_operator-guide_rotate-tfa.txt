@@ -1,0 +1,11 @@
+rotate atlantis creds
+rotate terraform_admin
+rotating terraform_admin
+Rotating terraform_admin credentials
+¶
+The
+terraform_admin
+IAM user has static credentials that must be rotated regularly and ad-hoc.
+Details are available in the
+script documentation
+2024-05-19

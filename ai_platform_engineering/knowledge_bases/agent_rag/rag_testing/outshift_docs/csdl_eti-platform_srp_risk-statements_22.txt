@@ -1,0 +1,15 @@
+SCF-BCR-01.01
+secret storage
+Secret storage service (Keeper) degradation may result in failures amongst applications that relies on secrets
+¶
+Description
+¶
+The ET&I Platform relies on the Cisco STO managed Keeper as a secret storage. Secrets are syncronized in certain time periods to Kubernetes secret objects by the external-secrets Kubernetes operator. In an event of Keeper service degradation if external-secrets tries to syncronize secrets, that can lead to degraded Secret objects and application failures.
+Business Impacts
+¶
+Business Continuity
+Likelihood: High
+¶
+Risk Level Category: High
+¶
+2025-02-09

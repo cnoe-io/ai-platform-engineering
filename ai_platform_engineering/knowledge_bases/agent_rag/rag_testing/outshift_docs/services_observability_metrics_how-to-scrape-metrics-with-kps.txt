@@ -1,0 +1,23 @@
+scape kps metrics
+send metrics to cluster prometheus
+How to scrape metrics via cluster local kube prometheus stack
+¶
+!!! warning This documentation is deprecated, we are using splunk now for observability
+Scraping of resources to the local prometheus occurs when a
+promethius.io
+annotation is used
+Annotations
+¶
+Using the following annotation on a workload such as a pod, deployment will cause it to be scraped by the cluster-local prometheus instance.  The metrics will be available for dashboards and alerts on the cluster-local Grafana instance.
+prometheus.io/scrape: true
+For additional customization, the following annotations can be added in addition to the
+prometheus.io/scrape
+annotation.
+prometheus.io/scrape: true
+prometheus.io/path: <metric path>
+prometheus.io/port: <port>
+Example in
+platform-demo
+:
+Prometheus annotations
+2025-06-20

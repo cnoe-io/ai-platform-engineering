@@ -1,0 +1,15 @@
+gha
+metrics
+opentelemetry
+otel
+otel-pushgateway
+pushgateway
+For SRE
+Once user requesting to send metrics to pushgateway from some system (except of services deployed on kubernetes provided by SRE) then you have to provide OIDC credentials for authentican
+Example:
+https://myid-sso.cisco.com/application/externaloidc/3a66309a-512a-48a5-a96f-9d64bcf05bdc?env=prod
+Be aware, you have to choose type: Non Workspace -> API
+Store them under the keeper with a format
+like
+but under the namespace where user has access
+2024-06-09

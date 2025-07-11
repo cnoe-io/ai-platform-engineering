@@ -1,0 +1,33 @@
+SRE-2742: eti.cisco.com cloudfront deployment
+¶
+Deploy production
+eti.cisco.com
+with new Cloudfront configuration to match staging-eti.cisco.com per
+SRE-2742
+.
+SRE-2742: eti.cisco.com cloudfront deployment
+Preparation Steps
+Execute Change
+Post-Validation
+Roll-Back
+Preparation Steps
+¶
+Confirm operation in staging
+Execute Change
+¶
+Post notice in the
+ET&I Platform Status
+space about this change:
+# eti.cisco.com Configuration Change in Production
+What: We are making a Cloudfront configuration change for the eti.cisco.com site
+When: Feb 28, 11:15 AM CST - 11:30 AM CST
+Impact: The site may become temporarily unavailable during the maintenance window
+Post-Validation
+¶
+Confirm site is responding as expected
+Roll-Back
+¶
+If the production
+eti.cisco.com
+page fails to load after the change, immediately roll back the changes to the Cloudfront configuration.
+2023-10-16

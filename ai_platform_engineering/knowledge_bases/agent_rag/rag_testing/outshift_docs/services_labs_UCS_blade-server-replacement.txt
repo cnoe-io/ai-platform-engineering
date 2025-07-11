@@ -1,0 +1,9 @@
+How to replace a blade server in a Chassis
+¶
+Please proceed by following the steps described below:
+Physically remove the server from the slot
+The UCSM MAnager detects that the blade was removed from the slot then it proposes two options as shown below:
+You need to decommission the removed server in order to let the UCS Manager discover a new server added in the same slot, so click on "Decommission"
+Insert the new blade in the slot
+Wait a few minute until the newly added server get discovered
+2023-02-23

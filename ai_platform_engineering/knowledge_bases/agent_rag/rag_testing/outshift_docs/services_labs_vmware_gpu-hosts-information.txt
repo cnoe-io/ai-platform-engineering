@@ -1,0 +1,191 @@
+GPU
+PCI
+list
+Research GPU Hosts information
+¶
+ESXi Hosts
+¶
+Hostname
+Number of attached NVIDIA cards
+UCS Model
+Storage
+Memory
+CPU
+Datastore
+Operational
+eti-ra6-dev-18.cisco.com
+3 TU104GL [Tesla T4]
+C240 M6
+NA
+NA
+NA
+NA
+No
+eti-ra6-dev-19.cisco.com
+7 TU104GL [Tesla T4] &  1 GA100 [A100 PCIe 80GB]
+C480 M5
+1.46 TB
+2TB
+246 GHz
+research1
+yes
+eti-ra6-dev-20.cisco.com
+7 TU104GL [Tesla T4] &  1 GA100 [A100 PCIe 80GB]
+C480 M5
+2.08 TB
+2TB
+246 GHz
+research5
+yes
+eti-ra6-dev-21.cisco.com
+7 TU104GL [Tesla T4] &  1 GA100 [A100 PCIe 80GB]
+C480 M5
+2.08 TB
+2TB
+246 GHz
+research2
+yes
+Physical NVIDIA Device IDs
+¶
+eti-ra6-dev-19.cisco.com
+eti-ra6-dev-20.cisco.com
+eti-ra6-dev-21.cisco.com
+0000:25:00.0 [Tesla T4]
+0000:25:00.0 [Tesla T4]
+0000:25:00.0 [Tesla T4]
+0000:45:00.0 [Tesla T4]
+0000:45:00.0 [Tesla T4]
+0000:45:00.0 [Tesla T4]
+0000:59:00.0 [Tesla T4]
+0000:59:00.0 [Tesla T4]
+0000:59:00.0 [Tesla T4]
+0000:6D:00.0 [A100 PCIe 80GB]
+0000:6D:00.0 [A100 PCIe 80GB]
+0000:6D:00.0 [A100 PCIe 80GB]
+0000:85:00.0 [Tesla T4]
+0000:85:00.0 [Tesla T4]
+0000:85:00.0 [Tesla T4]
+0000:99:00.0 [Tesla T4]
+0000:99:00.0 [Tesla T4]
+0000:99:00.0 [Tesla T4]
+0000:AD:00.0 [Tesla T4]
+0000:AD:00.0 [Tesla T4]
+0000:AD:00.0 [Tesla T4]
+0000:C5:00.0 [Tesla T4]
+0000:C5:00.0 [Tesla T4]
+0000:C5:00.0 [Tesla T4]
+Used GPU PCI devices list
+¶
+PCI Device ID
+Attached VM name
+Resource Owner
+vSphere cluster
+TF source code
+0000:6D:00.0
+eti-research-dev1
+research team
+Research-GPU
+NA (manual)
+0000:6D:00.0
+eti-research-dev2
+research team
+Research-GPU
+NA (manual)
+0000:6D:00.0
+eti-research-dev3
+research team
+Research-GPU
+NA (manual)
+0000:25:00.0
+eti-research-dev4
+research team
+Research-GPU
+source-code
+0000:45:00.0
+eti-research-dev4
+research team
+Research-GPU
+0000:59:00.0
+eti-research-dev4
+research team
+Research-GPU
+0000:C5:00.0
+eti-research-dev4
+research team
+Research-GPU
+0000:25:00.0
+eti-research-dev5
+research team
+Research-GPU
+source-code
+0000:45:00.0
+eti-research-dev5
+research team
+Research-GPU
+0000:59:00.0
+eti-research-dev5
+research team
+Research-GPU
+0000:85:00.0
+eti-research-dev6
+research team
+Research-GPU
+source-code
+0000:99:00.0
+eti-research-dev6
+research team
+Research-GPU
+0000:AD:00.0
+eti-research-dev6
+research team
+Research-GPU
++
+0000:C5:00.0
+eti-research-dev6
+research team
+Research-GPU
+0000:85:00.0
+eti-research-dev7
+research team
+Research-GPU
+source-code
+0000:99:00.0
+eti-research-dev7
+research team
+Research-GPU
+0000:AD:00.0
+eti-research-dev7
+research team
+Research-GPU
+0000:25:00.0
+eti-research-dev8
+research team
+Research-GPU
+source-code
+0000:45:00.0
+eti-research-dev8
+research team
+Research-GPU
+0000:59:00.0
+eti-research-dev8
+research team
+Research-GPU
+0000:85:00.0
+eti-research-dev9
+research team
+Research-GPU
+source-code
+0000:99:00.0
+eti-research-dev9
+research team
+Research-GPU
+0000:AD:00.0
+eti-research-dev9
+research team
+Research-GPU
+0000:C5:00.0
+eti-research-dev9
+research team
+Research-GPU
+Contact myungjle|jasriniv|apayani for any GPU VMs access management related inquiries.
+2023-08-02

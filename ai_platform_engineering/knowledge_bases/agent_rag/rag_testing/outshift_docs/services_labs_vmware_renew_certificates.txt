@@ -1,0 +1,119 @@
+Renew certificates
+¶
+PrÃ©requisites
+¶
+Before renewing certificates, make sure that you've generated them using our internal service
+sslccerts
+. To do so, please check
+this documentation
+.
+Once done, you should download the following files:
+where:
+Certificate
+: pirl-esxi-b3.cisco.com-123520.cer, pirl-esxi-b7 host certificate
+Issuing CA
+: hydssl.cer
+Root CA
+: idtrca.cer
+Private Key
+: the .key file previously generated at the same time as the CSR
+Update vCenter and ESXi certificates
+¶
+vCenter certificate
+¶
+We are going to use the vSphere Client to renew the vCenter certificate:
+Log in to the vCenter vSphere Client interface
+Here
+Navigate to
+Administration/Certificates/Certificate Management
+Under
+Machine SSL Certificate
+, click on
+Actions
+then Ãmport and
+Replace Certificate
+Choose
+Replace with external CA certificate(requires private key)
+Copy the
+pirl-esxi-b3.cisco.com-123520.cer
+file's content in the
+Machine SSL Certificate
+field
+Copy the
+Issuing CA (hydssl.cer)
+and
+Root CA(idtrca.cer)
+files contents in the
+Chain of trusted root certificates
+field
+Copy the
+pirl-esxi-b3.cisco.com.key file
+content in the
+Private Key
+field
+Click on
+Replace
+After getting the successful replacement message, wait for the vCenter server services to be restarted
+ESXi certificates
+¶
+Follow these steps:
+Copy the certificates and private key on the ESXi
+scp
+pirl-esxi-b3.cisco.com-123520.cer
+root@pirl-esxi-b3.cisco.com:/
+scp
+pirl-esxi-b3.cisco.com.key
+root@pirl-esxi-b3.cisco.com:/
+on the vCenter client, make sure the SSH service is running for the ESXi host under configure / System / services
+ssh to the ESXI and create a backup of old certificates
+ssh
+root@pirl-esxi-b3.cisco.com
+[
+root@pirl-esxi-b3:~
+]
+cd
+/etc/vmware/ssl/
+[
+root@pirl-esxi-b3:/etc/vmware/ssl
+]
+cp
+rui.crt
+rui.crt.old
+[
+root@pirl-esxi-b3:/etc/vmware/ssl
+]
+cp
+rui.key
+rui.key.old
+Update the certificate and key in the ESXi
+ssh
+root@pirl-esxi-b3.cisco.com
+[
+root@pirl-esxi-b3:~
+]
+cd
+/etc/vmware/ssl/
+[
+root@pirl-esxi-b3:/etc/vmware/ssl
+]
+cp
+/pirl-esxi-b3.cisco.com-123520.cer
+rui.crt
+[
+root@pirl-esxi-b3:/etc/vmware/ssl
+]
+cp
+/pirl-esxi-b3.cisco.com.key
+rui.key
+[
+root@pirl-esxi-b3:/etc/vmware/ssl
+]
+/etc/init.d/hostd
+restart
+1. on the vCenter client,
+Disconnect
+the ESXi host from the vCenter and
+Reconnect
+it
+1. Check the new certificate's details:
+2022-09-01

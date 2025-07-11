@@ -1,0 +1,22 @@
+ArgoCD Prod eti-gitops-1
+¶
+Table of Contents
+-
+Setup instructions
+-
+Production Backup
+-
+Update Route53 A Record
+Update Route53 A Record
+¶
+Route53 Hosted Zone
+Look for argocd.prod.eticloud.io
+Update A record of eti-gitops-1 loadbalancer IP from runon
+Login to
+runon.cisco.com
+Select
+eti-gitops-1 project
+Navigate to
+Network->Floating IPs
+Grab the IP of "nginx"
+2022-05-02

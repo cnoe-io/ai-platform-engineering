@@ -1,0 +1,92 @@
+User guide
+¶
+TODO: rewrite this page
+harbor.eticloud.io usage
+¶
+Harbor Login
+¶
+Navigate to
+harbor.eticloud.io
+Login VIA OIDC PROVIDER
+Create Robot Account
+¶
+Replicate ECR and Helm
+¶
+Harbor CLI Login
+¶
+â¯ docker login harbor.eticloud.io
+Authenticating with existing credentials...
+Stored credentials invalid or expired
+Username (robot$etisre): robot$etisre
+Password:
+Login Succeeded
+Pull Containers
+¶
+â¯ docker pull harbor.eticloud.io/appn/wcmd:v0.5.0
+v0.5.0: Pulling from appn/wcmd
+ba3557a56b15: Pull complete
+8c70b5c98911: Pull complete
+a2b7e47e5c18: Pull complete
+Digest: sha256:a743fdb0144264375771ccfff72bd5c2024b7e0edc103e90fcea07c10a67aefd
+Status: Downloaded newer image for harbor.eticloud.io/appn/wcmd:v0.5.0
+harbor.eticloud.io/appn/wcmd:v0.5.0
+Pull Helm (OCI)
+¶
+â¯ docker login harbor.eticloud.io
+â¯ export HELM_EXPERIMENTAL_OCI=1
+â¯ helm chart pull harbor.eticloud.io/helm/wcm-cd@sha256:c6e439020e7667a5513c227e069d956dd3c50ecd528701c6eb1c58c8884a8a46*
+c6e439020e7667a5513c227e069d956dd3c50ecd528701c6eb1c58c8884a8a46: Pulling from harbor.eticloud.io/helm/wcm-cd@sha256 ref: harbor.eticloud.io/helm/wcm-cd@sha256:c6e439020e7667a5513c227e069d956dd3c50ecd528701c6eb1c58c8884a8a46 digest: c6e439020e7667a5513c227e069d956dd3c50ecd528701c6eb1c58c8884a8a46 size: 886 B name: wcm-cd version: 2021.02.16-2ea3493-18 Status: Downloaded newer chart for harbor.eticloud.io/helm/wcm-cd@sha256:c6e439020e7667a5513c227e069d956dd3c50ecd528701c6eb1c58c8884a8a46
+Install oras and login
+¶
+Reference:
+Oras
+curl
+-LO
+https://github.com/deislabs/oras/releases/download/v0.11.1/oras_0.11.1_darwin_amd64.tar.gz
+tar
+-xvf
+oras_0.11.1_darwin_amd64.tar.gz
+mv
+oras
+/usr/local/bin/
+oras
+login
+harbor.eticloud.io
+Username:
+robot
+$etisre
+Password:
+Login
+Succeeded
+Push Binaries
+¶
+echo
+"{\"name\":\"foo\",\"value\":\"bar\"}"
+>
+config.json**
+oras
+push
+--manifest-config
+config.json:application/vnd.me.config
+harbor.eticloud.io/binaries/wcm:1.0
+./wcmctl_0.0.5-PR.47_linux_amd64.tar.gz**
+Uploading
+53eb9f950e6f
+wcmctl_0.0.5-PR.47_linux_amd64.tar.gz
+Pushed
+harbor.eticloud.io/binaries/wcm:1.0
+Digest:
+sha256:22717931b8e990ecb35ee99669a68d4c0408243f16c7c01905d1a6509a307a72
+Pull Binaries
+¶
+oras
+pull
+harbor.eticloud.io/binaries/wcmctl:0.0.5
+Downloaded
+53eb9f950e6f
+wcmctl_0.0.5-PR.47_linux_amd64.tar.gz
+Pulled
+harbor.eticloud.io/binaries/wcmctl:0.0.5
+Digest:
+sha256:22717931b8e990ecb35ee99669a68d4c0408243f16c7c01905d1a6509a307a72
+2022-08-16

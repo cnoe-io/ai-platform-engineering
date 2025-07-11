@@ -1,0 +1,317 @@
+VMware Fiber Channel Storage configuration
+¶
+Context
+¶
+VMFS storage disks instances (LUNs)
+have been created on the NetApp cluster to store the virtual machine files.
+The aim here is to make the LUNs visible and accessible to the newly added ESXi host through its virtual NICs (HAB1 & HBA2) over a fiber channel storage area network (SAN) that connects our hosts to those storage devices so that they can use them as addtionnal datastores to store files.
+To do that we need to:
+Create & configure VSANs
+on the fiber channel switches (PIRL-NXS-A & PIRL-NXS-B) to allow connection between the ESXi hosts and the storage devices
+Configure zoning
+on the switches using the device-alias method to control access to the target datastores
+Add connection initiators:
+in the NetApp cluster management interface, the host's vNICs (HBA1 & HBA2) as connection initiators to the LUNs using their
+World Wide Port Names (WWPN)
+vSAN Configuration steps
+¶
+Check the VSANs:
+In our case, two VSANs are already created to allow access from our ESXi hosts to the target storage devices. To check the list of created VSANs, tape the following command:
+PIRL-NXS-A
+# show vsan
+vsan
+1
+information
+name:VSAN0001
+state:active
+interoperability
+mode:default
+loadbalancing:src-id/dst-id/oxid
+operational
+state:down
+vsan
+100
+information
+name:PIRL-DATA-100
+state:active
+interoperability
+mode:default
+loadbalancing:src-id/dst-id/oxid
+operational
+state:up
+vsan
+101
+information
+name:PIRL-DATA-101
+state:active
+interoperability
+mode:default
+loadbalancing:src-id/dst-id/oxid
+operational
+state:up
+vsan
+4079
+:evfp_isolated_vsan
+vsan
+4094
+:isolated_vsan
+The
+PIRL-DATA-100
+VSAN has been created on both switches to represent the path from the source host (ESXi host) to the target (PIRL-NETAPP-1) through the host's HBA1 vNIC
+The
+PIRL-DATA-101
+VSAN has also been created on both switches to represent the path from the source ESXi host to the target storage device PIRL-NETAPP-2 through the host's HBA2 vNIC. To create a VSAN on the switch follow the steps below:
+PIRL-NXS-A
+# conf t
+PIRL-NXS-A
+(
+config
+)
+# vsan database
+PIRL-NXS-A
+(
+config-vsan-db
+)
+# vsan vsan_number name vsan_name
+Configure Zoning using the device-alias method
+Zoning allow control access to the target storage devices. Zones are contained in the VSANs. Within a VSAN only the members (devices) of the same zone can access each other (like in VLANs). To specify zone membership, we create device aliases and link it to the devices Port World Wide Names (WWPN). A device alias can be mapped to only one WWPN. Typically the target storage device will identify the source host by its HBA's WWPN.
+To determine your host's WWPN, connect to the UCS Manager interface, select the host then in the central pane navigate to Inventory/HBAs.
+To configure zoning on the switch using device alias method, follow the steps below:
+create the device-alias and map it to one of the host's vNICs pWWN (HBA1's pWWN)
+PIRL-NXS-A
+# conf t
+PIRL-NXS-A
+(
+config
+)
+# device-alias database
+PIRL-NXS-A
+(
+config-device-alias-db
+)
+# device-alias name PIRL-ESXI-B8 pwwn 20:0a:41:25:b5:00:00:0c
+PIRL-NXS-A
+(
+config-device-alias-db
+)
+# device-alias commit
+Create the zone in which will be registered all the members of that zone within the VSAN
+PIRL-NXS-A
+# configure
+PIRL-NXS-A
+(
+config
+)
+# zoneset name zoneset_name vsan vsan_id
+PIRL-NXS-A
+(
+config-zoneset
+)
+# zone name zone_name
+PIRL-NXS-A
+(
+config-zone
+)
+# zoneset activate zone_name vsan_id
+In our case no need to create a new zone as there is already one created for our ESXi hosts and target NetApps. To list the zones and their membership tape the command:
+PIRL-NXS-A
+# show zone
+zone
+name
+PIRL-ESXI
+vsan
+100
+pwwn
+20
+:01:00:a0:98:80:3e:41
+[
+PIRL-NETAPP-A
+]
+pwwn
+20
+:07:00:a0:98:80:3e:41
+[
+PIRL-NETAPP-B
+]
+pwwn
+20
+:0a:41:25:b5:00:00:0b
+[
+PIRL-ESXI-B4
+]
+pwwn
+20
+:0a:41:25:b5:00:00:02
+[
+PIRL-ESXI-B2
+]
+pwwn
+20
+:0a:41:25:b5:00:00:03
+[
+PIRL-ESXI-B1
+]
+pwwn
+20
+:0a:41:25:b5:00:00:04
+[
+PIRL-ESXI-B5
+]
+pwwn
+20
+:0a:41:25:b5:00:00:05
+[
+PIRL-ESXI-B6
+]
+pwwn
+20
+:0a:41:25:b5:00:00:06
+[
+PIRL-ESXI-B7
+]
+pwwn
+20
+:03:00:a0:98:80:3e:41
+[
+PIRL-NETAPP-DATA-101-A
+]
+pwwn
+20
+:0a:41:25:b5:00:00:13
+[
+PIRL-ESXI-B3
+]
+As you can see in the output the newly added host PIRL-ESXI-B8 is not yet a member of the zone so it will not be able to communicate with the NetApps.
+Add our ESXi host as a member of the PIRL-ESXI zone within the VSAN 100
+PIRL-NXS-A
+# configure
+PIRL-NXS-A
+(
+config
+)
+# zone name PIRL-ESXI vsan 100
+PIRL-NXS-A
+(
+config-zone
+)
+# member pwwn 20:0a:41:25:b5:00:00:0c
+Check the zone membership:
+PIRL-NXS-A
+# show zone
+zone
+name
+PIRL-ESXI
+vsan
+100
+pwwn
+20
+:01:00:a0:98:80:3e:41
+[
+PIRL-NETAPP-A
+]
+pwwn
+20
+:07:00:a0:98:80:3e:41
+[
+PIRL-NETAPP-B
+]
+pwwn
+20
+:0a:41:25:b5:00:00:0b
+[
+PIRL-ESXI-B4
+]
+pwwn
+20
+:0a:41:25:b5:00:00:0c
+[
+PIRL-ESXI-B8
+]
+pwwn
+20
+:0a:41:25:b5:00:00:02
+[
+PIRL-ESXI-B2
+]
+pwwn
+20
+:0a:41:25:b5:00:00:03
+[
+PIRL-ESXI-B1
+]
+pwwn
+20
+:0a:41:25:b5:00:00:04
+[
+PIRL-ESXI-B5
+]
+pwwn
+20
+:0a:41:25:b5:00:00:05
+[
+PIRL-ESXI-B6
+]
+pwwn
+20
+:0a:41:25:b5:00:00:06
+[
+PIRL-ESXI-B7
+]
+pwwn
+20
+:03:00:a0:98:80:3e:41
+[
+PIRL-NETAPP-DATA-101-A
+]
+pwwn
+20
+:0a:41:25:b5:00:00:13
+[
+PIRL-ESXI-B3
+]
+Follow the same steps above for the host's second vNIC HBA2 using its WWPN mapping it to  a device alias, then create a zone and add the device alias as member of the zone within the VSAN 101 which provides connection from the host to the second storage device (PIRL-NETAPP-2) through the HBA2 adapter.
+Adding the ESXi host as a connection initiator to the LUNs. For that purpose, we need to add its vNICs to the initiator group using their WWPN:
+Connect to the NetApp management interface
+https://10.60.6.10/sysmgr/SysMgr.html
+.
+Find credentials here
+Select âStorage Virtual Machine then navigate to
+PIRL-DATA-100 >> Storage >> LUNs
+In the central pane select
+Initiator Groups
+then
+vmware_fc_100
+and click on
+edit
+In the pop-up window select
+Initiators
+, then click on
+add
+Add the host's two vNIC's
+Port World Wide Names
+Save and Close
+Rescan the host's storage adapters to discover the newly added datastores
+Connect to the vCenter vsphere Client
+http://pirl-vcenter.cisco.com/ui
+.
+Find credentials here
+Click on
+Hosts & Clusters
+then select the ESXi host
+From the central pane navigate to
+Configure
+,
+Storage Adapters
+Select
+vmhba1
+then note that there is no storage discovered storage device
+Click on
+Rescan Storage
+to discover the new storage devices
+Select
+vmhba2
+then rescan the adapter to discover the storage devices
+Click on
+Datastores
+then see the newly added Datastores
+2023-02-23

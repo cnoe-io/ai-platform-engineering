@@ -1,0 +1,30 @@
+Platform-Demo Operator Guide
+¶
+This is an example of an "
+On-Call Playbooks
+" page. It is operational best-practice to ensure that any alerts you configure for you application provides a link to its relevant "playbook" (aka "runbook") that explains what the alert means, and how it can be resolved by the on-call support.
+See Rob Ewaschuk's
+My Philosophy on Alerting
+for more alerting best-practices.
+Alert:
+platform-demo-down
+¶
+Tags: platform-demo-down
+Context
+¶
+This alert is triggered when the platform-demo app's
+self health-check
+determined that it was down.
+Resolution
+¶
+Check which of the service's dependencies are causing the service to fail:
+Navigate to the service's Grafana dashboard at TBD
+Check the
+Dependencies Health Check
+panel to identify which component is down
+Follow the playbook for that component to restore service
+Note
+: this is an
+example
+runbook for demo purposes only
+2024-02-27

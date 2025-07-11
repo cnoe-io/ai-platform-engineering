@@ -1,0 +1,39 @@
+approle
+jenkins
+vault plugin
+Jenkins Vault Plugin
+¶
+Background
+¶
+As described in the
+vault token rotation
+, SRE team implemented a custom vault token management mechanism.
+Vault auth methods like
+approle
+are now available without the need for a custom token management.
+Hashicorp supports a
+Jenkins plugin
+and
+GitHub Action
+based on approles
+Solution
+¶
+What: Use Jenkins vault plugin using per venture approle
+How:
+Approle consists of role-id, secret-id
+Jenkins vault plugin uses approle credentials to create temporary vault tokens to access secrets based on the policy
+When:
+Approles do not expire, but will be frequently rotated
+Where:
+Created as an approle per venture's vault namespace
+Stored in venture folder jenkins credential store
+Solution Diagram
+¶
+More detail
+¶
+More detail is available in the
+Vault Approle Creation and Use
+and
+AWS Secrets Engine Creation and Use
+.
+2023-07-31

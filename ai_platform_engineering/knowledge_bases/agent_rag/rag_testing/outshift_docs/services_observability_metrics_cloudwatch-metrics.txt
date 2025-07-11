@@ -1,0 +1,11 @@
+cloudwatch metrics
+Cloudwatch Metrics
+¶
+Overview
+¶
+Our platform consolidates AWS CloudWatch metrics from multiple accounts into the
+eticloud
+account. Here the metrics are pulled into our
+Central Grafana
+instance for easy access.
+2024-07-23

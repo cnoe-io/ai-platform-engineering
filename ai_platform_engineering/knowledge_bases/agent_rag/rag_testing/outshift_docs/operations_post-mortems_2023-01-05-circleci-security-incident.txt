@@ -1,0 +1,68 @@
+2023-01-05; SRE-3600; Rotate credentials stored on CircleCI
+¶
+Summary
+¶
+CircleCI requested to immediately rotate any and all secrets stored in CircleCI because of a security incident.
+More details available in the
+blog post
+.
+Table of Contents
+¶
+Summary
+When
+Timeline
+Impact
+System(s) impacted
+Teams impacted
+Analysis
+Takeaways
+When
+¶
+2023-01-05
+Timeline
+¶
+2023-01-05
+0338 CET - CircleCI has published the
+security alert
+1520 CET - SRE team noticed the alert and started to rotate credentials immediately
+1612 CET - All CircleCI organization level secrets stored in
+contexts
+were rotated
+2023-01-06 - All remaining secrets attached to individual CircleCI projects were rotated
+Impact
+¶
+System(s) impacted
+¶
+Open source
+CircleCI
+and
+Github Actions workflows under
+banzaicloud
+organization.
+Teams impacted
+¶
+Calisti
+Analysis
+¶
+Secrets in CircleCI contexts that has  been rotated:
+dockerhub/banzaibuild
+dockerhub/banzaihook
+snyk
+github/banzaicloud-build
+token: registry-write-for-circleci
+AWS Access Key (AKIASLLPMLXFJBEHAQRI)
+Individual projects that has the same secrets in environment variables (project level secrets):
+banzaicloud/bank-vaults-docs
+banzaicloud/istio-operator
+banzaicloud/one-eye-docs
+banzaicloud/crd-updater
+Dockerhub credentials were shared between CircleCI and Github Actions pipelines so it is replaced on
+GHA
+as well.
+Takeaways
+¶
+Possbile next steps:
+* Remove project level secrets, so rotating would be quicker, easier and more safer.
+* All remaining CircleCI projects should be migrated to GitHub Actions in the long term.
+  This could decrease the count of different places where we store credentials.
+2023-02-06

@@ -1,0 +1,48 @@
+Cloud Sandboxes Home
+¶
+Description
+¶
+Shared sandboxes are free-form access to cloud resources, with guard rails.
+Purpose
+¶
+Shared sandboxes are used when a team has pre-existing work product built outside of shared Kubernetes platforms (like k3s), for proofs-of-concept, and testing integrations with cloud-native resources. The resources created in shared sandboxes are generally intended to be ephemeral. If you would like to discuss how to enable more durable persistence in sandboxes, please reach out.
+Is a shared sandbox appropriate for our team?
+¶
+The use-cases above are the SRE team's most common experiences. If you fall outside one of those use-cases and think a shared sandbox would be helpful, please contact us:
+Webex Teams
+E-mail:
+eti-sre@cisco.com
+What value does a shared sandbox bring to our team?
+¶
+Security
+¶
+Cisco resources in the cloud are valuable. Shared sandboxes help you to build resources on a secure foundation, leveraging the resources of not only the SRE team, but the larger security community in Cisco, including Cloud9 and CSB.
+Cost control and management
+¶
+Costs in shared sandboxes are not directly your concern; however, the resource tagging built into the shared sandboxes allows you and us to quickly and effectively monitor and predict those costs.
+On-boarding
+¶
+Before you can begin creating resources, we must overcome some bureautechnical hurdles. These steps are dependent on the more generic
+venture on-boarding
+.
+Venture tasks
+¶
+Ensure access to
+https://wwwin-github.cisco.com
+SRE tasks
+¶
+Create infrastructure repository in GitHub
+Clone from sre-tf-group-team-infra
+Naming convention is sre-tf-
+-
+-infra
+Ensure the proper teams have access to the repository, including the automation teams.
+Set up the webhook for Atlantis
+Set up Hosted Zone in AWS for sub-domain
+Combined tasks
+¶
+Update Terraform code with group name, team name, and DNS Hosted Zone
+Update
+atlantis.yaml
+Walk through updating Terraform code and using Atlantis
+2022-05-12

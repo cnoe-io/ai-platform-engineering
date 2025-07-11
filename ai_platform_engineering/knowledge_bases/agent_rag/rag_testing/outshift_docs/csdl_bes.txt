@@ -1,0 +1,242 @@
+bes
+build environment security
+Build Environment Security Evidence
+¶
+Build Environment Security (BES)
+controls are meant to secure all elements involved in the building, authentication, and signing of software across all domains (cloud, embedded, or application).
+BES creates specification & architecture that defines a build environment that is Hardened, Segmented, Trusted, and Monitored.
+BES specification roughly follows
+SLSA Framework
+SLSA: Supply chain Levels for Software Artifacts
+Also look at:
+ETI SRE Pipeline Benefits
+BES
+¶
+BES Evidence Submission Link
+Priority
+Control
+Description
+ETI SRE Evidence
+10
+CT2171: BES-REG-ENV: Build Environment Registration
+BES-REG-ENV
+Evidence: BES-REG-ENV
+10
+CT2163: BES-INF-LOG: Build Environment Logging
+BES-INF-LOG
+Evidence: BES-INF-LOG
+10
+CT2162: BES-INF-HARDEN: Build Host Hardening
+BES-INF-HARDEN
+Evidence: BES-INF-HARDEN
+10
+CT2154: BES-BLD-SCRIPTED: Scripted Build Process
+BES-BLD-SCRIPTED
+Evidence: BES-BLD-SCRIPTED
+10
+CT2153: BES-BLD-PROCESS: Consistent Build Process
+BES-BLD-PROCESS
+Evidence: BES-BLD-PROCESS
+10
+CT2147: BES-ACC-SECRETS: Build Environment Secrets Management
+BES-ACC-SECRETS
+Evidence: BES-ACC-SECRETS
+10
+CT2146: BES-ACC-LOGIN: Build Environment Interactive Logins
+BES-ACC-LOGIN
+Evidence: BES-ACC-LOGIN
+10
+CT2144: BES-ACC-GENERIC: Build Environment Generic Users
+BES-ACC-GENERIC
+Evidence: BES-ACC-LOGIN
+9
+CT2174: BES-SRC-PROTECT: Protected Source Code Branches
+BES-SRC-PROTECT
+Evidence: BES-SRC-PROTECT
+9
+CT2172: BES-SRC-DEPS: Document Build Dependencies
+BES-SRC-DEPS
+Evidence: BES-SRC-DEPS
+9
+CT2167: BES-INF-REPO: Secure Source Code Server
+BES-INF-REPO
+Evidence: BES-INF-REPO
+9
+CT2165: BES-INF-MON: Build Environment Monitoring
+BES-INF-MON
+Evidence: BES-INF-MON
+9
+CT2164: BES-INF-MALWARE: Build Host Malware Protection
+BES-INF-MALWARE
+Evidence: BES-REG-ENV
+9
+CT2161: BES-INF-ENV: Secure Build Environment
+BES-INF-ENV
+Evidence: BES-INF-ENV
+9
+CT2159: BES-INF-BACKUP: Source Code Backup
+BES-INF-BACKUP
+Evidence: BES-INF-BACKUP
+9
+CT2155: BES-BLD-SERVICE: Build Service
+BES-BLD-SERVICE
+Evidence: BES-BLD-SERVICE
+9
+CT2149: BES-BLD-DIAGRAM: Build Environment Architecture Diagram
+BES-BLD-DIAGRAM
+Evidence: BES-BLD-DIAGRAM
+9
+CT2145: BES-ACC-IDENT: Build Environment Identity Management
+BES-ACC-IDENT
+Evidence: BES-ACC-IDENT
+8
+CT2168: BES-INF-SEGMENT: Build Environment Network Segmentation
+BES-INF-SEGMENT
+Evidence: BES-INF-SEGMENT
+8
+CT2166: BES-INF-POSTURE: Build Host Posture Validation
+BES-INF-POSTURE
+Evidence: BES-INF-POSTURE
+8
+CT2160: BES-INF-ENCRYPT: Build Environment Disk Encryption
+BES-INF-ENCRYPT
+Evidence: BES-INF-ENCRYPT
+8
+CT2158: BES-BLD-TOOL: Verified Build Toolchain
+BES-BLD-TOOL
+Evidence: BES-BLD-TOOL
+8
+CT2156: BES-BLD-SIGN: Build Environment Image Signing
+BES-BLD-SIGN
+Evidence: BES-BLD-SIGN
+8
+CT2152: BES-BLD-PIPE: Build Pipeline as Code
+BES-BLD-PIPE
+Evidence: BES-BLD-PIPE
+8
+CT2151: BES-BLD-ISOLATE: Build Environment Isolation
+BES-BLD-ISOLATE
+Evidence: BES-BLD-ISOLATE
+8
+CT2150: BES-BLD-EPHEMERAL: Ephemeral Build Host
+BES-BLD-EPHEMERAL
+Evidence: BES-BLD-EPHEMERAL
+8
+CT2148: BES-BLD-ARTIFACT: Build Environment Artifact Storage
+BES-BLD-ARTIFACT
+Evidence: BES-BLD-ARTIFACT
+8
+CT2143: BES-ACC-AUDIT: Build Environment Access Audit
+BES-ACC-AUDIT
+Evidence: BES-ACC-AUDIT
+ETI SRE Evidence
+¶
+CT2171: BES-REG-ENV: Build Environment Registration
+¶
+ESP Registration
+:
+ETI_SRE_JENKINS_PLATFORM ESP Registration
+ETI Github Actions
+Retired
+:
+ETI Build and Deploy Pipeline
+Reference:
+SRE-4327
+CT2163: BES-INF-LOG: Build Environment Logging
+¶
+Todo:
+SRE-4313
+References:
+Jenkins Monitoring
+¶
+Jenkins Health (SSO Login)
+Jenkins Node Monitoring (SSO Login)
+CT2162: BES-INF-HARDEN: Build Host Hardening
+¶
+Reference:
+Jenkins Nodes/Build Host Overview
+CT2156: BES-BLD-SIGN: Build Environment Image Signing
+¶
+Todo:
+SRE-4369
+CT2154: BES-BLD-SCRIPTED: Scripted Build Process
+¶
+Reference:
+sre-pipeline-library
+Pipeline Build Stage
+CT2153: BES-BLD-PROCESS: Consistent Build Process
+¶
+Reference:
+Jenkins Build Process Overview
+CT2147: BES-ACC-SECRETS: Build Environment Secrets Management
+¶
+Pipeline library Secrets management
+Jenkins Credential Management
+(Preferred) Vault Approle Authentication
+Credential Store
+Vault Token Rotation
+CT2146: BES-ACC-LOGIN: Build Environment Interactive Logins
+¶
+TODO:
+SRE-4317
+Cisco IT managed Enterprise GitHub (wwwin-github.cisco.com)
+Cisco SSO Integrated
+EngIT Jenkins
+Cisco AD/SSO Integrated
+CT2144: BES-ACC-GENERIC: Build Environment Generic Users
+¶
+ETI Generic users guide
+Build Pipeline Generic User
+eti-sre-cicd.gen
+CT2174: BES-SRC-PROTECT: Protected Source Code Branches
+¶
+wwwin-github protected branches
+CT2172: BES-SRC-DEPS: Document Build Dependencies
+¶
+CT2167: BES-INF-REPO: Secure Source Code Server
+¶
+CT2165: BES-INF-MON: Build Environment Monitoring
+¶
+Jenkins Health (SSO Login)
+Jenkins Node Monitoring (SSO Login)
+Jenkins Job Stats
+CT2164: BES-INF-MALWARE: Build Host Malware Protection
+¶
+CT2161: BES-INF-ENV: Secure Build Environment
+¶
+CT2159: BES-INF-BACKUP: Source Code Backup
+¶
+CT2155: BES-BLD-SERVICE: Build Service
+¶
+ETI Jenkins - CiscoIT Cloudbees Jenkins Instance docs
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/
+CT2149: BES-BLD-DIAGRAM: Build Environment Architecture Diagram
+¶
+Reference:
+sre-pipeline-library
+CT2145: BES-ACC-IDENT: Build Environment Identity Management
+¶
+CT2168: BES-INF-SEGMENT: Build Environment Network Segmentation
+¶
+CT2166: BES-INF-POSTURE: Build Host Posture Validation
+¶
+CT2160: BES-INF-ENCRYPT: Build Environment Disk Encryption
+¶
+CT2158: BES-BLD-TOOL: Verified Build Toolchain
+¶
+CT2152: BES-BLD-PIPE: Build Pipeline as Code
+¶
+sre-pipeline-library
+CT2151: BES-BLD-ISOLATE: Build Environment Isolation
+¶
+CT2150: BES-BLD-EPHEMERAL: Ephemeral Build Host
+¶
+Docker Build Agent
+CT2148: BES-BLD-ARTIFACT: Build Environment Artifact Storage
+¶
+Todo:
+Add more details
+ETI Artifact Matrix
+CT2143: BES-ACC-AUDIT: Build Environment Access Audit
+¶
+2023-10-04

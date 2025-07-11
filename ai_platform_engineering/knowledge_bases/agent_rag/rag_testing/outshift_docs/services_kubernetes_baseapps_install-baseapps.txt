@@ -1,0 +1,735 @@
+baseapps jenkins job
+baseapps on k8s
+deploy baseapps
+install baseapps on kubernetes
+sre-baseapps
+Install baseapps to k8s
+¶
+0. Prerequisites
+¶
+Note
+Make sure you have a working cluster to deploy to, and that it has been added in argocd via the
+Adding New Cluster
+process.
+[Preferred installation method]
+This process is automated with
+this baseapps self service Jenkins job
+using
+sre-baseapps
+repo (configured
+here
+). The below describes a step by step process to deploy baseapps.
+Make sure to have either
+gsed
+or
+sed
+installed on your machine.
+brew
+install
+gsed
+brew
+install
+vault
+brew
+install
+jq
+Configuration shards
+¶
+Note
+Baseapps configs repos are sharded based on the projects (CNAPP, GenAI, Common, ArgoCD Bootstrap). Please select the appropriate
+config repo
+based on your project.
+Clone the appropriate
+sre-baseapps-configs
+based on the
+note
+above and change directory to that repo, as well as the
+sre-baseapps-config-shared
+repository.
+git
+clone
+git@github.com:cisco-eti/sre-baseapps-configs.git
+# or any other corresponding shard
+git
+clone
+git@github.com:cisco-eti/sre-baseapps-configs-cnapp.git
+export
+SRE_BASEAPPS_CONFIGS_ROOT_DIR
+=
+"
+$(
+pwd
+)
+/sre-baseapps-configs"
+# or any other corresponding shard e.g."$(pwd)/sre-baseapps-configs-cnapp"
+export
+SRE_BASEAPPS_CONFIGS_SHARED_DIR
+=
+"
+$(
+pwd
+)
+/sre-baseapps-configs-shared"
+cd
+$SRE_BASEAPPS_CONFIGS_ROOT_DIR
+ArgoCD cluster add
+¶
+Add cluster to the corresponding ArgoCD instance
+List of instances
+Tip
+Login to
+argocd cli
+as admin first
+argocd admin passwords
+- for each ArgoCD instance
+argocd
+login
+argocd.prod.eticloud.io
+argocd
+login
+argocd-cnapp.eticloud.io
+...
+# similar login process for genai and other ArgoCD installations
+Tip
+Setup K8s context
+or
+K8s Shell helper
+export
+CLUSTER_NAME
+=
+<your
+cluster
+name>
+argocd
+cluster
+add
+$CLUSTER_NAME
+--name
+$CLUSTER_NAME
+Sample Output:
+â¯ argocd cluster add $CLUSTER_NAME --name $CLUSTER_NAME
+WARNING: This will create a service account `argocd-manager` on the cluster referenced by context `baseapps-test-1` with full cluster level privileges. Do you want to continue [y/N]? y
+INFO[0003] ServiceAccount "argocd-manager" created in namespace "kube-system"
+INFO[0003] ClusterRole "argocd-manager-role" created
+INFO[0003] ClusterRoleBinding "argocd-manager-role-binding" created
+INFO[0009] Created bearer token secret for ServiceAccount "argocd-manager"
+Cluster 'https://89FE76FE567F158E3C35F617E7430F6C.gr7.us-east-2.eks.amazonaws.com' added
+:
+Retrieve API address for the Kubernetes baseapps will be installed onto.
+export
+KUBERNETES_API_SERVER_ADDRESS
+=
+$(
+argocd
+cluster
+list
+-o
+json
+--grpc-web
+|
+jq
+-r
+--arg
+CLUSTER_NAME
+"
+$CLUSTER_NAME
+"
+'.[] | select(.name==$CLUSTER_NAME)'
+|
+jq
+-r
+'.server'
+)
+export
+AWS_REGION
+=
+$(
+echo
+$KUBERNETES_API_SERVER_ADDRESS
+|
+cut
+-d
+"."
+-f
+3
+)
+Sample Output:
+â¯
+echo
+$KUBERNETES_API_SERVER_ADDRESS
+"https://89FE76FE567F158E3C35F617E7430F6C.gr7.us-east-2.eks.amazonaws.com"
+:
+dev/staging/prod environments.
+export
+DEPLOYMENT_ENVIRONMENT
+=
+"dev"
+:
+This could be
+eticloud.io
+,
+panoptica.app
+, etc... More info on choosing domains in
+this ADR
+.
+export
+DOMAIN
+=
+"panoptica.app"
+current chart version for the
+kubernetes-baseapps
+helm chart from the
+kubernetes-baseapps
+repository.
+export
+KUBERNETES_BASEAPPS_CHART_VERSION
+=
+"<kubernetes-baseapps-chart-version>"
+1. Create baseapps folder for the cluster
+¶
+Create a subdirectory in the
+sre-baseapps-configs*
+instance repository within
+clusters
+by
+copying from
+_generic_example
+to
+$CLUSTER_NAME
+from the
+sre-baseapps-configs-shared
+repository.
+cd
+$SRE_BASEAPPS_CONFIGS_ROOT_DIR
+/clusters
+Copy
+_generic_example
+to target cluster folder
+cp -r $SRE_BASEAPPS_CONFIGS_SHARED_DIR/_generic_example $CLUSTER_NAME
+cd $CLUSTER_NAME
+Tip
+Login to
+AWS cli
+first
+duo-sso
+Find AWS Account ID for the EKS cluster
+export
+AWS_PROFILE
+=
+<aws-profile>.
+# account where the EKS cluster lives
+export
+AWS_ACCOUNT_ID
+=
+$(
+aws
+--profile
+$AWS_PROFILE
+sts
+get-caller-identity
+--query
+"Account"
+--output
+text
+)
+Find Cluster ID for the EKS cluster
+export
+CLUSTER_ID
+=
+$(
+echo
+$KUBERNETES_API_SERVER_ADDRESS
+|
+cut
+-c
+9
+-40
+)
+Search and replace all placeholders
+find ./ -type f -exec gsed -i "s/CHANGE_ME/$CLUSTER_NAME/g" {} \;
+find ./ -type f -exec gsed -i "s/AWS_ACCOUNT_ID/$AWS_ACCOUNT_ID/g" {} \;
+find ./ -type f -exec gsed -i "s/AWS_REGION/$AWS_REGION/g" {} \;
+find ./ -type f -exec gsed -i "s/CLUSTER_ID/$CLUSTER_ID/g" {} \;
+find ./ -type f -exec gsed -i "s/DEPLOYMENT_ENVIRONMENT/$DEPLOYMENT_ENVIRONMENT/g" {} \;
+find ./ -type f -exec gsed -i "s/DOMAIN/$DOMAIN/g" {} \;
+Note
+This folder will be used to create the ArgoCD application that manages the baseapps configuration of the target cluster
+2. Create Instance Configuration
+¶
+ArgoCD uses an applicationset with a git file generator to provision instances of the baseapp deployments. This generator requires the presence of a
+config.json
+file.
+Inside the folder you created above, add a
+config.json
+file with the cluster details in from the prerequisites.
+Tip
+Refer to the values gathered in pre-requisite section
+cd
+$SRE_BASEAPPS_CONFIGS_ROOT_DIR
+/clusters/
+$CLUSTER_NAME
+/
+cat
+<<EOF > config.json
+{
+"baseapps_chart_version": "$KUBERNETES_BASEAPPS_CHART_VERSION",
+"cluster_address": "$KUBERNETES_API_SERVER_ADDRESS",
+"deployment_environment": "$DEPLOYMENT_ENVIRONMENT"
+}
+EOF
+Baseapps are a helm chart that uses a
+values.yaml
+file (as would any other helm chart), so create it as well:
+export
+BASEAPPS_REPO
+=
+$(
+echo
+$SRE_BASEAPPS_CONFIGS_ROOT_DIR
+|
+rev
+|
+cut
+-d
+"/"
+-f
+1
+|
+rev
+)
+cat
+<<EOF > values.yaml
+baseAppRepoURL: https://github.com/cisco-eti/$BASEAPPS_REPO
+baseapps: {}
+EOF
+Fill in the
+baseapps:
+map with the required configuration. More information
+here
+3. Create an ArgoCD Project for baseapps
+¶
+ArgoCD projects create logical grouping of applications. They also provide RBAC controls for specific clusters and namespaces. For baseapps to install to the target cluster, we will create a project that is
+just scoped
+to the specific target cluster name
+Navigate to
+projects
+directory under
+sre-baseapp-configs*
+Add project yaml in that
+projects
+directory
+Example project yaml
+cd
+$SRE_BASEAPPS_CONFIGS_ROOT_DIR
+/projects
+cat
+<<EOF > $CLUSTER_NAME.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+name: $CLUSTER_NAME
+namespace: argocd
+spec:
+clusterResourceWhitelist:
+- group: '*'
+kind: '*'
+description: $CLUSTER_NAME kubernetes baseapps
+destinations:
+- name: '*'
+namespace: '*'
+server: $KUBERNETES_API_SERVER_ADDRESS
+- name: '*'
+namespace: argocd
+server: https://kubernetes.default.svc
+namespaceResourceWhitelist:
+- group: '*'
+kind: '*'
+sourceRepos:
+- https://github.com/cisco-eti/$BASEAPPS_REPO
+- https://github.com/cisco-eti/sre-baseapps-configs-shared
+- https://chartmuseum.prod.eticloud.io
+status: {}
+EOF
+4. Git commit, PR and merge changes
+¶
+PR and commit all the changes after approval.
+cd
+$SRE_BASEAPPS_CONFIGS_ROOT_DIR
+git
+checkout
+-b
+$CLUSTER_NAME
+||
+git
+checkout
+$CLUSTER_NAME
+git
+add
+.
+git
+commit
+-m
+"feat: add
+$CLUSTER_NAME
+baseapps"
+git
+push
+origin
+$CLUSTER_NAME
+Once the project yaml has been committed, there is an
+ArgoCD job that automatically creates the projects
+5. Verify baseapps are installed
+¶
+Argocd automation will automatically pick-up the cluster configuration and will start deploying baseapps to target cluster
+ArgoCD Link
+Note
+Some applications take time to sync, so please be patient, in some cases you may face errors, please refer to
+troubleshooting document
+for more details.
+Baseapps sync order
+¶
+Note
+All apps in the same sync group will sync at once. ArgoCD will wait until 100% of the sync group is healthy before proceeding to the next group
+Sync Group 1:
+prometheus-operator-crds
+¶
+There is no additional configuration needed to install this helm chart
+Verify Prometheus CRDs are installed on the cluster
+kubectl get crds | grep -i servicemonitor
+Sample Output:
+servicemonitors.monitoring.coreos.com            2023-08-28T16:28:59Z
+More details on
+prometheus-operator-crds here
+Sync Group 1: eks-ebs-storage
+¶
+There is no additional configuration needed to install this helm chart
+Verify
+custom storageclasses
+are installed on the cluster
+kubectl get storageclass -A
+NAME               PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+ebs-sc (default)   kubernetes.io/aws-ebs   Retain          WaitForFirstConsumer   true                   4d19h
+eti-ebs-gp2        kubernetes.io/aws-ebs   Retain          Immediate              true                   4d19h
+gp2                kubernetes.io/aws-ebs   Delete          WaitForFirstConsumer   false                  7d8h
+Caution
+If there are multiple
+default
+storageclasses selected, please remove/reconfigure the oldest one to no longer be the default. In most cases you will see
+gp2
+as
+default
+in addition to
+ebs-sc
+.
+Following command removes annotation on
+gp2
+storage class. Minus at the end denotates removal:
+kubectl
+annotate
+storageclasses.storage.k8s.io
+gp2
+storageclass.kubernetes.io/is-default-class-
+Execute kubectl to verify if the annotation is removed.
+kubectl
+get
+sc
+gp2
+-o
+yaml
+Sync Group 1: reloader
+¶
+There is no additional configuration needed to install this helm chart
+Verify reloader chart is installed on the cluster
+kubectl
+get
+deployments
+-n
+reloader
+Sample Output:
+NAME
+READY
+UP-TO-DATE
+AVAILABLE
+AGE
+baseapps-test-1-reloader-reloader
+1
+/1
+1
+1
+13m
+More details on reloader
+here
+Sync Group 2: external-secrets
+¶
+Connect your cluster to keeper (vault)
+¶
+THe new way with
+terraform
+(preferable)
+OR
+Run
+this
+script as such:
+VAULT_TOKEN=<YOUR VAULT_TOKEN FROM KEEPER> VAULT_NAMESPACE=eticloud ./argocd_external_secrets.sh $CLUSTER_NAME
+Note
+External Secrets Operator (ESO)
+should be installed on the cluster before you do this configuration , it is included by default in the
+baseapps
+chart.
+Follow the steps described in
+How-to configure external-secrets
+docs to enable External Secrets in the newly created k8s cluster to access Keeper.
+This above configuration will enable the External Secrets Operator (ESO) to fetch secrets from our
+Keeper/Vault
+secrets storage backend.
+Tip
+Verify external-secrets are working before you proceed
+Sync Group 2: ingress-nginx & ingress-nginx-internal
+¶
+ArgoCD Application is fully synced
+Nginx service has a AWS loadbalancer.
+Verify ingress-nginx
+kubectl get service ingress-nginx-controller -n ingress-nginx -o json | jq -r '.status.loadBalancer.ingress[0].hostname'
+Example output:
+a2444b7c3cb0e412ebdafa8030f07cfb-1554082946.eu-west-1.elb.amazonaws.com
+Verify ingress-nginx-internal
+kubectl get service ingress-nginx-internal-controller -n ingress-nginx-internal -o json | jq -r '.status.loadBalancer.ingress[0].hostname'
+Example Output:
+aae99ef6150d64fb793eea45c4e4697a-105860747.eu-west-1.elb.amazonaws.com
+Potential Bug
+If seeing this error:
+Internal error occurred: failed calling webhook "validate.nginx.ingress.kubernetes.io": failed to call webhook: Post "https://ingress-nginx-controller-admission.ingress-nginx.svc:443/networking/v1/ingresses?timeout=10s": tls: failed to verify certificate: x509: certificate signed by unknown authority
+Try deleting and recreating the ingress services.  If the error persists this patch may solve the problem:
+CA=$(kubectl -n ingress-nginx get secret ingress-nginx-admission -ojsonpath='{.data.ca}')
+kubectl patch validatingwebhookconfigurations ingress-nginx-admission --type='json' -p='[{"op": "add", "path": "/webhooks/0/clientConfig/caBundle", "value":"'$CA'"}]'
+There is a known issue that can be followed here:
+https://github.com/kubernetes/ingress-nginx/issues/5968
+Sync Group 3: aws-load-balancer-controller
+¶
+Verify that the ArgoCD Application is fully synced and configure the following steps
+Copy the
+eks-alb-iam example files
+into a new folder in
+sre-tf-infra
+and modify the necessary fields.
+Example Implementation
+Update the
+atlantis.yaml
+file with the project information.
+Use Atlantis
+to apply the Terraform.
+After applying the terraform code via atlantis, annotate the alb controllerservice account
+Update via ArgoCD via the AWS ALB Controller
+values.yaml
+file.
+Go to your cluster folder in
+sre-baseapps-configs/clusters/<your cluster name>/aws-load-balancer-controller/values.yaml
+and modify the following lines:
+aws-load-balancer-controller
+:
+clusterName
+:
+<your cluster name>
+region
+:
+<the cluster region>
+vpcId
+:
+<the VPC ID of the cluster VPC>
+serviceAccount
+:
+name
+:
+aws-load-balancer-controller
+annotations
+:
+<the IAM ARN from the steps above>
+Restart the Deployment of the AWS ALB Controller ReplicaSet via the ArgoCD interface or via CLI with:
+# Make sure you have the correct kubectl context!
+export
+DEPLOYMENT
+=
+`
+k
+get
+deployments
+-n
+kube-system
+-o
+=
+jsonpath
+=
+'{range .items[*]}{.metadata.name}{"\n"}{end}'
+|
+egrep
+aws
+`
+echo
+$DEPLOYMENT
+kubectl
+rollout
+restart
+deployment
+$DEPLOYMENT
+-n
+kube-system
+Sync Group 3: cert-manager
+¶
+ArgoCD Application is fully synced
+Verify
+clusterissuers
+are in ready
+true
+state
+kubectl
+get
+clusterissuers.cert-manager.io
+-A
+Sample Output:
+NAME                  READY   AGE
+letsencrypt           True    11h
+letsencrypt-staging   True    11h
+Sync Group 3: external-dns
+¶
+ArgoCD Application is fully synced
+Sync Group 3: imagepullsecrets
+¶
+kubectl
+get
+imagepullsecrets
+-n
+imagepullsecrets
+Example output:
+NAME            STATE   RECONCILED   VALIDITY SECONDS   SECRET NAME   NAMESPACES
+imps-eticloud   Ready   3m44s        43199              regcred       ["canary-test-private","canary-test-public"]
+kubectl
+get
+secrets
+-A
+|
+grep
+regcred
+Example output:
+canary-test-private            regcred                                    kubernetes.io/dockerconfigjson        1      4d17h
+canary-test-public             regcred                                    kubernetes.io/dockerconfigjson        1      4d17h
+Note
+The secret list
+kubectl get imagepullsecrets -n imagepullsecrets -o json | jq '.items[0].status.managedNamespaces'
+should match the namespaces configured in the imagepullsecrets custom resource
+Sync Group 4: Kube-prometheus-stack
+¶
+The grafana instance should be accessible via
+https://observability-<clustername>-<environment>.eticloud.io
+. Domain name may be different depending on project or venture.
+Login should be done via SSO see the
+Kube Prometheus Stack Documentation
+for instructions on setting up an OIDC application and callback.
+ArgoCD application is fully synced
+Check Kubernetes resource statuses in ArgoCD
+Check pod logs for errors
+Sync Group 4: appdynamics-operators
+¶
+Update the cluster name in the values.yaml
+ArgoCD Application is fully synced
+Sync Group 4: appdynamics-collectors
+¶
+Login to Keeper Vault
+export VAULT_ADDR=https://keeper.cisco.com
+export VAULT_NAMESPACE=eticloud
+export VAULT_TOKEN=$(vault login -method=oidc -format=json | jq -r .auth.client_token)
+Execute AppDynamics
+manage-clusters.py
+script from the sre-utilities repo using the syntax in the example below. Required python libraries can be installed with
+pip install -r requirements.txt
+from the same directory.
+Have the cluster name available.
+Know the environment (preprod, or prod)
+â¯ python ./manage-clusters.py --action add --environment <environment> --cluster_name <cluster-name>
+Cluster foo added to AppDynamics tenant outshift-baz.
+
+Values Parameters:
+    clusterName: foo
+    clusterId: 870fcd4d23504e64b3730c28f3ee401e
+    key: common/appdynamics-otel-collector/outshift-baz.observe.appdynamics.com/foo/config
+Note the
+Values Parameters
+for next steps.
+Using the
+values.yaml
+template
+in the
+baseapps-configs-shared
+git repository.
+Copy the template to the
+clusters/<cluster-name>/appdynamics-collectors
+folder of the
+Baseapps Repo
+for the ArgoCD that manages the target kubernetes cluster. Use this copy for the following configuration updates.
+Set the
+clusterId
+value from the script output, replacing
+<clusterId>
+.
+Set the
+clusterName
+value from the script output, replacing
+<clusterName>
+.
+Set the
+key
+value from the script output, replacing
+<key>
+.
+Commit/Push the changes to the baseapps repo and verify the ArgoCD Application is fully synced
+Log into the appropriate AppDynamics tenant (prod/preprod) and verify that you can filter logs by this new cluster.
+You may need to wait 5 minutes for logs to appear in AppDynamics.
+If logs do not appear, check the collector logs for errors.
+Sync Group 4: opentelemetry-collector
+¶
+Otel collector documentation
+Follow the instructions
+from the ADOT documentation
+ArgoCD Application is fully synced
+Metrics that are exported should be visible in Grafana using the
+Amazon Managed Prometheus as data source
+with the
+etip_source_cluster
+label with the cluster name as value.
+Check the otel collector logs for errors.
+Sync Group 5: falcofsk
+¶
+Argocd Application is fully synced
+Ask in the
+Public Falco Support Space
+if the logs are flowing the cluster
+Sync Group 6: canary-test-public
+¶
+Check public ingress
+Example:
+canary-test-public.dragonfly-dev-1.dev.eticloud.io
+Sync Group 6: canary-test-private
+¶
+Check private ingress
+Example:
+canary-test-private.int.dragonfly-dev-1.dev.eticloud.io
+Sync Group 7: resource-limits-quotas
+¶
+ArgoCD Application is fully synced
+Sync Group 7:
+grafana-dashboards*
+and
+prometheus-alert-rules
+¶
+ArgoCD Applications are fully synced
+Sync Group 7: kubecost
+¶
+Check that the prometheus service
+fqdn
+is correct, see
+generic example
+for additional details.
+ArgoCD Application is fully synced
+Check ingress after prometheus is available
+Example:
+kubecost.int.dragonfly-dev-1.dev.eticloud.io
+2024-08-02

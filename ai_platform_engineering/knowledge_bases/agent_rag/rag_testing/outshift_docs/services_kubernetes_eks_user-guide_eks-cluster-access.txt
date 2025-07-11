@@ -1,0 +1,128 @@
+eks access
+kubectl access
+kubernetes cluster access
+EKS Cluster Access
+¶
+Tip
+SRE team has written a helper tool to help with easily setting up Kubernetes access.
+Here is the helpful shell shortcuts tool
+to install to your ~/.bashrc
+Setup EKS kube config for access via
+kubectl
+¶
+Follow the steps below to gain CLI access to a cluster via
+kubectl
+.
+Pre-requisites
+¶
+AWS cli
+Ensure that youâve been added to the appropriate Cisco AD Group(s) for AWS access.
+Please contact
+eti-sre-admins@cisco.com
+for access related questions
+Install duo-sso
+Note
+Check the list of
+K8s Clusters
+and pick your AWS account and role to login with duo-sso
+Step 1: Login to AWS cli
+¶
+Check the list of
+K8s Clusters
+k8s clusters to see which AWS account and role you need.
+Setup Duo SSO
+Step 2: Setup EKS kubeconfig
+¶
+Run the following command to update your
+kubeconfig
+file for the EKS cluster you want to access.
+The commands below show an example for connecting to the
+eks-dev-2
+cluster in
+eu-west-1
+.
+export
+CLUSTER_NAME
+=
+eks-dev-2
+export
+AWS_REGION
+=
+eu-west-1
+aws
+eks
+update-kubeconfig
+--name
+$CLUSTER_NAME
+--region
+$AWS_REGION
+--alias
+$CLUSTER_NAME
+# Updated context eks-dev-2 in /Users/sraradhy/.kube/config
+Step 3: Verify kubectl access
+¶
+Run the following commands to verify
+kubectl
+connectivity to the EKS cluster.
+kubectl
+cluster-info
+kubectl
+get
+pods
+-A
+Expected output:
+â
+kubectl
+cluster-info
+Kubernetes
+control
+plane
+is
+running
+at
+https://
+[
+...
+]
+.eks.amazonaws.com
+CoreDNS
+is
+running
+at
+https://
+[
+...
+]
+.eks.amazonaws.com/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+To
+further
+debug
+and
+diagnose
+cluster
+problems,
+use
+'kubectl cluster-info dump'
+.
+â
+kubectl
+get
+pods
+-A
+NAMESPACE
+NAME
+READY
+STATUS
+RESTARTS
+AGE
+canary-test-private
+eks-dev-2-canary-test-private-796d5f6dd6-gfvb8
+1
+/1
+Running
+0
+175d
+[
+...
+]
+2025-04-02

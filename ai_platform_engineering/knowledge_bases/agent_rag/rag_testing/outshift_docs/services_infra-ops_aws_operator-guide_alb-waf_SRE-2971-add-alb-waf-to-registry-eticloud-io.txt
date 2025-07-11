@@ -1,0 +1,131 @@
+SRE-2971: Implement ALB + WAF for registry.outshift.com
+¶
+Problem
+Solution
+Summary of the fix:
+Implementation Details
+Step 1: Install AWS ALB Controller
+Step 2: Create a WAFv2 webacl in the same region as K8s
+Step 3: Create an ACM in AWS Cert-manager for registry.outshift.com
+Step 4: Create Web Identity Roles and Policies
+Step 5: Update harbor operator CR
+Step 6: Update Route53
+References
+Problem
+¶
+registry.outshift.com is currently served from AWS ELB (L4 Load balancer) + Nginx Ingress Controller.
+SRE team is mandated to implement geo-blocks for embargoed countries like Russia, Belarus and sub-regions like Crimea etc.
+ELB (L4 Load Balancer) doesn't support WAF (Web Application Firewall). Other techniques like security groups are not feasible
+Other commercial options like
+ngninx plus + geoip2
+are not fully explored due to lack of time.
+Solution
+¶
+Summary of the fix:
+¶
+Install AWS ALB Controller in k8s cluster
+Create a WAFv2 webacl in the same region where k8s cluster is deployed
+Create an ACM in AWS Cert-manager for registry.outshift.com
+Create IAM roles and policy for AWS web identity authentication
+Update harbor CR
+Update Route53
+Implementation Details
+¶
+Step 1: Install AWS ALB Controller
+¶
+Create a
+ETI SRE helm chart for AWS ALB Controller
+Create AWS Controller deployments in target clusters
+eks-dev-1
+ArgoCD Project
+eks-prod-1
+ArgoCD Project
+Step 2: Create a WAFv2 webacl in the same region as K8s
+¶
+WAF resource reference
+Region: us-east-2
+Step 3: Create an ACM in AWS Cert-manager for registry.outshift.com
+¶
+ACM resource reference
+Step 4: Create Web Identity Roles and Policies
+¶
+Check K8s OIDC entpoint
+aws eks describe-cluster --name my-cluster --query "cluster.identity.oidc.issuer" --output text
+IAM role reference
+aws iam create-role \
+--role-name AmazonEKSLoadBalancerControllerRole \
+--assume-role-policy-document file://"load-balancer-role-trust-policy.json"
+Following trust relationship has been applied on the role
+{
+"Version": "2012-10-17",
+"Statement": [
+{
+"Effect": "Allow",
+"Principal": {
+"Federated": "arn:aws:iam::626007623524:oidc-provider/oidc.eks.us-east-2.amazonaws.com/id/E0C6C89945F38AA7EB162DA79ED9A00F"
+},
+"Action": "sts:AssumeRoleWithWebIdentity",
+"Condition": {
+"StringEquals": {
+"oidc.eks.us-east-2.amazonaws.com/id/E0C6C89945F38AA7EB162DA79ED9A00F:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller",
+"oidc.eks.us-east-2.amazonaws.com/id/E0C6C89945F38AA7EB162DA79ED9A00F:aud": "sts.amazonaws.com"
+}
+}
+},
+{
+"Effect": "Allow",
+"Principal": {
+"Federated": "arn:aws:iam::626007623524:oidc-provider/oidc.eks.us-east-2.amazonaws.com/id/BE8C746125841FB788C37D5EE11D39BD"
+},
+"Action": "sts:AssumeRoleWithWebIdentity",
+"Condition": {
+"StringEquals": {
+"oidc.eks.us-east-2.amazonaws.com/id/BE8C746125841FB788C37D5EE11D39BD:aud": "sts.amazonaws.com",
+"oidc.eks.us-east-2.amazonaws.com/id/BE8C746125841FB788C37D5EE11D39BD:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
+}
+}
+}
+]
+}
+IAM Policy reference
+AWS example policy reference
+aws iam attach-role-policy \
+--policy-arn arn:aws:iam::111122223333:policy/AWSLoadBalancerControllerIAMPolicy \
+--role-name AmazonEKSLoadBalancerControllerRole
+Step 5: Update harbor operator CR
+¶
+Update harbor operator CR for registry.outshift.com with new ingress annotations for new ingress class name, ACM arn, WAF arn, http-to-https redirect
+Harbor instance repo
+Add the following ingress annotations
+ingress:
+host: registry.outshift.com
+annotations:
+kubernetes.io/ingress.class: alb
+alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-2:626007623524:certificate/cb8ef7db-8bcb-444d-ba78-a8911d10ce7e
+alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+alb.ingress.kubernetes.io/scheme: internet-facing
+alb.ingress.kubernetes.io/ssl-redirect: "443"
+alb.ingress.kubernetes.io/target-type: ip
+alb.ingress.kubernetes.io/wafv2-acl-arn: arn:aws:wafv2:us-east-2:626007623524:regional/webacl/registry-eticloud-threatstop/8adcc0ed-18c2-48a7-946d-3adee69b9123
+# This is required because internalTLS is enabled
+alb.ingress.kubernetes.io/backend-protocol: HTTPS
+Apply the CR to eks-prod-1 cluster
+# kubectl config use-context eks-prod-1
+# or setup context with as cli
+kustomize build | kubectl apply -f -
+Temporary workaround: Add custom ingress resource for registry.outshift.com and move '/*' ingress rule to the bottom
+Issue reference link
+ALB evaluates /* rule first and other ingress rules are ignored
+Move /* to the bottom of the ingress rules.
+Note: SRE team created a temporary ingress called "custom-alb-ingress" (in eks-prod-1) for registry.outshift.com outside of the operator CR and applied directly to the cluster
+Step 6: Update Route53
+¶
+Update Route53 A record to point to ALB Alias
+Resource reference
+References
+¶
+ALB Controler docs
+EKS ALB WAF Guide
+Browserstack
+Threatstop Crimea ITAR
+2023-12-09

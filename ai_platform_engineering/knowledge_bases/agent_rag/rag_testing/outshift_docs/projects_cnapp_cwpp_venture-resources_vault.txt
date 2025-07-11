@@ -1,0 +1,46 @@
+ETI SRE Panoptica(SecureCN) Vault Developer Access
+¶
+Important Note: Use these VAULT Tokens for local development only.
+DO NOT add them to git or Jenkins.
+Every App folder in Jenkins has short lived VAULT_TOKENs that are created and rotated by SRE team.
+Pre-requisites
+¶
+Access
+¶
+Panoptica team members need to be part
+eti-securecn-vault-developer
+cisco group to access Vault (Cisco Keeper)
+Please contact
+eti-sre-admins@cisco.com
+if you are not part of the cisco group and need vault access or just PR to the repo with your CEC ID in members.
+Vault cli
+¶
+Install latest vault cli
+https://www.vaultproject.io/docs/install
+Vault UI Access
+¶
+Navigate to
+https://keeper.cisco.com/ui/vault/secrets?namespace=eticloud%2Fapps%2Fsecurecn
+Login with OIDC Provider:
+Using Vault cli
+¶
+Before using Vault cli, you will need to export env variables such as:
+export
+VAULT_ADDR
+=
+https://keeper.cisco.com
+export
+VAULT_TOKEN
+=
+xxxxxxxxx
+export
+VAULT_NAMESPACE
+=
+eticloud/apps/securecn
+Where VAULT_TOKEN is the token you've copied on the previous step.
+â¬ï¸âto Resources
+â¬ï¸âto Panoptica
+â¬ï¸âto Projects
+â¦
+â¬ to Home
+2024-02-25

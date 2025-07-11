@@ -1,0 +1,17 @@
+dns reputation
+oncall
+eticloud.io deceptive pages (dns reputation)
+¶
+As we were doing the Okta preview integartion with ETI Identity team, we did face an issue with eticloud.io domain as it was marked as unsecure due to deceptive pages.
+We did detect it while navigating the app itself and also we were not able to setup the Authorized redirect URIs as
+https://idp.preview.eticloud.io/oauth2/v1/authorize/callback
+in the Google Idp auth app.
+In order to fix it, I did open a case in our
+GCP eticloud accoung
+The support team mentioned this is not their responsability as this is currently managed by the Safe Browsing team which is currently providing this services used on browser such as Safari, Chrome or Firefox.
+I had to opened a security review on
+Google Search Console
+:
+adding the eticloud.io domain which required configuration in the R53 to ensure we're the owner of the domain
+ask for a security review while ensuring we've fixed everything in our side. In this case, there was not really issue on the Okta preview configuration
+2023-01-20

@@ -1,0 +1,11 @@
+slo
+Service Level Objective (SLO)
+¶
+An SLO is a service level objective: a target value or range of values for a service level that is measured by an SLI. A natural structure for SLOs is thus SLI â¤ target, or lower bound â¤ SLI â¤ upper bound.
+Example:
+For Loading a webpage, an SLO that our average search request latency is less than 100 milliseconds.
+Outshift Service Level Objectives (Confluence)
+Reference:
+-
+Google SRE Book
+2024-07-22

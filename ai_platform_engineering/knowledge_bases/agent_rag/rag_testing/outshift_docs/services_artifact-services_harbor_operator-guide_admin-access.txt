@@ -1,0 +1,11 @@
+Administrative access
+Log in to as admin
+¶
+Administrative login is restricted to SRE (users should normally log in with Cisco SSO).
+Grab the admin password from
+Keeper teamsecrets namespace
+/ HARBOR_ADMIN_PASSWORD.
+Go to the Harbor instance URL and log in with
+admin
+and the appropriate password.
+2024-03-08

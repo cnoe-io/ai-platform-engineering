@@ -1,0 +1,18 @@
+DSP-01.02
+Production systems inventories are insufficiently detailed
+¶
+The ETI SRE team maintained inventory has gaps. For example, it does not contain data regarding:
+S3 buckets, their purpose, and ownership
+Database clusters
+Databases, their purpose, and ownership
+Business Impacts
+¶
+Business Continuity
+Customer Data Loss
+Likelihood: High
+¶
+Resources are known to be inadequately or not documented.
+Risk Level Category: Medium
+¶
+The primary risk for inadequate inventories is slowing down recovery of a resource or resources. However, informal, tribal knowledge amongst the SRE team mitigates the potential for complete failure of that recovery.
+2023-03-14

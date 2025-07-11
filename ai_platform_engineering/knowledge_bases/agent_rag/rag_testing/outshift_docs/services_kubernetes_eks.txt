@@ -1,0 +1,9 @@
+eks kubernetes
+EKS Kubernetes
+¶
+Elastic Kubernetes Service is a managed Kubernetes from AWS. AWS manages the control plan
+EKS is one of the primary managed kubernetes SRE team uses to deploy SaaS applications.
+For a list of running clusters, see links off of the
+Active Cloud Resources
+page.
+2023-11-10

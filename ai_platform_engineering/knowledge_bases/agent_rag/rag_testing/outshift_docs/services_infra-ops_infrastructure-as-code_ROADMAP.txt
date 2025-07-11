@@ -1,0 +1,9 @@
+Roadmap
+¶
+Thoughts and ideas about where we take things from here.
+Resources as Code
+How do we keep resources up to date?
+How do we design the RaC for for opacity for appdev team onboarding and resource management?
+Internal TF registry?
+Development pipeline?
+2023-10-31

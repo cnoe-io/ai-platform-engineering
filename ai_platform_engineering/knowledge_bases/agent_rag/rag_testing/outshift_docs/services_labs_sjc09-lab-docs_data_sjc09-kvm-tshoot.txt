@@ -1,0 +1,109 @@
+Troubleshoot KVM in a pause state
+¶
+As we are still supporting kvms in our lab environment I would like to share some troubleshooting tips for the kvms.
+Most common issue for the kvm vms is, the kvm goes to pause state. what causes that is when all the vm disk space is in use.
+Add additional disk space to the kvms parent host:
+step1:
+run some ls commands to see what's going on
+sudo virsh list
+df -kh
+\
+    it shows you the disk space and storage utilization. If you see that /var (which is where qcow images for the kvms are stored) is 100% utilized, then do the next steps.
+step2:
+Go to .qcow images directory.
+sudo /var/lib/libvirt/images
+sudo ls -lh
+\
+    You should see  the .qcow2 files there.
+step3:
+First check and see what drives that are mounted  and what are available:\
+fdisk -l
+\
+    Probably you will see that
+/dev/sda1
+, /
+dev/sda2
+and
+/dev/sda5
+are already mounted, but Disk
+/dev/sdb
+is available.
+Mount a second drive and copy .qcow2 files over to the second drive:
+Create a new partition:
+fdisk /dev/sdb\
+On Command(m for help): prompt put the the following:
+Comman(m for help):F
+, shows the partition size.
+Comman(m for help):n
+, creates a new partition.
+Select(default p):P
+, selects primary.
+Partition number(1-4 default 1):
+, hit
+enter
+to choose the default number 1
+Hit
+enter
+for the first and last sector options, that will create the new partition.
+Command(m for help):w
+,  writes the changes and exits
+create a file system.
+write
+mkfs -t ext4 /dev/sdb -V
+then hit
+enter
+proceed anyway(y,N):y
+, put
+y
+and hit
+enter
+, that will create the FS.
+create a new directory called
+data
+and mount the new partition to
+/data
+dir.
+mkdir /data
+mount -t ext4 /dev/sdb /data
+Go to
+/data
+and create sub-directory
+/images
+cd /data
+mkdir images
+Change
+/images
+ownership to
+libvirt-qemu:kvm
+chown libvirt-qemu:kvm images
+Move the
+.qcow2
+images from
+/var/lib/libvirt/
+images to
+/data/images
+mv  /var/lib/libvirt/eti-dev12-kvm* .
+Wait until the copy finishes, then go and edit
+fstab
+file to permenantly mount the new drive.
+cd /etc
+sudo vi fstab
+, then add
+dev/sdb          /data              ext4        defaults    0        2
+at the bottom.
+step4:
+Make sure you destroyed the previous paused kvms
+sudo virsh destroy kvm-name
+Remove the old images in
+/var/lib/libvirt/
+cd /var/lib/libvirt/
+rm -rf images\
+Create the Symbolic link to point the new path where the images are moved to:
+ln -s /data/images /var/lib/libvirt/
+step5:
+Start the kvm.
+sudo virsh start kvm-name
+Verify that everything is working.
+sudo virsh list
+sudo df -kh
+2022-05-05

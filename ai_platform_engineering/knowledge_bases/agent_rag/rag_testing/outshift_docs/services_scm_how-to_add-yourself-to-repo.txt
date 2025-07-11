@@ -1,0 +1,53 @@
+github safe settings
+how to
+permissions
+services
+user
+How-to add yourself to a repository in GHEC (cisco-eti) org
+¶
+This document will guide you through the new process of adding yourself with permissions to one of our GHEC (GitHub Enterprise Cloud) org
+cisco-eti
+repos using
+Safe-Settings
+Step 1: Locate the YML repo file and edit
+¶
+Go to the
+admin
+repo located in our GHEC org and locate the relevant repo
+yml
+file
+here
+Note
+If you are unable to access this repository or do not have `write` access please reach out to our SRE team
+Edit the
+yml
+file and add your GitHub username to the
+collaborators:
+section
+For example:
+collaborators:
+- username: tvaintrob # GitHub username
+permission: admin # admin, pull, push, <custom role>
+Note
+If this section does not exist, it may be commented out, or you need to add a new section, please refer to the
+Safe-Settings User-Guide
+for more information
+[OPTIONAL]
+If you would like to add a team instead of a user, please add one here as well
+For example:
+teams:
+- name: ui-platform-guild  # Change to the required team name
+permission: maintain # admin, maintain, triage, write, read
+Commit + Push + Create a new PR for the changes to sync, this process will trigger some extra checks/validations
+Please reach out to the SRE team for review via your dedicated SRE for <
+Venture-Name
+> WebEx space
+Step 2: Accessing the repository
+¶
+Upon the successful merge of the modified
+yml
+safe-settings file, you should be able to access your repo from
+here
+Note
+Sometimes this may take a few minutes, if it takes more than ~5 minutes please reach out to the SRE team for debugging
+2023-07-18

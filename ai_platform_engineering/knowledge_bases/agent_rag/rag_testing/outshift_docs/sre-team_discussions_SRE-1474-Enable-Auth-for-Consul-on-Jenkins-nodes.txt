@@ -1,0 +1,230 @@
+Enable Auth for Consul in build infra
+¶
+Overview
+Goals
+Components
+Deployments
+Step 1: Generate CA and certificate
+Step 2: Create CA and certificates
+Step 3: Secure Consul with Access Control Lists, add consul_acl_master_token and consul_acl_replication_token to Vault
+Step 4: Update monitoring.yml and PR
+Step 5: Run Jenkins job on atlantis_canary_hosts host group
+Step 6: Run Jenkins job on all_hosts host group
+Step 7: Validate and Rollback
+Notes
+References
+Overview
+¶
+SRE has multiple vm hosts in P3 platform running consul servers and agents for service discovery in unrestricted mode.  We currently use this
+ansible-consul module
+to install and configure consul servers and clients.
+monitoring.yml
+is a part of the ansible playbooks which configured the VMs and managed by
+Jenkins job sre-build-infra-ansible
+pipeline.
+Goals
+¶
+Secure consul cluster with encryption, TLS, and ACLs.  Tokens, cert and key should be retrieved from
+Keeper in eticloud/jenkins namespace
+.
+Components
+¶
+Consul bootstrap server: eti-sre-monitoring
+Consul servers: eti-jenkins-common-large-1
+Consul clients
+Ansible Playbook
+Ansible-consul module
+Deployments
+¶
+The upstream
+ansible-consul
+module has all default variables predefined
+here
+.  These variables can be overwritten
+here
+.
+Step 1: Generate CA and certificate
+¶
+Initialize the built-in CA. This step will be done from an existing server with consul installed.  Consul binary can be downloaded from consul.io or brew install consul on mac.
+consul
+tls
+ca
+create
+==
+>
+Saved
+consul-agent-ca.pem
+==
+>
+Saved
+consul-agent-ca-key.pem
+Create the server certificates:
+consul
+tls
+cert
+create
+-server
+-dc
+dc1
+==
+>
+Saved
+dc1-server-consul-0.pem
+==
+>
+Saved
+dc1-server-consul-0-key.pem
+Step 2: Create CA and certificates
+¶
+mv
+consul-agent-ca.pem
+ca.crt
+mv
+dc1-server-consul-0.pem
+server.crt
+mv
+dc1-server-consul-0-key.pem
+server.key
+Step 3: Secure Consul with Access Control Lists, add consul_acl_master_token and consul_acl_replication_token to Vault
+¶
+Per consul documentation: at its core, ACLs operate by grouping rules into policies, then associating one or more policies with a token. With this flexibility, you can structure your ACL system to fit your security requirements and threat models. However, we only need at least having a default policy of allow all. We need to create consul_acl_master_token, consul_acl_replication_token and add them to vault.
+Authenticate vault with CLI on mac and import these data to Vault with the commands below:
+export
+VAULT_ADDR
+=
+https://keeper.cisco.com
+export
+VAULT_NAMESPACE
+=
+eticloud/jenkins
+export
+VAULT_TOKEN
+=
+xxxx
+echo
+"0815C55B-xx-xx-xx-xxxxxxxxx"
+>
+consul_acl_master_token
+vault
+kv
+put
+secret/eticcprod/p3-consul/consul
+ca
+=
+@ca.crt
+cert
+=
+@server.crt
+key
+=
+@server.key
+consul_acl_master_token
+=
+@consul_acl_master_token
+Step 4: Update monitoring.yml and PR
+¶
+These commands below need to be appended to
+Jenkinsfile
+.
+vault
+kv
+get
+-field
+=
+ca
+secret/eticcprod/p3-consul/consul
+>/tmp/ca.crt
+vault
+kv
+get
+-field
+=
+cert
+secret/eticcprod/p3-consul/consul
+>/tmp/server.crt
+vault
+kv
+get
+-field
+=
+key
+secret/eticcprod/p3-consul/consul
+>/tmp/server.key
+vault
+kv
+get
+-field
+=
+consul_acl_master_token
+secret/eticcprod/p3-consul/consul
+>/tmp/consul_acl_master_token
+Export these below variables as ENV to
+run_ansible.sh
+export
+CONSUL_TLS_ENABLE
+=
+true
+export
+CONSUL_ACL_ENABLE
+=
+true
+export
+CONSUL_ACL_MASTER_TOKEN
+=
+$(
+cat
+/tmp/consul_acl_master_token
+)
+export
+CONSUL_ACL_MASTER_TOKEN_DISPLAY
+=
+true
+This variable below need to be appended to
+monitoring.yml
+under vars section.
+consul_tls_ca_crt
+:
+"/tmp/ca.crt"
+consul_tls_server_crt
+:
+"/tmp/server.crt"
+consul_tls_server_key
+:
+"/tmp/server.key"
+auto_encrypt
+:
+enabled
+:
+true
+Here is the
+PR
+Step 5: Run Jenkins job on atlantis_canary_hosts host group
+¶
+After
+PR
+is approved on step 4, run
+Jenkins job
+on canary host group where it has 2 nodes eti-sre-canary-monitoring-001 and eti-jenkins-canary-test-002. Canary cluster is our dev cluster which has similar setup like production.  If everything returns without error, move to step 6.  According to consul doc 'Consul periodically tries to reconnect to "failed" nodes in case failure was due to a network partition. After some configured amount of time (by default 72 hours), Consul will reap "failed" nodes and stop trying to reconnect'. This step will break the current consul cluster but prometheus will still be able to connect to eti-sre-canary-monitoring-001 and discover all the nodes.  An UI of this canary cluster can be found
+here
+.
+Step 6: Run Jenkins job on all_hosts host group
+¶
+Run
+Jenkins job
+on all_hosts host group.  Cluster will be down for a few mins but it should be back to normal and the UI will be available at
+http://eti-sre-monitoring:8500/ui/
+Step 7: Validate and Rollback
+¶
+Check the UI at
+http://eti-sre-monitoring:8500/ui/
+and verify if there are 34 nodes there. Check prometheus
+UI
+and confirm if target hosts are there. Token and Key/value will require a token to be accessed.  We only use consul for service discovery so there is no point of restricting nodes and services.
+If we need to rollback for whatever reason, we need to undo the PR on step 5 and rerun step 6.
+Notes
+¶
+I have tested this plan successfully on my macbook with 4 nodes consul cluster with 2 masters and 2 clients and prometheus.
+References
+¶
+consul Security
+2023-08-29

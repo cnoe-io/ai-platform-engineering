@@ -1,0 +1,33 @@
+Robot Framework integration
+¶
+Summary
+¶
+AppNet team ask for having robot results integration within Jenkins which was not available as post-build action as not installed.
+Enabling robot framework
+¶
+In order to enable Robot framework, this requires differents action:
+Install the Robot plugin, go to our
+jenkins dedicated instance under
+Manage Jenkins
+>
+Manage plugins
+search for Robot plugin as per:
+Install it and check the box to restart jenkins once plugin installed
+Once the plugin is installed, you might encour a security issue:
+As per
+Jenkins documentation
+we need to pass java options once starting jenkins such as:
+java
+-Dhudson.model.DirectoryBrowserSupport.CSP
+=
+-jar
+jenkins.war
+As we do not have the control on the startup options because this is a dedicated instance manage by EngIT, I just opened a
+ticket with EngIT
+to get it sorted:
+detailed description of the issue
+include details on how to fix it
+discuss with IT on upgrade date & time to ensure less impact to the team: Friday early morning Europe time is good as IL team is not working, late for US and really early for Europe.
+Here is now an example once the integration is done and working:
+and once viewing log result:
+2022-05-13

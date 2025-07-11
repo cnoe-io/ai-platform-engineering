@@ -1,0 +1,47 @@
+outshift pagerduty
+outshift pagerduty concepts
+outshift pagerduty primer
+pagerduty
+pagerduty concepts
+pagerduty primer
+Outshift PagerDuty Concepts
+¶
+PagerDuty Service
+¶
+A service in PagerDuty represents a component, microservice or piece of infrastructure a team operates, manages, and monitors.
+Reference
+PagerDuty Escalation Policy
+¶
+Escalation policies are used to automate incident assignment and they connect services to individual users and/or schedules.
+Reference
+PagerDuty Schedules
+¶
+On-call schedules are used to map out your coverage needs, and determine who will be notified when an incident is triggered.
+Reference
+PagerDuty Schedule Layers
+¶
+A schedule layer consists of a group of people who will rotate on-call responsibilities through the same shift. In a basic weekly schedule, you create a single layer where each member is on-call for one week, with a set day and time for transferring on-call responsibility. A schedule layer is also the foundation for more complex schedules that you can tailor to your teamâs needs.
+Reference
+PagerDuty Permissions
+¶
+Reference
+:
+https://www.pagerduty.com/resources/learn/user-roles-permissions
+Account Owner
+â Full access to create, update, and delete objects, including a userâs permissions. This access cannot be restricted. Can also access the Billing page.
+Global Admin
+â Full access to create, update, and delete objects, including a userâs permissions. This access cannot be restricted.
+Stakeholder
+â Can view objects, but cannot make any modifications. Cannot be given Additional Permissions.
+Any user that is not an Account Owner, Global Admin, or Stakeholder is assigned one of the following four base (flexible) roles, on top of which they are granted the level of access they need to specific objects. A single user can have multiple roles to define the level of access they get to different objects in PagerDuty. For instance, an individual can have Manager access for objects required for a team they manage, but have Responder or Observer access to other services, escalation policies, etc.
+Restricted Access
+â Users canât see anything in the account until theyâre added to a Team and assigned a Team role.
+Manager
+â Full access to create, update, and delete objects and all of their configuration.
+Responder
+â Can take action on incidents and create overrides.
+Team Responder
+â For objects belonging to their teams, able to take action on incidents, create overrides, and set maintenance windows.
+Observer
+â Can view objects, but cannot make any modifications.
+2024-07-23

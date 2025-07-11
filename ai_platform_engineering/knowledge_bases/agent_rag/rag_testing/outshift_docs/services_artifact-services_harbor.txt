@@ -1,0 +1,28 @@
+Harbor
+¶
+Harbor is an open source trusted cloud native registry project that stores, signs, and scans content.
+Harbor extends the open source Docker Distribution by adding the functionalities usually required by users such as security, identity and management.
+Having a registry closer to the build and run environment can improve the image transfer efficiency.
+Harbor supports replication of images between registries, and also offers advanced security features such as user management, access control and activity auditing.
+The ETI Platform offers Harbor as a managed service to teams with artifact distribution teams,
+but at the same time advises teams to treat Harbor as an implementation detail whenever possible
+(ie. rely on the OCI registry interface not the fact that it's backed by Harbor).
+Shared instances
+¶
+There are two available shared Harbor instances managed by the SRE team at the moment.
+If you think none of the following instances fit your needs, please talk to your SRE contact to discuss setting up a dedicated instance.
+registry.outshift.com
+¶
+URL:
+https://registry.outshift.com
+registry.outshift.com
+is the state of the art managed Harbor instance in ETI.
+It's installed and managed by in our baseapp configs
+here
+.
+registry.outshift.com
+is a public registry integrated into PLG websites to automatically issue credentials for users.
+References
+¶
+WAF implementation
+2023-12-14

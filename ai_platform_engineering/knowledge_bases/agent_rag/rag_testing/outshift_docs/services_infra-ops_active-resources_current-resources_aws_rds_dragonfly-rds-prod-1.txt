@@ -1,0 +1,21 @@
+dragonfly-rds-prod-1
+dragonfly-rds-prod-1 RDS Cluster
+¶
+RDS cluster hosting production databases. In the
+dragonfly-production
+AWS account, us-east-2 region.
+Terraform Code
+¶
+dragonfly-rds-prod-1
+VPC
+¶
+prod-db-vpc-1
+Cluster Access
+¶
+How to setup PgAdmin
+How to create an SSH Tunnel to RDS
+VPC Bastion Access
+Connection details
+¶
+dragonfly-rds-prod-1 connection in Keeper
+2024-01-29

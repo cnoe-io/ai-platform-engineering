@@ -1,0 +1,99 @@
+argocd cd application deployment architecture
+Application Deployment Architecture
+¶
+Learn more about cloud-native apps before reading further:
+What is a cloud-native app?
+Application Anatomy
+Cloud-native Application Deployment Composition
+¶
+A typical cloud-native application deployment to a kubernetes cluster has the following components:
+Application container
+Application Kubernetes Manifests
+Helm Chart Version or Kustomize path
+Kubernetes manifest templating tools
+Helm
+Kustomize
+Overlay values:
+Values that apply to specific environment
+Examples
+Container Version
+external-secrets vault path
+Ingress values
+Kubernetes namespace in a target cluster
+For an example, see our
+platform-demo
+deployment repo
+.
+ArgoCD Architecture
+¶
+ArgoCD is a declarative, continuous delivery tool based on the GitOps workflow/architecture for Kubernetes.
+Image Reference:
+https://argo-cd.readthedocs.io/en/stable/
+Application Resource
+¶
+The Application Custom Resource Definition (CRD) is the Kubernetes resource object representing an instance of a
+deployed application.
+ApplicationSet
+Resource
+¶
+The
+ApplicationSet
+controller creates, updates, and/or deletes one or more corresponding ArgoCD
+Application
+resources
+based on the
+ApplicationSet
+Resource definition.
+Image Reference:
+https://argocd-applicationset.readthedocs.io/en/stable/Argo-CD-Integration/
+Application Deployment to Kubernetes Workflow
+¶
+Step 1: Publish Pipeline for Helm Artifacts
+¶
+Application Helm chart artifacts must be published to Chart Museum during the application CI build.
+Step 2: Create a Application Deployment Repo
+¶
+applications/
+: Mapping of which cluster should have which version of chart. As well as any overriding values.yaml for the Helm chart.
+applicationsets/
+: The
+application set
+for your app. Generates argo applications per cluster.
+clusters/
+: The list of clusters for your application and their address.
+projectapps/
+:  This the Argo app responsbile for managing/bootstrappping your applicationsets
+project/
+: The argo project for your argo app.
+outshift-websites-deployment/
+âââ README.md
+âââ applications
+â   âââ research-website
+â       âââ Jenkinsfile
+â       âââ dev
+â           âââ a
+â               âââ config.json
+â               âââ values.yaml
+âââ applicationsets
+â   âââ outshift-website
+â       âââ dev
+â           âââ outshift-website-dev-appset.yaml
+âââ clusters
+â   âââ outshift-website
+â       âââ dev
+â           âââ a
+â               âââ config.json
+âââ projectapps
+â   âââ outshift-website
+â       âââ dev
+â           âââ outshift-website-dev-projectapp.yaml
+âââ projects
+âââ outshift-website
+âââ dev
+âââ outshift-website-dev.yaml
+Lucidchart diagram source link
+Additional Links
+¶
+Platform Apps Deployment
+Outshift Websites Deployment
+2024-09-24

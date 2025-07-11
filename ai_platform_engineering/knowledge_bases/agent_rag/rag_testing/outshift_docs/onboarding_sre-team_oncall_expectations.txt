@@ -1,0 +1,138 @@
+on-call
+oncall expectations
+outshift platform status notification Format
+platform status notification
+sample notification format
+On-Call Expectations
+¶
+On-call Setup
+¶
+ETI SRE team monitors
+critical infrastructure
+round the clock using an on-call
+pager-duty
+schedule.
+NOTE:
+If you require immediate help from the SRE team, send an email to
+sre-urgent-pagerduty@cisco-eti.pagerduty.com
+and the on-call person will be paged.
+Note:
+Please contact
+eti-sre-admins@cisco.com
+if you need access to PagerDuty tool
+ð¨ ð¨ Oncall PTO guidance  ð¨ ð¨
+¶
+If your oncall schedule overlaps with a scheduled or unschedule PTO, please swap your oncall duties with another team member. You can use
+this dedicated Webex Space
+to request a swap
+On-call Schedule
+¶
+There are 2 active schedules in use by the
+SRE team
+for the
+ETI SRE - Escalation Policy
+:
+ETI SRE - Primary
+ETI SRE - Secondary
+ETI SRE - Manager Escalation
+- Hasith/Sri
+On-call Escalation Policy
+¶
+Primary on-call expectations
+¶
+How to handle a page
+¶
+A Primary on-call team member is expected to
+acknowledge a page within 5 minutes
+of receiving the page and begin triaging critical failures.
+Verify that your mobile device is receiving pages.  You can test by sending email to
+sre-urgent-pagerduty@cisco-eti.pagerduty.com
+when your shift starts or by going into PagerDuty, click on your profile and send tests to your mobile device from there.
+Post a message in team
+On-call space
+notifying about the page
+Create a tracking JIRA if the critical issue is a new issue
+Update
+ETI Platform Status
+space if the outage impacts ETI team or end customers
+Periodically post updates to
+ETI Platform Status
+Finally create a
+post-mortem
+of the incident after the issue is resolved.
+Outshift Platform Status Notification Format
+¶
+# Incident Foo
+**What:** Incident Foo
+**When:** May 3rd 2022, 2:00PM US Central time (GMT-6)
+**Impact:** How will it impact ETI Users and End customers
+**Next Steps:** SRE team's next steps
+âââImportant:
+If you are unable to be on-call, please reach out to your team members in
+On-call space
+in advance to swap your schedule with someone
+Tasks
+¶
+In addition to the above duties, Primary on-call engineer is responsible for several tasks each workday they are on duty:
+1. [Weekly] Create On-call Jira of the week
+¶
+Tracking On-Call Related Work
+¶
+Create a new Jira Story under the
+SRE-739
+On-Call Epic to track any on-call related responsibilities you had to work on for each shift. Populate the following fields as follows:
+Project:
+Site Reliability Engineering
+Summary:
+On-call Issues starting week of <ON_CALL_START_DATE>
+- e.g.: "On-call Issues starting week of May 31th 2021"
+Issue Type:
+Story
+Security Level:
+Cisco Confidential
+Priority:
+P3
+Component:
+oncall
+Description:
+same as Summary
+See
+SRE-4465
+for an example of an On-Call Jira ticket
+2. [Weekly] Create Jiras for Secondary On-call Engineer to query JupiterOne
+¶
+Create two tracking Jiras and assign them to secondary on-call engineer to run and analyze JupiterOne queries (more on that below)
+3. [Daily] Monitor Alerts
+¶
+Critical Falco alerts
+Review notification team rooms for recurring issues that didn't result in a page, but may need attention (paste the
+webexteams
+URL in browser to join the space):
+On-Call (PagerDuty)
+PagerDuty Low Priority Alerts
+Pipeline PagerDuty Alerts
+[Automated] Jenkins Notifications
+Monitor email notifications sent to
+eti-sre-admins@cisco.com
+about on alerts, IT resource outages, planned maintenance windows.
+Let's Encrypt Certificate Alerts
+Cisco IT Notifications
+Critical Openstack IT alerts
+Secondary Responsibilities
+¶
+Page escalation
+¶
+A Secondary on-call team member is expected to
+acknowledge a page within 30 minutes
+of receiving the page if primary is unavailable to acknowledge the page and begin triaging critical failures. Refer to
+previous section
+on how to triage a page
+Tasks
+¶
+[Twice in a week] Review JupiterOne
+¶
+A Secondary on-call team member is expected to
+query
+and analyze the JupiterOne report
+After analysis create Jiras for any critical findings that are not already tracked by the team.
+2024-03-26

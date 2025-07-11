@@ -1,0 +1,59 @@
+SRE-3068 -- Shared/Common K8s App Workflows and Auditing
+¶
+Objectives (as on Jira issue)
+¶
+Define the upgrade workflow/promotion path
+For single component
+Upgrade as a set
+How does the upgrade workflow fit with the golden template?
+How can we automate and audit upstream changes?
+What we have now
+¶
+"Golden" template directory for desired configs
+Script to copy & update files from golden templates
+Questions
+¶
+Break golden template charts into separate repo? (Yes,
+this directory
+could easily be its own repo)
+Maintain existing repo structure? (Probably, since it is consumed by ArgoCD)
+Could CI/CD jobs work for updating and/or adding new clusters?
+Audit Workflow Tasks
+¶
+Script/job to inventory the current versions of the various shared apps and write this output to a file (markdown?)
+Script can query upstream chart versions and call out differences in generated output (?)
+PoC script has been started
+here
+Verification Workflow Tasks
+¶
+These tasks could be automated -- performed by a script or by a set of CI/CD jobs.
+Deploy a specified chart version to a specified single cluster
+Update golden templates post-verification
+Update remaining clusters from (updated) golden templates as a group
+Deployment Workflow Tasks
+¶
+Tasks we'll want to perform regularly that should be (mostly) automated
+Add New Cluster
+¶
+Given:
+A cluster with no (shared) apps installed
+We can:
+Run a script to build out the chart(s) for this cluster
+Install new charts to this cluster
+Inputs:
+Cluster name/ID
+Target app(s) to install
+Upgrade Cluster (also used for app verification)
+¶
+Given:
+A cluster with existing apps
+We can:
+Run a script to update the chart(s) for this cluster
+Install updated charts to this cluster
+Inputs:
+Cluster name/ID
+Target app(s) to upgrade to golden value(s)
+See Also
+¶
+SRE-2682
+2023-09-03

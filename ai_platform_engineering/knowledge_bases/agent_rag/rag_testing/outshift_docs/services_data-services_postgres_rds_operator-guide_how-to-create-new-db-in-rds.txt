@@ -1,0 +1,117 @@
+create new database db aurora postgres rds
+postgres create database
+postgres create role
+postgres create user
+postgres sql cheatsheet
+How to create a new db in RDS
+¶
+â ï¸ Pre-requisite:
+Setup PgAdmin access with postgres superuser
+Create dabatase
+newappdev
+Create user
+newappdev
+Grant
+newappdev
+schema, table privileges to
+newappdev
+database
+â ï¸ SRE team:
+There are no limits on the number of databases that can be created in a single instance.
+Please monitor RDS instance utilization before provisioning additional database in the shared instance
+Step 1. Create password via commandline
+# Works on mac or linux
+LC_ALL
+=
+C
+tr
+-dc
+'A-Za-z0-9'
+</dev/urandom
+|
+head
+-c
+16
+Step 2. SQL Instructions
+--- Create user newappdev
+CREATE
+USER
+newappdev
+WITH
+PASSWORD
+'<SPECIFY PASSWORD>'
+;
+--- Create dabatase newappdev
+CREATE
+DATABASE
+newappdev
+;
+--- Grant all privileges on newappdev database to newappdev user
+GRANT
+ALL
+PRIVILEGES
+ON
+database
+newappdev
+TO
+newappdev
+;
+--- Grant all privileges on public schema to newappdev user
+GRANT
+ALL
+ON
+SCHEMA
+public
+TO
+newappdev
+;
+Postgres SQL Cheatsheet
+¶
+--- Display tables in public schema
+SELECT
+*
+FROM
+pg_catalog
+.
+pg_tables
+WHERE
+schemaname
+!=
+'pg_catalog'
+;
+Use this guide to create random password -
+https://platform-docs.outshift.io/security/tips/generate-cli-password/
+Recent versions of Postgres have been using the concept of roles which supersedes those of users and groups.
+https://www.postgresqltutorial.com/postgresql-administration/postgresql-roles/
+--- Create role newappdev
+CREATE
+ROLE
+newappdev
+LOGIN
+PASSWORD
+'<SPECIFY PASSWORD>'
+;
+--- Create dabatase newappdev
+CREATE
+DATABASE
+newappdev
+;
+--- Grant all privileges on newappdev databse to newappdev user
+grant
+all
+privileges
+on
+database
+newappdev
+to
+newappdev
+;
+--- Display all rows in a table
+select
+*
+from
+public
+.
+table
+;
+2025-05-09

@@ -1,0 +1,157 @@
+Preparations
+¶
+This guide details the steps for preparing the onboarding of a new SRE team member.
+It should be completed preferably before the start date of the new colleague.
+Note: Most (if not all) of the steps require a working CEC ID/email address.
+Cisco groups
+¶
+Add your new team member to (at very least) the following AD groups:
+AWS-626007623524-admin
+(eticloud)
+CNNS-TEAM
+eti_sre_admin
+et-sre-all
+eti_sre_admin_jenkins
+eti_sre_devhub_access
+eti_sre_devops
+eti_sre_github
+eti_sre_p3_access
+(have to be done manually, it has been taken out from automation since it broke ClusterAPI)
+eti_sre_p3_test_access
+eti_sre_runon_tenant
+eticloud-keeper-vault-admin
+- add manually cause it
+AD PROD
+Keeper
+¶
+Add your new team member to Keeper by follow
+this guide
+.
+GHEC
+¶
+Invite your new team member to the
+cisco-eti
+organization on GitHub.com following
+this guide
+.
+PagerDuty
+¶
+Go to the PagerDuty
+Users page
+Click on
+Add Users
+Enter the following details
+Name
+Email address
+License: Standard
+Base Role: Responder
+Team: SRE
+Click on
+Add
+If you don't have access to add new users, reach out to the team and ask someone with access to do it.
+Jira
+¶
+Make to add the new team member to the
+CNNS-TEAM
+AD group.
+JIRA User On-Boarding
+¶
+Contact one of the site-admins located here:
+JIRA Contacts
+Ask them to invite the new user using the cisco email.
+Make sure they also add the user to the JIRA Group:
+ET&I SRE Group
+in addition to the usual user groups for JIRa software/Service Management/Confluence access
+Board Filter:
+¶
+Go to the
+SRE board
+Click on
+Board -> Configure
+Click on
+Quick Filters
+Add a quick filter with the following JQL:
+assignee = NEW_USER
+If you don't have access to edit the board, reach out to the team and ask someone with access to do it.
+On-call Checklist
+¶
+Create sub-task in
+SRE-740
+by cloning
+SRE-1319
+.
+Note:
+Assigning the new ticket requires an existing user in Jira, so chances are you can only assign the ticket when they first log in.
+containers.cisco.com
+¶
+Add your new team member to the
+eti-sre
+team on containers.cisco.com.
+Cisco Cloud Observability Tenants
+¶
+Follow
+these instructions
+to grant administrative access to the tenants.
+Webex
+¶
+Add your new team member to the following teams on Webex:
+ET&I SRE Internal
+ET&I SRE
+TODO: how to add new members to other spaces? Eurl links?
+GCP Access
+¶
+Pending
+SRE-373
+, onboarding new users to GCP is a manual process.
+Go to the
+Google Cloud Console
+(login with your
+@cisco
+.com email address)
+Select the
+eticloud
+project in the
+cisco.com
+organization
+Go to
+IAM & Admin -> IAM
+Click on
+Grant access
+Enter the email address of your new team member
+Select
+Owner
+as the role
+Click on
+Save
+Repeat these steps for
+other GCP projects
+if necessary.
+Team calendar
+¶
+Invite your new team member to the shared team calendars in Outlook.
+If you don't have access to add new users, reach out to the team and ask someone with access to do it.
+Miro
+¶
+Go to the Miro
+team management page
+Click on
+Add team members
+Enter the email address of your new team member
+Click on
+Send invitations
+If you don't have access to add new users, reach out to the team and ask someone with access to do it.
+Lucid
+¶
+Go to the Lucid
+Admin panel
+Click on
+Add more users
+Enter the email address of your new team member
+In the
+Add to group(s)
+field select
+SRE team
+Click on
+Add to team
+If you don't have access to add new users, reach out to the team and ask someone with access to do it.
+2024-02-22

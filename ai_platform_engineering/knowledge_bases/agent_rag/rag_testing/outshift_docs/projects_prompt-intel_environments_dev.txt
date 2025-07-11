@@ -1,0 +1,23 @@
+Outshift Prompt-Intel Dev Environment
+¶
+Note
+: This is the dev environment, it will contain unstable versions with the newest features:
+REST Endpoints
+¶
+REST API Endpoint
+:
+https://api.pi.dev.outshift.ai/v1alpha1
+gRPC API Endpoint
+: grpc.api.pi.dev.outshift.ai
+UI Endpoint
+:
+https://pi.dev.outshift.ai
+Monitoring
+¶
+Monitoring Dashboard:
+APIs
+Gateway
+Platform State
+Healthz Check:
+APIs
+2024-07-11

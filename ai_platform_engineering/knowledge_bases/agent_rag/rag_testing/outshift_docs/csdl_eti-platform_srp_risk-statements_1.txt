@@ -1,0 +1,22 @@
+IAM-01.02
+audit logging
+Gaps in audit logging imlementation may impede security incident investigation and prevention
+¶
+Description
+¶
+The ET&I Platform has audit logs for most of the critical systems but possible gaps may impede or make impossible to prevent, identify, and react to security incidents depending on the system concerned.
+In some cases lack of ensuring the audit logging pipeline's integrity makes it easy to tamper with audit logs and hide traces of an incident.
+Business Impacts
+¶
+Security Incident Management
+Development Velocity
+Gaps in auditing logging practices and processes inhibit the ETI SRE team's identification of and ability to react efficiently and effectively to security incidents, both major and minor, as well as internal and external. They also prevent the ETI SRE team from assisting development teams resolving issues, slowing down the velocity of the those teams.
+Likelihood: High
+¶
+The likelihood of an external actor attempting to abuse resources on the public internet, misconfiguration of resources, or internal teams being slowed down are so high as to be effectively guaranteed. Without adequate audit logging, the ETI SRE team will be more likely to be reactive rather than proactive regarding those incidents.
+Additionally, some response by ETI SRE team already take longer than desired to resolve some requests from development teams. As the IOUs of ETI mature, so will their requirements for responsiveness by the ETI SRE team.
+Risk Level Category: Medium
+¶
+While the statistical likelihood of an external security incident is high, the ETI Platform's risk is somewhat limited by its comparatively small externally exploitable infrastructure, its environments isolated by project, its multi-step deployment lifecycle, and the effectiveness of the current telemetry infastructure. Internal risks like misconfiguration are mitigated somewhat by that same multi-step deployment lifecycle. However, overbroad internal network and identity permissions increase the risk the Cisco.
+Further, effective changes by the SRE team to positively effect development velocity at the Platform's current level of maturity are enhancements or evolutions, rather than requests for functionality.
+2023-03-14

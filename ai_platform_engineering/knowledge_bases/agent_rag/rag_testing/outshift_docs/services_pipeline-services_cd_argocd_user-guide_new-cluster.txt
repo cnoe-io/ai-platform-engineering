@@ -1,0 +1,114 @@
+Adding a new cluster
+¶
+Prerequisites
+¶
+Access to the
+Kubernetes cluster
+CLI access
+to ArgoCD
+Adding a new cluster
+¶
+Make sure that the current kubectl config contains a context for the Kubernetes cluster.
+ArgoCD admin passwords
+export
+CONTEXT_NAME
+=
+your-context
+export
+CLUSTER_NAME
+=
+your-cluster-name
+argocd
+login
+argocd-cnapp.eticloud.io.
+# or any other corresponding ArgoCD instance
+argocd
+cluster
+add
+$CONTEXT_NAME
+--name
+$CLUSTER_NAME
+Note
+As of k8s v1.24,
+argocd cluster add <cluster-context> --name <cluster-name>
+results in the following error:
+FATA[0033] Failed to wait for service account secret: timed out waiting for the condition
+The workaround is to manually create a k8s secret for the argocd-manager-token:
+cat <<EOF | kubectl apply -n kube-system -f -
+apiVersion: v1
+kind: Secret
+metadata:
+annotations:
+kubernetes.io/service-account.name: argocd-manager
+name: argocd-manager-token
+namespace: kube-system
+type: kubernetes.io/service-account-token
+EOF
+sa_token=$(kubectl -n kube-system get secret | grep argocd-manager-token | awk '{print $1}')
+kubectl -n kube-system patch sa argocd-manager -p '{"secrets": [{"name": "'"${sa_token}"'"}]}'
+Tip: for EKS clusters the context name is usually the same as the cluster ARN.
+You can check the cluster status by listing the clusters in ArgoCD:
+argocd
+cluster
+list
+Preparing an SRE managed cluster
+¶
+The SRE team uses ArgoCD to install and manage common services on all managed clusters.
+Note: this section only applies to SRE managed clusters in the SRE Prod ArgoCD instance.
+Common services are installed in a separate project created for the cluster:
+export
+CLUSTER_NAME
+=
+your-cluster-name
+export
+CLUSTER_ENDPOINT
+=
+https://api.yourcluster.com
+argocd
+proj
+create
+$CLUSTER_NAME
+.eticloud.io
+-s
+https://wwwin-github.cisco.com/eti/sre-cluster-configs
+--description
+$CLUSTER_NAME
+--orphaned-resources
+--orphaned-resources-warn
+argocd
+proj
+add-destination
+$CLUSTER_NAME
+.eticloud.io
+https://kubernetes.default.svc
+argocd
+argocd
+proj
+add-destination
+$CLUSTER_NAME
+.eticloud.io
+"
+$CLUSTER_ENDPOINT
+"
+'*'
+argocd
+proj
+allow-cluster-resource
+"
+$CLUSTER_NAME
+.eticloud.io"
+'*'
+'*'
+argocd
+proj
+allow-namespace-resource
+"
+$CLUSTER_NAME
+.eticloud.io"
+'*'
+'*'
+-l
+allow
+To deploy baseapps to the cluster via ArgoCD, follow the steps described
+here
+2024-08-02

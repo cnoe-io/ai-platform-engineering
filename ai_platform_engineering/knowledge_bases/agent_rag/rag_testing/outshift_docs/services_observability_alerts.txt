@@ -1,0 +1,22 @@
+alert routing
+application alerts
+platform alerts
+Alerts
+¶
+!!! warning This documentation is deprecated, we are using splunk now for observability
+Alerts are notifications to Outshift teams triggered by violations of SLOs
+Alert Routing
+¶
+Outshift platform supports two types of alert routing.
+Alert Routing in Kubernetes Cluster using AlertManager
+Alert Routing in Central Observability Grafana
+Refer to Obervability Architecture Overview
+When to use cluster local alerts and central grafana alerts
+¶
+Cluster Local Alert Recommendations:
+¶
+Cluster local alerts are great for deployment notifications like rolling upgrade failures, pod crashes and auto-scaling issues with HPA/Karpenter.
+Central Grafana Recommendations:
+¶
+All application SLI metrics are sent to Central Amazon Managed Prometheus, hence application business/operational SLOs are best measured and alerted in Central Grafana.
+2025-06-20

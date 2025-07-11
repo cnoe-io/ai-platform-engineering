@@ -1,0 +1,53 @@
+argocd
+deployment
+guide
+Application Deployment User Guide
+¶
+Learn more about cloud-native apps before reading further:
+What is a cloud-native app?
+Application Anatomy
+ArgoCD Architecture within ET&I
+Overview
+¶
+To prepare your application for deployment within the ET&I SRE platform:
+Prepare your application for deployment (create deployment repo) following this pattern "venture-name-deployment", for example: "kosha-deployment", "cybear-deployment" ...
+Deployment repository contains three main folders:
+applications
+: your helm values that override the default one
+clusters
+: your cluster config where you will deploy you application
+applicationsets
+: your applicationsets, which will deploy your kubernetes resources
+Create request for SRE to:
+add your ArgoCD Project (if it doen't already exist)
+Create an ArgoCD Application
+Ask also for argocd applications permissions in order to sync ...
+Note: Creating argocd projects and appProject via running manualy jenkins job or via CLI is DEPRECATED.
+Let's get started!
+Create a Deployment Repo
+¶
+This repository
+should be used as a template for setting
+up an application's deployment repo.
+Follow the instructions in the
+README
+document there to prepare your
+application's deployment repo.
+The Build Pipeline Deploy Stage
+¶
+An overview of the required changes can be found
+here
+.
+Please see the
+platform-demo
+app
+and its
+associated
+deployment repo
+for examples.
+ArgoCD Project and Application
+¶
+Typically, related applications are grouped into an ArgoCD "project". This makes it easier to find applications within the deployment environment.
+The SRE team has created a dedicated repository to define argocd project and also argocd appProject which will create your applicationsets based on deployment repository.
+Please ask SRE team to create this.
+2023-11-09

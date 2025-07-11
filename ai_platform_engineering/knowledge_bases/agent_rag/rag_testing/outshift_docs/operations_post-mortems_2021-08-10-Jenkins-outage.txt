@@ -1,0 +1,42 @@
+2021-08-10-Jenkins-outage
+¶
+When
+¶
+2021-08-10, 1358 CEST - 1511 CEST
+Summary
+¶
+Jenkins
+Timeline
+¶
+1358 CEST: PeterW of Appnet reported that Jenkins was non functional.
+1358-1406 CEST: Matt and David confirmed outage.
+1406 CEST: Matt opened a case with EngIT\
+https://cisco.service-now.com/sp?id=ticket&table=incident&sys_id=f916890fdb7d3c548aaaa08b8a96190d
+1418 CEST: EngIT restarted the Jenkins master
+1421 CEST: Peter W reports UI is functional, but jobs are not running.
+1511 CEST: Sri has deleted enough jobs out of workspaces on the master node to get jobs running again.
+Impact(s)
+¶
+Builds unavailable for an hour for any teams.
+Analysis
+¶
+Cause:
+Jobs being saved by AppNet consume 200+ GB of disk on a 300GB disk.
+No alerts on Jenkins' primary going offline.
+Tactical fixes:
+Restart of Jenkins primary process.
+Manual cleaning of workspaces.
+Actions items:
+SRE team to improve monitoring of Jenkins' primary.Â
+SRE-1538
+SRE team to improve cleaning of Venture workspaces.
+SRE-1546
+Update escalation documentation inÂ
+PagerDuty playbook for Jenkins
+.
+SRE-1562
+Update Jenkins to not run Venture jobs on the Primary.Â
+SRE-1561
+Determine course of action if Venture starts to cause warnings
+How long do we wait for Venture remediation versus SRE taking action?
+2022-05-12

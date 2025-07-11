@@ -1,0 +1,37 @@
+kubectl bash shell helper
+kubectl shell alias access
+K8s Config Setup Shell Alias
+¶
+Pre-quisites
+¶
+Setup aws console with
+duo-sso
+Setup gcloud by installing the
+following
+Make sure you have the latest
+gke auth plugin
+by running:
+gke-gcloud-auth-plugin --version
+You may install it by running (outside of yout Google Cloud CLI install root folder):
+gcloud components install gke-gcloud-auth-plugin
+Setup
+¶
+Install k8s-shell-helper
+Usage
+¶
+Login to P3 cluster
+export VAULT_TOKEN=<foo>
+p3 eks-gitops-1
+Login to EKS cluster
+defaults: region(us-east-2)
+eks eks-dev-1 eticloud
+Login to EKS cluster in eticloud in us-west-2 region
+eks eks-prod-2 eticloud us-west-2
+Login to GKE cluster
+defaults: project(eticloud) zone(us-east1-a)
+gke test-cluster
+Login to GKE cluster in eticloud-scratch-g-1 in europe-west2-a zone
+gke calistimktdemo10-gke gcp-eticloudscratch-nprd-22453 europe-west2-a
+Login to GKE cluster in eticloud-scratch-g-1 in us-east-1 region
+gke gke-sre-1 gcp-eticloudscratch-nprd-22453 us-east1
+2024-06-06

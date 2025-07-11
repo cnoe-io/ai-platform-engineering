@@ -1,0 +1,153 @@
+gha runners
+github actions runners
+Github Actions Runners
+¶
+Overview
+¶
+GitHub Action runners are machines or VMs that execute jobs in a GitHub Actions workflow. A GHA runner will clone the target repository in GHA runner workspace or install testing software and then shell run commands
+There are two types of runners:
+-
+Github-hosted runners (Preferred)
+-
+Self hosted runners
+Github-hosted runners
+¶
+Tip
+â Cisco InfoSec/STO recommends Github-hosted runners
+GitHub provides runners that you can use to run your jobs. Each Github-hosted runner is a new virtual machine (VM) hosted by GitHub with the runner application and other tools preinstalled, and is available with Ubuntu Linux, Windows, or macOS operating systems. Github-hosted runner VMs lifecycle is
+fully managed
+by Github.
+Github-hosted runner can be selected in a given a job using
+runs-on
+option. Here are some of choices for
+runs-on
+config
+ubuntu-latest
+,
+windows-latest
+, or
+macos-latest
+.
+name
+:
+CI
+on
+:
+push
+:
+branches
+:
+[
+main
+]
+pull_request
+:
+branches
+:
+[
+main
+]
+jobs
+:
+build
+:
+name
+:
+build
+runs-on
+:
+ubuntu-latest
+steps
+:
+-
+uses
+:
+actions/checkout@v3
+-
+uses
+:
+actions/setup-node@v3
+with
+:
+node-version
+:
+'14'
+-
+run
+:
+npm run build
+Full list of Github-hosted runners types can be found
+here
+References:
+More about GitHub-hosted runners
+BES Supplemental guidance
+Self-hosted runners
+¶
+Caution
+âââ
+Cisco InfoSec/STO does not recommend using self-hosted runners
+âââ
+A self-hosted runner is a system that is self managed computer to execute jobs from GitHub Actions on GitHub.com.
+Each self-hosted runner requires additional software to receive github events and execute jobs. More details about self-hosted runners are
+here
+Setup Self-hosted runner
+¶
+Add new runner on github organization level
+Add runner label (example p3)
+Specify the label for
+runs-on
+workflow section and define docker image name in "container" section, as details on the example below:
+name
+:
+CI
+on
+:
+push
+:
+branches
+:
+[
+main
+]
+pull_request
+:
+branches
+:
+[
+main
+]
+jobs
+:
+build
+:
+name
+:
+build
+runs-on
+:
+p3
+container
+:
+image
+:
+containers.cisco.com/eti-sre/sre-pipeline-docker:2023.03.27-54f9d30-25
+steps
+:
+-
+uses
+:
+actions/checkout@v3
+-
+uses
+:
+actions/setup-node@v3
+with
+:
+node-version
+:
+'14'
+-
+run
+:
+npm run build
+2023-09-19

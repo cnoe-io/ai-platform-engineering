@@ -1,0 +1,346 @@
+new application onboarding checklist
+New Application Onboarding Checklist
+¶
+This document provides a guideline for onboarding a new application to the ETI Platform.
+CI/CD
+¶
+Pre-requisite:
+Learn more about
+CI/CD in ETI
+CI Contract
+The core requirements for ensuring your application can be onboarded to ETI Platform are the following:
+a
+Dockerfile
+that successfully produces a docker image for your containerized application must be present in the application repo
+Example:
+platform-demo/Dockerfile
+a Helm Chart that packages the application's Kubernetes manifests must be present in the application repo in a
+deploy
+subdirectory
+Example:
+platform-demo/deploy/platform-demo
+a
+Jenkinsfile
+that invokes the
+srePipeline
+with appropriate parameters must be present in the application repo
+Example:
+platform-demo/Jenkinsfile
+any application changes merged into the
+main
+branch will automatically trigger a build job in Jenkins, which will generate a new Docker image with the current snapshot of the code, tag it with a new version, and push the new image to a
+container registry
+any Helm Chart changes merged into the
+main
+branch will automatically trigger a build job in Jenkins, which will package the current snapshot of the Helm Chart (with the version specified in the chart) and push it to a
+chart registry
+CD Contract
+SRE team will create a "deployment" repo where you can specify which version to deploy to each environment
+You can also specify environment override values for your application's Helm Chart in this deployment repo
+Changes merged into the
+main
+branch will automatically roll out to the affected environment (via ArgoCD sync) within 3 minutes
+See
+Deployment Environments
+for the characteristics and requirements for deploying to a specific environment.
+Deployment Environments
+¶
+The ET&I Platform defines multiple
+Service-Level Environment Types
+to ensure that developers can rapidly iterate on application changes
+without
+impacting the reliability and security of customer-facing products.
+See the
+ET&I Environment Definitions
+page for more details about these environment types and their gating requirements.
+Application Design
+¶
+It is important to think about the following application design decisions early in your development phase to ensure that it will meet the production-readiness criteria without expensive refactoring.
+High Availability
+¶
+In order to achieve
+high availability
+, your application must not rely on a
+single point of failure (SPOF)
+. ETI Platform protects against infrastructural SPOFs by deploying multiple
+replicas
+of the service within a k8s cluster
+and
+ensuring multiple deployments of the service in separate k8s clusters in different geographical regions denoted as deployments
+a
+and
+b
+(or
+c
+and
+d
+). To enable multi-cluster deployment, the application must
+externalize
+all configuration values (including secrets) that vary across clusters/regions (e.g., database configuration details), as described below.
+Rolling Upgrades and Kubernetes Probes
+¶
+As mentioned above, an application can be deployed as multiple instances (also known as "pods") to ensure high availability (a single instance going down does not impact the availability of the application). This enables Kubernetes to ensure that application
+upgrades
+do not impact service availability by performing
+rolling upgrades
+. Rolling upgrades simply means that a
+subset
+of instances (i.e., pods) of a service are updated simultaneously so that if the upgrade fails, the remaining instances maintain service availability while the failed subset of instances are reverted. In order for Kubernetes to detect whether the upgrade has succeeded or failed, applications must implement the
+container probes
+interface, as described below.
+Kubernetes defines 3 types of
+container probes
+, which enable applications to define how Kubernetes should check whether the applications is running (
+livenessProbe
+), ready to take traffic (
+readinessProbe
+), or successfully initialized during startup (
+startupProbe
+). Kubernetes defines several mechanisms via which a probe can be implemented
+here
+.
+Contract
+Application Helm Chart includes an appropriate
+readinessProbe
+specifications for determining whether the pod is fully initialized, its dependency requirements have been met (e.g. database connections), and is ready to receive traffic.
+The application can optionally also specify
+livenessProbe
+and/or
+startupProbe
+as needed.
+This doc
+explains when you may need each probe.
+Best Practice
+Leverage the application's
+health endpoint
+for these probes. See
+Health Checks and SLI Metrics
+for more details about health endpoints.
+Externalized Configuration
+¶
+Environment/Cluster-specific configuration values must be injected into the application via
+environment variables
+. The application Helm Chart must specify the environment variables in its
+ConfigMap
+template. The environment variable values can then be specific per-environment Helm Chart overlay values in the application's deployment repo.
+Contract
+Environment-specific configuration set in application via environment variables declared in ConfigMap
+ConfigMap environment variable values specified in deployment repo
+Best Practice
+ConfigMaps should
+not
+be used to pass through sensitive data (database credentials, API tokens, private keys, etc.); use
+Secret Management
+instead.
+Secret Management
+¶
+Secret management is the practice of securely storing and distributing sensitive information (e.g., database credentials) to enforce strict access control through various means, such as centralized access policies, automated crendential rotations, and cryptography guarantees.
+The ET&I Platform consumes
+Keeper
+, which is a secret management solution backed by an on-prem installation of
+Hashicorp Vault
+provided by Cisco Crypto Services.
+Contract
+Application secrets must be stored in
+Keeper
+(Vault managed by Cisco Crypto Services)
+ExternalSecret
+template in application's Helm Chart specifies secrets to inject as environment variables into application's runtime
+SRE provides
+secretStoreRef
+that maps to Keeper storage backend to reference in
+ExternalSecret
+Data Service Consumption
+¶
+A key
+design principle
+of SaaS applications is to ensure that they are
+stateless
+processes that persists state in externalized data stores. See the
+Data Services page
+for a list of available database options.
+Contract
+Applications persists state in external data stores
+Connectivity to these data stores are specified via
+externalized configuration values
+Credentials for accessing these data sores are specified via
+managed secrets
+Observability
+¶
+Understanding the state of your application is critical for quickly detecting and resolving any issues that may arise in production.
+Attribution
+¶
+The ET&I Platform provides observability for many teams who are responsible for different services, so it is important to ensure that we attribute
+your
+service's logs/metrics/alerts with a unique identifier that you can filter on.
+Please reach out to the SRE team to coordinate and capture a standard name for your service in the
+service index
+to avoid confusions with overlapping or inconsistent labels.
+Contract
+A unique service identifier has been captured in the
+service index
+Set the value of the
+service.name
+attribute to this identifier for all telemetry emitted by your service.
+Note:
+service.name
+is an
+OpenTelemetry Resource Semantic Convention
+Logs
+¶
+Logs capture
+human-readable
+timestamped text messages that provide context about the state of the system.
+Contract
+ETI Platform will automatically forward any logs an application emits to
+stdout
+and
+stderr
+to a centralized logging platform hosted by elastic.co.
+See
+here
+for details on how to access those logs.
+Best Practice
+Avoid logging unnecessarily verbose and/or noisy messages. Wasteful log messages can drive up cost for transporting and storing those log messages.
+Include
+log-level fields
+to specify the criticality of the log message. Ensuring that all log events are attributed with a log level will enable filtering on logs to decrease unnecessary verbosity.
+Logs should
+not
+be used for tracking
+numerical
+values (e.g., number of successful requests) over time; it is more efficient to capture such measurements as
+metrics
+Metrics
+¶
+Metrics capture
+numerical
+values that can be tracked over time as time series data. Additional context for these timestamped values are tracked via
+labels
+.
+Contract
+ETI Platform will scrape
+Prometheus formatted
+metrics exposed by the application to an HTTPS metrics endpoint, which is made discoverable via a
+ServiceMonitor CRD
+Example in
+platform-demo
+:
+Prometheus metrics client
+used to
+instrument custom metrics
+Prometheus annotations
+metrics
+endpoint
+where metrics are exposed
+platform-demo ServiceMonitor
+Dashboards for visualizing metrics are defined as-code in the Application's helm chart and automatically deployed along with the Application
+Example:
+platform-demo/dashboards
+Best Practice
+Leverage
+Prometheus client libraries
+available for many languages to instrument your application with custom metrics
+Health Checks and SLI Metrics
+¶
+Monitoring the health of a service is critical to ensuring the quality and reliability of our products. Service health checks and SLI metrics measure and emit key metrics that can be monitored by external systems, such as Prometheus Alertmanager, ThousandEyes, etc.
+ET&I Platform has defined a standardized format for defining these health endpoints and metrics, which is described in more detail
+here
+.
+Contract
+A health endpoint that exposes the current state of the service in a standard JSON format described
+here
+Possible states of a service are defined
+here
+Standard attributes for these health metrics are described
+here
+An example implementation for a simple service is available
+here
+Prometheus metrics that conform to ET&I's standard format to report the results of the service health checks
+Best Practice
+Leverage the health endpoint for
+Kubernetes Liveness and Readiness Probes
+The
+Rolling Upgrades and Kubernetes Probes
+section explains why these probes are important
+Example implementation in platform-demo:
+Application logic
+Deployment manifest
+Alerts and On-Call
+¶
+Alerts enable triggering notifications of some pre-defined conditions or events. Such alerts can be configured to notify the application team of any problems that require immediate human intervention to resolve the issue.
+The ET&I Platform provides the following ways to enable teams to configure alerts and On-Call rotations:
+Contract
+Alerts are defined as
+Prometheus Alerting rules
+in the form of
+PrometheusRule
+CRD in the application's Helm Chart. This ensures that alerts can be defined as-code and deployed along with their application for the same
+benefits of CI/CD
+Alerts specified under
+specs.groups.rules
+must include a
+service: <SERVICE_NAME>
+label, where
+<SERVICE_NAME>
+is your service's identifier in the
+service index
+(if you have not done so already, please reach out to SRE team to reserve a unique
+service name identifier
+)
+Example in
+iam-api
+:
+PrometheusRule in Helm Chart
+service: <SERVICE_NAME>
+label
+Alert routing and on-call rotations is enabled by integration with
+PagerDuty
+See the
+Custom App Alert Routing
+doc for details
+Best Practice
+Alerts should be carefully defined to be
+relevant
+and
+actionable
+. Creating over-generalized (i.e., prone to false positives) alerts can quickly lead to
+alert fatigue
+.
+Implementing
+Health Checks and SLI Metrics
+to accurately reflect the service's health, and configuring alerts to fire when those health metrics crosses an "unhealthy" threshold is a good way ensure that alerts only fire when the service requires immediate attention.
+Resource Limits
+¶
+Kubernetes enables services to define
+the resource requirements for running their pods
+, which can be used for both scheduling the instance on target nodes with sufficient resources (via resource
+requests
+) and for protecting other workloads on that node by
+preventing
+the instance from exceeding certain resource usage (via resource
+limits
+). Since resource requirements vary with application-specific behavior, developers should provide appropriate resource requests/limits estimates for their applications. If not specified, the
+default limits and requests
+SRE team has defined for all namespaces will take effect.
+Contract
+Developers should specify resource requests and limits as appropriate for their application
+Example in Kubernetes docs
+If not specified, globally defined
+default values
+will take effect
+Identity Management
+¶
+ET&I Identity (aka ET&I IAM) is a common service and the standard identity management solution developed and provided by the IAM team within ET&I. ET&I projects should leverage the ET&I IAM API for their end-user authentication flows. See the
+ET&I Identity docs
+for more details.
+If there are requirements that are not currently met by ET&I IAM, please reach out to the
+SRE
+and/or IAM teams to discuss a path forward that can be leveraged by other ET&I products in the future.
+Other Development Environments
+¶
+The contracts and guidelines described above apply to applications deployed to ETI Platform's shared k8s clusters.
+If deployment into those clusters is not a viable for you, please reach out to the SRE team to discuss other possible options:
+Self-service k8s clusters
+Dedicated VM's
+2024-07-23

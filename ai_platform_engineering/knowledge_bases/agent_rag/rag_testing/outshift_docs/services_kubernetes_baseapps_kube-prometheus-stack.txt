@@ -1,0 +1,149 @@
+kps
+kube-prometheus-stack
+observability
+prometheus
+Kube-prometheus-stack
+¶
+Overview
+¶
+Installs the
+kube-prometheus stack
+(KPS), a collection of Kubernetes manifests,
+Grafana
+dashboards, and
+Prometheus rules
+combined with documentation and scripts to provide easy to operate end-to-end Kubernetes cluster monitoring with
+Prometheus
+using the
+Prometheus Operator
+.
+See the
+kube-prometheus
+README for details about components, dashboards, and alerts.
+Note: This chart was formerly named
+prometheus-operator
+chart, now renamed to more clearly reflect that it installs the
+kube-prometheus
+project stack, within which Prometheus Operator is only one component.
+Helm chart (baseapps)
+¶
+SRE team maintains a customized version of upstream
+kube-prometheus-stack
+chart
+sre-helm-charts/kube-prometheus-stack
+.
+It includes the upstream chart, as well as the black box exporter and our
+sre-helm-charts/external-secrets-configuration
+chart.
+Note that the upstream chart is a wrapper around other charts like grafana, so in order to inspect the values the
+kube-prometheus-stack
+chart can accept, you may need to inspect these upstream charts too.
+ChartMuseuem
+ChartMuseuem UI
+kube-prometheus-stack
+is included by default in the
+kubernetes-baseapps
+chart version
+0.1.x
+.
+Cluster configuration
+¶
+In order to configure
+kube-prometheus-stack
+in your cluster, follow this
+generic example
+, for your
+sre-baseapps-configs*
+instance.
+PagerDuty integration (routing) keys can be found
+here
+MyID SSO URL redirect
+¶
+After app deployment please create a service request with the DUO team to add an OIDC application for this KPS Endpoint. To create this request use the
+myID | SSO Tools Site
+. OIDC applications for Kube Prometheus Stack are configured in the
+Prod
+section of MyID.
+Use the following steps to create a request.
+¶
+Click the
++ Add New
+button in the upper right hand corner of the table.
+Complete page 1 of the form:
+ESP Business Application:
+enter and choose
+Outshift-internal-sites
+Application Owner Groups:
+enter and choose
+eti_sre_admin
+Team Mailer:
+enter and choose
+eti-sre
+Onboarding Category:
+select radio button
+New Onboarding
+Audience:
+select radio button
+Workforce
+Application Type:
+will appear, select `Web Application
+Integration Type
+will appear, select radio button
+Open ID
+Application Name
+-
+Duo SAML
+will appear, update the text with the hostname for Kube-Prometheus-Stack (for example
+observability.eks-sre-4.dev.eticloud.io
+)
+Click
+Next
+to proceed to the next page
+Complete page 2 of the form:
+Scopes:
+verify the
+openid
+scope and add the
+profile
+and
+email
+scopes.
+Set the
+Profile Attribute:
+Name to
+memberof
+and in the Value field choose
+Member Of
+in the drop down menu.
+Add a
+Login Redirect URL
+(for example
+https:/observability.eks-sre-4.dev.eticloud.io/login/generic_oauth
+)
+Submit the form verify and confirm the configuration.
+Upon completion of the request, the requestor will be included in a Webex space where they can check status on the ticket and ask questions around completion. The requestor will be sent a direct Webex message with the client secret at the conclusion of the process.
+Complete Configuration
+¶
+Update Keeper with the OIDC credentials and MyID link.
+Create a secret in the following keeper path
+common/observability/<cluster-name>/grafana/oidc
+Keeper Link
+Add the
+client_id
+available through the myID link for the OIDC Application.
+Add the
+client_secret
+provided in the direct Webex message
+Add the
+myid_url
+the myID link for the OIDC Application.
+Update the values.yaml for
+kube-promethus-stack
+Using the
+template
+for your local application instance, update the
+CHANGE_ME
+token in the external secret configuration
+key: common/observability/CHANGE_ME/grafana/oidc
+to use the created OIDC credentials.
+2024-03-12

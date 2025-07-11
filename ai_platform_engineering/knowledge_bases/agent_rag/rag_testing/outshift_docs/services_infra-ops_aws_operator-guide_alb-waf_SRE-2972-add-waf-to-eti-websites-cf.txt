@@ -1,0 +1,53 @@
+SRE-2972: Implement export Control in ETI Websites with WAF in Cloudfront
+¶
+Problem
+Solution
+Step 1: Create WAFv2 webacl with Threatstop managed waf rules
+Step 2: Configure Cloudfront to use WAFv2 webacl from the previous step
+Test geo blocks
+Step A: Login to browserstack
+Step B: Select browser
+Step C: Select geo-location
+Step D: Verify website with geo-block
+References
+Problem
+¶
+ETI Public Websites like (eti.cisco.com or ciscodesignpartners.com) are currently served from AWS Cloudfront
+SRE team is mandated to implement geo-blocks for embargoed countries like Russia, Belarus and sub-regions like Crimea etc.
+Solution
+¶
+After research, SRE team came to a consensus to configure Cloudfront with a WAF (Web Application Firewall) and use
+Threadstop's WAF managed rules
+that support blocks for ITAR and OFAC sanctioned countries.
+Note:
+SRE team already subscribed to Threadstop WAF rules on
+eticloud
+account
+Step 1: Create WAFv2 webacl with Threatstop managed waf rules
+¶
+Reference
+Step 2: Configure Cloudfront to use WAFv2 webacl from the previous step
+¶
+Reference
+Test geo blocks
+¶
+â ï¸ Note: SRE team bought a month-to-month license (upto 5 users) to
+Browserstack
+. Contact Sri (
+sraradhy@cisco.com
+) if you need access to Browserstack
+Step A: Login to browserstack
+¶
+Step B: Select browser
+¶
+Step C: Select geo-location
+¶
+Step D: Verify website with geo-block
+¶
+References
+¶
+Cloudfront WAF Docs
+Setup WAF for Cloudfront
+Browserstack
+Threatstop Crimea ITAR
+2022-05-06

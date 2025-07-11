@@ -1,0 +1,47 @@
+ET&I URL Naming Conventions
+¶
+URL Schema:
+¶
+<1. App name>.<2. Cisco Internal/CIDR restricted (Optional)>.<3. Cluster Color>.<4. Deployment Stage (Optional)>.<5. Domain name>
+URL Schema Explanation
+¶
+AppName: Name of the application
+Example:
+maestro, fednview, dbp
+Cisco Internal/CIDR Restricted (Optional)
+Example:
+int
+Cluster Color
+Example:
+blue/green
+Deployment Stage (Optional)
+Example:
+dev, stage, prod
+Domain Name
+Example:
+eticloud.io
+Examples
+¶
+Internal URLs
+¶
+Cluster URL:
+https://maestro-api.int.blue.dev.eticloud.io
+Non-Cluster URL:
+https://maestro-api.int.dev.eticloud.io
+(
+Preferred to use
+, easy to move the app to another cluster)
+External URLs
+¶
+https://maestro-ui.blue.dev.eticloud.io
+https://maestro-ui.dev.eticloud.io
+[
+Preferred to use, easy to move the app to another cluster
+]
+https://maestro-api.prod.eticloud.io
+[
+Preferred to use, easy to move the app to another cluster
+]
+https://maestro-api.eticloud.io
+â¬ï¸âto "Home Page"
+2023-04-20

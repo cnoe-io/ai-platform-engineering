@@ -1,0 +1,109 @@
+safe settings operator
+GitHub Safe Settings Operator Guide
+¶
+Architecture
+¶
+The Safe Settings GitHub Application is currently installed in both our GHEC and GHE instances.
+It communicates with the NodeJS application hosted on our
+eks-prod-3
+and
+p3-prod-2
+clusters respectively
+The GitHub Application acts as a webhook that listens to the
+admin
+repo change events and then applies the settings configured in those YAMLs via the
+GitHub REST API
+CI
+¶
+The CI pipeline utilizes the
+sre-pipeline-library
+for building and publishing the application's Docker image and the Helm chart.
+The Helm chart and the Dockerfile are in the
+application's repository
+, and you can find the build job here:
+safe-settings-build
+.
+Deployment
+¶
+The application is deployed into the
+eks-prod-1
+and
+p3-prod-1
+(for GHEC and GHE support, respectively) Kubernetes clusters via ArgoCD.
+The ApplicationSet resource is held and managed in the sre-cluster-configs repo, under the
+sre/safe-settings-app
+folder.
+To Deploy A New Version:
+¶
+Find the current version of image in Jenkins:
+Update the
+image tag
+in the values yaml for both clusters:
+safe-settings:
+replicaCount: 1
+image:
+...
+tag: "2023.01.16-b0c0bc8-6"  <- update this
+Keeper Secrets
+¶
+We keep the application secrets, webhook secrets, and the private certificate for authentication in our ETI keeper instance under the
+eticloud
+namespace
+GHEC App Secrets
+GHE App Secrets
+They are consumed by the application via the
+external secrets
+component of the k8s HELM deployment which utilize our Vault's endpoints
+Contributing To Code
+¶
+We currently host our own
+internal
+copy of the NodeJS application code
+here
+.
+Contributing to this code is highly encouraged for any new features that we would like to add to the application.
+You may also contribute to the original open source code of the application found
+here
+.
+Monitoring
+¶
+Although GitHub Apps has its own monitoring/auditing tools for the webhook itself (can be found here:
+GHEC
+/
+GHE
+).
+We do strive to utilize our own tool-sets/services to help us monitor the service in a more centralized location
+Logs/Auditing
+¶
+Logs are being sent by the clusters hosting the application to our
+Elastic Search/Kibana instance
+GHEC -> EKS Cluster Query
+,sort:!(!('
+@timestamp
+',desc))))
+GHE -> P3 Cluster Query
+,sort:!(!('
+@timestamp
+',desc))))
+Metrics
+¶
+We would like to use the SLI metrics via Prometheus/Grafana being configured in out team (TBD)
+Troubleshooting
+¶
+When troubleshooting/debugging events sent to the application, it is best to do the following:
+Check the SLI monitoring tools (if applied) to see that the respective cluster deployments are up (
+p3-prod-1
+/
+eks-prod-1
+respectively)
+Make sure to check the
+ArgoCD Application Set
+to see if there are any outstanding issues in the cluster
+Check the logs listed above in our Elastic Search queries to see if the webhook events are being received by the application and/or refer to the GitHub Application's auditing tools:
+GHEC
+/
+GHE
+Using the advanced auditing tool feature you may also try
+redilivering
+the webhook event for debugging purposes
+2024-01-12

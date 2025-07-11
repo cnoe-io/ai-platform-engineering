@@ -1,0 +1,100 @@
+eti-sre-cicd.gen
+eti-sre-cicd.gen password rotation
+¶
+Usage:
+¶
+Vault token rotation
+Corona/Blackduck stage
+dockerhub.cisco.com container push
+Steps to rotate password:
+¶
+Step 1: Notify in ETI Platform Status space
+¶
+Notify in
+ETI Platform Status
+space about eti-sre-cicd.gen
+Notification template:
+# eti-sre-cicd.gen generic user password rotation
+**What:** eti-sre-cicd.gen generic user password is being rotated every 90 days
+**When:** May 3rd 2022, 2:00PM US Central time (GMT-6)
+**Impact:** Jenkins builds will intermittently fail
+Step 2: Create new password
+¶
+Create a new password from commandline shell
+# Works on mac or linux
+LC_ALL
+=
+C
+tr
+-dc
+'A-Za-z0-9!#%=?@^_`{|}~'
+</dev/urandom
+|
+head
+-c
+18
+Step 3: Set the password in adam
+¶
+Note:
+adam is cisco's active directory account management tool
+Login to
+https://adam.cisco.com
+with Cisco username/password
+Click on
+User->Generic Accounts->Search
+Lookup
+eti-sre-cicd.gen
+Verify
+existing password
+Set password
+Note:
+A new generic user password takes between 15-45 mins to propogate to all the systems.
+Step 4: Run Vault Token Rotation Job manually until it fails
+¶
+Vault token rotation job uses
+eti-sre-cicd.gen
+generic user credentials
+Trigger
+this jenkins job
+multiple times until the job fails
+Note: Don't choose
+RECREATE_TOKENS_AND_POLICIES
+Note:
+This step will confirm once the new password has been propogated to Jenkins
+Step 5: Update Vault
+¶
+Update vault paths
+Vault #1
+Vault #2
+Vault #3
+Step 6: Update Jenkins
+¶
+Update Jenkins paths
+Jenkins #1
+Jenkins #2
+Jenkins #3
+Note:
+Update description with today's password
+Step 7: Update ArgoCD
+¶
+Update ArgoCD repository credential templates
+Login to ArgoCD
+argocd login --grpc-web --sso argocd.prod.eticloud.io
+List templates
+$ argocd repocreds list
+URL PATTERN                                  USERNAME          SSH_CREDS  TLS_CREDS
+https://wwwin-github.cisco.com/calisti-saas  eti-sre-cicd.gen  false      false
+https://github.com/cisco-eti                 eti-sre-cicd      false      false
+https://wwwin-github.cisco.com/kosha         eti-sre-cicd.gen  false      false
+Update URLs with
+eti-se-cicd.gen
+as username
+argocd repocreds add "<URL PATTERN>" --username eti-sre-cicd.gen --password '<PASSWORD>' --upsert
+Step 8: Run Vault Token Rotation Job manually and verify for success
+¶
+Trigger
+this jenkins job
+Note: Don't choose
+RECREATE_TOKENS_AND_POLICIES
+Verify job succeeds
+2024-04-02

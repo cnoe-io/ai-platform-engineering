@@ -1,0 +1,48 @@
+nonprod-db-vpc-1
+nonprod-db-vpc-1
+¶
+Shared Dev VPC
+VPC Terraform Code
+¶
+VPC Terraform
+Cluster Access
+¶
+Access
+Details
+URL
+AWS Console access
+Account
+eticloud
+Region
+us-east-2
+CIDR
+10.200.0.0/16
+Bastion
+SSH access
+VPC Subnets
+¶
+Private Subnets
+Public Subnets
+10.200.1.0/24
+10.200.11.0/24
+10.200.2.0/24
+10.200.12.0/24
+10.200.3.0/24
+10.200.13.0/24
+VPC Bastion Access
+¶
+Access
+Details
+Host
+AWS Console access
+IP
+18.218.59.116
+Private Key
+Vault Secret
+Security Group
+sg-0926f616b678183f4
+How to ssh to bastion host on AWS
+VPC Users S3 Bucket
+¶
+S3 AWS Console
+2023-01-10

@@ -1,0 +1,62 @@
+onboarding platform basic access
+ETI Platform Basic Access
+¶
+Github
+¶
+What:
+: Git version control system.  ET&I projects are mostly hosted on the Cisco Engineering-IT hosted
+wwwin-github
+(a Github Enterprise instance), which can be accessed by anyone with CEC credentials on the VPN.  Access to repositories are managed by "teams" defined in the "organization" or individual repository level.
+How:
+:
+GitHub Guide
+Click
+here
+for further information on SCM/GitHub
+Jenkins
+¶
+What:
+Jenkins is an Cisco IT managed workflow automation tool primarily used in ETI for continuous integration of projects
+URL:
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/
+Access:
+Everyone in ETI should have read access, if not please contact
+ETI SRE
+team.
+As new projects are onboarded, SRE team will create project level access
+More Info
+ArgoCD
+¶
+What:
+ArgoCD is a Kubernetes Operator, primarily used as a GitOps based continuous delivery platform for Kubernetes centric apps.
+URL:
+https://argocd.prod.eticloud.io/
+Access:
+Everyone in ETI should have read access, if not please contact
+ETI SRE
+team.
+As new projects are onboarded SRE team will create project level
+Keeper (Vault)
+¶
+What:
+Keeper is an enterprise instance of
+Hashicorp Vault
+provided by the Cisco Cryptographic Services team. The ETI Platform leverages Keeper for
+secret management
+.
+URL:
+https://keeper.cisco.com/ui/
+Access:
+See
+Getting Access to Keeper
+ETI SRE JIRA
+¶
+What:
+JIRA is a project/task tracking application.
+URL:
+https://cisco-eti.atlassian.net/jira/software/c/projects/SRE/boards/40
+Access:
+Contact
+ETI SRE
+team for read-access
+2023-08-29

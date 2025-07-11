@@ -1,0 +1,16 @@
+greatbear-eu-west-1
+nonprod-db-vpc-2
+nonprod-db-vpc-2 peering connections
+¶
+greatbear-eu-west-1
+¶
+Peering connection ID: pcx-07a13a31bc1051864
+Requester VPC:
+nonprod-db-vpc-2
+Requeseter CIDR: 10.222.0.0/16
+Requester region: eu-west-1
+Accepter VPC:
+greatbear-eu-west-1
+Accepter CIDR: 10.13.0.0/16
+Accepter region: eu-west-1
+2023-01-10

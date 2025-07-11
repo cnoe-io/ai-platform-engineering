@@ -1,0 +1,15 @@
+ETI IAM Test Environment
+¶
+Contact
+Jean Diaconu
+if you have questions on ETI IAM
+This is the test environment, it will contain very unstable versions used for testing only:
+API Endpoint:
+https://api.id.test.eticloud.io/v1
+UI Endpoint:
+https://id.test.eticloud.io
+Sample App:
+https://sample.id.test.eticloud.io
+Okta Issuer:
+https://idp.preview.eticloud.io/oauth2/aus4pazfds6IBQy9s1d7
+2022-10-02

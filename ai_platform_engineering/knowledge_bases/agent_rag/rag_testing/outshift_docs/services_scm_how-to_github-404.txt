@@ -1,0 +1,23 @@
+How do I resolve wwwin-github 404 on accessing a project/repo link
+¶
+tag:
+github 404
+Background:
+¶
+wwwin-github.cisco.com
+is accessible to everyone in Cisco, but it doesn't allow anonymous access to projects like public github.com
+Users have to be signed in before accessing a project or repo
+Note:
+Users may notice 404 behavior if they haven't used wwwin-github webui in a while and they have been logged out
+Solution:
+¶
+Access desired link like
+https://wwwin-github.cisco.com/eti
+Upon seeing 404 page, click on the "sign-in" page on the top right hand corner
+Retry accessing the project/repo link again
+Note: unlike most logins at Cisco,
+do not
+use
+@cisco
+.com for your login, just your CEC ID
+2023-06-02

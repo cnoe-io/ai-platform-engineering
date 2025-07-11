@@ -1,0 +1,16 @@
+BCR-01.01
+Critical S3 buckets are not backed up
+¶
+Description
+¶
+In case of accidental deletion of operationally critical S3 buckets (or data in those buckets), such as those containing Terraform state files, the lack of backups will prolong recovery or make recovery attempts impossible.
+Business Impacts
+¶
+Business Continuity
+Customer Data Loss
+Likelihood: Low
+¶
+S3 is the most resilient service in AWS. Currently, however a large number of users have overly broad permissions to S3 buckets in production.
+Risk Level Category: Medium
+¶
+2023-03-14

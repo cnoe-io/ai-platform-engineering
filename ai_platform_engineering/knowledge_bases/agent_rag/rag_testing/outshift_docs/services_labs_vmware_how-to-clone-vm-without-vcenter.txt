@@ -1,0 +1,25 @@
+How to clone a VM without vCenter
+¶
+Find a way to create two copies of the VM named NetHunting-2, even without the clone feature since we do not have any vcenter Appliance in the DMZ
+ESXi host link:
+https://192.168.199.12
+Username: root
+Password: (see keeper)
+The cloning steps:
+¶
+Connect to the ESXi server which hosts the VM (NetHunting-2)
+In the left menu click on Storage
+In the central pannel click on Datastore browser
+Click on Datastore1(1), then create a directory to store the .vdmk file of the VM you want to clone (NetHunting-2), in my example i have created a directory named NH2-vmdk
+Select NetHunting-2 directory, then select its NetHunting-2.vdmk file and copy it to the NH2-vmdk directory
+Now go back to the left menu then :
+Click on host
+Create/Register VM
+In select creation type select create a new virtual machine
+Give a name to the new VM (Pixies-1 in my example), and as Guest OS Family and Guest OS version, choose the same as those of the VM which we want to clone
+Select any available Storage option
+In customize settings step, remove the Hard-disk-1, click on add hard disk/existing hard disk, choose the .vdmk file under the NH2-vmdk directory then click next.
+In the last step click on finish
+The new VM is created, to check the creation you can go to the left menu then click on Virtual Machines
+As the new VM is a clone, it keeps the IP address of the original one so it's important to change it.
+2023-02-23

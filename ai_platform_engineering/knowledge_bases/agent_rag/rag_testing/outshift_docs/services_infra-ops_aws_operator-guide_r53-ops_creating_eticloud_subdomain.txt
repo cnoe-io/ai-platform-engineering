@@ -1,0 +1,32 @@
+Creating a R53 eticloud subdomain
+¶
+Once you've created a new AWS account, it's good to have a sub-domain of
+eticloud.io
+. This domain is part of the top-level AWS
+eticloud
+account; any EKS, sandbox or other resource(s) can leverage this R53 domain as a part of our naming convention/hierarchy. For example, the
+scratch-c.eticloud.io
+sub-domain is the default R53 domain for the AWS
+scratch-c
+account.
+We will use that example to illustrate the R53 routing to be done while creating a new AWS account.
+Table of Contents
+¶
+new AWS account R53
+Routing the eticloud sub domain
+new AWS account R53
+¶
+In your new AWS account, go to the
+R53 service
+in order to create a new hosted zone:
+Name this new zone as ACCOUNT_NAME.eticloud.io.
+Once created, you should have 4 name servers (NS) attached to it starting with ns- prefix as bellow:
+Copy all those NS as they will be required on the next step.
+Routing the eticloud sub domain
+¶
+Now, we will create the sub domain route in the eticloud R53 hosted zone so that all traffic will be redirect to the right hosted zone previously created.
+Go to the
+eticloud.io hosted zone in the AWS eticloud account
+and create a new record:
+Put the AWS account name create on previous step (ACCOUNT_NAME), select NS and put the 4 name servers from the previous step, should be like that:
+2022-09-20

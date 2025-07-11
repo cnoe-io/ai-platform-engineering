@@ -1,0 +1,34 @@
+vowel sagemaker demo
+Vowel Sagemaker Endpoint Demo Connector with REST API
+¶
+This an example microservice that demostrates connectivity to AWS Sagemaker endpoint and exposes a REST API to interact with sagemaker.
+URL:
+https://vowel-sagemaker-example.int.dev.eticloud.io
+The microservice has the following features:
+Source code
+CI/CD Pipeline
+with Jenkins and
+Argocd
+Runs inside kubernetes in the same namespace (vowel-dev) as other vowel apps.
+Uses service role identity. Connects to a sagemaker endpoint using
+AssumeRoleWithWebIdentity
+REST API Endpoint to interact with Sagemaker endpoints. Checkout the
+Swagger UI
+Sample UI
+to play with the models. I had little fun building this sample UI.
+Example curl request that can be executed from desktop or inside the kubernetes clusters (with service url):
+curl -X 'POST' \
+'https://vowel-sagemaker-example.int.dev.eticloud.io/sagemaker' \
+-H 'accept: application/json' \
+-H 'Content-Type: application/json' \
+-d '{
+"model": "jumpstart-dft-vowel-2-meta-textgeneration-llama-2-7b-f",
+"query": "What is Cisco?"
+}'
+UI Demo
+¶
+Swagger API Demo
+¶
+Note:
+This service is restricted to Cisco network, in future we will add basic auth.
+2023-09-01

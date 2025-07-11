@@ -1,0 +1,72 @@
+CAPI
+Cluster API
+ROSA
+cluster creation
+kubernetes
+self-service
+Self-service Kubernetes Cluster Creation
+¶
+Note
+: (Venture developers) Please coordinate with the SRE team if you would like to test with us in the
+SRE for Development Clusters Webex Teams Space
+.
+Link to the self-service Jenkins job
+Automation repo -
+https://github.com/cisco-eti/platform-iac
+Overview
+¶
+The objective of the self-service Kubernetes cluster creation is to allow to stand up Kubernetes clusters on their own in specified cloud providers.
+The workflow is meant to be simple (and hopefully painless) using a standard GitOps workflow and an ArgoCD
+instance
+.  Developers will have write access to the controlling repositories and ArgoCD instance, and so are not blocked on others.
+Please refer to the
+README.md
+file in the repo linked below for detailed instructions for each provider.
+By agreement with product engineering and SRE, in this first iteration, providing a
+GUI
+for cluster definitions is
+not
+a goal; ArgoCD does provide a good view of cluster status. The templated cluster definitions provide a good balance of flexibility, simplicity, and consistency.
+Availability
+¶
+Where "Available", link is to Git repo for this provider.
+A number following "In Progress" indicates the order in which it is expected to be available.
+Cloud Service Provider
+Cluster API Managed Control Plane
+Unmanaged Cluster (EKS, GKE, AKS)
+Notes
+AWS
+Available
+Google
+Available
+* Blocked
+GKE support in Cluster API is currently in development. Once ready, we will be adding it. We have another option for creating self-service clusters. Please see this
+doc
+Azure
+Later
+Available
+Openstack
+Available
+SRE use only at this time
+Tanzu
+Planned
+Tanzu available via TKG, but no Argo/CD workflow yet.
+OpenShift
+Not Available
+Available
+Uses ROSA CLI, shared administration through
+Openshift Console
+Rancher
+Researching
+Researching
+No CAPI support available.  We do have
+Rancher
+available for testing. See
+Rancher docs
+Notes:
+"Unmanaged" in the table above is from the perspective of ClusterAPI - it refers to whether ClusterAPI deploys the management nodes, or the Cloud provider does
+Historically, developers might have used Banzai Pipeline, SRE-managed clusters, or scratch environments.
+Other documents
+¶
+EKS self-service troubleshooting runbook
+2024-08-12

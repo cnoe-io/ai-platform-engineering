@@ -1,0 +1,120 @@
+ghec
+github
+scm
+ET&I SCM/GitHub Options
+¶
+Introduction
+¶
+Source Code Management (SCM) is a generic term used for source code version control.
+[1]
+[2]
+Git
+/
+GitHub
+is the preferred SCM for most developers in ET&I (and Cisco at large).
+GitHub Enterprise
+¶
+At present, ET&I projects are hosted on either of two GitHub Enterprise (GHE) platforms:
+Our internal/on-prem GitHub Enterprise Server (GHES) instance is available at
+wwwin-github.cisco.com
+, or
+GitHub Enterprise Cloud (GHEC) instance available at
+github.com
+Within each instance, many GitHub "organizations" exist to logically separate various use cases. See the table below for more information.
+Table of GitHub Organizations
+¶
+GitHub Instance
+GitHub Organization
+Access
+URL
+Purpose
+Prime
+wwwin-github
+eti
+Default read access to ET&I to all repos
+https://wwwin-github.cisco.com/eti
+All ET&I repos
+ET&I SRE
+wwwin-github
+vowel-it
+Motific repos
+https://wwwin-github.cisco.com/vowel-it
+Motific repos
+ET&I SRE
+wwwin-github
+promptintel-ai
+Prompt Intel Repos
+https://wwwin-github.cisco.com/orgs/promptintel-ai
+Prompt Intel repos
+ET&I SRE
+wwwin-github
+genie-ai
+Genie repos
+https://wwwin-github.cisco.com/genie-ai
+Genie repos
+ET&I SRE
+wwwin-github
+kosha
+Kohsa repos
+https://wwwin-github.cisco.com/kosha
+Kosha repos
+ET&I SRE
+wwwin-github
+eti-playground
+Default read access to ET&I to all repos
+https://wwwin-github.cisco.com/eti-playground
+- ET&I sandbox repos
+- Primarily for developer
+platform-demo
+forks
+ET&I SRE
+wwwin-github
+cisco-app-networking
+Restricted to App Networking team
+https://wwwin-github.cisco.com/cisco-app-networking
+-
+Tim Swanson
+-
+ET&I SRE
+~~
+wwwin-github
+AppEdge
+Restricted to App Edge (GreatBear) team
+https://wwwin-github.cisco.com/AppEdge
+-
+Trevor Smith
+-
+ET&I SRE
+github.com
+cisco-eti
+Restricted access for private repos. Read GHEC setup
+https://github.cisco.com/cisco-eti
+ET&I External repos
+ET&I SRE
+github.com
+outshift-platform
+Restricted access for private repos. Read GHEC setup
+https://github.cisco.com/outshift-platform
+Outshift Platform External repos
+ET&I SRE
+github.com
+cisco-platform
+Restricted access for private repos. Read GHEC setup
+https://github.cisco.com/cisco-platform
+Cisco Platform External repos
+ET&I SRE
+github.com
+scs-sandbox
+Restricted access for private repos. Read GHEC setup
+https://github.com/scs-sandbox
+Sandbox environment for vulnerability research and testing
+-
+Haim Raitsev
+-
+ET&I SRE
+_
+Note:
+the
+wwwin-github.cisco.com/eti
+org is the default
+2024-10-01

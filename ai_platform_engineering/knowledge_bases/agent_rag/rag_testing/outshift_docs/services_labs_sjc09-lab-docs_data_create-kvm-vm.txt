@@ -1,0 +1,244 @@
+kvm
+virtual bridge
+Create KVM And Virtual Bridge Network
+¶
+In this document we will be focusing on creating vms using libvirt/qemu/kvm stack with virtual bridged network to allow our kvms to be routable in our LAN.
+Install the required packages
+¶
+check if your device supports virtualization first.
+egrep
+-c
+'(vmx|svm)'
+/proc/cpuinfo
+Install kvm packages on ubuntu 20.04
+sudo apt -y install bridge-utils cpu-checker libvirt-clients libvirt-daemon qemu qemu-kvm
+add your username to libvirt and kvm groups.
+adduser user-name libvirt
+adduser user-name kvm
+install virtmanager
+apt-get install virt-manager
+check libvirtd status and start it if necessary.
+systemctl status libvirtd
+systemctl enable --now libvirtd
+after installing the above packages,  a default virtual bridge network with the following few key things will be automatically created:
+a
+virbr0
+bridge interface, its the
+virtual switch
+where all the vms are attached to.
+a
+virbr0-nic
+interface which's attached to
+virbr0
+, its just a dummy interface and its main use is to give
+virbr0
+a MAC address.
+dnsmasq
+will be started, it will work as a local dhcp-server
+/var/lib/libvirt/dnsmasq/default.conf
+Delete the default network:
+virsh
+net-list
+virsh
+net-destroy
+default
+virsh
+net-undefine
+default
+now run
+ip a
+again,
+virbr0
+and
+virbr0-nic
+should be gone. if they're still there, you can remove them with
+ip link delete virbr0 type bridge
+and
+ip link delete virbr0-nic
+Create bridge network for vms using systemd-networkd
+¶
+As you may get from many internet sources and guides there are different ways to create a bridge network, in this documentation I will be using
+systemd-networkd
+.
+first and foremost, ensure that you disabled
+NetworkManager
+and
+systemd-networkd
+will run on a reboot. In addition, letâs enable the caching resolver and make a symbolic link to systemdâs resolv.conf.
+systemctl
+disable
+NetworkManager
+systemctl
+enable
+systemd-networkd
+systemctl
+enable
+systemd-resolved
+ln
+-sf
+/run/systemd/resolve/resolv.conf
+/etc/resolv.conf
+Create 3 files in /etc/systemd/network/ with the following contents
+¶
+Configure the physical network adapter, in this example, the network adapter that's connected to the external network is
+eno2
+. run
+ip a
+to see your pNIC adapter.Naming is important, as systemd-networkd run the files in alpha-numeric order. that's why it's started with
+1-br0-bind.network
+to be executed first.
+systemd
+will look for a device called
+eno2
+and add it to a bridge called
+br0
+.
+sre@eti-pirl-ldap:/etc/systemd/network$
+more
+1
+-br0-bind.network
+[
+Match
+]
+Name
+=
+eno2
+[
+Network
+]
+Bridge
+=
+br0
+In
+2-br0.network
+, this is telling
+systemd
+that we want to apply a static network configuration to
+br0
+with a single IPv4 address. If you want to add additional DNS servers or IPv4/IPv6 addresses, just add more DNS= and Address lines right below the ones you see below. We can also use DHCP by just adding
+DHCP=ipv4
+.
+sre@eti-pirl-ldap:/etc/systemd/network$
+more
+2
+-br0.network
+[
+Match
+]
+Name
+=
+br0
+[
+Network
+]
+DNS
+=
+144
+.254.71.184
+Address
+=
+10
+.60.16.109/24
+Gateway
+=
+10
+.60.16.254
+Create the bridge network; in
+br0.netdev
+file,  we are directing
+systemd
+that we want a device called
+br0
+that functions as an ethernet bridge.
+sre@eti-pirl-ldap:/etc/systemd/network$
+more
+br0.netdev
+[
+NetDev
+]
+Name
+=
+br0
+Kind
+=
+bridge
+After you create and add the configuration for all the above 3 files, you can restert
+systemd-networkd
+and see the logs with
+journalctl -f -u systemd-networkd
+, but I recommend you to reboot the server, that will allow you to verify that future reboots won't cause a problem.
+After the reboot, let's run
+networkctl
+, you should see like the below screenshot.
+Create kvm vm
+¶
+make sure you have uploaded the image .iso file on your local hard drive.
+create a new file
+virt-install.sh
+, copy and paste
+this
+script into this file, make changes as you wish, save and exit.
+add executable permisions to the file,
+chmod +x virt-install.sh
+finally, run the script
+./virt-install.sh
+and follow the screen to complete the installation.
+start the kvm
+¶
+see the available kvms,
+virsh list (--all)
+start the kvm,
+virsh start kvm-name
+to get the kvm Ip address, console the kvm with
+virsh console kvm-name
+or run
+ip a
+and see what is the vNIC mac-address, then check what IP it has been leased to in the dhcp server.
+make sure you set the
+interface
+type to
+direct
+to do that:
+edit the kvm xml
+sudo virsh edit kvm-name
+locate
+interface
+in the
+<devices>
+tag and set it as below.
+<interface
+type=
+'direct'
+>
+<mac
+address=
+'52:54:00:e3:d1:20'
+/>
+<source
+dev=
+'br0'
+mode=
+'bridge'
+/>
+<model
+type=
+'rtl8139'
+/>
+<address
+type=
+'pci'
+domain=
+'0x0000'
+bus=
+'0x01'
+slot=
+'0x00'
+function=
+'0x0'
+/>
+</interface>
+save and exit
+check if everything is working with
+ip a s
+and it should look like this:
+2023-02-16

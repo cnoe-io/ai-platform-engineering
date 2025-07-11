@@ -1,0 +1,40 @@
+lightspin
+post mortem
+vpc cni
+2024-02-18; New pods on lightspin-prod were allocated IP addresses on non-secondary subnet
+¶
+Summary
+¶
+Lightspin team noticed an issue with VPC CNI as it was spinning new pods into the wrong subnet (non-secondary)
+When
+¶
+2024-02-18 11:16 IST - 2024-02-18 12:28 IST
+Timeline
+¶
+2024-02-13
+11:16 IST - Lightspin dev team noticed that new pods were getting ip allocation on the wrong subnet (primary instead of secondary)
+11:28 IST - Lightspin team noticed that AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG was set to false instead of true
+11:38 IST - Issue was fixed and new pods were getting IP's inside secondary subnet , but some pods were still failing to receive an IP address
+11:49 IST - Setting back to true ENABLE_PREFIX_DELEGATION, fully resolved the issue/
+12:28 IST - Lightspin team confirmed that all SRE services (baseapps) and lightspin apps are on the right subnet now after re-spining the pods
+Impact
+¶
+System(s) impacted?
+¶
+Lightspin Prod environment on lightspin-prod-1 cluster
+Teams impacted?
+¶
+Lightspin
+Analysis
+¶
+Pods are being assigned IP addresses from the wrong subnet (non-secondary)
+Some pods were not receiving IP addresses allocation
+  Solution:
+reverting AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG and re-spinning the pods to get into the secondary subnet
+Takeaways
+¶
+- Alerting\incident response and shared responsibility should be discussed for building a clear process for much faster mitigation time. [Tracking Jira](https://cisco-eti.atlassian.net/browse/SRE-7597)
+- Route dedicated SRE services alerts + EKS addons controllers (e.g. VPC CNI [CNI metrics helper](https://github.com/aws/amazon-vpc-cni-k8s/blob/master/cmd/cni-metrics-helper/README.md)) to SRE on-call
+- Better synthetic tests to validate the functional state of console.panoptica.app after infrastructure changes.
+- **VPC Customer Networking in EKS is not well understood by the SRE team. Even with the availability of many IPs, the nodes are running out of CIDR prefixes due to inefficient IP bin packing. We need to do a technical deep dive with AWS to understand various VPC CNI knobs like ENABLE_PREFIX_DELEGATION and WARM_PREFIX_TARGET to achieve our technical/business goals of allocating pod IPs fast without starving from CIDR prefixes**
+2024-02-22

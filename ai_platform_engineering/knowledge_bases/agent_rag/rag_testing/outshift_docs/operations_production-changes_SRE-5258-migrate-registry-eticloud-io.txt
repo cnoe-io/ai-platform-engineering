@@ -1,0 +1,43 @@
+SRE-5258: Harbor migration
+¶
+Migration of harbor database from eks-prod-1 VPC that will be removed to rds-prod-1 VPC separating it from the cluster lifecycle.
+Preparation Steps
+Execute Change
+Preparation Steps
+¶
+Create a snapshot of harbor01 rds instance and restore to a new instance in rds-prod-1 VPC.
+Use current name conventions.
+Install Harbor in eks-prod-3 to test database snapshot viability.
+Test viability of database using eks-prod-3 harbor.
+Possible options for synchronization of data between backup time and restore time.
+¶
+Place source database in read-only mode while backup and restore occurs.
+Catch-up data following restoration from source database diffs.
+Create replication between source and target databases, making source read-only while target becomes read/write replica.
+Considerations:
+ * What is the team tolerance for reduced functionality. Backup and Restore can take approximately 30 min.
+ * Is this project the setting to do database HA testing?
+ * How long might it take to catch up, and can a reduced data-set work with a cut over from read-write source, to read-write target.
+Execute Change
+¶
+Post notice in the
+ET&I Platform Status
+space about this change
+Refresh Harbor Database
+¶
+(Optional) Set source Harbor database to read-only mode.
+(Optional) Configure any database replication.
+Create a backup of Harbor Database (PGAdmin).
+Restore Harbor Database (PGAdmin).
+Update Harbor Application
+¶
+Test Harbor Instance on EKS-PROD-3
+Update DNS Naming for Harbor instance on EKS-PROD-3 to become harbor endpoint used by applications.
+(Optional) Perform Database Catch-Up
+¶
+Execute Database Diff.
+Query records that are missing from target database, write insert statements for missing records.
+Execute insert statements.
+Decommission Old Harbor RDS Instance (after a final snapshot)
+¶
+2023-10-16

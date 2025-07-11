@@ -1,0 +1,82 @@
+eks
+eks-gb-dev-1
+great bear
+mcom
+post mortem
+2023-04-24;
+SRE-5407
+- eks-gb-dev-1 no space left on device errors
+¶
+Summary
+¶
+The Great Bear team reported repeatedly that a pod went down and wouldn't restart with a
+No space left on device
+error. To remediate that error,
+Matthew
+finished a migration to kubernetes 1.22 and upgraded several base applications.
+When
+¶
+2023-04-14 until 2023-04-25
+Timeline
+¶
+2023-04-14
+Trev Smith reported that a pod was crash looping with an
+No space left on device
+error.
+Zsolt and Matthew ran
+docker system prune
+s and did some initial investigation, but the error disappeared.
+2023-04-19
+Trev Smith reported another pod was crash looping.
+Investigation again found no results.
+2023-04-20
+Zsolt opened
+SRE-5407
+to document further investigations.
+2023-04-21
+Trev Smith reported that another pod was crash looping.
+Zsolt discovered bug reports for the AWS EKS AMI that fluentbit was not releasing space in a way that XFS could properly defragment it.
+Matthew confirmed that the nodes were heavily fragmented.
+2023-04-24
+More research confirmed:
+The 1.21 nodes remaining from a partial upgrade were the worst affected due to their smaller disk size and could not be replaced.
+The filesystem could not be repaired by the available tools while the device is mounted. The devices is mounted as
+/
+, so filesystem couldn't be repaired with the available tools.
+0830
+Matthew added 4 new nodes to the 1.22 nodegroup.
+Matthew removed the 1.21 nodes and nodegroup.
+Removing the 1.21 nodes broke the MCOM installation and mcom.eks-gb-dev-1.dev.eticloud went offline.
+Matthew immediately started upgrading MCOM to the latest version.
+0830-1800
+Consulting with
+Shoosh
+,
+Sally
+, and
+David
+, Matthew upgraded MCOM (one-eye and one-eye-postgresql), externalsecrets, nginx, and nginx-internal. Matthew also installed imagepullsecrets.
+1815
+MCOM restored and functional.
+2023-04-25
+Fragmentation of the root drive on the nodes decreased significantly, from ~80% to ~10%.
+Impact
+¶
+MCOM, and thus alerting for Great Bear went offline. Manual checks were made continuously through the day, attempting to ensure no interruption in services.
+Analysis
+¶
+The intial supposition that fluentbit is the source of the error appears correct. The drives with the most fragmentation had multiple tens of gigabytes of fluentbit buffer files in storage. Since the upgrade, fragmentation has decreased significantly.
+Takeaways
+¶
+Continued use of
+eks-gb-dev-1
+is an unacceptable technical and business risk for Great Bear.
+eks-gb-dev-1
+is running kubernetes 1.22, which will be End-of-Life in AWS EKS soon.
+No regular maintenance, in terms of keeping base apps updated, has occurred on
+eks-gb-dev-1
+for almost a year.
+All the Great Bear stacks run on a cluster, increasing the likelihood of required maintenance to affect them simultaneously.
+A regular cadence of maintenance for SRE-managed and venture-dedicated EKS clusters should be written and enacted.
+Disk health checks should be written for the EKS nodes for cluster health. If the SRE team continues to use MCOM, this should be a high priority.
+2023-05-02

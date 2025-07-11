@@ -1,0 +1,28 @@
+IAM-01.01
+permissions scope
+systems access
+Unnecessarily broad permissions may lead to privilege escalation
+¶
+Description
+¶
+Within the loosely defined set of "production systems", permissions are granted to users and services without regard to their current role. This is true at the AWS account, infrastructure, deployment, and application levels.
+This risk was confirmed by a penetration test performed by Synopsys, Inc.:
+3.2.1.1 Least Privilege Violation - Roles with Unnecessary Access
+¶
+The application violates the principle of least privilege by granting unnecessary permissions to certain users or user types. The principle of least privilege requires that users operate with the minimum set of permissions necessary to perform activities corresponding to their role.
+3.2.1.2 Least Privilege Violation - Use of Privileged Code
+¶
+The application violates the principle of least privilege by executing more code than is strictly necessary in a privileged context. Critical sections of code are often executed as users with elevated privileges, such as root in *nix systems. Failure to revert to a lower privilege level after executing these restricted operations grants more access to system resources than necessary for subsequent operations.
+Business Impacts
+¶
+Privilege Escalation
+Insider Abuse
+Service Compromise
+Overbroad permissions are a ripe target for abuse. When there are larger numbers of users with those overbroad permissions, the surface area of the threat increases accordingly. Overbroad permissions also invite a greater number of accidents.
+Likelihood: Medium
+¶
+While the percentage of users who have overbroad permissions is high, the actual numbers of users are relatively low. Further, external intrusion is mitigated by our use of Cisco's Active Directory and two-factor authentication methods. If an internal actor (or an external actor with falsified credentials) acts maliciously, there is little in the way of mitigation.
+Risk Level Category: High
+¶
+The potential outcomes of privilege escalation are interruption or deletion of production services.
+2023-03-14

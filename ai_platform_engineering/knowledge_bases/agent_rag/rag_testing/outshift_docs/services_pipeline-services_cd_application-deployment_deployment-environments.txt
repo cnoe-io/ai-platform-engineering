@@ -1,0 +1,98 @@
+environment definitions
+ET&I Environment Definitions
+¶
+To ensure clear segregation between production and non-production workloads, the ET&I Platform defines 4
+Service-Level Environment Types
+. This page describes the characteristics and gating requirements defined for each environment to ensure that developers can rapidly iterate application changes
+without
+impacting the reliability and security of customer-facing products.
+These environment definitions also ensure that the ET&I Platform complies with the
+Cloud Controls Framework
+(e.g.,
+Change Control and Configuration Management
+,
+SCF-IVS-09.03
+).
+All of the following environments, including the non-production
+dev
+and
+preview
+environments, are intentionally built to honor the same application contracts described in the
+Application Onboarding doc
+to eliminate friction from promoting the same application artifacts to subsequent environments.
+Dev
+¶
+Deployment Stage
+: The first deployment stage where changes can be validated in a non-production kubernetes cluster
+Customer Impact
+: None
+Access Control
+: permissive access-control policy to grant developers access for troubleshooting
+Pre-requisites
+:
+CI/CD pipeline contract requirements
+Notes
+:
+successful deployment/validation in this environment is a
+pre-requisite
+to promoting the same change to the next deployment stage
+since this is the first stage for deploying and validating new changes, the environment is more volatile
+Preview
+¶
+Deployment Stage
+: A production-like environment where not-yet-released features can be previewed by special external userse (e.g., Design Partners)
+Customer Impact
+: Early Access customers only (e.g., Design Partners)
+Access Control
+: Highly restricted access-control policy to protect the security and reliability of the environment
+Pre-requisites
+: Successful deployment and validation in
+dev
+environment
+Notes
+:
+primary use case for this environment are projects that are still in early development stages (i.e., not yet fully hardened for security), but must also be shared with external entities for early feedback
+Staging
+¶
+Deployment Stage
+: An optional stage where changes can be further validated in a more production-like and stable environment
+Customer Impact
+: None
+Access Control
+: Highly restricted access-control policy to protect the security and reliability of the environment
+Pre-requisites
+: Successful deployment and validation in
+dev
+environment
+Notes
+:
+this environment is built to more closely resemble production environment, including external infrastructure/services (e.g., CloudFront)
+all
+workloads, including applications, are subject to
+security vulnerability SLAs
+depending on the project, this may or may not be a required deployment stage
+Production
+¶
+Deployment Stage
+: The final deployment stage where hosted services are used by real end-user customers
+Customer Impact
+: All GA customers
+Access Control
+: Highest level of access-control restrictions to protect the security and reliability of the environment, as well as customers' privacy
+Pre-requisites
+:
+Successful deployment and validation in
+dev
+and/or
+staging
+environments
+Application Observability
+High Availability
+Agreement on
+shared responsibilities for meeting CSDL controls
+Notes
+:
+all
+workloads, including applications, are subject to
+security vulnerability SLAs
+2024-02-14

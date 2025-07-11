@@ -1,0 +1,55 @@
+Developer Workflow
+¶
+This page describes detailed step-by-step developer workflows for making changes to specific artifacts, deployments, etc. If you are not familiar with GitOps principles, please read the
+GitOps
+overview page before continuing with this doc.
+For
+small/trivial
+changes in a single file, you can use GitHub's graphical user interface to quickly create new edits in your own branch directly in your web brower. See
+GitOps Via GitHub GUI
+for more details.
+For large and/or more complex changes that span multiple files, it is better to use the
+git
+CLI tool to clone the repo to your local computer, create a new branch, edit/commit changes in that branch, then push that branch back to the remote shared repository.
+Developer Workflow
+GitOps Via GitHub GUI
+GitOps via CLI Commands
+Example Workflows
+Cisco Group Automation
+Update and Build Applications
+Infrastructure-as-Code (via Terraform and Atlantis)
+GitOps Via GitHub GUI
+¶
+The following steps describe the full end-to-end process for making and rolling out simple changes via the GitHub graphical user interface.
+Navigate to the file you need to update in your web browser and click on the "Edit this file..." button on the top right (pencil icon). For example, to modify the contents of another page in these docs (whose contents are managed via GitOps):
+Make the desired content updates in the embedded editor.
+Once the changes are done, select the "Create a
+new branch
+for this commit and start a pull request" option. Name your branch something unique, then click on "Propose changes".
+Note:
+Each team and/or repo may have conventions around branch names (e.g., naming branch after related Jira ticket ID).
+Click on "Create pull request" to open a PR with your changes for peer review.
+Request review from peer members(s) for the changes in your pull request.
+Note:
+Review/approval from specific individuals may be required for some repos; such policies are configured per repo as needed.
+Once the reviewer approves the pull request (or request changes and iterate until approval), click on the "Merge pull request" and "Confirm merge" buttons to merge your changes to the main branch (if the reviewer has not already done so on your behalf).
+GitOps via CLI Commands
+¶
+The
+Learning & Mastering Git Commands
+doc is a great reference to get started with using
+git
+commands.
+Example Workflows
+¶
+Follow the links below for detailed GitOps workflow tailored for specific functions.
+Cisco Group Automation
+¶
+Update and Build Applications
+¶
+Infrastructure-as-Code (via Terraform and Atlantis)
+¶
+Note that there is specialized interaction with
+Atlantis
+via pull request comments in this workflow
+2023-05-27

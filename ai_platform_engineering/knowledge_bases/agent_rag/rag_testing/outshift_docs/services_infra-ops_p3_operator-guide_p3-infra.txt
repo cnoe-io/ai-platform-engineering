@@ -1,0 +1,63 @@
+P3 Infra
+¶
+Currently, we do have several parts of the ETI platform within OpenStack platform (knoww as P3) provided by EngIT. This means that this is fully managed by EngIT and include some rules to follow such as clean vulnerability report on labs or external dependency in order to allow communication from P3 to them.
+High-Level View
+¶
+The ETI platform that is deployed in P3 is the command and control cluster which includes Atlantis / ArgoCD / command and control cluster for example. In order to be able to control the labs resources, we need to have a clean vulnerability report, which means no Severity 3 / 4 / 5.
+Accessing the lab from P3 is key in order to be able to enable VMWare sandbox through Atlantis or deploying apps through ArgoCD for ventures.
+Overview
+¶
+Here is the current view of the ETI platform in P3 with labs:
+Process & documentation
+¶
+Here are the links which describe the process & sharepoint documentation:
+Request OpenStack Project Inter-Network Access
+ACL Security Review
+Limitations
+¶
+As per the P3 policy, this is not possible to access some of the internal infra / services which is not production ready, by this, it means that this should be compliant with STO policy.
+As we need regular access from P3 to external services or labs, this requires ACL definition. For that, you need to provide project details to EngIT and also clean vulnerability report to STO.
+Also, for the ACL definition, you're limited with 50 IPs as destination.
+P3 project details
+¶
+Here are the details required for each project.
+Jenkins build infra
+¶
+ETI_SRE_Jenkins_Nodes
+eti-gitops-3
+p3-prod-1
+gbear-gitops-2
+Use Cases
+¶
+As per the overview diagram, you saw that there are already some rules defined to access internal services from some ventures.
+VMWare sandbox
+¶
+In order to be able to bring up VMWare sandbox for specific requirements within the lab, we need access from Atlantis hosted in P3 to VMWare environments bot in Paris lab & SJC as per the diagram:
+Here is how to
+get started
+to create P3 sandbox
+AppNet dev workflow
+¶
+As per AppNet requirements, there was a need to access some tooling within the dev pipeline so we've discussed with EngIT in order to allow access from the P3 Jenkins build infra to internal services such as:
+https://earms-trade.cisco.com
+on port 443 and 8914
+https://ngdevx.cisco.com/
+on port 443 and 3128
+https://gpm-di-dc03-41.cisco.com/
+on port 443
+https://sjc-apl-jira4.cisco.com
+on port 443
+https://sjc-ngdevx-003.cisco.com
+on port 443
+https://xpresso-sjc-1.cisco.com/
+on port 443
+FYI, everything was captured through the ticket
+INC5495917
+GreatBead deployment workflow
+¶
+As per Great Bear requirements, there was a need to be able to deploy application in the edge through ArgoCD which is hosted in P3 as per the workflow:
+The aim is for ArgoCD running in gbear-gitops to be able to access Great Bear edge devices, which are currently in Paris labs. As per the Great Bear requirement, they need to deploy on different VLANs and we've decided to use the IPs:
+VLAN19 : 10.60.19.42-10.60.19.45 / 10.60.19.71-80
+VLAN18 : 10.60.18.67 / 10.60.18.160 / 10.60.18.132 / 10.60.18.120 / 10.60.18.50 / 10.60.18.205
+VLAN17 : 10.60.17.212
+2023-10-04

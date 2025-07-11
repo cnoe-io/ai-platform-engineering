@@ -1,0 +1,17 @@
+delete new ad group
+delete new myid-groups.cisco.com
+Delete AD Group via MyID Groups UI
+¶
+Navigate to
+myid-groups.cisco.com/groups
+and click on
+Create Group
+Select the group that needs to be deleted
+Click on the
+Delete
+button once the group is selected
+Verify the group is deleted. Upon search the group again, it should show the folloing
+Note
+Once the AD group has been deleted from the MyID UI, please remove the corresponding yaml file from the
+sre-cisco-groups-automation repo
+2023-09-21

@@ -1,0 +1,12 @@
+Vulnerabilities
+¶
+Table of Contents
+¶
+Security policy
+CVE-2021-21985
+CVE-2021-21972
+CVE-1999-0508
+CVE-2018-3646
+K8s-CVE-2021-25741
+log4j-CVE-2021-44228
+2022-05-05

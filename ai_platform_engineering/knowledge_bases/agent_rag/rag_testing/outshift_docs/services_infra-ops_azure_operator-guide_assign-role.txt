@@ -1,0 +1,43 @@
+Azure
+Subscription
+Assign roles to users in an Azure Subscription
+¶
+Prerequisites
+¶
+To assign roles to users in an Azure Subscription, the following prerequisites must be met:
+Azure Account
+¶
+Active Azure Account:
+You must have an active Azure account to log in to the Azure portal.
+Install and login with Azure CLI.
+Checkout the
+Azure User Guide
+for more information.
+Permissions
+¶
+Access to Azure Active Directory:
+You should have access to the Azure AD tenant associated with the subscription.
+Role Assignments Permissions:
+Owner Role:
+Having the 'Owner' role at the subscription scope allows you to manage everything, including access to resources.
+User Access Administrator Role:
+This role permits managing user access to Azure resources.
+Custom Role with Specific Permissions:
+If you do not have the 'Owner' or 'User Access Administrator' role, you must have a custom role with the following permissions:
+Microsoft.Authorization/*/Write
+which allows for assigning roles.
+Microsoft.Authorization/*/Delete
+which allows for removing roles.
+Assign a role to a user
+¶
+Clone
+https://github.com/cisco-eti/sre-utilities.git
+repo
+Change directory to
+scripts/azure/utils/
+cd
+scripts/azure/utils/
+Run the
+assign_role.sh
+script as you can see below.
+2024-03-11

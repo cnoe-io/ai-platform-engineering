@@ -1,0 +1,82 @@
+observium
+Enroll Hosts to Observium
+¶
+Add ESXI server to Observium
+¶
+Step 1: Enable SSH and SNMP services in the ESXI server web UI
+¶
+Login
+to
+https://eti-sj9-vcenter.cisco.com
+vcenter.
+Go to to the ESXI host you want to monitor, on
+configure
+tab click on
+Services
+, then enable
+SNMP Server
+and
+SSH
+services.
+Access the ESXI server via ssh, then run the following commands in the cli.
+esxcli system snmp set --communities public
+esxcli system snmp set --enable true
+Stop the SSH service when you done the above commands.
+Step 2: Navigate to Observium UI
+¶
+Login
+to
+observium
+On
+Devices
+, click
+Add Device
+. fill out the
+Basic configuration
+and
+Authentication Configuration
+feilds and click
+Add device
+.
+Add vCenter server to Observium
+¶
+Step 1: Enable SSH service in the vCenter management Console UI
+¶
+Login the vcenter management console,
+https://hostname/IP:5480/
+To enable ssh service, edit
+Access Settings
+, by navigating to
+Access
+in the left pane, then
+Edit
+.
+Enable SSH Login
+&
+Enable Console CLI
+Step 2: Access the vCenter server management cli
+¶
+ssh root@hostname/IP
+To configure SNMP with public community string.
+snmp.set
+--communities
+public
+Step 3: Add the vCenter server appliance to Observium
+¶
+Follow the
+above instructions
+to enroll the vCenter server to Observium.
+Note: when you are done, don't forget to disable SSH service in the vCenter server management UI.
+Add Ubuntu server to Observium
+¶
+Step 1: Install SNMP
+¶
+Run this
+ansible role
+to install SNMP on Ubuntu host.
+Step 2: Add the VM(s) to Observium
+¶
+Run this
+ansible role
+to enroll the host to Observium.
+2023-08-29

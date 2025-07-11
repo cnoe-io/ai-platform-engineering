@@ -1,0 +1,14 @@
+ml ops personas
+ML Ops Personas
+¶
+Persona 1: Data Engineer
+¶
+Persona 2: ML Engineer - Explorer
+¶
+Persona 3: ML Engineer - Development
+¶
+Persona 4: ML Engineer - Deployment
+¶
+Persona 5: Microservice Application Development
+¶
+2024-03-27

@@ -1,0 +1,7 @@
+- monitoring jenkins nodes
+¶
+Jenkins Monitoring
+¶
+Cisco Groups API dashboard
+Jenkins P3 Monitoring
+2024-07-23

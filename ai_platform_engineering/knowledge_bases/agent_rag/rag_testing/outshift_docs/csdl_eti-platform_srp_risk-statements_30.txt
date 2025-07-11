@@ -1,0 +1,20 @@
+SCF-IVS-06.01
+Lack of network-level access restriction on Kubernetes clusters provides a huge attack surface for internal or external malicious actors
+¶
+Description
+¶
+The applications deployed to the ET&I Platform are running on multiple Kubernetes clusters.
+On these clusters currently there are no network-level access restrictions set that provides a huge attack surface for internal or external malicious actors.
+Any application deployed on this cluster is able to communicate any other application, let that be a business application, or an application used for managing and operating the underlying infrastructure.
+This risk was confirmed by a penetration test performed by Synopsys, Inc.:
+3.2.2.1 Network Policies Not Enforced
+¶
+The cluster does not properly restrict horizontal network communication, resulting in a "flat network" architecture. This can be particularly dangerous in the case of publicly-facing application pods being able to communicate with internal pods, as the risk of lateral movement becomes much higher without restrictions such as these in place.
+Business Impacts
+¶
+Service Compromise
+Likelihood: Medium
+¶
+Risk Level Category: High
+¶
+2025-02-09

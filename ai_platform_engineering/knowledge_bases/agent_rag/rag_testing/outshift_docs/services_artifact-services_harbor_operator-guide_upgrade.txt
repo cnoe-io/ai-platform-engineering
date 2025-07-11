@@ -1,0 +1,155 @@
+Upgrade
+¶
+Notice
+¶
+Please read this section before proceeding with any of the steps below.
+Both the operator and Harbor itself should be upgraded one minor version at a time. Skipping versions may lead to critical errors.
+(It's okay to upgrade to the latest patch version though.)
+For example, if a particular Harbor (and operator) instance is more than two versions behind the latest,
+upgrade the operator to the next version first, then Harbor to the next version and so on.
+Make sure to test the upgrade process on
+registry.dev.eticloud.io
+first
+(it's an exact replica of
+registry.outshift.com
+, including replication rules).
+Upgrading the operator may break Harbor itself. Make sure to properly announce the upgrade if such breaks are expected during the process.
+Mark is our SME on Harbor, so feel free to reach out to him in case you are tasked with installing/upgrading Harbor.
+Upgrading the operator
+¶
+Harbor version support is tied to Harbor Operator versions. Before upgrading Harbor, the operator needs to be upgraded to a version
+that supports the desired new Harbor version.
+In order to upgrade the operator, find the latest version in the
+sre-cluster-configs
+repository
+under
+sre/_apps/harbor-operator/versions
+and create a copy of it. Upgrade the version number in the
+kustomization.yaml
+file.
+Then update the version on the cluster you wish to upgrade the operator on.
+For example, if the current version is
+1.3.0
+and the next version is
+1.4.0
+:
+export
+CLUSTER_NAME
+=
+my-cluster-1
+export
+CURRENT_VERSION
+=
+1
+.3.0
+export
+NEW_VERSION
+=
+1
+.4.0
+git
+clone
+git@wwwin-github.cisco.com:eti/sre-cluster-configs.git
+git
+checkout
+-b
+upgrade-harbor-operator-
+$CLUSTER_NAME
+cd
+sre-cluster-configs
+cd
+sre/_apps/harbor-operator/versions
+cp
+-r
+$CURRENT_VERSION
+$NEW_VERSION
+cd
+$NEW_VERSION
+sed
+"s/
+$CURRENT_VERSION
+/
+$NEW_VERSION
+/g"
+kustomization.yaml
+>
+kustomization.yaml.new
+mv
+kustomization.yaml.new
+kustomization.yaml
+cd
+../../../../
+cd
+harbor-operator/
+$CLUSTER_NAME
+sed
+"s/
+$CURRENT_VERSION
+/
+$NEW_VERSION
+/g"
+kustomization.yaml
+>
+kustomization.yaml.new
+mv
+kustomization.yaml.new
+kustomization.yaml
+# Test changes
+kustomize
+build
+# Commit and push changes
+git
+add
+.
+git
+commit
+-m
+'upgrade harbor-operator on $CLUSTER_NAME from $CURRENT_VERSION to $NEW_VERSION'
+git
+push
+-u
+origin
+upgrade-harbor-operator-
+$CLUSTER_NAME
+# Create a pull-request
+open
+https://wwwin-github.cisco.com/eti/sre-cluster-configs/pull/new/upgrade-harbor-operator-
+$CLUSTER_NAME
+Go to ArgoCD and make sure the operator is upgraded to the latest version.
+Watch the new deployment being rolled out to the cluster:
+kubectl
+-n
+harbor-operator
+get
+pod
+-w
+Check if Harbor is still running:
+kubectl
+-n
+harbor
+get
+po
+-w
+Upgrading Harbor
+¶
+Go to the
+harbor-instances
+repository and make the necessary changes in the instance you want to upgrade:
+Apply the manifests manually (for now) to the cluster:
+kustomize
+build
+path/to/instance
+|
+kubectl
+apply
+-f
+-
+Watch the new deployment being rolled out to the cluster:
+kubectl
+-n
+harbor
+get
+po
+-w
+Login to Harbor and test that image pulling/pushing works.
+2023-12-09

@@ -1,0 +1,8 @@
+In-cluster Redis
+¶
+In-cluster Redis is a service provided by the ETI Platform on Kubernetes
+for development purposes
+.
+Teams can easily spin up their own Redis instances in their development environments without SRE involvement,
+but there are no guarantees or SLA for the service. As a result, it's not suitable for production use cases.
+2022-07-12

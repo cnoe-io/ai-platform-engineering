@@ -1,0 +1,45 @@
+eti-aws-db-1
+eti-aws-db-1-vpc
+¶
+Shared Dev VPC
+VPC Terraform Code
+¶
+There is not Terraform code for this VPC.
+Cluster Access
+¶
+Access
+Details
+URL
+AWS Console access
+Account
+eticloud
+Region
+us-east-1
+CIDR
+172.30.0.0/16
+Bastion
+SSH access
+VPC Subnets
+¶
+Private Subnets
+Public Subnets
+172.30.1.0/24
+172.30.11.0/24
+172.30.2.0/24
+172.30.12.0/24
+172.30.3.0/24
+172.30.13.0/24
+VPC Bastion Access
+¶
+Access
+Details
+Host
+AWS Console access
+IP
+44.204.138.105
+Private Key
+Unknown
+Security Group
+sg-08351732e459354f7
+How to ssh to bastion host on AWS
+2023-01-10

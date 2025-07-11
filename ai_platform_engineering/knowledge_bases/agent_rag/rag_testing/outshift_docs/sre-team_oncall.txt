@@ -1,0 +1,92 @@
+oncall pay
+pagerduty pay
+SRE Team On-call Ops
+¶
+All details of SRE On-call Ops are detailed on
+here
+. Also, referenced in
+Outshift sharepoint page
+Oncall hours will entered in
+workday
+Definitions
+¶
+Term
+Definition
+Oncall
+Unplanned SRE operational emergencies that requires an employee has to work outside of normal working hours.
+Business Hours
+Employee's normal working hours
+Oncall stand-by hours
+Time spent outside of employee's normal working hours when an employee is on stand-by in case of an operational emergency
+Oncall non-holiday hours
+Time spent outside of employee's normal working hours when an employee works on an operational emergency during non-holiday (Country specific)
+Oncall holiday hours
+Time spent outside of employee's normal working hours when an employee works on an operational emergency during holiday (Country specific)
+Canada On-call Pay
+¶
+Category
+Hours entered
+Pay (Oct 2023)
+Standby outside of business hours
+Enter 1 hour per week if no on-call hours are entered
+$100
+(Non-holiday) Oncall outside business hours
+Worked less than 5 hours in one week
+$250
+(Non-holiday) Oncall outside business hours
+Worked between 5 and 14 in one week
+$500
+(Non-holiday) Oncall outside business hours
+Worked more than 14 hours in one week
+$1000
+(Holiday) Oncall outside business hours
+Flat rate if worked on holiday.
+DO NOT combine with non-holiday oncall hours
+$750
+Reference:
+Canada On-call Doc
+France On-call Pay
+¶
+France On-call Doc
+Hungary On-call Pay
+¶
+Hungary On-call Doc
+1/ On-call amendment does not distinguish primary or secondary, so track the same way.
+2/ On-call standby hours:
+Week days : enter the number of on-call stand-by hours (excluding on-call worked hours) for each day in Workday. Note that on-call stand-by hours have to be non-standard hours. The number of standard hours is 40 per week, so with 8 hours / day, you will need to enter 24-8=16 hours max of standby per day during week. For example, if your usual standard worked hours are 9:00-17:00, you enter on-call stand-by hours between 0:00-9:00 and between 17:00-24:00, from which you need to exclude on-call worked hours.
+Weekend days: enter the number of on-call stand-by hours (excluding on-call worked hours) for each weekend day in Workday.
+3/ On-call worked hours:
+For week days and weekend days, enter the number of worked on-call hours for each day in Workday.
+You will find the same info here
+https://cisco-eti.atlassian.net/wiki/spaces/PA/pages/170557590/On-Call+Support
+. See the table in section 1.5, line Hungary.
+Israel On-call Pay
+¶
+Israel On-call doc
+US On-call Pay
+¶
+Category
+Hours worked
+Pay (Oct 2023)
+Standby outside of business hours
+Enter 1 hour per week if no on-call hours are entered
+$100
+(Non-holiday) Oncall outside business hours
+Worked less than 5 hours in one week
+$250
+(Non-holiday) Oncall outside business hours
+Worked between 5 and 14 in one week
+$500
+(Non-holiday) Oncall outside business hours
+Worked more than 14 hours in one week
+$1000
+(Holiday) Oncall outside business hours
+Flat rate if worked on holiday. DO NOT combine with non-holiday oncall hours
+$750
+Reference:
+US On-call Doc
+Reference
+¶
+Outshift Engineering Sharepoint
+CSM Confluence
+2023-11-16

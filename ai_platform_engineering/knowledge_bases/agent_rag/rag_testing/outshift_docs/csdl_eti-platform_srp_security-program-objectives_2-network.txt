@@ -1,0 +1,20 @@
+IVS-06.01
+Implement network level isolation of applications that are running on ET&I Platform
+¶
+Target Date: FY??Q?
+¶
+Risk(s) Addressed
+¶
+Lack of network-level access restriction on Kubernetes clusters provides a huge attack surface for internal or external malicious actors
+Description
+¶
+Implement network level isolation of applications that are running on ET&I Platform. Different applications/services belonging to different projects shouldn't be able to communicate each other without explicitly allowing it.
+Definition of Done
+¶
+Network level isolation is implemented.
+Relevant Controls
+¶
+IVS-06.01
+Objective Status: Not Started
+¶
+2023-04-19

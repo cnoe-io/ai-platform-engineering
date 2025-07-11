@@ -1,0 +1,66 @@
+argocd
+panoptica
+post mortem
+staging
+2023-03-23; Panoptica Staging environment went down due to deletion of namespace in cluster
+¶
+Summary
+¶
+Intent: We were trying to POC/Test deployment of the Panoptica staging environment with ArgoCD into a parallel namespace on the same cluster
+Why: To introduce consistency using automatic deployments and improve supply chain security for Staging/Prod via GITOPS/SRE managed ArgoCD instance/services
+What happened: While testing the new ArgoCd deployments, the Panoptica staging environment went down, after an accidental deletion of the main (production) namespace in the staging cluster
+When
+¶
+2023-03-23 20:00 IST - 2023-03-24 11:05 IST
+Timeline
+¶
+2023-02-23
+¶
+20:00 IST: Panoptica staging test deployment with ArgoCD was deployed to the wrong namespace (production) because of prior configurations
+20:05 IST: After deploying to a separate namespace (panoptica), the previous ArgoCD managed namespace (production), which was also where the standard deployment was prior to ArgoCD; was accidentally deleted.
+20:10 IST: We made aware of the issue and quickly started working on stabilizing the ArgoCD deployments to bring Staging back up
+20:15 IST: We identified that one of the main component (vault) was not able to spin up and grab the unseal secrets + connect to the CloudSQL backend DB
+20:30 IST: Tried deploying vault separately in a different namespace for debugging.
+22:00 IST: After multiple debugging sessions we found that the vault was not configured correctly and was missing a crucial environment variable
+VAULT_ADDR
+which needed to be set to localhost:
+http://127.0.0.1:8200
+. Doing so corrected the discrepancies between how the vault server was setup and the communication endpoint in the cluster (HTTPS vs. HTTP).
+22:20 IST: Upon testing this fix in a separate namespace and separated vault deployment, we applied it to the staging ArgoCD applications + Helm Charts
+22:25 IST: In addition we identified that there was quite a few differences in the helm charts we were deploying and what was previously deployed, so we updated all helm charts to their latest versions (from master branch)
+22:50 IST: Upon these updates the cluster was starting to stabilize, core components were up (ui, management, vault, etc.), but other micro service components were down (crankshaft, serverless, api-sec, telemetries, etc.)
+23:10 IST: The cluster was left as is to let ArgoCD stabilize deployment (some services take time because of core dependencies)
+23:15 IST: SRE sent an announcement to the Panoptica team using the WebEx space of the issue we were facing.
+2023-02-24
+¶
+10:00 IST: Upon debugging each of the failed micro-service deployments separately, we found a few discrepancies in the helm charts themselves. Such as string values that were unable to convert to Int64 and vis versa, values not being passed correctly to the helm chart templates/dependencies, and service accounts not being bound to their GCP worker identities
+10:15 IST: Applied a fix for binding service account IAM policies (worker identities), via the Jenkins CI process as part of the helm charts build. This is a requirement prior to deployment as the services/deployments are reliant on the IAM access roles (worker identities)
+10:45 IST: After a successful deployment using ArgoCD with all the fixes/configurations, the namespace was deleted again to mimic DR and to make sure that the ArgoCD deployment was fully operational without any new findings.
+11:05 IST: After applying the fixes to the helm charts the ArgoCD deployment successfully stabilized and the staging environment was fully operational
+Impact
+¶
+System(s) impacted?
+¶
+Staging environment, PR pipelines (if any were done on the midnight of the 23
+rd
+), System Tests that ran that night
+Teams impacted?
+¶
+Panoptica
+Analysis
+¶
+Accidental deletion of the namespace triggered a scrambled event to stabilize the ArgoCD deployment that was being tested. Although this was not the planned route of action, it did give us the opportunity to get ArgoCD staging deployments working/fully debug them.
+The planned route of deployment with ArgoCD did require that we deploy to the same cluster as there are multiple GCP service dependencies and unknowns on the cluster setup.
+Solution:
+Fully operational ArgoCD deployment that can easily re-deploy staging environment from scratch, even during DRs
+Takeaways
+¶
+Take extreme care for when and where test deployments are made
+Communicate any tests being made to the rest of the team/venture (even if this is off hours)
+Make sure that a full backup process is made so that it can be easily deployed (i.e. now we have ArgoCD)
+Communicate with the venture to get access to the FULL deployment process, dependencies, and 3
+rd
+party services
+Keep documentation updated to reflect current deployments/changes
+When something like this happens, be sure to bring in more people from the team and create a "war room" to tackle these issues
+2023-04-25

@@ -1,0 +1,16 @@
+ROSA
+openshift
+redhat
+Redhat Openshift Operator Guide
+¶
+Table of Contents
+¶
+SRE Hybrid Cloud Console Organization
+Associate AWS Account
+Create ROSA Cluster Self-Service via Jenkins
+Create ROSA Cluster via Redhat Web Console
+Create ROSA Cluster via cli
+RedHat Hybrid Cloud Console
+OpenShift Web Console
+Setup ROSA kubectl access using oc cli
+2023-07-11

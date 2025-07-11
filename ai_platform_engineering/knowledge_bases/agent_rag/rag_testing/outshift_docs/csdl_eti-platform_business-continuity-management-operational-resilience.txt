@@ -1,0 +1,145 @@
+BCR-01.01
+BCR-06.01
+BCR-06.02
+BCR-08.02
+business continuity management
+disaster recovery
+operational resilience
+Business Continuity Management and Operational Resilience
+¶
+Business Continuity Management and Operational Resilience
+Business Continuity
+¶
+CCF: BCR-01.01
+The Outshift SRE team does not currently have a formal Business Continuity Plan (BCP) for the Outshift Platform. We have engaged the Global Business Resilience team and will develop a BCP in conjunction with the GBR team.
+The Outshift SRE team does have technical continuity and disaster recovery plans. We've designed our deployment systems and cloud infrastructure such that in the event of the most likely
+disaster scenarios
+, we are prepared both technically and process-wise.
+From the technical perspective, the Outshift SRE team builds inherently resilient systems. Local and Availabilty Zone failures are remediated via automation and AWS managed services.
+From a process perspective, the Outshift SRE team regularly practices building and migrating systems. In order to keep up with the lifecycle of the systems we deploy, particularly kubernetes, we regularly stand up new infrastructure and migrate applications to that cluster, as if a cluster or region had gone offline. We continually refine and enhance those processes as the development teams' requirements evolve.
+Disaster Scenarios
+¶
+There are several likely scenarios for which the Outshift SRE team prepares.
+Local failure of an Elastic Kubernetes Service (EKS) or Relational Database Service (RDS) cluster instance or instances
+Cluster failure of an EKS, RDS, or other cluster
+Availability Zone outage within a Region
+Regional outage within AWS
+External resource failure
+Tooling failure
+We do not currently prepare for multi-region or AWS-wide outages. We will continue to work with our partner teams to prepare for that scale.
+Local failure
+¶
+CCF: BCR-06.01
+A local failure is a failure on an individual instance within a cluster or grouped instances. An example is an instance within a EKS cluster's managed node group's auto-sclaing groups going offline.
+Local failure contract
+¶
+The Outshift SRE team will not deploy individual instances without the explicit permission and understanding of the risks by the associated development team.
+Development teams will not plan on deploying to individual instances without operational acceptance of the single instance by the Outshift SRE team.
+Local failures will be remediated within 15 minutes.
+Local failures should only cause minor degradation of performance and not an outage.
+Cluster failure
+¶
+CCF: BCR-06.01
+CCF: BCR-08.02
+A cluster failure is the simultaneous failure of multiple associated resources. When a cluster failure occurs, either failover to a standby cluster or restoration from backup is required.
+EKS cluster failure contract
+¶
+If an EKS cluster fails, the SRE team will have a failover cluster with applications installed and ready to serve traffic. That failover should happen automatically without manual intervention and there should be little to no downtime.
+Application teams will design their applications such that they can rely on the highly available nature of the Platform's provided infrastructure.
+RDS cluster failure contract
+¶
+The Outshift Platform does not have highly available RDS clusters in the same manner as EKS clusters. The AWS RDS SLA is 99.95% uptime and the Platform inherits that level of availability.
+In the event of an RDS cluster failure, the SRE team's SLO for recovery is 8 hours. That 8 hours encompasses:
+Standing up a new VPC
+Creating VPC peering
+Standing up or restoring the cluster from backup
+Restoring and verifying data from backup
+Other cluster failure contract
+¶
+If an application team needs another type of cluster, such as Managed Streaming Kafka (MSK), the SRE team will define the requirements for operating that cluster with the associated application team.
+Availability Zone failure
+¶
+CCF: BCR-06.01
+CCF: BCR-08.02
+An Availability Zone failure is when an Availability Zone (AZ) goes offline. An AZ is a virtual data center within an AWS Region.
+Regional failure
+¶
+CCF: BCR-06.01
+A regional failure is when an entire AWS Region, such as when
+us-east-1
+goes offline.
+Regional failure contract
+¶
+Regional failure recovery requires planning in application architecture beyond the scope of the Outshift Platform.
+The SRE team will always EKS clusters to at least two AWS regions with one region designated as a failover targets.
+Failover methodology will generally be achieved via DNS
+Application teams must design their applications to be able to seamlessly transition from one EKS cluster to another.
+RDS clusters are currently only deployed to a single region with no multi-region backup. In the event of a regional failure, the SRE team will restore the cluster to a new region from the latest backup, will enabled connectivity as necessary, and will inform application teams of the new connection details.
+Application teams will need to design their deployments such that connection details are variable and can be updated ad hoc. Applications teams will be responsible for updating those connection details as necessary for their deployments.
+External resource failure
+¶
+CCF: BCR-06.01
+As a function of the complexity of running a platform, the Outshift SRE team must outsource some functionality to external parties. Those external parties are other Cisco Business Units (e.g., AppDynamics or Engineering IT) and resources (e.g.,
+Keeper
+) as well as non-Cisco resources (e.g., PagerDuty or GitHub).
+External resource failure contract
+¶
+When one of those external parties has a failure, the SRE team will immediately engage with the responsible party and update the application teams
+Exceptions
+¶
+There are AWS services which are not regionally
+Disaster Recovery Service Level Objectives
+¶
+In the event of an availability zone failure, the Outshift SRE team will endeavor to restore complete functionality within four (4) hours.
+In the event of application failure, the Outshift SRE team will endeavor to restore functionality within four (4) hours.
+In the event of regional failure, the Outshift SRE team will endeavor to restore functionality within eight (8) hours.
+In the event of database cluster failure, the Outshift SRE team will endeavor to restore functionality within eight (8) hours.
+TheOutshift SRE team will work with application teams to describe and implement their specific requirements for disaster recovery.
+Business Continuity Service Level Objectives
+¶
+The Outshift SRE team's Service Level Objectives (SLO) are to achieve 99.9% uptime for our production EKS and RDS clusters and the base applications running on that infastructure.
+The Outshift SRE team will discuss SLOs with application teams and work to implement such changes as are necessary to achieve higher reliability when it is deemed necesary.
+Business Continuity Service Level Indicators
+¶
+Service Level Indicators (SLIs) are the specific metrics by which uptime is measured.
+The Outshift SRE team is continually evaluating specific SLIs for the Platform and applicaitons teams.
+Platform SLIs are measured by the
+Platform Health Dashboard
+(defined
+here
+).
+Application teams can find out more about specific SLIs and how they and the Outshift SRE team can create them together
+here
+.
+The Outshift SRE team and application teams will review their joint and individual SLIs during the CSDL assessment and share responsibilities discussion.
+Logging
+¶
+CCF: BCR-06.02
+Platform Logs
+¶
+Platform logs are ingested by AppDynamics FSO
+. The logs include infrastructure and application logs and are currenly deleted after 30 days for production environments. Retention for non-production environments (e.g., dev, scratch) are shorter and logs older than 3 days may be deleted if needed to restore capacity.
+AWS Logs
+¶
+Cloudtrail (AWS API calls) logs are ingested and stored centrally by S&TO.
+The logs are ingested into Security Visibility and Incident Command (SVIC) Splunk and
+retained for three years
+.
+Deprecated Sections
+¶
+These headings exist to retain links to the Platform CSDL and internally within the Platform documentation.
+BC-Infrastructure
+¶
+BC-EKS
+¶
+BC-RDS
+¶
+Business Continuity for Applications
+¶
+DR-Infrastructure
+¶
+DR-EKS
+¶
+DR-RDS
+¶
+2024-03-03

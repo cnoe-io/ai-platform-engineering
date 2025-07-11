@@ -1,0 +1,85 @@
+2021-01-22-Jenkins-node-disk-space-issues
+¶
+Summary
+¶
+Date:
+2021-01-22
+Authors:
+SRE Team
+Summary:
+There have been repeated build failures over the course of the last sprint.
+Impact(s):
+Builds stopped working
+Our image is tarnished with a venture
+Trigger:
+Docker filled the worker nodes with images.
+Permissions problem on docker startup
+Docker version incorrect
+Detection:
+Customer alert
+Via build failures
+Resolution(s):
+Jeremie cleaned the disks and updated the workers with a cron job to clean them every day.
+Analysis
+¶
+Problem
+¶
+Jenkins workers went down
+Cause
+¶
+Worker disk space issue
+Excess docker images
+incorrect docker mount point
+docker in docker image not stopped
+Docker had incorrect version
+Docker base image error
+Docker running as root instead of user
+Permission on docker.sock file incorrect
+Reason
+¶
+1.
+SRE team not alerted
+Missing node-exporter and cAdvisor
+Tactical fixes
+¶
+Jenkins workers
+Worker disk space
+pruning images as a cron job
+changing mount point with ansible, manual canary against one worker, manual run against complete inventory (eti-build-infra)
+Stopped docker in docker image, via jenkinsfile
+From 1b, also accidentally updated docker version
+Manual delete and install of docker on all hosts -Â
+ansible-apply to worker nodes will cause problems
+3.
+Docker permissions
+Restarted docker daemon as ubuntu
+changed permissions on docker.sock
+SRE team not alerted
+Missing node-exporter and cAdvisor
+Updated ansible to install executables
+Action Items
+¶
+KPI's for Jenkins nodes
+Nodes
+Disk fill rate growth
+File descriptors
+Jenkins
+Work queue
+Thresholds for warnings and alerts for each
+SLI's for Jenkins
+Start SLO discussions
+Create pipeline best practices document
+Review pipeline current practices by ventures
+Create oncall runbook - tactical fixes from previous problems
+Expand canary testing
+Ansible coding standards:
+Pin version?
+Create change logs and venture notifications
+Pin docker to 19.03 in ansible for Jenkins workers nodes
+Follow-up story for upgrade
+Review docker startup on jenkins nodes
+Prometheus rules installed as a helm chart
+Converge infrastructure build and config mgmt processes
+e.g., Sandbox and Jenkins workers
+Ensure everyone knows how to access hosts
+2024-10-13

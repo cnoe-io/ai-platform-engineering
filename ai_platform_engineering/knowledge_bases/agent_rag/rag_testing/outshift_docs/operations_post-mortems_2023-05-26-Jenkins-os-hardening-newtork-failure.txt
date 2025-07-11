@@ -1,0 +1,49 @@
+2023-05-26-Jenkins-os-hardening-network-failure
+¶
+When
+¶
+2023-05-26 morning
+Summary
+¶
+Jenkins build jobs failing reported down by Panoptica and other teams due to OS Hardening install and some random issues. Sri, Hana and Marwa noticed that the issue was related to network updates on some jenkins nodes due to the os-hardening install which was required for security purpose
+sre-4312
+.
+and also some random error related to python dependencies install for cranshaft project on a specific git branch.
+Timeline
+¶
+2023-05-26
+1000 UTC+2 - OS hardening was enabled on one p3 and one cloud jenkins agent.
+1207 UTC+2 - Giovanni Conte asked Sri to check some jenkins jobs that have failed. He forwarded this to Jenkins & Build Pipelines space
+1214 UTC+2 - Hana says that panoptica has encoutered the same issue (network timeout) on 2023-05-25 and asked if the cause was IP forwarding/iptables updates.
+1223 UTC+2 - Marked the impacted Jenkins nodes (eti-jenkins-common-xlarge-1 and eti-cloud-agent-1.ci.eticloud.io) offline before starting investigation in order to solve temporary issue.
+1323 UTC+2 - Sri and Marwa call in order to investigate issue.
+1440 UTC+2 - we were able to find the root cause, the network timeout error on jenkins jobs was because of OS hardening ansible role install on these agents and the random issue of installing some python packages was related to caching.
+1445 UTC+2 - these nodes came back online even after making them offline, so in order to solve temporary timeout issue, we removed labels from these machines using Jenkins console
+1450 UTC+2 Some Jenkins jobs ran successfully after that, but we still had some jobs failing that ran on other agent where OS hardening was not enabled.
+1450 UTC+2 Marwa investigated the issue of python dependencies install error.
+17:42 UTC+2 python error has been fixed (
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/blue/organizations/jenkins/k8sec%2Fcrankshaft/detail/PA-13232_enable_redis_caching/13/pipeline
+), below investigation:
+Marwa created new branch from PA-13232_enable_redis_caching branch in order to debug
+https://github.com/cisco-eti/crankshaft/blob/PA-13232_enable_redis_caching_SRE_debug/Jenkinsfile
+Build pass: no issues (I didn't update anything on the code)
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/blue/organizations/jenkins/k8sec%2Fcrankshaft/detail/PA-13232_enable_redis_caching_SRE_debug/4/pipeline
+To be sure it works on the same machine eti-cloud-3 , Marwa added label for that machine and updated Jenkinsifle in order to execute on this machine, it works now
+So finally Marwa rebuilt the initial job and it uses the cache: works fine
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/blue/organizations/jenkins/k8sec%2Fcrankshaft/detail/PA-13232_enable_redis_caching/13/pipeline/
+####
+Impact
+\
+System(s) impacted?
+All Jenkins jobs that have been executed on:
+- p3 node: eti-jenkins-common-xlarge-1
+- cloud agent: eti-cloud-agent-1.ci.eticloud.io
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/job/k8sec/job/panoptica-apisec/job/PA-13232_enable_redis_caching/
+¶
+and also python install dependencies for cranshaft project
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/blue/organizations/jenkins/k8sec%2Fcrankshaft/detail/PA-13232_enable_redis_caching/4/pipeline/40/
+¶
+Analysis
+¶
+For now, python dependencies installation is resolved, and OS hardening is temporarily resolved by removing some Jenkins agent, but investigation is still in progress in order to fix the timeout error permanently.
+2023-05-30

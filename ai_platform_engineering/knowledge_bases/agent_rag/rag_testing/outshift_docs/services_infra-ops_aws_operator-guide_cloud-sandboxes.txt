@@ -1,0 +1,65 @@
+guide
+sandbox
+AWS Cloud Sandboxes Home
+¶
+Overview
+¶
+The ET&I SRE team provides "sandbox" environments to teams which are essentially free-form access to cloud resources
+with guard rails.
+These environments are intended to support testing, development and experimentation in a safe, isolated space with the
+aim of speeding along development by providing some common, baseline infrastructure teams can use as a starting point
+for their workloads.
+Purpose
+¶
+Shared sandboxes are used for proofs-of-concept, when a team has pre-existing work/products built outside of shared
+Kubernetes platforms (such as K3s) and/or for testing integrations with cloud-native resources. The resources created
+in shared sandboxes are generally intended to be ephemeral. If you would like to discuss how to enable more durable
+persistence in sandboxes, please reach out to the SRE team.
+Is a Sandbox Appropriate for Our Team?
+¶
+The use cases outlined above are most common. If you fall outside one of those use cases and think a shared sandbox
+would be helpful, please contact the SRE team:
+Webex Teams
+Create a Jira Ticket
+E-mail:
+eti-sre@cisco.com
+Security
+¶
+Cisco resources in the cloud are valuable. The sandbox environments help you to build resources on a secure foundation,
+leveraging the resources of not only the SRE team, but the larger security community in Cisco, including Cloud9 and CSB.
+Cost Control and Management
+¶
+Costs of sandboxes are not directly your concern; however, the resource tagging built into the shared sandboxes allows
+you and us to quickly and effectively monitor and predict those costs.
+On-boarding
+¶
+Before you can begin creating resources, we must overcome some bureau-technical hurdles. These steps are dependent on
+the more generic
+venture on-boarding
+.
+Venture Tasks
+¶
+Ensure access to
+wwwin-github.cisco.com
+SRE Tasks
+¶
+Create infrastructure repository in GitHub
+Clone from
+sre-tf-group-team-infra
+Naming convention is
+sre-tf-<group>-<team>-infra
+Ensure the proper teams have access to the repository, including the automation teams.
+Set up the webhook for Atlantis
+Set up Hosted Zone in AWS for sub-domain
+Combined Tasks
+¶
+Update Terraform code with group name, team name and DNS Hosted Zone
+Update
+atlantis.yaml
+Walk through updating Terraform code and using Atlantis
+Next Steps
+¶
+These documents outline how to prepare and use ET&I's sandbox environments:
+Creating Sandbox Infrastructure
+Accessing Sandbox Infrastructure via SSH
+2023-02-10

@@ -1,0 +1,13 @@
+How to patch the vCenter Server
+¶
+The following steps describe how to apply patches to the vCenter server
+using the vCenter Server Appliance Management Interface
+Connect to the vCenter Server management interface:
+http://pirl-vcenter.cisco.com:5480
+(see password in keeper)
+Click on "Summary" to check the current version & build number
+Make a backup of the vCenter Server
+Click on Update then select the last version of the available updates
+Click on "STAGE AND INSTALL"
+Once the process is complete click on "Summary" to check the new version and build number
+2023-02-23

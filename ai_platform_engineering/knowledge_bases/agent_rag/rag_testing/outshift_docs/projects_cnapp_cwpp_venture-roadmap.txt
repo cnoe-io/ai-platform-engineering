@@ -1,0 +1,63 @@
+panoptica
+roadmap
+ventures
+Roadmaps
+¶
+Feature Roadmap
+¶
+For more information on the Panoptica feature roadmap, please visit the
+Panoptica Roadmap/Demos
+page in Confluence.
+PLG UI
+¶
+The Panoptica UI team and the marketing teams are currently working on improving the current UI/UX to better suite a PLG (Product Led Growth) format. This will potentially bring more customers as well as make the product easier and lighter to use while still brining in advanced features. You may find that the new
+Panoptica.app
+wordpress website is striving for such a format.
+Data Security
+¶
+Panoptica is striving to bring its product into the
+Data Security
+market to give a "full circle" security product. The current thought process is to use OTel (Open Telemetry) and the current API Clarity feature to extract relevant data.
+API Anomalies
+¶
+By using some ML (Machine Learning) algorithms, Panoptica will give a more
+smart
+anomaly detection in its API Clarity platform. This will also help find and define some false positives for the user to be aware of.
+Chain Clarity
+¶
+A DevOps/SRE feature that will help the users become more aware and compliant with some
+Supply Chain Security
+standards such as the SLSA ½/3~ The other aspect of this feature is to provide the necessary tools to not only report on compliancy issues, but also be able to act on them. This may be done with combining some open source projects like
+SLSA Framework
+.
+... More coming soon
+SRE Roadmap
+¶
+SRE Panoptica Plan/Roadmap
+Bi-Weekly Meetings
+¶
+Panoptica BI-Weekly Roadmap Sync - 03/08/2023
+Password: dAyH3pqd
+Panoptica BI-Weekly Roadmap Sync - 03/22/2023
+Password: mJJfP5rm
+Panoptica BI-Weekly Roadmap Sync - 04/19/2023
+Password: Uc483TP8
+Panoptica BI-Weekly Roadmap Sync - 05/03/2023
+Password: aNmU4ymW
+Panoptica BI-Weekly Roadmap Sync - 05/17/2023
+Password: mVU9FZ3J
+Panoptica BI-Weekly Roadmap Sync - 05/31/2023
+Password: 2Ws5eYwi
+Panoptica BI-Weekly Roadmap Sync - 06/28/2023
+Password: Cfts3Kyt
+Panoptica BI-Weekly Roadmap Sync - 07/26/2023
+Password: nFNA3ezV
+Panoptica BI-Weekly Roadmap Sync - 08/09/2023
+Password: 3gHVRQcj
+Panoptica BI-Weekly Roadmap Sync - 08/23/2023
+Password: JcdG8Z98
+â¬ï¸âto Panoptica
+â¬ï¸âto Projects
+â¦
+â¬ to Home
+2024-02-26

@@ -1,0 +1,49 @@
+Managing K8s Shared Services Discussion
+¶
+Problem statement
+¶
+SRE's shared k8s services have been managed by way of copy/pasting Helm values files from one directory to another as new k8s clusters are added. While easily
+automated
+, this approach results in a significant number of duplicated configuration files. It also can be cumbersome in that updating all clusters to a common version of said Helm charts is an arduous and potentially error-prone task.
+There are better ways to approach this. Let's discuss them here.
+Questions to be answered
+¶
+What applications could/would this change affect?
+Can Helm itself solve this for us? If so, how?
+Could the existing CI/CD jobs be extended to handle generating and installing the configuration in a uniform way? ...Perhaps by simply consuming a list of clusters and a list of services to install into them?
+What would be the most desirable approach and/or outcome for the team?
+Options
+¶
+Keeping the workflow as-is
+¶
+Pros
+¶
+Easily automated
+Minimal cognitive load
+Flexibility -- each cluster may have different configurations, if desired
+Cons
+¶
+Doesn't scale well
+More difficult to update apps uniformly
+Without automation, it's easy to overlook/miss service configuration
+Move to more/better automation
+¶
+Pros
+¶
+Generally faster for common tasks
+Easier to maintain and update
+Better uniformity
+Cons
+¶
+Less flexibility
+Greater cognitive load when making changes to automation
+Suggested Approach
+¶
+Find a way to better leverage Helm or Kustomize for this task. Extend existing CI/CD flows to:
+* Consume a list of clusters (and relevant metadata such as region, etc.)
+* Consume a list of services (and relevant metadata such as chart version, etc.)
+* Install services based on the aforementioned list to clusters provided in the other aforementioned list
+Ideally:
+* Adding a cluster simply amounts to adding its name (and relevant metadata) to the list of clusters
+* Updating a service in all clusters should become a matter of (for example) updating the chart version and then re-running the CI/CD flow(s)
+2023-08-25

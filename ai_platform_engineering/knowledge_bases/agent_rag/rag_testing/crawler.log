@@ -1,0 +1,144 @@
+2025-07-09 16:10:06,089 - INFO - Starting mkdocs crawler
+2025-07-09 16:10:06,089 - INFO - Starting crawl from: https://www.rehanagrawal.com/
+2025-07-09 16:10:06,089 - INFO - Fetching: https://www.rehanagrawal.com/
+2025-07-09 16:10:07,302 - INFO - Successfully fetched: https://www.rehanagrawal.com/ (status: 200)
+2025-07-09 16:10:07,329 - WARNING - No navigation found on page
+2025-07-09 16:10:07,329 - INFO - Total pages to crawl: 0
+2025-07-09 16:10:07,329 - INFO - Crawling completed. Successful: 0, Failed: 0
+2025-07-09 16:10:07,329 - INFO - Crawler finished
+2025-07-09 16:11:00,958 - INFO - Starting mkdocs crawler
+2025-07-09 16:11:00,959 - INFO - Starting crawl from: https://python.langchain.com/docs/
+2025-07-09 16:11:00,959 - INFO - Fetching: https://python.langchain.com/docs/
+2025-07-09 16:11:01,934 - INFO - Successfully fetched: https://python.langchain.com/docs/ (status: 200)
+2025-07-09 16:11:01,964 - WARNING - No navigation found on page
+2025-07-09 16:11:01,964 - INFO - Total pages to crawl: 0
+2025-07-09 16:11:01,964 - INFO - Crawling completed. Successful: 0, Failed: 0
+2025-07-09 16:11:01,964 - INFO - Crawler finished
+2025-07-09 16:11:32,034 - INFO - Starting mkdocs crawler
+2025-07-09 16:11:32,035 - INFO - Starting crawl from: https://platform-docs.outshift.io/
+2025-07-09 16:11:32,035 - INFO - Fetching: https://platform-docs.outshift.io/
+2025-07-09 16:11:33,887 - INFO - Successfully fetched: https://platform-docs.outshift.io/ (status: 200)
+2025-07-09 16:11:34,034 - INFO - Found 943 navigation links
+2025-07-09 16:11:34,034 - INFO - Total pages to crawl: 943
+2025-07-09 16:11:34,034 - INFO - Processing page 1/943: https://platform-docs.outshift.io/
+2025-07-09 16:11:34,035 - INFO - Fetching: https://platform-docs.outshift.io/
+2025-07-09 16:11:35,724 - INFO - Successfully fetched: https://platform-docs.outshift.io/ (status: 200)
+2025-07-09 16:11:35,867 - INFO - Extracted 2017 characters of content
+2025-07-09 16:11:35,867 - INFO - Saving content to: rehanagrawal_docs/index.txt
+2025-07-09 16:11:35,868 - INFO - Successfully saved 2017 characters to rehanagrawal_docs/index.txt
+2025-07-09 16:11:35,868 - INFO - Successfully processed: https://platform-docs.outshift.io/
+2025-07-09 16:11:35,868 - INFO - Processing page 3/943: https://platform-docs.outshift.io/#published-docs
+2025-07-09 16:11:35,868 - INFO - Fetching: https://platform-docs.outshift.io/#published-docs
+2025-07-09 16:14:07,567 - INFO - Starting crawl at https://rehanagrawal.com
+2025-07-09 16:14:07,568 - INFO - Fetching: https://rehanagrawal.com
+2025-07-09 16:14:09,575 - INFO - Fetched (200): https://rehanagrawal.com
+2025-07-09 16:14:09,605 - INFO - Extracted 4680 characters of text
+2025-07-09 16:14:09,606 - INFO - Saved 4680 chars to rehanagrawal_docs/index.txt
+2025-07-09 16:14:09,607 - INFO - Done. Successes: 1, Failures: 0
+2025-07-09 16:15:55,924 INFO === Starting crawl at https://rehanagrawal.com ===
+2025-07-09 16:15:55,924 INFO → GET https://rehanagrawal.com
+2025-07-09 16:15:57,773 INFO ← 200 https://rehanagrawal.com
+2025-07-09 16:15:57,802 INFO    ↳ extracted 4680 chars of text
+2025-07-09 16:15:57,803 INFO    ↳ saved to rehanagrawal_docs/index.txt
+2025-07-09 16:15:57,804 INFO    ↳ 17 same‐site link(s) extracted
+2025-07-09 16:15:57,804 INFO → GET https://www.rehanagrawal.com/wall-following-robot
+2025-07-09 16:15:59,738 INFO ← 200 https://www.rehanagrawal.com/wall-following-robot
+2025-07-09 16:15:59,761 INFO    ↳ extracted 3898 chars of text
+2025-07-09 16:15:59,762 INFO    ↳ saved to rehanagrawal_docs/wall-following-robot.txt
+2025-07-09 16:15:59,763 INFO    ↳ 17 same‐site link(s) extracted
+2025-07-09 16:15:59,764 INFO → GET https://www.rehanagrawal.com/mechanical-finger
+2025-07-09 16:16:01,631 INFO ← 200 https://www.rehanagrawal.com/mechanical-finger
+2025-07-09 16:16:01,657 INFO    ↳ extracted 2134 chars of text
+2025-07-09 16:16:01,658 INFO    ↳ saved to rehanagrawal_docs/mechanical-finger.txt
+2025-07-09 16:16:01,659 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:01,659 INFO → GET https://www.rehanagrawal.com/heightanddepthapp
+2025-07-09 16:16:03,338 INFO ← 200 https://www.rehanagrawal.com/heightanddepthapp
+2025-07-09 16:16:03,356 INFO    ↳ extracted 830 chars of text
+2025-07-09 16:16:03,357 INFO    ↳ saved to rehanagrawal_docs/heightanddepthapp.txt
+2025-07-09 16:16:03,357 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:03,357 INFO → GET https://www.rehanagrawal.com/nutribetics
+2025-07-09 16:16:04,888 INFO ← 200 https://www.rehanagrawal.com/nutribetics
+2025-07-09 16:16:04,917 INFO    ↳ extracted 3890 chars of text
+2025-07-09 16:16:04,918 INFO    ↳ saved to rehanagrawal_docs/nutribetics.txt
+2025-07-09 16:16:04,918 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:04,918 INFO → GET https://www.rehanagrawal.com
+2025-07-09 16:16:05,882 INFO ← 200 https://www.rehanagrawal.com
+2025-07-09 16:16:05,910 INFO    ↳ extracted 4680 chars of text
+2025-07-09 16:16:05,911 INFO    ↳ saved to rehanagrawal_docs/index.txt
+2025-07-09 16:16:05,912 INFO    ↳ 17 same‐site link(s) extracted
+2025-07-09 16:16:05,912 INFO → GET https://www.rehanagrawal.com/contact-8
+2025-07-09 16:16:07,442 INFO ← 200 https://www.rehanagrawal.com/contact-8
+2025-07-09 16:16:07,459 INFO    ↳ extracted 241 chars of text
+2025-07-09 16:16:07,460 INFO    ↳ saved to rehanagrawal_docs/contact-8.txt
+2025-07-09 16:16:07,460 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:07,460 INFO → GET https://www.rehanagrawal.com/waterdispenser
+2025-07-09 16:16:08,845 INFO ← 200 https://www.rehanagrawal.com/waterdispenser
+2025-07-09 16:16:08,865 INFO    ↳ extracted 1740 chars of text
+2025-07-09 16:16:08,866 INFO    ↳ saved to rehanagrawal_docs/waterdispenser.txt
+2025-07-09 16:16:08,866 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:08,867 INFO → GET https://rehanagrawal.com/
+2025-07-09 16:16:10,449 INFO ← 200 https://rehanagrawal.com/
+2025-07-09 16:16:10,464 INFO    ↳ extracted 4680 chars of text
+2025-07-09 16:16:10,465 INFO    ↳ saved to rehanagrawal_docs/index.txt
+2025-07-09 16:16:10,465 INFO    ↳ 17 same‐site link(s) extracted
+2025-07-09 16:16:10,466 INFO → GET https://www.rehanagrawal.com/doorlock
+2025-07-09 16:16:11,877 INFO ← 200 https://www.rehanagrawal.com/doorlock
+2025-07-09 16:16:11,897 INFO    ↳ extracted 1679 chars of text
+2025-07-09 16:16:11,898 INFO    ↳ saved to rehanagrawal_docs/doorlock.txt
+2025-07-09 16:16:11,899 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:11,899 INFO → GET https://www.rehanagrawal.com/projects
+2025-07-09 16:16:13,066 INFO ← 200 https://www.rehanagrawal.com/projects
+2025-07-09 16:16:13,093 INFO    ↳ extracted 1230 chars of text
+2025-07-09 16:16:13,094 INFO    ↳ saved to rehanagrawal_docs/projects.txt
+2025-07-09 16:16:13,095 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:13,095 INFO → GET https://www.rehanagrawal.com/inverted-pendulum
+2025-07-09 16:16:14,004 INFO ← 200 https://www.rehanagrawal.com/inverted-pendulum
+2025-07-09 16:16:14,040 INFO    ↳ extracted 4600 chars of text
+2025-07-09 16:16:14,041 INFO    ↳ saved to rehanagrawal_docs/inverted-pendulum.txt
+2025-07-09 16:16:14,042 INFO    ↳ 17 same‐site link(s) extracted
+2025-07-09 16:16:14,042 INFO → GET https://www.rehanagrawal.com/mechanicalflower
+2025-07-09 16:16:15,547 INFO ← 200 https://www.rehanagrawal.com/mechanicalflower
+2025-07-09 16:16:15,567 INFO    ↳ extracted 2450 chars of text
+2025-07-09 16:16:15,568 INFO    ↳ saved to rehanagrawal_docs/mechanicalflower.txt
+2025-07-09 16:16:15,569 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:15,569 INFO → GET https://www.rehanagrawal.com/electriccurtain
+2025-07-09 16:16:17,041 INFO ← 200 https://www.rehanagrawal.com/electriccurtain
+2025-07-09 16:16:17,059 INFO    ↳ extracted 1155 chars of text
+2025-07-09 16:16:17,060 INFO    ↳ saved to rehanagrawal_docs/electriccurtain.txt
+2025-07-09 16:16:17,061 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:17,061 INFO → GET https://www.rehanagrawal.com/publications
+2025-07-09 16:16:18,015 INFO ← 200 https://www.rehanagrawal.com/publications
+2025-07-09 16:16:18,036 INFO    ↳ extracted 588 chars of text
+2025-07-09 16:16:18,036 INFO    ↳ saved to rehanagrawal_docs/publications.txt
+2025-07-09 16:16:18,037 INFO    ↳ 21 same‐site link(s) extracted
+2025-07-09 16:16:18,037 INFO → GET https://www.rehanagrawal.com/catfeeder
+2025-07-09 16:16:19,652 INFO ← 200 https://www.rehanagrawal.com/catfeeder
+2025-07-09 16:16:19,663 INFO    ↳ extracted 1468 chars of text
+2025-07-09 16:16:19,664 INFO    ↳ saved to rehanagrawal_docs/catfeeder.txt
+2025-07-09 16:16:19,664 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:19,664 INFO → GET https://www.rehanagrawal.com/gyanai
+2025-07-09 16:16:20,644 INFO ← 200 https://www.rehanagrawal.com/gyanai
+2025-07-09 16:16:20,670 INFO    ↳ extracted 5247 chars of text
+2025-07-09 16:16:20,670 INFO    ↳ saved to rehanagrawal_docs/gyanai.txt
+2025-07-09 16:16:20,671 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:20,671 INFO → GET https://www.rehanagrawal.com/alexacontrollerlights
+2025-07-09 16:16:22,282 INFO ← 200 https://www.rehanagrawal.com/alexacontrollerlights
+2025-07-09 16:16:22,294 INFO    ↳ extracted 1076 chars of text
+2025-07-09 16:16:22,295 INFO    ↳ saved to rehanagrawal_docs/alexacontrollerlights.txt
+2025-07-09 16:16:22,295 INFO    ↳ 16 same‐site link(s) extracted
+2025-07-09 16:16:22,295 INFO → GET https://www.rehanagrawal.com/_files/ugd/49d722_07f1efdffcc0497bb221ae3921ce7547.pdf
+2025-07-09 16:16:23,783 INFO ← 200 https://www.rehanagrawal.com/_files/ugd/49d722_07f1efdffcc0497bb221ae3921ce7547.pdf
+2025-07-09 16:16:25,891 ERROR !! Error on https://www.rehanagrawal.com/_files/ugd/49d722_07f1efdffcc0497bb221ae3921ce7547.pdf: 'NoneType' object has no attribute 'get_text'
+2025-07-09 16:16:25,891 INFO → GET https://www.rehanagrawal.com/_files/ugd/49d722_a5f10827f5c1498391d2d1d0202ccecf.pdf
+2025-07-09 16:16:32,323 INFO ← 200 https://www.rehanagrawal.com/_files/ugd/49d722_a5f10827f5c1498391d2d1d0202ccecf.pdf
+2025-07-09 16:16:32,637 ERROR !! Error on https://www.rehanagrawal.com/_files/ugd/49d722_a5f10827f5c1498391d2d1d0202ccecf.pdf: 'NoneType' object has no attribute 'get_text'
+2025-07-09 16:16:32,637 INFO → GET https://www.rehanagrawal.com/_files/ugd/49d722_d0c0d5f343664d978f7bee94bcb39708.pdf
+2025-07-09 16:16:49,597 INFO ← 200 https://www.rehanagrawal.com/_files/ugd/49d722_d0c0d5f343664d978f7bee94bcb39708.pdf
+2025-07-09 16:16:50,198 ERROR !! Error on https://www.rehanagrawal.com/_files/ugd/49d722_d0c0d5f343664d978f7bee94bcb39708.pdf: 'NoneType' object has no attribute 'get_text'
+2025-07-09 16:16:50,198 INFO → GET https://www.rehanagrawal.com/_files/ugd/49d722_47a85347f7664c8d81f59edbe876a770.pdf
+2025-07-09 16:16:52,945 INFO ← 200 https://www.rehanagrawal.com/_files/ugd/49d722_47a85347f7664c8d81f59edbe876a770.pdf
+2025-07-09 16:16:53,048 ERROR !! Error on https://www.rehanagrawal.com/_files/ugd/49d722_47a85347f7664c8d81f59edbe876a770.pdf: 'NoneType' object has no attribute 'get_text'
+2025-07-09 16:16:53,048 INFO → GET https://www.rehanagrawal.com/_files/ugd/49d722_578d68014486482cb14b428d35bdfd63.pdf
+2025-07-09 16:16:54,979 INFO ← 200 https://www.rehanagrawal.com/_files/ugd/49d722_578d68014486482cb14b428d35bdfd63.pdf
+2025-07-09 16:16:55,053 ERROR !! Error on https://www.rehanagrawal.com/_files/ugd/49d722_578d68014486482cb14b428d35bdfd63.pdf: 'NoneType' object has no attribute 'get_text'
+2025-07-09 16:16:55,053 INFO === Crawl finished: 18 succeeded, 5 failed, 23 pages visited ===

@@ -1,0 +1,57 @@
+docker
+eks-prod-3-harbor
+post mortem
+registry
+2023-05-11;
+SRE-5543
+- registry.eticloud.io not syncing images from ecr.
+¶
+Summary
+¶
+Vikram Hosakote in the AppNet space reported that images pushed in the CI, were not available to deploy using CD. Sri Aradhyula did some initial investigation and brought Matt Shooshtari to help resolve the issue. The first issue, which did not resolve the problem was a pod that had not re-connected to the database, or had not reported that it was functioning, after emitting errors. The second error was found in the registries section.  The
+ECR Banzai Customer - ECR
+registry was reporting unhealthy. After removing and recreating the registry endpoint, the registry reported healthy. The Replications were then updated to use the new registry.  Once updated, replications succeeded.
+When
+¶
+2023-05-08 to 2023-05-11
+Timeline
+¶
+2023-05-08
+1530 CDT - Migration of Harbor database to operational Harbor application on eks-prod-3.
+Application login, UI and Robot Account creation validated.
+2023-05-10
+0907 CDT - Hikram Hosakote reported issues pulling docker images.
+0933 CDT - Sri Aradhyula responded and began initial research.
+1111 CDT - Sri Aradhyula requested assistance from Matt Shooshtari as he had performed the migration.
+1133 CDT - Matt Shooshtari corrects pod, and checks if resolved. It is not resolved.
+1144 CDT - Matt Shooshtari determines unhealthy registry is causing the issue.
+1148 CDT - Matt Shooshtari and Sri Aradhyula rotate the AWS API key, and replace the registry.
+1200 CDT - Matt Shooshtari starts manual replications.
+1306 CDT - Hikram Hosakote reports that images are pulling again.
+2023-05-11
+0711 CDT - Marton Barta in AppNet reports media type errors when pulling some images.
+0736 CDT - Sri Aradhyula engages with AppNet team to collect information on failure.
+0745 CDT - SRE Team begins troubleshooting Harbor
+0946 CDT - PÃ©ter SzabÃ³ finds that replication rules are missing.
+0949 CDT - Matt Shooshtari dumps replication rules from source Harbor database.
+1030 CDT - PÃ©ter SzabÃ³ has completed update of the replication rules.
+1113 CDT - PÃ©ter SzabÃ³ cleans up incorrectly replicated artifacts from Harbor.
+Impact
+¶
+APPNet team, and potentially other teams may have experienced CD failures due to images tags not synchronized to Harbor.
+APPNet team, and potentially other teams may have experienced CD failures due to flattening if there were two different artifact types with the same version.
+Analysis
+¶
+The kustomize used for eks-prod-3 Harbor instance contained an update to Harbor Operator. This installed a version of harbor operator that used an
+EKS ECR
+registry type. The configured type no longer worked. When validating the harbor instance this section was not checked for proper operation. Additionally it was found there was no monitoring or alerting on this key Harbor function.
+The Harbor UI reset the replication rules when the replication source is added. While the replication rules table was validated, post-migration, correcting the 05/10 issue created the 05/11 issue with replication rules reset.
+Takeaways
+¶
+Familiarity with required features of Harbor would have prompted a check of the registries tab post-migration.
+Monitoring the critical features of Harbor would have allowed us to know of an error even if the tab was not checked. ETI SRE would have received notice prior to customer impact.
+Story to improve our overall application monitoring was created to catch items like this and monitor other critical features in services the SRE team manages.
+As Harbor projects are added, they should be documented along with the replication rules so that this item can be verified.
+Critical SRE components should have a post-maintenance validation set of steps, either automated, or manual.
+Keeping the old Harbor database online and available allowed for a quick resolution once the cause was discovered.
+2023-05-11

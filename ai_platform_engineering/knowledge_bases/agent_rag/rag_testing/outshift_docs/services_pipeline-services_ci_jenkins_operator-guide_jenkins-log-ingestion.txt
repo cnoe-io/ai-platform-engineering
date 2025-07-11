@@ -1,0 +1,89 @@
+jenkins log ingestion
+Log ingestion on Jenkins
+¶
+Jenkins node and console logs are collected in
+Splunk
+Table of Contents
+¶
+Search logs in Splunk
+Console log ingestion
+Log ingestion on Jenkins nodes
+Architecture
+Log inputs
+Log outputs
+P3 nodes
+Cloud nodes
+Debugging Splunk Universal Forwarder
+Search logs in Splunk
+¶
+Splunk search is available at
+https://sra-eoi.cisco.com/en-US/app/search/search?q=search%20index%3Deti-sre-splunk%20
+Search query for console logs
+index=eti-sre-splunk sourcetype="eti-sre-jenkins-console"
+Search query for node logs
+index=eti-sre-splunk sourcetype="eti-sre-jenkins-node"
+You can limit search results to a specific node/job by clicking on corresponding host/source fields.
+Members of
+eoi-eti-sre-user
+and
+eoi-eti-sre-admin
+AD groups can log in and run search queries.
+Console log ingestion
+¶
+Console output of builds are forwarded to
+Splunk
+using
+Splunk Plugin for Jenkins
+.
+Settings can be modified under
+Manage Jenkins > Configure System
+.
+Log ingestion on Jenkins nodes
+¶
+Architecture
+¶
+Jenkins nodes are forwarding logs to Splunk index via
+Splunk Universal Forwarder 9.0.0
+that is set up by
+Ansible playbook
+.
+Splunk index can be created/configured through
+RunOn
+(Manage >
+ETI SRE
+tenant > Cisco IT Cloud > Services > eti-sre-splunk).
+Log inputs
+¶
+Log sources can be configured via
+splunk-inputs.conf
+for regular text files sources, and
+splunk-journal-input.conf
+for journald source.
+Log outputs
+¶
+P3 nodes
+¶
+Logs from P3 Jenkins nodes are sent to Splunk endpoints listed in
+splunk-outputs.conf
+Cloud nodes
+¶
+Cloud nodes cannot access Splunk endpoints directly as those are not available on external network.
+Logs from Cloud Jenkins nodes are sent to a HTTP Event Collector (HEC) endpoint instead.
+HEC Endpoints needs to have a HEC token configured, which is stored in
+Vault
+, and also available on
+RunOn UI
+.
+Can be configured via
+splunk-outputs.conf
+Debugging Splunk Universal Forwarder
+¶
+Splunk daemon logs are located under
+/opt/splunkforwarder/var/log/splunk
+directory on every instance.
+Splunk Universal Forwarder can be configured via splunk cli for debug purposes.
+CLI binary is located at
+/opt/splunkforwarder/bin/splunk
+Local admin credentials can be found in
+Vault
+2023-09-21

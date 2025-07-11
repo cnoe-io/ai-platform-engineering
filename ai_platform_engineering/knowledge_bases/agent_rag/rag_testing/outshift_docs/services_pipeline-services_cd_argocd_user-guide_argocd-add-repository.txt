@@ -1,0 +1,30 @@
+argocd
+guide
+repository
+Add a Repository to ArgoCD
+¶
+ArgoCD must be able to clone your repository before it is able to manage your deployment(s). Therefore, your GitHub
+organization must allow access to the "bot" or generic account ArgoCD will use to accomplish this.
+Typically this access is set up only once, the first time ArgoCD attempts to clone from a new GitHub organization.
+Allow User Access
+¶
+In most cases, the
+eti-sre-cicd.gen
+user is used by ArgoCD to access the GitHub server.
+Allow this account access to your GitHub organization.
+Add Organization to ArgoCD
+¶
+Note
+The git password is a Github Personal Access Token and
+NOT
+the generic user AD password
+For example, GH Enterprise Server Personal Access Token for eti-sre-cicd.gen is store
+here
+(under key
+ghe_argocd_token
+)
+In ArgoCD's settings, browse to "Repositories" and click "Connect repo using HTTPS".
+Populate the form as required for the new GitHub organization, similar to this:
+Once complete, this may be saved as a credentials template, so that it may be used by multiple projects and applications.
+At this point, ArgoCD should now have appropriate access to GitHub so it can deploy and manage your application! ð
+2024-04-16

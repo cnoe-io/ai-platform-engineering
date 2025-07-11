@@ -1,0 +1,35 @@
+dedicated eks
+eks-gbear-1
+great bear
+scratch
+eks-gbear-1
+¶
+Dedicated Dev/Prod EKS Cluster for Greatbear
+EKS Architecture
+EKS Cluster Access Setup
+[Workloads - to come ]
+Terraform Code
+¶
+eks-gbear-1 terraform
+- NOTE: this repo is deprecated and the cluster and VPC will need to be torn down manually.
+Cluster Access
+¶
+Access
+Details
+K8s Version
+control plane: 1.21; nodes: 1.20
+URL
+AWS Console access
+Account
+eticloud-scratch
+Region
+eu-west-1
+VPC
+eks-gbear-1
+Bastion
+SSH access
+K8s node ssh
+K8s Node SSH access
+Dashboards
+¶
+2023-12-10

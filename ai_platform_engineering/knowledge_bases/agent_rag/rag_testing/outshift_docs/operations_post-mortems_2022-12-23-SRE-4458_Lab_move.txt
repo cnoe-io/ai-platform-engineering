@@ -1,0 +1,100 @@
+2022-12-23: lab move post mortem
+¶
+Summary
+¶
+The aim of this post mortem is to review the timeline of the lab move from ILM to ULTeam and give more details about all the failures that happened during the move which explained why we were not able to have a fully functional lab nor Collo solution on time.
+Here are the details of the people involved for clarification and simplification later on:
+Franck Bonneau & Benoit Mercier Des Rochettes: lab owners and main representatives/leads on the move
+Guillaume Sauvage De Saint Marc (GSM): VP Engineering ET&I
+Issa Mangassi: ET&I Sysadmin
+Jeremie Garnier (myself): lab owner in charge of coordinating Engineering France labs which includes:
+ET&I labs
+Meraki MV France led by David Gaumont
+SBG France led by Jerome Tollet
+Meraki MX France led by Pierre Pfister
+Innovation Lab (CIL) led by Thierry Gruszka
+WPR France:
+Alexa Moreno
+Angelino Trovato
+WPR UK:
+Yasemine Eriksson
+Richard Smith
+TSC: in charge of the collo and the move (packaging / move from ILM to ULTeam/Collo)
+IT: Eric Laprelle for Send IT Back (SITB)
+When
+¶
+On 2022-12-23, Franck / Benoit / Jeremie and lab users.
+Timeline
+¶
+Timeline of resolution
+2022-12-23
+- ULTeam labs & Collo still not fully functional / available.
+Incidents timeline:
+2022-09-14 09:00 AM CEST
+- Lab walk around with Alexa / Yasemine / Franck / Jeremie. We discover that there are too much work to be done to meet ILM closure timeline.
+2022-11-15 04:28 PM CEST
+- Richard discover that racks are too big which prevents having the 11 racks in the shared labs as designed.
+2022-11-30 06:32 PM CEST
+- Alexa notice that there are still remaining equipment in the labs.
+2022-12-01 to 2022-12-09
+- TSC start packaging the rack but got issues on accessing labs and no inventory for some labs.
+2022-12-05 09:14 AM CEST
+- Franck discover no power in storage.
+2022-12-15 11:14 AM CEST
+- Franck discover no power in rack 3 & 4 as PDU are 64A but current ones are 32A.
+2022-12-12 09:14 AM CEST
+- TSC is having issues while delivering pallets due to ULTeam physical constraints.
+2022-12-12 10:14 AM CEST
+- Franck / Benoit reviewing IT configuration and had to change IPv6 config.
+2022-12-13 10:00 AM CEST
+- Badge reader not working on the shared lab.
+2022-12-14 08:00 AM CEST
+- no delivery possible due to weather conditions.
+2022-12-15 03:07 AM CEST
+- Franck discover air conditioning is not working.
+2022-12-16 09:00 AM CEST
+- Franck discover door lockers prevent using 1rst units of each racks and closing the door.
+Impact
+¶
+System(s) impacted
+¶
+everything running in the labs
+Teams impacted
+¶
+CX / DC / EN / SBG / ET&I / CIL / Meraki MX / Meraki MV ...
+Analysis
+¶
+Let's split the analysis given the 3 phases: ILM closure, move from ILM to ULTeam/Collo and ULTeam installation.
+ILM closure
+¶
+Moving out of ILM was not easy as we had so much labs / equipment in ILM and the space available in ULTeam was really smaller.
+On this phase I would say:
+Yasemine/Alexa did a great job given this was not easy to have the right level of support from some lab owners / users. We had many lab sync and walk through but at the end, labs were not fully empty on time.
+Hard to have everyone in the loop to stay in sync during all the closure phase.
+Eric did a great job on SITB even if we lose/trash so many equipment.
+The only key major issue is that the downtime schedule was not really visible nor possible to share given the ULTeam timeline. We start from more than 3 months downtime to finally few weeks thanks for strong efforts.
+Move
+¶
+Moving from ILM to ULTeam was really tricky:
+For the packaging, TSC did really a great job given the schedule of packaging was not really shared in advance nor well-orchestrated by WPR. As an example, TSC was not able to access a lab as they do not have the permissions or we know a day before when our lab will be moved.
+Hard to have everyone in the loop to stay in sync during all the closure phases.
+Accessing the shared lab was hard for TSC due to lot of constraints: from street to underground. This should have been optimized before starting the packaging.
+ULTeam installation
+¶
+ULTeam installation was also not easy:
+Major issue on rack "too big" was finally well handle so that we were able to have access to the lab as expected on 14
+th
+December but could have been better handle.
+Not having the cooling while starting racking was a major issue again and this should have been solved quickly. We remained without AC too much time which prevents us finishing the installation / powering & setting up the servers.
+TSC deliver the pallets but this was on-demand based on team raising priority, this should have been defined prior.
+Discovering that we lose 1 units per rack due to the door locker preventing us racking anything on the unit 1 and this issue is still under investigation.
+Not having the badge reader working while this is a fresh install.
+Discovering bad power sockets while starting racking whereas this was clearly expected / defined.
+Takeaways
+¶
+They should be stronger coordination / communication between everyone, from WPR to lab users. The project is quite complex. Most of the issues could have been avoid with better logistics / checks during the whole move phases.
+This should be a team effort, I do not feel that everyone make efforts on working together in order to achieve a common goal where everyone is impacted.
+As lab owner with Franck / Benoit, I do not feel that there was the right support from leadership, GSM had to jump in so that issues were raised on a higher level so things were able to progress. GSM was the only one taking time to review/follow the move, making sure things progress and giving wider visibility.
+Really good job from Franck / Benoit from leading it to making sure issues were tracked and solved.
+Collo solution was also a pain and I've not been impacted as we do not decide to go that route. At the end, given at this date this is still under review/approval, this was not available prior ULTeam.
+2023-01-20

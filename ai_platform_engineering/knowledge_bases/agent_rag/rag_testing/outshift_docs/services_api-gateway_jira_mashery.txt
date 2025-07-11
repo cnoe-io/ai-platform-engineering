@@ -1,0 +1,10 @@
+Mashery <> SJC4 JIRA Integration
+¶
+Tibco Mashery is Cisco's enterprise solution for publishing, managing, and accessing APIs (aka web services) for external developers, partners, and customers, as well as for the Cisco internal developer community.
+ETI uses Mashery to publish SJC4 JIRA for Aspenify to access externally using Cisco SSO OAuth
+Table of Contents:
+-
+Mashery Setup
+-
+Mashery Usage
+2022-04-28

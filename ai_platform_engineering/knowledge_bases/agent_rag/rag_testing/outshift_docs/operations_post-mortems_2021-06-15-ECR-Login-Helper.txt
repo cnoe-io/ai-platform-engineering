@@ -1,0 +1,29 @@
+2021-06-15-ECR-Login-Helper
+¶
+When
+2021-06-15
+Summary
+The AWS IAM Controller Pod credentials expired on eks-production-1 and the pod started crash looping. As a result the ECR Login Helper crashed and had to be reset manually.
+Timeline
+2021-06-15
+1315 EDT: PagerDuty Alert for kubed-aws-iam-controller-container crash looping on eks-production-1
+1316 EDT: PagerDuty Alert for ecr-login-helper job failed in ecr and eti-ecr namespaces on eks-production-1
+1353 EDT: Crash looping resolved after Sri and David redeployed kubed-aws-iam-controller-container. Potential customer impact averted and services back online.
+1527 EDT: After several attempts, Matt resolved ecr-login-helper job alert after deleting the pods for ecr login helper AND deleting the cron jobs in the ecr and eti-ecr namespaces.
+1600 EDT: Cron jobs run successfully.
+Impact
+No impact to customers. The SRE team was alerted before customers noticed.
+Analysis
+-1) Eks-production-1 alerts were going to the Low Priority channel.
+-2) AWS IAM controller token expiration isn't tracked anywhere.
+-3) Dependency between the AWS IAM Controller and ECR Login Helper weren't known to Matt, which slowed down resolution.
+-4) kubed-aws-iam-controller did not need to be redployed. The token could have been renewed.
+Takeaways
+Updating eks-production-1 alerts to not be low priority.
+Resolution steps should have been more thoroughly documented:Â
+KubeJobFailing
+kubed-aws-iam-controller can be replaced by external-secrets (in progress)
+Need to document and implement credential rotation in external-secrets.
+Create template for postmortems. (complete)
+Add new SRE Team members to PagerDuty spaces/update SRE Team Member Onboarding docs (complete)
+2022-05-12

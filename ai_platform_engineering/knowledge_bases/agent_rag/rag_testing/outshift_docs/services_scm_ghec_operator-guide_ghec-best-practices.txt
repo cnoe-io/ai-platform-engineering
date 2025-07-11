@@ -1,0 +1,49 @@
+GHEC Best Practices
+¶
+This document outlines some best practices when using GHEC to help ensure proper access and/or visibility.
+Creating New Repos
+Security Matters
+Recommended Settings
+Creating New Repos
+¶
+In general, new repos are created in much the same way as on
+wwwin-github.cisco.com
+(GHES); navigate to the organization's home page and click the green "New" button to the right:
+Security Matters
+¶
+Care must be taken
+when creating new repos in GHEC to ensure they are not accidentally exposed to the public internet.
+GHEC resides within the cloud, so
+incorrect security settings can expose any given repo to the internet at large;
+while there are use cases for this, it is generally not desirable and presents a potential risk.
+Repos have three levels of visibility:
+Public
+--
+anyone who can access
+github.com
+(this means
+anyone!
+) can see the repo's contents
+Internal
+-- only Cisco enterprise members can see the repository
+Private
+--
+you
+explicitly define who can see (and commit to) the repository
+Recommended Settings
+¶
+For the reasons above, the ET&I SRE team recommends that new repos are created with their visibility set to
+Internal
+as shown below:
+If the
+gh
+utility is installed and logged in, this may also be accomplished via the command line, similar to the following:
+gh
+repo
+create
+cisco-eti/sre-ghec-repo
+--internal
+Note that
+the repo's visibility can be changed at any time
+by a user with appropriate permissions to do so; as such, it's generally best to start with more restrictive permissions and then open them up if/when needed later on.
+2022-10-06

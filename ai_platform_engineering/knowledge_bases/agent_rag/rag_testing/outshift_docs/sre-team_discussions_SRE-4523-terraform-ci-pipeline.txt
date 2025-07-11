@@ -1,0 +1,47 @@
+SRE-4523
+continuous integration
+pipeline
+terraform
+ETI SRE TF CI pipeline
+¶
+2023-01-06
+Ahmed, Issa, Shoosh, Unger, Keith, Zsolt, Peter
+Context
+¶
+Terraform modules are currently manually maintained. That process is not well documented and somewhat haphazard.
+What do we want?
+¶
+Repository tagging using Committizen and/or GH release tagging
+Release notes in GH and in the repo
+terraform-docs for variables and outputs in the README.md
+consistency across all TF modules
+updating tag/version
+updating readme
+updating CHANGELOG
+Stretch
+¶
+updating the example TF
+How can we do it?
+¶
+promote.sh
+for promotion
+What we need to do
+¶
+document commitizen setup in TF repos
+apply consistent cz setup across TF repos
+document terraform-docs
+add terraform-docs to CI job or pipeline image (pref)
+apply terraform-docs across TF repos
+check/update version of cz in pipeline image
+document using example files
+spike for testing modules before release
+Ideas
+¶
+Incremental improvements to a pipeline job:
+Use promote.sh as a base
+add terraform-docs to pipeline image
+create skeleton jenkinsfile (sre-pipeline-library as a base)
+apply terraform fmt
+scripts for tags
+scripts for updating documentation
+2023-08-25

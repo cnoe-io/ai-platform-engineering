@@ -1,0 +1,13 @@
+ETI IAM Prod Environment
+¶
+Contact
+Jean Diaconu
+if you have questions on ETI IAM
+This is the production environment:
+API Endpoint:
+https://api.id.eticloud.io/v1
+UI Endpoint:
+https://id.eticloud.io
+Okta Issuer:
+https://idp.eticloud.io/oauth2/default
+2022-10-02

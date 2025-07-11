@@ -1,0 +1,36 @@
+ð§â
+docs reorganization in-progress.
+Documents copied from Sharepoint and have not been updated
+Blackbox Exporter Argocd Deployment
+¶
+Originaly deployed using the
+ETI Multi-Cluster Deployment Architecture and User guide
+ââââââââââââââ
+Step 1: CI Build & Artifact Publishing
+¶
+a. Helm Chart
+¶
+https://wwwin-github.cisco.com/eti/sre-helm-charts/tree/main/prometheus-blackbox-exporter
+b. Publish Helm chart to Chart Museum
+âââââââ
+https://chartmuseum-ui.prod.eticloud.io/chart/?name=prometheus-blackbox-exporter
+Step 2: Add Cluster Definitions in sre-cluster-configs
+¶
+https://wwwin-github.cisco.com/eti/sre-cluster-configs/tree/main/sre/prometheus-blackbox-exporter
+Step 3: Create ArgoCD Project & Applicationset
+¶
+Run the following script to create the ArgoCD project and applicationsets via the
+argocd CLI
+:
+Pre-req:
+Setup ArgoCD Cli
+as admin
+https://wwwin-github.cisco.com/eti/sre-utilities/blob/master/scripts/argocd/argocd_create_project_and_projectapp.sh
+>â
+Usage is documented at the top of the script.
+Step 4: Add or remove new URLS
+¶
+To add or remove urls update the urls in values.yml atÂ
+blackbox-exporter-deployment
+Â repo and do a PR
+2023-09-21

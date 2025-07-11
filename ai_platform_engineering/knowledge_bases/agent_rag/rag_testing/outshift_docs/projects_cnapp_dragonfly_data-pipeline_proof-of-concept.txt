@@ -1,0 +1,120 @@
+dragonfly datapipeline
+Dragonfly data pipeline - proof of concept
+¶
+A proof of concept solution architecture was implemented for the Dragonfly data pipeline
+based on the written proposal in the following discussion document:
+Exposing a publicly accessible data ingestion pipeline for CNDR/Dragonfly
+Proposal:
+[Client] Dragonfly Agent will send events via fluent bit + Kafka REST output plugin to talk to AWS API Gateway with Basic HTTP Auth
+[SaaS] AWS API Gateway will authenticate the HTTP Auth with a lambda (PoC), potentially another microservice in future
+[SaaS] AWS API Gateway will do rate limit checks with either the same lambda or another lambda
+[SaaS] API Gateway will forward the data to Confluent Kafka REST Proxy server on K8s cluster.
+[SaaS] Confluent Kafka REST Proxy server will write to the Kafka topics
+Implementation details
+¶
+Kafka / MSK
+¶
+A Kafka (AWS MSK) cluster was created in the
+lightspin-dev
+account via Terraform:
+aws-lightspin-dev/msk/eu-west-1/msk-dragonfly-poc-1/main-msk.tf
+Confluent REST Proxy
+¶
+Kafka REST Proxy was installed on the
+dragonfy-dev-1
+Kubernetes cluster in the
+confluent-platform
+namespace, based on the
+Helm charts
+provided by Confluent.
+NAME                                                    READY   STATUS    RESTARTS   AGE
+pod/confluent-platform-cp-kafka-rest-69c9cf595c-7blzv   1/1     Running   0          24h
+pod/test-shell                                          1/1     Running   0          11d
+NAME                                                TYPE           CLUSTER-IP      EXTERNAL-IP                                                                     PORT(S)          AGE
+service/confluent-platform-cp-kafka-rest            ClusterIP      172.20.6.192    <none>                                                                          8082/TCP         12d
+service/confluent-platform-cp-kafka-rest-external   LoadBalancer   172.20.71.189   k8s-confluen-confluen-d89eb3868f-543dd0c00895b3cd.elb.eu-west-1.amazonaws.com   8082:32684/TCP   12d
+NAME                                               READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/confluent-platform-cp-kafka-rest   1/1     1            1           12d
+NAME                                                          DESIRED   CURRENT   READY   AGE
+replicaset.apps/confluent-platform-cp-kafka-rest-6455849d64   0         0         0       11d
+replicaset.apps/confluent-platform-cp-kafka-rest-67657f95fc   0         0         0       25h
+replicaset.apps/confluent-platform-cp-kafka-rest-687f95dbc6   0         0         0       25h
+replicaset.apps/confluent-platform-cp-kafka-rest-68d5cb687    0         0         0       24h
+replicaset.apps/confluent-platform-cp-kafka-rest-68ff9466fd   0         0         0       25h
+replicaset.apps/confluent-platform-cp-kafka-rest-698bb58544   0         0         0       25h
+replicaset.apps/confluent-platform-cp-kafka-rest-69c9cf595c   1         1         1       24h
+replicaset.apps/confluent-platform-cp-kafka-rest-7966775ffd   0         0         0       25h
+replicaset.apps/confluent-platform-cp-kafka-rest-7dc9887978   0         0         0       11d
+replicaset.apps/confluent-platform-cp-kafka-rest-b9b699664    0         0         0       25h
+replicaset.apps/confluent-platform-cp-kafka-rest-c88d97bfc    0         0         0       25h
+The application is accessible through an internal network loadbalancer (only available on the VPC internal network), and configured to use the
+dragonfly-poc-1
+Kafka cluster.
+Testing the REST Proxy on the internal network, it is working and is able to write messages into Kafka topics:
+[root@ip-10-20-11-125 ~]# curl -X POST http://k8s-confluen-confluen-d89eb3868f-543dd0c00895b3cd.elb.eu-west-1.amazonaws.com:8082/topics/customer1 \
+>    -H 'Content-Type: application/vnd.kafka.json.v2+json' \
+>    -d '{"records":[{"value":{"deviceid": "AppleWatch4","heartrate": "72","timestamp":"2019-10-07 12:46:13"}}]}'
+{"offsets":[{"partition":0,"offset":8,"error_code":null,"error":null}],"key_schema_id":null,"value_schema_id":null}
+Note:
+The open source Helm charts are not supported and maintained by Confluent anymore:
+https://github.com/confluentinc/cp-helm-charts
+Open Source Helm charts are not supported by Confluent.
+We had to fix multiple problems in the Chart and maintain our version of it.
+AWS API Gateway
+¶
+A Lambda function was written to do the authentication and authorization:
+cndr-pipeline-authorizer
+The function parses the
+Authorization
+header and authenticates the user with HTTP Basic Auth.
+The decision has not been made about how the solution will be integrated with an identity provider, so the credentials are
+currently hardcoded into the code (for testing purposes):
+// Static "credentials" for testing
+// customer1:password1  Authorization: Basic Y3VzdG9tZXIxOnBhc3N3b3JkMQ==
+// customer2:password2  Authorization: Basic Y3VzdG9tZXIyOnBhc3N3b3JkMg==
+authMap = map[string]string{
+"customer1": "password1",
+"customer2": "password2",
+}
+The username and the topic name must be the same, this is how topic level authorization is working now.
+The
+customer1
+user is only able to send messages into the
+customer1
+Kafka topic, but not into
+customer2
+.
+An AWS API Gateway REST API was created (
+amazonmsk-restapi
+) and configured to proxy the requests to the Kafka REST Proxy's internal network loadbalancer.
+The integration was configured with a VPC Link, so the communication between the AWS API Gateway and Kafka REST Proxy is internal network only.
+Additionally the Lambda function above was configured for the AWS API Gateway to do the authorization.
+The integration was tested with sending messages to the API Gateway public endpoint with the hardcoded basic HTTP credentials:
+â¯ curl -X POST https://bwvedddarj.execute-api.eu-west-1.amazonaws.com/test/topics/customer1 \
+-H 'Content-Type: application/vnd.kafka.json.v2+json' \
+-H 'Authorization: Basic Y3VzdG9tZXIxOnBhc3N3b3JkMQ==' \
+-d '{"records":[{"value":{"deviceid": "AppleWatch4","heartrate": "72","timestamp":"2019-10-07 12:46:13"}}]}'
+{"offsets":[{"partition":0,"offset":9,"error_code":null,"error":null}],"key_schema_id":null,"value_schema_id":null}
+Topic level authorization was also tested,
+customer1
+is not able to send messages into the
+customer2
+topic:
+â¯ curl -X POST https://bwvedddarj.execute-api.eu-west-1.amazonaws.com/test/topics/customer2 \
+-H 'Content-Type: application/vnd.kafka.json.v2+json' \
+-H 'Authorization: Basic Y3VzdG9tZXIxOnBhc3N3b3JkMQ==' \
+-d '{"records":[{"value":{"deviceid": "AppleWatch4","heartrate": "72","timestamp":"2019-10-07 12:46:13"}}]}'
+{"Message":"User is not authorized to access this resource with an explicit deny"}
+Testing the whole pipeline, messages sent to the AWS API Gateway is available in Kafka:
+â¯ curl -X POST https://bwvedddarj.execute-api.eu-west-1.amazonaws.com/test/topics/customer2 \
+-H 'Content-Type: application/vnd.kafka.json.v2+json' \
+-H 'Authorization: Basic Y3VzdG9tZXIyOnBhc3N3b3JkMg==' \
+-d '{"records":[{"value":{"message": "Dragonfly data pipeline proof of concept - 2023-10-03"}}]}'
+{"offsets":[{"partition":0,"offset":2,"error_code":null,"error":null}],"key_schema_id":null,"value_schema_id":null}
+[root@ip-10-20-11-19 bin]# ./kafka-console-consumer.sh --bootstrap-server "b-1.dragonflypoc1.j3sc52.c4.kafka.eu-west-1.amazonaws.com:9092,b-2.dragonflypoc1.j3sc52.c4.kafka.eu-west-1.amazonaws.com:9092,b-3.dragonflypoc1.j3sc52.c4.kafka.eu-west-1.amazonaws.com:9092" --topic customer2 --from-beginning
+{"message":"Dragonfly data pipeline proof of concept - 2023-10-03"}
+At the end of the authorization process the Lambda function returns a
+UsageIdentifierKey
+that is used to
+set the per user throttling and rate limiting:
+2023-10-03

@@ -1,0 +1,46 @@
+Sign Git commits with GPG key
+¶
+Step 1: Install GPG on your computer
+¶
+Macbook:
+brew
+install
+gnupg
+Ubuntu
+sudo
+apt-get
+install
+gnupg
+Windows
+Installer
+Step 2: Generate key pair or use existing pair
+¶
+# Generate key pair
+gpg
+--full-generate-key
+# Use existing key pair
+gpg --list-secret-keys --keyid-format=long
+/Users/hubot/.gnupg/secring.gpg
+------------------------------------
+sec   4096R/3AA5C34371567BD2 2016-03-10 [expires: 2017-03-10]
+uid                          Hubot <hubot@example.com>
+ssb   4096R/4BB6D45482678BE3 2016-03-10
+Step 3: Export GPG key using key ID
+¶
+$
+gpg
+--armor
+--export
+3AA5C34371567BD2
+# Prints the GPG key ID, in ASCII armor format
+Copy your GPG key,
+beginning with -----BEGIN PGP PUBLIC KEY BLOCK -----
+and
+ending with -----END PGP PUBLIC KEY BLOCK-----
+Following
+this guide
+on how to add it to your github account
+Reference:
+¶
+Github GPG Guide
+2022-12-13

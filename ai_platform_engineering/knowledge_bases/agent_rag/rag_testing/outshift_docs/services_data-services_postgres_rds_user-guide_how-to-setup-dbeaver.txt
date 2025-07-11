@@ -1,0 +1,99 @@
+DBOps
+DBeaver
+Postgres
+RDS Access
+How to Setup DBeaver Access to RDS
+¶
+Pre-Requisites
+¶
+You have an RDS instance running
+You have downloaded and installed
+DBeaver
+locally
+SRE team has shared the Bastion host information with you (IP/hostname, username, and private key)
+You have the read and/or write access endpoint url for the RDS instance (usually stored in your
+Keeper
+namespace, you may ask SRE for assistance if not found)
+You have access to the DB username and password (usually stored in your
+Keeper
+namespace, you may ask SRE for assistance if not found)
+IMPORTANT
+You are connected to the Cisco VPN
+Note
+SRE team should use
+1Password
+to temporarily share the private key with you.
+They may produce the temporary link (usually valid for 1 hour) via the 1password
+share
+feature, more info
+here
+.
+SRE team should make sure to delete the 1password secret once they have shared the private key with you.
+Steps
+¶
+Open the DBeaver application on your local desktop and choose
+Database
+>
+New Database Connection
+from the top menu.
+Select
+PostgreSQL
+from the list of database types and click
+Next
+.
+Enter the RDS endpoint url for the
+Host
+field, and the RDS port number for the
+Port
+field.
+[Optional] Check the
+Show all databases
+checkbox and [Required] enter the RDS username and password.
+Warning
+The RDS username and password are usually stored in your Vault namespace. If you don't have access to the Vault, you may ask SRE for assistance. If you are connecting to a specific DB that was created for you/your team, you should NOT be using the root/master username and password.
+Select the
+SSH
+tab and check the
+Use SSH tunnel
+checkbox.
+Click on the
+Edit Profiles
+button next to
+Profile
+to configure the SSH tunnel settings.
+Create a new Network Profile by clicking the
+Create
+button.
+Enter the
+Profile name
+you would like to use, best to use the RDS/Bastion logical names for easy reference.
+Once you have created a new Profile, select it to edit the settings and check the
+Use SSH Tunnel
+.
+Here you will require the Bastion host information (IP/hostname, username, and private key) shared by the SRE team.
+    Enter the Bastion host IP/hostname for the
+Host
+field, the Bastion host SSH port number for the
+Port
+field, and the Bastion host username for the
+Username
+field. Make sure to select
+Public Key
+for the
+Authentication Method
+field.
+Note
+The private key is usually shared with you via 1Password. If you don't have access to the 1Password, you may ask SRE for assistance.
+Click
+Apply and Close
+to save the SSH tunnel settings. Then click
+Test tunnnel configuration
+button to test your SSH tunnel settings.
+After successfully testing the SSH tunnel settings, click
+Finish
+to save the database connection settings.
+Tip
+This is a 1 time setup process. Once you have saved all these configurations in DBeaver, you can simply connect to the RDS instance by selecting the connection from the
+Database Navigator
+pane and clicking the dropdowm arrow next to the connection name. This will then show you all the DBs/your DB objects.
+2024-03-03

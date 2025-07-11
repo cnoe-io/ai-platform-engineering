@@ -1,0 +1,19 @@
+production criteria
+production readiness
+Production Criteria
+¶
+Presentation
+App Responsibility
+¶
+Stability in namespace
+No container vulnerabilities
+App teams are on-call to address critical issues
+Has a CSDL Engagement and SI Project
+Security response SLA
+SLI Interface (Defined & Monitoring)
+Platform Responsibility
+¶
+Pager 24x7 (Infra)
+Security response SLA
+SI Project
+2023-11-09

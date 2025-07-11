@@ -1,0 +1,38 @@
+application developer onboarding
+Application Developer Onboarding
+¶
+Caution
+ð¨ Please open a
+SRE Service Desk Ticket
+for any requests to the Outshift SRE team
+Setup access to Dev Tools
+¶
+Outshift Common Tools (Jira, Github, etc.)
+Jenkins
+ArgoCD
+Optional
+Keeper
+.
+SRE team can add the team member to appropriate
+Cloud Access
+¶
+Note
+Access to Cloud (AWS, Azure, GCP) is based on project needs and personas. Not everyone is provided direct access cloud service provider. SRE team uses a lot of tools to abstract cloud with CI/CD pipelines.
+Please check with SRE team if cloud access is required and granted based on project needs
+Cloud access setup
+Fo AWS use
+duo-sso
+to setup AWS CLI Access
+Azure Login
+GCP Login
+Try out Python Microservice helloworld example
+¶
+Python Microservice helloworld
+SRE Self-service tools
+¶
+Note
+Please consult SRE team before using self-service Jenkins tooling so they can guide you on the appropriate cloud accounts to use for a given project
+Self-service EKS creation
+Self-service EC2 creation
+Self-service S3 creation
+2024-05-12

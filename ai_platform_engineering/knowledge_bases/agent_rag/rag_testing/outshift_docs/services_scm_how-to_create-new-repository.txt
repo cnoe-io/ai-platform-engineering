@@ -1,0 +1,89 @@
+creation
+github safe settings
+how to
+repo
+services
+How-to create a new repository in GHEC (cisco-eti) org
+¶
+This document will guide you through the new process of creating repositories in our GHEC (GitHub Enterprise Cloud) org
+cisco-eti
+using
+Safe-Settings
+Step 1: Create a new YML repo file
+¶
+Go to the
+admin
+repo located in our GHEC org and copy the following
+yml
+file
+here
+Note
+If you are unable to access this repository or do not have
+write
+access please reach out to our SRE team
+Create a new file with the name of your repository and the
+.yml
+extension (safe-settings only supports
+yml
+type extensions, so please be aware)
+Paste the previously copied
+repo-template
+yml and modify it to your needs
+Note
+Please make sure to name the repository the same as the
+yml
+file name you previously used (they need to be an exact match)
+For all the different options and their explanations, please refer to this more in-depth
+Safe-Settings User-Guide
+Note
+Do not remove the
+template: repo-template
+line as this will be needed, unless you have an alternate template to use
+Commit + Push + Create a new PR for the changes to sync, this process will trigger some extra checks/validations
+Please reach out to the SRE team for review via your dedicated SRE for <
+Venture-Name
+> WebEx space
+Step 2: Accessing/Modifying your new repository
+¶
+Upon the successful merge of the newly created
+yml
+safe-settings file, you shall see your repo has been created and listed
+here
+(should be at the top of the list)
+Note
+Sometimes this may take a few minutes, if it takes more than ~5 minutes please reach out to the SRE team for debugging
+You will note that the following has been created in your new repository:
+An initial README file
+A CODEOWNERS file
+A Jenkinsfile
+A .gitignore file (default is
+go
+unless you changed the
+gitignore_template:
+option in your safe-settings yml)
+Also check to see that your
+Settings
+have been updated with the rules that were previously configured/set in your safe-settings yml
+Modify your
+CODEOWNERS
+file to fit your teams needs
+Note
+That the Jenkinsfile is set for SRE team review, this is on purpose
+Modify your Jenkinsfile to fit your needs
+Create a new PR and include one of the SRE team members as your reviewer, we will help you create a new pipeline in our
+Jenkins
+instance so that it consumes your new Jenkinsfile
+[Optional] Step 3: Add Jenkins pipeline PR rule
+¶
+Go to the
+admin
+repo located in our GHEC org
+Find your previously created/modified yml file for your newly created repository
+Modify the line shown below to
+contexts: ['continuous-integration/jenkins/pr-merge']
+This will ensure that your newly created Jenkins pipeline will be triggered and used to verify/check your repo's PR(s)
+Commit + Push + Create a new PR for the changes to sync, this process will trigger some extra checks/validations
+Please reach out to the SRE team for review via your dedicated SRE for <
+Venture-Name
+> WebEx space
+2023-07-04

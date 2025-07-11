@@ -1,0 +1,55 @@
+Operator guide
+¶
+Installation
+¶
+Prerequisites:
+Target cluster
+added to ArgoCD
+The MySQL Operator is generally managed using ArgoCD by adding the target cluster to the
+mysql-operator applicationset
+.
+Check out the
+sre-cluster-configs
+repository and create a new directory for the target cluster.
+Here are instructions to install mysql operator in target cluster:
+export
+CLUSTER_NAME
+=
+my-cluster-1
+git
+clone
+git@wwwin-github.cisco.com:eti/sre-cluster-configs.git
+git
+checkout
+-b
+install-my-operator-
+$CLUSTER_NAME
+cd
+sre-cluster-configs
+cd
+sre/mysql-operator
+mkdir
+$CLUSTER_NAME
+cd
+$CLUSTER_NAME
+# Commit and push changes
+git
+add
+.
+git
+commit
+-m
+'feat: install mysql-operator on $CLUSTER_NAME'
+git
+push
+-u
+origin
+install-mysql-operator-
+$CLUSTER_NAME
+Here is the
+MySQL Applicationset Configuration PR
+References
+¶
+https://github.com/mysql/mysql-operator
+https://dev.mysql.com/doc/mysql-operator/en/
+2022-11-22

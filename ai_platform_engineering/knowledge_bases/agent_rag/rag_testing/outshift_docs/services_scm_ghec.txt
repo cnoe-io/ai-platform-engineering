@@ -1,0 +1,43 @@
+GHEC
+ghec access
+ghec accounts
+ghec orgs
+GitHub Enterprise Cloud (GHEC)
+¶
+What is GHEC?
+¶
+GHEC is a public SaaS instance of GitHub with Cisco Enterprise license and controls.
+GHEC is hosted and manged by GitHub.com (Microsoft is the parent company of Github).
+Purpose
+¶
+GHEC is currently in use by CNAPP projects
+Please consult with the
+Outshift SRE team
+before setting up repos in GHEC!
+Outshift GHEC Accounts
+¶
+Org Name
+Purpose
+AD Group
+github.com/cisco-eti
+Outshift GHEC Orgs for CNAPP, Platform
+GHEC_cisco-eti_login
+github.com/lightspin-tech
+Lightspin repos
+GHEC_lightspin-tech_login
+github.com/cisco-panoptica
+Panoptica Customer Demos
+GHEC_cisco-panoptica_login
+github.com/kosha
+Kosha
+TBD
+github.com/orgs/scs-sandbox
+SCS-sandbox
+TBD
+Outshift GHEC Account access
+¶
+Refer to User Guide
+Please reach out
+ET&I SRE team
+for access
+2023-09-21

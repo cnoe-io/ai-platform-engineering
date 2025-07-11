@@ -1,0 +1,32 @@
+- AWS IAM
+¶
+AWS IAM
+¶
+AWS Identity and Access Management
+Repository
+¶
+IAM in AWS is controlled by Terraform code located in
+platform-terraform-infra
+Processes
+¶
+Users
+¶
+Generally speaking, individual users should not be created. Typically, a
+role
+is created. There are use cases where a user is appropriate:
+Temporary users - when users have a pre-defined expiration (as in use for a temporary account for a hackathon)
+terraform admin - for use by Atlantis.
+If users are created, they should not be allowed console access, and their secrets should be stored in Keeper.
+Roles
+¶
+A role is a pre-defined identity for a user, service, or application that delegates access for a limited amount of time. It has one or more
+policies
+attached to it that define the access level available to users who assume the role.
+Roles should be created after policies.
+If a role is created for a user or users, the role should be managed by
+Cisco Groups automation
+.
+Policies
+¶
+A policy is a document that describes exactly what resources a user or role can access. Policies should be created before users or roles as they apply to both.
+2024-06-07

@@ -1,0 +1,21 @@
+outlook shared calendar
+team shared calendar
+SRE Shared Team Calendar
+¶
+Note:
+Please contact
+Hasith Kalpage
+or
+Sri Aradhyula
+to be added to the team calendar.
+SRE Team uses a shared Outlook calendar to keep track of SRE team members's extended absence or unavailability.
+Once your are added, the team calendar will show in the "People's Calendar" section in Outlook
+How to add an event to team calendar
+¶
+Create on new event in Outlook
+Select "SRE Team Calendar"
+Create the event with the following instructions
+Set Availability to Free, so it doesn't block another person's calendar
+Set the event to "All day" so it shows at the top
+Set the notification to "1 day before" so your team members are aware of the PTO a day before.
+2024-05-04

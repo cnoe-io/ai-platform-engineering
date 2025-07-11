@@ -1,0 +1,113 @@
+sre-go-helloworld Improvement Recommendations
+¶
+Currently, the ETI Platform provides a set of boilerplate "hello-world" applications that serve as a template for launching new applications.
+This document captures the goals and tasks for improving the usability of these boilerplate apps.
+High-Level Goals
+Functional Requirements
+Next Steps
+Discussion Points
+What is the "right" minimal set of features to enable by default?
+[Accepted] Decouple "boilerplate" apps from our "canary test" apps (i.e., create separate app repos for each)
+High-Level Goals
+¶
+(A) Clearly document the
+functional
+requirements for an application source code repository. The "boilerplate" app should be one
+example
+of implementing those requirements, but alternative implementations are acceptable as long as the functional requirements are met. See
+Functional Requirements
+below for the functional requirements.
+(B) Ensure the "boilerplate" app has the minimally
+desired
+features enabled by default such that apps launched from the boilerplate meet ETI's standards (e.g. inclusive lint). Extraneous and "special-case" features (e.g. publishing the built Docker image to multiple and/or private repositories) should
+not
+be enabled in the boilerplate app.
+(C) Conform with basic repo structure of
+platform-demo
+as much as possible
+Motivation: reduce cognitive overhead for users who are moving from platform-demo to boilerplate
+(D)
+Remove
+any extraneous or outdated files/parameters/etc.
+Functional Requirements
+¶
+Entrypoints for the ETI CI pipeline to build and publish the application's deployment artifacts:
+a Dockerfile and/or build script that produces the application's Docker image
+a path to the application's Helm chart
+Configuration management
+application must read environment-specific parameters (e.g., Database endpoint) as environment variables
+Secret management
+application must read sensitive data (e.g., Database credentials) as environment variables
+Observability output
+application must emit logs to
+stdout
+in
+JSON
+format
+application must expose metrics via a Prometheus exporter as described in
+this doc
+Next Steps
+¶
+fix
+deployment
+directory -
+(C)
+rename to
+deploy
+to match platform-demo
+remove
+sre-go-helloworld-dashboard-aggregate
+until aggregate dashboard deployment mechanism is fully baked and documented -
+(D, C)
+create a
+go-boilerplate
+app that implements all functional requirements listed above
+create separate "canary" app with
+all
+supported features enabled
+the canary app should be created
+from
+the boilerplate app to provide test coverage for the boilerplate and its derived apps
+change features enabled by default to reflect decisions made in the
+discussion below
+-
+(B)
+Discussion Points
+¶
+See ongoing discussion in
+this GHE issue thread
+What is the "right" minimal set of features to enable by default?
+¶
+enable linting (will need to fail build if Inclusive Lint detects violations for certain TBD terms)
+enable unit testing hook
+disable
+publishing Docker image to anywhere other than ECR (e.g., containers.cisco.com)
+TBD:
+should Corona, Blackduck, SonarQube scanners be enabled by default?
+[Accepted] Decouple "boilerplate" apps from our "canary test" apps (i.e., create separate app repos for each)
+¶
+Pros:
+The boilerplate app can have the
+desired
+minimal feature set enabled
+by default
+, so that even if users don't bother to change what's enabled/disabled, they will get the appropriate set of enabled features (e.g., don't
+push the docker image to containers.cisco.com
+if just ECR is enough)
+Increased reliability of boilerplate apps: we can test experimental/flakey new features in the canary app and keep them
+out
+of the boilerplate app until they are fully baked and reliable
+The canary app should be created
+from
+the boilerplate app before most other apps, making it a great test for catching
+breaking changes
+for apps that were created from earlier version of the boilerplate app
+Cons:
+Increased labor/overhead for SRE team because we increase the number of apps we need to maintain
+Counter-argument:
+the canary should just be another app that was created
+from
+the boilerplate; it just happens to have all the features enabled. It should be no different from any other venture team's app that used the boilerplate to launch a new app, which we need to support an
+n
+number of anyway. If maintaining one more app in the form of the canary app becomes cumbersome, it may be a sign that we need to improve the boilerplate app to reduce the friction
+2023-08-25

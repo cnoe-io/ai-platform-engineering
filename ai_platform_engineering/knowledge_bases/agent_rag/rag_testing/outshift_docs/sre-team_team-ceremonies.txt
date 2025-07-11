@@ -1,0 +1,48 @@
+Team ceremonies
+¶
+The SRE team has a bunch of regular and on-demand ceremonies.
+Regular ceremonies
+Daily standup
+Weekly staff meeting
+Bi-weekly planning
+Bi-weekly demo
+On-demand ceremonies
+Working sessions
+Regular ceremonies
+¶
+Daily standup
+¶
+Daily standup is known from many management and software engineering methodologies.
+It's a proven technique to quickly notice if something keeps engineers from doing their jobs,
+so that delays in delivery can be minimized.
+We get together every day to give a quick update about what we work on.
+This is a good time to ask for help if you need any.
+Don't be shy about asking for help, even if you think you should be able to solve a particular problem:
+maybe the universe is just not letting that happen.
+Weekly staff meeting
+¶
+Every week we get together to discus top of the mind issues or any topic really that concerns SRE.
+We usually start with an on-call hand off: engineers finishing their on-call rotation
+summarize the most important events that happened and let the team know about anything that's actionable (ie. needs fixing or more attention).
+Following the on-call hand off everyone talks a little bit about personal and professional accomplishments happened since the last staff meeting.
+This is the meeting when Reinhardt usually shares important news about ET&I and whether we can expect any work falling out of those.
+He also regulary collects feedback about ET&I events.
+Bi-weekly planning
+¶
+Although we don't work in sprints, we get together every two weeks to discuss ongoing projects and to adjust priorities if necessary.
+This is the place for some Jira maintenance as well: not everyone is comfortable with Jira, so asking for help or reorganizing tasks is possible here.
+Bi-weekly demo
+¶
+Every two weeks (the week after planning) we get together to demo some of the work we've been doing in the previous weeks.
+Whether it's a new tool that you introduced, some changes you made in an existing system or just some improvements somewhere,
+this is the place to show it.
+On-demand ceremonies
+¶
+Working sessions
+¶
+Working together remotely is hard, but it's extremely important, especially now that we are working remotely:
+- This is one of the few opportunities to share knowledge with and get feedback from your peers
+- You get to meet your peers outside of the regular ceremonies and get to work with them on problems
+Some people thrive on working in teams, some might prefer working alone, but everyone needs help or an extra pair of eyes from time to time.
+Scheduling working sessions for a specific topic with a few peers is a good (and often more fun) way to solve problems or complete tasks together.
+2022-04-25

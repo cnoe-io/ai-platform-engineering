@@ -1,0 +1,31 @@
+Paris Innovation & Research Lab (PIRL)
+¶
+Welcome to the PIRL Lab
+¶
+This page aims to reference all the information with regards to the Paris lab.
+Please review the Network topology in this page
+here
+before consuming this documentation.
+Table of Contents
+¶
+About the PIRL Lab move
+The Paris office new building
+The new lab's requirements
+The PIRL Lab Migration
+PIRL Lab Network
+Network description
+PIRL Lab Infra Services
+Lab hardware inventory
+Network devices & services management access credentials
+PIRL VMware
+PIRL vCenter LDAP configuration
+PIRL VMware Tanzu Kubernetes Grid
+VMware Ops
+Project demos running in the PIRL Lab
+GreatBear [ET&I]
+IRIS [ET&I]
+Meraki MV Audio Detector [Meraki SW Engineering]
+Meraki MX
+VPP [SBG]
+â¬ï¸âto "Infra Support"
+2023-02-23

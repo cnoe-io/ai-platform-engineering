@@ -1,0 +1,13 @@
+ESXi auto boot configuration
+¶
+It is very important to configure a server to make it automatically reboot so that we can recover its services after a power cut.
+To achieve this goal, we need to set the "Desired Power State" to UP.
+So there are two ways to do that:
+From the UCS Manager interface, select the server and click on "Shutdown server". This automatically put the "Desired power State" to up. Once the server is shutdown, click on "Boot Server"
+Manually set the Desired power state to up. This is possible only when the server is shutdown
+so we need to:
+shutdown the server
+Once the server get shutdown you will able to click on Desired Power State
+Click on it then select UP
+Reboot the server
+2023-02-23

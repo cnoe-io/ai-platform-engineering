@@ -1,0 +1,273 @@
+Tools we use
+¶
+For ALL OS
+¶
+Install
+AWS CLI
+Install
+Duo-SSO
+Note
+For
+Windows OS
+/WSL 2 it is
+Recommended
+to install on
+BOTH
+either with
+homebrew
+or by downloading the binaries.
+In addition please make sure you have the
+xdg-utils
+installed in WSL:
+sudo apt-get install xdg-utils
+. This will help in any interactive logins via browser from your WSL terminal.
+Tip
+Install homebrew on your WSL, this will make it a lot easier for you to install packages that do not support
+apt-get
+or
+apt
+Install
+Azure CLI
+Install
+Gcloud CLI
+Install
+Vault CLI
+Install
+K9S
+Install
+Rancher Desktop
+Note
+During installation make sure to select
+dockerd(moby)
+Note
+For
+Windows OS
+make sure to enable WSL after successful installation.(located in the
+Preference Page
+)
+You will also be able to easily switch between kubectl config contexts via the
+Taskbar icon/quick launch
+Install
+VS Code
+Note
+Make sure to install the
+System Installer
+for
+Windows OS
+Install any or all these
+(Recommended)
+VS Code
+extensions:
+DevOps Cloud Extension
+pack includes (not all deem relevant but it gets you up and running quickly):
+Kubernetes Kind
+: Work with the Kind local Kubernetes provider in Visual Studio Code.
+Code Runner
+: Code runner for multiple languages.
+VSCode Intellicode
+: AI-assisted development.
+Docker
+: Makes it easy to create, manage, and debug containerized applications.
+Kubernetes-tools
+: Develop, deploy and debug Kubernetes applications.
+YAML
+: YAML Language Support by Red Hat, with built-in Kubernetes syntax support.
+Mindaro
+: Rapid Kubernetes development for teams.
+Github Codespaces
+: Your instant dev environment.
+Gitlens
+: GitLens supercharges the Git capabilities built into Visual Studio Code. It helps you to visualize code authorship at a glance via Git blame annotations and code lens, seamlessly navigate and explore Git repositories, gain valuable insights via powerful comparison commands, and so much more.
+GitLab Workflows
+: GitLab VSCode integration.
+Github pull request and issues
+: Pull Request and Issue Provider for GitHub.
+AWS Toolkit
+: An extension for working with Amazon Web Services.
+Azure Terraform
+: VS Code extension for developing with Terraform on Azure.
+IBM Cloud
+: The IBM Cloud account extension for Visual Studio Code provides a single IBM Cloud sign-in experience for all other IBM extensions.
+SAP Cloud
+: Language Support for SAP Cloud Platform core data services for Visual Studio Code.
+Google Cloud
+: Makes developing with Kubernetes and Cloud Run feel like working on local code. Cloud Code from Google Cloud, IDE tools for Cloud Native development.
+Cloudfoundray Manifest Support
+: Adds linting, content assist and hoverinfo's for Cloudfoundry Deployment Manifests (a.k.a. manifest.yml) files.
+Checkov
+: VSCode Extension for Infrastructure As Code Scan from Palo Alto Networks, check this link for config details
+https://docs.paloaltonetworks.com/prisma/prisma-cloud/prisma-cloud-admin-code-security/get-started/connect-your-repositories/connect-vscode
+IBM Developer kit
+: Extension for VS Code editor to enable IBM Bluemix developer bx dev CLI capabilities from within the editing environment.
+Azure Pipelines
+: Syntax highlighting, IntelliSense, and more for Azure Pipelines YAML.
+Azure Tools
+: Tools for developing and running commands of the Azure CLI.
+Azure Account
+: A common Sign-In and Subscription management extension for VS Code.
+Remote WSL
+: Open any folder in the Windows Subsystem for Linux (WSL) and take advantage of Visual Studio Code's full feature set.
+Remote Container
+: Open any folder or repository inside a Docker container and take advantage of Visual Studio Code's full feature set.
+Remote SSH
+: Open any folder on a remote machine using SSH and take advantage of VS Code's full feature set.
+Remote SSH Editing
+: Edit SSH configuration files.
+Remote Development
+: An extension pack that lets you open any folder in a container, on a remote machine, or in WSL and take advantage of VS Code's full feature set.
+Remote WSL recommender
+: Recommends using the Windows Subsystem for Linux (WSL) and the Remote WSL extension.
+Azure Virtual Machines
+: An Azure Virtual Machines extension for Visual Studio Code.
+Remote Server Protocol UI
+: Provides a unified UI to interact with runtimes and servers managed over the RSP protocol.
+Splunk
+: Splunk Python Debugging (local, remote), Linting, IntelliSense, Snippets, Templates.
+HashiCorp Terraform
+: Syntax highlighting and autocompletion for Terraform.
+Jenkins Jack
+: Jack into your Jenkins to streamline your Pipeline development and Jenkins management in VSCode. Execute Pipeline scripts remotely with real-time syntax highlighted output, access Pipeline step auto-completions, pull Pipeline step documentation, run console groovy scripts across multiple agents, man
+Jenkins Runner
+: Develop and run Jenkins pipeline scripts from within vs code.
+Jenkins Doc
+: Provides Jenkins documentation and autocompletion on Jenkinsfile and Groovy files.
+Jenkins Status
+: View your project's Jenkins status inside Visual Studio Code.
+Markdown All In One
+: All you need to write Markdown (keyboard shortcuts, table of contents, auto preview and more)
+For Windows 10 (21H2~)/11/WSL:
+¶
+Install
+Powershell Core (7)
+Install
+GIT Bash
+(Recommended)
+Install
+Windows Terminal
+from the
+Microsoft Store
+Install WSL + Linux Distributor (e.g. Ubuntu):
+Open the Windows Terminal that was previously installed   in
+administrator
+mode
+(should see the PowerShell interface)
+.
+Run the following command:
+wsl --install
+This will enable/install WSL features on your system together with the default distribution of Ubunutu Linux
+Restart/Reboot
+your OS
+Open
+Windows Terminal
+and run the following command after successful installation:
+wsl -l -v
+This will list out all the installed distributions and their associated versions (MAKE SURE YOUR ARE USING WSL 2)
+Note
+In order to switch to WSL 2 run the following command:
+wsl --set-version <distro name> 2
+Open the newly installed Ubuntu Interface by selecting it from the Windows Terminal dropdown
+Follow the setup instructions in the Ubuntu Terminal (
+Recommended
+: Set proper credentials for root/sudo and store them in a secure location)
+Configure WSL to work with the CISCO AnyConnect:
+Open your distro terminal (e.g. Ubuntu WSL) in
+Windows Terminal
+Open a second PowerShell terminal (using the tabs in
+Windows Terminal
+)
+Run
+ipconfig /all
+and take note of the DNS server IPs from the CISCO AnyConnect adapter
+Run the following commands to modify the
+resolv.conf
+:
+sudo rm -rf /etc/resolv.conf
+This will remove the default resolve file generated by the WSL (you may also unlink it instead)
+sudo nano /etc/resolv.conf
+Copy/Paste the following into the resolv file then save/exit
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+nameserver 173.38.165.13
+nameserver 144.254.71.184
+This will recreate the resolv file and add the required DNS servers associated with the AnyConnect VPN
+sudo chattr -i /etc/resolv.conf
+This will make sure that the resolv config is not overwritten
+- Run the following commands to modify the
+wsl.conf
+:
+sudo nano /etc/wsl.conf
+Copy/Paste the following into the wsl file then save/exit
+[network]
+generateResolvConf = false
+- Open a PowerShell terminal in
+Windows Terminal
+and run the following commands:
+Get-NetAdapter | Where-Object {$_.InterfaceDescription -Match "Cisco AnyConnect"} | Set-NetIPInterface -InterfaceMetric 6000
+This will set the NetIP Interface Metric to 6000 for the AnyConnect adapter (needs to be a higher number than the WSL interface metric)
+wsl --shutdown
+This will shutdown your current session of the WSL and reboot the WSL distro (make sure to also close the terminal tab)
+Open a new terminal with the WSL and try the following pings (make sure that the AnyConnectVPN is connected):
+ping google.com
+ping wwwin-github.cisco.com
+You should be able to now successfully reach BOTH destinations
+(Recommended)
+Automate the process by doing the following:
+Open
+PowerShell ISE
+and copy/paste the command used from before
+Get-NetAdapter | Where-Object {$_.InterfaceDescription -Match "Cisco AnyConnect"} | Set-NetIPInterface -InterfaceMetric 6000
+Save the file as
+WSL_VPN.ps1
+under a separate folder in the
+C:\
+Drive
+Open the Windows
+Task Scheduler
+and create a new
+WSL
+folder under the
+Task Scheduler Library
+Right click on the folder and
+Create Task
+Check off the following settings on the first page
+On the
+Triggers
+tab add a new trigger with the following settings
+On the
+Actions
+tab add a new action with the following settings
+Note
+The
+Program/script
+can be set to either
+pwsh.exe
+(PowerShell 7 Core) OR
+PowerShell.exe
+(Default PowerShell 5.1)
+Note
+The
+Add arguments
+should be set to:
+-ExecutionPolicy Bypass -File <Path to the script file>\WSL_VPN.ps1
+Lastly configure the
+Settings
+tab as follows
+Save and exit by clicking
+OK
+on all steps
+Tip
+if you are using MacOS and getting installation error while running
+brew install gh
+such:
+Error: Cannot install under Rosetta 2 in ARM default prefix (/opt/homebrew)!
+To rerun under ARM use:
+arch -arm64 brew install ...
+run the command with the
+arch -arm64 brew inastall gh
+this will solve the above issue.
+here is a list of installation packages that we are using in our daily bases.
+¶
+installed application on MacOS
+gh vault argocd kuberentes-cli kubectl curl duo-sso wget python3 gsed azure-cli fenv fzf
+brew install yq kubectl
+2024-02-22

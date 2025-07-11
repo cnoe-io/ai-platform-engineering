@@ -1,0 +1,82 @@
+infra ops
+Infra Ops
+¶
+ETI Platform tools manage multi-cloud infrastructure (AWS, GCP, Azure) and on-prem infrastruture like Cisco IT's Platform 3 as well as ETI Labs.
+Before going through the available infrastructure environments, make sure you have a look at our
+environments description
+and then
+environments policy usage document
+.
+Infrastructure as Code
+¶
+The ETI Platform implements
+GitOps
+as its deployment strategy with
+Terraform
+as its Infrastructure as Code (IaC) tool and
+Atlantis
+as its workflow engine.
+For more information, see
+Infrastructure as Code
+.
+Environments details
+¶
+Here is a table which gives details about features / environments characteristics:
+Build
+Scratch
+Dev
+Prod
+Lab
+P3
+Cloud
+Lab
+Unrestricted outbound access
+no
+no
+Yes
+no
+Unrestricted Cisco access
+Yes
+no
+Yes
+Yes
+GPU access
+Yes
+no
+Yes
+Yes
+Sandbox (GitOps)
+Yes
+Yes
+Yes
+Yes
+Environments policy usage
+¶
+Cisco InfoSec defines the following polices for accessing cloud services
+Cloud Infrastructure Security Standard-AWS
+Cloud Infrastructure Security Standard-GCP
+Tip
+Using SRE Terraform/GitOps based Infrastructure-as-Code (IaC) takes care of security and compliance items such as hardened images or ingress configuration.
+Scratch account usage
+¶
+In some cases scratch account usage need clear ET&I policy as we're providing them with extended privileges. So we're not requiring full compliance on those accounts which are not prod but we do require:
+Tip
+Always set firewall/ingress/security groups to
+Cisco CIDRs
+Here is a
+reference example CIDRs
+Tag alls resources in compliance with
+Cisco Tagging Standards
+Intentionally Vulnerable account usage
+¶
+Outshift offer many security products to end customers hence there is an increasing need to verify the attach paths with
+Intentionally Vulnenrable Accounts
+Current guidance with Cisco InfoSec,
+Adam Callis
+and Outshift is to use the legacy lightspin AWS org as the home for future AWS Vulnerable testing.
+Please contact SRE team if you have a need for such access
+Labs
+¶
+Refer to
+Lab security
+2023-10-26

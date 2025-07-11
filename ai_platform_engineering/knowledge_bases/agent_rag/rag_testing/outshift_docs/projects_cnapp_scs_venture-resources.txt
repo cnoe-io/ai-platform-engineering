@@ -1,0 +1,58 @@
+resources
+scs
+ventures
+Resources
+¶
+The main resources for the dev/staging/production environments of the product are manged in AWS.
+Resources
+AWS Accounts
+Development and Testing
+Production Resources Secure Access
+Production Cluster
+Monitoring
+Cost Management
+Secret Store
+Lab Account Access
+AWS Accounts
+¶
+These can be seen/managed via
+RunOn
+Access can be granted via the
+AD Groups Automation
+Account
+Account ID
+Description
+Groups Automation YAML(s)
+scs-sandbox
+301412127564
+Used for testing/researching vulnerable apps (will be moved to an isolated org in the future)
+yamls
+sscs-dev
+710476389780
+Currently in use for initial development also holds an SRE base apps platform cluster
+yamls
+sscs-staging
+127494549027
+For future Staging environments/resources
+yamls
+sscs-production
+105928782844
+For future Production environments/resources
+yamls
+Development and Testing
+¶
+Production Resources Secure Access
+¶
+Production Cluster
+¶
+Monitoring
+¶
+Cost Management
+¶
+You may look into the high level
+AWS Cloud Health Reports
+Secret Store
+¶
+Lab Account Access
+¶
+2023-09-21

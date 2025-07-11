@@ -1,0 +1,46 @@
+Nginx Ingress Controller
+¶
+Overview
+¶
+In k8s cluster an
+ingress resource
+exposes HTTP and HTTPS routes from outside the cluster to
+services
+within the cluster. Traffic routing is controlled by rules defined on the Ingress resource.
+ETI Platform uses
+Nginx Ingress Controller
+to setup public and private ingresses
+ð
+Reference picture
+Install nginx-ingress-controller as baseapp
+¶
+Install nginx-ingress-controller
+Nginx-ingress-controller SRE Custom Chart
+¶
+â
+ingress-nginx-public
+and
+ingress-nginx-private
+share the same upstream helm chart
+-
+sre-helm-charts/ingress-nginx
+.
+âââ Chart.yaml
+âââ templates
+âââ ingressclass.yaml
+âââ namespace.yaml
+ingressclass.yaml:
+Specify the ingress class,   options:
+"nginx"
+(External/Public)
+"nginx-internal"
+(Internal)
+nginx-ingress-controller chart is published to SRE
+chartmuseum
+ChartMuesuem UI
+Private Ingress
+LoadBalancer Source IP Restriction
+¶
+nginx ingress controller is annotated to restrict traffice from specific source ips
+nginx-internal ingress class is defined, so apps can specify the ingress class
+2023-09-03

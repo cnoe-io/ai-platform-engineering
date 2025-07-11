@@ -1,0 +1,128 @@
+Commitizen
+¶
+Commitizen
+: a tool for semantic versioning and automatically generating changelogs.
+Table of Contents
+¶
+Installation
+Initializing a repository
+cz init
+Workflow
+Notes
+Automated workflow
+Manual workflow
+Types of commit
+Semantic Version (SemVer) Increments
+Sources
+Installation
+¶
+These instructions are for MacOS only.
+Homebrew
+brew install commitizen
+Python
+pip install -U commitizen
+Initializing a repository
+¶
+cz init
+¶
+Running
+cz init
+at the command line in the root of a repository starts an interactive session to set the below options.
+Configuration file
+.cz.yaml
+Commit rule
+cz_conventional_commits
+Correct version
+Default: $version
+Install pre-commit-hook?
+Default: y
+Workflow
+¶
+Notes
+¶
+You can create multiple commits for each revision bump.
+Commitizen will increment only once for all revision bumps. If you have 10 commits that call a PATCH revision bump, comittizen will only increment
+Z
+in
+X.Y.Z
+once.
+Commitizen will increment a higher precendence revision over all lower precedence revisions. I.e., if you have 10 commits that call a PATCH revision increment and 1 commit that calls a MINOR patch revision, commitizen will only incremeent the
+Y
+in
+X.Y.Z
+once.
+Automated workflow
+¶
+This workflow assumes that you want Commitizen to automatically increment the verison.
+Add files to the commit. Multiple commits will be rolled up into the highest
+git
+add
+<stuff>
+Commit.
+You can use
+git commit
+as long as the
+matches of one the
+Types of Commit
+.
+If you are unsure, you can always use
+cz commit
+.
+Use
+cz commit
+if you are commiting a backwards compatibility breaking commit. The last option in the interactive session will create a MAJOR version bump (i.e., 1.2.3 -> 2.0.0).
+git commit -m "<[type_of_commit>: <commit message>"
+|
+cz commit
+Bump: Create/update the CHANGELOG.md and tag with the next version.
+cz bump --changelog
+You can also 
+Push the commit AND the tag created by the bump.
+git push origin
+git push origin <version>
+Manual workflow
+¶
+This workflow is identical to the
+automated workflow
+, except when you run
+cz bump
+, you specify the type of
+semantic version increment
+.
+cz bump --increment <semver> --changelog
+Types of commit
+¶
+When using
+git commit -m "message"
+, you must use one of the following prefixes in the commit message:
+fix: A bug fix. Correlates with PATCH in SemVer.
+feat: A new feature. Correlates with MINOR in SemVer.
+docs: Documentation only changes.
+style: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc).
+refactor: A code change that neither fixes a bug nor adds a feature. Correlates with PATCH in SemVer.
+perf: A code change that improves performance.  Correlates with PATCH in SemVer.
+test: Adding missing or correcting existing tests.
+build: Changes that affect the build system or external dependencies (example scopes: pip, docker, npm).
+ci: Changes to our CI configuration files and scripts (example scopes: GitLabCI).
+Semantic Version (SemVer) Increments
+¶
+MAJOR version when you make incompatible API/backwards compatibility changes.
+X
+in version
+X.Y.Z
+.
+MINOR version when you add functionality in a backwards compatible manner.
+Y
+in
+version X.Y.Z
+.
+PATCH version when you make backwards compatible bug fixes.
+Z
+in version
+X.Y.Z
+.
+Sources
+¶
+Commitizen
+Semantic Versioning
+2023-04-20

@@ -1,0 +1,11 @@
+baseapps prometheus-crds
+prometheus-crds
+Prometheus CRDs
+¶
+Prometheus Custom Resource Definitions (CRDs) are used by Prometheus Operator under monitoring.coreos.com. These CRDs simplify the deployment and configuration of Prometheus, Alertmanager and related monitoring components.
+SRE team installs Prometheus Operator CRDs to remove circular dependency to install core baseapps before observability stack is ready.
+References
+:
+Alerts Helm Chart
+ETI Alerting
+2023-09-03

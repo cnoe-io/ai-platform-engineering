@@ -1,0 +1,58 @@
+How to renew Cisco SSL cert and update ACM
+¶
+Tags: Cisco SSL cert
+Create or use
+existing CSR
+If an existing CSR is not available,create a new one using the following instructions:
+openssl req -nodes -newkey rsa:2048 -keyout <website-name>.key -out <website-name>.csr
+# You are about to be asked to enter information that will be incorporated
+# into your certificate request.
+# What you are about to enter is what is called a Distinguished Name or a DN.
+# There are quite a few fields but you can leave some blank
+# For some fields there will be a default value,
+# If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [AU]:US
+State or Province Name (full name) [Some-State]:California
+Locality Name (eg, city) []:San Jose
+Organization Name (eg, company) [Internet Widgits Pty Ltd]:Cisco
+Organizational Unit Name (eg, section) []:ET&I
+Common Name (e.g. server FQDN or YOUR name) []:techblog.cisco.com
+Email Address []:eti-sre-admins@cisco.com
+# LEAVE EMPTY
+Please enter the following 'extra' attributes
+to be sent with your certificate request
+A challenge password []:
+An optional company name []:
+- Add CSR and Private key to vault
+export VAULT_TOKEN=<YOUR VAULT TOKEN>
+export VAULT_NAMESPACE=eticloud/apps/websites
+export VAULT_ADDR=https://keeper.cisco.com
+export CSR=`cat foo.cer`
+export KEY=`cat private.key`
+vault kv put secret/prod/<app>/sslcert csr="$CSR" key="$KEY"
+- Navigate to
+sslcerts.cisco.com
+- Request a new/renewal certificate
+    -
+- Wait for cert approval and download the certs
+    -
+-
+- Save certificates in vault
+export VAULT_TOKEN=<YOUR VAULT TOKEN>
+export VAULT_NAMESPACE=eticloud/apps/websites
+export VAULT_ADDR=https://keeper.cisco.com
+export CERTIFICATE=`cat foo.cer`
+cat hydssl.cer > /tmp/fullchain.cer
+cat idtrca.cer >> /tmp/fullchain.cer
+export FULLCHAIN=`cat /tmp/fullchain.cer`
+vault kv patch secret/prod/<app>/sslcert public_cert="$CERTIFICATE" fullchain="$FULLCHAIN"
+- Update
+AWS ACM
+- Upload public certificate and full trust chain into ACM
+    -
+- Import the certs into ACM
+    -
+- Verify ACM cert on cloudfront distribution
+    -
+2024-02-23

@@ -1,0 +1,45 @@
+atlantis
+iac boundaries
+iac tooling
+infrastructure as code
+terraform
+Infrastructure as Code
+¶
+Infrastructure as Code (IaC) is the management of computing resources via machine-readable code. For the Outshift SRE Platform, IaC manages the resources that allow applications and services to run.
+How to contribute
+¶
+fixes
+new modules
+tooling
+Boundaries
+¶
+The inherent flexibility of cloud native computing ensures that there will be some fluidity regarding which tool and which group manages particular resources. Generally speaking, The Outshift SRE Platform takes responsiblity for cloud resources up to the service level. This responsibility includes accounts, identity access management, networking, compute, and managed service clusters. The instantiation, configuration, and operation of other services, cloud-based or not, should be discussed with the SRE team.
+Tooling
+¶
+Terraform
+¶
+Terraform
+is declarative IaC and language to codify resources.
+The Outshift SRE team has written a series of
+Terraform modules
+for the most commonly created cloud resources. These modules provide guard rails for everyone to create secure and compliant resources.
+Outshift Terraform module list
+Terraform Development
+¶
+Terraform Module Development
+Terraform Standards and Practices
+¶
+Platform Resource Creation
+Atlantis
+¶
+Using Atlantis
+¶
+Using Atlantis
+Setting up a repository for use with Atlantis
+atlantis.yaml parameters
+Tools
+¶
+A collection of scripts and links that have been useful in the past.
+Collect all VPC dependencies
+VPC Ya Later
+2023-10-31

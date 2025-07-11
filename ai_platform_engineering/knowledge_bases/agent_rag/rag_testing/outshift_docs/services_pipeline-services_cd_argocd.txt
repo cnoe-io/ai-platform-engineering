@@ -1,0 +1,31 @@
+argocd
+continuous deployment
+ArgoCD
+¶
+ArgoCD is a continuous delivery tool to deploy apps to Kubernetes clusters.
+Ask your SRE contact about the ArgoCD instance you should use or check out the
+list of ArgoCD instances
+.
+User Guides
+¶
+Login to the web UI
+CLI access
+Administrative access
+Adding a new cluster
+Troubleshooting
+How to create a new application deployment
+Create a new ArgoCD project & application with automation
+Adding new repositories to ArgoCD
+Operator Guides
+¶
+Install ArgoCD Operator
+Create a new ArgoCD instance
+Upgrade ArgoCD instance
+ArgoCD Operator Options
+Current instances
+ArgoCD Backup
+ArgoCD Restore
+ArgoCD Migration Example
+ArgoCD RBAC setup
+ArgoCD ignoreDifference sync option
+2023-01-28

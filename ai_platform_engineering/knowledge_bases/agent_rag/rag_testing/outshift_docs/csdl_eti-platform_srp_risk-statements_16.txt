@@ -1,0 +1,19 @@
+IVS-01.01
+logging
+No separated storage for infrastructure and hosted application logs, excessive amount of application logs can make the infrastructure log pipeline unreliable
+¶
+Description
+¶
+Currently application logs hosted on the ETI SRE Platform, and logs some of the key components of the infrastructure are forwarded and stored in the same ElasticSearch indexes.
+Excessive amount of application logs can make the infrastructure log pipeline unreliable and infrastructure related logs inaccessible and vica versa.
+It also causes access control concerns and violates the least privilege principle.
+Business Impacts
+¶
+Abuse Detection
+Performance
+Customer Business Operations
+Likelihood: Medium
+¶
+Risk Level Category: Low
+¶
+2023-07-11

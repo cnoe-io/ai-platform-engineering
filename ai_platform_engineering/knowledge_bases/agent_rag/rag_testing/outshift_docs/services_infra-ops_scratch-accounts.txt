@@ -1,0 +1,11 @@
+scratch cloud accounts
+Scratch Cloud Accounts
+¶
+For non-standard usecases, there is an option to use a scratch cloud account for development and experimentation. Please reach out the SRE team to discuss scratch accounts further.
+Scratch accounts that are currently available:
+aws-scratch-c
+: Manged by
+AD group
+gcp-scratch-g-1:
+GCP Console
+2023-09-21

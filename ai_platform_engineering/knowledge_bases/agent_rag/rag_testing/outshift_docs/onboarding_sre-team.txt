@@ -1,0 +1,15 @@
+welcome
+Welcome to the SRE team
+¶
+This onboarding process should guide you in your first couple weeks to get started with your new role,
+but feel free to come back here later if you need to refresh your memory.
+One of your peers should guide you through the onboarding process.
+Feel free to ask questions!
+If you don't find something in the documentation or you think there is room for improvement,
+feel free to send a PR to
+this repository
+.
+Ready? Let's
+get started
+!
+2023-01-24

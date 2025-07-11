@@ -1,0 +1,44 @@
+AWS IAM Terraform
+¶
+Import Policy
+¶
+Start by initializing terraform locally.
+terraform
+init
+-reconfigure
+Make sure that your connection to Keeper/Vault is set.
+export
+VAULT_ADDR
+=
+https://east.keeper.cisco.com
+export
+VAULT_NAMESPACE
+=
+eticloud/eticcprod
+Create a blank file for the resource with the minimum required entries. The example below is for an AWS IAM policy.
+resource "aws_iam_policy" "foobar" {
+name = "foobar"
+policy = "{}"
+}
+Import the policy
+terraform
+import
+aws_iam_policy.foobar
+arn:aws:iam::626007623524:policy/foobar
+Note that the import resource.resource_name pattern matches
+This process only imports the information into the state. You must copy the resource definition into the blank file you created earlier.
+Run a terraform plan to make sure there aren't any discrepencies.
+terraform
+plan
+If the plan suggests changes, change the Terraform in the file until there are no changes in the plan.
+Once the plan is clean, you will need to commit, PR, and have Atlantis confirm there are no changes.
+How to add Users, Roles, and Policies
+¶
+What are the users in this repository?
+¶
+Users in this repository are service account users only. Their credentials need to be rotated every 90 days for CSB compliance.
+If the goal is add human users to a role such as the admin role or a particular venture role, the role can be defined in this repository.
+Once the role is defined, you can add users to the role in the
+sre-cisco-groups-automation
+repository.
+2024-06-07

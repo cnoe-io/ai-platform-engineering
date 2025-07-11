@@ -1,0 +1,18 @@
+CSDL
+security
+Cisco Secure Development Lifecycle (CSDL)
+¶
+Cisco Secure Development Lifecycle (CSDL)
+is an umbrella terminology that includes various tools and processes to build secure products for on-prem and cloud. CSDL defines the set of requirements that all released Cisco products must meet by implementing the defined controls.
+Outshift Platform implements a significant number of security controls, enabling the product teams to focus on the application-specific controls.  See the breakdown of responsibilities between Platform, and Ventures
+in this doc
+The CSDL process involves documentation, audit, and pen-tests in coordination with the STO team's representative as documented
+here
+External Documentation References:
+CSDL
+Security Insights Login
+Security Controls Framework(SCF)
+Cloud Controls Framework(CCF) Sharepoint
+Build Environment Security (BES) Sharepoint
+Third Party Software (TPS) Sharepoint
+2024-02-14

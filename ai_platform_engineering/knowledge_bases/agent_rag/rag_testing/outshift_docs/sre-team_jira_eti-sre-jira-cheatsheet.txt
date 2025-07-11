@@ -1,0 +1,83 @@
+cheatsheet
+create sre jira
+jira
+ETI SRE JIRA Cheatsheet
+¶
+ETI SRE team uses Initiatives, Porfolios, Epics, Standard Issues (Story, Task, Sub-task). More on that
+here
+Quick Links
+¶
+Create SRE Jira
+¶
+Create SRE Jira Ticket
+JIRA Dashboards:
+¶
+Stand-up Kanban board
+Priorities Board
+JIRA Roadmaps
+¶
+SRE Advanced Roadmap - Initiative, Portfolio, Epics
+Priorities
+¶
+Priority
+Purpose
+P1
+Needs immediate attention (same-day)
+P2
+High on the radar
+P3
+Default priority for all issues
+P4 or below
+Low priority
+Labels
+¶
+Label
+Purpose
+needs_review
+This story needs to be further groomed
+good-first-issue
+Good for anyone to pick-up (relatively trivial)
+Components
+¶
+Note
+: Only highly used components are shown below. For a list of all the components, click
+here
+Component
+Purpose
+calisti
+Calisti related issues
+ci/cd
+CI/CD Pipeline
+chores
+Run the business chores
+documentation
+Documentation issues
+great-bear
+Great Bear related issues
+infrastructure
+All infrastructure related issues
+lab
+All lab related issues
+oncall
+On-call issues
+panoptica
+Panoptica related issues
+TBD
+Special component used to indicate grooming/prioritization need
+websites
+Websites related issues
+Updating Jira Tickets
+¶
+The goal of updating JiraÂ should be to track the work.Â Â It should include detailed description of the work.Â  Give links to sharepoint/github documents ofÂ the plan forÂ the work to be done if more detail is necessary and create a definition of done for items that are stories.
+Story level jira items should have a "
+Definition of Done
+" in the description.Â  This will allow someone reviewing the tickets to know what to look for.Â
+Jira state transitions for storiesÂ should include a comment. i.e. if moving from in-progress to backlog, in-progress to review.Â  Not necessary for tasks/sub-tasks.
+If moving story from backlog to in-progress, make sure a clear definition of done is understood and update if incomplete.Â  i.e. talk to team or ventures to understand the requirement.
+leave breadcrumbs...i.e. Update jira often.Â  The history will show your work progress
+Status or progress updates should be maintained and captured as new comments, rather than edits,Â to preserve progress history.
+A story is a composition of tasks.Â  It is ok to start with something as a task, but if it becomes more than a few hours/days, move the task to a story and then break the story down to multipleÂ sub-tasks.Â Â Â Â
+For jiras that need to be reviewed, capture as much relevant information as the reviewer needs, PR links, dashboards, etc.Â Make it easier for the reviewer if you need to have your story reviewed.
+Important decision point conversations in Teams or 1:1 should be summarized in the ticket if you are involving other team members to discuss or help with work if it changes direction of work.
+If other team members are doing any work on your story, create a sub-task so they can schedule/track their work and the rest of the team understand the dependencies of the work.
+2023-01-20

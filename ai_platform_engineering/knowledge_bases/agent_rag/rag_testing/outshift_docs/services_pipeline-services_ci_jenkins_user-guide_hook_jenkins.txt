@@ -1,0 +1,19 @@
+How-to setup hook to Jenkins in GitHub
+¶
+Configuration
+¶
+In order to build automatically your repo, you need to create a hook so that this will trigger a new build on a push / PR merge. For doing so, just add a hook in the repo settings:
+Payload URL:
+https://engci-private-sjc.cisco.com/jenkins/eti-sre/github-webhook/
+Content type: application/x-www-form-urlencoded
+Secret: leave it empty
+SSL verification: Enable SSL verification
+Which events would you like to trigger this webhook? Send me everything
+click on active and save
+Then, once going back to hook, you should have a green check with your hook so that this is working, as per the screenshot:
+Checking events
+¶
+In order to check that the hook is working, you can get the last deliveries for the one just created before.
+So go to the repo settings > Hooks.
+Select the one which is the engci URI and if you scrool down you should have recent deliveries which should be ok, if not, check configuration / connectivity:
+2022-05-06

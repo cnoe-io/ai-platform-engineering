@@ -1,0 +1,31 @@
+gha
+metrics
+opentelemetry
+otel
+otel-pushgateway
+pushgateway
+Sending metrics to prometheus push-gateway
+¶
+Assume that you have to send metrics from some system (except of services deployed on kubernetes provided by SRE) to
+https://observability.outshift.io/
+Identify if source of metrics located within Cisco network then use otel pushgateway endpoint accordingly
+Within cisco network:
+https://observability.eticloud.io/v1/metrics
+Outside cisco network (GitHub actions with non managed runners for example) -
+https://opentelemetry.dev.eticloud.io/v1/metrics
+Request from SRE OIDC credentials for athentication (SRE will provide them within a keeper)
+Now you can test it with this example
+Checkout
+https://wwwin-github.cisco.com/eti/sre-stage-metrics-exporter
+Build
+./build-docker.sh -i sre-stage-metrics-exporter:latest
+(before build you can specify keeper mount point where your secret stored, by default mount point is ci -
+modify here
+)
+Run
+docker run -e VAULT_TOKEN=<your vault token> VAULT_NAESPACE=<namespace where your secret stored> -e METRICS_ENDPOINT=<push gateway endpoint> sre-stage-metrics-exporter:latest <metric name> counter <metric value> -P <vault secret name>
+like
+docker run -e VAULT_TOKEN=<YOUR_VAULT_TOKEN> VAULT_NAESPACE=eticloud -e METRICS_ENDPOINT=https://opentelemetry.dev.eticloud.io/v1/metrics sre-stage-metrics-exporter:latest testing-endpoint-xyz counter 7000 -P sre_otel_gateway_gha
+Find your metric via
+grafana explorer
+2024-07-18

@@ -1,0 +1,58 @@
+Configuring RBAC
+¶
+Depending on the purpose of the ArgoCD instance (platform shared, project dedicated) different access control rules are necessary.
+Teams can generally have more access to project dedicated instances, while shared instances would follow the principle of least privilege.
+RBAC can be configured in the
+ArgoCD
+custom resource:
+apiVersion
+:
+argoproj.io/v1alpha1
+kind
+:
+ArgoCD
+spec
+:
+rbac
+:
+defaultPolicy
+:
+role:readonly
+policy
+:
+|
+p, role:users, applications, get, */*, allow
+g, eti_sre_admin, role:admin
+g, eti-sre-all, role:users
+The above configuration is generally applied in shared instances, limiting users to read-only access.
+But even in shared instances, it often makes sense to grant limited access on a per project basis.
+For example, to grant access to IAM related projects for the IAM team:
+apiVersion
+:
+argoproj.io/v1alpha1
+kind
+:
+ArgoCD
+spec
+:
+rbac
+:
+defaultPolicy
+:
+role:readonly
+policy
+:
+|
+p, role:users, applications, get, */*, allow
+p, role:iam, applications, sync, dev.iam.*/*, allow
+p, role:iam, applications, sync, test.iam.*/*, allow
+p, role:iam, applications, sync, staging.iam.*/*, allow
+p, role:iam, applications, sync, prod.iam.*/*, allow
+g, eti_sre_admin, role:admin
+g, eti.iam, role:iam
+g, eti-sre-all, role:users
+It grants access to all applications within the relevant projects.
+References
+¶
+ArgoCD RBAC documentation
+2022-09-15

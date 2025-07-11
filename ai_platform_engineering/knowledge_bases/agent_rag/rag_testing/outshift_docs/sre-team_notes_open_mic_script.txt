@@ -1,0 +1,200 @@
+Open mic script
+opening
+- Welcome to ETI Platform Update and Demo
+- My name is Sri Aradhyula, I'm here today along with Sally Ahn. Mark SÃ¡gi-KazÃ¡r is unfortunately out sick today. 
+- We will be presenting the current iteration of the ETI Platform.
+- This is the cumulative result of contributions from not only everyone on the ETI SRE team, but from many members of the larger ETI org as well.
+- Currently, this ETI Platform is being used today by several teams, such as Maestro, Appnet, Symphony-Cerebrum, to name a few.
+- Since we are limited on time for the demo; please hold questions to end, and as always, if your questions are not answered, please use "Ask SRE" Webex Space, which can be joined via our sharepoint page: cs.co/eti-sre
+Here is an outline of the presentation
+We will talk thru ETI Platform Sharepoint page
+Cover various sections
+A quick live Platform Demo of launching a new app that showcases ETI Plaform's CI/CD pipeline and observability.
+Call to action for ETI developers
+Let's start with our ETI SRE Sharepoint Landing Page
+SRE Mission Statement
+"Accelerate delivery of production-ready solutions"
+we are true to that mission and we will demostrate that in a demo coming up shortly
+(maybe) Here is an Overview of all the things the platform provides, there are many sections in the documentation that we highly recommend the team to go thru.
+Now I am going to hand-off to Sally for ETI Plaform demo
+switch to Sally
+Walk thru Architecture with 4 options
+Shared k8s with paved path, etc.
+Thanks, Sri.
+open
+ETI Platform Options
+page
+Before I get started with the demo, I just want to remind everyone that we support multiple platform options, as described here. 
+Today's demo focuses on the first option: deploying a containerized application to the cloud using the "paved path," but other options like sandbox cloud accounts, dedicated kubernetes clusters, and private lab environments also exist, and we can work with you to discuss the best option for your needs.
+Now, with that said, I'm going to put on my "venture hat" and try to launch a new app of my own to the ETI platform's
+shared k8s clusters
+.
+navigate to
+SharePoint
+page
+The "Getting Started" doc is where I can go to learn how to do this.
+You can also find the
+platform-demo
+template repo pinned here on the main page of the
+eti org in Github Enterprise
+click on
+platform-demo
+The steps to follow to launch a new app are all here on the README page, and those are the steps I'll be walking through in this demo.
+This is a very simple "Hello World" Python Flask app designed to demonstrate how the different parts of our platform all fit together into your development workflow. 
+Those components include: 
+* the application source code repo that specify how to build the application artifacts (that is, the Docker image and Helm chart)
+* the deployment repo where the environment-specific configuration values are managed,
+* and observability tools for viewing metrics and logs emitted by those apps once they've been deployed to the Cloud,
+So, the first thing I'm going to do, is to create a new repo for my app from this template repo.
+create new repo,
+saahnapp
+I'm going to create it in the
+eti-playground
+org, which is a "safe" space we created for you to try this demo, without having to worry about polluting or impacting our
+eti
+org.
+Now I'm going to clone it to my local dev environment...
+cd
+into it...
+and run the
+runme.sh
+script there.
+I need to specify the name of my new app, and the script detects the repo name as the default name, which is fine by me, so I'm just going to hit
+Enter
+...then confirm.
+So the script succeeded, and it's updated all the files and directories into a structure compatible with our CI/CD pipeline implementations.
+It's a simple script that automates the tedious task of creating that basic repo structure for a new app from the template repo.
+It pushed all those changes to a new branch, and I'm going to create a PR and merge them.
+go back to README.md in new repo
+So, at this point, I've completed step 4 here, and my job is done. Now that my application source code repo is configured correctly, I'm going to reach out to the SRE team to hook it up to a CI/CD pipeline.
+switch to Sri
+Summary: Thanks Sally. 
+- As Sally demostrated earlier, we started from platform-demo template app and created a saahnapp that is customized for Sally's venture needs. This repo has been updated on GitHub.
+- You will also notice that Sally has created this app in eti-sandbox org, we add this as a convinience to ETI developers to try our ETI plaform demo app
+- Now, putting the SRE hat on, I will create CI/CD job for saahnapp using our automated tools
+Sri's steps
+1.
+Create the CI pipeline:
+*
+Run
+create_new_multibranch_pipeline_job
+*
+Note for Sally
+: watch this job, then fix credentials in the CI job while Sri is talking
+* This will create the
+CI
+pipeline that builds the code in the repo Sally just created into immutable artifacts that then gets automatically versioned and pushed to their respective repositories managed by the SRE team (e.g. ECR for Docker images and Chart Museum for Helm charts). 
+        * We're following the
+12 Factor App
+methodology for deploying modern SaaS apps to the cloud. This enables us to build the app once and deploy it to many different environments, such as dev, staging, and prod.
+    *
+Click on console output
+* So the job is now triggered and building the Docker image and Helm chart from Sally's merged changes.
+    *
+Scroll to INCLUSIVELINT stage
+* This job leverages the
+sre-pipeline-library
+, which we'll talk a bit more about later, and one of the features it provides is this
+Inclusive Lint
+stage, which is flagging some clear violations of inclusive language here. Right now, these are just warnings, but we have the option to enforce this more strictly to fail the build jobs when a violation is detected if needed to comply with Cisco's mandate.
+    * > mention
+power of a shared pipeline library - optional, ready-to-use stages
+* > Many choices are made to ensure security and cooperation (not just 'compliance') with our security partners. While we are building 'startups', we have a Cisco-shaped target on our systems.  Our credibility as a innovation team would be severely damaged by a security breach
+    * Similarly, this shared platform embodies many choices that were made around security with the cooperation of our security partners, like Cisco InfoSec and Security and Trust Office. 
+2.
+Create the CD pipeline:
+* we follow
+gitops
+workflow for continuous deployment of the app to various stages, we use tools like ArgoCD for deploying and continously syncing the app to k8s cluster
+    * Strictly separating environment-specific configuration (such as database endpoints and credentials) is another
+12 Factor App
+tenet that we follow.
+    * So, that's pretty much all there is to it. We're using a lot of tools like ArgoCD and various k8s operators under the hood to make deploying apps to our k8s platform as simple as possible for venture teams. And with that, I'm going to let Sally know that her app is now deployed to our dev k8s cluster and let her take a look.
+switch to Sally
+Thanks, Sri! So, at this point, my app has been
+deployed to the public cloud
+, and I'm able to reach it over the web.
+open app:
+saahnapp
+So this is that simple Hello-World Flask app.
+As I mentioned before, this demo app shows how the various components of our platform fit together.
+Env Vars
+¶
+First, this Env Vars page shows how the application can access configuration values specified in the deployment repo.
+So, let's go take a look at that repo.
+open app in browser to the right and code base to the left
+open values.yaml in deployment repo
+So this is the deployment repo, where environment-specific values get set.
+And, you can see here,
+highlight
+configmap_overlay_example: value_set_in_dev_env
+I'm setting a value in my
+dev
+environment, for this
+configmap_overlay_example
+, and the Helm Chart
+open
+deploy/demo-saahnapp/configmap.yaml
+is actually pulling that value out and exposing it as an environment variable.
+These keys here are the environment variables that are made available to my app.
+So, if we look at my app,
+open server.py in app source code
+All of those values, are actually just being pulled out from the environment itself.
+So, this is how you would define things like static values,
+or default values that are defined along with your Helm Chart,
+or environment-specific values in the deployment repo that you would want to override those default values with.
+So, that's what this page is demonstrating here.
+Once you've deployed your app to a Kubernetes cluster, you'll want want to access its logs and metrics to understand the state of the application for monitoring and troubleshooting purposes.
+Logs
+¶
+This link here takes you to that log endpoint where you can view the logs emitted by this app.
+(click on logs link)
+We aggregate all the logs from the apps you deploy into our platform, so that you have a centralized Kibana user interface where you can query for your logs.
+This link has a pre-configured query filter for this demo application's kubernetes namespace.
+All you have to do is write your application to log to stdout; those logs will automatically be shipped to our centralized logs service that you can view via Kibana.
+Metrics
+¶
+Now let's take a look at some of this application's metrics.
+This metrics page
+(click on Metrics)
+shows the basic Flask application metrics that we are exporting for this app via the standard
+prometheus_flask_exporter
+library.
+The Helm chart we've defined here ensures that these metrics are automatically discovered and scraped by our Prometheus servers so that you can see them via the Grafana interface we deploy with MCOM.
+Grafana
+¶
+I'm going to click on this link here to go look at some of those metrics for this app.
+(Click on Grafana Dashboard)
+The link takes me to the
+Demos
+folder, where I see that a dashboard has been created for
+myapp
+already.
+(Click on myapp Grafana Dashboard)
+Here, I can see visualizations of the same prometheus metrics we saw earlier.
+Now, this dashboard is obviously a bare-bones example for demo purposes.
+The dashboard for your own app will be tailored to visualize metrics that are relevant to your app.
+You can define that custom dashboard along with your application source code in Github.
+You can see how that's been done with this demo app here
+(open
+dashboards
+folder in source code repo)
+This
+cluster-app
+file here is just the raw JSON model of the dashboard we just saw in Grafana.
+(in Grafana in browser, click on gear icon on upper right, then JSON model on left menu)
+* Dumping that json file here allows you to leverage the GitOps workflow so that you get the same version control and CI/CD benefits of the application code base. 
+* This allows you to manage your dashboard in one place, in this repo, rather than having to manually update multiple dashboards in different environments like dev, staging, and prod.
+open app:
+saahnapp
+So, now we've covered how the application source code repo and deployment repo ties into the CI/CD pipeline and observability tools in the ETI platform.
+And...
+(open Call to Action PPT slide)
+We would love to have you try this out for yourself!
+Please try launching a new app with this platform-demo template repo and play around with rolling out changes to it via the CI/CD pipeline.
+We also have additional hello-world "boilerplate" apps that are more complex, but come with more features and implementation patterns, such as secret management, authentication, etc...
+things that we exclude in the platform-demo app by design, just to keep it simple and easy to grok
+These boilerplates are implemented in golang and nodejs in addition to python, and these are the template repos that you should be launching a new applications for real projects.
+And finally, this is a shared platform for all of ET&I...
+Please contribute back any improvements and best practices that you can share so that the entire ET&I org can benefit from your expertise!
+2022-04-25

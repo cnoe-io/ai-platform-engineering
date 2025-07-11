@@ -1,0 +1,344 @@
+Kubernetes Cluster Migration (with CloudFront)
+¶
+This document describes steps needed to migrate an application deployed via ArgoCD from one k8s cluster to another with zero down-time to end-users.
+Overview
+Pre-requisite Checklist
+Migration Steps
+Step 1: Create new "c" and "d" deployment configuration files
+Step 2: Validate the "c" and "d" deployments via the app's internal endpoint
+Step 3: Add new CloudFront Origins and new Origin Group
+Step 4: Update the CloudFront Behaviors
+Step 5: Update Jenkinsfile in deployment repo to use "c" and "d" deployments
+Step 6: Delete the "a" and "b" deployment configuration
+Step 7: Delete the "a" and "b" origins and origin group in CloudFront
+Overview
+¶
+The following are the high-level steps you must take to migrate an application to another target K8s cluster, if that application is fronted by an AWS CloudFront distribution. This doc assumes that the application has been deployed with an "a/b" posture (an "a" deployment in one k8s cluster and a "b" deployment in another k8s cluster) for High Availability.
+Create new "c" and "d" deployment configuration files in
+sre-cluster-config
+and
+<app>-deployment
+repos.
+Validate the "c" and "d" deployments via the app's internal "-c" and "-d" endpoints.
+Add new origins ("origin_c" and "origin_d") and new origin group ("group_cd") to the CloudFront distribution that the front-door url for the app is pointing to.
+Update the CloudFront Behaviors to switch:
+origin_a
+to
+origin_c
+or
+origin_b
+to
+origin_d
+(only one of these will be active, so you will only have to switch from "a" to "c" or from "b" to "d")
+group_ab
+to
+group_cd
+:
+Update Jenkinsfile in deployment repo to use "c" and "d" deployments. Redeploy the app to verify success.
+Delete the "a" and "b" deployment configurations
+Pre-requisite Checklist
+¶
+Before proceeding with migrating an application, ensure that the following requirements have been met:
+Application is up and healthy in the current target clusters and most recent deployment was successful
+Note the front-door url used to access the application by end-users
+New target clusters has been created and provisioned with all the required Shared Services
+Application helm chart has been updated to migrate away from the
+deprecated
+networking.k8s.io/v1beta1
+API version to use
+networking.k8s.io/v1
+instead.
+See these PR's for an example of this Ingress update:
+Ingress template update
+Ingress overlay values update
+Application
+is
+fronted by CloudFront
+Not sure? Check whether the front-door url for the app is an alias A record pointed at a CloudFront domain.
+For example,
+staging-eti.eticloud.io
+is
+fronted by CloudFront:
+âââ If the application is
+NOT
+fronted by CloudFront,
+follow
+these steps
+instead
+.
+Do NOT continue on with the following of the steps!
+Migration Steps
+¶
+Step 1: Create new "c" and "d" deployment configuration files
+¶
+In
+sre-cluster-config
+, specify the migration target cluster as the "c" and "d" deployment targets. Ensure that the "c" target is in the same region as the current "a" target and that the "d" target is in the same region as the current "b" target.
+Example PR for migrating staging-eti.eticloud.io to
+eks-prod-1
+,
+eks-prod-2
+In the application's
+deployment
+repo, specify the Helm Chart and desired overlay values for the "c" and "d" deployments
+In general, the following changes are necessary:
+Chart.yaml:
+version
+and
+dependencies.version
+should point at appropriate Helm Chart version
+in general
+, this should either be the same as in
+a
+and
+b
+deployments, OR latest version in app repo, if updates were necessary for the migration (e.g. for Ingress API version update)
+repository
+should point at
+https://chartmuseum.prod.eticloud.io
+values.yaml:
+deploymentEnv
+should be set to
+c
+or
+d
+, respectively
+ingress
+block should be updated for api version
+networking.k8s.io/v1
+ingress.ingressClassName
+should be set to the
+public
+ingress controller,
+nginx
+(
+not
+nginx-internal
+)
+Example diff for
+eti.cisco.com-deployment
+In ArgoCD, make sure that the ArgoCD
+Project
+that the application is linked to has been updated to include the migration target K8s clusters. To do that:
+In ArgoCD ui, navigate to
+Setting
+,
+Projects
+then to
+your_project
+.
+Go to
+Destinations
+section,
+Edit
+and add the new clusters with correct namespace (remember to add
+both
+clusters for the "c" and "d" deployment targets).
+Once the above changes have been merged, refresh and sync the application in ArgoCD. ArgoCD should automatically deploy another "c" and "d" instances of the app to the new target Cluster
+Troubleshooting
+: If ArgoCD does not respond to the merged changes (wait a few minutes for ArgoCD to sync),
+check the ArgoCD Applicationset Controller logs
+Step 2: Validate the "c" and "d" deployments via the app's internal endpoint
+¶
+Create a new DNS record for the
+c
+and
+d
+deployments in Route53 to verify that the "c" and "d" deployment applications have been successfully deployed.
+Get the requisite details for creating the
+c
+and
+d
+deployment DNS record:
+Set your kubectl context to the new target k8s cluster where the
+c
+/
+d
+deployment has been deployed
+Run
+kubectl get ingress -n <NAMESPACE_OF_THE_DEPLOYED_APP>
+to retrieve the endpoints (under
+HOSTS
+) and the Ingress address (e.g., the AWS ELB address) for those urls (under
+ADDRESS
+). Note this Ingress address; you will need it later.
+For example, the following output shows that the Ingress address is
+ad748b58f0a604ed4bbe50a9b34c8b6c-118810437.us-east-2.elb.amazonaws.com
+:
+â kubectl get ingress -n eti-website-staging-blue
+NAME                             CLASS   HOSTS                                                                                 ADDRESS                                                                  PORTS     AGE
+blue-c-eti-website-staging-app   nginx   eti-blue.staging.eticloud.io,eti-blue-c.staging.eticloud.io,eti.staging.eticloud.io   ad748b58f0a604ed4bbe50a9b34c8b6c-118810437.us-east-2.elb.amazonaws.com   80, 443   19h
+Log into the
+eticloud
+AWS console and select the
+Route53
+service
+Under
+Hosted zones
+, search for the domain your application is deployed with, and click on it (e.g.,
+staging.eticloud.io
+)
+Click on the
+Create record
+button on the right
+Populate the fields for the
+c
+deployment internal endpoint:
+Record name
+: the
+-c
+endpoint for your app
+Record type
+:
+A
+Alias
+: enabled
+Alias to Application and Cloud Load Balancer
+Region
+: the region of the k8s cluster
+ELB address
+: use the Ingress address from the previous steps.
+Click on
+Create records
+Repeat the above steps for the
+d
+deployment
+Verify that the application has been successfully deployed to the
+c
+target cluster by navigating to the internal
+-c
+url. Repeat this for
+d
+.
+âââ
+Important
+: Make sure that the
+c
+and
+d
+deployments are up-to-date with any recent changes the developer may have pushed to the
+a
+and
+b
+deployments:
+application version (e.g.,
+tagversion
+value) matches the latest version set for the
+a
+/
+b
+deployment
+helm chart version is the same or newer than the version deployed in
+a
+/
+b
+config overlay values are in sync with those defined in
+a
+/
+b
+(i.e., there are no missing config values)
+Step 3: Add new CloudFront Origins and new Origin Group
+¶
+Log into AWS console and navigate to the CloudFront service page.
+Search for the front-door url of the app to found the correct CloudFront distribution and click on it. Click on the
+Origins
+tab, then
+Create Origin
+.
+Create a new origin for
+c
+. Use the existing origin for
+a
+for reference (remember to change the origin domain to specify
+c
+, not
+a
+; all other options should be the same as those set for
+a
+)
+Repeat the above step to create a new origin for
+d
+, using
+b
+for reference. You should now have four origins, as shown below:
+Create a new origin
+group
+for
+cd
+. Use the existing
+group_ab
+for reference.
+Step 4: Update the CloudFront Behaviors
+¶
+Go to the
+Behaviors
+tab of the CloudFront distribution you modified in the previous steps.
+For each of the existing behaviors,
+edit
+its
+Origin and origin groups
+to point at the migrated origins
+If the current behavior is configured with
+origin_a
+, change it to
+origin_c
+If the current behavior is configured with
+origin_b
+, change it to
+origin_d
+If the current behavior is configured with
+group_ab
+, change it to
+group_cd
+Step 5: Update Jenkinsfile in deployment repo to use "c" and "d" deployments
+¶
+In the application's
+deployment
+repo, update the
+Jenkinsfile
+to replace the
+a
+and
+b
+target blocks with
+c
+and
+d
+blocks.
+Remember to update the
+originId
+,
+argocdAppName
+, and
+deployedURL
+values to reflect the
+c
+/
+d
+origin and urls, respectively
+Rebuild the most recent deploy job in Jenkins to verify that subsequent deployments are succeeding.
+Step 6: Delete the "a" and "b" deployment configuration
+¶
+In
+sre-cluster-config
+, delete the
+<deployment_color>-a
+and
+<deployment_color>-b
+deployment directories
+Example PR for eti.cisco.com
+In the application's
+deployment
+repo:
+delete the "a" and "b" deployment directories
+Example PR for eti.cisco.com
+Refresh and sync the app in ArgoCD and verify that it deletes the "a" deployment instance
+Step 7: Delete the "a" and "b" origins and origin group in CloudFront
+¶
+Back in the AWS Console, delete
+group_ab
+and the unused origins
+origin_a
+,
+origin_b
+2022-12-13

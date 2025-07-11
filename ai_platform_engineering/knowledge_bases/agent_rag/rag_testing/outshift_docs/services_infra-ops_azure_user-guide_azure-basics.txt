@@ -1,0 +1,19 @@
+Azure Basics:
+¶
+Azure Account and AD basics
+¶
+Azure Enterprise Account:
+Cisco Master account under which ETI tenant is setup.
+Azure Tenant:
+ETI Azure account is one of the many tenants under Cisco master account
+Azure Subscription:
+ETI tenant can have many mini-accounts called subscriptions.
+Azure Resource Group:
+Logical collection Azure resources grouped under one resource group
+Webconsole Link:
+https://portal.azure.com/
+Reference:
+¶
+Azure Fundamentals
+Azure Account basics
+2022-09-13

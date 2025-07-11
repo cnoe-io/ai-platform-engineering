@@ -1,0 +1,8 @@
+incident management
+ETI Platform Incident Management
+¶
+CVEs
+¶
+Sep 2021 - K8s CVE-2021-25741
+Dec 2021 - log4j CVE-2021-44228
+2023-01-23

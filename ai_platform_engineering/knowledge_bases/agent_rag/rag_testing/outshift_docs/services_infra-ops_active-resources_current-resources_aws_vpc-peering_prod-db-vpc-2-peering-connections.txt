@@ -1,0 +1,16 @@
+eks-prod-2
+prod-db-vpc-2
+prod-db-vpc-2 peering connections
+¶
+eks-prod-2
+¶
+Peering connection ID: pcx-08e96529c9ca1fad8
+Requester VPC:
+prod-db-vpc-2
+Requester CIDR: 10.221.0.0/16
+Requester region: us-west-2
+Accepter VPC:
+eks-prod-2
+Accepter CIDR: 10.22.0.0/16
+Accepter region: us-west-2
+2023-01-10

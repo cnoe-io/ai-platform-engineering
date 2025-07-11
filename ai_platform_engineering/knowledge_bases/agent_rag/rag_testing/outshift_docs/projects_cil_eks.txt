@@ -1,0 +1,34 @@
+CIL EKS access
+¶
+How to access EKS for the Cisco Innovation Labs teams.
+Table of Contents
+¶
+Pre-requisites
+Active Directory Groups
+AWS CLI Access
+kubectl
+Set up local kubectl access
+Pre-requisites
+¶
+Active Directory Groups
+¶
+Users must be added to one of the following Active Directory Groups:
+*
+AWS-626007623524-cilappnet
+*
+AWS-380642323071-cil
+*
+AWS-642677561837-ciluser
+If you or a team member are not currently a member of that group, please read more about
+Cisco Groups and automation here
+.
+AWS CLI Access
+¶
+Install and configure Duo SSO
+kubectl
+¶
+Install kubectl
+Set up local kubectl access
+¶
+EKS Cluster Access
+2022-05-27

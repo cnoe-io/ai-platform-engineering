@@ -1,0 +1,97 @@
+tanzu
+SJC09 Lab Tanzu cluster
+¶
+In SJC09 SRE Lab, we have a workload management Tanzu cluster that provides a single control plane for kubernetes clusters provisioning, configuration, and management.
+vCenter
+DC
+Cluster
+Access-information
+SJC09-vcenter
+ETI-SJ9-DC
+TKG
+Credentials
+Topology diagram
+¶
+Switch trunk ports
+¶
+Port
+Mode
+Encapsulation
+Status
+Native
+vlan
+Gi1/0/34
+on
+802.1q
+trunking
+1
+Gi1/0/37
+on
+802.1q
+trunking
+1
+Gi1/0/42
+on
+802.1q
+trunking
+1
+Port
+Vlans
+allowed
+on
+trunk
+Gi1/0/34
+101-103
+Gi1/0/37
+101-103
+Gi1/0/42
+101-103
+Cluster Access
+¶
+pre-requisite
+¶
+Install the Kubernetes
+CLI Tools
+for vSphere on your mac.
+Get the
+credentials
+and login TKG Supervisor Cluster via CLI
+kubectl
+vsphere
+login
+-u
+administrator@vsphere.local
+--server
+https://10.200.101.234/
+--insecure-skip-tls-verif
+kubectl
+config
+use-context
+10
+.200.101.234
+â
+~
+kubectl
+get
+nodes
+NAME
+STATUS
+ROLES
+AGE
+VERSION
+421c03a84bc27097727c50354d65f0bb
+Ready
+control-plane,master
+25m
+v1.22.6+vmware.wcp.2
+421c365be8d1a1cd3af775a443ef1f24
+Ready
+control-plane,master
+31m
+v1.22.6+vmware.wcp.2
+421cabf573abbbd07f3915c437007b82
+Ready
+control-plane,master
+25m
+v1.22.6+vmware.wcp.2
+2023-08-29

@@ -1,0 +1,15 @@
+application deployment
+continuous deployment
+ET&I Multi-Cluster Application Deployment
+¶
+The ET&I Platform manages multiple Kubernetes clusters in
+pre-defined service-level environments
+with varying degrees of operational support and security hardening as appropriate for different stages of application development.
+CI/CD pipelines
+ensure that applications can be built once and deployed to multiple target clusters as it is promoted to subsequent service-level environments. See the
+ET&I Environment Definitions
+page for details on the characteristics and gating requirements for deploying your application to these environments.
+The
+Application Deployment Architecture
+page describes the technical details of how ET&I SRE team uses ArgoCD for deploying applications to multiple clusters.
+2023-02-09

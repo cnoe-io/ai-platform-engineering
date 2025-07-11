@@ -1,0 +1,146 @@
+Overview
+Problem
+Solution
+Migration plan for existing cluster
+Overview
+¶
+A detail plan how to fix the alert issues and how to upgrade the existing clusterctl 0.4.7 to clusterctl 1.1.1.
+Problem
+¶
+When we create new clusters in Cisco internal Openstack and install MCOM (one-eye) on the cluster, we get alerts in prometheus for KubeController, KubeSscheduler, KubeProxy and etcd.  Also, upgrade the existing clusterctl 0.4.7 to clusterctl 1.1.1.
+Solution
+¶
+In order to fix this alerts we need to change clusterAPI so that the following happens.
+Change binding from 127.0.0.1 for Etcd, Kube Controller, Kube Scheduler, kube-proxy
+Open ports 9100 and 10249 on both cluster-control-plane and cluster-md Security Group
+Open port 2381 for Etcd, 10257 for kube control manager, 10259 for kube scheduler in cluster-control-plane so cluster-md can collect metrics
+Modify one-eye observer to use https for kube-controller, kube-scheduler on port 10257 and 10259
+Migration plan for existing cluster
+¶
+We currently have 2 production management clusters:
+eti-control-cluster: included 2 clusters below and running on version 0.4.7
+eti-gitops-1
+eti-gitops-2
+eti-control-cluster-rtp: included 2 clusters below and running on version 1.1.1
+  - eti-gitops-rtp
+  - p3-prod-1
+To determine how to change the bind-address and ports, I created a test management cluster and test worker cluster.
+First, I created the cluster with clusterctl 0.4.7, added test-kevin-cluster, installed mmcom, modified test-kevin-cluster.yaml, reapplied test-kevin-cluster.yaml, opened needed ports in openstack, turned off security groups, modify observer.
+We will be adding the port and binding address to eti-gitops-2, eti-gitops-1 then upgrade eti-control-cluster cluster to 1.1.1.
+We will be working on cluster: eti-gitops-2 first.
+Make backup of the eti-control-cluster management cluster.  Make sure to download
+https://github.com/kubernetes-sigs/cluster-api/releases/tag/v0.4.7
+mkdir eti-control-cluster;clusterctl backup --directory=./eti-control-cluster
+Performing backup...
+Discovering Cluster API objects
+Starting backup of Cluster API objects Clusters=2
+Saving files to ./eti-control-cluster
+Modify the current eti-gitops-2.yaml config and run kubectl apply -f eti-gitops-2.yaml to change binding config for etcd, kube-control and kube-scheduler.  Make sure to run this on the management cluster.
+Get cluster config
+here
+echo "secret-from-vault" | base64 -d >eti-control-cluster.kubeconfig
+k konfig import -s eti-control-cluster.kubeconfig
+k config use-context eti-control-cluster.kubeconfig
+The new config look like this.
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha4
+kind: KubeadmControlPlane
+metadata:
+name: test-kevin-cluster-control-plane
+namespace: default
+spec:
+kubeadmConfigSpec:
+clusterConfiguration:
+apiServer:
+extraArgs:
+cloud-config: /etc/kubernetes/cloud.conf
+cloud-provider: openstack
+extraVolumes:
+- hostPath: /etc/kubernetes/cloud.conf
+mountPath: /etc/kubernetes/cloud.conf
+name: cloud
+readOnly: true
+controllerManager:
+extraArgs:
+cloud-config: /etc/kubernetes/cloud.conf
+cloud-provider: openstack
+bind-address: 0.0.0.0
+authorization-always-allow-paths: /metrics
+extraVolumes:
+- hostPath: /etc/kubernetes/cloud.conf
+mountPath: /etc/kubernetes/cloud.conf
+name: cloud
+readOnly: true
+- hostPath: /etc/certs/cacert
+mountPath: /etc/certs/cacert
+name: cacerts
+readOnly: true
+scheduler:
+extraArgs:
+bind-address: 0.0.0.0
+authorization-always-allow-paths: /metrics
+etcd:
+local:
+extraArgs:
+listen-metrics-urls: http://0.0.0.0:2381
+imageRepository: k8s.gcr.io
+Make change binding change for kube-proxy
+kubenetes edit cm kube-proxy -n kube-system
+change metricsBindAddress from "" to  0.0.0.0:10249
+   There is a PR
+here
+on the new version.  If we upgrade our management cluster, we might be able to automate this process.
+Note: we have to delete the current kube-proxy pods with this command below:
+for i in `kubectl get pods -n kube-system |grep kube-proxy |awk '{print $1}'`;do kubectl delete pod $i -n kube-system;done
+pod "kube-proxy-5kmj6" deleted
+pod "kube-proxy-gcgdd" deleted
+pod "kube-proxy-nbg45" deleted
+Open port 9100 for node exporter, 10249 for kube-proxy, 2381 for Etcd, 10257 for kube control manager, 10259 for kube scheduler in cluster-control-plane so cluster-md in Openstack manually for now.
+Change managedSecurityGroups: true to managedSecurityGroups: false in eti-gitops-2.yaml and run kubectl apply -f eti-gitops-2.yaml again.  This step will prevent cluster API to overwrite the security group rules.
+Modify one-eye observer:
+Find the prometheusOperatorChart and modify with this block of code below:
+The current config looks like this:
+prometheus:
+prometheusSpec:
+retention: 30d
+kubeControllerManager:
+enabled: false
+kubeScheduler:
+enabled: false
+kubeProxy:
+enabled: false
+kubeEtcd:
+enabled: false
+modify that to look like:
+k edit observer one-eye
+kubeControllerManager:
+enabled: true
+service:
+targetPort: 10257
+serviceMonitor:
+https: true
+insecureSkipVerify: true
+kubeScheduler:
+enabled: true
+service:
+targetPort: 10259
+serviceMonitor:
+https: true
+insecureSkipVerify: true
+kubeProxy:
+enabled: true
+kubeEtcd:
+enabled: true
+service:
+targetPort: 2381
+7. Verify one-eye UI:
+k config use-context eti-gitops-2-admin@eti-gitops-2
+one-eye ingress connect -n one-eye-system
+Browse
+http://localhost:8080/prometheus/targets
+Check and make sure that all targets are green
+8. If everything goes as planned, Repeat step 1 to 8 for eti-gitops-1 cluster.
+To upgrade cluster api version follow steps from
+Here
+but we need to verify this process on our test cluster first.
+The next step is to upgrade the test cluster clusterctl from 0.47 to 1.1.1
+2023-08-29

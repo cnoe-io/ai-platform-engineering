@@ -1,0 +1,58 @@
+Support Jenkins file upload
+¶
+Overview
+Jenkins libary setup
+Create Sample Job
+Build with params
+Upload sample text file
+Sample Workspace Output
+References
+Overview
+¶
+Reference JIRA
+- AppNet team would like to sign the macos binaries. Right now what AppNet has to ask somebody to sign it manually. So we need to reupload the signed binary. Given that the CLI binary is used at multiple places we will need to put that binary into multiple places and reexecute parts of the build flow.
+To support that ask, Appnet team would like to create pipeline job that accepts file parameters so that we can upload the signed macos binaries via a jenkins job into S3.
+Declarative pipeline has current limitations toproperly handle file upload parameters.
+1,
+2
+Use a
+thirdparty library
+to fix this problem
+3
+Jenkins libary setup
+¶
+Add the third-party library as a Jenkins library in
+Jenkins configure system
+Create Sample Job
+¶
+Create a
+sample pipeline job
+to verify the third-party library
+Define file params
+Use the following pipeline script
+library
+"jenkinsci-unstashParam-library"
+node
+{
+def
+file_in_workspace
+=
+unstashParam
+"file"
+sh
+"cat ${file_in_workspace}"
+}
+Build with params
+¶
+Upload sample text file
+¶
+Sample Workspace Output
+¶
+Sample workspace with uploaded files
+References
+¶
+https://issues.jenkins-ci.org/browse/JENKINS-27413
+https://issues.jenkins-ci.org/browse/JENKINS-29289
+unstashParam library
+Sample Jenkins Job
+2022-05-06

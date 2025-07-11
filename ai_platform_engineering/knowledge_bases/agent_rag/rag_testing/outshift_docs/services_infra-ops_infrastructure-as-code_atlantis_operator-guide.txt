@@ -1,0 +1,75 @@
+atlantis deployments
+atlantis instances
+atlantis operations
+atlantis values
+rotating terraform_admin
+Atlantis Operator's Guide
+¶
+Atlantis Deployments
+Installing Atlantis
+How-tos
+How to renew Atlantis Vault tokens
+Expanding Atlantis access in Keeper
+Migrate to upstream Atlantis
+Fixing PVC issues
+Adding a new account to Atlantis
+Rotating terraform_admin credentials
+Outshift Atlantis Instances
+¶
+Workload
+URL
+Cluster
+Workloads
+Project Status
+Atlantis Prod (External)
+https://atlantis.eticloud.io
+Cluster
+: eks-gitops-1
+Account
+: eti-ci
+Region
+: us-east-2
+- Atlantis Prod IaC (platform-terraform-infra)
+In-Use â
+Atlantis Prod (Internal)
+https://atlantis-internal.eticloud.io
+Cluster
+: p3-prod-alln-1
+Account
+: P3
+Region
+: cloud-rcdn-1
+- Atlantis Prod IaC (sre-tf-infra) for Cisco Internal usage
+In-Use â
+Atlantis Prod (Legacy)
+https://atlantis.prod.eticloud.io
+Cluster:
+eti-gitops-1
+Account:
+P3 (Openstack)
+Region:
+Cisco Allen DC
+- Atlantis IaC (Cisco Internal)
+Deprecated â ï¸
+Atlantis Dev
+https://atlantis.dev.eticloud.io
+Cluster
+: eks-dev-gitops-1
+Account
+: eti-ci
+Region
+: us-east-2
+- Platform Engineering Development
+- Hypershield development
+In-Use â
+Atlantis CNAPP
+https://atlantis-cnapp.eticloud.io
+Cluster
+: eks-gitops-cnapp-1
+Account
+: eti-ci
+Region
+: us-east-2
+- CNAPP - SCS
+In-Use â
+2024-06-12

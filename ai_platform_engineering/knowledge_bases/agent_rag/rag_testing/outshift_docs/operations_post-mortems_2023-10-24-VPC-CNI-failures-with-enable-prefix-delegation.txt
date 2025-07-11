@@ -1,0 +1,99 @@
+enable prefix delegation
+post mortem vpc cni failures
+2023-10-24; SRE-6777; VPC CNI IPAM unable to assign ips to pods
+¶
+Summary
+¶
+VPC CNI IPAM is unable to assign IPs to new pods. In short this is misconfiguration of AWS VPC CNI plugin without using secondary CIDRs.
+This happens when ENABLE_PREFIX_DELEGATION is set to true and WARM_IP_TARGET is set to 1
+Concepts:
+Reference:
+https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/eni-and-ip-target.md
+WARM_IP_TARGET specifies the number of free IP addresses that the ipamd daemon should attempt to keep available for pod assignment on the node. Setting this to a non-positive value is the same as setting this to 0 or not setting the variable.
+ENABLE_PREFIX_DELEGATION when enabled, ipamd daemon will check if the existing (/28) prefixes are enough to maintain the WARM_IP_TARGET if it is not sufficient then more prefixes will be attached.
+When
+¶
+October 25
+th
+2023
+Timeline
+¶
+A detailed timeline of what happened. If possible, down to the minute, with your local timezone specified.
+2023-10-25
+1231 CDT - Issue reported by Vowel team that vowel services are impacted during a demo.
+1232 CDT - David Marcil engaged with the venture
+1236 CDT - Sri tried to restore services but some of the restarted pods did not start
+1243 CDT - Continued debugging
+1256 CDT - Sri reachout to AWS for help
+1425 CDT - Issue resolve quick post mortem posted
+Impact
+¶
+System(s) impacted?
+¶
+All vowel-dev-1 cluster workloads were affected
+Teams impacted?
+¶
+Vowel team deployment and demos were impacted
+Analysis
+¶
+When WARM_IP_TARGET is set and along with ENABLE_PREFIX_DELEGATION and when the pod restart churn is high, then cluster will exhaust all free /28 CIDRs in the subnet (/24 CIDR) of the node's availability zone.
+Some of the changes implemented for lightspin secondary CIDRs for spot instances were not needed for vanilla clusters that don't use secondary CIDRs in VPCs like vowel-dev-1.
+Takeaways
+¶
+Don't using ENABLE_PREFIX_DELEGATION in cluster's that have high pod churn and that don't use secondary CIDRs in the VPC
+In non-secondary CIDR cluster, set
+ENABLE_PREFIX_DELEGATION=false
+and
+WARM_IP_TARGET=0
+https://cisco-eti.atlassian.net/browse/SRE-6767
+Debugging
+¶
+SSH to node
+VPC CNI plugin IPAMD logs are located in the
+/var/log/aws-routed-eni/
+directory
+{"level":"warn","ts":"2023-10-25T18:30:40.497Z","caller":"ipamd/ipamd.go:944","msg":"failed to allocate all available IPv4 Prefixes on ENI eni-0f33d1c600ac08314, err: InsufficientCidrBlocks: The specified subnet does not have enough free cidr blocks to satisfy the request.\n\tstatus code: 400, request id: 4f8eed35-79f7-44dd-a525-071bd5f81ba6"}
+{"level":"error","ts":"2023-10-25T18:30:40.788Z","caller":"ipamd/ipamd.go:684","msg":"Unable to attach IPs/Prefixes for the ENI, subnet doesn't seem to have enough IPs/Prefixes. Consider using new subnet or carve a reserved range using create-subnet-cidr-reservation"}
+AWS Ticket Notes
+https://support.console.aws.amazon.com/support/home?region=us-east-2#/case/?displayId=14159230491&language=en
+Hello Sri,
+This is Shahneel from AWS Support. It was an absolute pleasure working with you and the team today. Please find a brief summary of our discussion below.
+You initiated a chat with us today as you were experiencing issues with scheduling and deploying new pods in your 'vowel-dev-1' EKS cluster with the following error being observed in the describe pod events:
+â   Warning  FailedCreatePodSandBox  3s    kubelet            Failed to create pod sandbox: rpc error: code = Unknown desc = failed to setup network for sandbox "62620d1a156457f30a00773b13aeeb5b183d91ca6fea2c1608e481de55ed532b":  â
+â plugin type="aws-cni" name="aws-cni" failed (add): add cmd: failed to assign an IP address to container
+During our troubleshooting call, we SSH'd into one of the underlying nodes and collected the relevant logs using the EKS Logs Collector script
+1
+. Upon investigation, we confirmed that prefix delegation was enabled (ENABLE_PREFIX_DELEGATION=true) in the advanced configuration of the VPC CNI plugin and could see the following errors in the IPAMD logs located in the /var/log/aws-routed-eni/ directory
+2
+:
+{"level":"warn","ts":"2023-10-25T18:30:40.497Z","caller":"ipamd/ipamd.go:944","msg":"failed to allocate all available IPv4 Prefixes on ENI eni-0f33d1c600ac08314, err: InsufficientCidrBlocks: The specified subnet does not have enough free cidr blocks to satisfy the request.\n\tstatus code: 400, request id: 4f8eed35-79f7-44dd-a525-071bd5f81ba6"}
+{"level":"error","ts":"2023-10-25T18:30:40.788Z","caller":"ipamd/ipamd.go:684","msg":"Unable to attach IPs/Prefixes for the ENI, subnet doesn't seem to have enough IPs/Prefixes. Consider using new subnet or carve a reserved range using create-subnet-cidr-reservation"}
+As per
+3
+, even if your subnet has available IP addresses, if the subnet does not have any contiguous /28 blocks available, then you will see the "InsufficientCidrBlocks" error in the VPC CNI plugin logs. This can happen due to fragmentation of existing secondary IP addresses spread out across a subnet. To resolve this error, either create a new subnet and launch Pods there, or use an Amazon EC2 subnet CIDR reservation to reserve space within a subnet for use with prefix assignment.
+Your team mentioned that they had previously enabled prefix delegation for secondary CIDRs but that it was no longer needed and could be disabled. After setting ENABLE_PREFIX_DELEGATION=false, IPAMD was able to assign IP addresses to the pods again after which pods started getting scheduled on the nodes.
+For additional information on Prefix IP mode and how to enable and configure prefix delegation, please see documentation links
+4
+5
+6
+.
+Sri, I really enjoyed working with you and the team today and I hope that you found our session, and the information provided, to be helpful. Should you have any additional questions, or if I can be of further assistance, please feel free to reach back out to me and I will be happy to help.
+Have a great day!
+References:
+1
+https://github.com/awslabs/amazon-eks-ami/tree/master/log-collector-script/linux
+2
+https://repost.aws/knowledge-center/eks-cni-plugin-troubleshooting
+3
+https://docs.aws.amazon.com/eks/latest/userguide/cni-increase-ip-addresses.html
+4
+https://aws.github.io/aws-eks-best-practices/networking/prefix-mode/index_linux/
+5
+https://github.com/aws/amazon-vpc-cni-k8s#enable_prefix_delegation-v190
+6
+https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/prefix-and-ip-target.md
+We value your feedback. Please share your experience by rating this and other correspondences in the AWS Support Center. You can rate a correspondence by selecting the stars in the top right corner of the correspondence.
+Best regards,
+Shahneel L.
+Amazon Web Services
+2023-11-09

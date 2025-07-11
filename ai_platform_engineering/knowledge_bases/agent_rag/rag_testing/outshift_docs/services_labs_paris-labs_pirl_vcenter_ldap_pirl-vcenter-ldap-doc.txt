@@ -1,0 +1,77 @@
+PIRL vCenter LDAP Authentication
+¶
+Context
+¶
+The PIRL vCenter is our VMware environnement management tool that we use to manage a cluster of 8 esxi7.0 hosts which is shared and used by multiple teams for their projects. Actually all users are accessing the vcenter server using the Admin account credentials thus allowing them to create and manage their team resources but also allowing them to have access to other team ressources with admin rights and capabilities.
+The major problem with this is that a user accessing the vCenter environnement using admin credentials can have access and perform any action on any resource anonymously like deleting a Virtual Machine, modify the network configuration...
+Therefore it is more than necessary to setup a solution that allows users to be authenticated and provided access to resources to which they are entitled. This solution should also help to provide the right permissions to users with regard to the actions they can perform on their resources and the shared ones and also allow to determine who does what in our VMware environment.
+Solution
+¶
+We have chosen to set up and configure an OpenLDAP server coupled with the SSO functionality of the vCenter vsphere client to provide access to the VMware environment to authenticated users with permissions consistent with their roles. So that access to the VMware environment could be provided following the below 3 principles:
+Authentication
+Authorisation
+Accounting
+The LDAP RBAC strategy
+¶
+LDAP Groups
+vc-admins
+: the LDAP group for the
+SRE team
+members which will be provided
+admin role & permissions over all the vCenter vsphere client components
+vc-users-team_name
+: to represent a
+particular team
+of users. This team's name is prefixed by the term vc-users. And its members will be assigned the
+administrator
+role which they can exercise
+only on their own resources
+.
+vcusers-common
+: this group will contain
+all the vCenter users
+(except for the SRE team members) in order to provide them the
+ventureusers
+role which is configured so that they have
+limited access to the shared resources
+.
+vCenter roles
+Administrator
+: the admin role that provides
+full access rights to SRE team members
+(vc-admins) over all the vCenter components. It also provides full access rights to the
+other teams members over their own created resources
+.
+Ventureusers
+: a role assigned to
+the other teams members
+to provide them
+restricted access to the shared resources
+.
+vCenter Components
+Clusters & Hosts
+: the global inventory list of clusters, hosts and virtual machines
+VM Folders
+: Folders that group objects related to a particular team
+Datastores
+: List of local and shared datastores used to store virtual machine files, templates and ISO images.
+Networks
+: To manage physical and virtual networks
+Setting up the OpenLDAP server
+¶
+Hosts
+Description
+Access
+eti-pirl-ldap
+The physical hardware hosting two KVM hosts (pirl-ldap-kvm & pirl-observium-kvm)
+Credentials
+pirl-ldap-kvm
+A KVM host used as the actual PIRL LDAP Server on wich OpenLDAP and PhpLdapAdmin are installed and configured
+Credentials
+pirl-phpldapadmin
+The web based administration interface used to manage our LDAP server DIT, users and groups
+Credentials
+pirl-ldap-client
+An Ubuntu VM hosted on one of the pirl-vcenter ESXi cluster servers used as a bastion host to allow people to change their passwords
+Credentials
+2023-02-23

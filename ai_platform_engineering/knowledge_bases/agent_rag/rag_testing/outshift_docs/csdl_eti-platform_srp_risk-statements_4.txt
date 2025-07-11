@@ -1,0 +1,25 @@
+TVM-01.01
+TVM-02.05
+anti-malware
+threat management
+Non-activation of Nessus on instances may result in undetected malicious software
+¶
+Description
+¶
+The ETI SRE team currently does not activate the Nessus agent on the ETI Platform's instances for operating system level malware protection.
+Business Impacts
+¶
+Abuse Detection
+Business Continuity
+Confidentiality Compromise
+Customer Data Loss
+Elevation of Privileges
+Privilege Escalation
+Service Compromise
+The potential impacts of malicious software as various as the types of malicious software and are too numerous to list.
+Likelihood: Low
+¶
+None of the uncovered resources are exposed to the public internet without security group restrictions to only Cisco CIDRs. Additionally, there are other systems like JupiterOne that can detect anamolous or malicious activity.
+Risk Level Category: Low
+¶
+2023-03-14

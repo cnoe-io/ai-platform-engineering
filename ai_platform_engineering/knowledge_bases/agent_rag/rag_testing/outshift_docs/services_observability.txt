@@ -1,0 +1,120 @@
+AppDynamics
+CCO
+Cisco Cloud Observability
+FSO
+Splunk
+aws managed grafana
+central grafana
+logging
+logs
+metrics
+observability
+observability.eticloud.io
+observability.outshift.io
+traces
+Observability
+¶
+!!! warning This documentation is deprecated, splunk now is our observability platform
+Tip
+Central Observability Grafana Dashboard is located at
+https://observability.outshift.io
+Join
+Ask Outshift Observability Q&A
+to ask observability questions
+Overview
+¶
+Diagram Reference
+Observability tools enable developers to understand the internal state of their deployed applications from their external outputs.
+For
+logs
+, Outshift Platform leverages
+AppDynamic FSO Cisco Cloud Observability
+For
+local Kubernetes metrics
+, dashboards and alerts Outshift Platform leverages
+Kube Prometheus Stack
+For
+long-term SLI Metrics
+, Kubernetes, and Push Gateway metrics, Outshift Platform uses Amazon Managed Prometheus(
+https://aws.amazon.com/prometheus/)(AMP
+) as a long-term metrics source and aggregation point.
+Metrics
+¶
+Kube Prometheus Stack (KPS)
+¶
+Kube Prometheus Stack
+, a collection of Kubernetes manifests,
+Grafana
+dashboards, and
+Prometheus rules
+combined with documentation and scripts to provide easy-to-operate end-to-end Kubernetes cluster monitoring with
+Prometheus
+using the
+Prometheus Operator
+.
+The
+Platform Demo
+repo provides an example of a real application that packages all the required Kubernetes manifests in its
+helm-chart
+templates.
+Amazon Managed Prometheus (AMP)
+¶
+Amazon Managed Prometheus
+is used as the primary set of platform and application metrics.
+Dashboards and Alerts
+¶
+Central Grafana Dashboard
+¶
+Outshift Platform uses AWS Managed Grafana to host
+https://observability.outshift.io
+central observability grafana
+Central Platform and Application Dashboards are at
+https://observability.outshift.io
+Application metrics exported in Prometheus format to a metrics endpoint are automatically scraped and made available for visualization by Grafana. See
+Metrics
+for more details.
+Persistence and Backups
+¶
+Central Observability automatically persists any changes
+TBD (future): SRE will perform daily backups of dashboards, alerts, notifications, and contact points to an S3 bucket.
+Cluster-Specific Grafana Endpoint
+¶
+Kubernetes clusters have Kube Prometheus Stack installed, and Grafana can be accessed through the cluster's observability link.
+The Grafana dashboard can be found by going to the
+Active Clusters
+page and clicking on the Observability link.
+Developing Metrics, Dashboards and Alerts
+¶
+Metrics
+¶
+The Outshift Platform supports metrics exposed through a Prometheus
+/metrics
+endpoint or delivered to an OpenTelemetry OTLPHTTP endpoint.
+Dashboards
+¶
+Cluster, SAAS, and aggregate dashboards are supported.
+Alerts
+¶
+Cluster, SAAS, and aggregate alerts are supported.
+Logs
+¶
+The application's logs emitted to stdout are automatically collected with OpenTelemetry and sent to the
+Cisco Cloud Observability (CCO)
+Platform.
+For more details, see the
+Logging
+documentation section.
+Logs (CCO) Production Endpoint
+¶
+Log in with Cisco SSO via the endpoint below:
+-
+https://outshift-prod.observe.appdynamics.com
+Logs (CCO) Pre-Production Endpoint
+¶
+Log in with Cisco SSO via the endpoint below:
+-
+https://outshift-preprod.observe.appdynamics.com
+Traces
+¶
+Traces are handled using Cisco Cloud Observability.
+2025-06-20

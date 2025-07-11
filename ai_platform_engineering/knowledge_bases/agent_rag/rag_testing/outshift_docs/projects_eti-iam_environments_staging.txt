@@ -1,0 +1,15 @@
+ETI IAM Staging Environment
+¶
+Contact
+Jean Diaconu
+if you have questions on ETI IAM
+This is the staging environment, it is a stable environment used for product integration before production:
+API Endpoint:
+https://api.id.staging.eticloud.io/v1
+UI Endpoint:
+https://id.staging.eticloud.io
+Sample App:
+https://sample.id.staging.eticloud.io
+Okta Issuer:
+https://idp.preview.eticloud.io/oauth2/default
+2022-10-02

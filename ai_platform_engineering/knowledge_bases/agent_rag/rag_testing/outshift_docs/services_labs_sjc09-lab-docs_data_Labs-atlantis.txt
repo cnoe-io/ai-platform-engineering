@@ -1,0 +1,143 @@
+Labs atlantis
+Atlantis in SJC Lab sre-gitops-1 cluster
+¶
+This document covers some important notes about SRE labs Atlantis instance in SJC TKG vSphere cluster to automate Terraform via pull requests upon labs resources creation, such as VMs.
+Deployment information
+¶
+Location
+vSphere Cluster
+K8s Cluster
+Namespace
+Pod
+URL
+SJC Lab
+TKG
+sre-gitops-1
+atlantis
+sre-gitops-1-atlantis-0
+https://atlantis-sjc09.dev.eticloud.io
+Install Atlantis
+¶
+Prerequisites
+¶
+A Kubernetes Cluster.
+Installation guide
+¶
+operator guide
+sre-gitops-1 cluster access
+¶
+Install Kubernetes CLI Tools for vSphere
+Login
+sre-gitops-1
+cluster
+sh
+  kubectl vsphere login -u administrator@vsphere.local --server https://10.200.102.227/ --insecure-skip-tls-verify \
+  --tanzu-kubernetes-cluster-name sre-gitops-1 --tanzu-kubernetes-cluster-namespace eti-sre-1
+Get the access key from
+vault
+Put the password and hit
+enter
+```sh
+  KUBECTL_VSPHERE_PASSWORD environment variable is not set. Please enter the password below
+  Password:
+  Logged in successfully.
+You have access to the following contexts:
+     sre-gitops-1
+  !!
+  To change context, use
+kubectl config use-context sre-gitops-1
+```
+Switch to
+sre-gitops-1
+context
+sh
+  â  ~ kubectl config use-context sre-gitops-1
+  Switched to context "sre-gitops-1".
+Verify access
+sh
+  â  ~ kubectl get nodes
+  NAME                                                     STATUS   ROLES                  AGE   VERSION
+  sre-gitops-1-control-plane-9xknx                         Ready    control-plane,master   9d    v1.21.2+vmware.1
+  sre-gitops-1-worker-nodepool-a1-ldkbz-7ff9f4cfd8-7ftct   Ready    <none>                 9d    v1.21.2+vmware.1
+  sre-gitops-1-worker-nodepool-a1-ldkbz-7ff9f4cfd8-cvwr5   Ready    <none>                 9d    v1.21.2+vmware.1
+  sre-gitops-1-worker-nodepool-a1-ldkbz-7ff9f4cfd8-nb7tc   Ready    <none>                 9d    v1.21.2+vmware.1
+sh
+  â  ~ kubectl get pods -n atlantis
+  NAME                      READY   STATUS    RESTARTS   AGE
+  sre-gitops-1-atlantis-0   1/1     Running   0          4h29m
+External secrets & vault_token troubleshooting tips
+¶
+In case you have an issue to access vault via
+vault-token
+secrets that is attached to the atlantis pod, check the following.
+Check if the vault namespace is correct, this is the path where the external secrets are kept in vault.
+sh
+  â ~ kubectl get secrets -n atlantis
+  NAME                          TYPE                                  DATA   AGE
+  atlantis-automation-secret    Opaque                                1      8d
+  atlantis-gitconfig            Opaque                                1      8d
+  atlantis-global-vault-token   Opaque                                3      6d6h
+  atlantis-tls                  kubernetes.io/tls                     2      6d
+  atlantis-token-vq8kz          kubernetes.io/service-account-token   3      9d
+  atlantis-vault-token          Opaque                                3      6d6h
+  atlantis-webhook              Opaque                                2      8d
+  default-token-4b5q4           kubernetes.io/service-account-token   3      9d
+Return the secret content in a yaml format
+sh
+  â  ~ kubectl get secret atlantis-vault-token  -o yaml -n atlantis
+Copy the namespace value that is in base64 format and decode it, to see if its correct.
+sh
+  â  ~ echo "ZXRpY2xvdWQvZXRpY2Nwcm9k" | base64 -d
+  eticloud/eticcprod%
+It should have the
+%
+at the end of the value to be sure that it doesn't contain a newline (
+\n
+).
+To remove the newline if there's any and add
+%
+at the end of the namespace value.
+sh
+  â  ~ echo -n "eticloud/eticcprod" | base64
+  ZXRpY2xvdWQvZXRpY2Nwcm9k
+Decode and see if it has
+%
+at the end as intended.
+Update the external-secrets
+¶
+Step 1: Check the current external secrets in vault
+¶
+Global-vault-token
+latest version.
+vault-token
+latest version.
+Step 2: Compare the secrets
+¶
+Make sure that the atlantis secrets in sre-gitops-1 matches the values in vault.
+To do that:
+Login to
+sre-gitops-1 cluster
+Run
+k9s -n atlantis
+search and go to
+secret
+press
+e
+to view and edit if the token doesn't match the one in vault.
+search
+externalsecrets.external-secrets.io
+and check that
+external-secret-global-vault-token
+and
+external-secret-vault-token
+version matches the
+current version
+Step 3: Restart the atlantis and external-secrets pods
+¶
+Restart the atlantis and external-secrets pods to sync the changes.
+in case it doesn't sync, you can run this
+script
+, under
+Keeper cannot reach k8s API endpoint: Vault Token
+at the bottom of the page.
+2023-09-21

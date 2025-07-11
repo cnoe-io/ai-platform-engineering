@@ -1,0 +1,81 @@
+ETI IAM
+Outshift IAM
+ETI IAM Docs
+¶
+Table of Contents
+¶
+ETI IAM Docs
+Table of Contents
+Intro
+Engineering Documentation
+Platform Architecture
+Components
+Pipeline Architecture
+Environments
+CSDL
+Playbooks
+How-tos
+Quick-links
+Intro
+¶
+ETI Identity is an identity & multi-tenancy service provider.
+It is designed as a layer of extra services, built on top of
+Okta
+and hosted by
+ETI's SRE Platform
+.
+Engineering Documentation
+¶
+Here
+you can find design & architecture choices, system flows, APIs documentation and Integration examples.
+Platform Architecture
+¶
+Components
+¶
+iam-ui
+: IAM Frontend UI
+iam-api
+: IAM Backend API
+iam-static-assets
+: IAM Static Email Assets on Edge
+iam-okta
+: IAM Okta details
+Pipeline Architecture
+¶
+Lucid chart source
+Environments
+¶
+Dev
+: Developer environment with manual-promotion
+Test
+: Developer environment with auto-promotion
+Staging
+: Staging environment with manual-promotion
+Prod
+: Prod environment with manual-promotion
+CSDL
+¶
+ETI IAM CSDL Overview
+Corona
+Blackduck
+Playbooks
+¶
+Access IAM Logs
+Access IAM Dashboards
+How-tos
+¶
+IAM Secrets
+AWS Access
+Okta Tenants
+Okta Apps
+Product Tokens
+See the
+IAM Resources
+page for details.
+Quick-links
+¶
+ETI IAM CI
+ETI IAM CD
+ETI Identity Github Repo
+ETI Identity Docs
+2024-02-14

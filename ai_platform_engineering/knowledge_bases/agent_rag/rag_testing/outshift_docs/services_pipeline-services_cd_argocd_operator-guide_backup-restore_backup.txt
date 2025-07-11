@@ -1,0 +1,39 @@
+ArgoCD Backup Verification
+¶
+ArgoCD Backup Locations
+¶
+Vault
+Location under
+Instance Name
+->
+s3-backup
+Verify or Decrypt ArgoCD Backup
+¶
+git clone git@github.com:cisco-eti/sre-utilities.git
+cd scripts/argocd-backup-verify
+./argocd-backup-verify.sh
+Sample Output:
+*************************************************
+*           ArgoCD Backup Verification          *
+*************************************************
+â­ Step 1: Verifying Vault Access
+â jq already installed
+â vault already installed
+â aws already installed
+â openssl already installed
+â Enter ARGOCD_INSTANCE[argocd-common.eticloud.io]: argocd-genai.eticloud.io
+Vault config invalid
+â Enter VAULT_ADDR[https://keeper.cisco.com]:
+â Enter VAULT_NAMESPACE[eticloud]:
+Complete the login via your OIDC provider. Launching browser to:
+Waiting for OIDC authentication to complete...
+WARNING! The VAULT_TOKEN environment variable is set! The value of this
+variable will take precedence; if this is unwanted please unset VAULT_TOKEN or
+update its value accordingly.
+â­ Step 2: Downloading Encrypted Backup
+Downloading Encrypted Backup from S3 for argocd-genai.eticloud.io
+download: s3://argocd-genai-backup/argocd-backup.yaml to ./argocd-backup.yaml.enc
+â­ Step 3: Decrypting Backup
+Decrypting argocd-genai.eticloud.io Backup
+â­ Step 4: Done ð. Your backup file is stored in argocd-backup.yaml
+2024-04-07

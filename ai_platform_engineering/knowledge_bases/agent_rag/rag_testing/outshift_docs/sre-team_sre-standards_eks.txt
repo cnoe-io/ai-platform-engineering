@@ -1,0 +1,35 @@
+EKS
+naming standards
+ET&I EKS Naming Conventions
+¶
+At present, the k8s cluster naming convention is as described below.
+Shared Clusters
+¶
+Shared clusters are clusters that run multiple applications for a particular source and should be named as follows:
+<source>-<environment>-<AWS region short name>-<instance-number>
+For example:
+platform-dev-use2-1
+- Platform specific apps (IAM for example) that are shared
+cnapp-prod-euc1-1
+- CNAPP apps that are shared across multiple apps
+genai-prod-use2-1
+- GenAI apps that are shared
+Dedicated Clusters
+¶
+Dedicated/sandbox clusters for ventures should be named as follows:
+â ï¸ Note: We are adding the short name of the AWS region to the names
+<VENTURE_TEAM_OR_FUNCTION><ENVIRONMENT>-<AWS REGION SHORT NAME>-<INSTANCE_NUMBER>
+For example:
+dragonfly-prod-euc1-1
+: First dedicated production cluster in eu-cental-1 for Dragonfly venture team
+dragonfly-prod-euc1-2
+: Second dedicated production cluster in eu-cental-1 for Dragonfly venture team
+dragonfly-prod-use2-1
+: First dedicated production cluster in us-east-2 for Dragonfly venture team
+obs-prod-use2-1
+: dedicated cluster for observability apps (e.g. OTEL)
+ENVIRONMENT is either prod, staging or dev
+â ï¸ Note: We have existing clusters that do not comply with the above pattern for historical reasons. For example:
+cil-appnet-3
+â¬ï¸âto "Home Page"
+2024-07-11

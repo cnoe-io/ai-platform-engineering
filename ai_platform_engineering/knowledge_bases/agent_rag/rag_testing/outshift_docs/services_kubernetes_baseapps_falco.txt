@@ -1,0 +1,10 @@
+baseapps falco
+falco
+Falco
+¶
+Falco is a container activity monitoring solution mandated by
+Security Visibility and Incident Command (SVIC)
+References
+:
+Kubernetes Security - Falco
+2023-09-03

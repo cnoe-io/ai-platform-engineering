@@ -1,0 +1,133 @@
+Overview
+Context
+Problem
+Investigation and Findings
+Solution
+References
+Overview
+¶
+This page summarizes the problem, solution, and learnings encountered while resolving
+SRE-1096: Lack of trailing slash redirects to the wrong domain
+.
+Context
+¶
+SRE hosts multiple websites for the ET&I organization, which are deployed on SRE-managed "shared k8s clusters". One of these sites is the
+Cisco Techblog
+.
+This website is deployed with HA (deployed to at least 2 distinct k8s clusters in separate regions) and Blue/Green application deployments (enabled by distinct "blue" and "green" pods in each k8s cluster, only one of which is configured to serve end-user traffic at any given time).
+These webservers running in k8s are fronted by an AWS CloudFront distribution configured with
+origin failover for high availability
+.
+Problem
+¶
+One of the websites hosted by SRE, the
+Cisco Techblog
+was revealing the internal urls on the browser when the end-user entered a url that lacked a trailing slash.
+Concrete Example
+: 
+*
+Trigger event:
+End-user enters
+https://ciscotechblog.com/blog/introducing-media-streaming-mesh
+into browser
+*
+Actual behavior:
+Browser is redirected to
+https://techblog-green-a.prod.ciscotechblog.com/blog/introducing-media-streaming-mesh/
+(note the final
+/
+)
+*
+Expected behavior:
+Browser is redirected to
+https://ciscotechblog.com/blog/introducing-media-streaming-mesh/
+As shown below, the webserver returns a
+301
+response that redirects the requested url to its equivalent with an appended forward slash.
+Investigation and Findings
+¶
+The straightforward solution to the above behavior is to configure CloudFront to forward the
+Host
+Header from the client such that the redirect response includes the original domain in the
+Location
+header.
+However,
+configuring AWS CloudFront
+to enable this
+Host
+header forwarding produced unexpected results: a
+502 (Bad Gateway)
+error.
+Further investigation revealed that this is the
+expected behavior for CloudFront
+when HTTPS is required between CloudFront and its origin, but the origin's certificate does not include the CloudFront's domain name:
+If you use a custom origin and you configured CloudFront to require HTTPS between CloudFront and your origin, the problem might be mismatched domain names. The SSL/TLS certificate that is installed on your origin includes a domain name in the Common Name field and possibly several more in the Subject Alternative Names field. (CloudFront supports wildcard characters in certificate domain names.) One of the domain names in the certificate must match one or both of the following values:
+* The value that you specified for Origin Domain Name for the applicable origin in your distribution.
+* The value of the Host header if you configured CloudFront to forward the Host header to your origin. For more information about forwarding the Host header to your origin, see Caching content based on request headers.
+If the domain names don't match, the SSL/TLS handshake fails, and CloudFront returns an HTTP status code 502 (Bad Gateway) and sets the X-Cache header to Error from cloudfront.
+The solution to the above problem was to update the application's certificate to include CloudFront's domain in its SAN list. The Ingress rule for the application also had to be updated to provide a route within k8s for the requests from this front-end domain now included in the Host header.
+However, applying the above solution revealed another problem: because Blue/Green application change roll-out support is implemented by running two distinct deployments of the techblog service in the same k8s cluster, adding an Ingress rule for the
+same
+front-end domain (i.e, ciscotechblog.com) for two
+distinct
+services (i.e., the "blue" app version and the "green" app version) means that end-user requests will be routed non-deterministically to either blue or green app versions, regardless of which one is "active".
+We verified that this was happening by tailing the logs of the Ingress Controller where these changes were applied for staging.ciscotechblog.com:
+kubectl logs --since=1h eks-production-1-ingress-nginx-controller-75796b5d68-48jh2 -n ingress-nginx -f |grep -e "staging" | grep -e "techblog"
+10.10.1.206 - - [06/Oct/2021:23:27:41 +0000] "GET /favicon.ico HTTP/1.1" 200 1406 "-" "Amazon CloudFront" 415 0.003 [ciscotechblog-staging-blue-blue-a-techblog-staging-app-80] [] 10.10.3.227:80 1406 0.004 200 ec431730c820e2ad326e325a04485c56
+10.10.3.230 - - [06/Oct/2021:23:28:25 +0000] "GET /tags/app-first-infrastructures/ HTTP/1.1" 200 135852 "-" "Amazon CloudFront" 468 0.001 [ciscotechblog-staging-green-green-a-techblog-staging-app-80] [] 10.10.1.75:80 135852 0.000 200 973f2b5f96027eccd59bfa0181ce75fd
+10.10.3.230 - - [06/Oct/2021:23:28:25 +0000] "GET /img/team/balazs-berta.jpg HTTP/1.1" 200 13369 "-" "Amazon CloudFront" 408 0.000 [ciscotechblog-staging-green-green-a-techblog-staging-app-80] [] 10.10.1.75:80 13369 0.000 200 01aefe4ff50303fc2e135df83eeba826
+10.10.2.99 - - [06/Oct/2021:23:28:51 +0000] "GET /blog/multi-cloud-k8s/ HTTP/1.1" 200 24199 "-" "Amazon CloudFront" 341 0.002 [ciscotechblog-staging-blue-blue-a-techblog-staging-app-80] [] 10.10.3.227:80 24199 0.004 200 0372c7a9b55f1a79ea056c263dc079b3
+10.10.2.99 - - [06/Oct/2021:23:29:11 +0000] "GET /blog/istio-canary-upgrade/istio-cp-canary-upgrade-with-backyards.png HTTP/1.1" 200 256839 "-" "Amazon CloudFront" 387 0.005 [ciscotechblog-staging-blue-blue-a-techblog-staging-app-80] [] 10.10.3.227:80 256839 0.004 200 daaf599ffdca76ed89e68ae3518a2c54
+10.10.2.119 - - [06/Oct/2021:23:29:11 +0000] "GET /img/team/sandor-guba.jpg HTTP/1.1" 304 0 "-" "Amazon CloudFront" 410 0.003 [ciscotechblog-staging-green-green-a-techblog-staging-app-80] [] 10.10.1.75:80 0 0.004 304 35fd9b0bc07dbd2545b6b73490151985
+10.10.2.99 - - [06/Oct/2021:23:29:12 +0000] "GET /blog/democratizing-federated-learning/democratizing-federated-learning.jpg HTTP/1.1" 304 0 "-" "Amazon CloudFront" 462 0.190 [ciscotechblog-staging-green-green-a-techblog-staging-app-80] [] 10.10.1.75:80 0 0.192 304 a2d7287c9f3cf53ff738a6719074b3ff
+10.10.1.206 - - [06/Oct/2021:23:29:12 +0000] "GET /blog/transferring-data-with-aws-data-sync/1-en9-cCxEngr96QR3mZRHRA.png HTTP/1.1" 304 0 "-" "Amazon CloudFront" 457 0.193 [ciscotechblog-staging-green-green-a-techblog-staging-app-80] [] 10.10.1.75:80 0 0.196 304 ca672eb1fc2f3bc5ae7366c714fb44c0
+10.10.1.206 - - [06/Oct/2021:23:29:12 +0000] "GET /blog/quantum-collaboration/quantum-collaboration-thumbnail.jpg HTTP/1.1" 304 0 "-" "Amazon CloudFront" 450 0.193 [ciscotechblog-staging-green-green-a-techblog-staging-app-80] [] 10.10.1.75:80 0 0.196 304 6be4289f9775393f7dae7308deceffb7
+10.10.1.206 - - [06/Oct/2021:23:29:12 +0000] "GET /blog/explaining-explainable-ai-in-fintech-world/explainable-ai.png HTTP/1.1" 304 0 "-" "Amazon CloudFront" 453 0.198 [ciscotechblog-staging-green-green-a-techblog-staging-app-80] [] 10.10.1.75:80 0 0.200 304 95eedf489123100dd30afa339416b5ed
+10.10.2.119 - - [06/Oct/2021:23:29:12 +0000] "GET /blog/api-security/apisecurity-blog_v1.png HTTP/1.1" 304 0 "-" "Amazon CloudFront" 428 0.198 [ciscotechblog-staging-green-green-a-techblog-staging-app-80] [] 10.10.1.75:80 0 0.200 304 65d1f68e9d9c2f39b740d67da89d2dbc
+[...]
+Note that the requests are being served by
+both
+blue and green service endpoints, even though only one (in this case, "blue") should have been active and serving live traffic during this time.
+One possible fix for this would be to update the Ingress rules for both blue and green services on every application deployment to alternately toggle the front-end domain rule on/off such that it's only present in the "active" version. However, this introduces another layer of complexity to the deployment logic, which introduces additional risk for deployment failures. Our decision therefore, is to
+disable
+Blue/Green application roll-outs for applications that are impacted by this Host header forwarding requirement (currently, only Hugo apps have this requirement, possibly do to how Hugo handles
+URLs without a trailing slash
+and how it interprets
+alias redirects
+).
+Solution
+¶
+The final solution for this issue was to:
+* Update the
+Ingress manifest template
+in the application's Helm Chart to include the front-end domain (configured via the
+frontendDomain
+parameter) in its tls host and ingress rules lists.
+* Update the application's
+deployment repo
+with the appropriate environment-specific
+frontendDomain
+value (e.g., staging.ciscotechblog.com for the staging environment)
+* Disable "Green" deployments to ensure there is always only one active version ("blue") of the app
+    * Remove "green" cluster configs from
+sre-cluster-config
+(
+Example PR
+)
+    * Remove "green" overlay values and target in
+Jenkinsfile
+(
+Example PR
+)
+    * Ensure that CloudFront's origins are pointed at the "Blue" version's service, then sync the app in ArgoCD to roll out green disablement changes above
+* Verify new certificates with the front-end domain have been installed in the origins, then update CloudFront to enable
+Host
+header forwarding
+Validated expected behavior in browser:
+References
+¶
+AWS Doc: How do I configure CloudFront to forward the Host header to the origin?
+AWS Doc: SSL/TLS Negotiation Failure Between CloudFront and a Custom Origin Server
+Hugo Forum: Hugo support for URLs without a trailing slash?
+Hugo Forum: How does Hugo aliases work?
+2022-05-05

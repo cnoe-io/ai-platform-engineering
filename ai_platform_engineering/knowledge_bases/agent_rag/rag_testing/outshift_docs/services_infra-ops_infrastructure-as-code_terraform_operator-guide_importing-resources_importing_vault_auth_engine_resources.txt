@@ -1,0 +1,263 @@
+auth engine
+import
+oidc
+terraform
+vault
+Importing an OIDC auth engine, roles, and policies into Terraform from vault
+¶
+Setup
+¶
+Prequisites
+¶
+Vault CLI
+jq
+Authorization to examine the auth method for the namespace
+Login to vault
+Gather Information
+¶
+Set the namespace
+¶
+export
+VAULT_NAMESPACE
+=
+eticloud
+Method Configuration
+¶
+vault
+read
+auth/oidc/config
+>
+auth-oidc-config.json
+auth-oidc-config.json
+Method roles
+¶
+List roles
+¶
+export
+METHOD_ROLES_LIST
+=
+`
+vault
+list
+-format
+=
+json
+auth/oidc/role
+|
+jq
+-r
+'.[]'
+`
+echo
+$METHOD_ROLES_LIST
+admi
+n
+aws_reado
+nl
+y
+c
+ta
+deployer
+dev_admi
+n
+devops
+devops_admi
+n
+e
+n
+gi
+neer
+vaul
+t
+_admi
+n
+Method roles configuration
+¶
+echo
+$METHOD_ROLES_LIST
+|
+while
+read
+i
+;
+do
+vault
+read
+-format
+=
+json
+auth/oidc/role/
+$i
+>
+"oidc-
+${
+i
+}
+-role.json"
+done
+admin
+aws_readonly
+cta
+deployer
+dev_admin
+devops
+devops_admin
+engineer
+vault_admin
+Method policies
+¶
+List method policies
+¶
+export
+METHOD_POLICIES_LIST
+=
+`
+echo
+$METHOD_ROLES_LIST
+|
+while
+read
+i
+;
+do
+vault
+read
+-format
+=
+json
+auth/oidc/role/
+$i
+|
+jq
+-r
+.
+'data.policies[]'
+done
+`
+echo
+$METHOD_POLICIES_LIST
+c
+ta
+ecr_s
+3
+_reado
+nl
+y
+c
+ta
+deployer
+dev_admi
+n
+c
+tu
+devops_admi
+n
+e
+n
+gi
+neer
+vaul
+t
+-
+admi
+n
+Method policies configuration
+¶
+echo
+$METHOD_POLICIES_LIST
+|
+while
+read
+i
+;
+do
+vault
+policy
+read
+-format
+=
+yaml
+$i
+>
+oidc-
+${
+i
+}
+-policy.yaml
+done
+cta
+ecr_s3_readonly
+cta
+deployer
+dev_admin
+ctu
+devops_admin
+engineer
+vault-admin
+Terraform
+¶
+OIDC Backend
+¶
+Convert the export to a Terraform resource in the main.tf.
+auth-oidc-config.json
+resource
+"vault_jwt_auth_backend"
+"oidc"
+{
+provider
+=
+vault.eticloud
+type
+=
+"oidc"
+path
+=
+"oidc"
+default_role
+=
+"developer"
+oidc_discovery_url
+=
+"https://sso-dbbfec7f.sso.duosecurity.com/oidc/DIO16PCUX2WUCIW8F5D4"
+oidc_client_id
+=
+"DIO16PCUX2WUCIW8F5D4"
+oidc_response_types
+=
+[
+"code"
+]
+}
+Import the oidc auth backend
+.
+terraform import vault_jwt_auth_backend.oidc oidc
+Read the state file for the oidc auth backend.
+terraform state show vault_jwt_auth_backend.oidc
+Copy the output to the main.tf.
+Plan and ensure there are no changes.
+OIDC Policies
+¶
+Repeat these steps for each policy.
+Import the policy
+.
+terraform import vault_policy.vault-admin vault-admin
+Read the state file for the oidc policy.
+terraform state show vault_policy.vault-admin
+Copy the output to the main.tf.
+Refresh Terraform.
+terraform init -reconfigure
+Plan and ensure there are no changes.
+OIDC Roles
+¶
+Repeat these steps for each role.
+Import the role
+.
+terraform import vault_jwt_auth_backend_role.vault_admin auth/oidc/role/vault_admin
+-
+auth/oidc/role/vault_admin
+is the path in Vault to the role. The resources above use the Vault resource name, rather than the path.
+Copy the output to the main.tf.
+Refresh Terraform.
+terraform init -reconfigure
+Plan and ensure there are no changes.
+2023-10-26

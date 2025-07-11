@@ -1,0 +1,16 @@
+SCF-IAM-02.06
+SCF-IAM-02.08
+Possible gaps in employee offboarding process may lead to unauthorized access to restricted systems
+¶
+Description
+¶
+The ET&I SRE team currently does not have a well-established offboarding processes for SRE team members and users for the ET&I Platform.
+Gaps in these processes may lead to unauthorized access to restricted systems.
+Business Impacts
+¶
+Privilege Escalation
+Likelihood: Low
+¶
+Risk Level Category: Medium
+¶
+2025-02-09

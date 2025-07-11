@@ -1,0 +1,10 @@
+Outshift Prompt-Intel Logs
+¶
+Outshift Prompt-Intel logs are accessible in AppDynamics.
+Dev/Test/Preview
+Prod
+Note:
+Contact
+eti-sre-admins@cisco.com
+for access related questions
+2024-07-11

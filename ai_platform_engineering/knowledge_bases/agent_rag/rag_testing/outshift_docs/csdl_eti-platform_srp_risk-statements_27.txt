@@ -1,0 +1,17 @@
+inadequate cookie security settings
+Third-party applications hosted under the .eticloud.io with inadequate cookie security settings provides attack surface for cross-subdomain cookie attacks, information leakage through cookies, and other type of attacks
+¶
+Description
+¶
+There are multiple third-party applications hosted under the .eticloud.io root domain, some of them with inadequate cookie security settings.
+This provides attack surface for cross-subdomain cookie attacks, information leakage through cookies, and other type of attacks that depends on cookies.
+In a case a third-party application was identified that leaked internal information via sending them to an external analytics service and had potential access to other cookies set by other internal systems.
+Business Impacts
+¶
+Confidentiality Compromise
+Spoofing
+Likelihood: High
+¶
+Risk Level Category: Medium
+¶
+2025-02-09

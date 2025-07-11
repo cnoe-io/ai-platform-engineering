@@ -1,0 +1,321 @@
+Create ClusterAPI Management Cluster
+¶
+Create ClusterAPI Management Cluster
+Overview
+Pre-requisite
+Solution
+Step 1: Create management cluster on a local kind cluster
+Create a local kind cluster.
+Step 2: Install ClusterAPI on kind cluster
+Step 3: Create a workload cluster in P3
+Generate Cluster Kubeconfig
+Install Calico
+Increase worker nodes
+Step 4: Convert workload cluster to management cluster
+Future work
+References
+Overview
+¶
+This page summarizes the creation of the management cluster for ClusterAPI
+In order to utilize ClusterAPI we require to stand up a cluster in our Runon
+P3
+.
+Pre-requisite
+¶
+Create an image
+for OpenStack that has kubernetes tools baked into it.
+Solution
+¶
+Steps involved in creating a ClusterAPI management cluster
+Create a local kind cluster
+Install ClusterAPI on kind cluster
+Create a workload cluster in P3 using kind cluster
+Convert P3 cluster in the above step into management cluster
+Move the cluster definition from the local kind to that new management cluster.
+Step 1: Create management cluster on a local kind cluster
+¶
+Create a local kind cluster.
+¶
+Install kind on your desktop
+# Ubuntu
+# For AMD64 / x86_64
+[
+$(
+uname
+-m
+)
+=
+x86_64
+]
+&&
+curl
+-Lo
+./kind
+https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+# For ARM64
+[
+$(
+uname
+-m
+)
+=
+aarch64
+]
+&&
+curl
+-Lo
+./kind
+https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-arm64
+chmod
++x
+./kind
+sudo
+mv
+./kind
+/usr/local/bin/kind
+# MacOS
+brew
+install
+kind
+Create a
+bootstrap.yaml
+file with following contents:
+kind
+:
+Cluster
+apiVersion
+:
+kind.x-k8s.io/v1alpha4
+nodes
+:
+-
+role
+:
+control-plane
+-
+role
+:
+worker
+Create the cluster with a specific image version
+â¯
+kind
+create
+cluster
+--config
+bootstrap.yaml
+--image
+"kindest/node:v1.23.1"
+Creating
+cluster
+"kind"
+...
+â
+Ensuring
+node
+image
+(
+kindest/node:v1.21.1
+)
+ð¼
+â
+Preparing
+nodes
+ð¦
+ð¦
+â
+Writing
+configuration
+ð
+â
+Starting
+control-plane
+ð¹ï¸
+â
+Installing
+CNI
+ð
+â
+Installing
+StorageClass
+ð¾
+â
+Joining
+worker
+nodes
+ð
+Set
+kubectl
+context
+to
+"kind-kind"
+You
+can
+now
+use
+your
+cluster
+with:
+kubectl
+cluster-info
+--context
+kind-kind
+Have
+a
+nice
+day!
+ð
+If you wish you can delete and recreate the kind cluster as shown below:
+View kind clusters
+kind
+get
+clusters
+- Delete kind cluster
+kind
+delete
+clusters
+kind
+Step 2: Install ClusterAPI on kind cluster
+¶
+Download and install clusterctl.
+Notes:
+Use version
+0.4.4
+of the
+openstack provider
+.
+asdf
+tool can be used to manage multiple versions as following.
+â¯ asdf plugin add clusterctl
+â¯ asdf install clusterctl 0.4.4
+Change your kubectl context to the kind cluster and initialize the clusterapi in it.
+â¯ clusterctl init --infrastructure openstack
+Fetching providers
+Installing cert-manager Version="v1.5.3"
+Waiting for cert-manager to be available...
+Installing Provider="cluster-api" Version="v0.4.4" TargetNamespace="capi-system"
+Installing Provider="bootstrap-kubeadm" Version="v0.4.4" TargetNamespace="capi-kubeadm-bootstrap-system"
+Installing Provider="control-plane-kubeadm" Version="v0.4.4" TargetNamespace="capi-kubeadm-control-plane-system"
+Installing Provider="infrastructure-openstack" Version="v0.4.0" TargetNamespace="capo-system"
+Your management cluster has been initialized successfully!
+You can now create your first workload cluster by running the following:
+clusterctl generate cluster [name] --kubernetes-version [version] | kubectl apply -f -
+Step 3: Create a workload cluster in P3
+¶
+Notes:
+- Creating a new k8s cluster in an P3 existing project is
+not
+viable. This was discovered after a lot of trial and error due to limitations in P3 networking/router setup per project.
+- Hence the recommendation is to create a new project in runon like eti-cc. New projects support clouds.yaml from the OpenStack dashboard.
+Example cloud.yaml:
+clouds:
+openstack:
+auth:
+auth_url: https://cloud-alln-1.cisco.com:5000/v3
+username: "eti_sre_us-int-3.gen"
+project_id: b28f84c295ea453e92240a1c29ab236d
+project_name: "eti-control-cluster"
+user_domain_name: "cisco"
+region_name: "cloud-alln-1"
+interface: "public"
+identity_api_version: 3
+Notes:
+- Username is set to generic user
+- Password is not show in the above config but are stored in
+Keeper
+So in order to set environment variables needed by clusterapi for the openstack provider(see below) I needed to do some invetigation.
+â¯ clusterctl generate cluster --list-variables capi-quickstart
+Required Variables:
+- KUBERNETES_VERSION
+- OPENSTACK_CLOUD
+- OPENSTACK_CLOUD_CACERT_B64
+- OPENSTACK_CLOUD_PROVIDER_CONF_B64
+- OPENSTACK_CLOUD_YAML_B64
+- OPENSTACK_CONTROL_PLANE_MACHINE_FLAVOR
+- OPENSTACK_DNS_NAMESERVERS
+- OPENSTACK_FAILURE_DOMAIN
+- OPENSTACK_IMAGE_NAME
+- OPENSTACK_NODE_MACHINE_FLAVOR
+- OPENSTACK_SSH_KEY_NAME
+Optional Variables:
+- CLUSTER_NAME                 (defaults to capi-quickstart)
+- CONTROL_PLANE_MACHINE_COUNT  (defaults to 1)
+- WORKER_MACHINE_COUNT         (defaults to 0)
+Found that there is a
+env.rc
+that helps setting the variables from the clouds.yaml
+wget https://raw.githubusercontent.com/kubernetes-sigs/cluster-api-provider-openstack/master/templates/env.rc -O ./env.rc
+source ./env.rc clouds.yaml openstack
+â¯ export | grep OPENSTACK
+OPENSTACK_CLOUD=openstack
+OPENSTACK_CLOUD_CACERT_B64='Cg=='
+OPENSTACK_CLOUD_PROVIDER_CONF_B64=<redacted as it has password in it>
+OPENSTACK_CLOUD_YAML_B64=<redacted as it has password in it>
+The CACERT can be obtained by accessing the project in runon and downloading it from your browser, which is my cloud-alln-1-cisco-com-chain.pem that I encoded to base64 and exported to OPENSTACK_CLOUD_CACERT_B64.
+export OPENSTACK_DNS_NAMESERVERS="10.240.240.1"
+export OPENSTACK_CONTROL_PLANE_MACHINE_FLAVOR="8vCPUx16GB"
+export OPENSTACK_NODE_MACHINE_FLAVOR="8vCPUx16GB"
+export OPENSTACK_IMAGE_NAME="ubuntu-2004-kube-v1.20.10"
+export OPENSTACK_SSH_KEY_NAME="ops1"
+export OPENSTACK_FAILURE_DOMAIN=cloud-alln-1-a
+At this point in time, you are ready to run the clusterctl for the new cluster.  I decided to use k8s version 1.21 for the cluster.
+Generate Cluster Kubeconfig
+¶
+â¯ clusterctl generate cluster eti-cc --kubernetes-version v1.21.3 > eti-cc.yaml
+â¯ k apply -f eti-cc.yaml
+cluster.cluster.x-k8s.io/eti-cc created
+dockercluster.infrastructure.cluster.x-k8s.io/eti-cc created
+kubeadmcontrolplane.controlplane.cluster.x-k8s.io/eti-cc-control-plane created
+dockermachinetemplate.infrastructure.cluster.x-k8s.io/eti-cc-control-plane created
+machinedeployment.cluster.x-k8s.io/eti-cc-md-0 created
+dockermachinetemplate.infrastructure.cluster.x-k8s.io/eti-cc-md-0 created
+kubeadmconfigtemplate.bootstrap.cluster.x-k8s.io/eti-cc-md-0 created
+You can check progress with the following commands
+â¯ kubectl get cluster
+â¯ clusterctl describe cluster eti-cc
+Now you need to get the kubectl config for the new cluster
+â¯ clusterctl get kubeconfig eti-cc > eti-cc.kubeconfig
+To install the kubectl config with the konfig plugin using
+krew
+â¯ kubectl krew install konfig
+â¯ kubectl konfig import -s eti-cc.kubeconfig
+â¯ kubectl config use-context eti-cc
+â¯ kubectl get pods -A
+This creates the cluster and the control plane.
+Install Calico
+¶
+We now need to add CNI and I followed the suggested example of using
+calico
+â¯ curl https://docs.projectcalico.org/manifests/calico.yaml -O
+â¯ k apply -f calico.yaml
+Increase worker nodes
+¶
+You may notice above that the default number of worker nodes is set to 0.  You need to edit the MachineDeployment and set the replicas to 3 (for 3 nodes)
+â¯ k edit MachineDeployment eti-cc-md-0
+â¯ clusterctl describe cluster eti-cc
+NAME                                                                       READY  SEVERITY  REASON  SINCE  MESSAGE
+/eti-cc                                                                    True                     7d1h
+ââClusterInfrastructure - OpenStackCluster/eti-cc
+ââControlPlane - KubeadmControlPlane/eti-cc-control-plane                  True                     7d1h
+â ââMachine/eti-cc-control-plane-kd7xm                                     True                     7d1h
+â   ââMachineInfrastructure - OpenStackMachine/eti-cc-control-plane-79mnk
+ââWorkers
+ââMachineDeployment/eti-cc-md-0                                          True                     7d1h
+ââ3 Machines...                                                        True                     7d1h   See eti-cc-md-0-85d55b9959-9ghpx, eti-cc-md-0-85d55b9959-fhksb, ...
+Step 4: Convert workload cluster to management cluster
+¶
+Now that the P3 cluster, eti-cc, is up and running, the next step is to covert it to a management cluster and move the cluster definition from the local kind cluster.  First, set your kubectl context to eti-cc and initialize the clusterAPI on it.
+â¯ kubectx eti-cc-admin@eti-cc
+â¯ clusterctl init --infrastructure openstack
+Switch to the kind cluster context and then run the move command
+â¯ kubectx kind-kind
+â¯ clusterctl move --to-kubeconfig=eti-cc.kubeconfig
+Future work
+¶
+Text message from Carsten - (fwiw, in our deployment, we entirely moved away from using the CAPI-provided templates and the clusterctl command as templating engine to render based on environment variablesâ¦ instead, we're using Terraform and the kubernetes_manifest resource to render CAPI resource templates, using Terraform's templating)
+Adding the Cisco hardening ansible to the image builder
+References
+¶
+ClusterAPI Contepts
+Jacob Baek's Blog - Cluster-API (in Korean)
+Scott Lowe's Blog - Bootstrapping a Cluster API Management Cluster
+2024-05-27

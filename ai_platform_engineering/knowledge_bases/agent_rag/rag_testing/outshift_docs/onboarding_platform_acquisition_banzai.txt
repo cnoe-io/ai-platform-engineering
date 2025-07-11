@@ -1,0 +1,25 @@
+Banzai Cloud
+¶
+This document contains Banzai Cloud specific on/offboarding steps.
+Onboarding
+¶
+Since most Banzai products have been moved under AppNet, make sure new team members have access to the
+cisco-app-networking
+organization on wwwin GitHub.
+On GitHub.com, new team members may be added to the following organizations:
+banzaicloud
+spotguidetest
+(team:
+pipeline_alpha_admin
+) (allows access to
+Pipeline
+)
+Offboarding
+¶
+When someone from the Banzai team leaves the company make sure to revoke access from the following systems:
+GitHub.com
+banzaicloud
+spotguidetest
+Docker Hub
+Slack
+2022-12-15

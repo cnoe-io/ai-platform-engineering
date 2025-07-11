@@ -1,0 +1,112 @@
+HostOutOfDiskSpace
+oncall
+HostOutOfDiskSpace
+¶
+HostOutOfDiskSpace
+Symptoms
+Summary
+Resolution 1
+Resolution 2
+Symptoms
+¶
+Example Alert:
+[FIRING:1] HostOutOfDiskSpace p3-prod-1 (/dev/sdb nodeexporter xfs 10.123.223.32:9100 eti-jenkins-common-large-9 /mnt jenkins-monitoring one-eye-system/one-eye-prometheus-operato-prometheus jenkins critical)
+Summary
+¶
+Jenkins node is running out of disk space
+Resolution 1
+¶
+Check
+P3 nodes disk space dashboard
+and determine which nodes are running out of diskspace
+Run
+sre-build-infra-ansible
+with cleanup-vm params
+TARGET: all_hosts
+ACTION: cleanup-vms
+Verify
+P3 nodes disk space dashboard
+if the diskspace issue has been resolved
+Resolution 2
+¶
+SSH
+to the affected node.
+Confirm which drive and folder are using the disk space.
+sudo
+df
+-ah
+#this will confirm which drive is approaching capacity
+sudo
+du
+-sh
+--max-depth
+=
+1
+/mnt
+#typically the /mnt drive is full
+sudo
+du
+-sh
+--max-depth
+=
+1
+/mnt/docker
+#typically the docker folder is the culprit
+If the docker folder is indeed the issue, confirm which docker resources using the disk space
+sudo
+docker
+system
+df
+sudo
+docker
+system
+df
+-v
+# Show detailed information on space usage
+Option 1
+- Run a system and and then a system volume prune:
+Note:
+Cleaning up all docker resources, including the build cache may have a performance impact on subsequent builds
+sudo
+docker
+system
+prune
+-a
+--filter
+"until=1h"
+# this requires a confirmation and will take a while
+sudo
+docker
+volume
+prune
+-a
+# this requires a confirmation
+Option 2
+- Prune resources while keeping a graceful period
+Docker resources can be pruned selectively, and most of them has the option to only remove resources that are older than a specified age.
+This way the frequently used resources can be kept.
+docker
+container
+prune
+# Remove all stopped containers
+docker
+volume
+prune
+# Remove unused volumes
+docker
+network
+prune
+# Remove unused networks
+docker
+image
+prune
+-a
+# Remove all images not referenced by any container
+docker
+builder
+prune
+-a
+--filter
+"until=24h"
+# Remove all unused build cache older than 24 hours
+2024-07-11

@@ -1,0 +1,64 @@
+terraform module documentation
+terraform module inventory
+Terraform Module Inventory
+¶
+Module name
+Purpose
+Notes
+Link
+sre-tf-module-aws-aurora-postgres
+Bootstrap/update Aurora/RDS clusters
+Regional and global clusters. Currently based on an
+upstream community Aurora module
+(which we want to remove at some point)
+https://github.com/cisco-eti/sre-tf-module-aws-aurora-postgres
+sre-tf-module-aws-s3
+Bootstrap/update S3 buckets
+https://github.com/cisco-eti/sre-tf-module-aws-s3
+sre-tf-module-aws-vpc
+Bootstrap/update VPCs
+Calls the bastion module to create a bastion in each VPC
+https://github.com/cisco-eti/sre-tf-module-aws-vpc
+sre-tf-module-aws-bastion
+Bootstrap/update EC2 bastion in a given VPC
+Calls the keypair module
+https://github.com/cisco-eti/sre-tf-module-aws-bastion
+sre-tf-module-aws-eks-to-ecr-access
+https://github.com/cisco-eti/sre-tf-module-aws-eks-to-ecr-access
+sre-tf-module-aws-keypair
+No
+README
+https://github.com/cisco-eti/sre-tf-module-aws-keypair
+sre-tf-module-aws-ec2
+Bootstrap/update EC2 instances
+Deprecated in favor of the
+ec2-allinone
+sre-tf-module-aws-eks
+Bootstrap/Update EKS clusters
+Deprecated in favor of the
+eks-allinone module
+sre-tf-module-eks-allinone
+Bootstrap/Update EKS clusters
+Current way of managing EKS clusters
+https://github.com/cisco-eti/sre-tf-module-eks-allinone
+sre-tf-module-eso-access
+External-secrets operator access for a given Kubernetes cluste clusters
+Needs to be called when bootstrapping a new EKS cluster
+https://github.com/cisco-eti/sre-tf-module-eso-access
+sre-tf-module-argo-cluster-enrollment
+ArgoCD kubernetes cluster enrollment clusters
+Add Kubernetes cluster tp a given ArgoCD instance
+https://github.com/cisco-eti/sre-tf-module-argo-cluster-enrollment
+sre-tf-module-ec2-allinone
+Bootstrap/Update EC2 instances
+https://github.com/cisco-eti/sre-tf-module-ec2-allinone
+sre-tf-module-vpc-allinone
+Bootstrap/update VPCs
+https://github.com/cisco-eti/sre-tf-module-vpc-allinone
+sre-tf-module-aws-documentdb
+Bootstrap/Update
+DocumentDB
+clusters
+Prompt-intel may be the only venture using such clusters.
+https://github.com/cisco-eti/sre-tf-module-aws-documentdb
+2025-02-09

@@ -1,0 +1,19 @@
+kubernetes
+Kubernetes
+¶
+Summary
+Kubernetes Basics
+Base Apps
+Self-service developer clusters
+EKS
+Openstack ClusterAPI
+GKE
+AKS
+How tos
+Summary
+¶
+EKS is the primary Kubernetes distribution SRE team uses to deploy applications.
+For a list of running clusters, see links off of the
+Active Cloud Resources
+page.
+2023-11-10

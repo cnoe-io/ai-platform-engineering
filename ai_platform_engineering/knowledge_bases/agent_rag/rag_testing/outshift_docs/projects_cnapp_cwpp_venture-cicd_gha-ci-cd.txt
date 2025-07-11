@@ -1,0 +1,244 @@
+CWPP Github Actions
+CWPP ci cd
+GHA
+argocd
+New GHA + ArgoCD CI/CD
+¶
+Overview
+¶
+This document describes the new CI/CD process for the Venture project. The new process is based on GitHub Actions (GHA) + ArgoCD and is intended to replace the existing Jenkins-based CI/CD process. As part of the AWS migration, the Jenkins pipelines will be slowly decommissioned and the new GHA + ArgoCD CI/CD process will be used to deploy the Venture application to AWS. In other words, the new GHA + ArgoCD CI/CD process will be used to deploy the application to AWS, while the Jenkins pipelines will be used to deploy the application to the existing GKE environment(s).
+CI
+¶
+The CI process is triggered by a push to any branch in the repository.The CI process is defined in the
+.github/workflows/ci.yaml
+file.
+The CI process is responsible for building the application and running the unit tests.
+The CI process is also responsible for building the Docker image and pushing it to the AWS public/private ECR (Elastic Container Registry).
+The CI process is also responsible for building the Helm chart and pushing it to the AWS public/private ECR (Elastic Container Registry).
+Note
+The CI process is responsible for building the Docker image and Helm chart, but it is not responsible for deploying the application to AWS. The CD process is responsible for deploying the application to AWS via ArgoCD.
+Upon a successful build, the CI process will trigger the CD process in the deployment repository. The CD process will be triggered with a client payload that contains multiple parameters (ie. Dev User name, image tag, environment, etc.). The CD process will then deploy the application to the appropriate environment using ArgoCD.
+Warning
+The CI process takes into account concurrency and will not trigger a new build if a build is already in progress (within a short time frame). This is to prevent multiple builds from running at the same time and causing issues with the CD trigger. In addition when a commit is made to an open PR. The CI process will trigger a build
+ONLY
+for the PR/merge branch and will skip the build for the feature branch from which the PR was made.
+Agent Helm Charts
+¶
+The second CI yaml
+.github/workflows/agent_helm_charts.yaml
+is strictly responsible for packaging and publishing the Panoptica Agent helm charts to the AWS public/private ECR (Elastic Container Registry).
+This is a separate workflow because the Panoptica Agent is a separate client-side application. The agent versioning and tags need to be in sync with the commits made in the
+k8sec-server
+repository, therefore it is a pipeline that runs on the parent repository, which uses submodules to pull in the agent code.
+For more information on all the submodules/dependencies, please refer to the
+k8sec-server
+diagram.
+Cleanup Post PR
+¶
+An additional Github Actions workflow may be found in the CI repo, which is responsible for triggering the cleanup flow for the PR/feature branch environment. The cleanup flow is responsible for deleting the PR/feature branch environments in the deployment repo, once the PR is
+merged
+and only merged (not closed).
+The trigger workflow is defined in the
+.github/workflows/cleanup_post_pr.yaml
+.
+The cleanup flow is defined in the
+.github/workflows/cleanup.yaml
+Feature Branches
+¶
+The CI process is also responsible for building the Docker image and Helm chart for feature branches. The CI process will build the Docker image and Helm chart for feature branches and push them to the AWS public/private ECR (Elastic Container Registry).
+The CI process will also trigger the CD process for feature branches, which will then create the corelating feature branch in the deployment repo as
+feature/<your feature branch name>
+.
+The CD process will then deploy the application to the appropriate environment using ArgoCD.
+A developer should only be working on ONE feature branch at a time. Once the developer has completed his/her work on that feature branch, it is their responsability to open a PR to merge their changes into the
+main
+branch.
+Once a PR is opened, the previous feature branch dev environment will be void and no longer handled by the CI/CD flow, that responsability will be transfered to the PR process at this stage.
+Tip
+In accordance to the above note, the CI process will trigger a build
+ONLY
+for the PR/merge branch and will skip the build for the feature branch from which the PR was made. This overall means that a developer is allowed to have, at most, two active environments at any given time: 1 PR and 1 Dev environment for an open feature branch (which does not have an open PR yet).
+Warning
+Pushing/Creating multiple feature branches will cause the CD process to overwrite your development environment in the deployment repo. This is to prevent multiple environments from being created and to ensure best practices are followed.
+Promotion Feature
+¶
+By default the CD process will create the dev environment for the user in the correlating feature branch for you, but it will not promote the image tag/helm chart version unless the following conditions are met:
+A
+[promote]
+substring is found in your commit comment
+[Helm Charts Only]
+when changes are made under the
+helm-charts
+directory, if not this job will be skipped and only the image tag will be promoted.
+Note
+Helm charts will fail to publish to the ECR if an existing version of the chart already exists. This is to prevent overwriting of the charts, and to ensure best practices are followed. When using the
+[promote]
+substring, The CI pipeline will automatically add your current commit hash to the chart version (i.e.
+1.0.0-<4 chars of your commit hash>
+) in the
+Chart.yaml
+file. This will allow the chart to be published to the ECR without any issues.
+Pull Requests
+¶
+The CI process is also responsible for building the Docker image and Helm chart for pull requests. The CI process will build the Docker image and Helm chart for pull requests and push them to the AWS public/private ECR (Elastic Container Registry). The CI process will also trigger the CD process for pull requests, which will then create the corelating pull request in the deployment repo
+development
+as
+<application name>/pr/pr-<your pull request number>
+. You need to make sure that the
+deployment-ready
+label is added to your PR in order to trigger the CD process.
+Warning
+ArgoCD will create the PR envioronment in the
+cwpp-pr
+cluster ONLY when you add the
+deployment-ready
+lable to your PR in GitHub.
+Promotion Feature
+¶
+By default promotion is turned on for PRs, the CI will promote your images automatically to the CD process. This is done in order to allow a smooth PR flow which will test your images E2E in the PR environment via the sanity tests after the CD process.
+Warning
+The Helm Chart version is NOT promoted automatically, this is on purpose to prevent from the helm chart versioning to be corelated with dev releases (i.e.
+1.0.0-<4 chars of your commit hash>
+), if your PR does include helm chart modifications. You need to make sure to manually tag it with a release version (i.e.
+1.0.0
+) that corelates with your versioning symantics
+<Major>.<Minor>.<Patch>
+CD
+¶
+We have now introduced a new CD process that is triggered by the CI process. The CD process is defined in the
+.github/workflows/cd.yaml
+file in the
+CWPP Deployment Repo
+(which is where deployments are managed). The CD process is responsible for deploying the application to AWS (and GCP until AWS migration is complete) via
+ArgoCD
+. The CD GHA workflow recieves a payload from the CI GHA workflow, which contains the following parameters:
+app-repo
+- The git repository that contains the application code
+repo-branch
+- The git branch of the application code
+values-file-path
+- The application (micro-service) name (the default
+$GITHUB_WORKSPACE/applications
+path prefix is already added in the workflow)
+environment
+- The environment to deploy to (dev, stage, prod)
+db_user_name
+- The database user name (this is usually the GH username of the developer who triggered the build)
+target
+- The target environment namespace (this is usually the GH username of the developer who triggered the build)
+property-path
+- The property path inside the
+values.yaml
+file that needs to be updated with the new image tag (i.e.
+.cwpp-backend.global.version.tagVersion
+)
+value
+- The image tag value to update the
+values.yaml
+file with (i.e.
+1.0.0
+)
+It then uses these given parameters to run the
+deploy.yaml
+and the
+run_sa_scripts.yaml
+workflows in parallel.
+The first is in charge of updating the
+values.yaml
+with the new image tag, in addition to creating an applicationset and a new
+'namespace'
+folder + files for a developer in case the trigger was from a feature branch (in the case that it doesn't already exist).
+For PRs the same applicationset is used from the
+development
+branch via the ArgoCD PR generator and folders are added respectively to that branch for each PR.
+The latter, is in charge of binding any of the service accounts created by the application helm chart to IRSA (AWS IAM Roles) or Workload Identities (GCP Service Accounts) depending on the environment. At the end the workflow creates a
+git commit
++
+git push
+to the deployment repo's respective branch, which triggers the ArgoCD deployment.
+Once the YAML files for the deployment have been updated/created and pushed to the
+feature/<your feature branch>
+(dev environments)
+development
+(PR environments) or
+main
+(staging/prod environments). ArgoCD picks up the changes as part of the
+AutoSync
+feature and starts deploying the application to the configured destination/environment.
+The ArgoCD deployment is configured to use the
+feature/<your feature branch>
+(dev environments)
+development
+(PR environments) or
+main
+(staging/prod environments) branches respectively as the source of truth for the application deployment. This means that any changes made to the application deployment (i.e. image tag, environment variables, etc.) must be made in the respective branch of the deployment repository.
+Note
+GKE deployments are only for the legacy GKE environments for
+staging/prod/prod-eu
+. Once the AWS migration is complete, the GKE deployments will be removed/decommissioned.
+Pre-Sync Job (AWS/EKS Only)
+¶
+As part of the CD process ArgoCD Sync stage, we run an
+ArgoCD Pre-Sync Job
+that is responsible for creating the AWS resources needed for the application deployment using the
+SRE Vengind Machine Library
+. The Pre-Sync Job is defined in the
+presync_job.yaml
+together with the
+presync_job_service_account.yaml
+which it uses to access the AWS resources/API via IRSA. The Pre-Sync job sits close to the code in the application/micro-service helm chart; which is then deployed by ArgoCD and using the annotations in the helm chart, it is able to run the Pre-Sync Job before the application deployment. The Pre-Sync job deletes all resources (i.e. pods/external-secrets/SAs/etc.) created by it, once the job completes successfully. In the case that the job fails, the pod/container will remain up and running for debugging purposes.
+Note
+The Pre-Sync Job is only used for AWS/EKS deployments. GCP/GKE deployments do not use the Pre-Sync Job. In addition it helps create the deployment
+"resources-per-devloper"
+(i.e. DB, SQS/SNS, etc.) in the case of a PR/feature branch deployment.
+Post-Sync Job (AWS/EKS Only)
+¶
+Another job that has been added to the ArgoCD flow for PR/Feature branch dev environments, is the Post-Sync job. The post-sync job is in charge of deploying/running the
+demo-scripts
+which are located in the CI repository
+demo-scripts folder
+. These scripts are packeged into a Docker image during the CI process and are then called upon by the
+Post-Sync job
+with the relevant values from the deployment repo's
+values.yaml
+. These demo-scripts create mock data on the development environment that was deployed post deployment (i.e. create admin user, add dev user, create mock clusters/data etc.)
+Warning
+This Post-Sync job is important for the PR process as well and the values for it should not be modified as they are needed for the sanity tests to run properly.
+Sanity Tests
+¶
+There is an additional GHA workflow that has been added to allow the running of sanity tests on the PR/Feature branch environments. The sanity tests are defined in the
+sanity-tests.yaml
+and can be run either manually (via user inputs in the Github Actions UI), for deature branch dev environments or automatically as part of the PR process. For the PR process, the workflow is automatically triggered by ArgoCD once a successful deployment has finished in the PR cluster and all the Post-Sync jobs have completed.
+The sanity tests workflow is also in charge of updating the PR status in the CI repo with the results of the deployment/tests. These also include the links to the relevant resources/workflows.
+The sanity tests currently run the following:
+API Tests - which tests the API endpoints of the application
+System Tests - a specific batch of Java written E2E tests that test core functionalities of the application, they are grouped/labeled as
+sanity
+When running these manually, you may select which batch/specific tests to run.
+UI Tests - which tests the UI of the application using
+Cypress
+UI tests results/screenshots/video recordings are uploaded to the Github Actions UI for review.
+Warning
+Be aware and very careful when working on your PR environments, as the process includes the full flow of
+Pre-Sync->Deployment/Sync->Post-Sync->Sanity Tests
+. This means that any changes made to the PR environment will be reflected in the sanity tests and the PR status. This is to ensure that the PR environment is in a clean state and that the sanity tests are run on the latest changes. For this reason, the DB is always emptied by default in the Pre-Sync job. You should make sure to restart your
+management
+pod if you want to pick up on any changes you have made.
+SRE Vending Machine Usage (AWS/EKS Only)
+¶
+The CD (Pre-Sync Job) process also uses the
+SRE Vending Machine Library
+in order to create the cloud resources needed for the developer's environment and/or sanity/system tests. The Vending Machine Library is a collection of
+Python
+functions/modules that assist in creating cloud resources using SDKs/Libraries/APIs such as
+boto3
+,
+OKTA API
+, and
+psycopg
+. For more information on the SRE Vending Machine Library, please refer to the
+README
+file. The SRE Vending Machine Library is published as a docker image in our internal/private ECR (Elastic Container Registry) and is pulled by the Pre-Sync Job container in order to run the Python functions/modules for each use case.
+Tip
+Always feel free to reach out to the SRE team for any questions or issues with the Vending Machine Library. It is a work in progress and is constantly being updated/modified. IF you would like to contribute to this project, please reach out to us as well and we can help you get started.
+2024-02-28

@@ -1,0 +1,24 @@
+github enterprise operator guide
+wwwin-github operator guide
+GitHub Enterprise (GHE) Operator Guide
+¶
+Adding Individual Users to GHE
+¶
+URL:
+https://wwwin-github.cisco.com/orgs/eti
+Everyone in the HR managed AD group
+group.lrajaram
+is automatically added to the GHE
+eti
+org (
+CN=group.lrajaram,OU=Organizational,OU=Cisco Groups,DC=cisco,DC=com
+)
+Verify your access by searching for the username:
+Adding Teams to GHE
+¶
+URL:
+https://wwwin-github.cisco.com/orgs/eti/teams
+Click on "New Team":
+Add the new team and select team members
+Add the new team to repo's RBAC:
+2023-09-21

@@ -1,0 +1,76 @@
+Troubleshooting
+¶
+Excessive CPU throttling for
+redis-exporter
+¶
+Kubernetes has a tendency to punish workloads with low CPU limit with throttling
+even when the CPU usage is nowehere near the limit and the node has plenty more CPU available.
+For workloads where you don't expect CPU limit to go up significantly,
+you can either remove the CPU limit or use a much larger one.
+In case of Redis, when the exporter is enabled, you can use the following configuration:
+apiVersion
+:
+databases.spotahome.com/v1
+kind
+:
+RedisFailover
+metadata
+:
+name
+:
+redis
+spec
+:
+redis
+:
+exporter
+:
+enabled
+:
+true
+resources
+:
+requests
+:
+cpu
+:
+25m
+memory
+:
+50Mi
+limits
+:
+cpu
+:
+500m
+# Try to solve excessive throttling by applying a larger limit
+memory
+:
+100Mi
+sentinel
+:
+exporter
+:
+enabled
+:
+true
+resources
+:
+requests
+:
+cpu
+:
+25m
+memory
+:
+50Mi
+limits
+:
+cpu
+:
+500m
+# Try to solve excessive throttling by applying a larger limit
+memory
+:
+100Mi
+2022-07-12

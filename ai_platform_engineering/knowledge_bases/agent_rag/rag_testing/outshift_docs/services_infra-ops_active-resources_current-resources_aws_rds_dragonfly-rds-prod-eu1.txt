@@ -1,0 +1,21 @@
+dragonfly-prod-data-euc1-1
+dragonfly-prod-data-euc1-1 RDS Cluster
+¶
+RDS cluster hosting production databases. In the
+dragonfly-production
+AWS account, eu-central-1 region.
+Terraform Code
+¶
+dragonfly-prod-data-euc1-1
+VPC
+¶
+prod-db-vpc-1
+Cluster Access
+¶
+How to setup PgAdmin
+How to create an SSH Tunnel to RDS
+VPC Bastion Access
+Connection details
+¶
+dragonfly-prod-data-euc1-1 connection in Keeper
+2024-01-29

@@ -1,0 +1,19 @@
+BCR-01.01
+DNS backups
+Lack of DNS backups will impede disaster recovery
+¶
+Description
+¶
+DNS records are frequently managed manually and are not backed up. In the event of deletion (accidental or otherwise), the lack of backups could prolong recovery or make full recovery impossible.
+Business Impact
+¶
+Business Continuity
+Without a reliable and confirmed backups and a tested restore process, the ETI SRE team does not have a complete disaster recovery plan.
+Likelihood: Medium
+¶
+The frequency of changes to production DNS is fairly low. Individual records changes are most often accomplished through automation, whether using Terraform or external-dns, which further mitigates the potential for inadvertent internal errors. DNS zones and domains are created manually, though they could be recreated by hand with a longer time to recovery than if they were automated.
+There are a lack of granular permissions which could allow a malicious internal actor to destroy records and zones, though that list of potential malefactors is fairly limited.
+Risk Level Category: Medium
+¶
+DNS backups are helpful for a timely, accurate recovery from a disaster. However, the list of potential malicious actors is low and the primary harm to Cisco is a higher time to recovery, rather than a complete loss of one area of functionality.
+2023-03-14

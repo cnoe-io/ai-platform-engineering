@@ -1,0 +1,27 @@
+gcp
+gcp console setup
+GCP Environment
+¶
+ETI SRE team maintains several GCP accounts. Here is the
+list
+GCP Console Access
+¶
+Identify your
+GCP account
+Please contact
+ETI SRE
+if you need access
+Navigate to the GCP login page
+https://console.cloud.google.com/home/dashboard?project=<PROJECT_ID>
+Note:
+If you are using Chrome browser (preferred), create a new profile for
+@cisco.com
+account
+Login with your CEC email (
+<CEC>@cisco.com
+).
+This will redirect you to the Cisco SSO page.
+You should now be signed into the
+eticloud-scratch-g-1
+GCP project
+2023-01-20

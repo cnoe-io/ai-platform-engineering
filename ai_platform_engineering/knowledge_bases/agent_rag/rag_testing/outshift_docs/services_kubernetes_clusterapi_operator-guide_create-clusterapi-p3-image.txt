@@ -1,0 +1,393 @@
+Create ClusterAPI Image
+¶
+Create ClusterAPI Image
+Overview
+Pre-requisite
+Build clusterapi image
+[Preferred] Automation Imagebuilder Job
+[Manual] Step-by-step instructions to create image
+Step 1: Create/Restart AWS Instance
+Step 2: Prepare AWS Instance: Install/Verify ubuntu packages
+Step 3: Build the image
+[Preferred] Build using docker container
+Build outside of the Docker
+Step 4: Importing ubuntu image to P3 project
+References
+Overview
+¶
+ClusterAPI
+is an opensource tool used to create K8s clusters in P3 Openstack environment
+ClusterAPI K8s clusters need a
+custom node/base image
+with all the necessary tools to run kubernetes.
+Cluster API Provider OpenStack relies on a few prerequisites which have to be already installed in the used operating system images, e.g. a container runtime, kubelet, kubeadm
+Pre-requisite
+¶
+In order to build a clusterapi image, it is necessary to have an instance that has supports QEMU virtualization.
+Preferred Choice
+: Use bare metal instance in AWS that can support QEMU
+    -
+Note:
+Utilize running with PACKER_LOG=1 to get more info.
+Other unsuccessful options
+:
+P3 VM:
+Virtualization was not enabled.
+SJC Lab machine in building 9
+: Lab requires proxy which proved to become a sticking point.
+Build clusterapi image
+¶
+Note
+:
+Pre-build images are stored in this
+S3
+bucket in
+eti-ci
+AWS account
+[Preferred] Automation Imagebuilder Job
+¶
+Run
+Jenkins
+job
+[Manual] Step-by-step instructions to create image
+¶
+Step 1: Create/Restart AWS Instance
+¶
+Create AWS EC2 instance to build clusterapi image
+Instance Flavor:
+Bare Metal M5.
+AWS Account:
+ETI Scratch C.
+Restart
+sre-imagebuilder
+Retrieve public IP of the restarted instance
+Download the private key in
+keeper
+Reference:
+The terraform code for it can be found
+here
+ssh -X -i ~/.ssh/imagebuilder ubuntu@<IP Address>
+Step 2: Prepare AWS Instance: Install/Verify ubuntu packages
+¶
+Login as root
+sudo
+su
+Install base packages
+curl
+-fsSL
+https://apt.releases.hashicorp.com/gpg
+|
+apt-key
+add
+-
+apt-add-repository
+"deb [arch=amd64] https://apt.releases.hashicorp.com
+$(
+lsb_release
+-cs
+)
+main"
+apt-get
+update
+&&
+apt-get
+install
+packer
+-y
+apt-get
+install
+docker
+make
+ansible
+-y
+apt
+install
+-y
+qemu-kvm
+libvirt-daemon-system
+libvirt-clients
+virtinst
+cpu-checker
+libguestfs-tools
+libosinfo-bin
+cpu-checker
+usermod
+-a
+-G
+kvm
+ubuntu
+chown
+root:kvm
+/dev/kvm
+Verify that virtualization is working
+kvm-ok
+INFO:
+/dev/kvm
+exists
+KVM
+acceleration
+can
+be
+used
+Add docker permissions to
+ubuntu
+user
+sudo
+groupadd
+docker
+sudo
+usermod
+-aG
+docker
+$USER
+newgrp
+docker
+Verify docker permissions
+docker
+run
+hello-world
+Step 3: Build the image
+¶
+Note:
+- The latest version of kubernetes is defined in image-builder repo's
+kubernetes.json
+file.
+-
+Specific versions of kubernetest.json can be obtained based on repo tags
+[Preferred] Build using docker container
+¶
+Clone image-builder repo
+git clone https://github.com/kubernetes-sigs/image-builder.git
+Copy the following code into Dockerfile
+# syntax=docker/dockerfile:1.1-experimental
+# Copyright 2020 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+ARG
+BASE_IMAGE
+=
+docker.io/library/ubuntu:focal
+FROM
+$BASE_IMAGE
+RUN
+apt-get
+update
+&&
+apt-get
+install
+-y
+apt-transport-https
+ca-certificates
+python3-pip
+curl
+wget
+git
+rsync
+vim
+unzip
+build-essential
+\
+&&
+DEBIAN_FRONTEND
+=
+"noninteractive"
+apt-get
+-y
+install
+tzdata
+\
+&&
+apt
+install
+qemu-kvm
+libvirt-daemon-system
+libvirt-clients
+virtinst
+cpu-checker
+libguestfs-tools
+libosinfo-bin
+-y
+\
+&&
+useradd
+-ms
+/bin/bash
+imagebuilder
+\
+&&
+apt-get
+purge
+--auto-remove
+-y
+\
+&&
+rm
+-rf
+/var/lib/apt/lists/*
+\
+&&
+usermod
+-a
+-G
+kvm
+imagebuilder
+ARG
+ARCH
+ARG
+PASSED_IB_VERSION
+USER
+imagebuilder
+WORKDIR
+/home/imagebuilder/
+COPY
+--chown
+=
+imagebuilder:imagebuilder
+ansible
+ansible/
+COPY
+--chown
+=
+imagebuilder:imagebuilder
+ansible.cfg
+ansible.cfg
+COPY
+--chown
+=
+imagebuilder:imagebuilder
+cloudinit
+cloudinit/
+COPY
+--chown
+=
+imagebuilder:imagebuilder
+hack
+hack/
+COPY
+--chown
+=
+imagebuilder:imagebuilder
+packer
+packer/
+COPY
+--chown
+=
+imagebuilder:imagebuilder
+Makefile
+Makefile
+ENV
+PATH
+=
+"/home/imagebuilder/.local/bin:
+${
+PATH
+}
+"
+ENV
+PACKER_ARGS
+''
+ENV
+PACKER_VAR_FILES
+''
+ENV
+IB_VERSION
+"
+${
+PASSED_IB_VERSION
+}
+"
+RUN
+make
+deps
+ENTRYPOINT
+[
+"/usr/bin/make"
+]
+cd
+image-builder/images/capi/
+vi
+Dockerfile
+## apply the changes above
+Build imagebuilder image
+docker
+build
+--tag
+imagebuilder:mod
+.
+Build ubuntu image using imagebuilder image
+docker run -t --device=/dev/kvm imagebuilder:mod build-qemu-ubuntu-2004
+Build outside of the Docker
+¶
+To build the image directly on the host using packer without docker:
+git
+clone
+https://github.com/kubernetes-sigs/image-builder.git
+cd
+image-builder/images/capi/
+sudo
+make
+build-qemu-ubuntu-2004
+Output
+: ubuntu-2004-kube-v**K8s Version**
+    -
+Example:
+ubuntu-2004-kube-v1.23.10
+Step 4: Importing ubuntu image to P3 project
+¶
+Openstack uses QEMU images with qcow2 format, hence the image created in the above process is converted to qcow2 and uploaded to openstack project
+Pre-requisite:
+- Openstack
+glace
+tool is used to import ubuntu image to P3 project
+- Setup instructions
+here
+source
+xxx-openrc.sh
+export
+K8S_VERSION
+=
+1
+.23.10
+glance
+image-create
+--name
+ubuntu-2004-kube-v
+${
+K8S_VERSION
+}
+--disk-format
+qcow2
+--container-format
+bare
+--file
+./ubuntu-2004-kube-v
+${
+K8S_VERSION
+}
+--progress
+References
+¶
+SRE-2189: Create image for Openstack for ClusterAPI
+.
+Kubernetes Cluster API
+ClusterAPI Openstack Provider
+Image builder
+Building and testing base images for Kubernetes cluster nodes with Packer, qemu and Chef InSpec
+Packer Openstack Builder
+Bootstrapping a Cluster API Management Cluster
+Note: This is a good example
+How to launch qemu-kvm from inside a Docker container?
+docker-kvm
+Solve âqemu-system-x86_64â: executable file not found in $PATH
+qemu KVM kernel module no such file or directory
+2023-08-29

@@ -1,0 +1,26 @@
+Welcome to the San Jose SRE-Lab
+¶
+Table of Contents
+¶
+SJC Lab structure
+Resource naming conventions
+Create ldap account and give priv-rights
+T-SHOOT KVM in a pause state
+vCenter backup scheduler
+Create KVM using libvirt
+Import data into racktables
+vmware resources IP space
+sjc-infra-services
+How to add hosts to observium
+SJC09-Labs in serviceNow
+VNC Tunneling through SSH
+How to setup OpenLDAP-server on Ubuntu 20.04
+LDAP Ubuntu client configuration setup
+How to setup vSAN cluster in vSphere
+IRIS Dev Cluster {NGL}
+sjc09 atlantis
+Alert management
+Research GPU Servers
+sre-sj9-bastion
+sjc09-mte-lab-topology
+2024-02-20

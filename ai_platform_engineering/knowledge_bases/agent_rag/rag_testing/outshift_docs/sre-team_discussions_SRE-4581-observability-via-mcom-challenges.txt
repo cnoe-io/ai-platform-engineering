@@ -1,0 +1,125 @@
+mcom
+metrics
+observability
+prometheus
+Observability via MCOM Challenges
+¶
+2023-01-25
+Context
+¶
+MCOM (aka One-Eye) is an internally-developed tool that bundles the installation and management of various observability stack components in a k8s cluster. Currently, MCOM installation issues in a net-new k8s v1.24 cluster are delaying efforts to sidegrade our applications in our existing EKS clusters to new clusters with latest versions of k8s and baseapps.
+Completing this sidegrade is time-sensitive because many existing clusters are still on k8s v1.21, which will no longer be supported after 2/15/2023.
+The development/support team for MCOM has resigned and will leave Cisco "soon" [TODO: confirm time frame].
+MCOM details:
+MCOM is composed of:
+Custom operator that bundles fluentbit and fluentd management
+Prometheus Operator pulled from upstream
+Grafana Operator pulled from upstream
+Dex/Pomerium for authentication
+Of the above, the
+custom operator for fluentbit and fluentd
+is failing to install CRDs in K8s 1.24
+Prometheus and Grafana Operators have been successfully installed without issues [TODO: confirm with Sri/David/Shoosh]
+MCOM team's support response can take multiple working days/weeks
+Requirements
+¶
+Short-term: Unblock base-app installation issues in eks-dev-3 to ensure successful EKS sidegrade by 2/15
+Long-term: Plan for future state of observability without MCOM. Hard requirements for future state:
+Continue to honor contract with application teams
+Metrics exported in prometheus format are discovered, scraped and made available to application teams
+Grafana dashboards and alerts defined as-code in application Helm Chart are automatically deployed along with their application
+Logs emitted to stdout are automatically aggregated and made avaialable to applications teams
+Alternative solution to MCOM's built-in authentication via Dex/Pomerium
+Installation failures must not impact installation of other baseapps
+Confidence in operational stability
+Availability of timely support on critical issues
+Proposed Solution
+¶
+Short Term: Proceed with side-grade with MCOM
+¶
+Current state of MCOM in eks-dev-3 provides functional metrics, alerting, and Grafana dashboard access.
+Remaining issue is isolated to fluentbit/fluentd CRD installation errors, which should be a relatively simple fix for MCOM team to identify. We do not want to cause further delays on side-grading apps by having to replace all the features provided by MCOM.
+MCOM team will
+Request increased support from MCOM team for k8s 1.24 compatibility
+Long Term: Replace MCOM with alternative OSS solutions
+¶
+Metrics
+¶
+Prometheus Operator
+Pros:
+Preserve existing contract with application helm charts:
+ServiceMonitor
+- scrape target configuration for newly deployed app automatically added to Prometheus
+example:
+IAM servicemonitor
+PrometheusRule
+- alerting rules defined for an app automatically applied to Alertmanager
+example:
+IAM alerts
+Strong community support; highly unlikely to encounter k8s version incompatibility issues as we did with MCOM
+Caveat:
+Configuring scrape targets via ServiceMonitor in OTEL collector
+requires OTEL-operator
+Prometheus Helm Chart
+Cons:
+Complexity shifted, not necessarily reduced (still need to manually install CRDs or manually manage
+scrape_configs
+in Prometheus)
+Not a common Practice in community - issues may be less "googlable"
+References:
+Do you install Prometheus as an operator or a helm chart and why?
+Discover applications running on Kubernetes with Prometheus
+vs.
+Monitor applications using Prometheus Operator on Kubernetes
+Logs
+¶
+Install fluentbit as daemonset via Helm
+* Recommended method by
+official docs
+Dashboards
+¶
+Install
+Grafana Operator
+Authentication
+¶
+Install Dex ?
+(Discuss/evaluate options with Mark)
+Discussion Points
+¶
+Cluster-local short-term metrics + alerting vs Aggregated metrics only
+¶
+Pros:
+* provides soak time to gain operational confidence in OTEL+Kafka telemetry aggregation pipeline
+* provides time to define deployment mechansim for "aggregate" dashboards captured as-code
+* option to monitor the telemetry pipeline
+Cons:
+* requires deploying prometheus + alertmanager + grafana + dex in every cluster
+* management of both cluster-local and aggregate dashboards and alerts
+    * can gradually migrate app monitoring to aggregated metrics and only retain data pipeline monitoring
+Future integration with FSO
+¶
+Sync call with FSO team (Gal Bashan, Dave Begun, Raz Lotan):
+logging support
+status: already GA
+Sally, Sri, David to sync with FSO logs SME
+metrics support
+status: in development for AppD (ETA ~1 year); visualization via Grafana plugin available sooner (ETA ~this quarter)
+full compatibilty with OTLP format
+tracing support
+status in active development with external Design Partners
+Sally, Sri, Jean to sync with Yosef (FSO Tracing SME)
+FSO will define a uniform query language (UQL) for querying all telemetry types (logs, traces, metrics)
+compatibility with PromQL? Designed for querying OTLP format (compatibile with Prometheus format metrics)
+Dave will provide early-access FSO account for ETI Platform
+Additional research / references:
+OpenTelemetry/Prometheus Compatibility Specification
+Prometheus <-> OTLP conversion
+should be
+straightforward
+Authentication via Dex
+¶
+base-app for cluster-wide auth solution?
+References
+¶
+(Microsoft Open Source Blog) Is there a Helm and Operators showdown?
+2023-09-03

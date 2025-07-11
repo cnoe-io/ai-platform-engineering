@@ -1,0 +1,30 @@
+ml data engineer onboarding
+ml ops
+ML/Data Engineer Onboarding
+¶
+Caution
+ð¨ Please open a
+SRE Service Desk Ticket
+for any requests to the Outshift SRE team
+Setup access to Dev Tools
+¶
+Outshift Common Tools (Jira, Github, etc.)
+Weights & Biases (wandb)
+Optional
+AWS Account Access for experiments
+Optional
+Setup Sagemaker Studio Notebooks
+Create Sagemaker Studio
+Add User to Sagemaker Studio Domain
+Create Sagemaker Jupyter Notebook
+Try out Wandb launch helloworld example
+¶
+outshift-wandb-launch-helloworld
+SRE Self-service tools
+¶
+Note
+Please consult SRE team before using self-service Jenkins tooling so they can guide you on the appropriate cloud accounts to use for a given project
+Self-service EKS creation
+Self-service EC2 creation
+Self-service S3 creation
+2024-05-12

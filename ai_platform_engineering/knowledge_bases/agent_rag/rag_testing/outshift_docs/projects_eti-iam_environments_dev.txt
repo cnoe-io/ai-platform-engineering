@@ -1,0 +1,15 @@
+ETI IAM Dev Environment
+¶
+Contact
+Jean Diaconu
+if you have questions on ETI IAM
+This is the preview environment, it will contain unstable versions with the newest features:
+API Endpoint:
+https://api.id.dev.eticloud.io/v1
+UI Endpoint:
+https://id.dev.eticloud.io
+Sample App:
+https://sample.id.dev.eticloud.io
+Okta Issuer:
+https://idp.preview.eticloud.io/oauth2/aus4pbgwqqo6X6OGb1d7
+2022-10-02

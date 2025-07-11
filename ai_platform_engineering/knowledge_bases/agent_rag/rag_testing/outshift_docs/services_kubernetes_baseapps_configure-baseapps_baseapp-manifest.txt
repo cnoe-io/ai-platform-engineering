@@ -1,0 +1,88 @@
+Customize BaseApps
+¶
+BaseApp Chart Version
+¶
+The baseapps are installed through a helm chart that dynamically creates the base app ArgoCD applications. The set of applications and versions is fixed within a version of this helm chart. When updating the manifest, or the default version of a base app, the chart version is incremented.
+Each cluster instance can reference a version of the
+kubernetes-baseapps
+helm chart to insulate it from upstream source changes, and allow for managed updates to occur.
+To select a version of the baseapps update the
+baseapps_chart_version
+value of the
+config.json
+file within the
+clusters/<cluster-name>
+folder of the
+Baseapps Repo
+for the ArgoCD that manages the target kubernetes cluster.
+Customize BaseApps Manifest
+¶
+The kubernetes-baseapps
+helm chart contains within its
+values.yaml
+the applications that will be installed onto a cluster as well as their versions. There may be instances where a different manifest is required. Below are some common scenarios as well as the schema for the
+baseapp
+map.
+The
+baseapps:
+value is a YAML map, where baseapps can be added, or overridden. In addition to adding baseapps to a cluster that are not defined in the default list, the following overrides can be made.
+Schema for a
+baseapp
+map within values.
+baseapps
+:
+example-baseapp-name
+:
+chart
+:
+<string>
+exclude
+:
+<boolean>
+version
+:
+<string>
+namespace
+:
+<string>
+Additional App
+baseapps
+:
+additional-baseapp-name
+:
+version
+:
+"0.0.0"
+Override Service Name
+baseapps
+:
+example-baseapp-name
+:
+chart
+:
+"overriden-baseapp-name"
+Override Version
+baseapps
+:
+example-baseapp-name
+:
+version
+:
+"0.0.0"
+Exclude from Cluster
+baseapps
+:
+example-baseapp-name
+:
+exclude
+:
+true
+Override Namespace
+baseapps
+:
+example-baseapp-name
+:
+namespace
+:
+"namespace-override"
+2023-11-14

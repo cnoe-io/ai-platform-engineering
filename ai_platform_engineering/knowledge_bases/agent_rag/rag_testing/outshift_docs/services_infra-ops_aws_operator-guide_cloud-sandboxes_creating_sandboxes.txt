@@ -1,0 +1,23 @@
+create
+guide
+sandbox
+Creating Sandbox Infrastructure
+¶
+In general, the process to create a new sandbox is relatively straight-forward:
+Use the
+reference repository
+as a template to create a
+   new repository for the (new) sandbox infrastructure.
+Add Terraform resources into this new repository by copying and modifying examples as explained for
+creating vpc
+and
+creating eks cluster
+.
+Deploy the new resources with Atlantis.
+Additional detail regarding how to prepare the environment is provided in the
+reference repository's
+README.md
+; note that effort is
+required from both the venture as well as SRE. Once the (new) repository has been prepared and the infrastructure is in
+place, if required, some components may be accessed via SSH as outlined in the sections that follow below.
+2023-02-10

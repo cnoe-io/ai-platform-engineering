@@ -1,0 +1,62 @@
+eti-webserver-large-1 nginx ssl
+jenkins corona webserver
+jenkins eti-webserver-large-1
+eti-webserver-large-1 nginx SSL setup
+¶
+Here are the steps to install SSL certs for eti-webserver-large-1 nginx
+Note
+eti-webserver-large-1.cisco.com CSR is stored in vault
+here
+Create or review SSL certs for eti-webserver-large-1.cisco.com using
+this guide
+Store the SSL certs in the respective locations
+From SRE's desktop
+scp -i ~/.ssh/jenkins.pem fullchain.pem ubuntu@eti-webserver-large-1:/tmp
+scp -i ~/.ssh/jenkins.pem private.key ubuntu@eti-webserver-large-1:/tmp
+On eti-webserver-large-1 server
+sudo su
+cp /tmp/fullchain.pem /etc/ssl/certs
+cp /tmp/private.key /etc/ssl/private
+3. Nginx configuration is already setup to support HTTP(80) and HTTPS(443)
+Example configuration
+server {
+listen 80 default_server;
+listen [::]:80 default_server;
+root /var/www/html;
+# Add index.php to the list if you are using PHP
+index index.html index.htm index.nginx-debian.html;
+server_name _;
+location / {
+# First attempt to serve request as file, then
+# as directory, then fall back to displaying a 404.
+try_files $uri $uri/ =404;
+autoindex on;
+}
+}
+# Virtual Host configuration for example.com
+#
+# You can move that to a different file under sites-available/ and symlink that
+# to sites-enabled/ to enable it.
+#
+server {
+listen 443 ssl;
+server_name eti-webserver-large-1.cisco.com;
+root /var/www/html;
+# Add index.php to the list if you are using PHP
+index index.html index.htm index.nginx-debian.html;
+location / {
+# First attempt to serve request as file, then
+# as directory, then fall back to displaying a 404.
+try_files $uri $uri/ =404;
+autoindex on;
+}
+}
+4. Restart nginx
+sudo systemctl restart nginx.service
+Verify nginx status
+sudo systemctl status nginx.service
+Verify URL access -
+https://eti-webserver-large-1.cisco.com
+Reference:
+How to Install SSL Certificate on Nginx for Ubuntu
+2024-02-23

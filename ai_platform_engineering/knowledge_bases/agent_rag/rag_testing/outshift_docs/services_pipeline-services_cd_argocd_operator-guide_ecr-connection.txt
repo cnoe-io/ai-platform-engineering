@@ -1,0 +1,44 @@
+ECR repository
+¶
+Purpose
+¶
+For the unification of our artifact platform, we can store Helm charts on the AWS ECR platform alongside containers. To achieve this, ArgoCD should be configured with an ECR (OCI) repository. The fundamental issue with this connection is that AWS does not provide static credentials for connectivity to ECR, and tokens should be constantly rotated. That's why we are using External Secrets with the ECR generator.
+Link
+In the end, we need to provide an ARN role with ECR policy access to the External Secrets deployment for constant token regeneration and pulling abilities.
+Link
+AWS Topology and Crossaccount access
+¶
+Terraform will handle all the necessary configuration. You only need to know the OIDC URL and OIDC thumbprint (which you can find in the IAM Identity menu) of your cluster and set it
+here
+.
+Once Terraform is applied, you should see the IAM Role 'ecr-from-eks-common' under the eticloud AWS account with your identity added.
+ECR connectivity Check
+¶
+Once you set an arn of common role under your ESO configuration (
+example
+)
+You should find under the argocd namespace external secret -
+ecr-helm-secret
+which generate kubernetes secret
+ecr-helm-secret
+(this secret has special lables and structure that provides a way for argocd to recognize it like a repository secret)
+On your argocd you can see that repository successfully connected:
+¶
+Tip:
+ECR manual helm push commands
+TOKEN=$(aws ecr get-login-password --region us-east-2 --profile eticloud)
+helm registry login 626007623524.dkr.ecr.us-east-2.amazonaws.com -u AWS -p $TOKEN
+helm dependency update
+helm package .
+helm push sample-service-0.2.0.tgz oci://626007623524.dkr.ecr.us-east-2.amazonaws.com/outshift/cnapp/scs
+Tip:
+ECR Helm Chart usage example:
+apiVersion: v2
+name: sample-service
+version: 0.1.0
+description: An example chart for a service
+dependencies:
+- name: "sample-service"
+version: "0.2.0"
+repository: "oci://626007623524.dkr.ecr.us-east-2.amazonaws.com/outshift/cnapp/scs"
+2024-09-16

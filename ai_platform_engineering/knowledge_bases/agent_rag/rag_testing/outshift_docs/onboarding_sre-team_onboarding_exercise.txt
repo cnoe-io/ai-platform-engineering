@@ -1,0 +1,828 @@
+ET&I SRE Team Onboarding Exercise
+¶
+Welcome to the ET&I SRE team! This guide will help you get onboarded to our team.
+Remember, if you have any questions or need further clarification, don't hesitate to reach out to your onboarding buddy or ask in the
+Onboarding
+Webex space.
+Creating a New Infrastructure as Code (IaC) Environment
+¶
+Follow the steps below to set up your IaC environment:
+Clone the sre-tf-infra project:
+Use the following command to clone our
+sre-tf-infra
+project to your local file system.
+git clone https://wwwin-github.cisco.com/eti/sre-tf-infra.git
+Create a new branch:
+Create a new branch using the following format:
+SRE-<TASK_NUMBER>-<INFO>
+.
+git checkout -b SRE-12345-onbording-exercise
+Create directory structure:
+In the root directory, we have a list of directories based on account alias names. For this exercise, use the directory
+aws-eticloud-scratch-c
+for our infrastructure.
+The directory structure is based on the use of
+VPC
+and
+EKS
+.
+Run the following commands to create the necessary directories:
+# Create VPC Directory
+mkdir -p aws-eticloud-scratch-c/vpc/eu-west-1/sre-vpc-playground-1
+# Create EKS Directory
+mkdir -p aws-eticloud-scratch-c/eks/eu-west-1/sre-eks-playground-1{,-alb-iam,-cm}Ã
+The resulting directory structure should look like this:
+aws-eticloud-scratch-c
+âââ eks
+â   âââ eu-west-1
+â       âââ sre-eks-playground-1
+â       âââ sre-eks-playground-1-alb-iam
+â       âââ sre-eks-playground-1-cm
+âââ vpc
+âââ eu-west-1
+âââ sre-vpc-playground-1
+Copy Files and Update Accordingly:
+Each directory contains multiple Terraform files.
+# Copy the old project to the new one
+cp
+<AWS_ALIAS_NAME>/vpc/<AWS_REGION>/<OLD_PROJECT_NAME>
+<AWS_ALIAS_NAME>/vpc/<AWS_REGION>/<NEW_PROJECT_NAME>
+# Create files in your new project
+touch
+-p
+{
+backend,providers,variables,vpc
+}
+.tf
+terraform.tfvars
+Below is an example of VPC Configuration. Repeat the process for each resource you create but with different values/variables:
+#### VPC
+   *
+backend.tf configuration
+Replace all uppercase placeholders with your account information.
+
+ ```hcl
+ terraform {
+  backend "s3" {
+      bucket = "eticloud-tf-state-nonprod"
+      key    = "terraform-state/<AWS_ACCOUNT_ALIAS_NAME>/vpc/<AWS_REGION>/<PROJECT_NAME>.tfstate"
+      region = "us-east-2"
+      }
+  }
+ ```
+ </details>
+providers.tf configuration
+Replace all uppercase placeholders with your account information.
+provider
+"vault"
+{
+alias
+=
+"eticcprod"
+address
+=
+"https://keeper.cisco.com"
+namespace
+=
+"eticloud/eticcprod"
+}
+data
+"vault_generic_secret"
+"aws_infra_credential"
+{
+provider
+=
+vault.eticcprod
+path
+=
+var.aws_account_credentials_path
+}
+provider
+"aws"
+{
+access_key
+=
+data.vault_generic_secret.aws_infra_credential.data
+[
+"AWS_ACCESS_KEY_ID"
+]
+secret_key
+=
+data.vault_generic_secret.aws_infra_credential.data
+[
+"AWS_SECRET_ACCESS_KEY"
+]
+region
+=
+var.aws_default_region
+max_retries
+=
+3
+default_tags
+{
+tags
+=
+{
+ApplicationName
+=
+var.application_name
+CiscoMailAlias
+=
+"eti-sre-admins@cisco.com"
+DataClassification
+=
+"Cisco Confidential"
+DataTaxonomy
+=
+"Cisco Operations Data"
+Environment
+=
+var.environment
+ResourceOwner
+=
+"ETI SRE"
+}
+}
+}
+*
+terraform.tfvars configuration
+Replace all uppercase placeholders with your account information.
+# Common variables for all environments
+aws_account_credentials_path
+=
+"secret/eticcprod/infra/eticloud-scratch-c/aws"
+aws_default_region
+=
+"<AWS_REGION_ID>"
+environment
+=
+"NonProd"
+application_name
+=
+"<PROJECT_APPLICATION_NAME>"
+# VPC variables
+vpc_name
+=
+"<AWS_VPC_APPLICATION_NAME>"
+vpc_region
+=
+"<AWS_REGION_ID>"
+vpc_cidr
+=
+"<AWS_VPC_CIDR_BLOCK>"
+eks_cluster_name
+=
+"<AWS_EKS_CLUSTER_NAME>"
+*
+vpc.tf configuration
+Replace all uppercase placeholders with your account information.
+module
+"vpc"
+{
+source
+=
+"git::https://wwwin-github.cisco.com/eti/ sre-tf-module-aws-vpc?ref=2.0.4"
+region
+=
+var.vpc_region
+vpc_name
+=
+var.vpc_name
+vpc_cidr
+=
+var.vpc_cidr
+cluster_name
+=
+var.eks_cluster_name
+create_database_subnet_group
+=
+true
+}
+*
+variables.tf configuration
+Replace all uppercase placeholders with your account information.
+# Common vars
+variable
+"aws_account_credentials_path"
+{
+type
+=
+string
+}
+variable
+"aws_default_region"
+{
+description
+=
+"Change this default to move the VPC into a a different region."
+type
+=
+string
+}
+variable
+"environment"
+{
+type
+=
+string
+}
+variable
+"application_name"
+{
+type
+=
+string
+}
+# VPC vars
+variable
+"vpc_name"
+{
+type
+=
+string
+}
+variable
+"vpc_region"
+{
+type
+=
+string
+}
+variable
+"vpc_cidr"
+{
+type
+=
+string
+}
+variable
+"eks_cluster_name"
+{
+type
+=
+string
+}
+Update Atlantis Configuration:
+For each directory, add the new structure to the
+atlantis.yaml
+file.
+The list properties are as follows:
+   -
+name:
+The name of the project.
+   -
+dir:
+The path location of the project or resource.
+   -
+workflow:
+The workflow to use. By default, this is
+standard
+.
+   -
+terraform_version:
+The version of Terraform to use.
+Here is an example:
+-
+name
+:
+sre-eks-playground-1
+dir
+:
+aws-eticloud-scratch-c/eks/eu-west-1/sre-eks-playground-1
+workflow
+:
+standard
+terraform_version
+:
+v1.5.2
+-
+name
+:
+sre-eks-playground-1-cm
+dir
+:
+aws-eticloud-scratch-c/eks/eu-west-1/sre-eks-playground-1-cm
+workflow
+:
+standard
+terraform_version
+:
+v1.5.2
+-
+name
+:
+sre-eks-playground-1-alb-iam
+dir
+:
+aws-eticloud-scratch-c/eks/eu-west-1/sre-eks-playground-1-alb-iam
+workflow
+:
+standard
+terraform_version
+:
+v1.5.2
+Remember to replace the placeholders with the appropriate values for your project. If you need further help or modifications, please let me know!
+Commit and Push Changes:
+Once you have made all your changes, commit and push them to your repository.
+Open a Pull Request:
+Navigate to our GitLab project web interface and open a new pull request for the changes you have made. This is crucial for maintaining version control and ensuring peer-review of the code changes.
+Run Plan and Apply:
+After your pull request has been reviewed and approved, you can plan and apply the new resources.
+First, run the plan for the VPC:
+atlantis
+plan
+-p
+sre-vpc-playground-1
+Next, apply the plan for the VPC:
+atlantis
+apply
+-p
+sre-vpc-playground-1
+These commands will allow Atlantis to execute your Terraform plan and apply the changes respectively. Remember to replace
+sre-vpc-playground-1
+with the actual name of your project.
+9.
+Proceed with Baseapps Deployment:
+Once the resources have been successfully created without any failures, you can proceed to the next step, which is the deployment of base applications.
+Remember, it's crucial to ensure all previous steps have been completed successfully before moving on to this stage. If you encounter any issues, review your steps or ask for assistance.
+If you require further information on how to proceed with the baseapps deployment, please provide more details or ask your specific question.
+Deploy Baseapps on EKS with our Baseapps Collection
+¶
+To deploy the
+Baseapps
+applications on your EKS, please follow the instructions in our
+BaseApps Installation Guide
+.
+"Baseapps" is a collection of foundational applications used by both SRE and Developer Groups to facilitate our Continuous Deployment (CD) processes. These applications are integral to our infrastructure and developers' applications, enabling smooth and efficient deployments.
+Please ensure you follow all the steps in the guide to ensure a successful deployment. If you encounter any issues or require further guidance, don't hesitate to seek assistance.
+Deploy a Single Application to EKS with ArgoCD and GitHub
+¶
+This section will guide you on how to deploy both a single application and a collection of applications using ArgoCD and GitHub.
+You can use the following repositories as templates for your deployment:
+The application template can be found in the
+sre-go-helloworld
+repository.
+The application deployment is detailed in the
+sre-go-helloworld-deployment
+repository.
+By adhering to the instructions and configurations in these repositories, you can successfully deploy your applications on EKS. If you encounter any issues or require further guidance, don't hesitate to seek assistance.
+Configuring Your Application
+¶
+Create a new project from both templates above. Once done, clone your project from GitHub to your local machine.
+Use the
+git checkout
+command to create a new branch. Do not commit directly to the
+main
+branch.
+Application Configurations
+¶
+Change the deployment directory from
+deploy/charts/sre-go-helloworld
+to your project name:
+mv
+deploy/charts/sre-go-helloworld
+deploy/charts/<PROJECT_NAME>
+Commit changes and push them:
+git
+add
+-A
+;
+git
+commit
+-am
+"YOUR MESSAGE"
+Application Deployment Configuration
+¶
+Repeat the branch creation for the deployment package.
+Rename the directory
+sre-go-helloworld
+to your application project:
+mv
+sre-go-helloworld
+<APPLICATION_PROJECT_NAME>
+Update the files in the deployment project:
+applications/dev/config.json
+:
+Example of config.json file
+{
+"appName"
+:
+"<APPLICATION_NAME>"
+,
+"cluster_address"
+:
+"<AWS_EKS_CLUSTER_ADDRESS>"
+,
+"cluster_name"
+:
+"<AWS_EKS_CLUSTER_NAME>"
+,
+"cluster_namespace"
+:
+"<AWS_EKS_NAMESPACE_NAME>"
+,
+"deploymentEnvironment"
+:
+"<ENVIRONMENT_TYPE>"
+,
+// e.g.: dev/staging/prod
+"deploymentLocation"
+:
+"<DEPLOYMENT_PATH_LOCATION>"
+}
+applicationsets/dev/applicationset.yaml
+:
+Example of applicationset file
+apiVersion
+:
+argoproj.io/v1alpha1
+kind
+:
+ApplicationSet
+metadata
+:
+name
+:
+"sre-go-playground-mfinkels-appset"
+spec
+:
+generators
+:
+-
+git
+:
+repoURL
+:
+https://github.com/cisco-eti/<APPLICATION_PROJECT_NAME>-deployment
+revision
+:
+main
+files
+:
+-
+path
+:
+"applications/dev/config.json"
+template
+:
+metadata
+:
+name
+:
+"{{appName}}-{{deploymentEnvironment}}-argoapp"
+labels
+:
+cloud
+:
+aws
+env
+:
+"dev"
+spec
+:
+project
+:
+"{{
+appName
+}}-{{
+deploymentEnvironment
+}}"
+source
+:
+repoURL
+:
+https://github.com/cisco-eti/sre-go-playground-mfinkels-deployment.git
+targetRevision
+:
+main
+path
+:
+"{{
+appName
+}}/{{
+deploymentEnvironment
+}}/{{
+deploymentLocation
+}}"
+helm
+:
+valueFiles
+:
+-
+"values.yaml"
+destination
+:
+server
+:
+"{{
+cluster_address
+}}"
+namespace
+:
+"{{
+cluster_namespace
+}}"
+syncPolicy
+:
+automated
+:
+prune
+:
+false
+syncOptions
+:
+-
+CreateNamespace=true
+values.yaml
+:
+Example of values file
+sre-go-playground-mfinkels
+:
+tagversion
+:
+2023-12-05-694f29f
+namespace
+:
+sre-go-playground-mfinkels-dev
+deploymentEnv
+:
+a
+domainName
+:
+dev.eticloud.io
+dimage
+:
+sre-go-playground-mfinkels
+s3_bucket
+:
+sre-demo-bucket-dev
+awsRegionOverride
+:
+us-east-2
+oidc_client_id
+:
+"<OIDC_CLIENT_ID>"
+oidc_issuer_url
+:
+"<OIDC_ISSUER_URL>"
+serviceAccount
+:
+create
+:
+true
+annotations
+:
+eks.amazonaws.com/role-arn
+:
+<AWS_ROLE>
+name
+:
+""
+ingress
+:
+ingressClassName
+:
+nginx-internal
+apiVersion
+:
+networking.k8s.io/v1
+annotations
+:
+nginx.ingress.kubernetes.io/rewrite-target
+:
+/
+cert-manager.io/cluster-issuer
+:
+letsencrypt
+externalSecrets
+:
+secretStoreName
+:
+vault-eticloud-apps-sre
+secretStoreKind
+:
+ClusterSecretStore
+data
+:
+-
+secretKey
+:
+IDP_CLIENT_SECRET
+remoteRef
+:
+key
+:
+dev/<APPLICATION_NAME>/helloworld-oauth
+version
+:
+"1"
+property
+:
+IDP_CLIENT_SECRET
+-
+secretKey
+:
+DB_NAME
+remoteRef
+:
+key
+:
+dev/<APPLICATION_NAME>/helloworld-dbinfo
+version
+:
+"3"
+property
+:
+dbname
+-
+secretKey
+:
+DB_HOST
+remoteRef
+:
+key
+:
+dev/<APPLICATION_NAME>/helloworld-dbinfo
+version
+:
+"3"
+property
+:
+host
+-
+secretKey
+:
+DB_USER
+remoteRef
+:
+key
+:
+dev/<APPLICATION_NAME>/helloworld-dbinfo
+version
+:
+"3"
+property
+:
+user
+-
+secretKey
+:
+DB_PASSWORD
+remoteRef
+:
+key
+:
+dev/<APPLICATION_NAME>/helloworld-dbinfo
+version
+:
+"3"
+property
+:
+password
+-
+secretKey
+:
+DB_PORT
+remoteRef
+:
+key
+:
+dev/<APPLICATION_NAME>/helloworld-dbinfo
+version
+:
+"3"
+property
+:
+port
+-
+secretKey
+:
+DB_SSLMODE
+remoteRef
+:
+key
+:
+dev/<APPLICATION_NAME>/helloworld-dbinfo
+version
+:
+"3"
+property
+:
+sslmode
+-
+secretKey
+:
+DB_TIMEZONE
+remoteRef
+:
+key
+:
+dev/<APPLICATION_NAME>/helloworld-dbinfo
+version
+:
+"3"
+property
+:
+timezone
+Please replace the placeholders such as
+<OIDC_CLIENT_ID>
+,
+<OIDC_ISSUER_URL>
+,
+<AWS_ROLE>
+, and
+<APPLICATION_NAME>
+with the actual values for your application.
+Remember to commit these changes and push them to your GitHub repository. If you encounter any issues or require further guidance, don't hesitate to ask for help.
+  4. Commit the changes and push to our GitHub.
+  * you need to check that both project there actions passed successfully.
+update baseapps configuration to allow deployment from your single branch
+¶
+To update baseapps configuration to allow deployment from a single branch, you can follow these steps:
+Prepare your application and deployment:
+Ensure that your application and its deployment settings are ready and that your code is fully developed.
+Add the application to the project in the cnapp repository:
+You can do this by pushing your code to the cnapp repository or by merging your branch into the main branch.
+Update the
+sourceRepos
+in the AppProject:
+You need to add the URLs of your repositories to the
+sourceRepos
+section in your AppProject configuration. This tells ArgoCD where to find your code and configurations.
+sourceRepos
+:
+-
+https://github.com/cisco-eti/sre-baseapps-configs-cnapp
+-
+https://github.com/cisco-eti/sre-go-playground-mfinkels-deployment
+Add a new Application section:
+This section defines the new application you're deploying. Here's what you need to add:
+---
+apiVersion
+:
+argoproj.io/v1alpha1
+kind
+:
+Application
+metadata
+:
+name
+:
+sre-playground-app-dev
+namespace
+:
+argocd
+spec
+:
+destination
+:
+namespace
+:
+argocd
+server
+:
+'https://kubernetes.default.svc'
+source
+:
+path
+:
+applicationsets/dev/
+directory
+:
+recurse
+:
+true
+repoURL
+:
+'https://github.com/cisco-eti/sre-go-playground-mfinkels-deployment.git'
+targetRevision
+:
+main
+project
+:
+sre-eks-playground-1
+syncPolicy
+:
+automated
+:
+prune
+:
+true
+selfHeal
+:
+true
+In this configuration:
+metadata
+includes the name of the application and the namespace it's deployed in.
+spec
+describes the specifications of the application:
+destination
+tells ArgoCD where to deploy your application.
+source
+tells ArgoCD where to find your application configurations.
+project
+is the name of the project your application belongs to.
+syncPolicy
+defines how ArgoCD should sync your application.
+Please replace the example URLs, paths, and names with your project's actual information. After updating the configuration, commit and push the changes to your repository. ArgoCD will then pick up the changes and update the application based on the new configuration.
+2024-02-22

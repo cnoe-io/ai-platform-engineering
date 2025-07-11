@@ -1,0 +1,25 @@
+K8s Node SSh
+¶
+Note that using this mechansim will create security alerts in Falco, the STO-mandated security scanning tool.
+Please consider using our standard bastion hosts instead.  If you do use this mechansim, it is your responsibility to look for the resulting alert (sent via email) and resolve the alert with a comment indicating what what being done.
+Steps
+¶
+Install
+kubectl-ssh plugin
+git
+clone
+https://github.com/luksa/kubectl-plugins
+/tmp/
+cp
+/tmp/kubectl-plugins/kubectl-ssh
+/usr/local/bin
+SSH into the node
+kubectl
+get
+nodes
+# Copy node ID
+kubectl
+ssh
+node
+<node-id>
+2023-06-06

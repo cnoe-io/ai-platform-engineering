@@ -1,0 +1,13 @@
+ghec new team
+Create a New Team in GHEC
+¶
+Identify the team name based on venture.
+Verify that a suitable team does not already exist in
+github.com/cisco-eti/teams
+.
+Log in to
+github.com/cisco-eti
+with Cisco SRE admin credentials.
+Click on "New team":
+Populate the form with the new team's details as required, then click the green "Create team" button to proceed.
+2023-09-17

@@ -1,0 +1,31 @@
+gha troubleshooting
+github actions troubleshooting
+Troubleshooting
+¶
+Troubleshooting notes
+¶
+â ï¸ If unverified Github Actions from marketplace are used, the user will get an error related to GHA access. Please check with SRE team about this action for
+validation
+, so it may be allowed for use at the organization level.
+ð All secrets must be retrieved as secrets from Keeper.
+Do not store secerts in github secrets
+Use of Github Variables is recommended instead of hard coding them in workflow.
+Create manual execution triggers
+¶
+In order to manually trigger a workflow, the workflow would need to be initialized on a default branch like "main".
+Here are the steps involved:
+Create your workflow file under .github/workflows.
+Add event section and define
+workflow_dispatch:
+(Below an example) then merge this changes into default main branch. You will see "Run_workflow bottom that appers.
+workflow_dispatch:
+is intentionally left empty
+name
+:
+Enable Manual Execution
+on
+:
+# Enable manual execution
+workflow_dispatch
+:
+2023-09-21
