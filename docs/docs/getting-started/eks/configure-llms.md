@@ -20,7 +20,7 @@ cp deploy/eks/argocd-application.yaml.example argocd-application.yaml
 
 ## Step 2: Configure Your Deployment
 
-Create a new branch to customize your deployment configuration. You can see an example at [argcd-app-deploy branch](https://github.com/cnoe-io/ai-platform-engineering/compare/main...argcd-app-deploy).
+Create a new branch to customize your deployment configuration. You can see an example at [example-argocd-deploy-values branch](https://github.com/cnoe-io/ai-platform-engineering/compare/main...example-argocd-deploy-values).
 
 ### Enable Desired Agents
 
