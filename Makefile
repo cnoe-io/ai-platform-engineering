@@ -72,7 +72,9 @@ run-ai-platform-engineer: setup-venv build install ## Run the AI Platform Engine
 
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
-	@export LANGGRAPH_DEV=true && langgraph dev
+	@poetry install
+	@poetry run pip install langgraph-cli[inmem]
+	@cd ai_platform_engineering/multi_agents/platform_engineer && export LANGGRAPH_DEV=true && langgraph dev
 
 ## ========== Lint ==========
 
