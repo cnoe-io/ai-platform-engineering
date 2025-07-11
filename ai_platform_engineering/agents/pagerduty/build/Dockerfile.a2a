@@ -1,26 +1,20 @@
-# Use the official Python image
-FROM ubuntu:latest
+FROM python:3.13-slim
 
-# Set the working directory
-WORKDIR /usr/src/app
+WORKDIR /app
 
-# Install wfsm
-RUN curl -L https://raw.githubusercontent.com/agntcy/workflow-srv-mgr/refs/heads/main/install.sh | bash
+COPY . /app/
 
-# Copy agent_pagerduty to /usr/src/app/agent_pagerduty
-COPY agent_pagerduty /usr/src/app/agent_pagerduty
+# Install uv and use it to install the package
+RUN pip install uv poetry
 
-# Build Poetry agent_pagerduty package
-WORKDIR /usr/src/app/agent_pagerduty
+RUN poetry config virtualenvs.create false
+RUN poetry config virtualenvs.in-project false
+RUN poetry config cache-dir /app/.cache
+
 RUN poetry build
 
-# Install Poetry agent_pagerduty package
-RUN pip install dist/*.whl
+RUN poetry install --no-interaction --no-root
 
-# Copy deploy/acp/agent.json to /usr/src/app/data
-WORKDIR /usr/src/app
-RUN mkdir -p ./data
-COPY deploy/acp/agent.json ./data/
+EXPOSE 8000
 
-# Set wfsm as the entry point
-ENTRYPOINT ["wfsm", "deploy", "-m", "./data/agent.json", "-e", "./data/agent-env.yaml"] 
+CMD ["poetry", "run", "python", "-m", "agent_pagerduty", "--host", "0.0.0.0", "--port", "8000"]
