@@ -1,4 +1,4 @@
-name: Agent A2A Docker Build and Push
+name: MCP Docker Build and Push
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
 
     strategy:
       matrix:
-        agent: [argocd, backstage, confluence, github, jira, komodor, pagerduty, slack, webex]
+        agent: [argocd]
       fail-fast: false
 
     env:
@@ -47,19 +47,19 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=a2a-latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch,prefix=a2a-
-            type=ref,event=tag,prefix=a2a-
-            type=sha,format=short,prefix=a2a-
+            type=raw,value=mcp-latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,prefix=mcp-
+            type=ref,event=tag,prefix=mcp-
+            type=sha,format=short,prefix=mcp-
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Build and Push A2A Docker image
+      - name: Build and Push MCP Docker image
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.AGENT_DIR }}
-          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
+          file: ${{ env.AGENT_DIR }}/build/Dockerfile.mcp
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
