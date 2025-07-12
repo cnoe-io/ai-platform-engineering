@@ -1,18 +1,0 @@
-Application Cli Binaries
-¶
-Application Cli Binaries are published as
-OCI (Open Container Interface) artifacts
-to
-ETI Harbor
-oras cli is used to publish and retrieve OCI artifacts from harbor registry.
-Install Oras
-Publish Binaries with Oras
-Retrieve Binaries with Oras
-â¡ï¸âï¸ to "Libraries/Modules/Packages"
-â¦
-â¬ï¸âto "Artifact Services"
-â¦
-â¬ï¸âto "Services"
-â¦
-â¬ï¸âto "Home"
-2021-11-09

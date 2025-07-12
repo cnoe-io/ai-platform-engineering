@@ -1,8 +1,0 @@
-AAC-01.01
-Audit Assurance and Compliance
-¶
-Audit Planning
-¶
-CCF: AAC-01.01
-The ETI SRE team will perform an assessment of our compliance in conjunction with the S&TO team and the Ventures once per quarter.
-2024-03-03

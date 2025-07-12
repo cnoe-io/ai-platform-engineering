@@ -1,9 +1,0 @@
-P3 Operators Guide
-¶
-ð§â
-docs reorganization in-progress.
-Please reach out to us in
-ETI Platform Documentation webex space
-if you have questions or feedback.
-P3 VMs Flavor List
-2022-05-10

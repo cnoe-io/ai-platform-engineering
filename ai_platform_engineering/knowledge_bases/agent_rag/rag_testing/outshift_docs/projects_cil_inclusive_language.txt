@@ -1,14 +1,0 @@
-ETI SRE CIL Inclusive language project
-¶
-Overview
-¶
-TBD
-CI/CD links
-¶
-GitHub repos
-Jenkins jobs
-ArgoCD apps
-â¬ï¸âto CIL
-â¦
-â¬ to Projects
-2022-11-28

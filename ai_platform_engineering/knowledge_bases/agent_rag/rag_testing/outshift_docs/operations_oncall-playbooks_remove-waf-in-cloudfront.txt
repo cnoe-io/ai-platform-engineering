@@ -1,9 +1,0 @@
-add waf in cloudfront
-remove waf in cloudfront
-Add/Remove WAF in Cloudfront
-¶
-This how-to document describes how to add or remove WAF in AWS Cloudfront distribution
-Identify the cloufront distribution
-Navigate to security tab in the cloudfront distribution
-Add or Remove WAF distribution
-2024-02-05

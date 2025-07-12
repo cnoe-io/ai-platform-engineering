@@ -1,7 +1,0 @@
-Discussions
-¶
-This folder contains notes from Platform discussions. These discussions provide additional context for why certain decisions were made while building the ETI Platform.
-See the
-Discussions Index
-for a categorized list of these discussions.
-2023-08-25

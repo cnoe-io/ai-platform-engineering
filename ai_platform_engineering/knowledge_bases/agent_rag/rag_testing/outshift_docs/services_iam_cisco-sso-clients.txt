@@ -1,7 +1,0 @@
-Cisco SSO Self Service
-myid-sso.cisco.com
-Cisco SSO Clients
-¶
-Cisco SSO lets CEC and CCO users authenticate using OAuth/OIDC and SAML.
-MyID SSO Okta Self Service
-2023-09-21

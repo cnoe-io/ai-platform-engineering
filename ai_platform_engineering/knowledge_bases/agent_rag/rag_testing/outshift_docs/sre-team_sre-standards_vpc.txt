@@ -1,13 +1,0 @@
-EKS
-naming standards
-ET&I VPC Naming Conventions
-¶
-At present, the VPC naming convention is simple: we use the same name for the VPC that we use for the its associated k8s cluster.
-dragonfly-prod-euc1-1
-(EKS cluster) has a VPC named
-dragonfly-prod-euc1-1
-When creating VPC for RDS, MSK, Elasticsearch, other stateful services, we will use the data to signify it.
-dragonfly-prod-euc1-data
-If the VPC is not directly associated with a k8s cluster, choose a name that is appropriate and descriptive of its intended use.
-â¬ï¸âto "Home Page"
-2024-01-15

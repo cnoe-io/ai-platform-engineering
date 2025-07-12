@@ -1,4 +1,0 @@
-ArgoCD Workload Instance Mapping
-Argocd workload instance mapping
-Moved here
-2024-05-19

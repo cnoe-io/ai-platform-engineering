@@ -1,4 +1,0 @@
-Rancher K8s Clusters
-¶
-Rancher is a Kubernetes cluster platform that can be deployed to multiple cloud-providers like AWS, Azure, GCP, as well on-prem IaaS like vSphere.
-2023-09-03

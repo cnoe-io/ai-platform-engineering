@@ -1,5 +1,0 @@
-aurora postgres rds diaster recovery DR
-Aurora RDS Postgres Diaster Recovery (DR)
-¶
-PLACEHOLDER
-2023-05-18

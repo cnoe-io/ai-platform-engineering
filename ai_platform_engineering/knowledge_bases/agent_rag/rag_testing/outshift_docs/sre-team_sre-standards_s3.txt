@@ -1,8 +1,0 @@
-ET&I S3 Bucket Naming Conventions
-¶
-At present, the following guidelines describe the convention we adhere to within the team:
-Names are prefixed with
-cisco-eti-
-Names must be descriptive and relate to the application
-â¬ï¸âto "Home Page"
-2023-04-20

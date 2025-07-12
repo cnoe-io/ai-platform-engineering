@@ -1,9 +1,0 @@
-Outshift Platform Security Controls
-¶
-CCF Controls Explained
-Security Readiness Plan
-Resource Tagging
-Cryptography Key Owner Acknowledgement
-Platform Access Review
-Penetration Tests
-2024-02-14

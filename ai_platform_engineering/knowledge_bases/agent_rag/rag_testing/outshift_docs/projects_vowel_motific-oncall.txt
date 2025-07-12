@@ -1,9 +1,0 @@
-motific oncall pagerduty
-Motific On-call
-¶
-Join the following webex spaces:
-Motific Production High Priority Alerts
-Motific Production Low Priority Alerts
-Motific Staging High Priority Alerts
-Motific Staging Low Priority Alerts
-2024-05-29

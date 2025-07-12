@@ -1,6 +1,0 @@
-logs
-metrics
-splunk
-For Dev
-Splunk User Guide
-2025-06-20

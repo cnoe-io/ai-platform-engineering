@@ -1,6 +1,0 @@
-aks kubernetes
-azure kubernetes
-Azure Kubernetes (AKS)
-¶
-Currently AKS is only used for testing and experimentation. Setup is via Azure Web UI. Contact SRE team for further details.
-2023-11-10

@@ -1,9 +1,0 @@
-AppDynamics FSO Operator guide
-¶
-!!! warning This documentation is deprecated, we are using splunk now for observability
-Cluster Onboarding
-¶
-AppDynamics clusters are provisioned using the appdynamics-collector baseapp.
--
-Onboarding Process
-2025-06-20

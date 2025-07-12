@@ -1,9 +1,0 @@
-baseapps redis
-redis
-Redis
-¶
-Redis, an in-memory data structure store used as a database, cache, and message broker
-References
-:
-In-cluster Redis
-2023-09-25

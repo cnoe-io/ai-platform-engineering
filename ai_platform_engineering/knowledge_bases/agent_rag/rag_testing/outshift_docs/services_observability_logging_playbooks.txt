@@ -1,7 +1,0 @@
-Logging Playbooks
-¶
-Under Construction
-¶
-TODO:
-How to add Grok pattern to the configuration
-2023-12-10

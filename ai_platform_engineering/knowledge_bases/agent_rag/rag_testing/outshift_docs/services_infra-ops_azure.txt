@@ -1,9 +1,0 @@
-outshift azure infra ops
-Outshift Azure Infra Ops
-¶
-Please reach out
-run-on
-if you need Azure Support
-User Guide
-Operator Guide
-2024-06-14

@@ -1,7 +1,0 @@
-How-to troubleshoot expiring SSL certs and renew
-¶
-Sample Alert
-¶
-The incident https://cisco-eti.pagerduty.com/incidents/Q2M9MYBD9JYN47 was triggered by the SRE Pipeline Warnings service and assigned to Dev Null.
-Incident title: [FIRING:1] BlackboxSslCertificateWillExpireSoon eti-sre-monitoring.cisco.com https://kdm-docs.eticloud.io/ blackbox_post warning
-2022-06-01

@@ -1,8 +1,0 @@
-development
-panoptica ci cd
-ventures
-CWPP CI/CD
-¶
-Jenkins
-Github Actions (GHA)/ArgoCD
-2024-02-26
