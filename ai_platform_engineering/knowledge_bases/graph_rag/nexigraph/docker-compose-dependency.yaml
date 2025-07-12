@@ -1,0 +1,28 @@
+services:
+  neo4j:
+    image: neo4j:latest
+    volumes:
+        - ./.neo4j/logs:/logs
+        - ./.neo4j/config:/config
+        - ./.neo4j/data:/data
+        - ./.neo4j/plugins:/plugins
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/dummy_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: true
+      NEO4J_apoc_import_file_enabled: true
+      NEO4J_apoc_import_file_use__neo4j__config: true
+
+  redis:
+    image: redis
+    command:
+      - /bin/sh
+      - -c
+      - redis-server
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
