@@ -1,0 +1,92 @@
+ 
+services:
+  neo4j:
+    image: neo4j:latest
+    volumes:
+        - ./.neo4j/logs:/logs
+        - ./.neo4j/config:/config
+        - ./.neo4j/data:/data
+        - ./.neo4j/plugins:/plugins
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/dummy_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: true
+      NEO4J_apoc_import_file_enabled: true
+      NEO4J_apoc_import_file_use__neo4j__config: true
+
+  redis:
+    image: redis
+    command:
+      - /bin/sh
+      - -c
+      - redis-server
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  server:
+    volumes:
+      - ./example/config.yaml:/etc/nexigraph/config/config.yaml
+    ports:
+      - "8095:8095"
+    environment:
+        CONFIG_PATH: /etc/nexigraph/config/config.yaml
+        LOG_LEVEL: DEBUG
+        REDIS_HOST: redis
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        API_KEYS: dummy_key
+        CLEANUP_INTERVAL: 86400
+    restart: unless-stopped
+    build:
+      context: ./nexigraph/
+      dockerfile: ./server/Dockerfile
+  
+  agent_fkey:
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_HOST: redis
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        SYNC_INTERVAL: 86400
+        OPENAI_API_VERSION: $OPENAI_API_VERSION
+        AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
+        AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
+    restart: unless-stopped
+    build:
+      context: ./nexigraph/
+      dockerfile: ./agent_fkey/Dockerfile
+  agent_qa:
+    ports:
+      - "8096:8096"
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_HOST: redis
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        OPENAI_API_VERSION: $OPENAI_API_VERSION
+        AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
+        AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
+    restart: unless-stopped
+    build:
+      context: ./nexigraph/
+      dockerfile: ./agent_qa/Dockerfile
+  
+  dummy_client:
+   environment:
+       SERVER_ADDR: http://server:8095
+       API_KEY: dummy_key
+       DUMMY_ENTITIES_FILE: dummy_data.json
+   restart: unless-stopped
+   volumes:
+     - ./example/dummy_data.json:/app/clients/dummy_data.json
+   build:
+      context: ./nexigraph/
+      dockerfile: ./clients/Dockerfile
