@@ -78,7 +78,7 @@ def sync_all_k8s_resources(c: Client):
         try:
             # List all objects for the resource
             resource: Resource = resource[0]
-            if type(resource) != Resource:
+            if not isinstance(resource, Resource):
                 logging.info("Skipping non-resource")
                 continue
             if resource.kind is None:
