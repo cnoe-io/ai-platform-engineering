@@ -34,7 +34,7 @@ class RAGAgentExecutor(AgentExecutor):
     ) -> None:
         query = context.get_user_input()
         task = context.current_task
-        context_id = context.message.contextId if context.message else None
+        _ = context.message.contextId if context.message else None
 
         if not context.message:
             raise Exception('No message provided')
@@ -46,7 +46,7 @@ class RAGAgentExecutor(AgentExecutor):
         try:
             # Get answer from RAG agent
             answer = self.agent.answer_question(query)
-            
+
             # Send the final result
             event_queue.enqueue_event(
                 TaskArtifactUpdateEvent(
@@ -92,4 +92,4 @@ class RAGAgentExecutor(AgentExecutor):
     async def cancel(
         self, context: RequestContext, event_queue: EventQueue
     ) -> None:
-        raise Exception('cancel not supported') 
+        raise Exception('cancel not supported')

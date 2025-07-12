@@ -1,7 +1,6 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-import os
 import click
 import httpx
 import logging
@@ -32,7 +31,7 @@ load_dotenv()
 @click.option('--milvus-uri', 'milvus_uri', default='http://localhost:19530', help='Milvus server URI')
 def main(host: str, port: int, milvus_uri: str):
     logger.info(f"Starting RAG agent with Milvus URI: {milvus_uri}")
-    
+
     # Initialize components
     client = httpx.AsyncClient()
     request_handler = DefaultRequestHandler(
@@ -87,4 +86,4 @@ def get_agent_card(host: str, port: int):
 
 
 if __name__ == '__main__':
-    main() 
+    main()
