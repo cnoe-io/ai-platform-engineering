@@ -176,7 +176,7 @@ def flatten_dict(d: dict, wildcard_index=True) -> dict[str, str]:
                         if parent_key:
                             new_key = f"{parent_key}.[*]"
                         else:
-                            new_key = f"[*]"
+                            new_key = "[*]"
                         vals.append(v)
                 if len(vals) > 0:
                     items.append((new_key, vals))

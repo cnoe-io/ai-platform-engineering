@@ -1,5 +1,3 @@
-import logging
-from math import log
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue

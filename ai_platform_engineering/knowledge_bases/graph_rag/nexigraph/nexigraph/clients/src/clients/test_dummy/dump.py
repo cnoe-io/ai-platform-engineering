@@ -1,4 +1,3 @@
-from math import e
 from core import utils
 from core.graph_db.neo4j.graph_db import Neo4jDB
 

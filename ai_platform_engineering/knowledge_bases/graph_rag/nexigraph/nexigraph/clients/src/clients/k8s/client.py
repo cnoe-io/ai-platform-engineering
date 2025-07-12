@@ -15,8 +15,17 @@ CLIENT_NAME = "k8s"
 SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 60 * 15))  # sync every 15 minutes by default
 cluster_name = os.environ.get('CLUSTER_NAME')
 EXIT_AFTER_SYNC = os.getenv("EXIT_AFTER_SYNC", "false").lower() == "true"
-# default_ignore_resource_list = "CustomResourceDefinition,ComponentStatus,ConfigMap,ControllerRevision,ClusterRoleBinding,RoleBinding,Event,Lease,MutatingWebhookConfiguration,NodeMetrics,Pod,PodMetrics,Secret,SelfSubjectAccessReview,SelfSubjectReview,SelfSubjectRulesReview,ServiceAccount,SubjectAccessReview,TokenReview,ValidatingWebhookConfiguration"
-# ignore_resource_list = [c.lower() for c in os.environ.get('IGNORE_RESOURCE_LIST', default_ignore_resource_list).split(",")]
+
+# default_ignore_resource_list = (
+#     "CustomResourceDefinition,ComponentStatus,ConfigMap,ControllerRevision,"
+#     "ClusterRoleBinding,RoleBinding,Event,Lease,MutatingWebhookConfiguration,"
+#     "NodeMetrics,Pod,PodMetrics,Secret,SelfSubjectAccessReview,SelfSubjectReview,"
+#     "SelfSubjectRulesReview,ServiceAccount,SubjectAccessReview,TokenReview,"
+#     "ValidatingWebhookConfiguration"
+# )
+# ignore_resource_list = [
+#     c.lower() for c in os.environ.get('IGNORE_RESOURCE_LIST', default_ignore_resource_list).split(",")
+# ]
 
 default_resource_list = "Certificate,ClusterIssuer,CronJob,DaemonSet,Deployment,Ingress,IngressClass,Issuer,Job,Namespace,Node,Service,StatefulSet,StorageClass"
 resource_list = os.environ.get('RESOURCE_LIST', default_resource_list).split(",") # ignore resources - uses prefix matching
@@ -43,7 +52,7 @@ def sync_all_k8s_resources(c: Client):
     if not cluster_name:
         logging.error("CLUSTER_NAME environment variable is not set. Please set it to the name of your Kubernetes cluster.")
         return
-    
+
     # Check if the cluster exists in the database
     clusters = c.find_entity(entity_type="K8sCluster", props={"name": cluster_name})
     if len(clusters) == 0:
@@ -54,7 +63,7 @@ def sync_all_k8s_resources(c: Client):
                 "name": cluster_name,
             }
         ))
-        
+
     # Initialize the dynamic client
     dyn_client = dynamic.DynamicClient(kconfig.new_client_from_config())
 
@@ -70,10 +79,10 @@ def sync_all_k8s_resources(c: Client):
             # List all objects for the resource
             resource: Resource = resource[0]
             if type(resource) != Resource:
-                logging.info(f"Skipping non-resource")
+                logging.info("Skipping non-resource")
                 continue
             if resource.kind is None:
-                logging.info(f"Skipping resource with no kind")
+                logging.info("Skipping resource with no kind")
                 continue
             # Skip ignored resources
             if resource.kind.lower() not in resource_list:
@@ -90,6 +99,7 @@ def sync_all_k8s_resources(c: Client):
 
             for obj in objects.items:
                 id_val =  str(cluster_name) + "/" + str(resource_group_version) +"/"+ str(resource.kind) + "/" + obj.metadata.get("namespace", "") + "/"+ obj.metadata.name
+                logging.debug(f"Processing {resource_name} object: {id_val}")
                 all_properties = utils.flatten_dict(obj.to_dict())
                 all_properties_clean = {}
                 # remove any ignored fields
@@ -103,7 +113,7 @@ def sync_all_k8s_resources(c: Client):
                     if not ignore:
                         all_properties_clean[field] = all_properties[field]
 
-                
+
                 all_properties_clean["cluster_name"] = cluster_name
 
                 if "metadata.namespace" in all_properties_clean:

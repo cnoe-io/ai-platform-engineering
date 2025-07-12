@@ -2,26 +2,19 @@
 
 Works with a chat model with tool calling support.
 """
-from gzip import READ
-import json
-from urllib import response
 from core.agent.tools import fetch_entity_details, fuzzy_search, get_entity_types, get_relation_path_between_entity_types, raw_query
 import langchain.chat_models.base
 from datetime import datetime, timezone
-from langchain_aws import ChatBedrock
 from langchain_core.prompts import PromptTemplate
 from langgraph.prebuilt import create_react_agent
 
-from typing import AsyncIterable, Any, Literal
+from typing import AsyncIterable, Any
 
 from langchain_core.messages import AIMessage, ToolMessage
-from langgraph.prebuilt.chat_agent_executor import AgentState
 from langchain_core.messages.utils import (
-    trim_messages, 
-    count_tokens_approximately
+    trim_messages
 )
 import dotenv
-from pydantic import BaseModel
 
 from core import utils
 from core.graph_db.neo4j.graph_db import Neo4jDB

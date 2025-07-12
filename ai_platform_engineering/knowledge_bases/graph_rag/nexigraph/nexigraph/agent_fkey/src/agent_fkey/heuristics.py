@@ -1,13 +1,10 @@
-import logging
-from math import comb, log
 from typing import List
 from core import utils as utils
 from core.constants import DEFAULT_LABEL
 from core.graph_db.base import GraphDB
-from core.models import CompositeKeyPropertyMapping, Entity, FkeyHeuristic
+from core.models import CompositeKeyPropertyMapping, Entity
 
 from agent_fkey.relation_manager import RelationCandidateManager
-import agent_fkey.helpers as helpers
 
 class HeuristicsProcessor:
     """

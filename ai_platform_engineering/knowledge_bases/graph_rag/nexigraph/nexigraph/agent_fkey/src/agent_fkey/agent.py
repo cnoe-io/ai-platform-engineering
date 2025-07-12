@@ -129,10 +129,10 @@ class ForeignKeyRelationAgent:
         """
         A worker that listens to a pubsub queue for any manually added requests, and then routes them to the appropriate worker.
         """
-        self.logger.info(f"Starting request router")
-        logger = utils.get_logger(f"fkey_request_router")
+        self.logger.info("Starting request router")
+        logger = utils.get_logger("fkey_request_router")
         while True:
-            logger.info(f"agent-req-router waiting for requests...")
+            logger.info("agent-req-router waiting for requests...")
             request = await self.msg_pubsub.subscribe(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC)
             logger.info(f"agent-req-router New item picked up: {request}")
             rc_manager = RelationCandidateManager(self.graph_db, self.acceptance_threshold, self.rejection_threshold)
@@ -145,7 +145,7 @@ class ForeignKeyRelationAgent:
                 # process all heuristics and evaluate all relations
                 await self.process_and_evaluate_all()
             if request == "evaluate_all":
-                logger.info(f"Evaluating all relations without processing heuristics")
+                logger.info("Evaluating all relations without processing heuristics")
                 await self.evaluate_all(rc_manager)
             elif request == "process_all":
                 logger.info("Processing all heuristics without evaluation")

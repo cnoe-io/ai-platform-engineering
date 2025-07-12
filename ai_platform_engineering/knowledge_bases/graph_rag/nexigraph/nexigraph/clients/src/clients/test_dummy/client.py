@@ -3,14 +3,15 @@ import logging
 import os
 import json
 
+from clients.common import Client
+from core.models import Entity, EntityIdentifier, Relation
+
+
 """
 This is a dummy plugin that creates a number of dummy entities and relations.
 It also listens for entity update notifications and sleeps for a few seconds before responding.
 Its both an ingestor and a processor plugin.
 """
-
-from clients.common import Client
-from core.models import Entity, EntityIdentifier, Relation
 
 CLIENT_NAME = "test_dummy"
 
@@ -75,7 +76,7 @@ def sync(p: Client):
     # sync entities from file
     file_path = os.getenv("DUMMY_ENTITIES_FILE", "entities_dummy.json")
     sync_entities_from_file(p, file_path)
-    
+
 
 async def run():
     #  create a plugin object
