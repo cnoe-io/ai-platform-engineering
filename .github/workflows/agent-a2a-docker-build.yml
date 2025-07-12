@@ -2,8 +2,12 @@ name: Agent A2A Docker Build and Push
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'ai_platform_engineering/agents/**'
+    tags-ignore:
+      - '**'
   pull_request:
     paths:
       - 'ai_platform_engineering/agents/**'
@@ -17,7 +21,7 @@ jobs:
 
     strategy:
       matrix:
-        agent: [argocd, backstage, confluence, github, jira, komodor, pagerduty, slack, webex]
+        agent: [argocd, backstage, confluence, github, jira, komodor, pagerduty, slack, template, webex]
       fail-fast: false
 
     env:
