@@ -1,7 +1,5 @@
 import os
 from unittest import TestCase, mock
-from cnoe_agent_utils import LLMFactory
-from langchain_openai import AzureChatOpenAI
 
 
 class TestLLMFactory(TestCase):

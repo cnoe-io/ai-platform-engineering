@@ -1,0 +1,68 @@
+name: MCP Docker Build and Push
+
+on:
+  push:
+    paths:
+      - 'ai_platform_engineering/agents/**'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        agent: [argocd]
+      fail-fast: false
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
+      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+
+    steps:
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@6c439dc8bdf85cadbbce9ed30d1c7b959517bc49 # v2.12.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=mcp-latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,prefix=mcp-
+            type=ref,event=tag,prefix=mcp-
+            type=sha,format=short,prefix=mcp-
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Push MCP Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.AGENT_DIR }}
+          file: ${{ env.AGENT_DIR }}/build/Dockerfile.mcp
+          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

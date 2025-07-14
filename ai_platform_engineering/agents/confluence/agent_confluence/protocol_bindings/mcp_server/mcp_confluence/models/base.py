@@ -5,9 +5,8 @@
 
 """Base models for the API"""
 
-from typing import Dict, List, Optional
-from datetime import datetime
-from pydantic import BaseModel, Field
+from typing import Dict, Optional
+from pydantic import BaseModel
 
 
 class APIResponse(BaseModel):
