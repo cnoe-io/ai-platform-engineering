@@ -1,4 +1,4 @@
-"""SSL-related utility functions for MCP Atlassian."""
+"""SSL-related utility functions for MCP Jira."""
 
 import logging
 import ssl

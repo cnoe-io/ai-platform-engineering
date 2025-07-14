@@ -1,5 +1,5 @@
 """
-Utility functions for the MCP Atlassian integration.
+Utility functions for the MCP Jira integration.
 This package provides various utility functions used throughout the codebase.
 """
 

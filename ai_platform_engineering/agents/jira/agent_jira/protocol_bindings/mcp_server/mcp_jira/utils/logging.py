@@ -1,6 +1,6 @@
-"""Logging utilities for MCP Atlassian.
+"""Logging utilities for MCP Jira.
 
-This module provides enhanced logging capabilities for MCP Atlassian,
+This module provides enhanced logging capabilities for MCP Jira,
 including level-dependent stream handling to route logs to the appropriate
 output stream based on their level.
 """
@@ -10,7 +10,7 @@ import logging
 
 def setup_logging(level: int = logging.WARNING) -> logging.Logger:
     """
-    Configure MCP-Atlassian logging with level-based stream routing.
+    Configure MCP-Jira logging with level-based stream routing.
 
     Args:
         level: The minimum logging level to display (default: WARNING)
