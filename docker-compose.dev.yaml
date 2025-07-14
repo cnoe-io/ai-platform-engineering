@@ -36,6 +36,12 @@ services:
       - SLACK_AGENT_HOST=agent-slack-build
       - WEBEX_AGENT_HOST=agent-webex-build
       - ENABLE_KOMODOR=true
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
     command: platform-engineer
 
   ####################################################################################################
@@ -82,12 +88,12 @@ services:
       - SLACK_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-latest
       - WEBEX_AGENT_PORT=8000
-      # - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      # - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      # - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      # - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      # - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
-      # - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
     command: platform-engineer
 
   ####################################################################################################
@@ -330,7 +336,6 @@ services:
       - ./.env:/app/.env
     ports:
       - "8009:8000"
-
   agent-webex-latest:
     image: ghcr.io/cnoe-io/agent-webex:a2a-latest
     container_name: agent-webex-latest
@@ -343,25 +348,25 @@ services:
     ports:
       - "8009:8000"
 
-  # UI container
-  # ui:
-  #   image: ghcr.io/eti-demos/agentconnect
-  #   container_name: ui
-  #   ports:
-  #     - "3001:3001"
-
+  ####################################################################################################
+  #                                      BACKSTAGE AGENT FORGE                                        #
+  ####################################################################################################
   backstage-agent-forge:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
     ports:
       - "13000:3000"
 
+  ####################################################################################################
+  #                                      LANGFUSE TRACING SERVICES                                   #
+  ####################################################################################################
   # Langfuse Tracing Services (use --profile tracing to enable)
   langfuse-worker:
     image: langfuse/langfuse-worker:3
     container_name: langfuse-worker
     restart: always
     profiles:
+      - build-tracing
       - tracing
     depends_on:
       langfuse-postgres:
@@ -405,6 +410,7 @@ services:
     container_name: langfuse-web
     restart: always
     profiles:
+      - build-tracing
       - tracing
     depends_on:
       langfuse-postgres:
@@ -450,6 +456,7 @@ services:
     container_name: langfuse-clickhouse
     restart: always
     profiles:
+      - build-tracing
       - tracing
     user: "101:101"
     environment:
@@ -474,6 +481,7 @@ services:
     container_name: langfuse-minio
     restart: always
     profiles:
+      - build-tracing
       - tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
@@ -497,6 +505,7 @@ services:
     container_name: langfuse-redis
     restart: always
     profiles:
+      - build-tracing
       - tracing
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
@@ -513,6 +522,7 @@ services:
     container_name: langfuse-postgres
     restart: always
     profiles:
+      - build-tracing
       - tracing
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
