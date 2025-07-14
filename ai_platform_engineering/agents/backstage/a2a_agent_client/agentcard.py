@@ -8,7 +8,14 @@ from a2a.types import (
 )
 
 BACKSTAGE_AGENT_HOST = os.getenv("BACKSTAGE_AGENT_HOST", "localhost")
-BACKSTAGE_AGENT_PORT = os.getenv("BACKSTAGE_AGENT_PORT", "8006")
+BACKSTAGE_AGENT_PORT = os.getenv("BACKSTAGE_AGENT_PORT", "8000")
+
+print("===================================")
+print("       BACKSTAGE AGENT CONFIG      ")
+print("===================================")
+print(f"BACKSTAGE_AGENT_HOST: {BACKSTAGE_AGENT_HOST}")
+print(f"BACKSTAGE_AGENT_PORT: {BACKSTAGE_AGENT_PORT}")
+print("===================================")
 
 BACKSTAGE_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to interact with Backstage for catalog management, entity lookup, and service metadata.'
 
@@ -42,4 +49,4 @@ backstage_agent_card = AgentCard(
     streaming=False),
   skills=[backstage_agent_skill],
   supportsAuthenticatedExtendedCard=False,
-) 
+)

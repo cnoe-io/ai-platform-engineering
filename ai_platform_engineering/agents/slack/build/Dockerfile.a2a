@@ -15,4 +15,4 @@ RUN poetry install --no-interaction --no-root
 
 EXPOSE 8000
 
-CMD ["poetry", "run", "python", "-m", "agent_slack", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["poetry", "--quiet", "run", "python", "-m", "agent_slack", "--host", "0.0.0.0", "--port", "8000"]
