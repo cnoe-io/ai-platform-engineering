@@ -30,7 +30,7 @@ backstage-plugin-agent-forge:
   isBackstagePlugin: true
   service:
     ports:
-      - name: frontend
+      - name: http
         port: 3000
         protocol: TCP
       - name: backend
