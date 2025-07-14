@@ -8,7 +8,14 @@ from a2a.types import (
 )
 
 KOMODOR_AGENT_HOST = os.getenv("KOMODOR_AGENT_HOST", "localhost")
-KOMODOR_AGENT_PORT = os.getenv("KOMODOR_AGENT_PORT", "8001")
+KOMODOR_AGENT_PORT = os.getenv("KOMODOR_AGENT_PORT", "8000")
+
+print("===================================")
+print("       KOMODOR AGENT CONFIG        ")
+print("===================================")
+print(f"KOMODOR_AGENT_HOST: {KOMODOR_AGENT_HOST}")
+print(f"KOMODOR_AGENT_PORT: {KOMODOR_AGENT_PORT}")
+print("===================================")
 
 KOMODOR_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to list, manage, and retrieve details of clusters, services and workloads in Komodor.'
 

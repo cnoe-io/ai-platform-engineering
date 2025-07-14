@@ -8,7 +8,13 @@ from a2a.types import (
 )
 
 CONFLUENCE_AGENT_HOST = os.getenv("CONFLUENCE_AGENT_HOST", "localhost")
-CONFLUENCE_AGENT_PORT = os.getenv("CONFLUENCE_AGENT_PORT", "8002")
+CONFLUENCE_AGENT_PORT = os.getenv("CONFLUENCE_AGENT_PORT", "8000")
+print("===================================")
+print("       CONFLUENCE AGENT CONFIG     ")
+print("===================================")
+print(f"CONFLUENCE_AGENT_HOST: {CONFLUENCE_AGENT_HOST}")
+print(f"CONFLUENCE_AGENT_PORT: {CONFLUENCE_AGENT_PORT}")
+print("===================================")
 
 CONFLUENCE_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Jira operations.'
 
