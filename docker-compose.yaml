@@ -1,13 +1,15 @@
 services:
-  # AI Platform Engineer Multi-Agent System (stable image)
-  ai-platform-engineer:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:stable
-    container_name: platform-engineer
+  # AI Platform Engineering Multi-Agent System (stable image)
+  platform-engineer:
+  agent-argocd:
+    image: ghcr.io/cnoe-io/ai-platform-engineering:latest
+    container_name: platform-engineering
     depends_on:
       - agent-argocd
-      - agent-atlassian
-      - agent-pagerduty
+      - agent-backstage
       - agent-github
+      - agent-jira
+      - agent-pagerduty
       - agent-slack
     env_file:
       - .env
@@ -17,17 +19,13 @@ services:
     environment:
       - AGENT_PROTOCOL=a2a
       - ARGOCD_AGENT_HOST=agent-argocd
-      - ARGOCD_AGENT_PORT=8000
-      - ATLASSIAN_AGENT_HOST=agent-atlassian
-      - ATLASSIAN_AGENT_PORT=8000
+      - BACKSTAGE_AGENT_HOST=agent-backstage
+      - CONFLUENCE_AGENT_HOST=agent-confluence
+      - JIRA_AGENT_HOST=agent-jira
       - GITHUB_AGENT_HOST=agent-github
-      - GITHUB_AGENT_PORT=8000
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - PAGERDUTY_AGENT_PORT=8000
       - SLACK_AGENT_HOST=agent-slack
-      - SLACK_AGENT_PORT=8000
       - KOMODOR_AGENT_HOST=agent-komodor
-      - KOMODOR_AGENT_PORT=8000
       # Uncomment this once the stable GHCR image includes tracing evaluation support
       # - ENABLE_TRACING=${ENABLE_TRACING:-false}
       # - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -35,8 +33,11 @@ services:
       # - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       # - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+    volumes:
+      - .env:/app/.env
+      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     command: platform-engineer
-
   # AI Platform Engineer Multi-Agent System (local build for tracing)
   # TODO: Remove this local build service once the stable GHCR image includes tracing evaluation support
   ai-platform-engineer-tracing:
@@ -60,19 +61,12 @@ services:
     environment:
       - AGENT_PROTOCOL=a2a
       - ARGOCD_AGENT_HOST=agent-argocd
-      - ARGOCD_AGENT_PORT=8000
       - ATLASSIAN_AGENT_HOST=agent-atlassian
-      - ATLASSIAN_AGENT_PORT=8000
       - BACKSTAGE_AGENT_HOST=agent-backstage
-      - BACKSTAGE_AGENT_PORT=8000
       - GITHUB_AGENT_HOST=agent-github
-      - GITHUB_AGENT_PORT=8000
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - PAGERDUTY_AGENT_PORT=8000
       - SLACK_AGENT_HOST=agent-slack
-      - SLACK_AGENT_PORT=8000
       - KOMODOR_AGENT_HOST=agent-komodor
-      - KOMODOR_AGENT_PORT=8000
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -87,74 +81,57 @@ services:
     command: platform-engineer
   # Agent ArgoCD
   agent-argocd:
-    image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
+    image: ghcr.io/cnoe-io/agent-argocd:a2a-latest
     container_name: agent-argocd
     volumes:
       - ./.env:/app/.env
     ports:
-      # Expose the ArgoCD agent on port 8080
       - "8001:8000"
-  # Agent Atlassian
-  agent-atlassian:
-    image: ghcr.io/cnoe-io/agent-atlassian:a2a-stable
-    container_name: agent-atlassian
+  # Agent Backstage
+  agent-backstage:
+    image: ghcr.io/cnoe-io/agent-backstage:a2a-latest
+    container_name: agent-backstage
     volumes:
       - ./.env:/app/.env
     ports:
-      # Expose the Atlassian agent on port 8002
       - "8002:8000"
   # Agent GitHub
   agent-github:
-    image: ghcr.io/cnoe-io/agent-github:a2a-stable
+    image: ghcr.io/cnoe-io/agent-github:a2a-latest
     container_name: agent-github
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
     ports:
-      # Expose the GitHub agent on port 8003
-      - "8003:8000"
+      - "8004:8000"
+  agent-jira:
+    image: ghcr.io/cnoe-io/agent-jira:a2a-latest
+    container_name: agent-jira
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8005:8000"
   # Agent PagerDuty
   agent-pagerduty:
-    image: ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
+    image: ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
     container_name: agent-pagerduty
     volumes:
       - ./.env:/app/.env
     ports:
-      # Expose the PagerDuty agent on port 8004
-      - "8004:8000"
+      - "8006:8000"
   # Agent Slack
   agent-slack:
-    image: ghcr.io/cnoe-io/agent-slack:a2a-stable
+    image: ghcr.io/cnoe-io/agent-slack:a2a-latest
     container_name: agent-slack
     volumes:
       - ./.env:/app/.env
     ports:
-      # Expose the Slack agent on port 8005
-      - "8005:8000"
-  # Sample UI container to interact with A2A applications
-  # ui:
-  #   image: ghcr.io/eti-demos/agentconnect
-  #   container_name: ui
-  #   ports:
-  #     - "3001:3001"
+      - "8007:8000"
   backstage-agent-forge:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
     ports:
-      - "8007:3000"
-  # Agent Backstage
-  agent-backstage:
-    image: ghcr.io/cnoe-io/agent-backstage:a2a-stable
-    container_name: agent-backstage
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      # Expose the Backstage agent on port 8006
-      - "8006:8000"
-    environment:
-      - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
-      - BACKSTAGE_URL=${BACKSTAGE_URL}
-
+      - "3000:3000"
   # Langfuse Tracing Services (use --profile tracing to enable)
   # Reference: https://github.com/langfuse/langfuse/blob/main/docker-compose.yml
   langfuse-worker:

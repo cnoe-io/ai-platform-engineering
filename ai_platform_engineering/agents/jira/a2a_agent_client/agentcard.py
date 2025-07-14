@@ -8,7 +8,14 @@ from a2a.types import (
 )
 
 JIRA_AGENT_HOST = os.getenv("JIRA_AGENT_HOST", "localhost")
-JIRA_AGENT_PORT = os.getenv("JIRA_AGENT_PORT", "8002")
+JIRA_AGENT_PORT = os.getenv("JIRA_AGENT_PORT", "8000")
+
+print("===================================")
+print("       JIRA AGENT CONFIG           ")
+print("===================================")
+print(f"JIRA_AGENT_HOST: {JIRA_AGENT_HOST}")
+print(f"JIRA_AGENT_PORT: {JIRA_AGENT_PORT}")
+print("===================================")
 
 JIRA_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Jira operations.'
 

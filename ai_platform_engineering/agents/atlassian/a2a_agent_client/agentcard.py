@@ -8,7 +8,15 @@ from a2a.types import (
 )
 
 ATLASSIAN_AGENT_HOST = os.getenv("ATLASSIAN_AGENT_HOST", "localhost")
-ATLASSIAN_AGENT_PORT = os.getenv("ATLASSIAN_AGENT_PORT", "8002")
+ATLASSIAN_AGENT_PORT = os.getenv("ATLASSIAN_AGENT_PORT", "8000")
+
+print("===================================")
+print("       ATLASSIAN AGENT CONFIG      ")
+print("===================================")
+print(f"ATLASSIAN_AGENT_HOST: {ATLASSIAN_AGENT_HOST}")
+print(f"ATLASSIAN_AGENT_PORT: {ATLASSIAN_AGENT_PORT}")
+print("===================================")
+
 
 ATLASSIAN_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Jira operations.'
 

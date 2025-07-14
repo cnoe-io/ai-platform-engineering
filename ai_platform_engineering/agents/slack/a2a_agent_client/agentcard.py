@@ -8,8 +8,13 @@ from a2a.types import (
 )
 
 SLACK_AGENT_HOST = os.getenv("SLACK_AGENT_HOST", "localhost")
-SLACK_AGENT_PORT = os.getenv("SLACK_AGENT_PORT", "8005")
-
+SLACK_AGENT_PORT = os.getenv("SLACK_AGENT_PORT", "8000")
+print("===================================")
+print("       SLACK AGENT CONFIG          ")
+print("===================================")
+print(f"SLACK_AGENT_HOST: {SLACK_AGENT_HOST}")
+print(f"SLACK_AGENT_PORT: {SLACK_AGENT_PORT}")
+print("===================================")
 SLACK_AGENT_DESCRIPTION = (
   "An AI agent that integrates with Slack to assist with managing channels, "
   "sending messages, retrieving user information, and other Slack-based operations."

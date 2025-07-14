@@ -10,7 +10,14 @@ from a2a.types import (
 )
 
 PAGERDUTY_AGENT_HOST = os.getenv("PAGERDUTY_AGENT_HOST", "localhost")
-PAGERDUTY_AGENT_PORT = os.getenv("PAGERDUTY_AGENT_PORT", "8003")
+PAGERDUTY_AGENT_PORT = os.getenv("PAGERDUTY_AGENT_PORT", "8000")
+
+print("===================================")
+print("       PAGERDUTY AGENT CONFIG      ")
+print("===================================")
+print(f"PAGERDUTY_AGENT_HOST: {PAGERDUTY_AGENT_HOST}")
+print(f"PAGERDUTY_AGENT_PORT: {PAGERDUTY_AGENT_PORT}")
+print("===================================")
 
 pagerduty_agent_skill = AgentSkill(
   id="pagerduty_agent_skill",

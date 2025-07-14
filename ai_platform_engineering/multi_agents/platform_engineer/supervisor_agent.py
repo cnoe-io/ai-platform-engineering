@@ -27,8 +27,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 )
 
 from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_agent
-from ai_platform_engineering.agents.backstage.agent_backstage.a2a_agent_client.agent import backstage_agent
-from ai_platform_engineering.agents.confluence.a2a_agent_client.agent import confluence_agent
+from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_agent
 from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_agent
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_agent
 from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_agent
@@ -89,7 +88,6 @@ class AIPlatformEngineerMAS:
     agents = [
         argocd_agent,
         backstage_agent,
-        confluence_agent,
         github_agent,
         jira_agent,
         pagerduty_agent,

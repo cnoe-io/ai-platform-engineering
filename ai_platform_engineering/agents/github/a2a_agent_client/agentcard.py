@@ -10,7 +10,13 @@ from a2a.types import (
 )
 
 GITHUB_AGENT_HOST = os.getenv("GITHUB_AGENT_HOST", "localhost")
-GITHUB_AGENT_PORT = os.getenv("GITHUB_AGENT_PORT", "8003")
+GITHUB_AGENT_PORT = os.getenv("GITHUB_AGENT_PORT", "8000")
+print("===================================")
+print("       GITHUB AGENT CONFIG         ")
+print("===================================")
+print(f"GITHUB_AGENT_HOST: {GITHUB_AGENT_HOST}")
+print(f"GITHUB_AGENT_PORT: {GITHUB_AGENT_PORT}")
+print("===================================")
 
 github_agent_skill = AgentSkill(
   id="github_agent_skill",
