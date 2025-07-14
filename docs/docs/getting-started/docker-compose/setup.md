@@ -29,13 +29,13 @@ Setup AI Platform Engineering to run in a docker environment on a latop or a vir
 1. **Launch with Docker Compose (AI Platform Engineer)**
 
    ```bash
-   docker compose -f docker-compose.incident_engineer.yaml up
+   docker compose up
    ```
 
    **Launch with Docker Compose (AI Incident Engineer)**
 
    ```bash
-   docker-compose up
+   docker compose -f docker-compose.incident_engineer.yaml up
    ```
    
 3. **Connect to the A2A agent (host network)**
