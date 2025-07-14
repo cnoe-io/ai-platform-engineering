@@ -6,7 +6,7 @@ from ai_platform_engineering.agents.argocd.a2a_agent_client.agentcard import (
   argocd_agent_card,
   argocd_agent_skill
 )
-from ai_platform_engineering.agents.backstage.agent_backstage.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.backstage.a2a_agent_client.agentcard import (
   backstage_agent_card,
   backstage_agent_skill
 )
