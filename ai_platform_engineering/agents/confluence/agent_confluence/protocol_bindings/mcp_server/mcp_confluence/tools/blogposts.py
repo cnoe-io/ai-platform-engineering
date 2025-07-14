@@ -7,7 +7,7 @@
 
 import logging
 import os
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.api.client import make_api_request
 
 # Configure logging - use LOG_LEVEL from environment or default to INFO

@@ -19,7 +19,10 @@ async def get_entity_facets(param_facet: List[str], param_filter: List[str] = No
 
     Args:
         param_facet (List[str]): List of facet names to retrieve for the entities.
-        param_filter (List[str], optional): One or more filter sets to match against each entity. Each filter set is a list of conditions (ANDed together), and at least one filter set must match (ORed together). Each condition can be of the form `<key>` (existence) or `<key>=<value>` (equality). Keys are simplified JSON paths and matching is case-insensitive. Defaults to None.
+        param_filter (List[str], optional): One or more filter sets to match against each entity.
+          Each filter set is a list of conditions (ANDed together), and at least one filter set must match (ORed together).
+          Each condition can be of the form `<key>` (existence) or `<key>=<value>` (equality).
+          Keys are simplified JSON paths and matching is case-insensitive. Defaults to None.
 
     Returns:
         Dict[str, Any]: The JSON response containing the entity facets that match the given filters.
@@ -43,7 +46,10 @@ async def get_entity_facets(param_facet: List[str], param_filter: List[str] = No
           - name: filter
             in: query
             description: |
-              One or more filter sets to match against each entity. Each filter set is a list of conditions (ANDed together), and at least one filter set must match (ORed together). Each condition can be of the form `<key>` (existence) or `<key>=<value>` (equality). Keys are simplified JSON paths and matching is case-insensitive.
+              One or more filter sets to match against each entity.
+              Each filter set is a list of conditions (ANDed together), and at least one filter set must match (ORed together).
+              Each condition can be of the form `<key>` (existence) or `<key>=<value>` (equality).
+              Keys are simplified JSON paths and matching is case-insensitive.
             required: false
             schema:
               type: array

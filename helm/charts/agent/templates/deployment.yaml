@@ -53,9 +53,17 @@ spec:
             {{- end }}
           {{- end }}
           ports:
+            {{- if .Values.service.ports }}
+            {{- range .Values.service.ports }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol | default "TCP" }}
+            {{- end }}
+            {{- else }}
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+            {{- end }}
           envFrom:
             {{- if include "agent.externalSecrets.enabled" . | eq "true" }}
             {{- range include "agent.externalSecrets.secretNames" . | splitList "," }}

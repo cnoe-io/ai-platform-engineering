@@ -114,7 +114,7 @@ def create_agent_sync(prompt, response_format):
   tools = client.get_tools()
 
   model = LLMFactory().get_llm()
-  # model = ChatGoogleGenerativeAI(model='gemini-2.0-flash')
+
   return create_react_agent(
     model,
     tools=tools,

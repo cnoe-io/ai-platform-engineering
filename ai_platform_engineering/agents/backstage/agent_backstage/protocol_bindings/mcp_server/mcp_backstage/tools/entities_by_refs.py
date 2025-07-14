@@ -21,7 +21,9 @@ async def get_entities_by_refs(
 
     Args:
         body_entity_refs (List[str]): List of entity references to retrieve.
-        param_filter (List[str], optional): One or more filter sets to match against each entity. Each filter set is a group of conditions (ANDed together), and at least one filter set must match (ORed together) for an entity to be included. Each condition can be of the form `<key>` (existence) or `<key>=<value>` (equality), using simplified JSON paths. Defaults to None.
+        param_filter (List[str], optional): One or more filter sets to match against each entity.
+            Each filter set is a group of conditions (ANDed together), and at least one filter set must match (ORed together) for an entity to be included.
+            Each condition can be of the form `<key>` (existence) or `<key>=<value>` (equality), using simplified JSON paths. Defaults to None.
         body_fields (List[str], optional): List of fields to include in the response for each entity. Defaults to None.
 
     Returns:
@@ -60,7 +62,9 @@ async def get_entities_by_refs(
                 type: string
             required: false
             description: >
-              One or more filter sets to match against each entity. Each filter set is a group of conditions (ANDed together), and at least one filter set must match (ORed together) for an entity to be included. Each condition can be of the form `<key>` (existence) or `<key>=<value>` (equality), using simplified JSON paths.
+              One or more filter sets to match against each entity. Each filter set is a group of conditions (ANDed together),
+              and at least one filter set must match (ORed together) for an entity to be included. Each condition can be of the
+              form `<key>` (existence) or `<key>=<value>` (equality), using simplified JSON paths.
         responses:
           '200':
             description: A JSON object containing the matched entities.

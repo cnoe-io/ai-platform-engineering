@@ -27,11 +27,11 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 )
 
 from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_agent
-from ai_platform_engineering.agents.atlassian.agent import atlassian_agent
-from ai_platform_engineering.agents.pagerduty.agent import pagerduty_agent
-from ai_platform_engineering.agents.github.agent import github_agent
-from ai_platform_engineering.agents.slack.agent import slack_agent
-from ai_platform_engineering.agents.backstage.agent import backstage_agent
+from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_agent
+from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_agent
+from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_agent
+from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_agent
+from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_agent
 from ai_platform_engineering.utils.models.generic_agent import (
   ResponseFormat
 )
@@ -87,11 +87,11 @@ class AIPlatformEngineerMAS:
 
     agents = [
         argocd_agent,
-        atlassian_agent,
-        pagerduty_agent,
-        github_agent,
-        slack_agent,
         backstage_agent,
+        github_agent,
+        jira_agent,
+        pagerduty_agent,
+        slack_agent,
     ]
     if KOMODOR_ENABLED:
         agents.append(komodor_agent)

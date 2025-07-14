@@ -8,7 +8,6 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
 develop-eggs/
 dist/
 downloads/
@@ -190,7 +189,7 @@ a2a-python
 # helm chart
 helm/values-secrets.yaml
 helm/values-ingress.yaml
-helm/values-external-secrets.yaml
+helm/tmp/*
 
 .aider*
 .aider.*
@@ -200,3 +199,7 @@ helm/values-external-secrets.yaml
 *.png
 *.jpg
 *.jpeg
+
+# Exclude actual secret files but keep the directory structure
+deploy/data/*
+!deploy/data/.gitkeep

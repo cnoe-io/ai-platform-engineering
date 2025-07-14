@@ -1,0 +1,25 @@
+[project]
+name = "server"
+version = "0.1.0"
+description = "Server for NexiGraph, a graph-based knowledge management system"
+readme = "README.md"
+authors = [
+    { email = "subbaksh@cisco.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "agent-fkey",
+    "core",
+    "fastapi[standard]>=0.115.12",
+    "httpx>=0.28.1",
+    "langchain-mcp-adapters>=0.1.7",
+    "mcp[cli]>=1.9.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+core = { path = "../core" }
+agent-fkey = { path = "../agent_fkey" }

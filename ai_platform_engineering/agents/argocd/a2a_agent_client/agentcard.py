@@ -8,7 +8,14 @@ from a2a.types import (
 )
 
 ARGOCD_AGENT_HOST = os.getenv("ARGOCD_AGENT_HOST", "localhost")
-ARGOCD_AGENT_PORT = os.getenv("ARGOCD_AGENT_PORT", "8001")
+ARGOCD_AGENT_PORT = os.getenv("ARGOCD_AGENT_PORT", "8000")
+
+print("===================================")
+print("       ARGOCD AGENT CONFIG         ")
+print("===================================")
+print(f"ARGOCD_AGENT_HOST: {ARGOCD_AGENT_HOST}")
+print(f"ARGOCD_AGENT_PORT: {ARGOCD_AGENT_PORT}")
+print("===================================")
 
 ARGOCD_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to list, manage, and retrieve details of applications in ArgoCD.'
 

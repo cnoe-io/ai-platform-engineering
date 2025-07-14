@@ -1757,7 +1757,7 @@ python-dotenv = ">=1.0.0"
 
 [package.source]
 type = "directory"
-url = "../../mcp/argocd"
+url = "mcp/argocd"
 
 [[package]]
 name = "mdurl"
@@ -3755,4 +3755,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "fb2f2c64dd5e25f66564146b773c85fecd3dcff5bdf32f3d6ba6b50375acf6fb"
+content-hash = "1fb8e5047970acca8973517b4f8545e6e7616110b5f2f5204423e08583454b32"

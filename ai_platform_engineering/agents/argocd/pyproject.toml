@@ -31,6 +31,7 @@ cnoe-agent-utils = ">=0.1.3,<0.2.0"
 python-dotenv = ">=1.0.0"
 fastmcp = ">=0.1.0"
 fastapi = ">=0.100.0"
+mcp-argocd = {path = "mcp/argocd"}
 
 [tool.poetry.scripts]
 agent_argocd_a2a = "agent_argocd.protocol_bindings.a2a_server.__main__:main"

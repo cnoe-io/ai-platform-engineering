@@ -48,7 +48,7 @@ async def create_agent(prompt=None, response_format=None):
   confluence_api_url = os.getenv("ATLASSIAN_API_URL")
   if not confluence_api_url:
     raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
-  
+
   confluence_email = os.getenv("ATLASSIAN_EMAIL")
   if not confluence_email:
     raise ValueError("ATLASSIAN_EMAIl must be set as an environment variable.")
@@ -101,7 +101,7 @@ def create_agent_sync(prompt, response_format):
   confluence_api_url = os.getenv("ATLASSIAN_API_URL")
   if not confluence_api_url:
       raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
-  
+
   confluence_email = os.getenv("ATLASSIAN_EMAIL")
   if not confluence_email:
     raise ValueError("ATLASSIAN_EMAIl must be set as an environment variable.")
@@ -146,7 +146,7 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
     if not confluence_api_url:
       raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
     args = config.get("configurable", {})
-    # logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")  # Removed raw data output
+    logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")  # Removed raw data output
 
     confluence_email = os.getenv("ATLASSIAN_EMAIL")
     if not confluence_email:
@@ -160,7 +160,7 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
         else:
             # Fallback: try to find input in the state directly
             input_data = getattr(state, 'input', {})
-        
+
         if isinstance(input_data, dict) and "messages" in input_data:
             messages = [Message.model_validate(m) for m in input_data["messages"]]
         else:
@@ -181,7 +181,7 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
         )
         if last_human_message is not None:
             human_message = last_human_message.content
-    
+
     # Default message if no user input was found
     if not human_message:
         human_message = "Hello, I need help with Confluence"
@@ -237,7 +237,7 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
             "Ask clarifying questions when user intent is ambiguous and validate all operations."
         )
     )
-    
+
     # Use the actual user message instead of a hardcoded one
     logger.info(f"Invoking agent with user message: {human_message}")
     llm_result = await agent.ainvoke({"messages": human_message})

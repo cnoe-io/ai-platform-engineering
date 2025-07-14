@@ -7,7 +7,7 @@
 
 import logging
 import os
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from agent_confluence.protocol_bindings.mcp_server.mcp_confluence.api.client import make_api_request
 
 # Configure logging - use LOG_LEVEL from environment or default to INFO
@@ -17,7 +17,20 @@ logging.basicConfig(level=numeric_level)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_spaces(param_ids: List[int] = None, param_keys: List[str] = None, param_type: str = None, param_status: str = None, param_labels: List[str] = None, param_favorited_by: str = None, param_not_favorited_by: str = None, param_sort: str = None, param_description_format: str = None, param_include_icon: bool = None, param_cursor: str = None, param_limit: int = None) -> Dict[str, Any]:
+async def get_spaces(
+  param_ids: List[int] = None,
+  param_keys: List[str] = None,
+  param_type: str = None,
+  param_status: str = None,
+  param_labels: List[str] = None,
+  param_favorited_by: str = None,
+  param_not_favorited_by: str = None,
+  param_sort: str = None,
+  param_description_format: str = None,
+  param_include_icon: bool = None,
+  param_cursor: str = None,
+  param_limit: int = None
+) -> Dict[str, Any]:
     """
     Get spaces
 
@@ -30,31 +43,31 @@ Permission to access the Confluence site ('Can use' global permission).
 Only spaces that the user has permission to view will be returned.
 
     Args:
-    
+
         param_ids (List[int]): Filter the results to spaces based on their IDs. Multiple IDs can be specified as a comma-separated list.
-    
+
         param_keys (List[str]): Filter the results to spaces based on their keys. Multiple keys can be specified as a comma-separated list.
-    
+
         param_type (str): Filter the results to spaces based on their type.
-    
+
         param_status (str): Filter the results to spaces based on their status.
-    
+
         param_labels (List[str]): Filter the results to spaces based on their labels. Multiple labels can be specified as a comma-separated list.
-    
+
         param_favorited_by (str): Filter the results to spaces favorited by the user with the specified account ID.
-    
+
         param_not_favorited_by (str): Filter the results to spaces NOT favorited by the user with the specified account ID.
-    
+
         param_sort (str): Used to sort the result by a particular field.
-    
+
         param_description_format (str): The content format type to be returned in the `description` field of the response. If available, the representation will be available under a response field of the same name under the `description` field.
-    
+
         param_include_icon (bool): If the icon for the space should be fetched or not.
-    
+
         param_cursor (str): Used for pagination, this opaque cursor will be returned in the `next` URL in the `Link` response header. Use the relative URL in the `Link` header to retrieve the `next` set of results.
-    
+
         param_limit (int): Maximum number of spaces per result to return. If more results exist, use the `Link` response header to retrieve a relative URL that will return the next set of results.
-    
+
 
     Returns:
         Dict[str, Any]: The JSON response from the API call.
@@ -66,34 +79,34 @@ Only spaces that the user has permission to view will be returned.
 
     params = {}
     data = {}
-     
+
     # Only add parameters if they have values
     if param_ids is not None:
-        params["ids"] = param_ids   
+        params["ids"] = param_ids
     if param_keys is not None:
-        params["keys"] = param_keys   
+        params["keys"] = param_keys
     if param_type is not None:
-        params["type"] = param_type   
+        params["type"] = param_type
     if param_status is not None:
-        params["status"] = param_status   
+        params["status"] = param_status
     if param_labels is not None:
-        params["labels"] = param_labels   
+        params["labels"] = param_labels
     if param_favorited_by is not None:
-        params["favorited-by"] = param_favorited_by   
+        params["favorited-by"] = param_favorited_by
     if param_not_favorited_by is not None:
-        params["not-favorited-by"] = param_not_favorited_by   
+        params["not-favorited-by"] = param_not_favorited_by
     if param_sort is not None:
-        params["sort"] = param_sort   
+        params["sort"] = param_sort
     if param_description_format is not None:
-        params["description-format"] = param_description_format   
+        params["description-format"] = param_description_format
     if param_include_icon is not None:
-        params["include-icon"] = param_include_icon   
+        params["include-icon"] = param_include_icon
     if param_cursor is not None:
-        params["cursor"] = param_cursor   
+        params["cursor"] = param_cursor
     if param_limit is not None:
-        params["limit"] = param_limit  
+        params["limit"] = param_limit
 
-                            
+
 
     success, response = await make_api_request(
         "/space",
@@ -120,7 +133,7 @@ async def create_space() -> Dict[str, Any]:
 Permission to create spaces.
 
     Args:
-    
+
 
     Returns:
         Dict[str, Any]: The JSON response from the API call.
@@ -132,9 +145,9 @@ Permission to create spaces.
 
     params = {}
     data = {}
-    
 
-    
+
+
 
     success, response = await make_api_request(
         "/space",

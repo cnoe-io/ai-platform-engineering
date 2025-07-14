@@ -72,23 +72,44 @@ run-ai-platform-engineer: setup-venv build install ## Run the AI Platform Engine
 
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
-	@export LANGGRAPH_DEV=true && langgraph dev
+	@poetry install
+	@poetry run pip install langgraph-cli[inmem]
+	@cd ai_platform_engineering/multi_agents/platform_engineer && export LANGGRAPH_DEV=true && langgraph dev
 
 ## ========== Lint ==========
 
 lint: setup-venv ## Lint the code using Ruff
 	@echo "Linting the code..."
-	@poetry run ruff check .
+	@poetry run ruff check . --select E,F --ignore F403 --line-length 320
+
+lint-fix: setup-venv ## Automatically fix linting issues using Ruff
+	@echo "Fixing linting issues..."
+	@poetry run ruff check . --select E,F --ignore F403 --line-length 320 --fix
 
 ## ========== Test ==========
 
 test: setup-venv install ## Install dependencies and run tests using pytest
 	@echo "Installing ai_platform_engineering, agents, and argocd..."
 	@poetry add ./ai_platform_engineering/agents/argocd --no-interaction --group unittest
+	@poetry add ./ai_platform_engineering/agents/komodor --no-interaction --group unittest
+	@poetry add pytest-asyncio --group unittest --no-interaction
+
 	@echo "Running tests..."
 	@poetry run pytest
 
 
+validate:
+	@echo "Validating code..."
+	@echo "========================================"
+	@echo "Running linting to check code quality..."
+	@echo "========================================"
+	@$(MAKE) lint
+
+	@echo "========================================"
+	@echo "Running tests to ensure code correctness..."
+	@echo "========================================"
+	@$(MAKE) test
+	@echo "Validation complete."
 ## ========== Help ==========
 
 help: ## Show this help message
