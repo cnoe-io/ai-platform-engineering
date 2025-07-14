@@ -38,6 +38,7 @@ class GitHubAgentExecutor(AgentExecutor):
             event_queue.enqueue_event(task)
             
         # invoke the underlying agent, using streaming results
+        print(f"🔍 A2A Executor - calling agent.stream with context_id: {context_id}")
         async for event in self.agent.stream(query, context_id):
             if event['is_task_complete']:
                 event_queue.enqueue_event(
