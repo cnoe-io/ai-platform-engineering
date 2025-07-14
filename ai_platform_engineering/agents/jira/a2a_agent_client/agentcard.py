@@ -21,11 +21,10 @@ JIRA_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Jira
 
 jira_agent_skill = AgentSkill(
   id="jira_agent_skill",
-  name="Atlassian Agent Skill",
+  name="Jira Agent Skill",
   description="Provides capabilities to perform Jira operations.",
   tags=[
     "jira",
-    "atlassian",
     "issue-tracking"],
   examples=[
       "Create a new Jira issue in the 'AI Project' project.",

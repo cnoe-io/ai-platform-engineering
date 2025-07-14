@@ -16,15 +16,14 @@ print(f"CONFLUENCE_AGENT_HOST: {CONFLUENCE_AGENT_HOST}")
 print(f"CONFLUENCE_AGENT_PORT: {CONFLUENCE_AGENT_PORT}")
 print("===================================")
 
-CONFLUENCE_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Jira operations.'
+CONFLUENCE_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Confluence operations.'
 
 confluence_agent_skill = AgentSkill(
   id="confluence_agent_skill",
-  name="Atlassian Agent Skill",
+  name="Confluence Agent Skill",
   description="Provides capabilities to perform Confluence operations.",
   tags=[
     "confluence",
-    "atlassian",
     "wiki"],
   examples=[
       "Create a new Confluence page in the 'AI Project' space.",

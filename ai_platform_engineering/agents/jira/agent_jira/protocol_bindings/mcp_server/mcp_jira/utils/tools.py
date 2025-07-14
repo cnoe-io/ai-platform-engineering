@@ -1,4 +1,4 @@
-"""Tool-related utility functions for MCP Atlassian."""
+"""Tool-related utility functions for MCP Jira."""
 
 import logging
 import os

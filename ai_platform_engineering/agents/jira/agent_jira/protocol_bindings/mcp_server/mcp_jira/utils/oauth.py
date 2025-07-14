@@ -1,6 +1,6 @@
-"""OAuth 2.0 utilities for Atlassian Cloud authentication.
+"""OAuth 2.0 utilities for Jira Cloud authentication.
 
-This module provides utilities for OAuth 2.0 (3LO) authentication with Atlassian Cloud.
+This module provides utilities for OAuth 2.0 (3LO) authentication with Jira Cloud.
 It handles:
 - OAuth configuration
 - Token acquisition, storage, and refresh
@@ -33,7 +33,7 @@ KEYRING_SERVICE_NAME = "mcp-atlassian-oauth"
 
 @dataclass
 class OAuthConfig:
-    """OAuth 2.0 configuration for Atlassian Cloud.
+    """OAuth 2.0 configuration for Jira Cloud.
 
     This class manages the OAuth configuration and tokens. It handles:
     - Authentication configuration (client credentials)
@@ -230,7 +230,7 @@ class OAuthConfig:
         return self.refresh_access_token()
 
     def _get_cloud_id(self) -> None:
-        """Get the cloud ID for the Atlassian instance.
+        """Get the cloud ID for the Jira instance.
 
         This method queries the accessible resources endpoint to get the cloud ID.
         The cloud ID is needed for API calls with OAuth.
@@ -251,7 +251,7 @@ class OAuthConfig:
                 self.cloud_id = resources[0]["id"]
                 logger.debug(f"Found cloud ID: {self.cloud_id}")
             else:
-                logger.warning("No Atlassian sites found in the response")
+                logger.warning("No Jira sites found in the response")
         except Exception as e:
             logger.error(f"Failed to get cloud ID: {e}")
 
@@ -437,5 +437,5 @@ def configure_oauth_session(
 
     # Configure the session with the access token
     session.headers["Authorization"] = f"Bearer {oauth_config.access_token}"
-    logger.info("Successfully configured OAuth session for Atlassian Cloud API")
+    logger.info("Successfully configured OAuth session for Jira Cloud API")
     return True

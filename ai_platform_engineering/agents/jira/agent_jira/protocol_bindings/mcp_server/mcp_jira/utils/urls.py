@@ -1,17 +1,17 @@
-"""URL-related utility functions for MCP Atlassian."""
+"""URL-related utility functions for MCP Jira."""
 
 import re
 from urllib.parse import urlparse
 
 
 def is_atlassian_cloud_url(url: str) -> bool:
-    """Determine if a URL belongs to Atlassian Cloud or Server/Data Center.
+    """Determine if a URL belongs to Jira Cloud or Server/Data Center.
 
     Args:
         url: The URL to check
 
     Returns:
-        True if the URL is for an Atlassian Cloud instance, False for Server/Data Center
+        True if the URL is for an Jira Cloud instance, False for Server/Data Center
     """
     # Localhost and IP-based URLs are always Server/Data Center
     if url is None or not url:
@@ -30,7 +30,7 @@ def is_atlassian_cloud_url(url: str) -> bool:
     ):
         return False
 
-    # The standard check for Atlassian cloud domains
+    # The standard check for Jira cloud domains
     return (
         ".atlassian.net" in hostname
         or ".jira.com" in hostname

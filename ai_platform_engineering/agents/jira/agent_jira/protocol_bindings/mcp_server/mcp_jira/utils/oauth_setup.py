@@ -1,11 +1,11 @@
 """
-OAuth 2.0 Authorization Flow Helper for MCP Atlassian
+OAuth 2.0 Authorization Flow Helper for MCP Jira
 
-This module helps with the OAuth 2.0 (3LO) authorization flow for Atlassian Cloud:
+This module helps with the OAuth 2.0 (3LO) authorization flow for Jira Cloud:
 1. Opens a browser to the authorization URL
 2. Starts a local server to receive the callback with the authorization code
 3. Exchanges the authorization code for access and refresh tokens
-4. Saves the tokens securely for later use by MCP Atlassian
+4. Saves the tokens securely for later use by MCP Jira
 """
 
 import http.server
@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from ..utils.oauth import OAuthConfig
 
 # Configure logging
-logger = logging.getLogger("mcp-atlassian.oauth-setup")
+logger = logging.getLogger("mcp-jiraq.oauth-setup")
 
 # Global variables for callback handling
 authorization_code = None
@@ -74,7 +74,7 @@ class CallbackHandler(http.server.BaseHTTPRequestHandler):
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Atlassian OAuth Authorization</title>
+            <title>Jira OAuth Authorization</title>
             <style>
                 body {{
                     font-family: Arial, sans-serif;
@@ -105,7 +105,7 @@ class CallbackHandler(http.server.BaseHTTPRequestHandler):
             </style>
         </head>
         <body>
-            <h1>Atlassian OAuth Authorization</h1>
+            <h1>Jira OAuth Authorization</h1>
             <div class="message {"success" if status == 200 else "error"}">
                 <p>{message}</p>
             </div>
@@ -382,11 +382,11 @@ def _prompt_for_input(prompt: str, env_var: str = None, is_secret: bool = False)
 
 def run_oauth_setup() -> int:
     """Run the OAuth 2.0 setup wizard interactively."""
-    print("\n=== Atlassian OAuth 2.0 Setup Wizard ===")
+    print("\n=== Jira OAuth 2.0 Setup Wizard ===")
     print(
-        "This wizard will guide you through setting up OAuth 2.0 authentication for MCP Atlassian."
+        "This wizard will guide you through setting up OAuth 2.0 authentication for MCP Jira."
     )
-    print("\nYou need to have created an OAuth 2.0 app in your Atlassian account.")
+    print("\nYou need to have created an OAuth 2.0 app in your Jira account.")
     print("You can create one at: https://developer.atlassian.com/console/myapps/")
     print("\nPlease provide the following information:\n")
 
