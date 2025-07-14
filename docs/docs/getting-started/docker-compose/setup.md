@@ -26,13 +26,19 @@ Setup AI Platform Engineering to run in a docker environment on a latop or a vir
 
 ## 🏁 Getting Started
 
-1. **Launch with Docker Compose**
+1. **Launch with Docker Compose (AI Platform Engineer)**
+
+   ```bash
+   docker compose -f docker-compose.incident_engineer.yaml up
+   ```
+
+   **Launch with Docker Compose (AI Incident Engineer)**
 
    ```bash
    docker-compose up
    ```
-
-2. **Connect to the A2A agent (host network)**
+   
+3. **Connect to the A2A agent (host network)**
 
    ```bash
    docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
@@ -43,7 +49,7 @@ Setup AI Platform Engineering to run in a docker environment on a latop or a vir
    ```bash
    uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
    ```
-3. [Optional] Connect to A2A Agent via backstage agent-forge plug-in
+4. [Optional] Connect to A2A Agent via backstage agent-forge plug-in
 
     ```bash
     # Once the container is started, open agent-forge in browser (in test mode)
