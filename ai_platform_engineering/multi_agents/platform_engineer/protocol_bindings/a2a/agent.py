@@ -51,6 +51,7 @@ class AIPlatformEngineerA2ABinding:
           # Initialize Langfuse CallbackHandler for LangGraph tracing
           langfuse_handler = CallbackHandler()
           config['callbacks'] = [langfuse_handler]  # Captures LangGraph execution details
+          logger.info(f"🔍 Supervisor A2A - trace_id (context_id): {context_id}")
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]

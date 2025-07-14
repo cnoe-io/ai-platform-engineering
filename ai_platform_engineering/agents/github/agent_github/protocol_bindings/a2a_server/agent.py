@@ -16,6 +16,13 @@ from langgraph.prebuilt import create_react_agent
 
 from cnoe_agent_utils import LLMFactory
 
+# Conditional langfuse import based on ENABLE_TRACING
+if os.getenv("ENABLE_TRACING", "false").lower() == "true":
+    from langfuse.langchain import CallbackHandler
+    langfuse_handler = CallbackHandler()
+else:
+    langfuse_handler = None
+
 logger = logging.getLogger(__name__)
 
 memory = MemorySaver()
@@ -166,7 +173,8 @@ class GitHubAgent:
 
     async def stream(self, query: str, context_id: str) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
-        logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
+        logger.info(f"🔍 GitHub Agent stream started - query: {query}, context_id: {context_id}")
+        logger.info(f"🔍 Tracing enabled: {langfuse_handler is not None}")
         
         if not self.graph:
             logger.error("Agent graph not initialized")
@@ -178,7 +186,13 @@ class GitHubAgent:
             return
 
         inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
+        
         config: RunnableConfig = {'configurable': {'thread_id': context_id}}
+        if langfuse_handler:
+            logger.info(f"🔍 Adding Langfuse callback handler with context_id as trace_id: {context_id}")
+            config['callbacks'] = [langfuse_handler]
+        else:
+            logger.info("🔍 No Langfuse handler - tracing disabled or not available")
 
         try:
             async for item in self.graph.astream(inputs, config, stream_mode='values'):
