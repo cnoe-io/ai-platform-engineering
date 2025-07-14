@@ -44,7 +44,7 @@ AGENT_NAME=confluence
 
 ATLASSIAN_TOKEN=
 ATLASSIAN_EMAIL=
-ATLASSIAN_API_URL=
+CONFLUENCE_API_URL=
 ATLASSIAN_VERIFY_SSL=
 
 ########### LLM Configuration ###########
@@ -284,7 +284,7 @@ async with MultiServerMCPClient(
       "args": ["run", "/abs/path/to/confluence_mcp/server.py"],
       "env": {
         "ATLASSIAN_TOKEN": confluence_token,
-        "ATLASSIAN_API_URL": confluence_api_url,
+        "CONFLUENCE_API_URL": confluence_api_url,
         "ATLASSIAN_VERIFY_SSL": "false"
       },
       "transport": "stdio",

@@ -67,9 +67,9 @@ class ConfluenceAgent:
           if not confluence_token:
             raise ValueError("ATLASSIAN_TOKEN must be set as an environment variable.")
 
-          confluence_api_url = os.getenv("ATLASSIAN_API_URL")
+          confluence_api_url = os.getenv("CONFLUENCE_API_URL")
           if not confluence_api_url:
-            raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
+            raise ValueError("CONFLUENCE_API_URL must be set as an environment variable.")
           client = MultiServerMCPClient(
               {
                   "math": {
@@ -77,7 +77,7 @@ class ConfluenceAgent:
                       "args": ["run", server_path],
                       "env": {
                           "ATLASSIAN_TOKEN": os.getenv("ATLASSIAN_TOKEN"),
-                          "ATLASSIAN_API_URL": os.getenv("ATLASSIAN_API_URL"),
+                          "CONFLUENCE_API_URL": os.getenv("CONFLUENCE_API_URL"),
                           "ATLASSIAN_VERIFY_SSL": "false"
                       },
                       "transport": "stdio",
