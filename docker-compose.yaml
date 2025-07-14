@@ -1,9 +1,8 @@
 services:
   # AI Platform Engineering Multi-Agent System (stable image)
   platform-engineer:
-  agent-argocd:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:latest
-    container_name: platform-engineering
+    image: ghcr.io/cnoe-io/ai-platform-engineering:stable
+    container_name: platform-engineer
     depends_on:
       - agent-argocd
       - agent-backstage
@@ -36,7 +35,6 @@ services:
     volumes:
       - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
-      - ./ai_platform_engineering:/app/ai_platform_engineering
     command: platform-engineer
   # AI Platform Engineer Multi-Agent System (local build for tracing)
   # TODO: Remove this local build service once the stable GHCR image includes tracing evaluation support
@@ -81,7 +79,7 @@ services:
     command: platform-engineer
   # Agent ArgoCD
   agent-argocd:
-    image: ghcr.io/cnoe-io/agent-argocd:a2a-latest
+    image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
     container_name: agent-argocd
     volumes:
       - ./.env:/app/.env
@@ -89,7 +87,7 @@ services:
       - "8001:8000"
   # Agent Backstage
   agent-backstage:
-    image: ghcr.io/cnoe-io/agent-backstage:a2a-latest
+    image: ghcr.io/cnoe-io/agent-backstage:a2a-stable
     container_name: agent-backstage
     volumes:
       - ./.env:/app/.env
@@ -97,7 +95,7 @@ services:
       - "8002:8000"
   # Agent GitHub
   agent-github:
-    image: ghcr.io/cnoe-io/agent-github:a2a-latest
+    image: ghcr.io/cnoe-io/agent-github:a2a-stable
     container_name: agent-github
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -105,7 +103,7 @@ services:
     ports:
       - "8004:8000"
   agent-jira:
-    image: ghcr.io/cnoe-io/agent-jira:a2a-latest
+    image: ghcr.io/cnoe-io/agent-jira:a2a-stable
     container_name: agent-jira
     volumes:
       - ./.env:/app/.env
@@ -113,7 +111,7 @@ services:
       - "8005:8000"
   # Agent PagerDuty
   agent-pagerduty:
-    image: ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
+    image: ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
     container_name: agent-pagerduty
     volumes:
       - ./.env:/app/.env
@@ -121,7 +119,7 @@ services:
       - "8006:8000"
   # Agent Slack
   agent-slack:
-    image: ghcr.io/cnoe-io/agent-slack:a2a-latest
+    image: ghcr.io/cnoe-io/agent-slack:a2a-stable
     container_name: agent-slack
     volumes:
       - ./.env:/app/.env
