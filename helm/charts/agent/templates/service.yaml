@@ -7,9 +7,18 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if .Values.service.ports }}
+    {{- range .Values.service.ports }}
+    - port: {{ .port }}
+      targetPort: {{ .name }}
+      protocol: {{ .protocol | default "TCP" }}
+      name: {{ .name }}
+    {{- end }}
+    {{- else }}
     - port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
       name: http
+    {{- end }}
   selector:
     {{- include "agent.selectorLabels" . | nindent 4 }}
