@@ -1,0 +1,9 @@
+[project]
+name = "weather"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13, <4.0"
+dependencies = [
+    "agntcy-app-sdk>=0.1.0",
+]
