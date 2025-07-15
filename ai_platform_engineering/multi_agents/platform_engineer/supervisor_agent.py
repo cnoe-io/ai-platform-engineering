@@ -20,6 +20,7 @@ from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_a2a_remote_agent
 from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_a2a_remote_agent
 from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_a2a_remote_agent
+from ai_platform_engineering.agents.weather.a2a_agent_client.agent import weather_a2a_remote_agent
 
 # Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
 KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
@@ -77,6 +78,7 @@ class AIPlatformEngineerMAS:
       jira_a2a_remote_agent,
       pagerduty_a2a_remote_agent,
       slack_a2a_remote_agent,
+      weather_a2a_remote_agent
     ]
 
     if KOMODOR_ENABLED:
