@@ -12,7 +12,7 @@
 
 * **Every Thursday**
   * 🕕 18:00–19:00 CET | 🕔 17:00–18:00 London | 🕘 09:00–10:00 PST
-* 🔗 [Webex Meeting](https://go.webex.com/meet/cnoe) | 📅 [Google Calendar](https://calendar.google.com/calendar/u/0/embed?src=064a2adfce866ccb02e61663a09f99147f22f06374e7a8994066bdc81e066986@group.calendar.google.com&ctz=America/Los_Angeles) | 📥 [.ics Download](cnoe-agentic-ai-meeting-invite.ics)
+* 🔗 [Webex Meeting](https://go.webex.com/meet/cnoe) | 📅 [Google Calendar](https://calendar.google.com/calendar/u/0/embed?src=064a2adfce866ccb02e61663a09f99147f22f06374e7a8994066bdc81e066986@group.calendar.google.com&ctz=America/Los_Angeles) | 📥 [.ics Download](docs/docs/community/cnoe-sig-agentic-ai-community-meeting.ics)
 
 ### 💬 Slack
 
