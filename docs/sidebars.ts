@@ -110,7 +110,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Agents',
+      label: 'Agents & MCP Servers',
       items: [
         {
           type: 'doc',
@@ -210,6 +210,28 @@ const sidebars: SidebarsConfig = {
       label: 'Evaluations',
     },
     {
+      type: 'category',
+      label: 'Tools & Utilities',
+      items: [
+        {
+          type: 'doc',
+          id: 'tools-utils/openapi-mcp-codegen',
+        },
+        {
+          type: 'doc',
+          id: 'tools-utils/cnoe-agent-utils',
+        },
+        {
+          type: 'doc',
+          id: 'tools-utils/agent-chat-cli',
+        },
+        {
+          type: 'doc',
+          id: 'tools-utils/agent-forge-backstage-plugin',
+        },
+      ],
+    },
+    {
       type: 'doc',
       id: 'agent-ops/index',
       label: 'AgentOps',
@@ -222,9 +244,20 @@ const sidebars: SidebarsConfig = {
   ],
   communitySidebar: [
     {
-      type: 'doc',
-      id: 'community/index',
+      type: 'category',
       label: 'Community',
+      items: [
+        {
+          type: 'doc',
+          id: 'community/index',
+          label: 'Community Overview',
+        },
+        {
+          type: 'doc',
+          id: 'community/meeting-recordings',
+          label: 'Meeting Recordings',
+        },
+      ],
     },
   ]
 };

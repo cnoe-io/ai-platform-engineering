@@ -11,7 +11,7 @@ These interfaces empower users to build and manage sophisticated multi-agent sys
 
 ## Agent Chat CLI
 
-- [CLI](https://github.com/cnoe-io/agent-chat-cli)
+- [**agent-chat-cli - explore the complete docs, install guide, and examples**](https://github.com/cnoe-io/agent-chat-cli)
 
    ```bash
    docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
@@ -25,7 +25,7 @@ These interfaces empower users to build and manage sophisticated multi-agent sys
 
 ## Agent Forge Backstage Plugin
 
-- [Backstage Agent Forge Plugin](https://github.com/backstage/community-plugins/tree/main/workspaces/agent-forge)
+- [**agent-forge - explore the complete docs, install guide, and examples**](https://github.com/backstage/community-plugins/tree/main/workspaces/agent-forge)
 
     ```bash
     # Once the container is started, open agent-forge in browser (in test mode)
