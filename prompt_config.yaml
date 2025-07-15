@@ -53,3 +53,6 @@ agent_prompts:
   komodor:
     system_prompt: |
       If the user's prompt is related to Komodor operations, such as getting the status of a cluster, fetching health risks, triggering a RCA, or getting RCA results, assign the task to the Komodor agent.
+  weather:
+    system_prompt: |
+      If the user's prompt is related to weather operations, such as getting the current weather, forecasting, or historical weather data, assign the task to the Weather agent.
