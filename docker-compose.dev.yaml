@@ -447,6 +447,23 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
+  #                                      AGENT WEATHER BUILD & LATEST                                 #
+  ####################################################################################################
+  agent-weather-build:
+    build:
+      context: ai_platform_engineering/agents/weather
+      dockerfile: build/Dockerfile
+    container_name: agent-weather-build
+    profiles:
+      - build
+      - build-tracing
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8100:8000"
+
+
+  ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                        #
   ####################################################################################################
   backstage-agent-forge:
@@ -511,7 +528,7 @@ services:
         API_KEYS: dummy_key
         CLEANUP_INTERVAL: 86400
     restart: unless-stopped
-  
+
   agent_graph_gen:
     image: ghcr.io/cnoe-io/nexigraph-agent_graph_gen:latest
     profiles:
@@ -528,7 +545,7 @@ services:
         OPENAI_API_VERSION: $OPENAI_API_VERSION
         AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
         AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
-        # Optional for langsith tracing:
+        # Optional for langsith tracing:
         LANGSMITH_TRACING: "true"
         LANGSMITH_PROJECT: $LANGSMITH_PROJECT
         LANGSMITH_API_KEY: $LANGSMITH_API_KEY
@@ -553,7 +570,7 @@ services:
         AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
         AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
     restart: unless-stopped
-  
+
   nexigraph_dummy_client:
     image: ghcr.io/cnoe-io/nexigraph-clients:latest
     profiles:
