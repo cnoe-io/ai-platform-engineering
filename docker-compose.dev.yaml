@@ -107,6 +107,11 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
     ports:
@@ -135,6 +140,11 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
     ports:
@@ -163,6 +173,11 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
     ports:
@@ -191,6 +206,11 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
@@ -221,6 +241,11 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
     ports:
@@ -250,6 +275,11 @@ services:
       - build
       - komodor
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
     ports:
@@ -276,6 +306,11 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
     ports:
@@ -304,6 +339,11 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
     ports:
@@ -332,6 +372,11 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
     ports:
