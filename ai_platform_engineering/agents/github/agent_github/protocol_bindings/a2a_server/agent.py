@@ -4,7 +4,9 @@
 import logging
 import asyncio
 import os
-from typing import Any, Literal, AsyncIterable
+import uuid
+from typing import Any, Literal, AsyncIterable, Optional
+from contextvars import ContextVar
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
@@ -18,12 +20,16 @@ from cnoe_agent_utils import LLMFactory
 
 # Conditional langfuse import based on ENABLE_TRACING
 if os.getenv("ENABLE_TRACING", "false").lower() == "true":
+    from langfuse import get_client
     from langfuse.langchain import CallbackHandler
     langfuse_handler = CallbackHandler()
 else:
     langfuse_handler = None
 
 logger = logging.getLogger(__name__)
+
+# Local context variable for trace ID (since running in separate container)
+current_trace_id: ContextVar[Optional[str]] = ContextVar('current_trace_id', default=None)
 
 memory = MemorySaver()
 
@@ -171,7 +177,7 @@ class GitHubAgent:
             logger.exception(f"Error initializing agent: {e}")
             self.graph = None
 
-    async def stream(self, query: str, context_id: str) -> AsyncIterable[dict[str, Any]]:
+    async def stream(self, query: str, context_id: str, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
         logger.info(f"🔍 GitHub Agent stream started - query: {query}, context_id: {context_id}")
         logger.info(f"🔍 Tracing enabled: {langfuse_handler is not None}")
@@ -195,38 +201,100 @@ class GitHubAgent:
             logger.info("🔍 No Langfuse handler - tracing disabled or not available")
 
         try:
-            async for item in self.graph.astream(inputs, config, stream_mode='values'):
-                message = item.get('messages', [])[-1] if item.get('messages') else None
+            if langfuse_handler:
+                # Use provided trace_id from supervisor, or generate new one if not provided
+                if not trace_id:
+                    trace_id = uuid.uuid4().hex.lower()
+                    logger.info(f"🔍 GitHub Agent - initialized NEW trace_id: {trace_id} for context_id: {context_id}")
+                else:
+                    logger.info(f"🔍 GitHub Agent - using SUPERVISOR trace_id: {trace_id} for context_id: {context_id}")
+                
+                langfuse = get_client()
+                # Set trace_id in context variable for tools to access
+                current_trace_id.set(trace_id)
+                
+                with langfuse.start_as_current_span(
+                    name="🤖-github-agent",
+                    trace_context={"trace_id": trace_id}
+                ) as span:
+                    span.update_trace(input=query)
+                    
+                    async for item in self.graph.astream(inputs, config, stream_mode='values'):
+                        message = item.get('messages', [])[-1] if item.get('messages') else None
 
-                if not message:
-                    continue
+                        if not message:
+                            continue
 
-                logger.debug(f"Streamed message type: {type(message)}")
+                        logger.debug(f"Streamed message type: {type(message)}")
 
-                if (
-                    isinstance(message, AIMessage)
-                    and hasattr(message, 'tool_calls')
-                    and message.tool_calls
-                    and len(message.tool_calls) > 0
-                ):
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': 'Processing GitHub operations...',
-                    }
-                elif isinstance(message, ToolMessage):
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': 'Interacting with GitHub API...',
-                    }
+                        if (
+                            isinstance(message, AIMessage)
+                            and hasattr(message, 'tool_calls')
+                            and message.tool_calls
+                            and len(message.tool_calls) > 0
+                        ):
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': 'Processing GitHub operations...',
+                            }
+                        elif isinstance(message, ToolMessage):
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': 'Interacting with GitHub API...',
+                            }
 
-                elif isinstance(message, AIMessage) and message.content:
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': message.content,
-                    }
+                        elif isinstance(message, AIMessage) and message.content:
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': message.content,
+                            }
+                    
+                    span.update_trace(output="GitHub agent execution completed")
+            else:
+                # Non-tracing execution path
+                # Use provided trace_id from supervisor, or generate new one if not provided
+                if not trace_id:
+                    trace_id = uuid.uuid4().hex.lower()
+                    logger.info(f"🔍 GitHub Agent - initialized NEW trace_id: {trace_id} for context_id: {context_id}")
+                else:
+                    logger.info(f"🔍 GitHub Agent - using SUPERVISOR trace_id: {trace_id} for context_id: {context_id}")
+                current_trace_id.set(trace_id)
+                
+                async for item in self.graph.astream(inputs, config, stream_mode='values'):
+                    message = item.get('messages', [])[-1] if item.get('messages') else None
+
+                    if not message:
+                        continue
+
+                    logger.debug(f"Streamed message type: {type(message)}")
+
+                    if (
+                        isinstance(message, AIMessage)
+                        and hasattr(message, 'tool_calls')
+                        and message.tool_calls
+                        and len(message.tool_calls) > 0
+                    ):
+                        yield {
+                            'is_task_complete': False,
+                            'require_user_input': False,
+                            'content': 'Processing GitHub operations...',
+                        }
+                    elif isinstance(message, ToolMessage):
+                        yield {
+                            'is_task_complete': False,
+                            'require_user_input': False,
+                            'content': 'Interacting with GitHub API...',
+                        }
+
+                    elif isinstance(message, AIMessage) and message.content:
+                        yield {
+                            'is_task_complete': False,
+                            'require_user_input': False,
+                            'content': message.content,
+                        }
 
             yield self.get_agent_response(config)
         except Exception as e:
