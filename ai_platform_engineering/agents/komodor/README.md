@@ -43,11 +43,11 @@
 ```mermaid
 flowchart TD
   subgraph Client Layer
-    A[User Client ACP/A2A]
+    A[User Client A2A]
   end
 
   subgraph Agent Transport Layer
-    B[AGNTCY ACP<br/>or<br/>Google A2A]
+    B[A2A]
   end
 
   subgraph Agent Graph Layer
