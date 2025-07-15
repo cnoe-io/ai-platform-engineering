@@ -36,6 +36,15 @@ const config: Config = {
     locales: ['en'],
   },
 
+  plugins: [[
+    require.resolve('docusaurus-lunr-search'), {
+      languages: ['en'],
+      title: { boost: 200 },
+      content: { boost: 2 },
+      keywords: { boost: 100 }
+    }
+  ]],
+
   presets: [
     [
       'classic',
@@ -82,67 +91,17 @@ const config: Config = {
       items: [
         {
           type: 'docSidebar',
-          sidebarId: 'gettingStartedSidebar',
+          sidebarId: 'docsSidebar',
           position: 'left',
-          label: 'Getting Started',
-        },
-        {
-          type: 'docSidebar',
-          sidebarId: 'architectureSidebar',
-          dirName: 'docs/architecture',
-          position: 'left',
-          label: 'Architecture',
-        },
-        {
-          type: 'docSidebar',
-          sidebarId: 'securitySidebar',
-          dirName: 'docs/security',
-          position: 'left',
-          label: 'Security',
-        },
-        {
-          type: 'docSidebar',
-          sidebarId: 'agentsSidebar',
-          dirName: 'docs/agents',
-          position: 'left',
-          label: 'Agents',
-        },
-        {
-          type: 'docSidebar',
-          sidebarId: 'evaluationsSidebar',
-          dirName: 'docs/evaluations',
-          position: 'left',
-          label: 'Evaluations',
-        },
-        {
-          type: 'docSidebar',
-          sidebarId: 'usecasesSidebar',
-          dirName: 'docs/usecases',
-          position: 'left',
-          label: 'Use Cases',
-        },
-        {
-          type: 'docSidebar',
-          sidebarId: 'promptLibrarySidebar',
-          dirName: 'docs/prompt-library',
-          position: 'left',
-          label: 'Prompt Library',
-        },
-        {
-          type: 'docSidebar',
-          sidebarId: 'agentOpsSidebar',
-          dirName: 'docs/agent-ops',
-          position: 'left',
-          label: 'Agent Ops',
-        },
-        {
-          type: 'docSidebar',
-          sidebarId: 'contributingSidebar',
-          dirName: 'docs/contributing',
-          position: 'left',
-          label: 'Contributing',
+          label: 'Docs',
         },
         {to: '/blog', label: 'Blog', position: 'left'},
+        {
+          type: 'docSidebar',
+          sidebarId: 'communitySidebar',
+          position: 'left',
+          label: 'Community',
+        },
         // Uncomment the following lines to enable versioning
         // {
         //   type: 'docsVersionDropdown',

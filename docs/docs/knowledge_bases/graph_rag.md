@@ -2,9 +2,9 @@
 sidebar_position: 11
 ---
 
-# NexiGraph - Knowledge graph generation and RAG system for strucutred data
+# Graph RAG (Nexigraph)
 
-🚧 This page is still under construction 🚧
+## NexiGraph - Knowledge graph generation and RAG system for strucutred data
 
 NexiGraph is a knowledge graph system, that can be used to store and retrieve structured documents (e.g. JSON). It can automatically create relations between documents, and allow for GraphRAG. The Question & Answer agent is an example of GraphRAG enabled agent.
 
