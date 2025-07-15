@@ -1,5 +1,5 @@
 [project]
-name = "weather"
+name = "agent_weather"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -7,3 +7,20 @@ requires-python = ">=3.13, <4.0"
 dependencies = [
     "agntcy-app-sdk>=0.1.0",
 ]
+
+[tool.poetry.scripts]
+agent_weather = "agent_weather.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+# Allow lines to be as long as 300.
+line-length = 300
+# Number of spaces per indentation level
+indent-width = 2
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["F403"]
