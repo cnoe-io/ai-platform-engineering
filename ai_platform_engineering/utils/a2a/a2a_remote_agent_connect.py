@@ -6,6 +6,7 @@ from typing import Any, Optional, Union
 from uuid import uuid4
 from pydantic import PrivateAttr
 import pprint
+from contextvars import ContextVar
 
 import httpx
 
@@ -22,6 +23,9 @@ from ai_platform_engineering.utils.models.generic_agent import Input, Output
 
 
 logger = logging.getLogger("a2a.client.tool")
+
+# Context variable to store current trace_id
+current_trace_id: ContextVar[Optional[str]] = ContextVar('current_trace_id', default=None)
 
 
 class A2ARemoteAgentConnectTool(BaseTool):
@@ -119,7 +123,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
     Asynchronously sends a prompt to the A2A agent and returns the response.
 
     Args:
-      input (Input): The input containing the prompt to send to the agent.
+      input (Input): The input containing the prompt and optional trace_id to send to the agent.
 
     Returns:
       Output: The response from the agent.
@@ -128,23 +132,32 @@ class A2ARemoteAgentConnectTool(BaseTool):
       # logger.info("\n" + "="*50 + "\nInput Received:\n" + f"{str(input)}" + "\n" + "="*50)
       print(type(input))  # Ensure input is validated by Pydantic
       prompt = input['prompt'] if isinstance(input, dict) else input.prompt
+      trace_id = input.get('trace_id') if isinstance(input, dict) else getattr(input, 'trace_id', None)
+      
+      # Fallback to context variable if trace_id not provided in input
+      if not trace_id:
+        trace_id = current_trace_id.get()
+      
       logger.info(f"Received prompt: {prompt}")
+      if trace_id:
+        logger.info(f"🔍 A2A call with trace_id: {trace_id}")
       if not prompt:
         logger.error("Invalid input: Prompt must be a non-empty string.")
         raise ValueError("Invalid input: Prompt must be a non-empty string.")
-      response = await self.send_message(prompt)
+      response = await self.send_message(prompt, trace_id=trace_id)
       return Output(response=response)
     except Exception as e:
       print(input)
       logger.error(f"Failed to execute A2A client tool: {str(e)}")
       raise RuntimeError(f"Failed to execute A2A client tool: {str(e)}")
 
-  async def send_message(self, prompt: str) -> str:
+  async def send_message(self, prompt: str, trace_id: str = None) -> str:
     """
     Sends a message to the A2A agent and invokes the specified skill.
 
     Args:
       prompt (str): The user input prompt to send to the agent.
+      trace_id (str, optional): The trace ID to maintain trace continuity across agents.
 
     Returns:
       str: The response returned by the agent.
@@ -153,14 +166,21 @@ class A2ARemoteAgentConnectTool(BaseTool):
       logger.info("A2AClient not initialized. Connecting now...")
       await self._connect()
 
+    # Create message payload with optional trace_id in metadata
+    message_payload = {
+        'role': 'user',
+        'parts': [
+            {'kind': 'text', 'text': prompt}
+        ],
+        'messageId': uuid4().hex,
+    }
+    
+    # Add trace_id to metadata if provided
+    if trace_id:
+        message_payload['metadata'] = {'trace_id': trace_id}
+    
     send_message_payload = {
-        'message': {
-            'role': 'user',
-            'parts': [
-                {'kind': 'text', 'text': prompt}
-            ],
-            'messageId': uuid4().hex,
-        },
+        'message': message_payload,
     }
     # logger.info("Sending message to A2A agent with payload:\n" + json.dumps({**send_message_payload, 'message': send_message_payload['message'].dict()}, indent=4))
     request = SendMessageRequest(
