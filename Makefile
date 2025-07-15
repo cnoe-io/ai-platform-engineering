@@ -66,7 +66,7 @@ build-docker:  ## Build the Docker image
 run: run-ai-platform-engineer ## Run the application with Poetry
 	@echo "Running the AI Platform Engineer persona..."
 
-run-ai-platform-engineer: setup-venv build install ## Run the AI Platform Engineering Multi-Agent System
+run-ai-platform-engineer: setup-venv install ## Run the AI Platform Engineering Multi-Agent System
 	@echo "Running the AI Platform Engineering Multi-Agent System..."
 	@poetry run ai-platform-engineering platform-engineer $(ARGS)
 

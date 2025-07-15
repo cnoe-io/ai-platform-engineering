@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union
 from a2a.types import (
     AgentCard,
     SendMessageRequest,
@@ -12,7 +12,8 @@ from agntcy_app_sdk.factory import GatewayFactory, ProtocolTypes
 from agntcy_app_sdk.protocols.a2a.gateway import A2AProtocol
 
 # Example Input/Output types for illustration (replace as needed)
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
+from langchain_core.tools import BaseTool
 
 class Input(BaseModel):
     prompt: str
@@ -23,27 +24,52 @@ class Output(BaseModel):
 import logging
 logger = logging.getLogger("AgntcyRemoteAgentConnectTool")
 
-class AgntcyRemoteAgentConnectTool:
+class AgntcyRemoteAgentConnectTool(BaseTool):
     """
-    Connects to a remote agent using the SLIM transport and sends messages via A2A protocol.
+    Connects to a remote agent using the SLIM transport and sends messages via the A2A protocol.
     """
+    name: str = "agntcy-remote-agent-connect"
+    description: str = (
+        "Connects to a remote agent using the SLIM transport and sends messages via A2A protocol."
+    )
+    endpoint: str
+    remote_agent_card: Union[AgentCard, str]
+    _factory: GatewayFactory = PrivateAttr()
+    _transport: Any = PrivateAttr()
+    _client: Any = PrivateAttr(default=None)
 
-    def __init__(self, endpoint: str, remote_agent_card : Union[AgentCard, str]):
-        self.endpoint = endpoint
-        self.remote_agent_card = remote_agent_card
-        self.factory = GatewayFactory()
-        self.transport = self.factory.create_transport("SLIM", endpoint=self.endpoint)
-        self.client = None
+    def __init__(
+        self,
+        endpoint: str,
+        remote_agent_card: Union[AgentCard, str],
+        name: str = None,
+        description: str = None,
+        **kwargs,
+    ):
+        if name is None:
+            name = self.name
+        if description is None:
+            description = self.description
+        super().__init__(
+            endpoint=endpoint,
+            remote_agent_card=remote_agent_card,
+            name=name,
+            description=description,
+            **kwargs,
+        )
+        self._factory = GatewayFactory()
+        self._transport = self._factory.create_transport("SLIM", endpoint=endpoint)
+        self._client = None
 
     async def _connect(self):
         """
         Creates and stores a client connection to the remote agent.
         """
         a2a_topic = A2AProtocol.create_agent_topic(self.remote_agent_card)
-        self.client = await self.factory.create_client(
+        self._client = await self._factory.create_client(
             ProtocolTypes.A2A.value,
             agent_topic=a2a_topic,
-            transport=self.transport
+            transport=self._transport
         )
 
     async def send_message(self, message: str, role: Role = Role.user) -> Message:

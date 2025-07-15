@@ -32,7 +32,7 @@ from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_agent
 from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_agent
 from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_agent
-from ai_platform_engineering.agents.weather.a2a_agent_client.agent import weather_agent
+from ai_platform_engineering.agents.weather.agntcy_agent_client.agent import weather_agent
 from ai_platform_engineering.utils.models.generic_agent import (
   ResponseFormat
 )
