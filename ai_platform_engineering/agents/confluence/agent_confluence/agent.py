@@ -45,9 +45,9 @@ async def create_agent(prompt=None, response_format=None):
   if not confluence_token:
     raise ValueError("ATLASSIAN_TOKEN must be set as an environment variable.")
 
-  confluence_api_url = os.getenv("ATLASSIAN_API_URL")
+  confluence_api_url = os.getenv("CONFLUENCE_API_URL")
   if not confluence_api_url:
-    raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
+    raise ValueError("CONFLUENCE_API_URL must be set as an environment variable.")
 
   confluence_email = os.getenv("ATLASSIAN_EMAIL")
   if not confluence_email:
@@ -61,7 +61,7 @@ async def create_agent(prompt=None, response_format=None):
         "args": ["run", server_path],
         "env": {
           "ATLASSIAN_TOKEN": confluence_token,
-          "ATLASSIAN_API_URL": confluence_api_url,
+          "CONFLUENCE_API_URL": confluence_api_url,
           "ATLASSIAN_EMAIL": confluence_email,
           "ATLASSIAN_VERIFY_SSL": "false"
         },
@@ -98,9 +98,9 @@ def create_agent_sync(prompt, response_format):
   if not confluence_token:
       raise ValueError("ATLASSIAN_TOKEN must be set as an environment variable.")
 
-  confluence_api_url = os.getenv("ATLASSIAN_API_URL")
+  confluence_api_url = os.getenv("CONFLUENCE_API_URL")
   if not confluence_api_url:
-      raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
+      raise ValueError("CONFLUENCE_API_URL must be set as an environment variable.")
 
   confluence_email = os.getenv("ATLASSIAN_EMAIL")
   if not confluence_email:
@@ -113,7 +113,7 @@ def create_agent_sync(prompt, response_format):
               "args": ["run", server_path],
               "env": {
                   "ATLASSIAN_TOKEN": confluence_token,
-                  "ATLASSIAN_API_URL": confluence_api_url,
+                  "CONFLUENCE_API_URL": confluence_api_url,
                   "ATLASSIAN_EMAIL": confluence_email,
                   "ATLASSIAN_VERIFY_SSL": "false"
               },
@@ -140,11 +140,11 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
     if not confluence_token:
       raise ValueError("ATLASSIAN_TOKEN must be set as an environment variable.")
 
-    confluence_api_url = os.getenv("ATLASSIAN_API_URL")
+    confluence_api_url = os.getenv("CONFLUENCE_API_URL")
     model = LLMFactory().get_llm()
 
     if not confluence_api_url:
-      raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
+      raise ValueError("CONFLUENCE_API_URL must be set as an environment variable.")
     args = config.get("configurable", {})
     logger.debug(f"enter --- state: {state.model_dump_json()}, config: {args}")  # Removed raw data output
 
@@ -196,7 +196,7 @@ async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> 
                 "args": ["run", server_path],
                 "env": {
                     "ATLASSIAN_TOKEN": confluence_token,
-                    "ATLASSIAN_API_URL": confluence_api_url,
+                    "CONFLUENCE_API_URL": confluence_api_url,
                     "ATLASSIAN_EMAIL": confluence_email,
                     "ATLASSIAN_VERIFY_SSL": "false"
                 },
