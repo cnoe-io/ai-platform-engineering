@@ -27,6 +27,13 @@ logger = logging.getLogger("a2a.client.tool")
 # Context variable to store current trace_id
 current_trace_id: ContextVar[Optional[str]] = ContextVar('current_trace_id', default=None)
 
+# Constants for trace ID generation
+TRACE_ID_CONTEXT_NAME = 'current_trace_id'
+
+def generate_trace_id() -> str:
+    """Generate a Langfuse v3 compliant trace ID (32-char lowercase hex)."""
+    return uuid4().hex.lower()
+
 
 class A2ARemoteAgentConnectTool(BaseTool):
   """

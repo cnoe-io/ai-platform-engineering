@@ -19,6 +19,7 @@ from a2a.types import (
 
 from langchain_core.tools import BaseTool
 from ai_platform_engineering.utils.models.generic_agent import Input, Output
+from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import generate_trace_id
 
 logger = logging.getLogger("a2a.client.tool")
 
