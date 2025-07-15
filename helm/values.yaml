@@ -6,6 +6,7 @@ ai-platform-engineering:
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
     tag: "stable"
+    pullPolicy: "Always"
     command: ["poetry", "run", "ai-platform-engineering"]
     args: ["platform-engineer"]
   multiAgentConfig:
