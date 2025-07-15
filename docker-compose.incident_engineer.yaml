@@ -16,20 +16,17 @@ services:
     ports:
       # Expose the AI Incident Engineer agent on port 8000
       - "8000:8000"
+    volumes:
+      - .env:/app/.env
+      - ./prompt_config.yaml:/app/prompt_config.yaml
     environment:
       - AGENT_PROTOCOL=a2a
       - JIRA_AGENT_HOST=agent-jira
-      - JIRA_AGENT_PORT=8000
       - CONFLUENCE_AGENT_HOST=agent-confluence
-      - CONFLUENCE_AGENT_PORT=8000
       - GITHUB_AGENT_HOST=agent-github
-      - GITHUB_AGENT_PORT=8000
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - PAGERDUTY_AGENT_PORT=8000
       - BACKSTAGE_AGENT_HOST=agent-backstage
-      - BACKSTAGE_AGENT_PORT=8000
       - KOMODOR_AGENT_HOST=agent-komodor
-      - KOMODOR_AGENT_PORT=8000
       - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
       # Disable OpenTelemetry to prevent credential errors
       - OTEL_SDK_DISABLED=true
@@ -41,56 +38,6 @@ services:
       # - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-incident-engineering}
       #      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-incident-engineer}
     entrypoint: ["poetry", "run", "python", "-m", "uvicorn", "ai_platform_engineering.multi_agents.incident_engineer.protocol_bindings.a2a.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-  # AI Incident Engineer Multi-Agent System (local build for tracing)
-  # TODO: Remove this local build service once the stable GHCR image includes tracing evaluation support
-  ai-incident-engineer-tracing:
-    build:
-      context: .
-      dockerfile: build/Dockerfile
-    container_name: incident-engineer-tracing
-    profiles:
-      - tracing
-    depends_on:
-      - agent-pagerduty
-      - agent-github
-      - agent-backstage
-      - agent-jira
-      - agent-confluence
-    env_file:
-      - .env
-    ports:
-      # Expose the AI Incident Engineer agent on port 8000
-      - "8000:8000"
-    environment:
-      - AGENT_PROTOCOL=a2a
-      - JIRA_AGENT_HOST=agent-jira
-      - JIRA_AGENT_PORT=8000
-      - CONFLUENCE_AGENT_HOST=agent-confluence
-      - CONFLUENCE_AGENT_PORT=8000
-      - GITHUB_AGENT_HOST=agent-github
-      - GITHUB_AGENT_PORT=8000
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - PAGERDUTY_AGENT_PORT=8000
-      - BACKSTAGE_AGENT_HOST=agent-backstage
-      - BACKSTAGE_AGENT_PORT=8000
-      - KOMODOR_AGENT_HOST=agent-komodor
-      - KOMODOR_AGENT_PORT=8000
-      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
-      # Disable OpenTelemetry to prevent credential errors
-      - OTEL_SDK_DISABLED=true
-      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-incident-engineering}
-      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-incident-engineer}
-    entrypoint: ["poetry", "run", "python", "-m", "uvicorn", "ai_platform_engineering.multi_agents.incident_engineer.protocol_bindings.a2a.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    volumes:
-      - .env:/app/.env
-      - ./prompt_config.yaml:/app/prompt_config.yaml
-      - ./ai_platform_engineering:/app/ai_platform_engineering
 
   # Agent ArgoCD
   agent-argocd:
