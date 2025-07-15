@@ -2,6 +2,11 @@ from langchain.prompts import PromptTemplate
 import yaml
 import os
 
+
+from ai_platform_engineering.agents.backstage.a2a_agent_client.agentcard import (
+  backstage_agent_card,
+  backstage_agent_skill
+)
 from ai_platform_engineering.agents.confluence.a2a_agent_client.agentcard import (
   confluence_agent_card,
   confluence_agent_skill
@@ -10,19 +15,15 @@ from ai_platform_engineering.agents.jira.a2a_agent_client.agentcard import  (
   jira_agent_card,
   jira_agent_skill
 )
-from ai_platform_engineering.agents.github.a2a_agentcards import (
+from ai_platform_engineering.agents.github.a2a_agent_client.agentcard import (
   github_agent_card,
   github_agent_skill
 )
-from ai_platform_engineering.agents.pagerduty.a2a_agentcards import (
+from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agentcard import (
   pagerduty_agent_card,
   pagerduty_agent_skill
 )
 
-from ai_platform_engineering.agents.backstage.a2a_agentcards import (
-  backstage_agent_card,
-  backstage_agent_skill
-)
 from ai_platform_engineering.agents.komodor.a2a_agent_client.agentcard import (
   komodor_agent_card,
   komodor_agent_skill
@@ -49,7 +50,7 @@ if isinstance(config, dict):
     workflows_list = config.get('workflows', [])
     agent_prompts = config.get('agent_prompts', {})
     workflows = {item['id']: item for item in workflows_list} if workflows_list else {}
-    
+
     # Get agent info
     agent_name = config.get('agent_name', 'AI Incident Engineer')
     agent_description = config.get('agent_description', 'AI Incident Engineer system for detailed incident operations')
@@ -91,7 +92,7 @@ def get_workflow_content(workflow_id: str) -> str:
 
 def list_available_workflows() -> list:
     """List all available workflows"""
-    return [{'id': k, 'name': v.get('name', ''), 'description': v.get('description', '')} 
+    return [{'id': k, 'name': v.get('name', ''), 'description': v.get('description', '')}
             for k, v in workflows.items()]
 
 tools = {
@@ -138,12 +139,12 @@ def generate_system_prompt(tools):
         tool_instructions.append(instruction.strip())
 
     tool_instructions_str = "\n\n".join(tool_instructions)
-    
+
     # Add workflow information
     workflow_info = "\n\nAvailable Incident Engineering Workflows:\n"
     for workflow in list_available_workflows():
         workflow_info += f"- {workflow['name']}: {workflow['description']}\n"
-    
+
     return f"""
 You are an AI Incident Engineer, a multi-agent system designed to perform deep research and generate reports on incidents.
 
@@ -211,19 +212,19 @@ For incident engineering requests, execute workflows automatically in sequence:
 
 2. REQUIRED ACTIONS TRACKING:
    Each workflow MUST execute specific actions from [ACTIONS_REQUIRED] sections:
-   
+
    Post-Incident Documentation:
    ☐ confluence.create_page() - Create postmortem page
    ☐ jira.create_ticket() - Create follow-up tickets for action items
    ☐ jira.add_comment() - Add postmortem link to incident ticket
    ☐ jira.transition_ticket() - Update incident status to "Documented"
-   
+
    MTTR Report:
    ☐ confluence.create_page() - Create MTTR report page
    ☐ jira.create_epic() - Create MTTR improvement epic
    ☐ jira.create_ticket() - Create improvement tickets
    ☐ jira.create_dashboard_filter() - Create MTTR tracking dashboard
-   
+
    Uptime Report:
    ☐ confluence.create_page() - Create uptime report page
    ☐ jira.create_epic() - Create service reliability epic
@@ -239,19 +240,19 @@ For incident engineering requests, execute workflows automatically in sequence:
      * Komodor/Kubernetes status and logs
      * RAG/Confluence findings
      * Recommended remediation steps
-   
+
    - Post-Incident Documentation:
      * ✅ Generated postmortem document (Confluence page link)
      * ✅ Created follow-up tickets (Jira ticket links)
      * ✅ Updated incident ticket (Jira link)
      * ✅ Stakeholder notifications sent
-   
+
    - MTTR Report:
      * ✅ MTTR report published (Confluence page link)
      * ✅ Improvement epic created (Jira epic link)
      * ✅ Action tickets created (Jira ticket links)
      * ✅ MTTR dashboard created (Jira dashboard link)
-   
+
    - Uptime Report:
      * ✅ Uptime report published (Confluence page link)
      * ✅ Reliability epic created/updated (Jira epic link)
@@ -285,7 +286,7 @@ def get_workflow_execution_order() -> list:
     """Define the default execution order for incident workflows"""
     return [
         'deep_incident_research',
-        'automate_post_incident_doc', 
+        'automate_post_incident_doc',
         'mttr_report',
         'uptime_report'
     ]
@@ -320,7 +321,7 @@ def should_execute_workflow(workflow_id: str, user_prompt: str) -> bool:
     workflow = get_workflow_by_id(workflow_id)
     if not workflow:
         return False
-    
+
     # Keywords that trigger specific workflows
     workflow_triggers = {
         'deep_incident_research': ['incident', 'alert', 'outage', 'error', 'failure', 'issue', 'problem'],
@@ -328,10 +329,10 @@ def should_execute_workflow(workflow_id: str, user_prompt: str) -> bool:
         'mttr_report': ['incident', 'mttr', 'recovery', 'report', 'metrics'],
         'uptime_report': ['incident', 'uptime', 'availability', 'report', 'metrics']
     }
-    
+
     triggers = workflow_triggers.get(workflow_id, [])
     user_prompt_lower = user_prompt.lower()
-    
+
     # Check if any trigger keywords are present
     return any(trigger in user_prompt_lower for trigger in triggers)
 
@@ -339,17 +340,17 @@ def get_orchestrated_workflow_prompt(user_prompt: str) -> str:
     """Generate an orchestrated workflow execution prompt"""
     execution_order = get_workflow_execution_order()
     dependencies = get_workflow_dependencies()
-    
+
     # Determine which workflows should be executed
     workflows_to_execute = []
     for workflow_id in execution_order:
         if should_execute_workflow(workflow_id, user_prompt):
             workflows_to_execute.append(workflow_id)
-    
+
     # If no specific workflows detected, default to full incident response
     if not workflows_to_execute:
         workflows_to_execute = execution_order
-    
+
     workflow_steps = []
     for i, workflow_id in enumerate(workflows_to_execute, 1):
         workflow = get_workflow_by_id(workflow_id)
@@ -360,7 +361,7 @@ Instructions: {workflow.get('content', '')}
 Dependencies: {', '.join(dependencies.get(workflow_id, {}).get('depends_on', ['None']))}
 """
         workflow_steps.append(step)
-    
+
     return f"""
 ORCHESTRATED INCIDENT ENGINEERING WORKFLOW EXECUTION
 
@@ -395,7 +396,7 @@ Expected Output: A comprehensive incident engineering response that includes all
 def create_orchestrated_incident_prompt(user_prompt: str) -> str:
     """Create a comprehensive orchestrated incident response prompt"""
     orchestrated_prompt = get_orchestrated_workflow_prompt(user_prompt)
-    
+
     return f"""
 {orchestrated_prompt}
 
@@ -452,7 +453,7 @@ def get_workflow_required_actions(workflow_id: str) -> list:
     """Extract required actions from a workflow's content"""
     workflow = get_workflow_by_id(workflow_id)
     content = workflow.get('content', '')
-    
+
     # Extract actions from [ACTIONS_REQUIRED] section
     import re
     actions_match = re.search(r'\[ACTIONS_REQUIRED\](.*?)(?:\[|$)', content, re.DOTALL)
@@ -466,7 +467,7 @@ def get_workflow_required_actions(workflow_id: str) -> list:
 def validate_workflow_actions_completion(workflow_id: str, executed_actions: list) -> dict:
     """Validate that all required actions for a workflow have been executed"""
     required_actions = get_workflow_required_actions(workflow_id)
-    
+
     validation_result = {
         'workflow_id': workflow_id,
         'required_actions': required_actions,
@@ -474,20 +475,20 @@ def validate_workflow_actions_completion(workflow_id: str, executed_actions: lis
         'missing_actions': [],
         'is_complete': True
     }
-    
+
     for required_action in required_actions:
         # Simple check if the action type was executed
         action_type = required_action.split('(')[0] if '(' in required_action else required_action
         if not any(action_type in executed for executed in executed_actions):
             validation_result['missing_actions'].append(required_action)
             validation_result['is_complete'] = False
-    
+
     return validation_result
 
 def get_comprehensive_action_checklist() -> dict:
     """Get a comprehensive checklist of all actions across all workflows"""
     action_checklist = {}
-    
+
     for workflow_id in ['deep_incident_research', 'automate_post_incident_doc', 'mttr_report', 'uptime_report']:
         workflow = get_workflow_by_id(workflow_id)
         if workflow:
@@ -498,14 +499,14 @@ def get_comprehensive_action_checklist() -> dict:
                 'agents_to_call': extract_agents_from_workflow(workflow_id),
                 'deliverables': extract_deliverables_from_workflow(workflow_id)
             }
-    
+
     return action_checklist
 
 def extract_agents_from_workflow(workflow_id: str) -> list:
     """Extract which agents should be called based on workflow content"""
     workflow = get_workflow_by_id(workflow_id)
     content = workflow.get('content', '').lower()
-    
+
     agents = []
     if 'pagerduty' in content or 'pd' in content:
         agents.append('PagerDuty')
@@ -519,14 +520,14 @@ def extract_agents_from_workflow(workflow_id: str) -> list:
         agents.append('Komodor')
     if 'backstage' in content:
         agents.append('Backstage')
-    
+
     return agents
 
 def extract_deliverables_from_workflow(workflow_id: str) -> list:
     """Extract expected deliverables from workflow content"""
     workflow = get_workflow_by_id(workflow_id)
     content = workflow.get('content', '')
-    
+
     deliverables = []
     if 'create a new confluence page' in content.lower():
         deliverables.append('Confluence Page')
@@ -538,5 +539,5 @@ def extract_deliverables_from_workflow(workflow_id: str) -> list:
         deliverables.append('Jira Updates')
     if 'notification' in content.lower():
         deliverables.append('Notifications')
-    
+
     return deliverables
