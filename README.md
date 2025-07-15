@@ -42,6 +42,8 @@ Together, these sub-agents enable users to perform complex operations using agen
 
 *For detailed information on project goals and our community, head to our [documentation site](https://cnoe-io.github.io/ai-platform-engineering/).*
 
+![](docs/docs/architecture/images/mas_architecture.svg)
+
 ## 💡 Examples
 
 **AI Platform Engineer** can handle a wide range of operational requests. Here are some sample prompts you can try:
