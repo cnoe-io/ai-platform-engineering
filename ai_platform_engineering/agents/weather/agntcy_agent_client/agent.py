@@ -3,8 +3,9 @@
 
 from langgraph.prebuilt import create_react_agent
 from cnoe_agent_utils import LLMFactory
+import os
 
-from ai_platform_engineering.agents.weather.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.weather.agntcy_agent_client.agentcard import (
     WEATHER_AGENT_DESCRIPTION,
     weather_agent_card,
     weather_agent_skill,
@@ -20,6 +21,8 @@ WEATHER_ENDPOINT = os.getenv("WEATHER_AGENT_ENDPOINT", f"http://{weather_agent_c
 
 # initialize the flavor profile tool with the farm agent card
 weather_agntcy_remote_agent = AgntcyRemoteAgentConnectTool(
+    name="weather_agntcy_remote_agent",
+    description=WEATHER_AGENT_DESCRIPTION,
     endpoint=WEATHER_ENDPOINT,
     remote_agent_card=weather_agent_card,
 )
