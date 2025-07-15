@@ -63,7 +63,7 @@ async def make_api_request(
     # Use the utility function to retrieve the token if not provided
     token = token or get_env()
     email = str(os.getenv("ATLASSIAN_EMAIL"))
-    url = str(os.getenv("ATLASSIAN_API_URL"))
+    url = str(os.getenv("CONFLUENCE_API_URL"))
     if not token:
         logger.error("No API token available. Request cannot proceed.")
         return (
