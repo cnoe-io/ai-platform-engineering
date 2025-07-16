@@ -3,7 +3,6 @@
 
 import os
 import sys
-
 import click
 import httpx
 import uvicorn
