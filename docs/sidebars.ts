@@ -21,9 +21,26 @@ const sidebars: SidebarsConfig = {
       label: 'Introduction',
     },
     {
-      type: 'doc',
-      id: 'getting-started/quick-start', // docs/getting-started/quick-start.md
-      label: 'Quick Start',
+      type: 'category',
+      label: 'Getting Started',
+      items: [
+        {
+          type: 'doc',
+          id: 'getting-started/quick-start',
+        },
+        {
+          type: 'doc',
+          id: 'getting-started/local-development',
+        },
+        {
+          type: 'doc',
+          id: 'getting-started/user-interfaces',
+        },
+        {
+          type: 'doc',
+          id: 'getting-started/next-steps',
+        }
+      ],
     },
     {
       type: 'category',

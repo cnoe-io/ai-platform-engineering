@@ -2,7 +2,7 @@
 sidebar_position: 10
 ---
 
-# Next Steps
+# ➡️ Next Steps
 
 You have just learned the **basics of AI Platform Engineering** and made some changes to the **initial template**.
 
@@ -12,9 +12,9 @@ Anything **unclear** or **buggy** in this tutorial? [Please report it!](https://
 
 ## What's next?
 
-- Explore the [Architecture Overview](https://cnoe-io.github.io/ai-platform-engineering/architecture) to understand the platform's design.
+- Explore the [Architecture Overview](../architecture/index.md) to understand the platform's design.
 **Local Development:**
-- Install AI Platform Engineering using [Docker Compose](https://cnoe-io.github.io/ai-platform-engineering/docker-compose-installation).
-- Set up AI Platform Engineering on [Kubernetes with Kind](https://cnoe-io.github.io/ai-platform-engineering/kind-installation).
+- Install AI Platform Engineering using [Docker Compose](docker-compose/setup.md).
+- Set up AI Platform Engineering on [Kubernetes with Kind](kind/setup.md).
 **SaaS hosting:**
-- Deploy AI Platform Engineering on [Amazon EKS](https://cnoe-io.github.io/ai-platform-engineering/eks-installation) for scalable hosting.
+- Deploy AI Platform Engineering on [AWS EKS](eks/setup.md) for scalable hosting.
