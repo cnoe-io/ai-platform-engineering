@@ -23,16 +23,20 @@ dependencies:
     condition: agent-argocd.enabled
   - name: agent
     version: 0.1.5
-    alias: agent-atlassian
-    condition: agent-atlassian.enabled
-  - name: agent
-    version: 0.1.5
     alias: agent-backstage
     condition: agent-backstage.enabled
   - name: agent
     version: 0.1.5
+    alias: agent-confluence
+    condition: agent-confluence.enabled
+  - name: agent
+    version: 0.1.5
     alias: agent-github
     condition: agent-github.enabled
+  - name: agent
+    version: 0.1.5
+    alias: agent-jira
+    condition: agent-jira.enabled
   - name: agent
     version: 0.1.5
     alias: agent-pagerduty
@@ -41,14 +45,6 @@ dependencies:
     version: 0.1.5
     alias: agent-slack
     condition: agent-slack.enabled
-  - name: agent
-    version: 0.1.5
-    alias: agent-confluence
-    condition: agent-confluence.enabled
-  - name: agent
-    version: 0.1.5
-    alias: agent-jira
-    condition: agent-jira.enabled
   - name: agent
     version: 0.1.5
     alias: agent-reflection

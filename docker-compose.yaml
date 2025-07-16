@@ -47,7 +47,7 @@ services:
       - tracing
     depends_on:
       - agent-argocd
-      - agent-atlassian
+      - agent-jira
       - agent-pagerduty
       - agent-github
       - agent-slack
@@ -59,7 +59,7 @@ services:
     environment:
       - AGENT_PROTOCOL=a2a
       - ARGOCD_AGENT_HOST=agent-argocd
-      - ATLASSIAN_AGENT_HOST=agent-atlassian
+      - ATLASSIAN_AGENT_HOST=agent-jira
       - BACKSTAGE_AGENT_HOST=agent-backstage
       - GITHUB_AGENT_HOST=agent-github
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
