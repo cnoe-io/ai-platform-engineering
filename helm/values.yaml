@@ -14,12 +14,12 @@ ai-platform-engineering:
     releasePrefix: "ai-platform-engineering"
     agents:
       - argocd
+      - backstage
+      - confluence
+      - github
       - jira
       - pagerduty
-      - github
       - slack
-      - komodor
-
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
   enabled: true
@@ -44,11 +44,17 @@ agent-argocd:
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
 
-agent-pagerduty:
+agent-backstage:
   enabled: false
-  nameOverride: "agent-pagerduty"
+  nameOverride: "agent-backstage"
   image:
-    repository: "ghcr.io/cnoe-io/agent-pagerduty"
+    repository: "ghcr.io/cnoe-io/agent-backstage"
+
+agent-confluence:
+  enabled: false
+  nameOverride: "agent-confluence"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-confluence"
 
 agent-github:
   enabled: false
@@ -62,32 +68,14 @@ agent-jira:
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
 
-agent-backstage:
+agent-pagerduty:
   enabled: false
-  nameOverride: "agent-backstage"
+  nameOverride: "agent-pagerduty"
   image:
-    repository: "ghcr.io/cnoe-io/agent-backstage"
+    repository: "ghcr.io/cnoe-io/agent-pagerduty"
 
 agent-slack:
   enabled: false
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
-
-agent-confluence:
-  enabled: false
-  nameOverride: "agent-confluence"
-  image:
-    repository: "ghcr.io/cnoe-io/agent-confluence"
-
-agent-jira:
-  enabled: false
-  nameOverride: "agent-jira"
-  image:
-    repository: "ghcr.io/cnoe-io/agent-jira"
-
-agent-reflection:
-  enabled: false
-  nameOverride: "agent-reflection"
-  image:
-    repository: "ghcr.io/cnoe-io/agent-reflection"
