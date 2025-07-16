@@ -215,7 +215,7 @@ class GitHubAgent:
         """Stream responses from the agent."""
         logger.info(f"🔍 GitHub Agent stream started - query: {query}, context_id: {context_id}")
         logger.info(f"🔍 Tracing enabled: {langfuse_handler is not None}")
-        
+
         if not self.graph:
             logger.error("Agent graph not initialized")
             yield {
@@ -226,7 +226,7 @@ class GitHubAgent:
             return
 
         inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
-        
+
         config: RunnableConfig = {'configurable': {'thread_id': context_id}}
         if langfuse_handler:
             logger.info(f"🔍 Adding Langfuse callback handler with context_id as trace_id: {context_id}")
@@ -241,10 +241,10 @@ class GitHubAgent:
                 logger.warning("🔍 GitHub Agent - This indicates a problem with trace ID propagation")
             else:
                 logger.info(f"🔍 GitHub Agent - using SUPERVISOR trace_id: {trace_id} for context_id: {context_id}")
-            
+
             # Set trace_id in context variable for tools to access
             current_trace_id.set(trace_id)
-            
+
             if langfuse_handler:
                 # Tracing execution path
                 langfuse = get_client()
@@ -253,10 +253,10 @@ class GitHubAgent:
                     trace_context={"trace_id": trace_id}
                 ) as span:
                     span.update_trace(input=query)
-                    
+
                     async for event in _process_graph_stream(self.graph, inputs, config):
                         yield event
-                    
+
                     span.update_trace(output="GitHub agent execution completed")
             else:
                 # Non-tracing execution path
