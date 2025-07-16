@@ -7,6 +7,7 @@ import os
 from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph_supervisor import create_supervisor
+from langgraph_supervisor.handoff import create_forward_message_tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
@@ -25,13 +26,14 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt,
   response_format_instruction
 )
+from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_a2a_remote_agent
+from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_a2a_remote_agent
+from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_a2a_remote_agent
+from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_a2a_remote_agent
+from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_a2a_remote_agent
+from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_a2a_remote_agent
+from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_a2a_remote_agent
 
-from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_agent
-from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_agent
-from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_agent
-from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_agent
-from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_agent
-from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_agent
 from ai_platform_engineering.utils.models.generic_agent import (
   ResponseFormat
 )
@@ -78,30 +80,35 @@ class AIPlatformEngineerMAS:
     model = LLMFactory().get_llm()
 
     # Check if LANGGRAPH_DEV is defined in the environment
-    if os.getenv("LANGGRAPH_DEV"):
-      checkpointer = None
-      store = None
-    else:
-      checkpointer = InMemorySaver()
-      store = InMemoryStore()
+    # if os.getenv("LANGGRAPH_DEV"):
+    #   checkpointer = None
+    #   store = None
+    # else:
+    checkpointer = InMemorySaver()
+    store = InMemoryStore()
 
-    agents = [
-        argocd_agent,
-        backstage_agent,
-        github_agent,
-        jira_agent,
-        pagerduty_agent,
-        slack_agent,
+    agent_tools = [
+      argocd_a2a_remote_agent,
+      backstage_a2a_remote_agent,
+      github_a2a_remote_agent,
+      jira_a2a_remote_agent,
+      pagerduty_a2a_remote_agent,
+      slack_a2a_remote_agent,
     ]
     if KOMODOR_ENABLED:
-        agents.append(komodor_agent)
+      agent_tools.append(komodor_a2a_remote_agent)
+
+     # The argument is the name to assign to the resulting forwarded message
+    forwarding_tool = create_forward_message_tool("platform_engineer_supervisor")
 
     graph = create_supervisor(
       model=model,
-      agents=agents,
+      agents=[],
       prompt=system_prompt,
       add_handoff_back_messages=False,
+      tools=[forwarding_tool] + agent_tools,
       output_mode="last_message",
+      supervisor_name="platform_engineer_supervisor",
       response_format=(response_format_instruction, ResponseFormat),
     ).compile(
       checkpointer=checkpointer,
