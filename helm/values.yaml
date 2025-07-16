@@ -55,7 +55,7 @@ agent-pagerduty:
     pullPolicy: "Always"
 
 agent-github:
-  enabled: false
+  enabled: true
   nameOverride: "agent-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
