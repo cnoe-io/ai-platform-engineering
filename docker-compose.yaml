@@ -6,6 +6,7 @@ services:
     depends_on:
       - agent-argocd
       - agent-backstage
+      - agent-confluence
       - agent-github
       - agent-jira
       - agent-pagerduty
@@ -35,6 +36,8 @@ services:
     volumes:
       - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
+      # Uncomment for local development
+      # - ./ai_platform_engineering:/app/ai_platform_engineering
     command: platform-engineer
   # AI Platform Engineer Multi-Agent System (local build for tracing)
   # TODO: Remove this local build service once the stable GHCR image includes tracing evaluation support
@@ -91,8 +94,17 @@ services:
     container_name: agent-backstage
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/confluence:/app/
     ports:
       - "8002:8000"
+  # Agent Confluence
+  agent-confluence:
+    image: ghcr.io/cnoe-io/agent-confluence:a2a-stable
+    container_name: agent-confluence
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8003:8000"
   # Agent GitHub
   agent-github:
     image: ghcr.io/cnoe-io/agent-github:a2a-stable
