@@ -42,18 +42,6 @@ agent-github:
       #   hosts:
       #     - agent-github.local
 
-agent-atlassian:
-  ingress:
-    hosts:
-      - host: agent-atlassian.local
-        paths:
-          - path: /
-            pathType: Prefix
-    tls: []
-      # - secretName: agent-atlassian-tls
-      #   hosts:
-      #     - agent-atlassian.local
-
 agent-backstage:
   ingress:
     hosts:

@@ -81,3 +81,158 @@ When adding a new agent to the system:
    helm template ./helm
    helm dependency update ./helm
    ```
+
+
+---
+## Run Individual Agent
+
+### 🤖 ⚙️ LLM Provider Configuration
+
+Each agent supports one of the following LLM providers. Choose one and uncomment it in your `.env` file:
+
+```env
+########### LLM PROVIDER CONFIGURATION ###########
+
+# --- AWS Bedrock ---
+# LLM_PROVIDER=aws-bedrock
+# AWS_ACCESS_KEY_ID=
+# AWS_SECRET_ACCESS_KEY=
+# AWS_REGION=
+# AWS_BEDROCK_MODEL_ID=
+# AWS_BEDROCK_PROVIDER="amazon"
+
+# --- Azure OpenAI ---
+# LLM_PROVIDER=azure-openai
+# AZURE_OPENAI_API_KEY=
+# AZURE_OPENAI_ENDPOINT=
+# AZURE_OPENAI_DEPLOYMENT=
+# AZURE_OPENAI_API_VERSION=
+
+# --- OpenAI ---
+# LLM_PROVIDER=openai
+# OPENAI_API_KEY=
+# OPENAI_ENDPOINT=
+# OPENAI_MODEL_NAME=
+```
+
+> 💡 For the latest supported providers and `.env` examples, see:
+> [https://github.com/cnoe-io/cnoe-agent-utils](https://github.com/cnoe-io/cnoe-agent-utils)
+
+
+### 🔁 ArgoCD Agent
+
+#### ⚙️ `.env` Configuration
+
+```env
+# === ArgoCD Agent Configuration ===
+ARGOCD_TOKEN=
+ARGOCD_API_URL=
+ARGOCD_VERIFY_SSL=true
+```
+
+Combine this with the **LLM Provider Configuration** above in a single `.env` file.
+
+#### ▶️ Run the ArgoCD Agent
+
+```bash
+docker pull ghcr.io/cnoe-io/agent-argocd:a2a-stable
+docker run -p 8000:8000 -it \
+  -v $(pwd)/.env:/app/.env \
+  ghcr.io/cnoe-io/agent-argocd:a2a-stable
+```
+
+---
+
+### 🧾 Jira Agent
+
+#### ⚙️ `.env` Configuration
+
+```env
+# === Atlassian Agent Configuration ===
+ATLASSIAN_TOKEN=
+ATLASSIAN_EMAIL=
+ATLASSIAN_API_URL=
+```
+
+Include the **LLM Provider Configuration** as well.
+
+#### ▶️ Run the Atlassian Agent
+
+```bash
+docker pull ghcr.io/cnoe-io/agent-jira:a2a-stable
+docker run -p 8000:8000 -it \
+  -v $(pwd)/.env:/app/.env \
+  ghcr.io/cnoe-io/agent-jira:a2a-stable
+```
+
+---
+
+### 🧑‍💻 GitHub Agent
+
+#### ⚙️ `.env` Configuration
+
+```env
+# === GitHub Agent Configuration ===
+GITHUB_PERSONAL_ACCESS_TOKEN=
+```
+
+Include the **LLM Provider Configuration** in the same `.env`.
+
+#### ▶️ Run the GitHub Agent
+
+```bash
+docker pull ghcr.io/cnoe-io/agent-github:a2a-stable
+docker run -p 8000:8000 -it \
+  -v $(pwd)/.env:/app/.env \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/cnoe-io/agent-github:a2a-stable
+```
+
+---
+
+### 🚨 PagerDuty Agent
+
+#### ⚙️ `.env` Configuration
+
+```env
+# === PagerDuty Agent Configuration ===
+PAGERDUTY_API_KEY=
+PAGERDUTY_API_URL=https://api.pagerduty.com
+```
+
+Add the LLM block to the same `.env` file.
+
+### ▶️ Run the PagerDuty Agent
+
+```bash
+docker pull ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
+docker run -p 8000:8000 -it \
+  -v $(pwd)/.env:/app/.env \
+  ghcr.io/cnoe-io/agent-pagerduty:a2a-stable
+```
+
+---
+
+## 💬 Slack Agent
+
+### ⚙️ `.env` Configuration
+
+```env
+# === Slack Agent Configuration ===
+SLACK_BOT_TOKEN=
+SLACK_APP_TOKEN=
+SLACK_SIGNING_SECRET=
+SLACK_CLIENT_SECRET=
+SLACK_TEAM_ID=
+```
+
+Don’t forget to include the LLM provider block in your `.env`.
+
+### ▶️ Run the Slack Agent
+
+```bash
+docker pull ghcr.io/cnoe-io/agent-slack:a2a-stable
+docker run -p 8000:8000 -it \
+  -v $(pwd)/.env:/app/.env \
+  ghcr.io/cnoe-io/agent-slack:a2a-stable
+```

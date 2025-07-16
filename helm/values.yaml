@@ -14,7 +14,7 @@ ai-platform-engineering:
     releasePrefix: "ai-platform-engineering"
     agents:
       - argocd
-      - atlassian
+      - jira
       - pagerduty
       - github
       - slack
@@ -56,11 +56,11 @@ agent-github:
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
 
-agent-atlassian:
+agent-jira:
   enabled: false
-  nameOverride: "agent-atlassian"
+  nameOverride: "agent-jira"
   image:
-    repository: "ghcr.io/cnoe-io/agent-atlassian"
+    repository: "ghcr.io/cnoe-io/agent-jira"
 
 agent-backstage:
   enabled: false
