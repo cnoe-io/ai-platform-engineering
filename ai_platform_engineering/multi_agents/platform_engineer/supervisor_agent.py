@@ -12,15 +12,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
 
-# Conditional langfuse import based on ENABLE_TRACING
-if os.getenv("ENABLE_TRACING", "false").lower() == "true":
-    from langfuse import observe
-else:
-    # No-op decorator when tracing is disabled
-    def observe(**kwargs):
-        def decorator(func):
-            return func
-        return decorator
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt,
@@ -28,6 +19,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 )
 from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_a2a_remote_agent
 from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_a2a_remote_agent
+from ai_platform_engineering.agents.confluence.a2a_agent_client.agent import confluence_a2a_remote_agent
 from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_a2a_remote_agent
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_a2a_remote_agent
 from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_a2a_remote_agent
@@ -89,6 +81,7 @@ class AIPlatformEngineerMAS:
     agent_tools = [
       argocd_a2a_remote_agent,
       backstage_a2a_remote_agent,
+      confluence_a2a_remote_agent,
       github_a2a_remote_agent,
       jira_a2a_remote_agent,
       pagerduty_a2a_remote_agent,
@@ -116,7 +109,6 @@ class AIPlatformEngineerMAS:
     logger.debug("LangGraph supervisor created and compiled successfully.")
     return graph
 
-  @observe(name="Supervisor Agent - Process Request")
   async def serve(self, prompt: str):
     """
     Processes the input prompt and returns a response from the graph.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from pydantic import BaseModel
-from typing import Literal
+from typing import Literal, Optional
 
 
 class UserPrompt(BaseModel):
@@ -15,6 +15,7 @@ class Input(BaseModel):
   This class is used to structure the input payload for the A2A agent.
   """
   prompt: str
+  trace_id: Optional[str] = None
 
 
 class Output(BaseModel):

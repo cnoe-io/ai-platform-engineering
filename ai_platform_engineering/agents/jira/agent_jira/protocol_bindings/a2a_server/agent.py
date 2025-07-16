@@ -77,13 +77,14 @@ class JiraAgent:
             raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
           client = MultiServerMCPClient(
               {
-                  "math": {
+                  "jira": {
                       "command": "uv",
                       "args": ["run", server_path],
                       "env": {
                           "ATLASSIAN_TOKEN": os.getenv("ATLASSIAN_TOKEN"),
                           "ATLASSIAN_API_URL": os.getenv("ATLASSIAN_API_URL"),
-                          "ATLASSIAN_VERIFY_SSL": "false"
+                          "ATLASSIAN_VERIFY_SSL": os.getenv("ATLASSIAN_VERIFY_SSL"),
+                          "ATLASSIAN_EMAIL": os.getenv("ATLASSIAN_EMAIL"),
                       },
                       "transport": "stdio",
                   }

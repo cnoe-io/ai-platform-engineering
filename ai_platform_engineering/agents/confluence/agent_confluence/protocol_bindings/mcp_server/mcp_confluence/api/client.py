@@ -82,8 +82,8 @@ async def make_api_request(
         "Content-Type": "application/json"
     }
 
-
-    logger.debug(f"Request headers: {headers}")
+    # DO NOT accidentally log headers that contain API tokens
+    logger.debug("Request headers prepared (Authorization header masked)")
     logger.debug(f"Request parameters: {params}")
     if data:
         logger.debug(f"Request data: {data}")
@@ -131,7 +131,7 @@ async def make_api_request(
                 if response.status_code == 204:
                     logger.debug("Request successful (204 No Content)")
                     return (True, {"status": "success"})
-                
+
                 # Try to parse JSON response
                 content_type = response.headers.get('content-type', '').lower()
                 if 'application/json' in content_type:

@@ -61,7 +61,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
     { name = "langchain-openai", specifier = ">=0.3.17" },
     { name = "langgraph", specifier = ">=0.4.5" },
-    { name = "mcp-argocd", directory = "../../mcp/argocd" },
+    { name = "mcp-argocd", directory = "mcp/argocd" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
@@ -1138,7 +1138,7 @@ wheels = [
 [[package]]
 name = "mcp-argocd"
 version = "0.1.0"
-source = { directory = "../../mcp/argocd" }
+source = { directory = "mcp/argocd" }
 dependencies = [
     { name = "httpx" },
     { name = "mcp" },
