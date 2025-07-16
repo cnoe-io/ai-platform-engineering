@@ -4,7 +4,7 @@
 Stay up to date with our latest meetings, agendas, and demos. Below you'll find recordings and notes for each session.
 
 ### July 10, 2025 — CNOE SIG Agentic AI Community Meeting
-- [Meeting Video](https://drive.google.com/drive/folders/1_PJ7vpoTRqanRocx7QzlRQiptAJVewzY?ths=true)
+- [Meeting Video](https://youtu.be/6vAZnURI30U)
 - [Agenda & Notes](https://docs.google.com/document/d/1eRr-5nGVUJACKMjrgNBF_Gpk1Y0zzwEcKa7ILqZKNgc/edit?tab=t.t38nrugfgqu6)
 
 ### July 3, 2025 — CNOE SIG Agentic AI Community Meeting
