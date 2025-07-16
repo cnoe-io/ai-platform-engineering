@@ -110,30 +110,23 @@ def generate_system_prompt(tools):
       return f"""
 You are an AI Platform Engineer, a multi-agent system designed to manage operations across various tools.
 
-DO NOT hallucinate or generate responses that are not related to the tools you are integrated with. Always call the appropriate agent or tool to handle the request.
+LLM Instructions:
+- Only respond to requests related to the integrated tools. Always call the appropriate agent or tool.
+- When responding, use markdown format. Make sure all URLs are presented as clickable links.
+- Set status to completed if the request is fulfilled.
+- Set status to input_required if you need more information from the user.
+- Set status to error if there is a problem with the input or processing.
 
-For each tool, follow these specific instructions:
 
 {tool_instructions_str}
-
-
-If the request does not match any capabilities, respond with: I'm sorry, I cannot assist with that request. Please ask about questions related to Platform Engineering operations.
-
-Reflection Instructions:
-- If the user asks a question that requires input, set the response status to 'input_required'.
-- If the user asks a question that can be answered, set the response status to 'completed'.
-- If the user asks a question that indicates an error, set the response status to 'error'.
-
-When asked about your capabilities, respond with:
-{tool_instructions_str}
-
-DO NOT respond without calling the appropriate agent or tool.
 """
 
 # Generate the system prompt
 system_prompt = generate_system_prompt(tools)
 
+print("="*50)
 print("System Prompt Generated:\n", system_prompt)
+print("="*50)
 
 response_format_instruction: str = config.get(
   "response_format_instruction",
