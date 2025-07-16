@@ -79,8 +79,8 @@ async def make_api_request(
         "Accept": "application/json"
     }
 
-
-    logger.debug(f"Request headers: {headers}")
+    # DO NOT accidentally log headers that contain API tokens
+    # logger.debug(f"Request headers: {headers}")
     logger.debug(f"Request parameters: {params}")
     if data:
         logger.debug(f"Request data: {data}")

@@ -50,7 +50,7 @@ async def make_api_request(
         Tuple of (success, data) where data is either the response JSON or an error dict
     """
     logger.debug(f"Making {method} request to {path}")
-    
+
     if not token:
         logger.debug("No token provided, using default token")
         token = DEFAULT_API_KEY
@@ -70,7 +70,8 @@ async def make_api_request(
             "Accept": "application/vnd.pagerduty+json;version=2",
             "Content-Type": "application/json",
         }
-        
+
+        # DO NOT accidentally log headers that contain API tokens
         logger.debug("Request headers prepared (Authorization header masked)")
         logger.debug(f"Request parameters: {params}")
         if data:
@@ -95,21 +96,21 @@ async def make_api_request(
 
             # Make the request
             logger.debug(f"Executing {method} request")
-            
+
             # Only include json parameter for methods that use request body
             request_kwargs = {
                 "headers": headers,
                 "params": params,
             }
-            
+
             if method in ["POST", "PUT", "PATCH"]:
                 request_kwargs["json"] = data
-                
+
             response = await method_map[method](
                 url,
                 **request_kwargs
             )
-            
+
             logger.debug(f"Response status code: {response.status_code}")
 
             # Handle different response codes
@@ -158,4 +159,4 @@ async def make_api_request(
         if token and token in error_message:
             error_message = error_message.replace(token, "[REDACTED]")
         logger.error(f"Unexpected error: {error_message}")
-        return (False, {"error": f"Unexpected error: {error_message}"}) 
+        return (False, {"error": f"Unexpected error: {error_message}"})
