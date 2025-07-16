@@ -23,8 +23,8 @@ dependencies:
     condition: agent-argocd.enabled
   - name: agent
     version: 0.1.5
-    alias: agent-atlassian
-    condition: agent-atlassian.enabled
+    alias: agent-jira
+    condition: agent-jira.enabled
   - name: agent
     version: 0.1.5
     alias: agent-backstage
