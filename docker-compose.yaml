@@ -84,6 +84,11 @@ services:
   agent-argocd:
     image: ghcr.io/cnoe-io/agent-argocd:a2a-stable
     container_name: agent-argocd
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
     ports:
@@ -110,9 +115,16 @@ services:
   agent-github:
     image: ghcr.io/cnoe-io/agent-github:a2a-stable
     container_name: agent-github
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
+      # Uncomment for local development
+      # - ./ai_platform_engineering/agents/github:/app
     ports:
       - "8004:8000"
   agent-jira:

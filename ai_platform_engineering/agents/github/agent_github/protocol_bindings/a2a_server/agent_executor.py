@@ -36,11 +36,11 @@ class GitHubAgentExecutor(AgentExecutor):
         if not task:
             task = new_task(context.message)
             event_queue.enqueue_event(task)
-            
+
         # Extract trace_id from message metadata if present
         message_metadata = getattr(context.message, 'metadata', {}) if context.message else {}
         trace_id = message_metadata.get('trace_id')
-        
+
         # invoke the underlying agent, using streaming results
         print(f"🔍 A2A Executor - calling agent.stream with context_id: {context_id}")
         if trace_id:
