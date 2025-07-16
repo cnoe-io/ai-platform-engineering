@@ -32,7 +32,6 @@ from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_a2a_remote_agent
 from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_a2a_remote_agent
 from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_a2a_remote_agent
-from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_a2a_remote_agent
 
 from ai_platform_engineering.utils.models.generic_agent import (
   ResponseFormat
@@ -42,7 +41,7 @@ import os
 # Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
 KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
 if KOMODOR_ENABLED:
-    from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_agent
+    from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_a2a_remote_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
