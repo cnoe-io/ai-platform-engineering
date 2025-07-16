@@ -94,7 +94,6 @@ services:
     container_name: agent-backstage
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/confluence:/app/
     ports:
       - "8002:8000"
   # Agent Confluence
@@ -103,6 +102,8 @@ services:
     container_name: agent-confluence
     volumes:
       - ./.env:/app/.env
+      # Uncomment for local development
+      # - ./ai_platform_engineering/agents/confluence:/app/
     ports:
       - "8003:8000"
   # Agent GitHub
