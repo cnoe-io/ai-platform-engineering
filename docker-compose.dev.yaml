@@ -42,6 +42,8 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+    volumes:
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     command: platform-engineer
 
   ####################################################################################################
@@ -107,8 +109,14 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/argocd:/app
     ports:
       - "8001:8000"
 
@@ -135,8 +143,14 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/backstage:/app
     ports:
       - "8002:8000"
 
@@ -163,8 +177,14 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/confluence:/app
     ports:
       - "8003:8000"
 
@@ -191,9 +211,15 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/github:/app
     ports:
       - "8004:8000"
 
@@ -221,8 +247,14 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/jira:/app
     ports:
       - "8005:8000"
 
@@ -250,8 +282,14 @@ services:
       - build
       - komodor
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/komodor:/app
     ports:
       - "8006:8000"
   agent-komodor-latest:
@@ -276,8 +314,14 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/pagerduty:/app
     ports:
       - "8007:8000"
 
@@ -304,8 +348,14 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/slack:/app
     ports:
       - "8008:8000"
 
@@ -332,8 +382,14 @@ services:
     profiles:
       - build
       - build-tracing
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/webex:/app
     ports:
       - "8009:8000"
   agent-webex-latest:
