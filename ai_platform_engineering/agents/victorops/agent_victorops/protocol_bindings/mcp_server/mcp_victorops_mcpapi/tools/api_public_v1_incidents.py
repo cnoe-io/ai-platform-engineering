@@ -5,8 +5,9 @@
 """Tools for /api-public/v1/incidents operations"""
 
 import logging
-from typing import Dict, Any, List , Optional
+from typing import Dict, Any
 from ..api.client import make_api_request, assemble_nested_body
+from ..models.incident import IncidentCreate
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -48,13 +49,18 @@ async def get_api_public_v1_incidents() -> Dict[str, Any]:
     return response
 
 
+# async def post_api_public_v1_incidents(
+#     body_summary: str,
+#     body_details: str,
+#     body_userName: str,
+#     body_targets:List[Dict[str, Any]],
+#     body_targets_:List[],
+#     body_isMultiResponder: Optional[bool] = None,
+# ) -> Dict[str, Any]:
+    
 async def post_api_public_v1_incidents(
-    body_summary: str,
-    body_details: str,
-    body_userName: str,
-    body_targets:List[Dict[str, Any]],
-    body_isMultiResponder: Optional[bool] = None,
-) -> Dict[str, Any]:
+incident: IncidentCreate
+) -> Dict[str, Any]:    
     """
         Create a new incident
 
@@ -81,8 +87,7 @@ async def post_api_public_v1_incidents(
 
             body_userName (str): OpenAPI parameter corresponding to 'body_userName'
 
-            body_targets (List[Dict[str, Any]]): OpenAPI parameter corresponding to 'body_targets'
-
+            body_targets (List[Dict[str, Any]]): OpenAPI parameter corresponding to 'body_targets' 
             body_isMultiResponder (bool): OpenAPI parameter corresponding to 'body_isMultiResponder'
 
 
@@ -98,16 +103,20 @@ async def post_api_public_v1_incidents(
     data = {}
 
     flat_body = {}
-    if body_summary is not None:
-        flat_body["summary"] = body_summary
-    if body_details is not None:
-        flat_body["details"] = body_details
-    if body_userName is not None:
-        flat_body["userName"] = body_userName
-    if body_targets is not None:
-        flat_body["targets"] = body_targets
-    if body_isMultiResponder is not None:
-        flat_body["isMultiResponder"] = body_isMultiResponder
+
+    if incident is not None:
+        flat_body=incident.model_dump()
+
+    # if incident.summary is not None:
+    #     flat_body["summary"] = incident.summary
+    # if incident.details is not None:
+    #     flat_body["details"] = incident.details 
+    # if incident.userName is not None:
+    #     flat_body["userName"] = incident.userName
+    # if incident.targets is not None:
+    #     flat_body["targets"] = incident.targets
+    # if incident.isMultiResponder is not None:
+    #     flat_body["isMultiResponder"] = incident.isMultiResponder
     data = assemble_nested_body(flat_body)
 
     success, response = await make_api_request("/api-public/v1/incidents", method="POST", params=params, data=data)
