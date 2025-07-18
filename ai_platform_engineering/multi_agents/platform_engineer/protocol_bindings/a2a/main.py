@@ -74,7 +74,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 
 load_dotenv()
 
-def get_agent_card(host: str, port: int):
+def get_agent_card(host: str, port: int, external_url: str = None):
   capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
   skill = AgentSkill(
@@ -85,10 +85,18 @@ def get_agent_card(host: str, port: int):
     examples=agent_skill_examples,
   )
 
+  # Check for external URL override first
+  if external_url:
+    # Use external URL as-is (should include protocol and path)
+    agent_url = external_url
+  else:
+    # Use traditional host:port construction for internal URLs
+    agent_url = f'http://{host}:{port}/'
+
   return AgentCard(
     name=agent_name,
     description=agent_description,
-    url=f'http://{host}:{port}/',
+    url=agent_url,
     version='0.1.0',
     defaultInputModes=['text', 'text/plain'],
     defaultOutputModes=['text', 'text/plain'],
@@ -99,10 +107,18 @@ def get_agent_card(host: str, port: int):
 # Check environment variables for host and port if not provided via CLI
 env_host = os.getenv('A2A_HOST')
 env_port = os.getenv('A2A_PORT')
+external_url = os.getenv('EXTERNAL_URL')
 
 # Use CLI argument if provided, else environment variable, else default
 host = env_host or 'localhost'
-port = int(env_port) if env_port is not None else 8000
+# Handle empty string and None values for port
+if env_port and env_port.strip():
+  try:
+    port = int(env_port)
+  except ValueError:
+    port = 8000
+else:
+  port = 8000
 
 client = httpx.AsyncClient()
 
@@ -113,7 +129,7 @@ request_handler = DefaultRequestHandler(
 )
 
 a2a_server = A2AStarletteApplication(
-  agent_card=get_agent_card(host, port),
+  agent_card=get_agent_card(host, port, external_url),
   http_handler=request_handler
 )
 
