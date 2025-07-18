@@ -4,7 +4,9 @@
 import logging
 import asyncio
 import os
-from typing import Any, Literal, AsyncIterable
+import uuid
+from typing import Any, Literal, AsyncIterable, Optional
+from contextvars import ContextVar
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
@@ -16,7 +18,52 @@ from langgraph.prebuilt import create_react_agent
 
 from cnoe_agent_utils import LLMFactory
 
+# Conditional langfuse import based on ENABLE_TRACING
+if os.getenv("ENABLE_TRACING", "false").lower() == "true":
+    from langfuse import get_client
+    from langfuse.langchain import CallbackHandler
+    langfuse_handler = CallbackHandler()
+else:
+    langfuse_handler = None
+
 logger = logging.getLogger(__name__)
+
+# Local context variable for trace ID (since running in separate container)
+current_trace_id: ContextVar[Optional[str]] = ContextVar('current_trace_id', default=None)
+
+async def _process_graph_stream(graph, inputs, config):
+    """Process graph stream and yield appropriate events."""
+    async for item in graph.astream(inputs, config, stream_mode='values'):
+        message = item.get('messages', [])[-1] if item.get('messages') else None
+
+        if not message:
+            continue
+
+        logger.debug(f"Streamed message type: {type(message)}")
+
+        if (
+            isinstance(message, AIMessage)
+            and hasattr(message, 'tool_calls')
+            and message.tool_calls
+            and len(message.tool_calls) > 0
+        ):
+            yield {
+                'is_task_complete': False,
+                'require_user_input': False,
+                'content': 'Processing GitHub operations...',
+            }
+        elif isinstance(message, ToolMessage):
+            yield {
+                'is_task_complete': False,
+                'require_user_input': False,
+                'content': 'Interacting with GitHub API...',
+            }
+        elif isinstance(message, AIMessage) and message.content:
+            yield {
+                'is_task_complete': False,
+                'require_user_input': False,
+                'content': message.content,
+            }
 
 memory = MemorySaver()
 
@@ -164,9 +211,10 @@ class GitHubAgent:
             logger.exception(f"Error initializing agent: {e}")
             self.graph = None
 
-    async def stream(self, query: str, context_id: str) -> AsyncIterable[dict[str, Any]]:
+    async def stream(self, query: str, context_id: str, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
-        logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
+        logger.info(f"🔍 GitHub Agent stream started - query: {query}, context_id: {context_id}")
+        logger.info(f"🔍 Tracing enabled: {langfuse_handler is not None}")
         
         if not self.graph:
             logger.error("Agent graph not initialized")
@@ -178,41 +226,42 @@ class GitHubAgent:
             return
 
         inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
+        
         config: RunnableConfig = {'configurable': {'thread_id': context_id}}
+        if langfuse_handler:
+            logger.info(f"🔍 Adding Langfuse callback handler with context_id as trace_id: {context_id}")
+            config['callbacks'] = [langfuse_handler]
+        else:
+            logger.info("🔍 No Langfuse handler - tracing disabled or not available")
 
         try:
-            async for item in self.graph.astream(inputs, config, stream_mode='values'):
-                message = item.get('messages', [])[-1] if item.get('messages') else None
-
-                if not message:
-                    continue
-
-                logger.debug(f"Streamed message type: {type(message)}")
-
-                if (
-                    isinstance(message, AIMessage)
-                    and hasattr(message, 'tool_calls')
-                    and message.tool_calls
-                    and len(message.tool_calls) > 0
-                ):
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': 'Processing GitHub operations...',
-                    }
-                elif isinstance(message, ToolMessage):
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': 'Interacting with GitHub API...',
-                    }
-
-                elif isinstance(message, AIMessage) and message.content:
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': message.content,
-                    }
+            # Log trace ID status
+            if not trace_id:
+                logger.warning(f"🔍 GitHub Agent - NO trace_id provided from supervisor for context_id: {context_id}")
+                logger.warning("🔍 GitHub Agent - This indicates a problem with trace ID propagation")
+            else:
+                logger.info(f"🔍 GitHub Agent - using SUPERVISOR trace_id: {trace_id} for context_id: {context_id}")
+            
+            # Set trace_id in context variable for tools to access
+            current_trace_id.set(trace_id)
+            
+            if langfuse_handler:
+                # Tracing execution path
+                langfuse = get_client()
+                with langfuse.start_as_current_span(
+                    name="🤖-github-agent",
+                    trace_context={"trace_id": trace_id}
+                ) as span:
+                    span.update_trace(input=query)
+                    
+                    async for event in _process_graph_stream(self.graph, inputs, config):
+                        yield event
+                    
+                    span.update_trace(output="GitHub agent execution completed")
+            else:
+                # Non-tracing execution path
+                async for event in _process_graph_stream(self.graph, inputs, config):
+                    yield event
 
             yield self.get_agent_response(config)
         except Exception as e:

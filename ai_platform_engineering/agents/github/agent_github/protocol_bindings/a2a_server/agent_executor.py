@@ -37,8 +37,15 @@ class GitHubAgentExecutor(AgentExecutor):
             task = new_task(context.message)
             event_queue.enqueue_event(task)
             
+        # Extract trace_id from message metadata if present
+        message_metadata = getattr(context.message, 'metadata', {}) if context.message else {}
+        trace_id = message_metadata.get('trace_id')
+        
         # invoke the underlying agent, using streaming results
-        async for event in self.agent.stream(query, context_id):
+        print(f"🔍 A2A Executor - calling agent.stream with context_id: {context_id}")
+        if trace_id:
+            print(f"🔍 A2A Executor - found trace_id in message metadata: {trace_id}")
+        async for event in self.agent.stream(query, context_id, trace_id):
             if event['is_task_complete']:
                 event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
