@@ -28,7 +28,7 @@ supervisor-agent:
     pullPolicy: "Always"
     args: ["platform-engineer"]
   env:
-    EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
+    EXTERNAL_URL: "https://cnoe.localtest.me:8443/agent-forge"  # Agent url for the client
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
@@ -123,7 +123,7 @@ agent-slack:
 
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
-  enabled: true
+  enabled: false  # idpbuilder has backstage chart with agent-forge added
   nameOverride: "backstage-plugin-agent-forge"
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
