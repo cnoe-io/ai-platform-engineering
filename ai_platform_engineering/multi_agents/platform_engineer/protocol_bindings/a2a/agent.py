@@ -96,7 +96,7 @@ class AIPlatformEngineerA2ABinding:
               name="🤖-supervisor-agent",
               trace_context={"trace_id": trace_id}
           ) as span:
-              span.update_trace(input=query)
+              span.update_trace(name="ai-platform-engineering", input=query)
               
               async for event in _process_graph_stream(self.graph, inputs, config):
                   yield event

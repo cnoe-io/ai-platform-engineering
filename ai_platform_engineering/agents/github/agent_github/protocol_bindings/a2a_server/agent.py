@@ -252,9 +252,8 @@ class GitHubAgent:
                     name="🤖-github-agent",
                     trace_context={"trace_id": trace_id}
                 ) as span:
-                    # Set trace name and metadata
+                    # Add to existing trace (don't override the trace name set by supervisor)
                     span.update_trace(
-                        name="🤖-github-agent",
                         input=query,
                         metadata={
                             "agent_type": "github",
@@ -263,12 +262,21 @@ class GitHubAgent:
                         }
                     )
                     
+                    # Process stream and capture the actual final response
+                    final_response_content = None
                     async for event in _process_graph_stream(self.graph, inputs, config):
+                        # Capture actual AI responses (not generic processing messages)
+                        if (event.get('content') and 
+                            event.get('content') not in ['Processing GitHub operations...', 'Interacting with GitHub API...']):
+                            final_response_content = event.get('content')
                         yield event
                     
-                    # Get the final response before updating trace
+                    # Get the final response
                     result = self.get_agent_response(config)
-                    span.update_trace(output=result['content'])
+                    
+                    # Use captured response if available, otherwise fall back to agent response
+                    output_content = final_response_content if final_response_content else result['content']
+                    span.update_trace(output=output_content)
                     yield result
                     return
             else:
