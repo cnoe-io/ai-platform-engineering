@@ -6,8 +6,11 @@ ai-platform-engineering:
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
     tag: "stable"
+    pullPolicy: "Always"
     command: ["poetry", "run", "ai-platform-engineering"]
     args: ["platform-engineer"]
+  env:
+    EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
@@ -20,6 +23,7 @@ ai-platform-engineering:
       - jira
       - pagerduty
       - slack
+
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
   enabled: true
@@ -27,6 +31,7 @@ backstage-plugin-agent-forge:
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
     tag: "latest"
+    pullPolicy: "Always"
   isBackstagePlugin: true
   service:
     ports:
@@ -43,39 +48,53 @@ agent-argocd:
   nameOverride: "agent-argocd"
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
+    pullPolicy: "Always"
 
 agent-backstage:
   enabled: false
   nameOverride: "agent-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
+    pullPolicy: "Always"
 
 agent-confluence:
   enabled: false
   nameOverride: "agent-confluence"
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
+    pullPolicy: "Always"
 
 agent-github:
   enabled: false
   nameOverride: "agent-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
+    pullPolicy: "Always"
 
 agent-jira:
   enabled: false
   nameOverride: "agent-jira"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
+    pullPolicy: "Always"
 
 agent-pagerduty:
   enabled: false
   nameOverride: "agent-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
+    pullPolicy: "Always"
 
 agent-slack:
   enabled: false
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
+    pullPolicy: "Always"
+
+agent-reflection:
+  enabled: false
+  nameOverride: "agent-reflection"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-reflection"
+    pullPolicy: "Always"
