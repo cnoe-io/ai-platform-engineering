@@ -252,18 +252,31 @@ class GitHubAgent:
                     name="🤖-github-agent",
                     trace_context={"trace_id": trace_id}
                 ) as span:
-                    span.update_trace(input=query)
+                    # Set trace name and metadata
+                    span.update_trace(
+                        name="🤖-github-agent",
+                        input=query,
+                        metadata={
+                            "agent_type": "github",
+                            "context_id": context_id,
+                            "trace_id": trace_id
+                        }
+                    )
                     
                     async for event in _process_graph_stream(self.graph, inputs, config):
                         yield event
                     
-                    span.update_trace(output="GitHub agent execution completed")
+                    # Get the final response before updating trace
+                    result = self.get_agent_response(config)
+                    span.update_trace(output=result['content'])
+                    yield result
+                    return
             else:
                 # Non-tracing execution path
                 async for event in _process_graph_stream(self.graph, inputs, config):
                     yield event
-
-            yield self.get_agent_response(config)
+                
+                yield self.get_agent_response(config)
         except Exception as e:
             logger.exception(f"Error in stream: {e}")
             yield {
