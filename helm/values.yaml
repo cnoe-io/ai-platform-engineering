@@ -10,7 +10,7 @@ ai-platform-engineering:
     command: ["poetry", "run", "ai-platform-engineering"]
     args: ["platform-engineer"]
   env:
-    EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
+    EXTERNAL_URL: "https://cnoe.localtest.me:8443/agent-forge"  # Agent url for the client
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
@@ -26,7 +26,7 @@ ai-platform-engineering:
 
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
-  enabled: true
+  enabled: false  # idpbuilder has backstage chart with agent-forge added
   nameOverride: "backstage-plugin-agent-forge"
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
@@ -44,56 +44,56 @@ backstage-plugin-agent-forge:
 
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
-  enabled: false
+  enabled: true
   nameOverride: "agent-argocd"
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
     pullPolicy: "Always"
 
 agent-backstage:
-  enabled: false
+  enabled: true
   nameOverride: "agent-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
     pullPolicy: "Always"
 
 agent-confluence:
-  enabled: false
+  enabled: true
   nameOverride: "agent-confluence"
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
     pullPolicy: "Always"
 
 agent-github:
-  enabled: false
+  enabled: true
   nameOverride: "agent-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
     pullPolicy: "Always"
 
 agent-jira:
-  enabled: false
+  enabled: true
   nameOverride: "agent-jira"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
     pullPolicy: "Always"
 
 agent-pagerduty:
-  enabled: false
+  enabled: true
   nameOverride: "agent-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
     pullPolicy: "Always"
 
 agent-slack:
-  enabled: false
+  enabled: true
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
     pullPolicy: "Always"
 
 agent-reflection:
-  enabled: false
+  enabled: true
   nameOverride: "agent-reflection"
   image:
     repository: "ghcr.io/cnoe-io/agent-reflection"
