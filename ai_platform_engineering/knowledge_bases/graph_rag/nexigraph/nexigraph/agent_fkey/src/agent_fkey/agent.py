@@ -269,7 +269,10 @@ class ForeignKeyRelationAgent:
             database_type=self.graph_db.database_type,
             query_language=self.graph_db.query_language
         )
-        agent = create_react_agent(llm, tools=AGENT_TOOLS, prompt=system_prompt, response_format=AgentOutputFKeyRelation)
+        agent = create_react_agent(llm, tools=AGENT_TOOLS, prompt=system_prompt, 
+                                   response_format=("The last message is the evaluation of a relation candidate, using only the evaluation text, generate a structured response. "
+                                   "DO NOT use your own knowledge, only use the evaluation text to generate the response.", 
+                                    AgentOutputFKeyRelation))
         agent.name = AGENT_NAME
         return agent
 

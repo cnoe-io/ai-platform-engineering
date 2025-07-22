@@ -92,14 +92,12 @@ class ExampleEntityMatch(TypedDict):
     entity_b_id: str
 
 
-class CompositeKeyPropertyMapping(BaseModel):
+class PropertyMapping(BaseModel):
     """
     Represents a composite key property mapping in the foreign key heuristic
     """
     entity_a_property: str = Field(description="The property of the first entity")
     entity_b_idkey_property: str = Field(description="The identity key property of the second entity that is matched")
-    count: int = Field(description="The number of times the properties match up")
-    is_accepted: Optional[bool] = Field(default=False, description="Whether this composite key property mapping is accepted into the relation")
 
 
 class FkeyRelationManualIntervention(str, Enum):
@@ -118,14 +116,12 @@ class FkeyHeuristic(BaseModel):
     entity_a_type: Annotated[str, WithJsonSchema({'prompt_exposed': "true"}) ] = Field(description="The entity type of the first entity")
     entity_b_type: Annotated[str, WithJsonSchema({'prompt_exposed': "true"}) ] = Field(description="The entity type of the second entity")
     entity_a_property: Annotated[str, WithJsonSchema({'prompt_exposed': "true"}) ] = Field(description="The property of the first entity")
-    entity_b_idkey_property: Annotated[str, WithJsonSchema({'prompt_exposed': "true"}) ] = Field(description="The property of the second entity that matches the first entity's property")
     count: Annotated[int, WithJsonSchema({'prompt_exposed': "true"}) ] = Field(default=0, description="The number of times the properties match up")
     example_matches: Annotated[List[ExampleEntityMatch], WithJsonSchema({'prompt_exposed': "true"}) ] = Field(description="Example entities that match the heuristic")
 
     # Properties that store information about the heuristic, not exposed to agent
-    is_entity_b_idkey_composite: bool = Field(default=False, description="Whether the identity key is a composite key")
     properties_in_composite_idkey: frozenset[str] = Field(description="The properties of entity_b that are part of the composite identity key, if applicable")
-    composite_idkey_mappings: List[CompositeKeyPropertyMapping] = Field(
+    property_mappings: List[PropertyMapping] = Field(
         description="Properties in entity_a that map to the composite identity key properties of entity_b",
     )
     last_processed: int = Field(default=0, description="The last time this heuristic was processed, used to determine freshness")
@@ -140,7 +136,7 @@ class FkeyEvaluation(BaseModel):
     justification: Optional[str] = Field(default="", description="Justification for the relation and the confidence")
     thought: str = Field(default="", description="The agent's thoughts about the relation")
     last_evaluated: int = Field(default=0, description="The last time this heuristic was evaluated, used to determine freshness")
-    values: List[str] = Field(default=[], description="The example values that were used to evaluate the heuristic")
+    values: List[Any] = Field(default=[], description="The example values that were used to evaluate the heuristic")
     entity_a_with_property_count: int = Field(default=0, description="The number of entities of entity_a type that have the property that matches the heuristic")
     entity_a_with_property_percentage: float = Field(default=0, description="The percentage of entity_a properties that match the heuristic")
     last_evaluation_count: int = Field(default=0, description="The previous count of the heuristic, used to determine if the heuristic has changed")
