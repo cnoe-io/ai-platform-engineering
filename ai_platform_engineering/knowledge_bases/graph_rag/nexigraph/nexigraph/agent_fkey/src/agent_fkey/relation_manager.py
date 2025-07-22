@@ -1,11 +1,15 @@
 import asyncio
+import hashlib
+import json
 import os
 import time
 from typing import List
 import redis.asyncio as redis
 from core import utils as utils
 import agent_fkey.helpers as helpers
-from core.models import CompositeKeyPropertyMapping, Entity, ExampleEntityMatch, FkeyEvaluation, FkeyHeuristic, FkeyRelationManualIntervention, RelationCandidate
+from core.models import PropertyMapping, Entity, ExampleEntityMatch, FkeyEvaluation, FkeyHeuristic, FkeyRelationManualIntervention, RelationCandidate
+
+from core.graph_db.base import GraphDB
 
 RELATION_ID_KEY = "_relation_id"
 RELATION_CONFIDENCE_KEY = "_relation_confidence"
@@ -19,7 +23,7 @@ class RelationCandidateManager:
     This class implements a set of functions to identify potential foreign key relationships
     """
 
-    def __init__(self, graph_db, acceptance_threshold: float, rejection_threshold: float, new_candidates: bool = False):
+    def __init__(self, graph_db: GraphDB, acceptance_threshold: float, rejection_threshold: float, new_candidates: bool = False):
 
         self.graph_db = graph_db        
         ## TODO: define the right abstract class/apis for key-value store
@@ -93,11 +97,18 @@ class RelationCandidateManager:
         heuristic = RelationCandidate.model_validate_json(h_raw)
         return heuristic
 
-    async def generate_relation_id(self, entity: Entity, entity_property_key: str, matched_entity: Entity, matched_entity_property_key: str) -> str:
+    async def generate_relation_id(self, entity: Entity, entity_property_key: str, matched_entity: Entity, matched_entity_property_key: str, 
+                                   property_mappings: List[PropertyMapping]) -> str:
         """
-        Generates a unique relation ID for the given entity and matched entity.
+        Generates a unique relation ID for the given entity, matched entity and properties that are being matched.
         """
-        return f"{entity.entity_type}.{entity_property_key} -> {matched_entity.entity_type}.{matched_entity_property_key}"
+        props_dict = {}
+        for prop in property_mappings:
+            props_dict[prop.entity_a_property] = prop.entity_b_idkey_property
+        
+        prop_json = json.dumps(props_dict, sort_keys=True, cls=utils.ObjEncoder)
+        prop_md5 = hashlib.md5(prop_json.encode())
+        return f"{entity.entity_type}.{entity_property_key} -> {matched_entity.entity_type} [{prop_md5.hexdigest()}]"
 
     async def update_heuristic(self, 
                                entity: Entity, 
@@ -105,7 +116,7 @@ class RelationCandidateManager:
                                matched_entity: Entity, 
                                matched_entity_property_key: str, 
                                count: int, 
-                               composite_property_key_mappings: List[CompositeKeyPropertyMapping],
+                               property_mappings: List[PropertyMapping],
                                matching_entity_id_key: List[str]):
         """
         Updates the heuristics for the given entity and matched entity. If the relation candidate does not exist, it creates a new one.
@@ -114,11 +125,11 @@ class RelationCandidateManager:
         :param matched_entity: The matched entity.
         :param matched_entity_property_key: The property key of the matched entity that is being matched
         :param count: The count of matches for the heuristic. This will be added to the existing count if the heuristic already exists.
-        :param composite_property_key_mappings: A list of composite key property mappings that are part of the heuristic.
+        :param property_mappings: A list of property mappings that map properties from the entity to the matched entity.
         :param matching_entity_id_key: The identity key of the entity that is being matched.
         :return: None
         """
-        relation_id = await self.generate_relation_id(entity, entity_property_key, matched_entity, matched_entity_property_key)
+        relation_id = await self.generate_relation_id(entity, entity_property_key, matched_entity, matched_entity_property_key, property_mappings)
         self.logger.info("Creating/Updating relation_id=%s", relation_id)
 
         # Acquire a lock for the relation_id to avoid concurrent updates to the same heuristic
@@ -139,35 +150,18 @@ class RelationCandidateManager:
                         entity_a_type=entity.entity_type,
                         entity_b_type=matched_entity.entity_type,
                         entity_a_property=entity_property_key,
-                        entity_b_idkey_property=matched_entity_property_key,
-                        is_entity_b_idkey_composite=True if len(matching_entity_id_key) > 1 else False,
                         properties_in_composite_idkey=frozenset(matching_entity_id_key),
                         count=count,
-                        composite_idkey_mappings=composite_property_key_mappings,
+                        property_mappings=property_mappings,
                         example_matches= [ExampleEntityMatch(entity_a_id=entity.generate_primary_key(), entity_b_id=matched_entity.generate_primary_key())]
                     )
                 )
             else:
-                # If the heuristic already exists, we update the count, example matches and add the new composite idkey mappings
+                # If the heuristic already exists, we update the count and example matches
                 if len(candidate.heuristic.example_matches) < self.max_relation_examples:
                     candidate.heuristic.example_matches.append(ExampleEntityMatch(entity_a_id=entity.generate_primary_key(), entity_b_id=matched_entity.generate_primary_key()))
 
                 candidate.heuristic.count += count
-
-                # Update the composite idkey mappings
-                composite_idkey_mapping_dict = {} # Create a dict to hold the composite idkey mappings, for faster lookup and avoiding duplicates
-                for mapping in candidate.heuristic.composite_idkey_mappings: # add the existing mappings to the dict
-                    composite_idkey_mapping_dict[mapping.entity_a_property, mapping.entity_b_idkey_property] = mapping
-
-                for mapping in composite_property_key_mappings: # add/update the new mappings
-                    # If the property mapping already exists, we just update the count, otherwise we add it
-                    if (mapping.entity_a_property, mapping.entity_b_idkey_property) in composite_idkey_mapping_dict:
-                        composite_idkey_mapping_dict[mapping.entity_a_property, mapping.entity_b_idkey_property].count += mapping.count
-                    else:
-                        composite_idkey_mapping_dict[mapping.entity_a_property, mapping.entity_b_idkey_property] = mapping
-                
-                # Convert the dict back to a list and assign it to the heuristic
-                candidate.heuristic.composite_idkey_mappings = list(composite_idkey_mapping_dict.values())
 
             # Save the heuristic to the Redis database
             await self._set_heuristic(relation_id, candidate)
@@ -271,13 +265,9 @@ class RelationCandidateManager:
             self.logger.error(f"Relation {relation_id} has no relation name, cannot apply.")
             return
 
-        matching_properties = {
-                candidate.heuristic.entity_a_property: candidate.heuristic.entity_b_idkey_property
-        }
-        if candidate.heuristic.is_entity_b_idkey_composite:
-            for prop in candidate.heuristic.composite_idkey_mappings:
-                if prop.is_accepted:
-                    matching_properties[prop.entity_a_property] = prop.entity_b_idkey_property
+        matching_properties = {}
+        for prop in candidate.heuristic.property_mappings:
+            matching_properties[prop.entity_a_property] = prop.entity_b_idkey_property
 
         # Sanity check if its a composite key, we have all the properties
         # if candidate.heuristic.is_entity_b_idkey_composite and len(matching_properties) != len(candidate.heuristic.properties_in_composite_idkey):
