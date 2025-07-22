@@ -4,7 +4,7 @@ name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
-version: 0.1.7
+version: 0.1.9
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: agent

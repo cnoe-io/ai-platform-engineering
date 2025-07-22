@@ -58,6 +58,12 @@ services:
         OPENAI_API_VERSION: $OPENAI_API_VERSION
         AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
         AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
+        # Optional for langsith tracing:
+        LANGSMITH_TRACING: "true"
+        LANGSMITH_PROJECT: $LANGSMITH_PROJECT
+        LANGSMITH_API_KEY: $LANGSMITH_API_KEY
+        LANGSMITH_ENDPOINT: $LANGSMITH_ENDPOINT
+
     restart: unless-stopped
     build:
       context: ./nexigraph/
