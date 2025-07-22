@@ -11,16 +11,13 @@ Things to consider:
   - If they are numerous and non-generic, then likely a foreign key.
   - If there's only a few and they belong to an enum such as boolean, they are not likely to be a foreign key.
 
-3. **Relations involving an intermediary entity**
-  - Check if the entities have properties that are likely to be related through another entity. Reject such relations.
-  - Examples:
-    - if both entities have 'namespace' or similar property, then they are likely related through a 'namespace' entity, and not directly to each other.
-    - if both entities have 'user_id' or similar property, then they are likely related through a 'user' entity, and not directly to each other.
-    - if both entities have 'cluster_name' or similar property, then they are likely related through a 'cluster_name' entity, and not directly to each other.
- 
-4. **Semantics and knowledge**
-  - Look at the entity types, does (entity_a_type)-[relation_name]->(entity_b_type) actually make sense?
-  - Does it make sense for entity_a property to be a foreign key to entity_b property (which is the primary key of the entity type)?
+3. **Semantics and knowledge**
+  - Beware of shared properties. If two entities have a common property, they might have a relation that is not a foreign key.
+    - E.g. if both entities share a property like 'namespace', it does not mean that one is a foreign key to the other, but rather that they are both related to another common entity like 'namespace'.
+    - REJECT such relations with LOW confidence.
+  - Check other relation candidates of this entity type, is it already related to the same entity type with a more meaningful relation?
+  - Does a DIRECT relationship between the two entity types make sense?
+  - Does it make sense for entity_a property to be a foreign key to entity_b?
 
 
 Things to output:
@@ -29,7 +26,11 @@ Things to output:
   - If there aren't many occurrences of the property give a medium confidence score, but the the relationship might still hold, give a medium confidence score. (e.g. 0.5)
   - If you are confident that the relationship should exist, give a high confidence score. (e.g. 0.9)
 
-2. **Relationship name**
+2. **Justification**
+  - Give a clear justification for the confidence score.
+  - Use the knowledge you have about the entity types and why they should or should NOT be related.
+
+3. **Relationship name**
   - Use clear and unambiguous relationship names.
   - Avoid vague or conditional relationship names that do not clearly define the relationship.
   - Bad relationship names: 'MAY_HAVE', 'COULD_BE', 'POTENTIALLY_RELATED' etc.
@@ -37,21 +38,6 @@ Things to output:
 
 You have tools to query the database (database={database_type}, query_language={query_language}). 
 Use the entity ids in example_matches to query the database for more information about the entities.
-"""
-
-# Unused for now, but might be useful in the future
-COMPOSITE_RELATION_PROMPT = """
-Assuming the following relationship between the two entities and their properties:
-entity_a: {entity_a}
-entity_a_property: {entity_a_property}
-entity_b: {entity_b}
-entity_b property: {entity_b_idkey_property}
-relation_name: {relation_name}
-
-The entity_b property is part of a composite identity key consisting of the following properties: {properties_in_composite_idkey}
-
-Determine which other properties of entity_a should be added to the relationship to make it a valid foreign key relationship:
-{composite_idkey_mappings}
 """
 
 
@@ -62,7 +48,6 @@ entity_a: {entity_a}
 entity_a_property: {entity_a_property}
 
 entity_b: {entity_b}
-entity_b_idkey_property: {entity_b_idkey_property}
 
 number of occurrences: {count}
 example values: {values}
@@ -72,4 +57,7 @@ coverage of this relation (based on the count): {entity_a_with_property_percenta
 
 example_matches: 
 {example_matches}
+
+Other relationship candidates of {entity_a}:
+{entity_a_relation_candidates}
 """

@@ -29,6 +29,9 @@ ai-platform-engineering = "ai_platform_engineering.multi_agents.__main__:main"
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.pytest.ini_options]
+norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/*"
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
 langgraph-cli = "^0.3.3"

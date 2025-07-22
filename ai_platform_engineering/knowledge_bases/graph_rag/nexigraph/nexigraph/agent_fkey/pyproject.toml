@@ -9,9 +9,11 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "core",
-    "langchain>=0.3.25",
+    "langchain>=0.3.26",
     "langchain-openai>=0.3.23",
     "langgraph>=0.4.8",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
     "python-dotenv>=1.1.0",
 ]
 
