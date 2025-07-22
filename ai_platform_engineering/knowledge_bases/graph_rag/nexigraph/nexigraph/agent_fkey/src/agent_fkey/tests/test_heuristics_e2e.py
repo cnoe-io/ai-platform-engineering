@@ -71,10 +71,10 @@ async def test_total_count():
     diff_tcs = tcs.difference(gtcs)
     diff_gtcs = gtcs.difference(tcs)
     logging.warning(f"[TEST] Testing relation candidate count, expected {len(ground_truth_candidates)}, got {len(test_candidates)}")
-    logging.warning(f"Difference in relation candidates (in test, not in ground truth):")
+    logging.warning("Difference in relation candidates (in test, not in ground truth):")
     for rel_id in diff_tcs:
         logging.warning(f"  - {rel_id}")
-    logging.warning(f"Difference in relation candidates (in ground truth, not in test):")
+    logging.warning("Difference in relation candidates (in ground truth, not in test):")
     for rel_id in diff_gtcs:
         logging.warning(f"  - {rel_id}")
     
