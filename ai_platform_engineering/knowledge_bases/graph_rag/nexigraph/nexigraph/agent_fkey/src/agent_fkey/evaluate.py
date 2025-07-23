@@ -46,11 +46,15 @@ class FkeyEvaluator:
 
         entity_a_with_property_count = await self.graphdb.get_property_value_count(candidate.heuristic.entity_a_type, candidate.heuristic.entity_a_property)
 
+        matching_properties = {}
+        for prop in candidate.heuristic.property_mappings:
+            matching_properties[prop.entity_a_property] = prop.entity_b_idkey_property
+        logger.debug(f"Matching properties: {matching_properties}")
         values = await self.graphdb.get_values_of_matching_property(
             candidate.heuristic.entity_a_type, 
             candidate.heuristic.entity_a_property, 
             candidate.heuristic.entity_b_type, 
-            candidate.heuristic.entity_b_idkey_property, 
+            matching_properties, 
             max_results=5)
 
         entity_types = await self.graphdb.get_all_entity_types()
@@ -60,22 +64,29 @@ class FkeyEvaluator:
 
         entity_a_with_property_percentage=round(100 * candidate.heuristic.count / entity_a_with_property_count, 2) if entity_a_with_property_count > 0 else 0
         
+        all_candidates =  await self.rc_manager.fetch_all_candidates()
+        entity_a_relation_candidates = []
+        for _, rel_candidate in all_candidates.items():
+            if rel_candidate.heuristic.entity_a_type == candidate.heuristic.entity_a_type and rel_candidate.heuristic.entity_b_type in entity_types:
+                entity_a_relation_candidates.append(f"{rel_candidate.heuristic.entity_a_type}.{rel_candidate.heuristic.entity_a_property} -> {rel_candidate.heuristic.entity_b_type} (count = {rel_candidate.heuristic.count})")
+
         logger.info("Evaluating with agent")
         prompt_tpl = PromptTemplate.from_template(RELATION_PROMPT)
         prompt = prompt_tpl.format(
             entity_a=candidate.heuristic.entity_a_type,
             entity_a_property=candidate.heuristic.entity_a_property,
             entity_b=candidate.heuristic.entity_b_type,
-            entity_b_idkey_property=candidate.heuristic.entity_b_idkey_property,
             count=candidate.heuristic.count,
             values=values, 
             entity_a_with_property_count=entity_a_with_property_count,
             entity_a_with_property_percentage=entity_a_with_property_percentage,
             example_matches=utils.json_encode(candidate.heuristic.example_matches, indent=2),
+            entity_a_relation_candidates=entity_a_relation_candidates
         )
 
-        logger.debug(prompt)
+        logger.info(prompt)
         if not self.debug:
+            # Invoke the agent with the prompt
             resp = await self.agent.ainvoke(
                 {"messages": [
                     HumanMessage(
@@ -92,7 +103,7 @@ class FkeyEvaluator:
             fkey_agent_response_raw = resp["structured_response"].model_dump_json()
             fkey_agent_response: AgentOutputFKeyRelation = AgentOutputFKeyRelation.model_validate_json(fkey_agent_response_raw)
 
-            logger.debug(f"Agent response: {fkey_agent_response_raw}")
+            logger.info(f"Agent response: {fkey_agent_response_raw}")
         else:
             # For debugging purposes, we can use a static response instead to save time and cost
             fkey_agent_response = AgentOutputFKeyRelation(
@@ -106,30 +117,30 @@ class FkeyEvaluator:
         if fkey_agent_response.relation_confidence is None: # Assume rejection if no confidence is given
             fkey_agent_response.relation_confidence = 0.0
 
-        # Check if the confidence is high enough
-        if float(fkey_agent_response.relation_confidence) > float(self.acceptance_threshold):
-            # Determine what other properties are in the composite key
-            # If the relation is a composite key, we need to set the additional property mappings
-            # TODO: Give this to the agent to decide in the future
-            if candidate.heuristic.is_entity_b_idkey_composite:
-                # If the relation is a composite key, we need to set the additional property mappings
-                # Check if there are composite key mappings, which have the same count as the heuristic count
-                property_mappings = [mapping for mapping in candidate.heuristic.composite_idkey_mappings if mapping.count == candidate.heuristic.count]
+        # # Check if the confidence is high enough
+        # if float(fkey_agent_response.relation_confidence) > float(self.acceptance_threshold):
+        #     # Determine what other properties are in the composite key
+        #     # If the relation is a composite key, we need to set the additional property mappings
+        #     # TODO: Give this to the agent to decide in the future
+        #     if candidate.heuristic.is_entity_b_idkey_composite:
+        #         # If the relation is a composite key, we need to set the additional property mappings
+        #         # Check if there are composite key mappings, which have the same count as the heuristic count
+        #         property_mappings = [mapping for mapping in candidate.heuristic.composite_idkey_mappings if mapping.count == candidate.heuristic.count]
                 
-                # Now search for the composite key mappings that match the remaining entity_b's composite key
-                properties_in_composite_idkey = set(candidate.heuristic.properties_in_composite_idkey)
-                properties_in_composite_idkey.remove(candidate.heuristic.entity_b_idkey_property)
-                for prop_in_idkey in properties_in_composite_idkey:
-                    matched_mapping = next(iter([mapping for mapping in property_mappings if mapping.entity_b_idkey_property == prop_in_idkey]), None)
-                    if matched_mapping is None:
-                        # If there is no mapping for the property, we cannot accept the relation
-                        error_message = f"No appropriate mapping found for property {prop_in_idkey} in composite key, cannot accept relation."
-                        logger.error(error_message)
-                        await self.rc_manager.update_evaluation_error(candidate.relation_id, error_message)
-                        return  # Update the evaluation error message and return, as we cannot accept the relation
-                    else:
-                        # Set this additional property has accepted for the relation
-                        matched_mapping.is_accepted = True
+        #         # Now search for the composite key mappings that match the remaining entity_b's composite key
+        #         properties_in_composite_idkey = set(candidate.heuristic.properties_in_composite_idkey)
+        #         properties_in_composite_idkey.remove(candidate.heuristic.entity_b_idkey_property)
+        #         for prop_in_idkey in properties_in_composite_idkey:
+        #             matched_mapping = next(iter([mapping for mapping in property_mappings if mapping.entity_b_idkey_property == prop_in_idkey]), None)
+        #             if matched_mapping is None:
+        #                 # If there is no mapping for the property, we cannot accept the relation
+        #                 error_message = f"No appropriate mapping found for property {prop_in_idkey} in composite key, cannot accept relation."
+        #                 logger.error(error_message)
+        #                 await self.rc_manager.update_evaluation_error(candidate.relation_id, error_message)
+        #                 return  # Update the evaluation error message and return, as we cannot accept the relation
+        #             else:
+        #                 # Set this additional property has accepted for the relation
+        #                 matched_mapping.is_accepted = True
 
         await self.rc_manager.update_evaluation(
             relation_id=candidate.relation_id,

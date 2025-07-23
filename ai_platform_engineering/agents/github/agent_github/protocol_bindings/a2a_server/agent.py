@@ -167,7 +167,7 @@ class GitHubAgent:
     async def stream(self, query: str, context_id: str) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
         logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
-        
+
         if not self.graph:
             logger.error("Agent graph not initialized")
             yield {

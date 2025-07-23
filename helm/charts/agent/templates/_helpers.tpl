@@ -95,22 +95,18 @@ Determine if external secrets are enabled - global takes precedence
 Determine external secret names - global takes precedence
 */}}
 {{- define "agent.externalSecrets.secretNames" -}}
-{{- if hasKey .Values.global "externalSecrets" -}}
-{{- if hasKey .Values.global.externalSecrets "secretNames" -}}
-{{- .Values.global.externalSecrets.secretNames | join "," -}}
-{{- else -}}
-{{- if .Values.global.externalSecrets.enabled -}}
-{{- if .Values.isMultiAgent -}}
-{{- printf "" -}}
-{{- else -}}
-{{- printf "llm-secret,%s-secret" (include "agent.name" .) -}}
-{{- end -}}
-{{- else -}}
-{{- "" -}}
-{{- end -}}
-{{- end -}}
-{{- else -}}
-{{- .Values.externalSecrets.secretNames | default list | join "," -}}
+{{- if eq (include "agent.externalSecrets.enabled" .) "true" -}}
+  {{- if .Values.externalSecrets.secretNames -}}
+    {{- .Values.externalSecrets.secretNames | join "," -}}
+  {{- else -}}
+    {{- if .Values.isMultiAgent -}}
+      {{- printf "llm-secret" -}}
+    {{- else if .Values.isBackstagePlugin -}}
+      {{- "" -}}
+    {{- else -}}
+      {{- printf "llm-secret,%s-secret" (include "agent.name" .) -}}
+    {{- end -}}
+  {{- end -}}
 {{- end -}}
 {{- end -}}
 
