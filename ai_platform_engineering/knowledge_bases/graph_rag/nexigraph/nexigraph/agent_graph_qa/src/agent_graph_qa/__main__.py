@@ -15,8 +15,8 @@ from a2a.types import (
 )
 from dotenv import load_dotenv
 
-from agent_qa.agent import QnAAgent
-from agent_qa.a2a_executor import QnAAgentExecutor
+from agent_graph_qa.agent import QnAAgent
+from agent_graph_qa.a2a_executor import QnAAgentExecutor
 
 load_dotenv()
 

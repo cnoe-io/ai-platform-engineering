@@ -7,8 +7,8 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.graph.graph import CompiledGraph
 from langchain_core.messages import HumanMessage, AIMessage
 
-from agent_fkey.relation_manager import RelationCandidateManager
-from agent_fkey.prompts import RELATION_PROMPT
+from agent_graph_gen.relation_manager import RelationCandidateManager
+from agent_graph_gen.prompts import RELATION_PROMPT
 
 
 class FkeyEvaluator:

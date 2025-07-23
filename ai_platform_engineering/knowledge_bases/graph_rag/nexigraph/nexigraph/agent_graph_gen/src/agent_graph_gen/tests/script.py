@@ -1,5 +1,5 @@
 import json
-from agent_fkey.relation_manager import RelationCandidateManager
+from agent_graph_gen.relation_manager import RelationCandidateManager
 
 from core.graph_db.neo4j.graph_db import Neo4jDB
 from core.utils import ObjEncoder
