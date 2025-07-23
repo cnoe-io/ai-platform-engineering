@@ -2,7 +2,11 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-COPY . /app/
+# Copy cnoe-agent-utils package
+COPY cnoe-agent-utils /cnoe-agent-utils
+
+# Copy the agent code
+COPY ai_platform_engineering/agents/argocd /app/
 
 # Install uv and use it to install the package
 RUN pip install uv poetry
@@ -11,9 +15,14 @@ RUN poetry config virtualenvs.create false
 RUN poetry config virtualenvs.in-project false
 RUN poetry config cache-dir /app/.cache
 
+# Update pyproject.toml to use the correct path for cnoe-agent-utils
+RUN sed -i 's|"../../../cnoe-agent-utils"|"/cnoe-agent-utils"|' pyproject.toml
+
 RUN poetry add /app/mcp/argocd
 
-RUN poetry install --no-interaction --no-root
+# Update lock file and install
+RUN poetry lock
+RUN poetry install --no-interaction
 
 EXPOSE 8000
 

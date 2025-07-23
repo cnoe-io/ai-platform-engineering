@@ -12,6 +12,7 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+from cnoe_agent_utils.tracing import extract_trace_id_from_context
 
 
 class ArgoCDAgentExecutor(AgentExecutor):
@@ -36,8 +37,12 @@ class ArgoCDAgentExecutor(AgentExecutor):
         if not task:
             task = new_task(context.message)
             event_queue.enqueue_event(task)
+            
+        # Extract trace_id from context using utility
+        trace_id = extract_trace_id_from_context(context)
+        
         # invoke the underlying agent, using streaming results
-        async for event in self.agent.stream(query, context_id):
+        async for event in self.agent.stream(query, context_id, trace_id):
             if event['is_task_complete']:
                 event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(

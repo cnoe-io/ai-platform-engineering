@@ -44,6 +44,7 @@ services:
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
     volumes:
       - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ./cnoe-agent-utils:/app/cnoe-agent-utils
     command: platform-engineer
 
   ####################################################################################################
@@ -103,8 +104,8 @@ services:
   ####################################################################################################
   agent-argocd-build:
     build:
-      context: ai_platform_engineering/agents/argocd
-      dockerfile: build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/argocd/build/Dockerfile.a2a
     container_name: agent-argocd-build
     profiles:
       - build
@@ -205,8 +206,10 @@ services:
   ####################################################################################################
   agent-github-build:
     build:
-      context: ai_platform_engineering/agents/github
-      dockerfile: build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/github/build/Dockerfile.a2a
+      args:
+        - AGENT_PATH=ai_platform_engineering/agents/github
     container_name: agent-github-build
     profiles:
       - build
@@ -219,6 +222,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
+      - ./cnoe-agent-utils:/app/cnoe-agent-utils
       - ./ai_platform_engineering/agents/github:/app
     ports:
       - "8004:8000"
