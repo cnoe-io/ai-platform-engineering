@@ -1,16 +1,16 @@
-name: Agent A2A Docker Build and Push
+name: Nexigraph (GraphRAG/Gen) Build and Push
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/knowledge_bases/graph_rag/**'
     tags-ignore:
       - '**'
   pull_request:
     paths:
-      - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/knowledge_bases/graph_rag/**'
   workflow_dispatch:
 jobs:
   build-and-push:
@@ -21,13 +21,14 @@ jobs:
 
     strategy:
       matrix:
-        agent: [argocd, backstage, confluence, github, jira, komodor, pagerduty, slack, template, webex]
+        component: [agent_graph_gen, agent_graph_qa, server, client]
       fail-fast: false
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
-      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+      IMAGE_NAME: cnoe-io/nexigraph-${{ matrix.component }}
+      BUILD_CTX: ai_platform_engineering/knowledge_bases/nexigraph/nexigraph
+      DOCKERFILE: ai_platform_engineering/knowledge_bases/nexigraph/nexigraph/${{ matrix.component }}/Dockerfile
 
     steps:
       - name: 🔒 harden runner
@@ -65,8 +66,8 @@ jobs:
       - name: Build and Push A2A Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.AGENT_DIR }}
-          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
+          context: ${{ env.BUILD_CTX }}
+          file: ${{ env.DOCKERFILE }}
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
