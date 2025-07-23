@@ -223,6 +223,7 @@ See the following reference implementations:
 - **Sub-Agent**: `agents/github/agent_github/protocol_bindings/a2a_server/`
 - **Sub-Agent**: `agents/argocd/agent_argocd/protocol_bindings/a2a_server/`
 - **Sub-Agent**: `agents/slack/agent_slack/protocol_bindings/a2a_server/`
+- **Sub-Agent**: `agents/pagerduty/agent_pagerduty/protocol_bindings/a2a_server/`
 
 ## File Checklist
 
