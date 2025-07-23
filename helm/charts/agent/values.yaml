@@ -142,5 +142,4 @@ env: {}
 externalSecrets:
   enabled: false
   # List of external secret names this agent should reference
-  secretNames:
-    - llm-secret
+  secretNames: []
