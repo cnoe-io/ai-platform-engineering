@@ -21,7 +21,7 @@ jobs:
 
     strategy:
       matrix:
-        component: [agent_graph_gen, agent_graph_qa, server, client]
+        component: [agent_graph_gen, agent_graph_qa, server, clients]
       fail-fast: false
 
     env:
