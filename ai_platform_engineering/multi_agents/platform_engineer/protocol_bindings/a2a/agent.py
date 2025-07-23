@@ -7,13 +7,13 @@ import os
 from collections.abc import AsyncIterable
 from typing import Any
 
-# A2A tracing is disabled via monkey patching in main.py
+# A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
 
 from langchain_core.messages import AIMessage, ToolMessage
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream, extract_trace_id_from_context
 
-# Conditional langfuse import based on ENABLE_TRACING
-if os.getenv("ENABLE_TRACING", "false").lower() == "true":
-    from langfuse.langchain import CallbackHandler
+import logging
+logger = logging.getLogger(__name__)
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt
@@ -37,20 +37,12 @@ class AIPlatformEngineerA2ABinding:
 
   def __init__(self):
       self.graph = AIPlatformEngineerMAS().get_graph()
+      self.tracing = TracingManager()
 
-  async def stream(self, query, context_id) -> AsyncIterable[dict[str, Any]]:
-      # Debug logging
-      tracing_status = "enabled" if os.getenv("ENABLE_TRACING", "false").lower() == "true" else "disabled"
-      logger.info(f"🚀 A2A BINDING: Processing query with LangGraph tracing {tracing_status} (a2a traces disabled)")
-
+  @trace_agent_stream("platform_engineer")
+  async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
       inputs = {'messages': [('user', query)]}
-      config = {'configurable': {'thread_id': context_id}}
-
-      # Only add langfuse tracing if ENABLE_TRACING is true
-      if os.getenv("ENABLE_TRACING", "false").lower() == "true":
-          # Initialize Langfuse CallbackHandler for LangGraph tracing
-          langfuse_handler = CallbackHandler()
-          config['callbacks'] = [langfuse_handler]  # Captures LangGraph execution details
+      config = self.tracing.create_config(context_id)
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
@@ -72,7 +64,6 @@ class AIPlatformEngineerA2ABinding:
               }
 
       result = self.get_agent_response(config)
-      logger.info(f"🎯 LangGraph execution completed (tracing {tracing_status}, clean traces without a2a noise)")
 
       yield result
 

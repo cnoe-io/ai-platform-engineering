@@ -12,6 +12,7 @@ RUN poetry config virtualenvs.create false
 RUN poetry config virtualenvs.in-project false
 RUN poetry config cache-dir /app/.cache
 
+RUN poetry lock
 RUN poetry install --no-interaction
 
 EXPOSE 8000
