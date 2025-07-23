@@ -17,7 +17,7 @@ from a2a.utils import (
 )
 from a2a.utils.errors import ServerError
 
-from agent_qa.agent import QnAAgent
+from agent_graph_qa.agent import QnAAgent
 from core import utils
 
 logger = utils.get_logger(__name__)

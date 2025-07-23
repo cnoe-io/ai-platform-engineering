@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "agent-fkey",
+    "agent-graph-gen",
     "core",
     "fastapi[standard]>=0.115.12",
     "httpx>=0.28.1",
@@ -21,5 +21,5 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-agent-fkey = { path = "../agent_fkey" }
+agent-graph-gen = { path = "../agent_graph_gen" }
 core = { path = "../core" }
