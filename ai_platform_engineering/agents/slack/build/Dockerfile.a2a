@@ -4,6 +4,9 @@ WORKDIR /app
 
 COPY . /app/
 
+# Install git and poetry dependencies (required for cnoe-agent-utils)
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
 # Install uv and use it to install the package
 RUN pip install uv poetry
 
@@ -11,6 +14,7 @@ RUN poetry config virtualenvs.create false
 RUN poetry config virtualenvs.in-project false
 RUN poetry config cache-dir /app/.cache
 
+RUN poetry lock
 RUN poetry install --no-interaction --no-root
 
 EXPOSE 8000

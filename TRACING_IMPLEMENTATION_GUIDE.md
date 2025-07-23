@@ -221,6 +221,8 @@ Look for trace_id propagation logs:
 See the following reference implementations:
 - **Supervisor**: `multi_agents/platform_engineer/protocol_bindings/a2a/`
 - **Sub-Agent**: `agents/github/agent_github/protocol_bindings/a2a_server/`
+- **Sub-Agent**: `agents/argocd/agent_argocd/protocol_bindings/a2a_server/`
+- **Sub-Agent**: `agents/slack/agent_slack/protocol_bindings/a2a_server/`
 
 ## File Checklist
 
