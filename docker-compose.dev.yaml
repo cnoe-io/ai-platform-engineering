@@ -358,6 +358,91 @@ services:
       - "13000:3000"
 
   ####################################################################################################
+  #                                    NEXIGRAPH SERVICES (GRAPHRAG/GEN)                             #
+  ####################################################################################################
+  neo4j:
+    image: neo4j:latest
+    volumes:
+        - ./.neo4j/logs:/logs
+        - ./.neo4j/config:/config
+        - ./.neo4j/data:/data
+        - ./.neo4j/plugins:/plugins
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/dummy_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: true
+      NEO4J_apoc_import_file_enabled: true
+      NEO4J_apoc_import_file_use__neo4j__config: true
+
+  nexigraph_redis:
+    image: redis
+    command:
+      - /bin/sh
+      - -c
+      - redis-server
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  nexigraph_server:
+    ports:
+      - "8095:8095"
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_HOST: nexigraph_redis
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        API_KEYS: dummy_key
+        CLEANUP_INTERVAL: 86400
+    restart: unless-stopped
+  
+  agent_graph_gen:
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_HOST: nexigraph_redis
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        SYNC_INTERVAL: 86400
+        OPENAI_API_VERSION: $OPENAI_API_VERSION
+        AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
+        AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
+        # Optional for langsith tracing:
+        LANGSMITH_TRACING: "true"
+        LANGSMITH_PROJECT: $LANGSMITH_PROJECT
+        LANGSMITH_API_KEY: $LANGSMITH_API_KEY
+        LANGSMITH_ENDPOINT: $LANGSMITH_ENDPOINT
+
+    restart: unless-stopped
+  agent_graph_qa:
+    ports:
+      - "8096:8096"
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_HOST: nexigraph_redis
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        OPENAI_API_VERSION: $OPENAI_API_VERSION
+        AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
+        AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
+    restart: unless-stopped
+  
+  nexigraph_dummy_client:
+   environment:
+       SERVER_ADDR: http://nexigraph_server:8095
+       API_KEY: dummy_key
+       DUMMY_ENTITIES_FILE: dummy_data.json
+   restart: unless-stopped
+   volumes:
+     - ./ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/example/dummy_data.json:/app/clients/dummy_data.json
+
+  ####################################################################################################
   #                                      LANGFUSE TRACING SERVICES                                   #
   ####################################################################################################
   # Langfuse Tracing Services (use --profile tracing to enable)
