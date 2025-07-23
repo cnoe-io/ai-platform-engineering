@@ -16,7 +16,7 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.graph.graph import CompiledGraph
 from core.utils import runforever
 import core.utils as utils
-import agent_fkey.helpers as helpers
+import agent_graph_gen.helpers as helpers
 
 AGENT_NAME = "ForeignKeyRelationAgent"
 

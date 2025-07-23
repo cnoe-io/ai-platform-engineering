@@ -6,7 +6,7 @@ import time
 from typing import List
 import redis.asyncio as redis
 from core import utils as utils
-import agent_fkey.helpers as helpers
+import agent_graph_gen.helpers as helpers
 from core.models import PropertyMapping, Entity, ExampleEntityMatch, FkeyEvaluation, FkeyHeuristic, FkeyRelationManualIntervention, RelationCandidate
 
 from core.graph_db.base import GraphDB
