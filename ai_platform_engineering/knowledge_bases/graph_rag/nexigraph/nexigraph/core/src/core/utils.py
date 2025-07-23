@@ -17,6 +17,10 @@ class ObjEncoder(JSONEncoder):
     def default(self, o):
         if isinstance(o, set):
             return list(o)
+        elif isinstance(o, frozenset):
+            return list(o)
+        elif isinstance(o, tuple):
+            return list(o)
         else:
             try:
                 return o.__dict__

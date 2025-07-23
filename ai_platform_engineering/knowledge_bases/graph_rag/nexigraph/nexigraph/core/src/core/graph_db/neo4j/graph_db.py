@@ -619,14 +619,19 @@ SET e = {{{', '.join([f"`{str(k)}`: '{v}'" if isinstance(v, str) else f"`{str(k)
         return result["results"][0].get("count", 0)
 
     async def get_values_of_matching_property(self, entity_type_a: str, entity_a_property: str,
-                                              entity_type_b: str,  entity_b_idkey_property: str, max_results: int=10) -> List[str]:
+                                              entity_type_b: str,  matching_properties: dict, max_results: int=10) -> List[str]:
+
+        where_str = "WHERE "
+        for matching_property_a, matching_property_b in matching_properties.items():
+            if where_str != "WHERE ":
+                where_str += " AND "
+            where_str += f"(f.`{matching_property_a}`=t.`{matching_property_b}` OR f.`{matching_property_a}` IN t.`{matching_property_b}` OR t.`{matching_property_b}` IN f.`{matching_property_a}`)"
+
 
         query = f"MATCH (f:{entity_type_a}) " + \
                 f"MATCH (t:{entity_type_b}) " + \
-                f"WHERE (f.`{entity_a_property}`=t.`{entity_b_idkey_property}` OR " + \
-                f"f.`{entity_a_property}` IN t.`{entity_b_idkey_property}` OR " + \
-                f"t.`{entity_b_idkey_property}` IN f.`{entity_a_property}`) " + \
-                f"RETURN distinct(t.`{entity_b_idkey_property}`) as values LIMIT {max_results}" # Using the to varialbe to return, as idkey property are not likely to be list (not supported)
+                f"{where_str} " + \
+                f"RETURN distinct(f.`{entity_a_property}`) as values LIMIT {max_results}" # Using the to varialbe to return, as idkey property are not likely to be list (not supported)
 
         result = await self.raw_query(query)
         logging.info(f"Query result: {result}")
