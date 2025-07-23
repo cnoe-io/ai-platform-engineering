@@ -225,6 +225,7 @@ See the following reference implementations:
 - **Sub-Agent**: `agents/slack/agent_slack/protocol_bindings/a2a_server/`
 - **Sub-Agent**: `agents/pagerduty/agent_pagerduty/protocol_bindings/a2a_server/`
 - **Sub-Agent**: `agents/jira/agent_jira/protocol_bindings/a2a_server/`
+- **Sub-Agent**: `agents/komodor/agent_komodor/protocol_bindings/a2a_server/`
 
 ## File Checklist
 

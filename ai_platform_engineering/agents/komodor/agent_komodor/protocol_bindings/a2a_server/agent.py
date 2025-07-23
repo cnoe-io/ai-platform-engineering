@@ -13,6 +13,7 @@ from langchain_core.runnables.config import (
     RunnableConfig,
 )
 from cnoe_agent_utils import LLMFactory
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -103,6 +104,7 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
     def __init__(self):
       # Setup the komodor agent and load MCP tools
       self.model = LLMFactory().get_llm()
+      self.tracing = TracingManager()
       self.graph = None
       async def _async_komodor_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
@@ -195,12 +197,13 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
           messages.append(HumanMessage(content="What is 2 + 2?"))
       _create_agent(agent_input, config=runnable_config)
 
+    @trace_agent_stream("komodor")
     async def stream(
-      self, query: str, sessionId: str
+      self, query: str, sessionId: str, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
       print("DEBUG: Starting stream with query:", query, "and sessionId:", sessionId)
       inputs: dict[str, Any] = {'messages': [('user', query)]}
-      config: RunnableConfig = {'configurable': {'thread_id': sessionId}}
+      config: RunnableConfig = self.tracing.create_config(sessionId)
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
