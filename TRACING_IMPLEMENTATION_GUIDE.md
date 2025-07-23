@@ -4,7 +4,7 @@ This guide provides step-by-step instructions for implementing distributed traci
 
 ## Current Implementation Status
 
-✅ **COMPLETE**: All 8 sub-agents now have distributed tracing implemented:
+✅ **COMPLETE**: All 9 sub-agents now have distributed tracing implemented:
 - GitHub Agent
 - ArgoCD Agent  
 - Slack Agent
@@ -13,6 +13,7 @@ This guide provides step-by-step instructions for implementing distributed traci
 - PagerDuty Agent
 - Komodor Agent
 - Webex Agent
+- Backstage Agent
 
 ✅ **COMPLETE**: Supervisor agents with tracing:
 - Platform Engineer MAS
@@ -41,7 +42,7 @@ The tracing system uses a hierarchical approach:
 - **Generates trace_id** when acting as root
 
 **Sub-Agent**: Called by supervisor agents  
-- Examples: GitHub, ArgoCD, Slack, Confluence, JIRA, PagerDuty, Komodor, Webex
+- Examples: GitHub, ArgoCD, Slack, Confluence, JIRA, PagerDuty, Komodor, Webex, Backstage
 - **Never generates trace_id**, only receives from supervisor
 
 ### 2. Modify Main Entry Point
@@ -245,6 +246,7 @@ See the following reference implementations:
 - **Sub-Agent**: `agents/jira/agent_jira/protocol_bindings/a2a_server/`
 - **Sub-Agent**: `agents/komodor/agent_komodor/protocol_bindings/a2a_server/`
 - **Sub-Agent**: `agents/webex/agent_webex/protocol_bindings/a2a_server/`
+- **Sub-Agent**: `agents/backstage/agent_backstage/protocol_bindings/a2a_server/`
 
 ## File Checklist
 
@@ -297,11 +299,12 @@ docker compose -f docker-compose.dev.yaml --profile build-tracing build agent-ji
 docker compose -f docker-compose.dev.yaml --profile build-tracing build agent-pagerduty-build
 docker compose -f docker-compose.dev.yaml --profile build-tracing build agent-komodor-build
 docker compose -f docker-compose.dev.yaml --profile build-tracing build agent-webex-build
+docker compose -f docker-compose.dev.yaml --profile build-tracing build agent-backstage-build
 ```
 
 ### Build All Agents with Tracing
 ```bash
-# Build all agents that support tracing (8 total sub-agents)
+# Build all agents that support tracing (9 total sub-agents)
 docker compose -f docker-compose.dev.yaml --profile build-tracing build
 ```
 
@@ -309,7 +312,7 @@ docker compose -f docker-compose.dev.yaml --profile build-tracing build
 ```bash
 # Run any built agent container
 docker compose -f docker-compose.dev.yaml --profile build-tracing up agent-github-build
-# Or any other agent: argocd, slack, confluence, jira, pagerduty, komodor, webex
+# Or any other agent: argocd, slack, confluence, jira, pagerduty, komodor, webex, backstage
 ```
 
 ### Verify Tracing Setup
