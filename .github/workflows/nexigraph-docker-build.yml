@@ -27,8 +27,8 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: cnoe-io/nexigraph-${{ matrix.component }}
-      BUILD_CTX: ai_platform_engineering/knowledge_bases/nexigraph/nexigraph
-      DOCKERFILE: ai_platform_engineering/knowledge_bases/nexigraph/nexigraph/${{ matrix.component }}/Dockerfile
+      BUILD_CTX: ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/nexigraph
+      DOCKERFILE: ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/nexigraph/${{ matrix.component }}/Dockerfile
 
     steps:
       - name: 🔒 harden runner
