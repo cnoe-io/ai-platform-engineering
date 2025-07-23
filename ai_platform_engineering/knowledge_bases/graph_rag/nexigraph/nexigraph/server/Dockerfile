@@ -10,7 +10,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 ENV UV_PYTHON_DOWNLOADS=0
 
 # Copy over the local dependencies
-COPY agent_fkey /app/agent_fkey
+COPY agent_graph_gen /app/agent_graph_gen
 COPY core /app/core
 
 WORKDIR /app/server

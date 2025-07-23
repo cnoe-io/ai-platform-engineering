@@ -21,7 +21,7 @@ from core.graph_db.neo4j.graph_db import Neo4jDB
 
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent_qa.prompts import SYSTEM_PROMPT
+from agent_graph_qa.prompts import SYSTEM_PROMPT
 
 # Load environment variables from .env file
 dotenv.load_dotenv()
