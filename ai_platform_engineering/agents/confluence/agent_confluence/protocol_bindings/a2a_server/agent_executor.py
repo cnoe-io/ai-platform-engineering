@@ -12,6 +12,10 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+from cnoe_agent_utils.tracing import extract_trace_id_from_context
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ConfluenceAgentExecutor(AgentExecutor):
@@ -36,8 +40,17 @@ class ConfluenceAgentExecutor(AgentExecutor):
         if not task:
             task = new_task(context.message)
             event_queue.enqueue_event(task)
+
+        # Extract trace_id from A2A context - Confluence is a SUB-AGENT, should NEVER generate trace_id
+        trace_id = extract_trace_id_from_context(context)
+        if not trace_id:
+            logger.warning(f"Confluence Agent: No trace_id from supervisor")
+            trace_id = None
+        else:
+            logger.info(f"Confluence Agent: Using trace_id from supervisor: {trace_id}")
+
         # invoke the underlying agent, using streaming results
-        async for event in self.agent.stream(query, context_id):
+        async for event in self.agent.stream(query, context_id, trace_id):
             if event['is_task_complete']:
                 event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
