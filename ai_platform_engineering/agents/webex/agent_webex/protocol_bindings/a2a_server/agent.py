@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent  # type: ignore
 from cnoe_agent_utils import LLMFactory
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 
 import os
@@ -60,6 +61,7 @@ class WebexAgent:
 
   def __init__(self):
     self.model = LLMFactory().get_llm()
+    self.tracing = TracingManager()
     self.graph = None
     # Async initialization must be called explicitly
 
@@ -145,14 +147,15 @@ class WebexAgent:
       messages.append(HumanMessage(content="What is 2 + 2?"))
     await _async_webex_agent(agent_input, config=runnable_config)
 
-  async def stream(self, query: str, context_id: str | None = None) -> AsyncIterable[dict[str, Any]]:
+  @trace_agent_stream("webex")
+  async def stream(self, query: str, context_id: str | None = None, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
     if self.graph is None:
       await self.initialize()
     print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
     # Use the context_id as the thread_id, or generate a new one if none provided
     thread_id = context_id or uuid.uuid4().hex
     inputs: dict[str, Any] = {"messages": [("user", query)]}
-    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    config: RunnableConfig = self.tracing.create_config(thread_id)
 
     async for item in self.graph.astream(inputs, config, stream_mode="values"):
       message = item["messages"][-1]
