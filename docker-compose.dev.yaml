@@ -437,7 +437,7 @@ services:
     restart: unless-stopped
   
   nexigraph_dummy_client:
-    image: cnoe-io/nexigraph-client:latest
+    image: cnoe-io/nexigraph-clients:latest
     environment:
        SERVER_ADDR: http://nexigraph_server:8095
        API_KEY: dummy_key
