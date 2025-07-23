@@ -10,8 +10,8 @@ NexiGraph is a knowledge graph system, that can be used to store and retrieve st
 
 It has the following components:
  - `server`: The server that exposes endpoints to submit strucutred document. It exposes the API through REST and MCP.
- - `agent_fkey`: An agent that analyses foreign key relationships between the documents and automatically creates relations.
- - `agen_qa`: An agent that can answer questions based on the knowledge graph. It exposes the chat interface through A2A.
+ - `agent_graph_gen`: An agent that analyses foreign key relationships between the documents and automatically creates relations.
+ - `agen_graph_qa`: An agent that can answer questions based on the knowledge graph. It exposes the chat interface through A2A.
  - `client`: Client uses the server API to submit documents. Examples of clients can be found in the `nexigraph/clients` directory.
 
 ## ✨ Features
