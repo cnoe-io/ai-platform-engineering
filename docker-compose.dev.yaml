@@ -391,6 +391,7 @@ services:
   nexigraph_server:
     ports:
       - "8095:8095"
+    image: cnoe-io/nexigraph-server:latest
     environment:
         LOG_LEVEL: DEBUG
         REDIS_HOST: nexigraph_redis
@@ -402,6 +403,7 @@ services:
     restart: unless-stopped
   
   agent_graph_gen:
+    image: cnoe-io/nexigraph-agent_graph_gen:latest
     environment:
         LOG_LEVEL: DEBUG
         REDIS_HOST: nexigraph_redis
@@ -420,6 +422,7 @@ services:
 
     restart: unless-stopped
   agent_graph_qa:
+    image: cnoe-io/nexigraph-agent_graph_qa:latest
     ports:
       - "8096:8096"
     environment:
@@ -434,12 +437,13 @@ services:
     restart: unless-stopped
   
   nexigraph_dummy_client:
-   environment:
+    image: cnoe-io/nexigraph-client:latest
+    environment:
        SERVER_ADDR: http://nexigraph_server:8095
        API_KEY: dummy_key
        DUMMY_ENTITIES_FILE: dummy_data.json
-   restart: unless-stopped
-   volumes:
+    restart: unless-stopped
+    volumes:
      - ./ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/example/dummy_data.json:/app/clients/dummy_data.json
 
   ####################################################################################################
