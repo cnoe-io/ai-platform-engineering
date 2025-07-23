@@ -33,6 +33,9 @@ dependencies = [
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.poetry.scripts]
 agent_webex_a2a = "agent_webex.protocol_bindings.a2a_server:main"
 
