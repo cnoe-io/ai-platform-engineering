@@ -7,6 +7,9 @@ import click
 import httpx
 import uvicorn
 
+from cnoe_agent_utils.tracing import disable_a2a_tracing
+disable_a2a_tracing()
+
 from agent import ArgoCDAgent # type: ignore[import-untyped]
 from agent_executor import ArgoCDAgentExecutor # type: ignore[import-untyped]
 from dotenv import load_dotenv

@@ -123,10 +123,10 @@ async def execute(self, context: RequestContext, event_queue: EventQueue) -> Non
     # Extract trace_id from A2A context - THIS IS A SUB-AGENT, should NEVER generate trace_id
     trace_id = extract_trace_id_from_context(context)
     if not trace_id:
-        logger.warning(f"🔍 {AGENT_NAME} Executor: No trace_id received from supervisor! This should not happen.")
-        trace_id = None  # Let TracingManager handle this
+        logger.warning(f"{AGENT_NAME} Agent: No trace_id from supervisor")
+        trace_id = None
     else:
-        logger.info(f"🔍 {AGENT_NAME} Executor: Using trace_id from supervisor: {trace_id}")
+        logger.info(f"{AGENT_NAME} Agent: Using trace_id from supervisor: {trace_id}")
     
     # Pass trace_id to agent stream
     async for event in self.agent.stream(query, context_id, trace_id):
@@ -153,9 +153,15 @@ if trace_id:
 
 **File**: `build/Dockerfile` or `build/Dockerfile.a2a`
 
-Ensure poetry lock is run before install:
+Add git installation and ensure poetry lock is run before install:
 
 ```dockerfile
+# Install git and poetry dependencies (required for cnoe-agent-utils)
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Install uv and use it to install the package
+RUN pip install uv poetry
+
 RUN poetry config virtualenvs.create false
 RUN poetry config virtualenvs.in-project false
 RUN poetry config cache-dir /app/.cache
@@ -226,6 +232,34 @@ For each agent, verify these files are updated:
 - [ ] `Dockerfile`: poetry lock added (if separate Docker build)
 - [ ] `a2a_remote_agent_connect.py`: trace_id propagation (supervisors only)
 
+## Post-Implementation: Build and Test
+
+After completing all tracing implementation steps above, build and test the agent:
+
+### 1. Build the Agent
+```bash
+# Build the specific agent you just updated
+docker compose -f docker-compose.dev.yaml --profile build-tracing build agent-[AGENT_NAME]-build
+
+# Example for ArgoCD:
+docker compose -f docker-compose.dev.yaml --profile build-tracing build agent-argocd-build
+```
+
+### 2. Test the Build
+```bash
+# Run the agent to verify it starts correctly
+docker compose -f docker-compose.dev.yaml --profile build-tracing up agent-[AGENT_NAME]-build
+
+# Check logs for tracing initialization
+docker logs [container_name] | grep -i trace
+```
+
+### 3. Verify Implementation
+- [ ] Agent starts without errors
+- [ ] No import errors related to cnoe-agent-utils
+- [ ] TracingManager initializes properly
+- [ ] A2A tracing is disabled successfully
+
 ## Building and Testing
 
 ### Build Individual Agent
@@ -250,8 +284,8 @@ docker compose -f docker-compose.dev.yaml --profile build-tracing up agent-githu
 1. Check container logs for tracing initialization messages
 2. Look for trace_id propagation logs:
    ```
-   🔍 Platform Engineer Executor: Generated ROOT trace_id: abc123...
-   🔍 GitHub Agent Executor: Using trace_id from supervisor: abc123...
+   Platform Engineer Agent: Generated ROOT trace_id: abc123...
+   GitHub Agent: Using trace_id from supervisor: abc123...
    ```
 3. Verify Langfuse dashboard shows traces with correct hierarchy
 
@@ -271,6 +305,10 @@ docker compose -f docker-compose.dev.yaml --profile build-tracing up agent-githu
 1. Add `RUN poetry lock` before `poetry install`
 2. Check cnoe-agent-utils is in dependencies
 3. Verify imports are correct
+4. **Git executable not found**: Add git installation to Dockerfile:
+   ```dockerfile
+   RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+   ```
 
 ### Build Profile Issues
 - Use `--profile build-tracing` flag with docker compose
