@@ -391,7 +391,7 @@ services:
   nexigraph_server:
     ports:
       - "8095:8095"
-    image: cnoe-io/nexigraph-server:latest
+    image: ghcr.io/cnoe-io/nexigraph-server:latest
     environment:
         LOG_LEVEL: DEBUG
         REDIS_HOST: nexigraph_redis
@@ -403,7 +403,7 @@ services:
     restart: unless-stopped
   
   agent_graph_gen:
-    image: cnoe-io/nexigraph-agent_graph_gen:latest
+    image: ghcr.io/cnoe-io/nexigraph-agent_graph_gen:latest
     environment:
         LOG_LEVEL: DEBUG
         REDIS_HOST: nexigraph_redis
@@ -422,7 +422,7 @@ services:
 
     restart: unless-stopped
   agent_graph_qa:
-    image: cnoe-io/nexigraph-agent_graph_qa:latest
+    image: ghcr.io/cnoe-io/nexigraph-agent_graph_qa:latest
     ports:
       - "8096:8096"
     environment:
@@ -437,7 +437,7 @@ services:
     restart: unless-stopped
   
   nexigraph_dummy_client:
-    image: cnoe-io/nexigraph-clients:latest
+    image: ghcr.io/cnoe-io/nexigraph-clients:latest
     environment:
        SERVER_ADDR: http://nexigraph_server:8095
        API_KEY: dummy_key
