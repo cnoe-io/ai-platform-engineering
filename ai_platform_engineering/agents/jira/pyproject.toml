@@ -27,7 +27,7 @@ dependencies = [
     "keyring>=25.6.0",
     "uv",
     "a2a-sdk>=0.2.5",
-    "cnoe-agent-utils @ git+https://github.com/cnoe-io/cnoe-agent-utils.git@tracing",
+    "cnoe-agent-utils>=0.2.0",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]
