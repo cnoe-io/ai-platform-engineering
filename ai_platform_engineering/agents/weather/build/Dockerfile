@@ -5,14 +5,11 @@ WORKDIR /app
 COPY . /app/
 
 # Install uv and use it to install the package
-RUN pip install uv poetry
+RUN pip install uv
 
-RUN poetry config virtualenvs.create false
-RUN poetry config virtualenvs.in-project false
-RUN poetry config cache-dir /app/.cache
-
-RUN poetry install --no-interaction --no-root
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
 
 EXPOSE 8000
 
-CMD ["poetry", "--quiet", "run", "python", "-m", "agent_weather", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "python", "main.py", "--host", "0.0.0.0", "--port", "8000"]
