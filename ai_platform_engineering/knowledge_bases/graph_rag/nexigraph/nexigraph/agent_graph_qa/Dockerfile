@@ -12,13 +12,13 @@ ENV UV_PYTHON_DOWNLOADS=0
 # Copy over the local dependencies
 COPY core /app/core
 
-WORKDIR /app/agent_qa
+WORKDIR /app/agent_graph_qa
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=agent_qa/uv.lock,target=uv.lock \
-    --mount=type=bind,source=agent_qa/pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=agent_graph_qa/uv.lock,target=uv.lock \
+    --mount=type=bind,source=agent_graph_qa/pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-dev
 
-COPY agent_qa .
+COPY agent_graph_qa .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 
@@ -32,10 +32,10 @@ FROM python:3.13-slim-bookworm
 # Copy the application from the builder
 COPY --from=builder --chown=app:app /app /app
 
-WORKDIR /app/agent_qa
+WORKDIR /app/agent_graph_qa
 
 # Place executables in the environment at the front of the path
-ENV PATH="/app/agent_qa/.venv/bin:$PATH"
+ENV PATH="/app/agent_graph_qa/.venv/bin:$PATH"
 
 # Run the application by default
-CMD ["python3", "src/agent_qa"]
+CMD ["python3", "src/agent_graph_qa"]

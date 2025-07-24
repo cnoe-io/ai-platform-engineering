@@ -3,7 +3,7 @@ revision = 1
 requires-python = ">=3.13"
 
 [[package]]
-name = "agent-fkey"
+name = "agent-graph-gen"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
