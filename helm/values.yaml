@@ -10,7 +10,7 @@ ai-platform-engineering:
     command: ["poetry", "run", "ai-platform-engineering"]
     args: ["platform-engineer"]
   env:
-    EXTERNAL_URL: "https://cnoe.localtest.me:8443/agent-forge"  # Agent url for the client
+    EXTERNAL_URL: "https://cnoe.localtest.me:8443/ai-platform-engineering"  # Agent url for the client
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
