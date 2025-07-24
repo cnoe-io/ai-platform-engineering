@@ -362,6 +362,10 @@ services:
   ####################################################################################################
   neo4j:
     image: neo4j:latest
+    profiles:
+     - knowledge_base
+     - graph_rag
+     - nexigraph
     volumes:
         - ./.neo4j/logs:/logs
         - ./.neo4j/config:/config
@@ -380,6 +384,10 @@ services:
 
   nexigraph_redis:
     image: redis
+    profiles:
+     - knowledge_base
+     - graph_rag
+     - nexigraph
     command:
       - /bin/sh
       - -c
@@ -392,6 +400,10 @@ services:
     ports:
       - "8095:8095"
     image: ghcr.io/cnoe-io/nexigraph-server:latest
+    profiles:
+     - knowledge_base
+     - graph_rag
+     - nexigraph
     environment:
         LOG_LEVEL: DEBUG
         REDIS_HOST: nexigraph_redis
@@ -404,6 +416,10 @@ services:
   
   agent_graph_gen:
     image: ghcr.io/cnoe-io/nexigraph-agent_graph_gen:latest
+    profiles:
+     - knowledge_base
+     - graph_rag
+     - nexigraph
     environment:
         LOG_LEVEL: DEBUG
         REDIS_HOST: nexigraph_redis
@@ -423,6 +439,10 @@ services:
     restart: unless-stopped
   agent_graph_qa:
     image: ghcr.io/cnoe-io/nexigraph-agent_graph_qa:latest
+    profiles:
+     - knowledge_base
+     - graph_rag
+     - nexigraph
     ports:
       - "8096:8096"
     environment:
@@ -438,6 +458,10 @@ services:
   
   nexigraph_dummy_client:
     image: ghcr.io/cnoe-io/nexigraph-clients:latest
+    profiles:
+     - knowledge_base
+     - graph_rag
+     - nexigraph
     environment:
        SERVER_ADDR: http://nexigraph_server:8095
        API_KEY: dummy_key
