@@ -7,8 +7,8 @@ from a2a.types import (
   AgentSkill
 )
 
-WEATHER_AGENT_HOST = os.getenv("WEATHER_AGENT_HOST", "localhost")
-WEATHER_AGENT_PORT = os.getenv("WEATHER_AGENT_PORT", "8000")
+WEATHER_AGENT_HOST = os.getenv("WEATHER_AGENT_HOST", "slim-dataplane")
+WEATHER_AGENT_PORT = os.getenv("WEATHER_AGENT_PORT", "46357")
 
 print("===================================")
 print("       WEATHER AGENT CONFIG         ")
@@ -42,7 +42,7 @@ weather_agent_card = AgentCard(
   name='Weather',
   id='weather-tools-agent',
   description=WEATHER_AGENT_DESCRIPTION,
-  url=f'http://{WEATHER_AGENT_HOST}:{WEATHER_AGENT_PORT}',
+  url=f'{WEATHER_AGENT_HOST}:{WEATHER_AGENT_PORT}',
   version='0.1.0',
   defaultInputModes=["text"],
   defaultOutputModes=["text"],
