@@ -84,6 +84,16 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
+          label: 'IDP Builder',
+          items: [
+            {
+              type: 'doc',
+              id: 'getting-started/idpbuilder/setup',
+            },
+          ],
+        },
+        {
+          type: 'category',
           label: 'EKS',
           items: [
             {
