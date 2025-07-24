@@ -453,6 +453,7 @@ services:
     build:
       context: ai_platform_engineering/agents/weather
       dockerfile: build/Dockerfile
+      cache_from: []
     container_name: agent-weather-build
     profiles:
       - build
@@ -461,7 +462,17 @@ services:
       - ./.env:/app/.env
     ports:
       - "8100:8000"
-
+  slim:
+    image: ghcr.io/agntcy/slim:0.3.15
+    container_name: slim-dataplane
+    ports:
+      - "46357:46357"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
 
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                        #
