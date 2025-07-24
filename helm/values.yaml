@@ -58,7 +58,7 @@ agent-backstage:
     pullPolicy: "Always"
 
 agent-confluence:
-  enabled: true
+  enabled: false
   nameOverride: "agent-confluence"
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
@@ -93,7 +93,7 @@ agent-slack:
     pullPolicy: "Always"
 
 agent-reflection:
-  enabled: true
+  enabled: false
   nameOverride: "agent-reflection"
   image:
     repository: "ghcr.io/cnoe-io/agent-reflection"
