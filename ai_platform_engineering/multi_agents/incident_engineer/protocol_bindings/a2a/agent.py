@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import os
 
 from collections.abc import AsyncIterable
 from typing import Any
@@ -10,7 +9,7 @@ from typing import Any
 # A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
 
 from langchain_core.messages import AIMessage, ToolMessage
-from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream, extract_trace_id_from_context
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 from ai_platform_engineering.multi_agents.incident_engineer.prompts import (
   system_prompt

@@ -25,7 +25,6 @@ from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import page
 from ai_platform_engineering.utils.models.generic_agent import (
   ResponseFormat
 )
-import os
 
 # Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
 KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"

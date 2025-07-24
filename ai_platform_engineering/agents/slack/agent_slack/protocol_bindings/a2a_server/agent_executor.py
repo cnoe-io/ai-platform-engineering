@@ -44,7 +44,7 @@ class SlackAgentExecutor(AgentExecutor):
         # Extract trace_id from A2A context - Slack is a SUB-AGENT, should NEVER generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
-            logger.warning(f"Slack Agent: No trace_id from supervisor")
+            logger.warning("Slack Agent: No trace_id from supervisor")
             trace_id = None
         else:
             logger.info(f"Slack Agent: Using trace_id from supervisor: {trace_id}")

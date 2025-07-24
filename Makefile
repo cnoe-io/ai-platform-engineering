@@ -80,11 +80,11 @@ langgraph-dev: setup-venv ## Run langgraph in development mode
 
 lint: setup-venv ## Lint the code using Ruff
 	@echo "Linting the code..."
-	@poetry run ruff check . --select E,F --ignore F403 --line-length 320
+	@poetry run ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320
 
 lint-fix: setup-venv ## Automatically fix linting issues using Ruff
 	@echo "Fixing linting issues..."
-	@poetry run ruff check . --select E,F --ignore F403 --line-length 320 --fix
+	@poetry run ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320 --fix
 
 ## ========== Test ==========
 

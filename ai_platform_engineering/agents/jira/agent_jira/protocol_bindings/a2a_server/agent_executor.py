@@ -44,7 +44,7 @@ class JiraAgentExecutor(AgentExecutor):
         # Extract trace_id from A2A context - JIRA is a SUB-AGENT, should NEVER generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
-            logger.warning(f"JIRA Agent: No trace_id from supervisor")
+            logger.warning("JIRA Agent: No trace_id from supervisor")
             trace_id = None
         else:
             logger.info(f"JIRA Agent: Using trace_id from supervisor: {trace_id}")

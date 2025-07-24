@@ -44,7 +44,7 @@ class ArgoCDAgentExecutor(AgentExecutor):
         # Extract trace_id from A2A context - ArgoCD is a SUB-AGENT, should NEVER generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
-            logger.warning(f"ArgoCD Agent: No trace_id from supervisor")
+            logger.warning("ArgoCD Agent: No trace_id from supervisor")
             trace_id = None
         else:
             logger.info(f"ArgoCD Agent: Using trace_id from supervisor: {trace_id}")

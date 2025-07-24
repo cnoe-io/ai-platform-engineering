@@ -13,7 +13,6 @@ from a2a.types import (
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
-import uuid
 import logging
 
 logger = logging.getLogger(__name__)
@@ -45,7 +44,7 @@ class GitHubAgentExecutor(AgentExecutor):
         # Extract trace_id from A2A context - GitHub is a SUB-AGENT, should NEVER generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
-            logger.warning(f"🔍 GitHub Agent Executor: No trace_id received from supervisor! This should not happen.")
+            logger.warning("🔍 GitHub Agent Executor: No trace_id received from supervisor! This should not happen.")
             trace_id = None  # Let TracingManager handle this
         else:
             logger.info(f"🔍 GitHub Agent Executor: Using trace_id from supervisor: {trace_id}")

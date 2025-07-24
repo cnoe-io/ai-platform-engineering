@@ -41,7 +41,7 @@ develop = false
 a2a-sdk = ">=0.2.1"
 agentevals = ">=0.0.7"
 click = ">=8.2.0"
-cnoe-agent-utils = ">=0.1.3,<0.2.0"
+cnoe-agent-utils = {git = "https://github.com/cnoe-io/cnoe-agent-utils.git", branch = "tracing"}
 fastapi = ">=0.100.0"
 fastmcp = ">=0.1.0"
 langchain-anthropic = ">=0.3.13"
@@ -77,7 +77,7 @@ a2a-sdk = ">=0.2.1"
 agentevals = ">=0.0.7"
 agntcy-acp = ">=1.3.2"
 click = ">=8.2.0"
-cnoe-agent-utils = ">=0.1.3,<0.2.0"
+cnoe-agent-utils = {git = "https://github.com/cnoe-io/cnoe-agent-utils.git", rev = "tracing"}
 langchain-anthropic = ">=0.3.13"
 langchain-core = ">=0.3.60"
 langchain-google-genai = ">=2.1.4"
@@ -414,7 +414,7 @@ version = "2.2.1"
 description = "Function decoration for backoff and retry"
 optional = false
 python-versions = ">=3.7,<4.0"
-groups = ["main"]
+groups = ["main", "unittest"]
 files = [
     {file = "backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8"},
     {file = "backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba"},
@@ -788,15 +788,13 @@ colorama = {version = "*", markers = "platform_system == \"Windows\""}
 
 [[package]]
 name = "cnoe-agent-utils"
-version = "0.1.4"
-description = ""
+version = "0.2.0"
+description = "Core utilities for CNOE agents including LLM factory and tracing"
 optional = false
-python-versions = "<4.0,>=3.13"
+python-versions = ">=3.13,<4.0"
 groups = ["main", "unittest"]
-files = [
-    {file = "cnoe_agent_utils-0.1.4-py3-none-any.whl", hash = "sha256:6894588c4509084904ff447fdd6c03f1fa6e76a28dd058e85be3d798b766fc15"},
-    {file = "cnoe_agent_utils-0.1.4.tar.gz", hash = "sha256:4d3ccbaaf0eeb5c116478dbb3a139f42145a86707887d784061ec1ca15f7943e"},
-]
+files = []
+develop = false
 
 [package.dependencies]
 dotenv = ">=0.9.9,<0.10.0"
@@ -806,6 +804,16 @@ langchain-aws = ">=0.2.24,<0.3.0"
 langchain-google-genai = ">=2.1.5"
 langchain-google-vertexai = ">=2.0.24"
 langchain-openai = ">=0.3.18"
+langfuse = ">=3.0.0,<4.0.0"
+
+[package.extras]
+dev = ["mypy (>=1.0.0)", "pytest (>=8.0.0)", "pytest-asyncio (>=0.21.0)", "pytest-cov (>=4.0.0)", "ruff (>=0.1.0)"]
+
+[package.source]
+type = "git"
+url = "https://github.com/cnoe-io/cnoe-agent-utils.git"
+reference = "tracing"
+resolved_reference = "4e7b2ebc4a8e2b5589799e02a0fbfc02e961a233"
 
 [[package]]
 name = "colorama"
@@ -2299,7 +2307,7 @@ version = "3.0.8"
 description = "A client library for accessing langfuse"
 optional = false
 python-versions = "<4.0,>=3.9"
-groups = ["main"]
+groups = ["main", "unittest"]
 files = [
     {file = "langfuse-3.0.8-py3-none-any.whl", hash = "sha256:e0461c7208dbb5c7515c98751ae01887ec71f54da921b8182d8ffb37c83e84ab"},
     {file = "langfuse-3.0.8.tar.gz", hash = "sha256:b4eb8984b900ac042251cd04fa058a10444dce00109f86e4b48e06d5605098d2"},
@@ -3002,7 +3010,7 @@ version = "1.34.1"
 description = "OpenTelemetry Collector Exporters"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "unittest"]
 files = [
     {file = "opentelemetry_exporter_otlp-1.34.1-py3-none-any.whl", hash = "sha256:f4a453e9cde7f6362fd4a090d8acf7881d1dc585540c7b65cbd63e36644238d4"},
     {file = "opentelemetry_exporter_otlp-1.34.1.tar.gz", hash = "sha256:71c9ad342d665d9e4235898d205db17c5764cd7a69acb8a5dcd6d5e04c4c9988"},
@@ -3018,7 +3026,7 @@ version = "1.34.1"
 description = "OpenTelemetry Protobuf encoding"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "unittest"]
 files = [
     {file = "opentelemetry_exporter_otlp_proto_common-1.34.1-py3-none-any.whl", hash = "sha256:8e2019284bf24d3deebbb6c59c71e6eef3307cd88eff8c633e061abba33f7e87"},
     {file = "opentelemetry_exporter_otlp_proto_common-1.34.1.tar.gz", hash = "sha256:b59a20a927facd5eac06edaf87a07e49f9e4a13db487b7d8a52b37cb87710f8b"},
@@ -3033,7 +3041,7 @@ version = "1.34.1"
 description = "OpenTelemetry Collector Protobuf over gRPC Exporter"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "unittest"]
 files = [
     {file = "opentelemetry_exporter_otlp_proto_grpc-1.34.1-py3-none-any.whl", hash = "sha256:04bb8b732b02295be79f8a86a4ad28fae3d4ddb07307a98c7aa6f331de18cca6"},
     {file = "opentelemetry_exporter_otlp_proto_grpc-1.34.1.tar.gz", hash = "sha256:7c841b90caa3aafcfc4fee58487a6c71743c34c6dc1787089d8b0578bbd794dd"},
@@ -3054,7 +3062,7 @@ version = "1.34.1"
 description = "OpenTelemetry Collector Protobuf over HTTP Exporter"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "unittest"]
 files = [
     {file = "opentelemetry_exporter_otlp_proto_http-1.34.1-py3-none-any.whl", hash = "sha256:5251f00ca85872ce50d871f6d3cc89fe203b94c3c14c964bbdc3883366c705d8"},
     {file = "opentelemetry_exporter_otlp_proto_http-1.34.1.tar.gz", hash = "sha256:aaac36fdce46a8191e604dcf632e1f9380c7d5b356b27b3e0edb5610d9be28ad"},
@@ -3075,7 +3083,7 @@ version = "1.34.1"
 description = "OpenTelemetry Python Proto"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "unittest"]
 files = [
     {file = "opentelemetry_proto-1.34.1-py3-none-any.whl", hash = "sha256:eb4bb5ac27f2562df2d6857fc557b3a481b5e298bc04f94cc68041f00cebcbd2"},
     {file = "opentelemetry_proto-1.34.1.tar.gz", hash = "sha256:16286214e405c211fc774187f3e4bbb1351290b8dfb88e8948af209ce85b719e"},
@@ -4876,7 +4884,7 @@ version = "1.17.2"
 description = "Module for decorators, wrappers and monkey patching."
 optional = false
 python-versions = ">=3.8"
-groups = ["main"]
+groups = ["main", "unittest"]
 files = [
     {file = "wrapt-1.17.2-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:3d57c572081fed831ad2d26fd430d565b76aa277ed1d30ff4d40670b1c0dd984"},
     {file = "wrapt-1.17.2-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:b5e251054542ae57ac7f3fba5d10bfff615b6c2fb09abeb37d2f1463f841ae22"},
@@ -5347,4 +5355,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "d0e4e4c32c5c28424d16f0fd849d194da010bede155f10ee387d35dedd77ac3d"
+content-hash = "00081c312ed7a7f9ba494c572a2499bc1046da2b8cc574de545711391739ec2b"
