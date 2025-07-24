@@ -15,7 +15,7 @@ from core.models import Entity, Relation
 from fastapi.encoders import jsonable_encoder
 import dotenv
 
-from agent_fkey.relation_manager import RelationCandidateManager
+from agent_graph_gen.relation_manager import RelationCandidateManager
 
 # Load environment variables from .env file
 dotenv.load_dotenv()

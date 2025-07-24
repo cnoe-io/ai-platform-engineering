@@ -3,9 +3,9 @@ revision = 1
 requires-python = ">=3.13"
 
 [[package]]
-name = "agent-fkey"
+name = "agent-graph-gen"
 version = "0.1.0"
-source = { directory = "../agent_fkey" }
+source = { directory = "../agent_graph_gen" }
 dependencies = [
     { name = "core" },
     { name = "langchain" },
@@ -947,7 +947,7 @@ name = "server"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "agent-fkey" },
+    { name = "agent-graph-gen" },
     { name = "core" },
     { name = "fastapi", extra = ["standard"] },
     { name = "httpx" },
@@ -957,7 +957,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-fkey", directory = "../agent_fkey" },
+    { name = "agent-graph-gen", directory = "../agent_graph_gen" },
     { name = "core", directory = "../core" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.12" },
     { name = "httpx", specifier = ">=0.28.1" },

@@ -6,7 +6,7 @@ from core.constants import DEFAULT_LABEL
 from core.graph_db.base import GraphDB
 from core.models import PropertyMapping, Entity
 
-from agent_fkey.relation_manager import RelationCandidateManager
+from agent_graph_gen.relation_manager import RelationCandidateManager
 
 
 class DeepPropertyMatch:
