@@ -9,7 +9,7 @@ from a2a.types import (
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from agntcy_app_sdk.factory import GatewayFactory
+from agntcy_app_sdk.factory import AgntcyFactory
 
 """
 Create the AgentSkill and AgentCard for a simple weather report agent.
@@ -67,7 +67,7 @@ Create the A2A server and transport bridge to server the Weather Agent.
 
 async def main():
     # create an app-sdk factory to create the transport and bridge
-    factory = GatewayFactory()
+    factory = AgntcyFactory()
 
     request_handler = DefaultRequestHandler(
         agent_executor=WeatherAgentExecutor(),
@@ -78,7 +78,7 @@ async def main():
         agent_card=agent_card, http_handler=request_handler
     )
 
-    transport = factory.create_transport("SLIM", endpoint="http://localhost:46357")
+    transport = factory.create_transport("SLIM", endpoint="http://slim-dataplane:46357")
     bridge = factory.create_bridge(server, transport=transport)
     await bridge.start(blocking=True)
 

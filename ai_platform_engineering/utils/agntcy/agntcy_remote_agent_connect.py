@@ -8,8 +8,8 @@ from a2a.types import (
     TextPart,
     Role,
 )
-from agntcy_app_sdk.factory import GatewayFactory, ProtocolTypes
-from agntcy_app_sdk.protocols.a2a.gateway import A2AProtocol
+from agntcy_app_sdk.factory import AgntcyFactory, ProtocolTypes
+from agntcy_app_sdk.protocols.a2a.protocol import A2AProtocol
 
 # Example Input/Output types for illustration (replace as needed)
 from pydantic import BaseModel, PrivateAttr
@@ -34,7 +34,7 @@ class AgntcyRemoteAgentConnectTool(BaseTool):
     )
     endpoint: str
     remote_agent_card: Union[AgentCard, str]
-    _factory: GatewayFactory = PrivateAttr()
+    _factory: AgntcyFactory = PrivateAttr()
     _transport: Any = PrivateAttr()
     _client: Any = PrivateAttr(default=None)
 
@@ -57,7 +57,7 @@ class AgntcyRemoteAgentConnectTool(BaseTool):
             description=description,
             **kwargs,
         )
-        self._factory = GatewayFactory()
+        self._factory = AgntcyFactory()
         self._transport = self._factory.create_transport("SLIM", endpoint=endpoint)
         self._client = None
 
