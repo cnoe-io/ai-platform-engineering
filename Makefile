@@ -10,7 +10,9 @@ APP_NAME ?= ai-platform-engineering
 
 ## -------------------------------------------------
 .PHONY: \
-	build install run test lint help
+	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
+	build install build-docker run run-ai-platform-engineer langgraph-dev \
+	lint lint-fix test validate lock-all help
 
 .DEFAULT_GOAL := run
 
@@ -110,6 +112,21 @@ validate:
 	@echo "========================================"
 	@$(MAKE) test
 	@echo "Validation complete."
+
+lock-all:
+	@echo "🔁 Recursively locking all Python projects with poetry and uv..."
+	@find . -name "pyproject.toml" | while read -r pyproject; do \
+		dir=$$(dirname $$pyproject); \
+		echo "📂 Entering $$dir"; \
+		( \
+			cd $$dir || exit 1; \
+			echo "📦 Running poetry lock in $$dir"; \
+			poetry lock && poetry update; \
+			echo "🔒 Running uv lock in $$dir"; \
+			uv pip compile pyproject.toml --all-extras --prerelease; \
+		); \
+	done
+
 ## ========== Help ==========
 
 help: ## Show this help message
