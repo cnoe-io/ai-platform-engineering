@@ -32,7 +32,7 @@ dependencies = [
     "httpx>=0.27.0",
     "httpx-sse>=0.3.0",
     "python-dotenv>=1.0.1",
-    "cnoe-agent-utils>=0.1.4",
+    "cnoe-agent-utils>=0.2.0",
     "langchain>=0.1.0",
     "pydantic>=2.0.0",
     "a2a>=0.0.1",
@@ -40,6 +40,9 @@ dependencies = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.poetry.scripts]
 agent_backstage_a2a = "agent_backstage.protocol_bindings.a2a_server:main"

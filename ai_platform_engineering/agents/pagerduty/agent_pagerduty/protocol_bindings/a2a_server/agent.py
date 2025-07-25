@@ -18,6 +18,7 @@ import os
 
 
 from cnoe_agent_utils import LLMFactory
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -53,6 +54,7 @@ class PagerDutyAgent:
         logger.info("Initializing PagerDutyAgent")
         # Setup the agent and load MCP tools
         self.model = LLMFactory().get_llm()
+        self.tracing = TracingManager()
         self.graph = None
         logger.debug("Agent initialized with model")
 
@@ -127,8 +129,9 @@ class PagerDutyAgent:
         await self.graph.ainvoke({"messages": [HumanMessage(content="Summarize what you can do?")]}, config=config)
         logger.debug("Test message initialization complete")
 
+    @trace_agent_stream("pagerduty")
     async def stream(
-        self, query: str, context_id: str | None = None
+        self, query: str, context_id: str | None = None, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
         """Stream responses for a given query."""
         # Use the context_id as the thread_id, or generate a new one if none provided
@@ -140,7 +143,7 @@ class PagerDutyAgent:
         await self.initialize()
         
         inputs: dict[str, Any] = {'messages': [('user', query)]}
-        config: RunnableConfig = {'configurable': {'thread_id': thread_id}}
+        config: RunnableConfig = self.tracing.create_config(thread_id)
         logger.debug(f"Stream config: {config}")
 
         async for item in self.graph.astream(inputs, config, stream_mode='values'):

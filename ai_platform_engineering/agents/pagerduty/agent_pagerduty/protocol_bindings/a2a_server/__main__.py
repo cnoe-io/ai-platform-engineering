@@ -1,6 +1,20 @@
 # Copyright 2025 Cisco
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
+
+# =====================================================
+# CRITICAL: Disable a2a tracing BEFORE any a2a imports
+# =====================================================
+from cnoe_agent_utils.tracing import disable_a2a_tracing
+
+# Disable A2A framework tracing to prevent interference with custom tracing
+disable_a2a_tracing()
+logging.debug("A2A tracing disabled using cnoe-agent-utils")
+
+# =====================================================
+# Now safe to import a2a modules
+# =====================================================
 
 import click
 import httpx
