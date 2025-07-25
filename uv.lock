@@ -214,7 +214,7 @@ requires-dist = [
     { name = "cnoe-agent-utils", specifier = ">=0.2.0" },
     { name = "config", specifier = ">=0.5.1,<0.6.0" },
     { name = "fastapi", specifier = ">=0.115.12,<0.116.0" },
-    { name = "langchain", specifier = ">=0.3.25,<0.4.0" },
+    { name = "langchain", specifier = ">=0.3.25" },
     { name = "langchain-core", specifier = ">=0.3.65,<0.4.0" },
     { name = "langfuse", specifier = ">=3.0.8,<4.0.0" },
     { name = "langgraph", specifier = "==0.5.3" },
