@@ -232,9 +232,20 @@ const sidebars: SidebarsConfig = {
       label: 'Prompt Library',
     },
     {
-      type: 'doc',
-      id: 'evaluations/index',
-      label: 'Evaluations',
+      type: 'category',
+      label: 'Tracing & Evaluations',
+      items: [
+        {
+          type: 'doc',
+          id: 'evaluations/index',
+          label: 'Overview',
+        },
+        {
+          type: 'doc',
+          id: 'evaluations/tracing-implementation-guide',
+          label: 'Tracing Implementation Guide',
+        },
+      ],
     },
     {
       type: 'category',
