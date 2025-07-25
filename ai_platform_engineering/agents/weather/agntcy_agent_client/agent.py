@@ -23,7 +23,7 @@ WEATHER_ENDPOINT = os.getenv("WEATHER_AGENT_ENDPOINT", f"http://{weather_agent_c
 weather_agntcy_remote_agent = AgntcyRemoteAgentConnectTool(
     name="weather_agntcy_remote_agent",
     description=WEATHER_AGENT_DESCRIPTION,
-    endpoint=WEATHER_ENDPOINT,
+    endpoint="http://slim-dataplane:46357",
     remote_agent_card=weather_agent_card,
 )
 
