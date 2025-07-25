@@ -2,19 +2,14 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-COPY pyproject.toml poetry.lock /app/
-COPY . /app
+COPY pyproject.toml README.md uv.lock /app/
+COPY ai_platform_engineering /app/ai_platform_engineering
 
 # Install poetry
-RUN pip install poetry
+RUN pip install uv
 
-RUN poetry config virtualenvs.create false
-RUN poetry config virtualenvs.in-project false
-RUN poetry config cache-dir /app/.cache
-
-RUN poetry lock
-RUN poetry install --no-interaction
+RUN uv sync --no-dev
 
 EXPOSE 8000
 
-ENTRYPOINT [ "poetry", "run", "ai-platform-engineering" ]
+ENTRYPOINT [ "uv", "run", "ai_platform_engineering/multi_agents" ]

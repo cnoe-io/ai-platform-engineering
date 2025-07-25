@@ -38,10 +38,7 @@ def platform_engineer(ctx):
   elif agent_protocol == "a2a":
     logging.info(f"Starting A2A server on {host}:{port or AGENT_PORT}")
 
-    uvicorn.run(
-      "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app",
-      host=host,
-      port=port or AGENT_PORT)
+    os.system(f"python /home/sraradhy/ai-platform-engineering/ai_platform_engineering/multi_agents/platform_engineer/protocol_bindings/a2a/main.py --host {host} --port {port or AGENT_PORT}")
   else:
     logging.error(f"Unsupported agent protocol: {agent_protocol}. Please set AGENT_PROTOCOL to 'fastapi' or 'a2a'.")
     click.echo(f"Unsupported agent protocol: {agent_protocol}. Please set AGENT_PROTOCOL to 'fastapi' or 'a2a'.")
