@@ -14,9 +14,9 @@ dependencies = [
     "uvicorn (>=0.34.3,<0.35.0)",
     "config (>=0.5.1,<0.6.0)",
     "langchain-core (>=0.3.65,<0.4.0)",
-    "langgraph (>=0.4.8,<0.5.0)",
-    "langgraph-supervisor (>=0.0.27,<0.0.28)",
-    "a2a-sdk (==0.2.9)",
+    "langgraph (>=0.4.8)",
+    "langgraph-supervisor (>=0.0.27)",
+    "a2a-sdk (>=0.2.9)",
     "cnoe-agent-utils (>=0.2.0)",
     "langchain (>=0.3.25,<0.4.0)",
 ]

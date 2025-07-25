@@ -4,9 +4,8 @@ WORKDIR /app
 
 COPY . /app/
 
-
 # Install uv and use it to install the package
-RUN pip install uv poetry
+RUN pip install uv
 
 RUN poetry config virtualenvs.create false
 RUN poetry config virtualenvs.in-project false
