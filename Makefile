@@ -18,6 +18,13 @@ APP_NAME ?= ai-platform-engineering
 
 ## ========== Setup & Clean ==========
 
+check-uv: ## Check if uv is installed
+	@command -v uv >/dev/null 2>&1 || { echo >&2 "uv is not installed. Please install it first."; }
+
+install-uv: setup-venv check-uv ## Install uv if not already installed
+	@echo "Activating virtual environment and installing uv..."
+	@. .venv/bin/activate && pip3 install uv
+
 setup-venv:        ## Create the Python virtual environment
 	@echo "Setting up virtual environment..."
 	@if [ ! -d ".venv" ]; then \
@@ -47,15 +54,11 @@ clean:             ## Clean all build artifacts and cache
 	@$(MAKE) clean-build-artifacts
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} + || echo "No .pytest_cache directories found."
 
-## ========== Build & Install ==========
+## ========== uv sync ==========
 
-build: setup-venv ## Build the package using Poetry
-	@echo "Building the package..."
-	@poetry build
-
-install: setup-venv ## Install the package using Poetry
+uv-sync: install-uv ## Sync the project dependencies using uv
 	@echo "Installing the package..."
-	@poetry install
+	@uv sync --no-dev
 
 ## ========== Docker Build ==========
 
@@ -68,9 +71,9 @@ build-docker:  ## Build the Docker image
 run: run-ai-platform-engineer ## Run the application with Poetry
 	@echo "Running the AI Platform Engineer persona..."
 
-run-ai-platform-engineer: setup-venv build install ## Run the AI Platform Engineering Multi-Agent System
+run-ai-platform-engineer: install-uv uv-sync ## Run the AI Platform Engineering Multi-Agent System
 	@echo "Running the AI Platform Engineering Multi-Agent System..."
-	@poetry run ai-platform-engineering platform-engineer $(ARGS)
+	@uv run ai_platform_engineering/multi_agents platform-engineer $(ARGS)
 
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
