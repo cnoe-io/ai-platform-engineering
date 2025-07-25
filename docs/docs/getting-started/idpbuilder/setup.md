@@ -254,6 +254,14 @@ Once logged into Backstage:
 2. Click to open the AI assistant
 3. Start chatting with the platform engineering agent
 
+## Useful Addresses for IDPBuilder Cluster
+
+- ArgoCD: https://cnoe.localtest.me:8443/argocd/
+- Backstage: https://cnoe.localtest.me:8443/
+- Vault: https://vault.cnoe.localtest.me:8443/
+- Keycloak: https://cnoe.localtest.me:8443/keycloak/admin/master/console/
+- Gitea: https://cnoe.localtest.me:8443/gitea/
+
 ## Cleanup
 
 ```bash
