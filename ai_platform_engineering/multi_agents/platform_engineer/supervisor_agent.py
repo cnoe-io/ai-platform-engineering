@@ -20,7 +20,7 @@ from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_a2a_remote_agent
 from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_a2a_remote_agent
 from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_a2a_remote_agent
-from ai_platform_engineering.agents.weather.a2a_agent_client.agent import weather_a2a_remote_agent
+# from ai_platform_engineering.agents.weather.agntcy_agent_client.agent import weather_agntcy_remote_agent
 
 # Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
 KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
@@ -72,13 +72,13 @@ class AIPlatformEngineerMAS:
 
     agent_tools = [
       argocd_a2a_remote_agent,
-      backstage_a2a_remote_agent,
-      confluence_a2a_remote_agent,
-      github_a2a_remote_agent,
-      jira_a2a_remote_agent,
-      pagerduty_a2a_remote_agent,
-      slack_a2a_remote_agent,
-      weather_a2a_remote_agent
+      # backstage_a2a_remote_agent,
+      # confluence_a2a_remote_agent,
+      # github_a2a_remote_agent,
+      # jira_a2a_remote_agent,
+      # pagerduty_a2a_remote_agent,
+      # slack_a2a_remote_agent,
+      # weather_agntcy_remote_agent
     ]
 
     if KOMODOR_ENABLED:
@@ -86,6 +86,8 @@ class AIPlatformEngineerMAS:
 
     # The argument is the name to assign to the resulting forwarded message
     forwarding_tool = create_forward_message_tool("platform_engineer_supervisor")
+
+    logger.info("Creating LangGraph supervisor with the following agents:")
 
     graph = create_supervisor(
       model=model,
