@@ -242,6 +242,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'evaluations/distributed-tracing-info',
+          label: 'Distributed Tracing Architecture',
+        },
+        {
+          type: 'doc',
           id: 'evaluations/tracing-implementation-guide',
           label: 'Tracing Implementation Guide',
         },
