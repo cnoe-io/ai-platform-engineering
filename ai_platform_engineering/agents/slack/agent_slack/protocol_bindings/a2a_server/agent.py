@@ -17,6 +17,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from cnoe_agent_utils import LLMFactory
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class SlackAgent:
 
         # Initialize the model if credentials are available
         self.model = LLMFactory().get_llm()
+        self.tracing = TracingManager()
 
         self.graph = None
 
@@ -157,7 +159,8 @@ class SlackAgent:
             logger.exception(f"Error initializing agent: {e}")
             self.graph = None
 
-    async def stream(self, query: str, context_id: str) -> AsyncIterable[dict[str, Any]]:
+    @trace_agent_stream("slack")
+    async def stream(self, query: str, context_id: str, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
         logger.info(f"Starting stream with query: {query} and context_id: {context_id}")
 
@@ -171,7 +174,7 @@ class SlackAgent:
             return
 
         inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
-        config: RunnableConfig = {'configurable': {'thread_id': context_id}}
+        config: RunnableConfig = self.tracing.create_config(context_id)
 
         try:
             async for item in self.graph.astream(inputs, config, stream_mode='values'):

@@ -28,6 +28,7 @@ from agent_argocd.state import (
     MsgType,
 )
 from cnoe_agent_utils import LLMFactory
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ class ArgoCDAgent:
       # Setup the math agent and load MCP tools
       self.model = LLMFactory().get_llm()
       self.graph = None
+      self.tracing = TracingManager()
       async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
@@ -172,12 +174,13 @@ class ArgoCDAgent:
           messages.append(HumanMessage(content="What can you do?"))
       _create_agent(agent_input, config=runnable_config)
 
+    @trace_agent_stream("argocd")
     async def stream(
-      self, query: str, context_id: str
+      self, query: str, context_id: str, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
       print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
       inputs: dict[str, Any] = {'messages': [('user', query)]}
-      config: RunnableConfig = {'configurable': {'thread_id': context_id}}
+      config: RunnableConfig = self.tracing.create_config(context_id)
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]

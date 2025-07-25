@@ -19,6 +19,7 @@ from a2a.types import (
 from langchain_core.tools import BaseTool
 
 from ai_platform_engineering.utils.models.generic_agent import Input, Output
+from cnoe_agent_utils.tracing import TracingManager
 
 
 logger = logging.getLogger("a2a.client.tool")
@@ -132,14 +133,18 @@ class A2ARemoteAgentConnectTool(BaseTool):
       if not prompt:
         logger.error("Invalid input: Prompt must be a non-empty string.")
         raise ValueError("Invalid input: Prompt must be a non-empty string.")
-      response = await self.send_message(prompt)
+      # Get current trace_id from tracing context
+      tracing = TracingManager()
+      trace_id = tracing.get_trace_id() if tracing.is_enabled else None
+      
+      response = await self.send_message(prompt, trace_id)
       return Output(response=response)
     except Exception as e:
       print(input)
       logger.error(f"Failed to execute A2A client tool: {str(e)}")
       raise RuntimeError(f"Failed to execute A2A client tool: {str(e)}")
 
-  async def send_message(self, prompt: str) -> str:
+  async def send_message(self, prompt: str, trace_id: str = None) -> str:
     """
     Sends a message to the A2A agent and invokes the specified skill.
 
@@ -153,15 +158,21 @@ class A2ARemoteAgentConnectTool(BaseTool):
       logger.info("A2AClient not initialized. Connecting now...")
       await self._connect()
 
-    send_message_payload = {
-        'message': {
-            'role': 'user',
-            'parts': [
-                {'kind': 'text', 'text': prompt}
-            ],
-            'messageId': uuid4().hex,
-        },
+    # Build message payload with optional trace_id in metadata
+    message_payload = {
+        'role': 'user',
+        'parts': [
+            {'kind': 'text', 'text': prompt}
+        ],
+        'messageId': uuid4().hex,
     }
+    
+    # Add trace_id to metadata if provided
+    if trace_id:
+        message_payload['metadata'] = {'trace_id': trace_id}
+        logger.info(f"Adding trace_id to A2A message: {trace_id}")
+    
+    send_message_payload = {'message': message_payload}
     # logger.info("Sending message to A2A agent with payload:\n" + json.dumps({**send_message_payload, 'message': send_message_payload['message'].dict()}, indent=4))
     request = SendMessageRequest(
         id=str(uuid4()),

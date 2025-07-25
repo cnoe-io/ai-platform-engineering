@@ -12,16 +12,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
 
-# Conditional langfuse import based on ENABLE_TRACING
-if os.getenv("ENABLE_TRACING", "false").lower() == "true":
-    from langfuse import observe
-else:
-    # No-op decorator when tracing is disabled
-    def observe(**kwargs):
-        def decorator(func):
-            return func
-        return decorator
-
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt,
   response_format_instruction
@@ -37,7 +27,6 @@ from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_a2
 from ai_platform_engineering.utils.models.generic_agent import (
   ResponseFormat
 )
-import os
 
 # Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
 KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
@@ -118,7 +107,6 @@ class AIPlatformEngineerMAS:
     logger.debug("LangGraph supervisor created and compiled successfully.")
     return graph
 
-  @observe(name="Supervisor Agent - Process Request")
   async def serve(self, prompt: str):
     """
     Processes the input prompt and returns a response from the graph.

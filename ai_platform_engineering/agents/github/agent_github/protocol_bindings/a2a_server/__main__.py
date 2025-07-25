@@ -7,6 +7,15 @@ import click
 import httpx
 import uvicorn
 
+# =====================================================
+# CRITICAL: Disable a2a tracing BEFORE any a2a imports
+# =====================================================
+from cnoe_agent_utils.tracing import disable_a2a_tracing
+
+# Disable A2A framework tracing to prevent interference with custom tracing
+disable_a2a_tracing()
+
+
 from agent import GitHubAgent # type: ignore[import-untyped]
 from agent_executor import GitHubAgentExecutor # type: ignore[import-untyped]
 from dotenv import load_dotenv
