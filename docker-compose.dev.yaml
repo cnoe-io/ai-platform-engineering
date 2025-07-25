@@ -111,6 +111,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8001:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   agent-argocd-latest:
     image: ghcr.io/cnoe-io/agent-argocd:a2a-latest
@@ -123,6 +128,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8001:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
   #                                      AGENT BACKSTAGE BUILD & LATEST                              #
@@ -139,6 +149,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8002:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   agent-backstage-latest:
     image: ghcr.io/cnoe-io/agent-backstage:a2a-latest
@@ -151,6 +166,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8002:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
   #                                      AGENT CONFLUENCE BUILD & LATEST                             #
@@ -167,6 +187,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8003:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   agent-confluence-latest:
     image: ghcr.io/cnoe-io/agent-confluence:a2a-latest
@@ -179,6 +204,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8003:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
   #                                      AGENT GITHUB BUILD & LATEST                                 #
@@ -196,6 +226,13 @@ services:
       - ./.env:/app/.env
     ports:
       - "8004:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-github-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-github-agent}
 
   agent-github-latest:
     image: ghcr.io/cnoe-io/agent-github:a2a-latest
@@ -209,6 +246,13 @@ services:
       - ./.env:/app/.env
     ports:
       - "8004:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-github-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-github-agent}
 
   ####################################################################################################
   #                                      AGENT JIRA BUILD & LATEST                                   #
@@ -225,6 +269,13 @@ services:
       - ./.env:/app/.env
     ports:
       - "8005:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-jira-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-jira-agent}
 
   agent-jira-latest:
     image: ghcr.io/cnoe-io/agent-jira:a2a-latest
@@ -237,6 +288,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8005:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
   #                                      AGENT KOMODOR BUILD & LATEST                                #
@@ -254,6 +310,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8006:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
   agent-komodor-latest:
     image: ghcr.io/cnoe-io/agent-komodor:a2a-latest
     container_name: agent-komodor-latest
@@ -265,6 +326,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8006:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
   ####################################################################################################
   #                                      AGENT PAGERDUTY BUILD & LATEST                              #
   ####################################################################################################
@@ -280,6 +346,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8007:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   agent-pagerduty-latest:
     image: ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
@@ -292,6 +363,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8007:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
   #                                      AGENT SLACK BUILD & LATEST                                  #
@@ -308,6 +384,13 @@ services:
       - ./.env:/app/.env
     ports:
       - "8008:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-slack-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-slack-agent}
 
   agent-slack-latest:
     image: ghcr.io/cnoe-io/agent-slack:a2a-latest
@@ -320,6 +403,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8008:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
   #                                      AGENT WEBEX BUILD & LATEST                                  #
@@ -336,6 +424,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8009:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
   agent-webex-latest:
     image: ghcr.io/cnoe-io/agent-webex:a2a-latest
     container_name: agent-webex-latest
@@ -347,6 +440,11 @@ services:
       - ./.env:/app/.env
     ports:
       - "8009:8000"
+    environment:
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                        #
