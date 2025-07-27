@@ -98,8 +98,7 @@ class AIPlatformEngineerMAS:
       add_handoff_back_messages=False,
       tools=[forwarding_tool] + agent_tools,
       output_mode="last_message",
-      supervisor_name="platform_engineer_supervisor",
-      response_format=(response_format_instruction, ResponseFormat),
+      supervisor_name="platform_engineer_supervisor"
     ).compile(
       checkpointer=checkpointer,
       store=store,
