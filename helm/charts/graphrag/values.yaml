@@ -1,0 +1,207 @@
+# GraphRAG Services Configuration
+# This chart deploys Neo4j, Redis, and Nexigraph components for Graph-based RAG
+
+# Global settings
+global:
+  profiles:
+    knowledgeBase: true
+    graphRag: true
+    nexigraph: true
+
+# Neo4j Database Configuration
+neo4j:
+  enabled: true
+  image:
+    repository: neo4j
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  auth:
+    username: neo4j
+    password: dummy_password
+  
+  plugins:
+    - apoc
+  
+  config:
+    apoc:
+      export:
+        file:
+          enabled: true
+      import:
+        file:
+          enabled: true
+          use_neo4j_config: true
+  
+  persistence:
+    enabled: true
+    data:
+      size: 10Gi
+      storageClass: ""
+    logs:
+      size: 1Gi
+      storageClass: ""
+    config:
+      size: 1Gi
+      storageClass: ""
+    plugins:
+      size: 1Gi
+      storageClass: ""
+  
+  service:
+    type: ClusterIP
+    http:
+      port: 7474
+    bolt:
+      port: 7687
+  
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Redis Configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  
+  service:
+    type: ClusterIP
+    port: 6379
+  
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Nexigraph Server Configuration
+nexigraphServer:
+  enabled: true
+  image:
+    repository: ghcr.io/cnoe-io/nexigraph-server
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  env:
+    logLevel: DEBUG
+    apiKeys: dummy_key
+    cleanupInterval: 86400
+  
+  service:
+    type: ClusterIP
+    port: 8095
+  
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Agent Graph Generation Service
+agentGraphGen:
+  enabled: true
+  image:
+    repository: ghcr.io/cnoe-io/nexigraph-agent_graph_gen
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  env:
+    logLevel: DEBUG
+    syncInterval: 86400
+    # Azure OpenAI Configuration (will be injected from parent values)
+    openaiApiVersion: ""
+    azureOpenaiEndpoint: ""
+    azureOpenaiApiKey: ""
+    # Optional LangSmith tracing
+    langsmithTracing: "true"
+    langsmithProject: ""
+    langsmithApiKey: ""
+    langsmithEndpoint: ""
+  
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Agent Graph QA Service
+agentGraphQa:
+  enabled: true
+  image:
+    repository: ghcr.io/cnoe-io/nexigraph-agent_graph_qa
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  env:
+    logLevel: DEBUG
+    # Azure OpenAI Configuration (will be injected from parent values)
+    openaiApiVersion: ""
+    azureOpenaiEndpoint: ""
+    azureOpenaiApiKey: ""
+  
+  service:
+    type: ClusterIP
+    port: 8096
+  
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Dummy Client for Testing
+dummyClient:
+  enabled: true
+  image:
+    repository: ghcr.io/cnoe-io/nexigraph-clients
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  env:
+    apiKey: dummy_key
+    dummyEntitiesFile: dummy_data.json
+  
+  # Configuration for dummy data
+  dummyData:
+    # This will be populated from a ConfigMap
+    content: |
+      {
+        "entities": [
+          {
+            "id": "example-1",
+            "type": "service",
+            "name": "example-service",
+            "description": "An example service for testing GraphRAG"
+          }
+        ]
+      }
+  
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Service account configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod security context
+podSecurityContext: {}
+
+# Security context
+securityContext: {}
+
+# Ingress configuration (if needed)
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []

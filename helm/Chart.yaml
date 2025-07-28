@@ -4,7 +4,7 @@ name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
-version: 0.1.10
+version: 0.1.11
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: agent
@@ -52,3 +52,7 @@ dependencies:
   # Separate chart for external secrets
   - name: external-secrets-configuration
     version: 0.0.3
+  # GraphRAG services
+  - name: graphrag
+    version: 0.1.0
+  

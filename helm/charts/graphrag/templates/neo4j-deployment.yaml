@@ -1,0 +1,110 @@
+{{- if and .Values.neo4j.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "graphrag.fullname" . }}-neo4j
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "graphrag.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: neo4j
+  template:
+    metadata:
+      labels:
+        {{- include "graphrag.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: neo4j
+    spec:
+      {{- with .Values.neo4j.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.neo4j.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.neo4j.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: neo4j
+          image: "{{ .Values.neo4j.image.repository }}:{{ .Values.neo4j.image.tag }}"
+          imagePullPolicy: {{ .Values.neo4j.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.neo4j.service.http.port }}
+              protocol: TCP
+            - name: bolt
+              containerPort: {{ .Values.neo4j.service.bolt.port }}
+              protocol: TCP
+          env:
+            - name: NEO4J_AUTH
+              value: "{{ .Values.neo4j.auth.username }}/{{ .Values.neo4j.auth.password }}"
+            - name: NEO4J_PLUGINS
+              value: '["{{ join "\",\"" .Values.neo4j.plugins }}"]'
+            - name: NEO4J_apoc_export_file_enabled
+              value: "{{ .Values.neo4j.config.apoc.export.file.enabled }}"
+            - name: NEO4J_apoc_import_file_enabled
+              value: "{{ .Values.neo4j.config.apoc.import.file.enabled }}"
+            - name: NEO4J_apoc_import_file_use__neo4j__config
+              value: "{{ .Values.neo4j.config.apoc.import.file.use_neo4j_config }}"
+          volumeMounts:
+            - name: neo4j-data
+              mountPath: /data
+            - name: neo4j-logs
+              mountPath: /logs
+            - name: neo4j-config
+              mountPath: /config
+            - name: neo4j-plugins
+              mountPath: /plugins
+          {{- with .Values.neo4j.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: neo4j-data
+          {{- if .Values.neo4j.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "graphrag.fullname" . }}-neo4j-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: neo4j-logs
+          {{- if .Values.neo4j.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "graphrag.fullname" . }}-neo4j-logs
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: neo4j-config
+          {{- if .Values.neo4j.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "graphrag.fullname" . }}-neo4j-config
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: neo4j-plugins
+          {{- if .Values.neo4j.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "graphrag.fullname" . }}-neo4j-plugins
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      restartPolicy: Always
+{{- end }}

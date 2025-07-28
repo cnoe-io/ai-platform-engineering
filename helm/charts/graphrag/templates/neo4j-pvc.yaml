@@ -1,0 +1,86 @@
+{{- if and .Values.neo4j.enabled .Values.neo4j.persistence.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "graphrag.fullname" . }}-neo4j-data
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.neo4j.persistence.data.size }}
+  {{- if .Values.neo4j.persistence.data.storageClass }}
+  {{- if (eq "-" .Values.neo4j.persistence.data.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: "{{ .Values.neo4j.persistence.data.storageClass }}"
+  {{- end }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "graphrag.fullname" . }}-neo4j-logs
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.neo4j.persistence.logs.size }}
+  {{- if .Values.neo4j.persistence.logs.storageClass }}
+  {{- if (eq "-" .Values.neo4j.persistence.logs.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: "{{ .Values.neo4j.persistence.logs.storageClass }}"
+  {{- end }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "graphrag.fullname" . }}-neo4j-config
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.neo4j.persistence.config.size }}
+  {{- if .Values.neo4j.persistence.config.storageClass }}
+  {{- if (eq "-" .Values.neo4j.persistence.config.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: "{{ .Values.neo4j.persistence.config.storageClass }}"
+  {{- end }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "graphrag.fullname" . }}-neo4j-plugins
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.neo4j.persistence.plugins.size }}
+  {{- if .Values.neo4j.persistence.plugins.storageClass }}
+  {{- if (eq "-" .Values.neo4j.persistence.plugins.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: "{{ .Values.neo4j.persistence.plugins.storageClass }}"
+  {{- end }}
+  {{- end }}
+{{- end }}

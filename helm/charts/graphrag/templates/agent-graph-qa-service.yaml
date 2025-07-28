@@ -1,0 +1,19 @@
+{{- if and .Values.agentGraphQa.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "graphrag.fullname" . }}-agent-graph-qa
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-graph-qa
+spec:
+  type: {{ .Values.agentGraphQa.service.type }}
+  ports:
+    - port: {{ .Values.agentGraphQa.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "graphrag.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-graph-qa
+{{- end }}
