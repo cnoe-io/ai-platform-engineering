@@ -69,12 +69,12 @@ class AIPlatformEngineerMAS:
     model = LLMFactory().get_llm()
 
     # Check if LANGGRAPH_DEV is defined in the environment
-    # if os.getenv("LANGGRAPH_DEV"):
-    #   checkpointer = None
-    #   store = None
-    # else:
-    checkpointer = InMemorySaver()
-    store = InMemoryStore()
+    if os.getenv("LANGGRAPH_DEV"):
+      checkpointer = None
+      store = None
+    else:
+      checkpointer = InMemorySaver()
+      store = InMemoryStore()
 
     agent_tools = [
       argocd_a2a_remote_agent,
@@ -85,21 +85,22 @@ class AIPlatformEngineerMAS:
       pagerduty_a2a_remote_agent,
       slack_a2a_remote_agent,
     ]
+
     if KOMODOR_ENABLED:
       agent_tools.append(komodor_a2a_remote_agent)
 
-     # The argument is the name to assign to the resulting forwarded message
+    # The argument is the name to assign to the resulting forwarded message
     forwarding_tool = create_forward_message_tool("platform_engineer_supervisor")
 
     graph = create_supervisor(
       model=model,
       agents=[],
       prompt=system_prompt,
-      add_handoff_back_messages=False,
-      tools=[forwarding_tool] + agent_tools,
+      add_handoff_back_messages=True,
+      parallel_tool_calls=True,
+      tools= [forwarding_tool] + agent_tools,
       output_mode="last_message",
       supervisor_name="platform_engineer_supervisor",
-      response_format=(response_format_instruction, ResponseFormat),
     ).compile(
       checkpointer=checkpointer,
       store=store,
