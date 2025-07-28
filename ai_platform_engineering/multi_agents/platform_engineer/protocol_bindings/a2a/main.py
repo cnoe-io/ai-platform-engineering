@@ -99,7 +99,7 @@ push_sender = BasePushNotificationSender(httpx_client=httpx_client,
                 config_store=push_config_store)
 
 push_config_store = InMemoryPushNotificationConfigStore()
-push_sender = BasePushNotificationSender(httpx_client=client, config_store=push_config_store)
+push_sender = BasePushNotificationSender(httpx_client=httpx_client, config_store=push_config_store)
 
 request_handler = DefaultRequestHandler(
   agent_executor=AIPlatformEngineerA2AExecutor(),
