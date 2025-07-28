@@ -2,19 +2,18 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-COPY pyproject.toml poetry.lock /app/
-COPY . /app
+# Copy project metadata first to leverage caching
+COPY pyproject.toml uv.lock /app/
 
-# Install poetry
-RUN pip install poetry
+# Install uv
+RUN pip install uv
 
-RUN poetry config virtualenvs.create false
-RUN poetry config virtualenvs.in-project false
-RUN poetry config cache-dir /app/.cache
+# Copy actual source code
+COPY ./ai_platform_engineering /app/ai_platform_engineering
 
-RUN poetry lock
-RUN poetry install --no-interaction
+# Install dependencies (without dev packages)
+RUN uv sync --locked --no-dev
 
 EXPOSE 8000
 
-ENTRYPOINT [ "poetry", "run", "ai-platform-engineering" ]
+ENTRYPOINT [ "uv", "run", "python", "-m", "ai_platform_engineering.multi_agents" ]
