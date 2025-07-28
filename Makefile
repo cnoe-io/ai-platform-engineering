@@ -68,36 +68,37 @@ build-docker:  ## Build the Docker image
 run: run-ai-platform-engineer ## Run the application with Poetry
 	@echo "Running the AI Platform Engineer persona..."
 
-run-ai-platform-engineer: setup-venv build install ## Run the AI Platform Engineering Multi-Agent System
+run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Agent System
 	@echo "Running the AI Platform Engineering Multi-Agent System..."
-	@poetry run ai-platform-engineering platform-engineer $(ARGS)
+	@uv sync --no-dev
+	@uv run python -m ai_platform_engineering.multi_agents platform-engineer $(ARGS)
 
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
-	@poetry install
-	@poetry run pip install langgraph-cli[inmem]
-	@cd ai_platform_engineering/multi_agents/platform_engineer && export LANGGRAPH_DEV=true && langgraph dev
+	@. .venv/bin/activate && uv add langgraph-cli[inmem] --dev && uv sync --dev && cd ai_platform_engineering/multi_agents/platform_engineer && LANGGRAPH_DEV=true langgraph dev --config ./build/langgraph.json
 
 ## ========== Lint ==========
 
 lint: setup-venv ## Lint the code using Ruff
 	@echo "Linting the code..."
-	@poetry run ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320
+	@uv add ruff --dev
+	@uv run python -m ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320
 
 lint-fix: setup-venv ## Automatically fix linting issues using Ruff
 	@echo "Fixing linting issues..."
-	@poetry run ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320 --fix
+	@uv add ruff --dev
+	@uv run python -m ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320 --fix
 
 ## ========== Test ==========
 
 test: setup-venv install ## Install dependencies and run tests using pytest
 	@echo "Installing ai_platform_engineering, agents, and argocd..."
-	@poetry add ./ai_platform_engineering/agents/argocd --no-interaction --group unittest
-	@poetry add ./ai_platform_engineering/agents/komodor --no-interaction --group unittest
-	@poetry add pytest-asyncio --group unittest --no-interaction
+	@. .venv/bin/activate && uv add ./ai_platform_engineering/agents/argocd --group unittest
+	@. .venv/bin/activate && uv add ./ai_platform_engineering/agents/komodor --group unittest
+	@. .venv/bin/activate && uv add pytest-asyncio --group unittest
 
 	@echo "Running tests..."
-	@poetry run pytest
+	@. .venv/bin/activate && uv run pytest
 
 
 validate:

@@ -1,5 +1,5 @@
 [project]
-name = "ai_platform_engineering"
+name = "ai-platform-engineering"
 version = "0.1.0"
 description = "AI Platform Engineering Multi-Agent Systems"
 authors = [
@@ -14,19 +14,12 @@ dependencies = [
     "uvicorn (>=0.34.3,<0.35.0)",
     "config (>=0.5.1,<0.6.0)",
     "langchain-core (>=0.3.65,<0.4.0)",
-    "langgraph (>=0.4.8,<0.5.0)",
-    "langgraph-supervisor (>=0.0.27,<0.0.28)",
-    "a2a-sdk (==0.2.9)",
+    "langgraph (==0.5.3)",
+    "langgraph-supervisor (==0.0.28)",
+    "a2a-sdk (==0.2.16)",
     "cnoe-agent-utils (>=0.2.0)",
     "langchain (>=0.3.25,<0.4.0)",
 ]
-
-[project.scripts]
-ai-platform-engineering = "ai_platform_engineering.multi_agents.__main__:main"
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/*"
@@ -50,3 +43,13 @@ indent-width = 2
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["F403"]
+
+[tool.uv.sources]
+ai-platform-engineering = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "ai-platform-engineering",
+    "langgraph-cli[inmem]>=0.3.6",
+    "ruff>=0.12.5",
+]
