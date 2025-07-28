@@ -8,11 +8,11 @@ COPY pyproject.toml uv.lock /app/
 # Install uv
 RUN pip install uv
 
-# Install dependencies (without dev packages)
-RUN uv sync --locked --no-dev
-
 # Copy actual source code
 COPY ./ai_platform_engineering /app/ai_platform_engineering
+
+# Install dependencies (without dev packages)
+RUN uv sync --locked --no-dev
 
 EXPOSE 8000
 
