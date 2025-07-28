@@ -47,16 +47,6 @@ clean:             ## Clean all build artifacts and cache
 	@$(MAKE) clean-build-artifacts
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} + || echo "No .pytest_cache directories found."
 
-## ========== Build & Install ==========
-
-build: setup-venv ## Build the package using Poetry
-	@echo "Building the package..."
-	@poetry build
-
-install: setup-venv ## Install the package using Poetry
-	@echo "Installing the package..."
-	@poetry install
-
 ## ========== Docker Build ==========
 
 build-docker:  ## Build the Docker image
@@ -65,7 +55,7 @@ build-docker:  ## Build the Docker image
 
 ## ========== Run ==========
 
-run: run-ai-platform-engineer ## Run the application with Poetry
+run: run-ai-platform-engineer ## Run the application with uv
 	@echo "Running the AI Platform Engineer persona..."
 
 run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Agent System
@@ -115,14 +105,12 @@ validate:
 	@echo "Validation complete."
 
 lock-all:
-	@echo "🔁 Recursively locking all Python projects with poetry and uv..."
+	@echo "🔁 Recursively locking all Python projects with uv..."
 	@find . -name "pyproject.toml" | while read -r pyproject; do \
 		dir=$$(dirname $$pyproject); \
 		echo "📂 Entering $$dir"; \
 		( \
 			cd $$dir || exit 1; \
-			echo "📦 Running poetry lock in $$dir"; \
-			poetry lock && poetry update; \
 			echo "🔒 Running uv lock in $$dir"; \
 			uv pip compile pyproject.toml --all-extras --prerelease; \
 		); \
