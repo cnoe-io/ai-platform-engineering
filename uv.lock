@@ -4,6 +4,7 @@ requires-python = ">=3.13, <4.0"
 
 [manifest]
 members = [
+    "agent-argocd",
     "agent-komodor",
     "ai-platform-engineering",
 ]
@@ -30,7 +31,7 @@ wheels = [
 [[package]]
 name = "agent-argocd"
 version = "0.1.0"
-source = { directory = "ai_platform_engineering/agents/argocd" }
+source = { editable = "ai_platform_engineering/agents/argocd" }
 dependencies = [
     { name = "a2a-sdk" },
     { name = "agentevals" },
@@ -202,7 +203,7 @@ dev = [
     { name = "ruff", specifier = ">=0.12.5" },
 ]
 unittest = [
-    { name = "agent-argocd", directory = "ai_platform_engineering/agents/argocd" },
+    { name = "agent-argocd", editable = "ai_platform_engineering/agents/argocd" },
     { name = "agent-komodor", editable = "ai_platform_engineering/agents/komodor" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
 ]
