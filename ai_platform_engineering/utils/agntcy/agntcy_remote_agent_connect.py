@@ -22,7 +22,7 @@ class Output(BaseModel):
     response: Any
 
 import logging
-import uuid
+from uuid import uuid4
 logger = logging.getLogger("AgntcyRemoteAgentConnectTool")
 
 class AgntcyRemoteAgentConnectTool(BaseTool):
@@ -85,9 +85,10 @@ class AgntcyRemoteAgentConnectTool(BaseTool):
 
     logger.info(f"Sending message to the agent: {message}")
     request = SendMessageRequest(
+      id=str(uuid4()),
       params=MessageSendParams(
         message=Message(
-          messageId=str(uuid.uuid4()),  # Generate a random UUID
+          messageId=str(uuid4()),
           role=role,
           parts=[Part(TextPart(text=message))]
         )
