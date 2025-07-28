@@ -1,0 +1,79 @@
+{{- if and .Values.agentGraphQa.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "graphrag.fullname" . }}-agent-graph-qa
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-graph-qa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "graphrag.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent-graph-qa
+  template:
+    metadata:
+      labels:
+        {{- include "graphrag.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent-graph-qa
+    spec:
+      {{- with .Values.agentGraphQa.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentGraphQa.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentGraphQa.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent-graph-qa
+          image: "{{ .Values.agentGraphQa.image.repository }}:{{ .Values.agentGraphQa.image.tag }}"
+          imagePullPolicy: {{ .Values.agentGraphQa.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agentGraphQa.service.port }}
+              protocol: TCP
+          env:
+            - name: LOG_LEVEL
+              value: "{{ .Values.agentGraphQa.env.logLevel }}"
+            - name: NEO4J_URL
+              value: "bolt://{{ include "graphrag.fullname" . }}-neo4j:{{ .Values.neo4j.service.bolt.port }}"
+            - name: NEO4J_USER
+              value: "{{ .Values.neo4j.auth.username }}"
+            - name: NEO4J_PASSWORD
+              value: "{{ .Values.neo4j.auth.password }}"
+            {{- if .Values.agentGraphQa.env.openaiApiVersion }}
+            - name: OPENAI_API_VERSION
+              value: "{{ .Values.agentGraphQa.env.openaiApiVersion }}"
+            {{- end }}
+            {{- if .Values.agentGraphQa.env.azureOpenaiEndpoint }}
+            - name: AZURE_OPENAI_ENDPOINT
+              value: "{{ .Values.agentGraphQa.env.azureOpenaiEndpoint }}"
+            {{- end }}
+            {{- if .Values.agentGraphQa.env.azureOpenaiApiKey }}
+            - name: AZURE_OPENAI_API_KEY
+              value: "{{ .Values.agentGraphQa.env.azureOpenaiApiKey }}"
+            {{- end }}
+          {{- with .Values.agentGraphQa.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      restartPolicy: Always
+{{- end }}

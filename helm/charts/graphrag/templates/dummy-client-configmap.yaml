@@ -1,0 +1,12 @@
+{{- if and .Values.dummyClient.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "graphrag.fullname" . }}-dummy-client-data
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dummy-client
+data:
+  dummy_data.json: |
+    {{- .Values.dummyClient.dummyData.content | nindent 4 }}
+{{- end }}

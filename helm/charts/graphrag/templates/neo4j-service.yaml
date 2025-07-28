@@ -1,0 +1,23 @@
+{{- if and .Values.neo4j.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "graphrag.fullname" . }}-neo4j
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+spec:
+  type: {{ .Values.neo4j.service.type }}
+  ports:
+    - port: {{ .Values.neo4j.service.http.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.neo4j.service.bolt.port }}
+      targetPort: bolt
+      protocol: TCP
+      name: bolt
+  selector:
+    {{- include "graphrag.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: neo4j
+{{- end }}
