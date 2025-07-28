@@ -168,7 +168,7 @@ After Vault application syncs on ArgoCD successfully:
 
 <div class="img-quarter-width">
 
-![ArgoCD Vault Sync](./images/argocd-vault-sync.png)
+![ArgoCD Vault Sync](./images/argocd-vault-sync.svg)
 
 </div>
 
@@ -190,7 +190,7 @@ Open https://vault.cnoe.localtest.me:8443/. When you are asked to log in to the 
 1. Navigate to `secrets/ai-platform-engineering` in Vault UI: https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/list/ai-platform-engineering/
 
 2. **Configure Global LLM Settings**: 
-![Vault Secrets](./images/vault-secrets.png)
+![Vault Secrets](./images/vault-secrets.svg)
 The `global` secret is required and contains LLM provider configuration shared across all agents:
    - `LLM_PROVIDER`: Defaults to `azure-openai`. Available options are: `azure-openai`, `openai`, `aws-bedrock`
    - Configure only the fields for your chosen provider:
