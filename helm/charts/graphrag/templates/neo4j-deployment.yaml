@@ -18,6 +18,7 @@ spec:
         {{- include "graphrag.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: neo4j
     spec:
+      serviceAccountName: {{ include "graphrag.serviceAccountName" . }}
       {{- with .Values.neo4j.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

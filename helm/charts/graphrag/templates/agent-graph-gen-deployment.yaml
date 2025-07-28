@@ -18,6 +18,7 @@ spec:
         {{- include "graphrag.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: agent-graph-gen
     spec:
+      serviceAccountName: {{ include "graphrag.serviceAccountName" . }}
       {{- with .Values.agentGraphGen.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
