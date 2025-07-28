@@ -46,12 +46,13 @@ ignore = ["F403"]
 
 [tool.uv.sources]
 ai-platform-engineering = { workspace = true }
-agent-argocd = { path = "ai_platform_engineering/agents/argocd" }
+agent-argocd = { workspace = true }
 agent-komodor = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "ai_platform_engineering/agents/komodor",
+    "ai_platform_engineering/agents/argocd",
 ]
 
 [dependency-groups]
