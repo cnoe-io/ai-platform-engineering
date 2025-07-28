@@ -40,7 +40,6 @@ weather_agent_skill = AgentSkill(
 
 weather_agent_card = AgentCard(
   name='Weather',
-  id='weather-tools-agent',
   description=WEATHER_AGENT_DESCRIPTION,
   url=f'{WEATHER_AGENT_HOST}:{WEATHER_AGENT_PORT}',
   version='0.1.0',
