@@ -4,8 +4,14 @@ WORKDIR /app
 
 COPY . /app/
 
+COPY pyproject.toml uv.lock /app/
+
 # Install uv and use it to install the package
 RUN pip install uv
+
+COPY mcp /app/mcp
+
+RUN uv add /app/mcp/argocd
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
