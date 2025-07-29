@@ -11,7 +11,7 @@ from kb_rag.protocol_bindings.a2a_server.agent_executor import RAGAgentExecutor 
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
+from a2a.server.tasks import InMemoryPushNotificationConfigStore, BasePushNotificationSender, InMemoryTaskStore
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
@@ -26,10 +26,13 @@ load_dotenv()
 @click.option('--milvus-uri', 'milvus_uri', default='http://localhost:19530')
 def main(host: str, port: int, milvus_uri: str):
     client = httpx.AsyncClient()
+    push_notification_config_store = InMemoryPushNotificationConfigStore()
+    push_notification_sender = BasePushNotificationSender(client, config_store=push_notification_config_store)
     request_handler = DefaultRequestHandler(
         agent_executor=RAGAgentExecutor(milvus_uri=milvus_uri),
         task_store=InMemoryTaskStore(),
-        push_notifier=InMemoryPushNotifier(client),
+        push_config_store=push_notification_config_store,
+        push_sender=push_notification_sender
     )
 
     server = A2AStarletteApplication(
