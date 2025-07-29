@@ -14,15 +14,14 @@ services:
       - build
       - build-tracing
     depends_on:
-      - agent-argocd-latest
-      # - agent-backstage-build
-      # - agent-confluence-build
-      # - agent-github-build
-      # - agent-jira-build
-      # - agent-komodor-build
-      # - agent-pagerduty-build
-      # - agent-slack-build
-      # - agent-webex-build
+      - agent-argocd-build
+      - agent-backstage-build
+      - agent-confluence-build
+      - agent-github-build
+      - agent-jira-build
+      - agent-komodor-build
+      - agent-pagerduty-build
+      - agent-slack-build
     env_file:
       - .env
     ports:
@@ -123,6 +122,7 @@ services:
     ports:
       - "8001:8000"
     environment:
+      - A2A_TRANSPORT=slim
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -430,8 +430,7 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-webex-build
     profiles:
-      - build
-      - build-tracing
+      - webex
     volumes:
       - ./.env:/app/.env
     ports:
@@ -461,6 +460,20 @@ services:
   ####################################################################################################
   #                                      AGENT WEATHER BUILD & LATEST                                 #
   ####################################################################################################
+  slim:
+    image: ghcr.io/agntcy/slim:0.3.15
+    container_name: slim-dataplane
+    profiles:
+      - build
+      - agntcy-slim
+    ports:
+      - "46357:46357"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
   agent-weather-build:
     build:
       context: ai_platform_engineering/agents/weather
@@ -478,20 +491,6 @@ services:
       - ./ai_platform_engineering/agents/weather:/app
     ports:
       - "8100:8000"
-  slim:
-    image: ghcr.io/agntcy/slim:0.3.15
-    container_name: slim-dataplane
-    profiles:
-      - agntcy-slim
-    ports:
-      - "46357:46357"
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes:
-      - ./slim-config.yaml:/config.yaml
-    command: ["/slim", "--config", "/config.yaml"]
-
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                        #
   ####################################################################################################
@@ -502,17 +501,6 @@ services:
       - build
     ports:
       - "13000:3000"
-  slim:
-    image: ghcr.io/agntcy/slim:0.3.15
-    container_name: slim-dataplane
-    ports:
-      - "46357:46357"
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes:
-      - ./slim-config.yaml:/config.yaml
-    command: ["/slim", "--config", "/config.yaml"]
   ####################################################################################################
   #                                    NEXIGRAPH SERVICES (GRAPHRAG/GEN)                             #
   ####################################################################################################

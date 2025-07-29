@@ -13,7 +13,16 @@ from agent_argocd.protocol_bindings.a2a_server.agent_executor import ArgoCDAgent
 from agent_argocd.agentcard import create_agent_card
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
+from a2a.server.tasks import (
+    BasePushNotificationSender,
+    InMemoryPushNotificationConfigStore,
+    InMemoryTaskStore,
+)
+from a2a.types import (
+    AgentCapabilities,
+    AgentCard,
+    AgentSkill,
+)
 
 from starlette.middleware.cors import CORSMiddleware
 
@@ -27,14 +36,16 @@ SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=10000)
 def main(host: str, port: int):
-    asyncio.run(async_main(host, port))
+    httpx_client = httpx.AsyncClient()
 
-async def async_main(host: str, port: int):
-    client = httpx.AsyncClient()
+    push_config_store = InMemoryPushNotificationConfigStore()
+    push_sender = BasePushNotificationSender(httpx_client=httpx_client,
+                    config_store=push_config_store)
     request_handler = DefaultRequestHandler(
-        agent_executor=ArgoCDAgentExecutor(),
-        task_store=InMemoryTaskStore(),
-        push_notifier=InMemoryPushNotifier(client),
+      agent_executor=ArgoCDAgentExecutor(),
+      task_store=InMemoryTaskStore(),
+      push_config_store=push_config_store,
+      push_sender= push_sender
     )
 
     if A2A_TRANSPORT == "slim":
