@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - main
+      - kb-rag
     paths:
       - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/knowledge_bases/**'  
     tags-ignore:
       - '**'
   pull_request:
     paths:
       - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/knowledge_bases/**'  
   workflow_dispatch:
 jobs:
   build-and-push:
@@ -37,6 +40,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: kb-rag
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
