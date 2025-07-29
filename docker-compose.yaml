@@ -150,6 +150,17 @@ services:
       - ./.env:/app/.env
     ports:
       - "8007:8000"
+  # Agent KB-RAG
+  kb-rag:
+    image: ghcr.io/cnoe-io/kb-rag:a2a-latest
+    container_name: kb-rag
+    profiles:
+      - kb-rag
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8008:8000"
+
   backstage-agent-forge:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
