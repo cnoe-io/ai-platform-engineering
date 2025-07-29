@@ -54,7 +54,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=a2a-latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=a2a-latest,enable=true # TODO: remove this once we have a proper release process
             type=ref,event=branch,prefix=a2a-
             type=ref,event=tag,prefix=a2a-
             type=sha,format=short,prefix=a2a-
@@ -67,6 +67,7 @@ jobs:
         with:
           context: ${{ env.AGENT_DIR }}
           file: ${{ matrix.agent == 'kb-rag' && format('{0}/build/Dockerfile.a2a', env.AGENT_DIR) || format('{0}/build/Dockerfile.a2a', env.AGENT_DIR) }}
+          # push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
