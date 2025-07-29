@@ -21,13 +21,13 @@ jobs:
 
     strategy:
       matrix:
-        agent: [argocd, backstage, confluence, github, jira, komodor, pagerduty, slack, template, webex]
+        agent: [argocd, backstage, confluence, github, jira, komodor, pagerduty, slack, template, webex, kb-rag]
       fail-fast: false
 
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
-      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+      AGENT_DIR: ${{ matrix.agent == 'kb-rag' && 'ai_platform_engineering/knowledge_bases/kb-rag' || format('ai_platform_engineering/agents/{0}', matrix.agent) }}
 
     steps:
       - name: 🔒 harden runner
@@ -66,8 +66,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.AGENT_DIR }}
-          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
-          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          file: ${{ matrix.agent == 'kb-rag' && format('{0}/build/Dockerfile.a2a', env.AGENT_DIR) || format('{0}/build/Dockerfile.a2a', env.AGENT_DIR) }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
