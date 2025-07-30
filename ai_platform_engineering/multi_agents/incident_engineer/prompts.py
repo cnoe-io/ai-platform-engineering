@@ -15,7 +15,7 @@ from ai_platform_engineering.agents.jira.a2a_agent_client.agentcard import  (
   jira_agent_card,
   jira_agent_skill
 )
-from ai_platform_engineering.agents.github.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.github.agentcard import (
   github_agent_card,
   github_agent_skill
 )

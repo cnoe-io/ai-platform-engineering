@@ -14,7 +14,7 @@ from ai_platform_engineering.agents.confluence.a2a_agent_client.agentcard import
   confluence_agent_card,
   confluence_agent_skill
 )
-from ai_platform_engineering.agents.github.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.github.agentcard import (
   github_agent_card,
   github_agent_skill
 )
