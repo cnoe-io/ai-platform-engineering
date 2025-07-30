@@ -55,9 +55,10 @@ async def main(host: str, port: int):
         agent_card=get_agent_card(host, port), http_handler=request_handler
     )
 
-    if os.getenv('A2A_TRANSPORT').lower() == 'slim':
+    if os.getenv('A2A_TRANSPORT', 'p2p').lower() == 'slim':
         # Run A2A server over SLIM transport
         # https://docs.agntcy.org/messaging/slim-core/
+        print("Running A2A server in SLIM mode.")
         factory = AgntcyFactory()
         transport = factory.create_transport("SLIM", endpoint="http://slim-dataplane:46357")
         print("Transport created successfully.")
@@ -67,6 +68,7 @@ async def main(host: str, port: int):
         await bridge.start(blocking=True)
     else:
       # Run a p2p A2A server
+      print("Running A2A server in p2p mode.")
       uvicorn.run(server.build(), host=host, port=port)
 
 
