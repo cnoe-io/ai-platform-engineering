@@ -159,8 +159,8 @@ wheels = [
 
 [[package]]
 name = "agntcy-app-sdk"
-version = "0.1.2"
-source = { git = "https://github.com/agntcy/app-sdk?rev=a2a-version-update#08e77c17928caa3d0d25d051ed13c8af1cd53784" }
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "a2a-sdk" },
     { name = "coloredlogs" },
@@ -173,6 +173,10 @@ dependencies = [
     { name = "opentelemetry-instrumentation-starlette" },
     { name = "slim-bindings" },
     { name = "uvicorn" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/54/64/418c2c393978023d61a2d7b315214892bff26b0dd59217e1cb30307d8129/agntcy_app_sdk-0.1.4.tar.gz", hash = "sha256:311c4ce21fa7cdb242c70c7e142c2485457dd0bac2fbe0515f388fe2972c8ed0", size = 328883, upload-time = "2025-07-30T14:29:50.323Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/eb/1dd59828aa6a2e4b0ac2e08c32f338ead1a696e08875b1ecb104730bfce7/agntcy_app_sdk-0.1.4-py3-none-any.whl", hash = "sha256:bda99e55560f9f23c1caf499135083b24d5259ba2887df179923392e1f4d309d", size = 30915, upload-time = "2025-07-30T14:29:49.407Z" },
 ]
 
 [[package]]
@@ -209,7 +213,7 @@ unittest = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", specifier = "==0.2.16" },
-    { name = "agntcy-app-sdk", git = "https://github.com/agntcy/app-sdk?rev=a2a-version-update" },
+    { name = "agntcy-app-sdk", specifier = "==0.1.4" },
     { name = "click", specifier = ">=8.2.1,<9.0.0" },
     { name = "cnoe-agent-utils", specifier = ">=0.2.0" },
     { name = "config", specifier = ">=0.5.1,<0.6.0" },
