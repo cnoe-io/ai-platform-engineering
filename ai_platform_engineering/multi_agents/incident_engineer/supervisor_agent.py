@@ -16,32 +16,21 @@ if A2A_TRANSPORT == "slim":
     from ai_platform_engineering.agents.github.clients.slim.agent import github_a2a_remote_agent
     from ai_platform_engineering.agents.pagerduty.clients.slim.agent import pagerduty_a2a_remote_agent
     from ai_platform_engineering.agents.jira.clients.slim.agent import jira_a2a_remote_agent
-    from ai_platform_engineering.agents.argocd.clients.slim.agent import argocd_a2a_remote_agent
+    from ai_platform_engineering.agents.backstage.clients.slim.agent import backstage_a2a_remote_agent
+    from ai_platform_engineering.agents.confluence.clients.slim.agent import confluence_a2a_remote_agent
 else:
     from ai_platform_engineering.agents.github.clients.a2a.agent import github_a2a_remote_agent
     from ai_platform_engineering.agents.pagerduty.clients.a2a.agent import pagerduty_a2a_remote_agent
     from ai_platform_engineering.agents.jira.clients.a2a.agent import jira_a2a_remote_agent
-    from ai_platform_engineering.agents.argocd.clients.a2a.agent import argocd_a2a_remote_agent
+    from ai_platform_engineering.agents.backstage.clients.a2a.agent import backstage_a2a_remote_agent
+    from ai_platform_engineering.agents.confluence.clients.a2a.agent import confluence_a2a_remote_agent
 
-from ai_platform_engineering.multi_agents.incident_engineer.prompts import (
-  system_prompt,
-  response_format_instruction
-)
-
-from ai_platform_engineering.agents.confluence.a2a_agent_client.agent import confluence_agent
-from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_agent
-from ai_platform_engineering.agents.github.clients.a2a.agent import github_agent
-from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_agent
-from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_agent
-from ai_platform_engineering.agents.pagerduty.agent import pagerduty_agent
-from ai_platform_engineering.utils.models.generic_agent import (
-  ResponseFormat
-)
+from ai_platform_engineering.multi_agents.incident_engineer.prompts import system_prompt
 
 # Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
 KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
 if KOMODOR_ENABLED:
-    from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_agent
+  from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_a2a_remote_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -88,23 +77,29 @@ class AIIncidentEngineerMAS:
       checkpointer = InMemorySaver()
       store = InMemoryStore()
 
-    agents = [
-        pagerduty_agent,
-        github_agent,
-        jira_agent,
-        backstage_agent,
-        confluence_agent,
+    agent_tools = [
+        pagerduty_a2a_remote_agent,
+        github_a2a_remote_agent,
+        jira_a2a_remote_agent,
+        backstage_a2a_remote_agent,
+        confluence_a2a_remote_agent,
     ]
+
     if KOMODOR_ENABLED:
-        agents.append(komodor_agent)
+        agent_tools.append(komodor_a2a_remote_agent)
+
+    # The argument is the name to assign to the resulting forwarded message
+    forwarding_tool = create_forward_message_tool("incident_engineer_supervisor")
 
     graph = create_supervisor(
       model=model,
-      agents=agents,
+      agents=[],
       prompt=system_prompt,
-      add_handoff_back_messages=False,
+      add_handoff_back_messages=True,
+      parallel_tool_calls=True,
+      tools=[forwarding_tool] + agent_tools,
       output_mode="last_message",
-      response_format=(response_format_instruction, ResponseFormat),
+      supervisor_name="incident_engineer_supervisor",
     ).compile(
       checkpointer=checkpointer,
       store=store,

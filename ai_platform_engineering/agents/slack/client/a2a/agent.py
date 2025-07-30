@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 
-from ai_platform_engineering.agents.slack.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.slack.agentcard import (
     SLACK_AGENT_DESCRIPTION,
     slack_agent_card,
     slack_agent_skill,
