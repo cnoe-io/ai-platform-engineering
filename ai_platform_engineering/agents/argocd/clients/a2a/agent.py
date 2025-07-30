@@ -12,7 +12,6 @@ from ai_platform_engineering.agents.argocd.agentcard import (
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
-from ai_platform_engineering.multi_agents.platform_engineer.prompts import get_agent_system_prompt
 
 model = LLMFactory().get_llm()
 
@@ -22,13 +21,4 @@ argocd_a2a_remote_agent = A2ARemoteAgentConnectTool(
     description=ARGOCD_AGENT_DESCRIPTION,
     remote_agent_card=argocd_agent_card,
     skill_id=argocd_agent_skill.id,
-)
-
-argocd_system_prompt = get_agent_system_prompt("argocd")
-
-argocd_agent = create_react_agent(
-    model=model,
-    tools=[argocd_a2a_remote_agent],
-    name="argocd_agent",
-    prompt=argocd_system_prompt,
 )
