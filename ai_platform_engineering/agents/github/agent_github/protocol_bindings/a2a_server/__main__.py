@@ -6,6 +6,8 @@ import sys
 import click
 import httpx
 import uvicorn
+import asyncio
+from agntcy_app_sdk.factory import AgntcyFactory
 
 # =====================================================
 # CRITICAL: Disable a2a tracing BEFORE any a2a imports
@@ -37,7 +39,7 @@ load_dotenv()
 @click.command()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=10000)
-def main(host: str, port: int):
+async def main(host: str, port: int):
     if not os.getenv('GITHUB_PERSONAL_ACCESS_TOKEN'):
         print('GITHUB_PERSONAL_ACCESS_TOKEN environment variable not set.')
         sys.exit(1)
@@ -53,7 +55,19 @@ def main(host: str, port: int):
         agent_card=get_agent_card(host, port), http_handler=request_handler
     )
 
-    uvicorn.run(server.build(), host=host, port=port)
+    if os.getenv('A2A_TRANSPORT').lower() == 'slim':
+        # Run A2A server over SLIM transport
+        # https://docs.agntcy.org/messaging/slim-core/
+        factory = AgntcyFactory()
+        transport = factory.create_transport("SLIM", endpoint="http://slim-dataplane:46357")
+        print("Transport created successfully.")
+
+        bridge = factory.create_bridge(server, transport=transport)
+        print("Bridge created successfully. Starting the bridge.")
+        await bridge.start(blocking=True)
+    else:
+      # Run a p2p A2A server
+      uvicorn.run(server.build(), host=host, port=port)
 
 
 def get_agent_card(host: str, port: int):
@@ -95,4 +109,4 @@ def get_agent_card(host: str, port: int):
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
