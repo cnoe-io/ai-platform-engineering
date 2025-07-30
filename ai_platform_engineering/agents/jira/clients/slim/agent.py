@@ -12,7 +12,6 @@ from ai_platform_engineering.agents.jira.agentcard import (
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import (
     AgntcySlimRemoteAgentConnectTool,
 )
-from ai_platform_engineering.multi_agents.platform_engineer.prompts import get_agent_system_prompt
 
 model = LLMFactory().get_llm()
 
@@ -25,5 +24,3 @@ jira_a2a_remote_agent = AgntcySlimRemoteAgentConnectTool(
     endpoint=SLIM_ENDPOINT,
     remote_agent_card=jira_agent_card,
 )
-
-jira_system_prompt = get_agent_system_prompt("jira")
