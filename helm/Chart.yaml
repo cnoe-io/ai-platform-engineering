@@ -55,4 +55,4 @@ dependencies:
   # GraphRAG services
   - name: graphrag
     version: 0.1.0
-  
+    condition: graphrag.enabled
