@@ -11,7 +11,7 @@ from ai_platform_engineering.agents.weather.agntcy_agent_client.agentcard import
     weather_agent_skill,
 )
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import (
-    AgntcyRemoteAgentConnectTool,
+    AgntcySlimRemoteAgentConnectTool,
 )
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import get_agent_system_prompt
 
@@ -20,7 +20,7 @@ model = LLMFactory().get_llm()
 WEATHER_ENDPOINT = os.getenv("WEATHER_AGENT_ENDPOINT", f"http://{weather_agent_card.url}")
 
 # initialize the flavor profile tool with the farm agent card
-weather_agntcy_remote_agent = AgntcyRemoteAgentConnectTool(
+weather_agntcy_remote_agent = AgntcySlimRemoteAgentConnectTool(
     name="weather_agntcy_remote_agent",
     description=WEATHER_AGENT_DESCRIPTION,
     endpoint="http://slim-dataplane:46357",

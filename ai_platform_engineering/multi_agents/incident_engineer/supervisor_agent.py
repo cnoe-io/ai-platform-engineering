@@ -21,7 +21,7 @@ from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import back
 from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_agent
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_agent
 from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_agent
-from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_agent
+from ai_platform_engineering.agents.pagerduty.agent import pagerduty_agent
 from ai_platform_engineering.utils.models.generic_agent import (
   ResponseFormat
 )

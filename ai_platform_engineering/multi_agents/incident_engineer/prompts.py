@@ -19,7 +19,7 @@ from ai_platform_engineering.agents.github.a2a_agent_client.agentcard import (
   github_agent_card,
   github_agent_skill
 )
-from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.pagerduty.agentcard import (
   pagerduty_agent_card,
   pagerduty_agent_skill
 )
