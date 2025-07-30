@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 
-from ai_platform_engineering.agents.confluence.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.confluence.agentcard import (
     CONFLUENCE_AGENT_DESCRIPTION,
     confluence_agent_card,
     confluence_agent_skill,
