@@ -4,7 +4,7 @@
 from langgraph.prebuilt import create_react_agent
 from cnoe_agent_utils import LLMFactory
 
-from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.pagerduty.agentcard import (
     pagerduty_agent_card, pagerduty_agent_skill, )
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
@@ -16,7 +16,7 @@ model = LLMFactory().get_llm()
 # initialize the flavor profile tool with the farm agent card
 pagerduty_a2a_remote_agent = A2ARemoteAgentConnectTool(
     name="pagerduty_tools_agent",
-    description="Handles tasks related to GitHub repositories, pull requests, and workflows.",
+    description="Handles tasks related to PagerDuty incidents, alerts, and on-call schedules.",
     remote_agent_card=pagerduty_agent_card,
     skill_id=pagerduty_agent_skill.id,
 )

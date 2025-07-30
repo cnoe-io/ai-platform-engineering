@@ -23,9 +23,9 @@ class Output(BaseModel):
 
 import logging
 from uuid import uuid4
-logger = logging.getLogger("AgntcyRemoteAgentConnectTool")
+logger = logging.getLogger("AgntcySlimRemoteAgentConnectTool")
 
-class AgntcyRemoteAgentConnectTool(BaseTool):
+class AgntcySlimRemoteAgentConnectTool(BaseTool):
   """
   Connects to a remote agent using the SLIM transport and sends messages via the A2A protocol.
   """
