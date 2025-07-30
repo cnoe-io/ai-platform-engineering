@@ -55,22 +55,21 @@ async def main(host: str, port: int):
         agent_card=get_agent_card(host, port), http_handler=request_handler
     )
 
-    if os.getenv('A2A_TRANSPORT').lower() == 'slim':
+    if os.getenv('A2A_TRANSPORT', 'p2p').lower() == 'slim':
         # Run A2A server over SLIM transport
         # https://docs.agntcy.org/messaging/slim-core/
+        print("Running A2A server in SLIM mode.")
         factory = AgntcyFactory()
-        SLIM_ENDPOINT = os.getenv('SLIM_ENDPOINT', 'http://slim-dataplane:46357')
-        transport = factory.create_transport("SLIM", endpoint=SLIM_ENDPOINT)
+        transport = factory.create_transport("SLIM", endpoint="http://slim-dataplane:46357")
         print("Transport created successfully.")
 
         bridge = factory.create_bridge(server, transport=transport)
         print("Bridge created successfully. Starting the bridge.")
         await bridge.start(blocking=True)
-    elif os.getenv('A2A_TRANSPORT').lower() == 'p2p':
-      # Run a p2p A2A server
-      uvicorn.run(server.build(), host=host, port=port)
     else:
-      raise ValueError("Invalid A2A transport specified. Must be 'slim' or 'p2p'.")
+      # Run a p2p A2A server
+      print("Running A2A server in p2p mode.")
+      uvicorn.run(server.build(), host=host, port=port)
 
 def get_agent_card(host: str, port: int):
   """Returns the Agent Card for the PagerDuty CRUD Agent."""

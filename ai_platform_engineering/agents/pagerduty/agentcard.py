@@ -19,6 +19,8 @@ print(f"PAGERDUTY_AGENT_HOST: {PAGERDUTY_AGENT_HOST}")
 print(f"PAGERDUTY_AGENT_PORT: {PAGERDUTY_AGENT_PORT}")
 print("===================================")
 
+PAGERDUTY_AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform PagerDuty operations.'
+
 pagerduty_agent_skill = AgentSkill(
   id="pagerduty_agent_skill",
   name="PagerDuty Agent Skill",
@@ -39,7 +41,7 @@ pagerduty_agent_skill = AgentSkill(
 pagerduty_agent_card = AgentCard(
   name='Pagerduty',
   id='pagerduty-tools-agent',
-  description='An AI agent that interacts with PagerDuty to manage incidents, alerts, and on-call schedules.',
+  description=PAGERDUTY_AGENT_DESCRIPTION,
   url=f'http://{PAGERDUTY_AGENT_HOST}:{PAGERDUTY_AGENT_PORT}',
   version='0.1.0',
   defaultInputModes=["text"],

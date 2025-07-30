@@ -16,9 +16,11 @@ A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
 if A2A_TRANSPORT == "slim":
     from ai_platform_engineering.agents.github.clients.slim.agent import github_a2a_remote_agent
     from ai_platform_engineering.agents.pagerduty.clients.slim.agent import pagerduty_a2a_remote_agent
+    from ai_platform_engineering.agents.jira.clients.slim.agent import jira_a2a_remote_agent
 else:
     from ai_platform_engineering.agents.github.clients.a2a.agent import github_a2a_remote_agent
     from ai_platform_engineering.agents.pagerduty.clients.a2a.agent import pagerduty_a2a_remote_agent
+    from ai_platform_engineering.agents.jira.clients.a2a.agent import jira_a2a_remote_agent
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt
 
