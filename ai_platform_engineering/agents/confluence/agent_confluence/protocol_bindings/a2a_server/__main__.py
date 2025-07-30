@@ -20,6 +20,8 @@ import os
 import click
 import httpx
 import uvicorn
+import asyncio
+from agntcy_app_sdk.factory import AgntcyFactory
 
 from agent import ConfluenceAgent # type: ignore[import-untyped]
 from agent_executor import ConfluenceAgentExecutor # type: ignore[import-untyped]
@@ -42,7 +44,7 @@ load_dotenv()
 @click.command()
 @click.option('--host', 'host', default='localhost', type=str)
 @click.option('--port', 'port', default=8000, type=int)
-def main(host: str, port: int):
+async def main(host: str, port: int):
     # Check environment variables for host and port if not provided via CLI
     env_host = os.getenv('A2A_HOST')
     env_port = os.getenv('A2A_PORT')
@@ -63,8 +65,22 @@ def main(host: str, port: int):
         agent_card=get_agent_card(host, port), http_handler=request_handler
     )
 
-    uvicorn.run(server.build(), host=host, port=port)
+    if os.getenv('A2A_TRANSPORT', 'p2p').lower() == 'slim':
+        # Run A2A server over SLIM transport
+        # https://docs.agntcy.org/messaging/slim-core/
+        print("Running A2A server in SLIM mode.")
+        factory = AgntcyFactory()
+        SLIM_ENDPOINT = os.getenv('SLIM_ENDPOINT', 'http://slim-dataplane:46357')
+        transport = factory.create_transport("SLIM", endpoint=SLIM_ENDPOINT)
+        print("Transport created successfully.")
 
+        bridge = factory.create_bridge(server, transport=transport)
+        print("Bridge created successfully. Starting the bridge.")
+        await bridge.start(blocking=True)
+    else:
+      # Run a p2p A2A server
+      print("Running A2A server in p2p mode.")
+      uvicorn.run(server.build(), host=host, port=port)
 
 def get_agent_card(host: str, port: int):
   """Returns the Agent Card for the Confluence CRUD Agent."""
@@ -95,4 +111,4 @@ def get_agent_card(host: str, port: int):
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
