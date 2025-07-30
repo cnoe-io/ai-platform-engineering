@@ -18,7 +18,7 @@ from ai_platform_engineering.multi_agents.incident_engineer.prompts import (
 
 from ai_platform_engineering.agents.confluence.a2a_agent_client.agent import confluence_agent
 from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_agent
-from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_agent
+from ai_platform_engineering.agents.github.clients.a2a.agent import github_agent
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_agent
 from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_agent
 from ai_platform_engineering.agents.pagerduty.agent import pagerduty_agent
