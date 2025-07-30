@@ -20,7 +20,7 @@ dependencies = [
     "cnoe-agent-utils (>=0.2.0)",
     "langchain (>=0.3.25)",
     "langfuse (>=3.0.8,<4.0.0)",
-    "agntcy-app-sdk",
+    "agntcy-app-sdk==0.1.4",
 ]
 
 [tool.pytest.ini_options]
@@ -50,7 +50,6 @@ ignore = ["F403"]
 ai-platform-engineering = { workspace = true }
 agent-argocd = { workspace = true }
 agent-komodor = { workspace = true }
-agntcy-app-sdk = { git = "https://github.com/agntcy/app-sdk", rev = "a2a-version-update" }
 
 [tool.uv.workspace]
 members = [

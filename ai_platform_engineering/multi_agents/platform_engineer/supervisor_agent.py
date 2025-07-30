@@ -13,7 +13,10 @@ from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt
-from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_a2a_remote_agent
+
+from ai_platform_engineering.agents.argocd.client_bindings.a2a.agent import argocd_a2a_remote_agent
+from ai_platform_engineering.agents.argocd.client_bindings.agntcy_slim.agent import argocd_agntcy_slim_remote_agent
+
 from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_a2a_remote_agent
 from ai_platform_engineering.agents.confluence.a2a_agent_client.agent import confluence_a2a_remote_agent
 from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_a2a_remote_agent
