@@ -8,7 +8,6 @@ import os
 from ai_platform_engineering.agents.weather.agntcy_agent_client.agentcard import (
     WEATHER_AGENT_DESCRIPTION,
     weather_agent_card,
-    weather_agent_skill,
 )
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import (
     AgntcySlimRemoteAgentConnectTool,
