@@ -18,7 +18,7 @@ model = LLMFactory().get_llm()
 github_a2a_remote_agent = AgntcyRemoteAgentConnectTool(
     name="weather_agntcy_remote_agent",
     description="Handles tasks related to GitHub repositories, pull requests, and workflows.",
-    endpoint="http://slim-dataplane:46357",
+    endpoint=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357"),
     remote_agent_card=github_agent_card,
 )
 
