@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 def start_node(state: AgentState) -> AgentState:
     logger.info("Agent Github workflow started")
+    
+    # Add print statement for workflow start
+    print("=" * 80)
+    print("🚀 GITHUB AGENT WORKFLOW STARTED")
+    print("=" * 80)
+    
     state.conversation_history = state.conversation_history or []
     state.metadata = state.metadata or {}
     state.metadata["temperature"] = 0.0
@@ -28,6 +34,29 @@ def should_execute_tool(state: AgentState) -> AgentState:
     to help with routing in the conditional edge.
     """
     logger.info(f"Determining next step. next_action: {state.next_action}")
+    
+    # Add detailed print statements for next action decision
+    print("=" * 80)
+    print("🤔 DECIDING NEXT ACTION")
+    print("=" * 80)
+    if state.next_action:
+        print(f"📋 Next Action: {state.next_action}")
+        if isinstance(state.next_action, dict):
+            tool_name = state.next_action.get("tool", "Unknown")
+            tool_input = state.next_action.get("tool_input", {})
+            print(f"🔧 Tool to Execute: {tool_name}")
+            print(f"📥 Tool Input Data:")
+            if tool_input:
+                for key, value in tool_input.items():
+                    print(f"   • {key}: {value}")
+            else:
+                print("   • No input data")
+        print("➡️  Routing to: execute_tool")
+    else:
+        print("📋 Next Action: None")
+        print("➡️  Routing to: end")
+    print("=" * 80)
+    
     state.metadata = state.metadata or {}
     
     # Set a routing attribute based on next_action
@@ -44,6 +73,20 @@ def execute_tool(state: AgentState) -> AgentState:
     try:
         tool_name = state.next_action.get("tool")
         tool_input = state.next_action.get("tool_input", {})
+        
+        # Add detailed print statements to display tool information
+        print("=" * 80)
+        print("🔧 TOOL EXECUTION")
+        print("=" * 80)
+        print(f"📋 Tool Name: {tool_name}")
+        print(f"📥 Tool Input Data:")
+        if tool_input:
+            for key, value in tool_input.items():
+                print(f"   • {key}: {value}")
+        else:
+            print("   • No input data provided")
+        print("=" * 80)
+        
         logger.info(f"Executing tool: {tool_name} with input: {tool_input}")
         state.tool_results = state.tool_results or {}
         # MCP tool is already embedded in the subprocess launched inside agent.py
