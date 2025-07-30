@@ -1,8 +1,6 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 
-from langgraph.prebuilt import create_react_agent
-from cnoe_agent_utils import LLMFactory
 import os
 
 from ai_platform_engineering.agents.jira.agentcard import (
@@ -12,8 +10,6 @@ from ai_platform_engineering.agents.jira.agentcard import (
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import (
     AgntcySlimRemoteAgentConnectTool,
 )
-
-model = LLMFactory().get_llm()
 
 SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 
