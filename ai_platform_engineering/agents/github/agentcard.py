@@ -18,6 +18,8 @@ print(f"GITHUB_AGENT_HOST: {GITHUB_AGENT_HOST}")
 print(f"GITHUB_AGENT_PORT: {GITHUB_AGENT_PORT}")
 print("===================================")
 
+GITHUB_AGENT_DESCRIPTION="An AI agent that interacts with GitHub to manage repositories, pull requests, and workflows."
+
 github_agent_skill = AgentSkill(
   id="github_agent_skill",
   name="GitHub Agent Skill",
@@ -38,7 +40,7 @@ github_agent_skill = AgentSkill(
 github_agent_card = AgentCard(
   name='GitHub',
   id='github-tools-agent',
-  description='An AI agent that interacts with GitHub to manage repositories, pull requests, and workflows.',
+  description=GITHUB_AGENT_DESCRIPTION,
   url=f'http://{GITHUB_AGENT_HOST}:{GITHUB_AGENT_PORT}',
   version='0.1.0',
   defaultInputModes=["text"],
