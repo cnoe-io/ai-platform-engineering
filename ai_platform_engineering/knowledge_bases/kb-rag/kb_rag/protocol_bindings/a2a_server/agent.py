@@ -39,11 +39,12 @@ class RAGAgent:
             
             # Parse host and port from URI
             from urllib.parse import urlparse
+            logger.info(f"DEBUG: Milvus URI: {milvus_uri}")
             parsed = urlparse(milvus_uri)
             self.milvus_conn = {
-                "host": parsed.hostname or "localhost",
-                "port": str(parsed.port or 19530)
+                "uri": milvus_uri
             }
+            logger.info(f"DEBUG: Milvus Connection: {self.milvus_conn}")
             
             # Initialize LLM using LLMFactory
             llm_factory = LLMFactory()
@@ -57,11 +58,18 @@ class RAGAgent:
             )
             
             # Connect to Milvus
-            debug_print(f"Connecting to Milvus at {self.milvus_conn['host']}:{self.milvus_conn['port']}")
+            if 'host' in self.milvus_conn and 'port' in self.milvus_conn:
+                debug_print(f"Connecting to Milvus at {self.milvus_conn['host']}:{self.milvus_conn['port']}")
+            elif 'uri' in self.milvus_conn:
+                debug_print(f"Connecting to Milvus at {self.milvus_conn['uri']}")
+            else:
+                debug_print(f"Connecting to Milvus with connection args: {self.milvus_conn}")
             connections.connect(alias="default", **self.milvus_conn)
             
-            # Get collection name from environment
-            vectorstore_name = os.getenv('VECTORSTORE_NAME', 'outshift_docs')
+            # Get collection name from environment (must be set)
+            vectorstore_name = os.getenv('VECTORSTORE_NAME')
+            if not vectorstore_name:
+                raise ValueError("VECTORSTORE_NAME environment variable is not set. Please provide the name of the Milvus collection to use.")
             self.collection_name = vectorstore_name
             
             # Check if collection exists
@@ -103,6 +111,19 @@ class RAGAgent:
         debug_print(f"Answering question: {question}")
         logger.info(f"Answering question: {question}")
         try:
+            # Get relevant documents first
+            retriever = self.vector_store.as_retriever(search_kwargs={"k": 5})
+            relevant_docs = retriever.get_relevant_documents(question)
+            
+            # Print the retrieved chunks
+            debug_print("Retrieved RAG chunks:")
+            for i, doc in enumerate(relevant_docs, 1):
+                debug_print(f"Chunk {i}:", banner=False)
+                debug_print(f"Content: {doc.page_content}", banner=False)
+                if hasattr(doc, 'metadata') and doc.metadata:
+                    debug_print(f"Metadata: {doc.metadata}", banner=False)
+                debug_print("", banner=False)
+            
             # Get answer
             answer = self.qa_chain.invoke({"query": question})["result"]
             debug_print(f"Generated answer: {answer}")
