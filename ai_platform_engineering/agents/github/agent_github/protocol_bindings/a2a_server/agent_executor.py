@@ -74,15 +74,25 @@ class GitHubAgentExecutor(AgentExecutor):
                     )
                 )
             elif event['require_user_input']:
+                # Create message with metadata if available
+                message_content = event['content']
+                message_metadata = event.get('metadata', {})
+                
+                agent_message = new_agent_text_message(
+                    message_content,
+                    task.contextId,
+                    task.id,
+                )
+                
+                # Add metadata to the message if present
+                if message_metadata:
+                    agent_message.metadata = message_metadata
+                
                 event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
-                            message=new_agent_text_message(
-                                event['content'],
-                                task.contextId,
-                                task.id,
-                            ),
+                            message=agent_message,
                         ),
                         final=True,
                         contextId=task.contextId,
