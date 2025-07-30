@@ -29,11 +29,10 @@ load_dotenv()
 @click.command()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=8000)
-@click.option('--milvus-uri', 'milvus_uri', default='http://localhost:19530', help='Milvus server URI')
-def main(host: str, port: int, milvus_uri: str):
+
+def main(host: str, port: int):
+    milvus_uri = os.getenv('MILVUS_URI', 'http://localhost:19530')
     logger.info(f"Starting RAG agent with Milvus URI: {milvus_uri}")
-    
-    # Initialize components
     client = httpx.AsyncClient()
     push_notification_config_store = InMemoryPushNotificationConfigStore()
     push_notification_sender = BasePushNotificationSender(client, config_store=push_notification_config_store)
