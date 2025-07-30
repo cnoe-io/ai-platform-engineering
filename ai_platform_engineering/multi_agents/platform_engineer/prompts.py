@@ -34,6 +34,10 @@ from ai_platform_engineering.agents.komodor.a2a_agent_client.agentcard import (
   komodor_agent_card,
   komodor_agent_skill
 )
+from ai_platform_engineering.knowledge_bases.kb_rag.a2a_agent_client.agentcard import (
+  kb_rag_agent_card,
+  kb_rag_agent_skill
+)
 
 # Load YAML config
 def load_prompt_config(path="prompt_config.yaml"):
@@ -72,6 +76,7 @@ tools = {
   jira_agent_card.name: jira_agent_skill.examples,
   pagerduty_agent_card.name: pagerduty_agent_skill.examples,
   slack_agent_card.name: slack_agent_skill.examples,
+  kb_rag_agent_card.name: kb_rag_agent_skill.examples,
 }
 
 if os.getenv("ENABLE_KOMODOR", "false").lower() == "true":

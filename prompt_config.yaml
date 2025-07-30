@@ -45,3 +45,6 @@ agent_prompts:
   komodor:
     system_prompt: |
       If the user's prompt is related to Komodor operations, such as getting the status of a cluster, fetching health risks, triggering a RCA, or getting RCA results, assign the task to the Komodor agent.
+  kb-rag:
+    system_prompt: |
+      If the user's prompt is related to RAG (Retrieval-Augmented Generation) operations on uvicorn documentation, such as searching for specific uvicorn features, getting configuration options, troubleshooting uvicorn issues, or retrieving information about uvicorn deployment and usage, assign the task to the kb-rag agent. This agent has access to web-scraped uvicorn documentation and can provide accurate, contextual answers based on the official uvicorn docs.
