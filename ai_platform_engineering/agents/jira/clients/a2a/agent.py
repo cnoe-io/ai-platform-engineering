@@ -4,7 +4,7 @@
 from langgraph.prebuilt import create_react_agent
 from cnoe_agent_utils import LLMFactory
 
-from ai_platform_engineering.agents.jira.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.jira.agentcard import (
     JIRA_AGENT_DESCRIPTION,
     jira_agent_card,
     jira_agent_skill,
