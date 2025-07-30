@@ -17,7 +17,7 @@ model = LLMFactory().get_llm()
 SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 
 # initialize the flavor profile tool with the farm agent card
-pagerduty_agntcy_slim_remote_agent = AgntcySlimRemoteAgentConnectTool(
+pagerduty_a2a_remote_agent = AgntcySlimRemoteAgentConnectTool(
     name="pagerduty_tools_agent",
     description="Handles tasks related to PagerDuty incidents, alerts, and on-call schedules.",
     endpoint=SLIM_ENDPOINT,
