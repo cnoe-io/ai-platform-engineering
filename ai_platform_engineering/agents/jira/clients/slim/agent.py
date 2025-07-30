@@ -5,9 +5,9 @@ from langgraph.prebuilt import create_react_agent
 from cnoe_agent_utils import LLMFactory
 import os
 
-from ai_platform_engineering.agents.github.agentcard import (
-    github_agent_card,
-    GITHUB_AGENT_DESCRIPTION,
+from ai_platform_engineering.agents.jira.agentcard import (
+	JIRA_AGENT_DESCRIPTION,
+    jira_agent_card,
 )
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import (
     AgntcySlimRemoteAgentConnectTool,
@@ -16,10 +16,14 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import get_a
 
 model = LLMFactory().get_llm()
 
+SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
+
 # initialize the flavor profile tool with the farm agent card
-github_a2a_remote_agent = AgntcySlimRemoteAgentConnectTool(
-    name="github_tools_agent",
-    description=GITHUB_AGENT_DESCRIPTION,
-    endpoint=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357"),
-    remote_agent_card=github_agent_card,
+jira_a2a_remote_agent = AgntcySlimRemoteAgentConnectTool(
+    name="jira_tools_agent",
+    description=JIRA_AGENT_DESCRIPTION,
+    endpoint=SLIM_ENDPOINT,
+    remote_agent_card=jira_agent_card,
 )
+
+jira_system_prompt = get_agent_system_prompt("jira")
