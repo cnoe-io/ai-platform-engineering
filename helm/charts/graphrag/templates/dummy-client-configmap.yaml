@@ -8,5 +8,5 @@ metadata:
     app.kubernetes.io/component: dummy-client
 data:
   dummy_data.json: |
-    {{- .Values.dummyClient.dummyData.content | nindent 4 }}
+    {{ .Files.Get "config/dummy_data.json" | nindent 4 }}
 {{- end }}

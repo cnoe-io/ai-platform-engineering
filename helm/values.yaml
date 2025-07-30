@@ -98,3 +98,6 @@ agent-reflection:
   image:
     repository: "ghcr.io/cnoe-io/agent-reflection"
     pullPolicy: "Always"
+
+graphrag:
+  enabled: false
