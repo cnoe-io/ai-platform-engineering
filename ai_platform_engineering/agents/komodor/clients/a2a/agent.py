@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 
-from ai_platform_engineering.agents.komodor.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.komodor.agentcard import (
     KOMODOR_AGENT_DESCRIPTION,
     komodor_agent_card,
     komodor_agent_skill,

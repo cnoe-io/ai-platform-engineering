@@ -60,7 +60,8 @@ async def main(host: str, port: int):
         # https://docs.agntcy.org/messaging/slim-core/
         print("Running A2A server in SLIM mode.")
         factory = AgntcyFactory()
-        transport = factory.create_transport("SLIM", endpoint="http://slim-dataplane:46357")
+        SLIM_ENDPOINT = os.getenv('SLIM_ENDPOINT', 'http://slim-dataplane:46357')
+        transport = factory.create_transport("SLIM", endpoint=SLIM_ENDPOINT)
         print("Transport created successfully.")
 
         bridge = factory.create_bridge(server, transport=transport)

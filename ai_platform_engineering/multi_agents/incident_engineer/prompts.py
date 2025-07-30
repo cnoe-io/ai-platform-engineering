@@ -3,11 +3,11 @@ import yaml
 import os
 
 
-from ai_platform_engineering.agents.backstage.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.backstage.agentcard import (
   backstage_agent_card,
   backstage_agent_skill
 )
-from ai_platform_engineering.agents.confluence.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.confluence.agentcard import (
   confluence_agent_card,
   confluence_agent_skill
 )
@@ -24,7 +24,7 @@ from ai_platform_engineering.agents.pagerduty.agentcard import (
   pagerduty_agent_skill
 )
 
-from ai_platform_engineering.agents.komodor.a2a_agent_client.agentcard import (
+from ai_platform_engineering.agents.komodor.agentcard import (
   komodor_agent_card,
   komodor_agent_skill
 )
