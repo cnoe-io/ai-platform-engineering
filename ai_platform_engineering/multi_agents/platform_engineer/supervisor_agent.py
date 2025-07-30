@@ -12,8 +12,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
 
-SLIM_ENABLED = os.getenv("A2A_TRANSPORT", "slim").lower() == "slim"
-if SLIM_ENABLED:
+A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
+if A2A_TRANSPORT == "slim":
     from ai_platform_engineering.agents.github.clients.slim.agent import github_a2a_remote_agent
 else:
     from ai_platform_engineering.agents.github.clients.a2a.agent import github_a2a_remote_agent
@@ -37,6 +37,8 @@ if KOMODOR_ENABLED:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+logger.info("Running on A2A transport mode: %s", A2A_TRANSPORT)
 
 class AIPlatformEngineerMAS:
   def __init__(self):
