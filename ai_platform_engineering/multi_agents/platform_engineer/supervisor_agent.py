@@ -16,7 +16,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import syste
 from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_a2a_remote_agent
 from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_a2a_remote_agent
 from ai_platform_engineering.agents.confluence.a2a_agent_client.agent import confluence_a2a_remote_agent
-from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_a2a_remote_agent
+from ai_platform_engineering.agents.github.clients.a2a.agent import github_a2a_remote_agent
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_a2a_remote_agent
 from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_a2a_remote_agent
 from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_a2a_remote_agent
