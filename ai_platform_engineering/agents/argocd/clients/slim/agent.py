@@ -4,7 +4,7 @@
 from cnoe_agent_utils import LLMFactory
 import os
 
-from ai_platform_engineering.agents.argocd.agntcy_agent_client.agentcard import (
+from ai_platform_engineering.agents.argocd.agentcard import (
     ARGOCD_AGENT_DESCRIPTION,
     argocd_agent_card,
 )
