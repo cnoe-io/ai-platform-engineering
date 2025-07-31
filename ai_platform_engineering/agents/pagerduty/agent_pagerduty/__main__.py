@@ -5,6 +5,10 @@
 import click
 import httpx
 from dotenv import load_dotenv
+import uvicorn
+import asyncio
+import os
+from agntcy_app_sdk.factory import AgntcyFactory
 
 from agent_pagerduty.protocol_bindings.a2a_server.agent import PagerDutyAgent # type: ignore[import-untyped]
 from agent_pagerduty.protocol_bindings.a2a_server.agent_executor import PagerDutyAgentExecutor # type: ignore[import-untyped]
@@ -26,7 +30,7 @@ load_dotenv()
 @click.command()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=10000)
-def main(host: str, port: int):
+async def main(host: str, port: int):
     client = httpx.AsyncClient()
     request_handler = DefaultRequestHandler(
         agent_executor=PagerDutyAgentExecutor(),
@@ -37,19 +41,32 @@ def main(host: str, port: int):
     server = A2AStarletteApplication(
         agent_card=get_agent_card(host, port), http_handler=request_handler
     )
-    app = server.build()
+    if os.getenv('A2A_TRANSPORT', 'p2p').lower() == 'slim':
+        # Run A2A server over SLIM transport
+        # https://docs.agntcy.org/messaging/slim-core/
+        print("Running A2A server in SLIM mode.")
+        factory = AgntcyFactory()
+        SLIM_ENDPOINT = os.getenv('SLIM_ENDPOINT', 'http://slim-dataplane:46357')
+        transport = factory.create_transport("SLIM", endpoint=SLIM_ENDPOINT)
+        print("Transport created successfully.")
 
-    # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
-    app.add_middleware(
-          CORSMiddleware,
-          allow_origins=["*"],  # Allow all origins
-          allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-          allow_headers=["*"],  # Allow all headers
-    )
+        bridge = factory.create_bridge(server, transport=transport)
+        print("Bridge created successfully. Starting the bridge.")
+        await bridge.start(blocking=True)
+    else:
+      # Run a p2p A2A server
+      print("Running A2A server in p2p mode.")
+      app = server.build()
 
-    import uvicorn
-    uvicorn.run(app, host=host, port=port)
+      # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
+      app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],  # Allow all origins
+            allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+            allow_headers=["*"],  # Allow all headers
+      )
 
+      uvicorn.run(app, host=host, port=port)
 
 def get_agent_card(host: str, port: int):
   """Returns the Agent Card for the PagerDuty CRUD Agent."""
@@ -80,4 +97,4 @@ def get_agent_card(host: str, port: int):
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
