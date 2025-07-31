@@ -8,6 +8,7 @@ from langchain_milvus import Milvus
 from langchain_openai import OpenAIEmbeddings
 from pymilvus import connections, utility
 from cnoe_agent_utils import LLMFactory
+from langchain.prompts import PromptTemplate
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -88,11 +89,29 @@ class RAGAgent:
             debug_print(f"Successfully connected to collection '{self.collection_name}'")
             logger.info(f"Successfully connected to collection '{self.collection_name}'")
             
-            # Create QA chain
+            # Create a smart, generalized RAG prompt
+            prompt_template = PromptTemplate(
+                input_variables=["context", "question"],
+                template="""
+                You are a Retrieval-Augmented Generation (RAG) assistant. Answer the user's question using only the information provided in the retrieved context below. 
+                If the answer is not present in the context, respond with "I do not know based on the provided documentation." 
+                Do not make up answers or use outside knowledge. Be concise and accurate, and cite relevant context if possible.
+
+                Context:
+                {context}
+
+                Question:
+                {question}
+
+                Answer:
+                """
+            )
+            # Create QA chain with the custom prompt
             self.qa_chain = RetrievalQA.from_chain_type(
                 llm=self.llm,
                 chain_type="stuff",
-                retriever=self.vector_store.as_retriever(search_kwargs={"k": 5})
+                retriever=self.vector_store.as_retriever(search_kwargs={"k": 5}),
+                chain_type_kwargs={"prompt": prompt_template}
             )
             
         except Exception as e:
