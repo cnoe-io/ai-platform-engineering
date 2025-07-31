@@ -7,8 +7,8 @@
 
 # Variables
 AGENT_NAME ?= rag
-AGENT_DIR_NAME = agent-$(shell echo $(AGENT_NAME))
-AGENT_PKG_NAME ?= agent_$(shell echo $(AGENT_NAME))
+AGENT_DIR_NAME = kb-$(shell echo $(AGENT_NAME))
+AGENT_PKG_NAME ?= kb_$(shell echo $(AGENT_NAME))
 
 .PHONY: \
   build setup-venv activate-venv install run help clean clean-pyc clean-venv clean-build-artifacts \

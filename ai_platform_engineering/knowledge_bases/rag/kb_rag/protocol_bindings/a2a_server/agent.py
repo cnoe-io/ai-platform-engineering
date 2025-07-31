@@ -8,6 +8,7 @@ from langchain_milvus import Milvus
 from langchain_openai import OpenAIEmbeddings
 from pymilvus import connections, utility
 from cnoe_agent_utils import LLMFactory
+from langchain.prompts import PromptTemplate
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -39,11 +40,12 @@ class RAGAgent:
             
             # Parse host and port from URI
             from urllib.parse import urlparse
+            logger.info(f"DEBUG: Milvus URI: {milvus_uri}")
             parsed = urlparse(milvus_uri)
             self.milvus_conn = {
-                "host": parsed.hostname or "localhost",
-                "port": str(parsed.port or 19530)
+                "uri": milvus_uri
             }
+            logger.info(f"DEBUG: Milvus Connection: {self.milvus_conn}")
             
             # Initialize LLM using LLMFactory
             llm_factory = LLMFactory()
@@ -57,12 +59,19 @@ class RAGAgent:
             )
             
             # Connect to Milvus
-            debug_print(f"Connecting to Milvus at {self.milvus_conn['host']}:{self.milvus_conn['port']}")
+            if 'host' in self.milvus_conn and 'port' in self.milvus_conn:
+                debug_print(f"Connecting to Milvus at {self.milvus_conn['host']}:{self.milvus_conn['port']}")
+            elif 'uri' in self.milvus_conn:
+                debug_print(f"Connecting to Milvus at {self.milvus_conn['uri']}")
+            else:
+                debug_print(f"Connecting to Milvus with connection args: {self.milvus_conn}")
             connections.connect(alias="default", **self.milvus_conn)
             
-            # Get collection name from environment
-            vectorstore_name = os.getenv('VECTORSTORE_NAME', 'outshift_docs')
-            self.collection_name = f"rag_{vectorstore_name}"
+            # Get collection name from environment (must be set)
+            vectorstore_name = os.getenv('VECTORSTORE_NAME')
+            if not vectorstore_name:
+                raise ValueError("VECTORSTORE_NAME environment variable is not set. Please provide the name of the Milvus collection to use.")
+            self.collection_name = vectorstore_name
             
             # Check if collection exists
             if not utility.has_collection(self.collection_name, using="default"):
@@ -80,11 +89,29 @@ class RAGAgent:
             debug_print(f"Successfully connected to collection '{self.collection_name}'")
             logger.info(f"Successfully connected to collection '{self.collection_name}'")
             
-            # Create QA chain
+            # Create a smart, generalized RAG prompt
+            prompt_template = PromptTemplate(
+                input_variables=["context", "question"],
+                template="""
+                You are a Retrieval-Augmented Generation (RAG) assistant. Answer the user's question using only the information provided in the retrieved context below. 
+                If the answer is not present in the context, respond with "I do not know based on the provided documentation." 
+                Do not make up answers or use outside knowledge. Be concise and accurate, and cite relevant context if possible.
+
+                Context:
+                {context}
+
+                Question:
+                {question}
+
+                Answer:
+                """
+            )
+            # Create QA chain with the custom prompt
             self.qa_chain = RetrievalQA.from_chain_type(
                 llm=self.llm,
                 chain_type="stuff",
-                retriever=self.vector_store.as_retriever(search_kwargs={"k": 5})
+                retriever=self.vector_store.as_retriever(search_kwargs={"k": 5}),
+                chain_type_kwargs={"prompt": prompt_template}
             )
             
         except Exception as e:
@@ -103,6 +130,19 @@ class RAGAgent:
         debug_print(f"Answering question: {question}")
         logger.info(f"Answering question: {question}")
         try:
+            # Get relevant documents first
+            retriever = self.vector_store.as_retriever(search_kwargs={"k": 5})
+            relevant_docs = retriever.get_relevant_documents(question)
+            
+            # Print the retrieved chunks
+            debug_print("Retrieved RAG chunks:")
+            for i, doc in enumerate(relevant_docs, 1):
+                debug_print(f"Chunk {i}:", banner=False)
+                debug_print(f"Content: {doc.page_content}", banner=False)
+                if hasattr(doc, 'metadata') and doc.metadata:
+                    debug_print(f"Metadata: {doc.metadata}", banner=False)
+                debug_print("", banner=False)
+            
             # Get answer
             answer = self.qa_chain.invoke({"query": question})["result"]
             debug_print(f"Generated answer: {answer}")

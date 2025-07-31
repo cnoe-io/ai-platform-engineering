@@ -1,11 +1,11 @@
 [tool.poetry]
-name = "agent-rag"
+name = "kb-rag"
 version = "0.1.0"
 description = "A RAG agent that ingests documentation from any URL and answers questions using RAG with Milvus."
 authors = ["Your Name <your.email@example.com>"]
 license = "Apache-2.0"
 readme = "README.md"
-packages = [{include = "agent_rag"}]
+packages = [{include = "kb_rag"}]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4.0"
