@@ -23,7 +23,7 @@ from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_
 from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_a2a_remote_agent
 from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_a2a_remote_agent
 from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_a2a_remote_agent
-from ai_platform_engineering.knowledge_bases.kb_rag.a2a_agent_client.agent import kb_rag_a2a_remote_agent
+from ai_platform_engineering.knowledge_bases.rag.a2a_agent_client.agent import kb_rag_a2a_remote_agent
 
 from ai_platform_engineering.utils.models.generic_agent import (
   ResponseFormat
