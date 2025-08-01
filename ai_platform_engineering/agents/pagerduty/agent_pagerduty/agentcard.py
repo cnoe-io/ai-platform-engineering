@@ -71,5 +71,3 @@ def create_agent_card(agent_url):
     # Using the security field instead of the non-existent AgentAuthentication class
     security=[{"public": []}],
   )
-
-agent_card = create_agent_card(AGENT_URL)
