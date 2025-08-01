@@ -45,26 +45,3 @@ indent-width = 2
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["F403"]
-
-[tool.uv.sources]
-ai-platform-engineering = { workspace = true }
-agent-argocd = { workspace = true }
-agent-komodor = { workspace = true }
-
-[tool.uv.workspace]
-members = [
-    "ai_platform_engineering/agents/komodor",
-    "ai_platform_engineering/agents/argocd",
-]
-
-[dependency-groups]
-dev = [
-    "ai-platform-engineering",
-    "langgraph-cli[inmem]>=0.3.6",
-    "ruff>=0.12.5",
-]
-unittest = [
-    "agent-argocd",
-    "agent-komodor",
-    "pytest-asyncio>=1.1.0",
-]
