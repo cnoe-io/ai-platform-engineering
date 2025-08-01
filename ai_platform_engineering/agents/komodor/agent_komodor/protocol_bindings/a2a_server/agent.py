@@ -258,5 +258,3 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
         'require_user_input': True,
         'content': 'We are unable to process your request at the moment. Please try again.',
       }
-
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
