@@ -22,10 +22,8 @@ from ai_platform_engineering.agents.jira.agentcard import (
   jira_agent_card,
   jira_agent_skill
 )
-from ai_platform_engineering.agents.pagerduty.agentcard import (
-  pagerduty_agent_card,
-  pagerduty_agent_skill
-)
+import ai_platform_engineering.agents.pagerduty.agent_pagerduty.agentcard as pagerduty
+
 from ai_platform_engineering.agents.slack.agentcard import (
   slack_agent_card,
   slack_agent_skill
@@ -70,7 +68,7 @@ tools = {
   confluence_agent_card.name: confluence_agent_skill.examples,
   github_agent_card.name: github_agent_skill.examples,
   jira_agent_card.name: jira_agent_skill.examples,
-  pagerduty_agent_card.name: pagerduty_agent_skill.examples,
+  pagerduty.agent_card.name: pagerduty.agent_skill.examples,
   slack_agent_card.name: slack_agent_skill.examples,
 }
 
