@@ -2,30 +2,8 @@ from langchain.prompts import PromptTemplate
 import yaml
 import os
 
+from ai_platform_engineering.multi_agents.incident_engineer import incident_registry
 
-from ai_platform_engineering.agents.backstage.agentcard import (
-  backstage_agent_card,
-  backstage_agent_skill
-)
-from ai_platform_engineering.agents.confluence.agentcard import (
-  confluence_agent_card,
-  confluence_agent_skill
-)
-from ai_platform_engineering.agents.jira.agentcard import  (
-  jira_agent_card,
-  jira_agent_skill
-)
-from ai_platform_engineering.agents.github.agentcard import (
-  github_agent_card,
-  github_agent_skill
-)
-
-import ai_platform_engineering.agents.pagerduty.agent_pagerduty.agentcard as pagerduty
-
-from ai_platform_engineering.agents.komodor.agentcard import (
-  komodor_agent_card,
-  komodor_agent_skill
-)
 
 # Load YAML config
 def load_prompt_config(path="prompt_library/incident_engineer.yaml"):
@@ -93,13 +71,7 @@ def list_available_workflows() -> list:
     return [{'id': k, 'name': v.get('name', ''), 'description': v.get('description', '')}
             for k, v in workflows.items()]
 
-tools = {
-  jira_agent_card.name: jira_agent_skill.examples,
-  confluence_agent_card.name: confluence_agent_skill.examples,
-  pagerduty.agent_card.name: pagerduty.agent_skill.examples,
-  github_agent_card.name: github_agent_skill.examples,
-  komodor_agent_card.name: komodor_agent_skill.examples,  # Always include Komodor as primary K8s agent
-}
+tools = incident_registry.get_tools()
 
 # Backstage is optional
 if os.getenv("ENABLE_BACKSTAGE", "false").lower() == "true":
