@@ -71,6 +71,8 @@ class ArgoCDAgent:
       self.model = LLMFactory().get_llm()
       self.graph = None
       self.tracing = TracingManager()
+      self._initialized = False
+
       async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
@@ -163,8 +165,14 @@ class ArgoCDAgent:
           # Add a banner before printing the output messages
           debug_print(f"Agent MCP Capabilities: {output_messages[-1].content}")
 
-      def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-          return asyncio.run(_async_argocd_agent(state, config))
+      # Store the async function for later use
+      self._async_argocd_agent = _async_argocd_agent
+
+    async def _initialize_agent(self) -> None:
+      """Initialize the agent asynchronously when first needed."""
+      if self._initialized:
+          return
+      
       messages = []
       state_input = InputState(messages=messages)
       agent_input = AgentState(input=state_input).model_dump(mode="json")
@@ -172,13 +180,19 @@ class ArgoCDAgent:
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
           messages.append(HumanMessage(content="What can you do?"))
-      _create_agent(agent_input, config=runnable_config)
+      
+      await self._async_argocd_agent(agent_input, config=runnable_config)
+      self._initialized = True
 
     @trace_agent_stream("argocd")
     async def stream(
       self, query: str, context_id: str, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
       print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
+      
+      # Initialize the agent if not already done
+      await self._initialize_agent()
+      
       inputs: dict[str, Any] = {'messages': [('user', query)]}
       config: RunnableConfig = self.tracing.create_config(context_id)
 

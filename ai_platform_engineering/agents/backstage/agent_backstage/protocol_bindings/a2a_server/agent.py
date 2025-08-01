@@ -138,10 +138,10 @@ class BackstageAgent:
         thread_id = context_id or uuid.uuid4().hex
         logger.info(f"Stream started - Query: {query}, Thread ID: {thread_id}, Context ID: {context_id}")
         debug_print(f"Starting stream with query: {query} using thread ID: {thread_id}")
-        
+
         # Initialize agent if needed
         await self.initialize()
-        
+
         inputs: dict[str, Any] = {'messages': [('user', query)]}
         config: RunnableConfig = self.tracing.create_config(thread_id)
         logger.debug(f"Stream config: {config}")
@@ -211,5 +211,3 @@ class BackstageAgent:
             'require_user_input': True,
             'content': 'We are unable to process your request at the moment. Please try again.',
         }
-
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain'] 

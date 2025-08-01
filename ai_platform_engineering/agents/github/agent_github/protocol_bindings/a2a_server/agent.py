@@ -53,12 +53,13 @@ class GitHubAgent:
         self.model = LLMFactory().get_llm()
         self.graph = None
         self.tracing = TracingManager()
-
-        # Initialize the agent
-        asyncio.run(self._initialize_agent())
+        self._initialized = False
 
     async def _initialize_agent(self):
         """Initialize the agent with tools and configuration."""
+        if self._initialized:
+            return
+
         if not self.model:
             logger.error("Cannot initialize agent without a valid model")
             return
@@ -162,6 +163,8 @@ class GitHubAgent:
                 print("=" * 80)
             except Exception as e:
                 logger.error(f"Error testing agent: {e}")
+
+            self._initialized = True
         except Exception as e:
             logger.exception(f"Error initializing agent: {e}")
             self.graph = None
@@ -170,6 +173,9 @@ class GitHubAgent:
     async def stream(self, query: str, context_id: str, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
         logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
+
+        # Initialize the agent if not already done
+        await self._initialize_agent()
 
         if not self.graph:
             logger.error("Agent graph not initialized")
@@ -274,5 +280,3 @@ class GitHubAgent:
             'require_user_input': True,
             'content': 'We are unable to process your GitHub request at the moment. Please try again.',
         }
-
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
