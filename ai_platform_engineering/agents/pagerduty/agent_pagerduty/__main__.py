@@ -6,6 +6,7 @@ import httpx
 import uvicorn
 import asyncio
 import os
+from dotenv import load_dotenv
 from agntcy_app_sdk.factory import AgntcyFactory
 
 from agent_pagerduty.protocol_bindings.a2a_server.agent_executor import PagerDutyAgentExecutor # type: ignore[import-untyped]
@@ -16,9 +17,10 @@ from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
 
 from starlette.middleware.cors import CORSMiddleware
 
-# Module-level variables (will be set in __main__ block)
-A2A_TRANSPORT = None
-SLIM_ENDPOINT = None
+load_dotenv()
+
+A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
+SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 
 # We can't use click decorators for async functions so we wrap the main function in a sync function
 @click.command()
@@ -73,8 +75,4 @@ async def async_main(host: str, port: int):
         await server.serve()
 
 if __name__ == '__main__':
-    from dotenv import load_dotenv
-    load_dotenv()
-    A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
-    SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
     main()
