@@ -20,9 +20,6 @@ from langgraph.prebuilt import create_react_agent  # type: ignore
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
-
-
-import asyncio
 import os
 
 from agent_confluence.protocol_bindings.a2a_server.state import (
@@ -160,7 +157,7 @@ class ConfluenceAgent:
       """Initialize the agent asynchronously when first needed."""
       if self._initialized:
           return
-      
+
       messages = []
       state_input = InputState(messages=messages)
       agent_input = AgentState(confluence_input=state_input).model_dump(mode="json")
@@ -168,7 +165,7 @@ class ConfluenceAgent:
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
           messages.append(HumanMessage(content="Show available Confluence tools"))
-      
+
       await self._async_confluence_agent(agent_input, config=runnable_config)
       self._initialized = True
 
@@ -177,10 +174,10 @@ class ConfluenceAgent:
       self, query: str, context_id: str | None = None, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
       logger.debug(f"Starting stream with query: {query} and context_id: {context_id}")
-      
+
       # Initialize the agent if not already done
       await self._initialize_agent()
-      
+
       # Use the context_id as the thread_id, or generate a new one if none provided
       thread_id = context_id or uuid.uuid4().hex
       inputs: dict[str, Any] = {'messages': [('user', query)]}

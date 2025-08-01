@@ -17,8 +17,6 @@ from pydantic import BaseModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent  # type: ignore
 
-
-import asyncio
 import os
 
 from agent_argocd.state import (
@@ -172,7 +170,7 @@ class ArgoCDAgent:
       """Initialize the agent asynchronously when first needed."""
       if self._initialized:
           return
-      
+
       messages = []
       state_input = InputState(messages=messages)
       agent_input = AgentState(input=state_input).model_dump(mode="json")
@@ -180,7 +178,7 @@ class ArgoCDAgent:
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
           messages.append(HumanMessage(content="What can you do?"))
-      
+
       await self._async_argocd_agent(agent_input, config=runnable_config)
       self._initialized = True
 
@@ -189,10 +187,10 @@ class ArgoCDAgent:
       self, query: str, context_id: str, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
       print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
-      
+
       # Initialize the agent if not already done
       await self._initialize_agent()
-      
+
       inputs: dict[str, Any] = {'messages': [('user', query)]}
       config: RunnableConfig = self.tracing.create_config(context_id)
 

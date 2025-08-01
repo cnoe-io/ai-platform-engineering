@@ -20,9 +20,6 @@ from langgraph.prebuilt import create_react_agent  # type: ignore
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
-
-
-import asyncio
 import os
 
 from agent_jira.protocol_bindings.a2a_server.state import (

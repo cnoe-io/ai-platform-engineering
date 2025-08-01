@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import asyncio
 import os
 import importlib.util
 from pathlib import Path
@@ -77,7 +76,7 @@ class SlackAgent:
         """Initialize the agent with tools and configuration."""
         if self._initialized:
             return
-            
+
         if not self.model:
             logger.error("Cannot initialize agent without a valid model")
             return
@@ -156,7 +155,7 @@ class SlackAgent:
                 print("=" * 80)
             except Exception as e:
                 logger.error(f"Error testing agent: {e}")
-                
+
             self._initialized = True
         except Exception as e:
             logger.exception(f"Error initializing agent: {e}")
@@ -166,7 +165,7 @@ class SlackAgent:
     async def stream(self, query: str, context_id: str, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
         logger.info(f"Starting stream with query: {query} and context_id: {context_id}")
-        
+
         # Initialize the agent if not already done
         await self._initialize_agent()
 

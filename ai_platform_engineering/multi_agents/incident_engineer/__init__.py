@@ -15,16 +15,21 @@ logger = logging.getLogger(__name__)
 KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
 logger.info("Komodor enabled: %s", KOMODOR_ENABLED)
 
+BACKSTAGE_ENABLED = os.getenv("ENABLE_BACKSTAGE", "false").lower() == "true"
+logger.info("Backstage enabled: %s", BACKSTAGE_ENABLED)
+
 AGENT_NAMES = [
     "github",
     "pagerduty",
     "jira",
-    "backstage",
     "confluence",
 ]
 
 if KOMODOR_ENABLED:
     AGENT_NAMES.append("komodor")
+
+if BACKSTAGE_ENABLED:
+    AGENT_NAMES.append("backstage")
 
 class IncidentRegistry(AgentRegistry):
     """Registry for incident engineer multi-agent system."""
