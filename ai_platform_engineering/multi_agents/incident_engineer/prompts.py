@@ -19,10 +19,8 @@ from ai_platform_engineering.agents.github.agentcard import (
   github_agent_card,
   github_agent_skill
 )
-from ai_platform_engineering.agents.pagerduty.agentcard import (
-  pagerduty_agent_card,
-  pagerduty_agent_skill
-)
+
+import ai_platform_engineering.agents.pagerduty.agent_pagerduty.agentcard as pagerduty
 
 from ai_platform_engineering.agents.komodor.agentcard import (
   komodor_agent_card,
@@ -98,7 +96,7 @@ def list_available_workflows() -> list:
 tools = {
   jira_agent_card.name: jira_agent_skill.examples,
   confluence_agent_card.name: confluence_agent_skill.examples,
-  pagerduty_agent_card.name: pagerduty_agent_skill.examples,
+  pagerduty.agent_card.name: pagerduty.agent_skill.examples,
   github_agent_card.name: github_agent_skill.examples,
   komodor_agent_card.name: komodor_agent_skill.examples,  # Always include Komodor as primary K8s agent
 }
