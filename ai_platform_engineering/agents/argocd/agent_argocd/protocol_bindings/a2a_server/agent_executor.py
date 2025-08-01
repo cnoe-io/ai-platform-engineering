@@ -1,7 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-from agent_argocd.agent import ArgoCDAgent # type: ignore[import-untyped]
+from agent_argocd.protocol_bindings.a2a_server.agent import ArgoCDAgent # type: ignore[import-untyped]
 from typing_extensions import override
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue

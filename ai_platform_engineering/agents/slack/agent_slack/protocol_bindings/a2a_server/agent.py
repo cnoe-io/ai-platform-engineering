@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import asyncio
 import os
 import importlib.util
 from pathlib import Path
@@ -71,12 +70,13 @@ class SlackAgent:
 
         self.server_path = str(Path(spec.origin).resolve())
         logger.info(f"Found Slack MCP server path: {self.server_path}")
-
-        # Initialize the agent
-        asyncio.run(self._initialize_agent())
+        self._initialized = False
 
     async def _initialize_agent(self):
         """Initialize the agent with tools and configuration."""
+        if self._initialized:
+            return
+
         if not self.model:
             logger.error("Cannot initialize agent without a valid model")
             return
@@ -155,6 +155,8 @@ class SlackAgent:
                 print("=" * 80)
             except Exception as e:
                 logger.error(f"Error testing agent: {e}")
+
+            self._initialized = True
         except Exception as e:
             logger.exception(f"Error initializing agent: {e}")
             self.graph = None
@@ -163,6 +165,9 @@ class SlackAgent:
     async def stream(self, query: str, context_id: str, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
         logger.info(f"Starting stream with query: {query} and context_id: {context_id}")
+
+        # Initialize the agent if not already done
+        await self._initialize_agent()
 
         if not self.graph:
             logger.error("Agent graph not initialized")
@@ -267,5 +272,3 @@ class SlackAgent:
             'require_user_input': True,
             'content': 'We are unable to process your Slack request at the moment. Please try again.',
         }
-
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']

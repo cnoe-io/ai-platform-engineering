@@ -1,42 +1,35 @@
-# Copyright 2025 CNOE
+# Copyright 2025 Cisco
 # SPDX-License-Identifier: Apache-2.0
-
-import os
-import sys
-import logging
 
 import click
 import httpx
+import uvicorn
+import asyncio
+import os
 from dotenv import load_dotenv
+from agntcy_app_sdk.factory import AgntcyFactory
 
-from agent_github.protocol_bindings.a2a_server.agent import GitHubAgent  # type: ignore
-from agent_github.protocol_bindings.a2a_server.agent_executor import GitHubAgentExecutor  # type: ignore
-
+from agent_github.protocol_bindings.a2a_server.agent_executor import GitHubAgentExecutor # type: ignore[import-untyped]
+from agent_github.agentcard import create_agent_card
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
-from a2a.types import (
-    AgentCapabilities,
-    AgentCard,
-    AgentSkill,
-)
 
 from starlette.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-# Set logging level
-logging.basicConfig(level=logging.INFO)
+A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
+SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 
+# We can't use click decorators for async functions so we wrap the main function in a sync function
 @click.command()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=10000)
 def main(host: str, port: int):
-    print("🚀 Starting GitHub A2A Agent...")
-    if not os.getenv('GITHUB_PERSONAL_ACCESS_TOKEN'):
-        print('❌ GITHUB_PERSONAL_ACCESS_TOKEN environment variable not set.')
-        sys.exit(1)
+    asyncio.run(async_main(host, port))
 
+async def async_main(host: str, port: int):
     client = httpx.AsyncClient()
     request_handler = DefaultRequestHandler(
         agent_executor=GitHubAgentExecutor(),
@@ -44,51 +37,42 @@ def main(host: str, port: int):
         push_notifier=InMemoryPushNotifier(client),
     )
 
+    if A2A_TRANSPORT == "slim":
+        agent_url = SLIM_ENDPOINT
+    else:
+        agent_url = f'http://{host}:{port}'
+
     server = A2AStarletteApplication(
-        agent_card=get_agent_card(host, port), http_handler=request_handler
+        agent_card=create_agent_card(agent_url), http_handler=request_handler
     )
 
-    print(f"✅ Running at http://{host}:{port}/")
-    print("📡 Agent ready to receive requests.\n")
+    if A2A_TRANSPORT == 'slim':
+        # Run A2A server over SLIM transport
+        # https://docs.agntcy.org/messaging/slim-core/
+        print("Running A2A server in SLIM mode.")
+        factory = AgntcyFactory()
+        transport = factory.create_transport("SLIM", endpoint=agent_url)
+        print("Transport created successfully.")
 
-    app = server.build()
+        bridge = factory.create_bridge(server, transport=transport)
+        print("Bridge created successfully. Starting the bridge.")
+        await bridge.start(blocking=True)
+    else:
+        # Run a p2p A2A server
+        print("Running A2A server in p2p mode.")
+        app = server.build()
 
-    # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
-    app.add_middleware(
-          CORSMiddleware,
-          allow_origins=["*"],  # Allow all origins
-          allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-          allow_headers=["*"],  # Allow all headers
-    )
+        # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],  # Allow all origins
+            allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+            allow_headers=["*"],  # Allow all headers
+        )
 
-    import uvicorn
-    uvicorn.run(app, host=host, port=port)
-
-
-def get_agent_card(host: str, port: int):
-    capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-    skill = AgentSkill(
-        id='github',
-        name='GitHub Repository Operations',
-        description='Interact with GitHub repositories, issues, pull requests, and other GitHub resources via agentic tools.',
-        tags=['github', 'repositories', 'issues', 'pull_requests', 'code_review'],
-        examples=[
-            'Create a new repository.',
-            'List open pull requests in a repository.',
-            'Create an issue with a detailed description.',
-            'Review and merge a pull request.',
-        ],
-    )
-    return AgentCard(
-        name='GitHub Agent',
-        description='Agent for managing GitHub repository operations and resources.',
-        url=f'http://{host}:{port}/',
-        version='1.0.0',
-        defaultInputModes=GitHubAgent.SUPPORTED_CONTENT_TYPES,
-        defaultOutputModes=GitHubAgent.SUPPORTED_CONTENT_TYPES,
-        capabilities=capabilities,
-        skills=[skill],
-    )
+        config = uvicorn.Config(app, host=host, port=port)
+        server = uvicorn.Server(config=config)
+        await server.serve()
 
 if __name__ == '__main__':
     main()

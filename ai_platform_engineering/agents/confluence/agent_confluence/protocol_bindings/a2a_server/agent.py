@@ -20,9 +20,6 @@ from langgraph.prebuilt import create_react_agent  # type: ignore
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
-
-
-import asyncio
 import os
 
 from agent_confluence.protocol_bindings.a2a_server.state import (
@@ -59,6 +56,8 @@ class ConfluenceAgent:
       self.model = LLMFactory().get_llm()
       self.tracing = TracingManager()
       self.graph = None
+      self._initialized = False
+
       async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
@@ -151,8 +150,14 @@ class ConfluenceAgent:
               logger.info("Agent MCP Capabilities response generated")
               logger.debug(f"Agent MCP Capabilities: {output_messages[-1].content}")  # Only in debug mode
 
-      def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-          return asyncio.run(_async_confluence_agent(state, config))
+      # Store the async function for later use
+      self._async_confluence_agent = _async_confluence_agent
+
+    async def _initialize_agent(self) -> None:
+      """Initialize the agent asynchronously when first needed."""
+      if self._initialized:
+          return
+
       messages = []
       state_input = InputState(messages=messages)
       agent_input = AgentState(confluence_input=state_input).model_dump(mode="json")
@@ -160,13 +165,19 @@ class ConfluenceAgent:
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
           messages.append(HumanMessage(content="Show available Confluence tools"))
-      _create_agent(agent_input, config=runnable_config)
+
+      await self._async_confluence_agent(agent_input, config=runnable_config)
+      self._initialized = True
 
     @trace_agent_stream("confluence")
     async def stream(
       self, query: str, context_id: str | None = None, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
       logger.debug(f"Starting stream with query: {query} and context_id: {context_id}")
+
+      # Initialize the agent if not already done
+      await self._initialize_agent()
+
       # Use the context_id as the thread_id, or generate a new one if none provided
       thread_id = context_id or uuid.uuid4().hex
       inputs: dict[str, Any] = {'messages': [('user', query)]}
@@ -231,5 +242,3 @@ class ConfluenceAgent:
         'require_user_input': True,
         'content': 'We are unable to process your request at the moment. Please try again.',
       }
-
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']

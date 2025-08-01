@@ -2,38 +2,8 @@ from langchain.prompts import PromptTemplate
 import yaml
 import os
 
-from ai_platform_engineering.agents.argocd.a2a_agent_client.agentcard import (
-  argocd_agent_card,
-  argocd_agent_skill
-)
-from ai_platform_engineering.agents.backstage.a2a_agent_client.agentcard import (
-  backstage_agent_card,
-  backstage_agent_skill
-)
-from ai_platform_engineering.agents.confluence.a2a_agent_client.agentcard import (
-  confluence_agent_card,
-  confluence_agent_skill
-)
-from ai_platform_engineering.agents.github.a2a_agent_client.agentcard import (
-  github_agent_card,
-  github_agent_skill
-)
-from ai_platform_engineering.agents.jira.a2a_agent_client.agentcard import (
-  jira_agent_card,
-  jira_agent_skill
-)
-from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agentcard import (
-  pagerduty_agent_card,
-  pagerduty_agent_skill
-)
-from ai_platform_engineering.agents.slack.a2a_agent_client.agentcard import (
-  slack_agent_card,
-  slack_agent_skill
-)
-from ai_platform_engineering.agents.komodor.a2a_agent_client.agentcard import (
-  komodor_agent_card,
-  komodor_agent_skill
-)
+from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
+
 
 # Load YAML config
 def load_prompt_config(path="prompt_config.yaml"):
@@ -50,7 +20,7 @@ agent_description = config.get("agent_description", (
   "This platform engineering system integrates with multiple tools to manage operations efficiently. "
   "It includes PagerDuty for incident management, GitHub for version control and collaboration, "
   "Jira for project management and ticket tracking, Slack for team communication and notifications, " ) +
-  ("Komodor for Kubernetes cluster and workload management, " if os.getenv("ENABLE_KOMODOR", "false").lower() == "true" else "") + (
+  ("Komodor for Kubernetes cluster and workload management, " if platform_registry.agent_exists("komodor") else "") + (
   "ArgoCD for application deployment and synchronization, and Backstage for catalog and service metadata management. "
   "Each tool is handled by a specialized agent to ensure seamless task execution, "
   "covering tasks such as incident resolution, repository management, ticket updates, "
@@ -64,18 +34,7 @@ def get_agent_system_prompt(agent_key: str) -> str:
     """Get the system prompt for a given agent (e.g., 'argocd', 'jira', etc.)"""
     return agent_prompts.get(agent_key, {}).get("system_prompt", None)
 
-tools = {
-  argocd_agent_card.name: argocd_agent_skill.examples,
-  backstage_agent_card.name: backstage_agent_skill.examples,
-  confluence_agent_card.name: confluence_agent_skill.examples,
-  github_agent_card.name: github_agent_skill.examples,
-  jira_agent_card.name: jira_agent_skill.examples,
-  pagerduty_agent_card.name: pagerduty_agent_skill.examples,
-  slack_agent_card.name: slack_agent_skill.examples,
-}
-
-if os.getenv("ENABLE_KOMODOR", "false").lower() == "true":
-    tools[komodor_agent_card.name] = komodor_agent_skill.examples
+tools = platform_registry.get_tools()
 
 agent_skill_examples = [example for examples in tools.values() for example in examples]
 
