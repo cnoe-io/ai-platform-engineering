@@ -73,10 +73,6 @@ def list_available_workflows() -> list:
 
 tools = incident_registry.get_tools()
 
-# Backstage is optional
-if os.getenv("ENABLE_BACKSTAGE", "false").lower() == "true":
-    tools[backstage_agent_card.name] = backstage_agent_skill.examples
-
 agent_skill_examples = [example for examples in tools.values() for example in examples]
 
 skills_prompt = PromptTemplate(
