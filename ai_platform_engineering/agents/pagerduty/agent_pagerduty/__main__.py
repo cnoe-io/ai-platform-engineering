@@ -56,20 +56,21 @@ async def async_main(host: str, port: int):
         print("Bridge created successfully. Starting the bridge.")
         await bridge.start(blocking=True)
     else:
-      # Run a p2p A2A server
-      print("Running A2A server in p2p mode.")
-      app = server.build()
+        # Run a p2p A2A server
+        print("Running A2A server in p2p mode.")
+        app = server.build()
 
-      # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
-      app.add_middleware(
+        # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
+        app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],  # Allow all origins
             allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
             allow_headers=["*"],  # Allow all headers
-      )
+        )
 
-      uvicorn.run(app, host=host, port=port)
-
+        config = uvicorn.Config(app, host=host, port=port)
+        server = uvicorn.Server(config=config)
+        await server.serve()
 
 if __name__ == '__main__':
     from dotenv import load_dotenv
