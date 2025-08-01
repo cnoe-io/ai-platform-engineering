@@ -12,38 +12,13 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
 
-# Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
-KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
-A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
-
-if A2A_TRANSPORT == "slim":
-    from ai_platform_engineering.agents.github.clients.slim.agent import github_a2a_remote_agent
-    from ai_platform_engineering.agents.pagerduty.clients.slim.agent import pagerduty_a2a_remote_agent
-    from ai_platform_engineering.agents.jira.clients.slim.agent import jira_a2a_remote_agent
-    from ai_platform_engineering.agents.argocd.clients.slim.agent import argocd_a2a_remote_agent
-    from ai_platform_engineering.agents.backstage.clients.slim.agent import backstage_a2a_remote_agent
-    from ai_platform_engineering.agents.confluence.clients.slim.agent import confluence_a2a_remote_agent
-    from ai_platform_engineering.agents.slack.clients.slim.agent import slack_a2a_remote_agent
-    if KOMODOR_ENABLED:
-      from ai_platform_engineering.agents.komodor.clients.slim.agent import komodor_a2a_remote_agent
-else:
-    from ai_platform_engineering.agents.github.clients.a2a.agent import github_a2a_remote_agent
-    from ai_platform_engineering.agents.pagerduty.clients.a2a.agent import pagerduty_a2a_remote_agent
-    from ai_platform_engineering.agents.jira.clients.a2a.agent import jira_a2a_remote_agent
-    from ai_platform_engineering.agents.argocd.clients.a2a.agent import argocd_a2a_remote_agent
-    from ai_platform_engineering.agents.backstage.clients.a2a.agent import backstage_a2a_remote_agent
-    from ai_platform_engineering.agents.confluence.clients.a2a.agent import confluence_a2a_remote_agent
-    from ai_platform_engineering.agents.slack.clients.a2a.agent import slack_a2a_remote_agent
-    if KOMODOR_ENABLED:
-      from ai_platform_engineering.agents.komodor.clients.a2a.agent import komodor_a2a_remote_agent
+from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 from ai_platform_engineering.agents.weather.agntcy_agent_client.agent import weather_agntcy_remote_agent
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-logger.info("Running on A2A transport mode: %s", A2A_TRANSPORT)
 
 class AIPlatformEngineerMAS:
   def __init__(self):
@@ -85,19 +60,8 @@ class AIPlatformEngineerMAS:
       checkpointer = InMemorySaver()
       store = InMemoryStore()
 
-    agent_tools = [
-      argocd_a2a_remote_agent,
-      backstage_a2a_remote_agent,
-      confluence_a2a_remote_agent,
-      github_a2a_remote_agent,
-      jira_a2a_remote_agent,
-      pagerduty_a2a_remote_agent,
-      slack_a2a_remote_agent,
-      weather_agntcy_remote_agent
-    ]
-
-    if KOMODOR_ENABLED:
-      agent_tools.append(komodor_a2a_remote_agent)
+    agent_tools = platform_registry.get_all_agents()
+    agent_tools.append(weather_agntcy_remote_agent)
 
     # The argument is the name to assign to the resulting forwarded message
     forwarding_tool = create_forward_message_tool("platform_engineer_supervisor")

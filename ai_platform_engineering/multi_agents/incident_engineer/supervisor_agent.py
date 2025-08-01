@@ -12,31 +12,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
 
-A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
-if A2A_TRANSPORT == "slim":
-    from ai_platform_engineering.agents.github.clients.slim.agent import github_a2a_remote_agent
-    from ai_platform_engineering.agents.pagerduty.clients.slim.agent import pagerduty_a2a_remote_agent
-    from ai_platform_engineering.agents.jira.clients.slim.agent import jira_a2a_remote_agent
-    from ai_platform_engineering.agents.backstage.clients.slim.agent import backstage_a2a_remote_agent
-    from ai_platform_engineering.agents.confluence.clients.slim.agent import confluence_a2a_remote_agent
-else:
-    from ai_platform_engineering.agents.github.clients.a2a.agent import github_a2a_remote_agent
-    from ai_platform_engineering.agents.pagerduty.clients.a2a.agent import pagerduty_a2a_remote_agent
-    from ai_platform_engineering.agents.jira.clients.a2a.agent import jira_a2a_remote_agent
-    from ai_platform_engineering.agents.backstage.clients.a2a.agent import backstage_a2a_remote_agent
-    from ai_platform_engineering.agents.confluence.clients.a2a.agent import confluence_a2a_remote_agent
-
+from ai_platform_engineering.multi_agents.incident_engineer import incident_registry
 from ai_platform_engineering.multi_agents.incident_engineer.prompts import system_prompt
-
-# Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
-KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
-if KOMODOR_ENABLED:
-  from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_a2a_remote_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-logger.info("Running on A2A transport mode: %s", A2A_TRANSPORT)
 
 class AIIncidentEngineerMAS:
   def __init__(self):
@@ -78,16 +58,7 @@ class AIIncidentEngineerMAS:
       checkpointer = InMemorySaver()
       store = InMemoryStore()
 
-    agent_tools = [
-        pagerduty_a2a_remote_agent,
-        github_a2a_remote_agent,
-        jira_a2a_remote_agent,
-        backstage_a2a_remote_agent,
-        confluence_a2a_remote_agent,
-    ]
-
-    if KOMODOR_ENABLED:
-        agent_tools.append(komodor_a2a_remote_agent)
+    agent_tools = incident_registry.get_all_agents()
 
     # The argument is the name to assign to the resulting forwarded message
     forwarding_tool = create_forward_message_tool("incident_engineer_supervisor")

@@ -2,15 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from ai_platform_engineering.agents.pagerduty.agent_pagerduty.agentcard import (
-    agent_card,
+    create_agent_card,
     agent_skill,
 )
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 
+AGENT_HOST = os.getenv("PAGERDUTY_AGENT_HOST", "localhost")
+AGENT_PORT = os.getenv("PAGERDUTY_AGENT_PORT", "8000")
+agent_url = f'http://{AGENT_HOST}:{AGENT_PORT}'
+
+agent_card = create_agent_card(agent_url)
 # initialize the flavor profile tool with the farm agent card
-pagerduty_a2a_remote_agent = A2ARemoteAgentConnectTool(
+a2a_remote_agent = A2ARemoteAgentConnectTool(
     name="pagerduty_tools_agent",
     description=agent_card.description,
     remote_agent_card=agent_card,
