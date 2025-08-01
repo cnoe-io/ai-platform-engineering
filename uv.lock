@@ -39,6 +39,7 @@ source = { editable = "ai_platform_engineering/agents/argocd" }
 dependencies = [
     { name = "a2a-sdk" },
     { name = "agentevals" },
+    { name = "agntcy-app-sdk" },
     { name = "click" },
     { name = "cnoe-agent-utils" },
     { name = "fastapi" },
@@ -62,6 +63,7 @@ dependencies = [
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=0.2.1" },
     { name = "agentevals", specifier = ">=0.0.7" },
+    { name = "agntcy-app-sdk", specifier = ">=0.1.1" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "cnoe-agent-utils", specifier = ">=0.2.0" },
     { name = "fastapi", specifier = ">=0.100.0" },
