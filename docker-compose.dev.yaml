@@ -6,27 +6,30 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile
+    volumes:
+      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     container_name: platform-engineering
     profiles:
       - build
       - build-tracing
     depends_on:
-      - agent-argocd-build
-      - agent-backstage-build
-      - agent-confluence-build
-      - agent-github-build
-      - agent-jira-build
-      - agent-komodor-build
-      - agent-pagerduty-build
-      - agent-slack-build
-      - agent-webex-build
+      - agent-argocd-latest
+      # - agent-backstage-build
+      # - agent-confluence-build
+      # - agent-github-build
+      # - agent-jira-build
+      # - agent-komodor-build
+      # - agent-pagerduty-build
+      # - agent-slack-build
+      # - agent-webex-build
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
       - AGENT_PROTOCOL=a2a
-      - ARGOCD_AGENT_HOST=agent-argocd-build
+      - ARGOCD_AGENT_HOST=agent-argocd-latest
       - BACKSTAGE_AGENT_HOST=agent-backstage-build
       - CONFLUENCE_AGENT_HOST=agent-confluence-build
       - GITHUB_AGENT_HOST=agent-github-build
@@ -48,22 +51,30 @@ services:
   #                                      PLATFORM ENGINEER LATEST                                    #
   ####################################################################################################
   platform-engineer-latest:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:latest
-    container_name: platform-engineering-latest
+    build:
+      context: .
+      dockerfile: build/Dockerfile
+    volumes:
+      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./ai_platform_engineering:/app/ai_platform_engineering
+    container_name: platform-engineering
     profiles:
+      - agntcy-slim
       - latest
       - komodor
       - tracing
-    depends_on:
-      - agent-argocd-latest
-      - agent-backstage-latest
-      - agent-confluence-latest
-      - agent-github-latest
-      - agent-jira-latest
-      - agent-komodor-latest
-      - agent-pagerduty-latest
-      - agent-slack-latest
-      - agent-webex-latest
+    # depends_on:
+      # - agent-argocd-latest
+      # - agent-backstage-latest
+      # - agent-confluence-latest
+      # - agent-github-latest
+      # - agent-jira-latest
+      # - agent-komodor-latest
+      # - agent-pagerduty-latest
+      # - agent-slack-latest
+      # - agent-webex-latest
+      # - slim
+      # - agent-weather-build
     env_file:
       - .env
     ports:
@@ -121,6 +132,7 @@ services:
     image: ghcr.io/cnoe-io/agent-argocd:a2a-latest
     container_name: agent-argocd-latest
     profiles:
+      - agntcy-slim
       - latest
       - komodor
       - tracing
@@ -447,14 +459,60 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
+  #                                      AGENT WEATHER BUILD & LATEST                                 #
+  ####################################################################################################
+  agent-weather-build:
+    build:
+      context: ai_platform_engineering/agents/weather
+      dockerfile: build/Dockerfile
+      cache_from: []
+    container_name: agent-weather-build
+    profiles:
+      - agntcy-slim
+      - build
+      - build-tracing
+    depends_on:
+      - slim
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/weather:/app
+    ports:
+      - "8100:8000"
+  slim:
+    image: ghcr.io/agntcy/slim:0.3.15
+    container_name: slim-dataplane
+    profiles:
+      - agntcy-slim
+    ports:
+      - "46357:46357"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
+
+  ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                        #
   ####################################################################################################
   backstage-agent-forge:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
+    profiles:
+      - build
     ports:
       - "13000:3000"
-
+  slim:
+    image: ghcr.io/agntcy/slim:0.3.15
+    container_name: slim-dataplane
+    ports:
+      - "46357:46357"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
   ####################################################################################################
   #                                    NEXIGRAPH SERVICES (GRAPHRAG/GEN)                             #
   ####################################################################################################
@@ -511,7 +569,7 @@ services:
         API_KEYS: dummy_key
         CLEANUP_INTERVAL: 86400
     restart: unless-stopped
-  
+
   agent_graph_gen:
     image: ghcr.io/cnoe-io/nexigraph-agent_graph_gen:latest
     profiles:
@@ -528,7 +586,7 @@ services:
         OPENAI_API_VERSION: $OPENAI_API_VERSION
         AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
         AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
-        # Optional for langsith tracing:
+        # Optional for langsith tracing:
         LANGSMITH_TRACING: "true"
         LANGSMITH_PROJECT: $LANGSMITH_PROJECT
         LANGSMITH_API_KEY: $LANGSMITH_API_KEY
@@ -553,7 +611,7 @@ services:
         AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
         AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
     restart: unless-stopped
-  
+
   nexigraph_dummy_client:
     image: ghcr.io/cnoe-io/nexigraph-clients:latest
     profiles:

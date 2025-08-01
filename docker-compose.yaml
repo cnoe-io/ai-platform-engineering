@@ -1,7 +1,7 @@
 services:
   # AI Platform Engineering Multi-Agent System (stable image)
   platform-engineer:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:stable
+    image: docker.io/library/platform-engineer:latest
     container_name: platform-engineer
     depends_on:
       - agent-argocd
@@ -37,7 +37,7 @@ services:
       - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
       # Uncomment for local development
-      # - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     command: platform-engineer
   # AI Platform Engineer Multi-Agent System (local build for tracing)
   # TODO: Remove this local build service once the stable GHCR image includes tracing evaluation support
@@ -155,6 +155,34 @@ services:
     container_name: backstage-agent-forge
     ports:
       - "3000:3000"
+  ####################################################################################################
+  #                                      AGENT WEATHER BUILD & LATEST                                 #
+  ####################################################################################################
+  agent-weather-build:
+    build:
+      context: ai_platform_engineering/agents/weather
+      dockerfile: build/Dockerfile
+      cache_from: []
+    container_name: agent-weather-build
+    depends_on:
+      - slim
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/weather:/app
+    ports:
+      - "8100:8000"
+  slim:
+    image: ghcr.io/agntcy/slim:0.3.15
+    container_name: slim-dataplane
+    ports:
+      - "46357:46357"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
+
   # Langfuse Tracing Services (use --profile tracing to enable)
   # Reference: https://github.com/langfuse/langfuse/blob/main/docker-compose.yml
   langfuse-worker:

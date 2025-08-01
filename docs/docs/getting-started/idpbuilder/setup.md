@@ -168,7 +168,7 @@ After Vault application syncs on ArgoCD successfully:
 
 <div class="img-quarter-width">
 
-![ArgoCD Vault Sync](./images/argocd-vault-sync.png)
+![ArgoCD Vault Sync](./images/argocd-vault-sync.svg)
 
 </div>
 
@@ -190,7 +190,7 @@ Open https://vault.cnoe.localtest.me:8443/. When you are asked to log in to the 
 1. Navigate to `secrets/ai-platform-engineering` in Vault UI: https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/list/ai-platform-engineering/
 
 2. **Configure Global LLM Settings**: 
-![Vault Secrets](./images/vault-secrets.png)
+![Vault Secrets](./images/vault-secrets.svg)
 The `global` secret is required and contains LLM provider configuration shared across all agents:
    - `LLM_PROVIDER`: Defaults to `azure-openai`. Available options are: `azure-openai`, `openai`, `aws-bedrock`
    - Configure only the fields for your chosen provider:
@@ -253,6 +253,14 @@ Once logged into Backstage:
 1. Look for the agent icon in the bottom-right corner
 2. Click to open the AI assistant
 3. Start chatting with the platform engineering agent
+
+## Useful Addresses for IDPBuilder Cluster
+
+- ArgoCD: https://cnoe.localtest.me:8443/argocd/
+- Backstage: https://cnoe.localtest.me:8443/
+- Vault: https://vault.cnoe.localtest.me:8443/
+- Keycloak: https://cnoe.localtest.me:8443/keycloak/admin/master/console/
+- Gitea: https://cnoe.localtest.me:8443/gitea/
 
 ## Cleanup
 
