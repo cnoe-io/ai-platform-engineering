@@ -82,7 +82,7 @@ class AgentRegistry:
         return name in self.agents
 
     def get_all_agents(self):
-        return self.agents.values()
+        return list(self.agents.values())
 
     def get_tools(self):
         return self._tools
