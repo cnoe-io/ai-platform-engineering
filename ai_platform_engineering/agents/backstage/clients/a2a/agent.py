@@ -1,6 +1,8 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 from ai_platform_engineering.agents.backstage.agent_backstage.agentcard import (
     create_agent_card,
     agent_skill,
