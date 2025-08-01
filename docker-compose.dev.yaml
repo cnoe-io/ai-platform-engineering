@@ -502,7 +502,17 @@ services:
       - build
     ports:
       - "13000:3000"
-
+  slim:
+    image: ghcr.io/agntcy/slim:0.3.15
+    container_name: slim-dataplane
+    ports:
+      - "46357:46357"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
   ####################################################################################################
   #                                    NEXIGRAPH SERVICES (GRAPHRAG/GEN)                             #
   ####################################################################################################
