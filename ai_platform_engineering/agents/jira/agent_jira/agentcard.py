@@ -15,26 +15,22 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Pagerduty'
-AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform PagerDuty operations.'
+AGENT_NAME = 'Jira'
+AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Jira operations.'
 
 agent_skill = AgentSkill(
-  id="pagerduty_agent_skill",
-  name="PagerDuty Agent Skill",
-  description="Handles tasks related to PagerDuty incidents, alerts, and on-call schedules.",
+  id="jira_agent_skill",
+  name="Jira Agent Skill",
+  description="Provides capabilities to perform Jira operations.",
   tags=[
-    "pagerduty",
-    "incident management",
-    "alerts",
-    "on-call schedules"],
+    "jira",
+    "issue-tracking"],
   examples=[
-      "Create a new PagerDuty incident with title 'Server Down'.",
-      "List all active alerts in the 'Production' service.",
-      "Resolve the incident #12345 in PagerDuty.",
-      "Add a note to the incident #67890 in PagerDuty.",
-      "Get the on-call schedule for the 'Engineering' team."
+      "Create a new Jira issue in the 'AI Project' project.",
+      "List all Jira issues in the 'Platform Engineering' project.",
+      "Search for Jira issues with the label 'urgent'.",
+      "Search for issues in the 'Platform Engineering' project containing the keyword 'deployment'.",
   ])
-
 # ==================================================
 # SHARED CONFIGURATION - DO NOT MODIFY
 # This section is reusable across all agents

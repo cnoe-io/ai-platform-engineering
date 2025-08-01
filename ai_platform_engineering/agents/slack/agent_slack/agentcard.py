@@ -15,24 +15,25 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Pagerduty'
-AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform PagerDuty operations.'
+AGENT_NAME = 'Slack'
+AGENT_DESCRIPTION = (
+  "An AI agent that integrates with Slack to assist with managing channels, "
+  "sending messages, retrieving user information, and other Slack-based operations."
+)
 
 agent_skill = AgentSkill(
-  id="pagerduty_agent_skill",
-  name="PagerDuty Agent Skill",
-  description="Handles tasks related to PagerDuty incidents, alerts, and on-call schedules.",
+  id="slack_agent_skill",
+  name="Slack Channel Management Skill",
+  description="Provides Slack-based capabilities to manage channels, send messages, and retrieve user information.",
   tags=[
-    "pagerduty",
-    "incident management",
-    "alerts",
-    "on-call schedules"],
+    "slack",
+    "chatops"],
   examples=[
-      "Create a new PagerDuty incident with title 'Server Down'.",
-      "List all active alerts in the 'Production' service.",
-      "Resolve the incident #12345 in PagerDuty.",
-      "Add a note to the incident #67890 in PagerDuty.",
-      "Get the on-call schedule for the 'Engineering' team."
+      "Send a message to the 'devops' Slack channel.",
+      "List all members of the 'engineering' Slack workspace.",
+      "Create a new Slack channel named 'project-updates'.",
+      "Archive the 'old-project' Slack channel.",
+      "Post a notification to the 'alerts' Slack channel."
   ])
 
 # ==================================================

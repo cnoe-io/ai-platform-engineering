@@ -15,24 +15,24 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Pagerduty'
-AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform PagerDuty operations.'
+AGENT_NAME = 'GitHub'
+AGENT_DESCRIPTION="An AI agent that interacts with GitHub to manage repositories, pull requests, and workflows."
 
 agent_skill = AgentSkill(
-  id="pagerduty_agent_skill",
-  name="PagerDuty Agent Skill",
-  description="Handles tasks related to PagerDuty incidents, alerts, and on-call schedules.",
+  id="github_agent_skill",
+  name="GitHub Agent Skill",
+  description="Handles tasks related to GitHub repositories, pull requests, and workflows.",
   tags=[
-    "pagerduty",
-    "incident management",
-    "alerts",
-    "on-call schedules"],
+    "github",
+    "repository management",
+    "pull requests",
+    "workflows"],
   examples=[
-      "Create a new PagerDuty incident with title 'Server Down'.",
-      "List all active alerts in the 'Production' service.",
-      "Resolve the incident #12345 in PagerDuty.",
-      "Add a note to the incident #67890 in PagerDuty.",
-      "Get the on-call schedule for the 'Engineering' team."
+      "Create a new GitHub repository named 'my-repo'.",
+      "List all open pull requests in the 'frontend' repository.",
+      "Merge the pull request #42 in the 'backend' repository.",
+      "Close the issue #101 in the 'docs' repository.",
+      "Get the latest commit in the 'main' branch of 'my-repo'."
   ])
 
 # ==================================================
