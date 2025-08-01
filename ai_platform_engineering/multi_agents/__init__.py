@@ -103,7 +103,7 @@ class AgentRegistry:
             module = importlib.import_module(module_path)
 
             agents[agent_name] = module.a2a_remote_agent
-            tools[module.agent_card.name] = module.agent_skill.examples
+            tools.update(module.tool_map)
 
         self._agents = agents
         self._tools = tools

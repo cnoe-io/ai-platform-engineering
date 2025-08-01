@@ -14,6 +14,10 @@ AGENT_PORT = os.getenv("PAGERDUTY_AGENT_PORT", "8000")
 agent_url = f'http://{AGENT_HOST}:{AGENT_PORT}'
 
 agent_card = create_agent_card(agent_url)
+tool_map = {
+    agent_card.name: agent_skill.examples
+}
+
 # initialize the flavor profile tool with the farm agent card
 a2a_remote_agent = A2ARemoteAgentConnectTool(
     name="pagerduty_tools_agent",

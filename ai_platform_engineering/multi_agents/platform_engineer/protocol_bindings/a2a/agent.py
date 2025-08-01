@@ -85,7 +85,14 @@ class AIPlatformEngineerA2ABinding:
       if isinstance(ai_message, AIMessage):
         logging.info(f"AIMessage retrieved: {ai_message.content}")
         try:
-          response_dict = json.loads(ai_message.content) if isinstance(ai_message.content, str) else ai_message.content
+          content = ai_message.content if isinstance(ai_message.content, str) else str(ai_message.content)
+          # Strip markdown code block formatting if present
+          if content.startswith('```json') and content.endswith('```'):
+            content = content[7:-3].strip()  # Remove ```json at start and ``` at end
+          elif content.startswith('```') and content.endswith('```'):
+            content = content[3:-3].strip()  # Remove ``` at start and end
+          
+          response_dict = json.loads(content)
           if isinstance(response_dict, dict):
             return response_dict
           else:
@@ -104,7 +111,7 @@ class AIPlatformEngineerA2ABinding:
             'is_task_complete': False,
             'require_user_input': True,
             'content': (
-              'Error decoding AIMessage content to dictionary: {e}'
+              f'Error decoding AIMessage content to dictionary: {e}. '
               'Please try again later.'
             ),
           }

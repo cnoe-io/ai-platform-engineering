@@ -15,24 +15,21 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Pagerduty'
-AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform PagerDuty operations.'
+AGENT_NAME = 'Confluence'
+AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Confluence operations.'
 
 agent_skill = AgentSkill(
-  id="pagerduty_agent_skill",
-  name="PagerDuty Agent Skill",
-  description="Handles tasks related to PagerDuty incidents, alerts, and on-call schedules.",
+  id="confluence_agent_skill",
+  name="Confluence Agent Skill",
+  description="Provides capabilities to perform Confluence operations.",
   tags=[
-    "pagerduty",
-    "incident management",
-    "alerts",
-    "on-call schedules"],
+    "confluence",
+    "wiki"],
   examples=[
-      "Create a new PagerDuty incident with title 'Server Down'.",
-      "List all active alerts in the 'Production' service.",
-      "Resolve the incident #12345 in PagerDuty.",
-      "Add a note to the incident #67890 in PagerDuty.",
-      "Get the on-call schedule for the 'Engineering' team."
+      "Create a new Confluence page in the 'AI Project' space.",
+      "List all pages in the 'Platform Engineering' space.",
+      "Search for Confluence pages with the label 'urgent'.",
+      "Search for pages in the 'Platform Engineering' space containing the keyword 'deployment'.",
   ])
 
 # ==================================================

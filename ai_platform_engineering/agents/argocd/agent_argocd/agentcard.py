@@ -15,24 +15,23 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Pagerduty'
-AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform PagerDuty operations.'
+AGENT_NAME = 'ArgoCD'
+AGENT_DESCRIPTION = 'An AI agent that provides capabilities to list, manage, and retrieve details of applications in ArgoCD.'
 
 agent_skill = AgentSkill(
-  id="pagerduty_agent_skill",
-  name="PagerDuty Agent Skill",
-  description="Handles tasks related to PagerDuty incidents, alerts, and on-call schedules.",
+  id="argocd_agent_skill",
+  name="ArgoCD Agent Skill",
+  description="Provides capabilities to list and manage applications in ArgoCD.",
   tags=[
-    "pagerduty",
-    "incident management",
-    "alerts",
-    "on-call schedules"],
+    "argocd",
+    "list apps",
+    "gitops"],
   examples=[
-      "Create a new PagerDuty incident with title 'Server Down'.",
-      "List all active alerts in the 'Production' service.",
-      "Resolve the incident #12345 in PagerDuty.",
-      "Add a note to the incident #67890 in PagerDuty.",
-      "Get the on-call schedule for the 'Engineering' team."
+      "Create a new ArgoCD application named 'my-app'.",
+      "Get the status of the 'frontend' ArgoCD application.",
+      "Update the image version for 'backend' app.",
+      "Delete the 'test-app' from ArgoCD.",
+      "Sync the 'production' ArgoCD application to the latest commit."
   ])
 
 # ==================================================

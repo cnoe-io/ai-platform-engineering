@@ -15,24 +15,22 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Pagerduty'
-AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform PagerDuty operations.'
+AGENT_NAME = 'Komodor'
+AGENT_DESCRIPTION = 'An AI agent that provides capabilities to list, manage, and retrieve details of clusters, services and workloads in Komodor.'
 
 agent_skill = AgentSkill(
-  id="pagerduty_agent_skill",
-  name="PagerDuty Agent Skill",
-  description="Handles tasks related to PagerDuty incidents, alerts, and on-call schedules.",
+  id="komodor_agent_skill",
+  name="Komodor Agent Skill",
+  description="Provides capabilities to list and manage applications in Komodor.",
   tags=[
-    "pagerduty",
-    "incident management",
-    "alerts",
-    "on-call schedules"],
+    "komodor",
+    "list clusters",
+    "incident management"],
   examples=[
-      "Create a new PagerDuty incident with title 'Server Down'.",
-      "List all active alerts in the 'Production' service.",
-      "Resolve the incident #12345 in PagerDuty.",
-      "Add a note to the incident #67890 in PagerDuty.",
-      "Get the on-call schedule for the 'Engineering' team."
+      "Get my clusters",
+      "Get my health risks on cluster jarvis-sandbox",
+      "Trigger a RCA for service httpbin in namespace sandbox-adrozdov on cluster jarvis-sandbox",
+      "Get the RCA result for the session ID",
   ])
 
 # ==================================================
