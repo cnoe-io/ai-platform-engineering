@@ -104,7 +104,7 @@ class AIPlatformEngineerA2ABinding:
             'is_task_complete': False,
             'require_user_input': True,
             'content': (
-              'Error decoding AIMessage content to dictionary: {e}'
+              f'Error decoding AIMessage content to dictionary: {e}. '
               'Please try again later.'
             ),
           }
