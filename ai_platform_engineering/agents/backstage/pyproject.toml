@@ -15,6 +15,7 @@ dependencies = [
     "a2a-python>=0.0.1",
     "a2a-sdk>=0.2.1",
     "agentevals>=0.0.7",
+    "agntcy-app-sdk>=0.1.1",
     "click>=8.2.0",
     "langchain-anthropic>=0.3.13",
     "langchain-core>=0.3.60",
@@ -75,4 +76,4 @@ markers = [
     "unit: marks tests as unit tests",
     "integration: marks tests as integration tests",
     "parsers: marks tests as parser tests"
-] 
+]

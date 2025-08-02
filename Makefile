@@ -49,6 +49,8 @@ clean:             ## Clean all build artifacts and cache
 
 ## ========== Docker Build ==========
 
+build: build-docker
+
 build-docker:  ## Build the Docker image
 	@echo "Building the Docker image..."
 	@docker build -t $(APP_NAME):latest -f build/Dockerfile .

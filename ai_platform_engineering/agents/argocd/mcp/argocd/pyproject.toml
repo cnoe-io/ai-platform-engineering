@@ -8,20 +8,16 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.13"
+dependencies = [
+  "httpx>=0.24.0",
+  "python-dotenv>=1.0.0",
+  "pydantic>=2.0.0",
+  "mcp>=1.9.0",
+]
 
-[tool.poetry.scripts]
+[project.scripts]
 mcp-argocd = "mcp_argocd.__main__:main"
 
-[tool.setuptools]
-packages = ["mcp-argocd"]
-
-[tool.poetry.dependencies]
-python = ">=3.13,<4.0"
-httpx = ">=0.24.0"
-python-dotenv = ">=1.0.0"
-pydantic = ">=2.0.0"
-mcp = ">=1.9.0"
-
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -13,9 +13,6 @@ from a2a.types import (
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 
-#from agent_argocd.agent import ArgoCDAgent # type: ignore[import-untyped]
-#class ArgoCDAgentExecutor(AgentExecutor):
-
 
 class PetStoreAgentExecutor(AgentExecutor):
     """Pet Store AgentExecutor Example."""

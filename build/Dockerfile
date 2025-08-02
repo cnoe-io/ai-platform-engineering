@@ -5,8 +5,8 @@ WORKDIR /app
 # Copy project metadata first to leverage caching
 COPY pyproject.toml uv.lock /app/
 
-# Install uv
-RUN pip install uv
+# Install Git and uv
+RUN apt-get update && apt-get install -y git && pip install uv
 
 # Copy actual source code
 COPY ./ai_platform_engineering /app/ai_platform_engineering
