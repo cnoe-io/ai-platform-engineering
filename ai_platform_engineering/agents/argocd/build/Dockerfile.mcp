@@ -8,17 +8,11 @@ WORKDIR /app
 # Copy the entire project to leverage the main package structure
 COPY . /app/
 
-# Install uv and poetry for dependency management
-RUN pip install uv poetry
+# Install uv for dependency management
+RUN pip install uv
 
-# Configure poetry
-RUN poetry config virtualenvs.create true
-RUN poetry config virtualenvs.in-project true
-RUN poetry config cache-dir /app/.cache
-RUN poetry config virtualenvs.path /app/.venv
-
-# Install the main package and its dependencies
-RUN poetry install --no-interaction
+# Install the main package and its dependencies using uv
+RUN uv sync --no-dev
 
 # Set ownership of the application directory to the non-root user
 RUN chown -R appuser:appuser /app
@@ -35,4 +29,4 @@ ENV MCP_PORT="9000"
 EXPOSE 3002
 
 # Run the HTTP/SSE MCP server
-CMD ["poetry", "run", "python", "-m", "mcp.argocd.mcp_argocd.server"]
+CMD ["uv", "run", "python", "-m", "mcp.argocd.mcp_argocd.server"]
