@@ -3,7 +3,7 @@
     "ENV PYTHONPATH=."
   ],
   "graphs": {
-    "JARVIS": "ai_platform_engineering.multi_agents.platform_engineer.graph:graph"
+    "ai-platform-engineering": "ai_platform_engineering.multi_agents.platform_engineer.graph:graph"
   },
   "env": "./.env",
   "python_version": "3.13",

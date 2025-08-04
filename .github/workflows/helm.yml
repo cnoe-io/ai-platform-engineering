@@ -92,7 +92,6 @@ jobs:
 
       - name: 🚀 Push Chart to GHCR
         run: |
-          # Get the actual chart name and version from the packaged file
           CHART_FILE=$(ls ./*.tgz)
           CHART_VERSION=$(helm show chart "$CHART_FILE" | grep '^version:' | awk '{print $2}')
           CHART_NAME=$(helm show chart "$CHART_FILE" | grep '^name:' | awk '{print $2}')
@@ -107,6 +106,7 @@ jobs:
           if helm pull $REGISTRY/$CHART_NAME --version $CHART_VERSION --destination /tmp 2>/dev/null; then
             echo "⚠️  Chart version $CHART_VERSION already exists in registry, skipping push"
             echo "If you intended to update the chart, please bump the version in helm/Chart.yaml"
+            exit 1
           else
             echo "✅ Version $CHART_VERSION does not exist, proceeding with push"
             helm push "$CHART_FILE" $REGISTRY

@@ -19,6 +19,8 @@
 * Not in CNCF Slack? [Join here first](https://communityinviter.com/apps/cloud-native/cncf)
 * [Join #cnoe-sig-agentic-ai channel](https://cloud-native.slack.com/archives/C08N0AKR52S)
 
+## [Note: Use latest docs to get started](https://cnoe-io.github.io/ai-platform-engineering)
+
 ## What is AI Platform Engineering?
 
 As Platform Engineering, SRE, and DevOps environments grow in complexity, traditional approaches often lead to delays, increased operational overhead, and developer frustration. By adopting Multi-Agentic Systems and Agentic AI, Platform Engineering teams can move from manual, task-driven processes to more adaptive and automated operations, better supporting development and business goals.

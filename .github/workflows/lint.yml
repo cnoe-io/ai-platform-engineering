@@ -31,13 +31,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13.2"
-      - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-        env:
-          POETRY_HOME: /opt/poetry
-      - name: Add Poetry to PATH
-        run: echo "/opt/poetry/bin" >> $GITHUB_PATH
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
       - name: Install ruff linter
         run: pip install ruff
       - name: Run ruff linter # python linting
