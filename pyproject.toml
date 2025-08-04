@@ -45,3 +45,8 @@ indent-width = 2
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["F403"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.7",
+]
