@@ -11,7 +11,6 @@ services:
       - ./ai_platform_engineering:/app/ai_platform_engineering
     container_name: platform-engineering
     profiles:
-      - agntcy-slim
       - build
       - build-tracing
     depends_on:
@@ -59,22 +58,19 @@ services:
       - ./ai_platform_engineering:/app/ai_platform_engineering
     container_name: platform-engineering
     profiles:
-      - agntcy-slim-latest
       - latest
       - komodor
       - tracing
-    # depends_on:
-      # - agent-argocd-latest
-      # - agent-backstage-latest
-      # - agent-confluence-latest
-      # - agent-github-latest
-      # - agent-jira-latest
-      # - agent-komodor-latest
-      # - agent-pagerduty-latest
-      # - agent-slack-latest
-      # - agent-webex-latest
-      # - slim
-      # - agent-weather-build
+    depends_on:
+      - agent-argocd-latest
+      - agent-backstage-latest
+      - agent-confluence-latest
+      - agent-github-latest
+      - agent-jira-latest
+      - agent-komodor-latest
+      - agent-pagerduty-latest
+      - agent-slack-latest
+      - agent-webex-latest
     env_file:
       - .env
     ports:
@@ -116,18 +112,14 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-argocd-build
     profiles:
-      - agntcy-slim
       - build
       - build-tracing
-    depends_on:
-      - slim
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/argocd:/app
     ports:
       - "8001:8000"
     environment:
-      - A2A_TRANSPORT=slim
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -137,7 +129,6 @@ services:
     image: ghcr.io/cnoe-io/agent-argocd:a2a-latest
     container_name: agent-argocd-latest
     profiles:
-      - agntcy-slim-latest
       - latest
       - komodor
       - tracing
@@ -160,14 +151,11 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-backstage-build
     profiles:
-      - agntcy-slim
       - build
       - build-tracing
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/backstage:/app
-    depends_on:
-      - slim
     ports:
       - "8002:8000"
     environment:
@@ -180,7 +168,6 @@ services:
     image: ghcr.io/cnoe-io/agent-backstage:a2a-latest
     container_name: agent-backstage-latest
     profiles:
-      - agntcy-slim-latest
       - latest
       - komodor
       - tracing
@@ -203,7 +190,6 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-confluence-build
     profiles:
-      - agntcy-slim
       - build
       - build-tracing
     volumes:
@@ -221,7 +207,6 @@ services:
     image: ghcr.io/cnoe-io/agent-confluence:a2a-latest
     container_name: agent-confluence-latest
     profiles:
-      - agntcy-slim-latest
       - latest
       - komodor
       - tracing
@@ -244,7 +229,6 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-github-build
     profiles:
-      - agntcy-slim
       - build
       - build-tracing
     volumes:
@@ -265,7 +249,6 @@ services:
     image: ghcr.io/cnoe-io/agent-github:a2a-latest
     container_name: agent-github-latest
     profiles:
-      - agntcy-slim-latest
       - latest
       - komodor
       - tracing
@@ -291,7 +274,6 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-jira-build
     profiles:
-      - agntcy-slim
       - build
       - build-tracing
     volumes:
@@ -311,7 +293,6 @@ services:
     image: ghcr.io/cnoe-io/agent-jira:a2a-latest
     container_name: agent-jira-latest
     profiles:
-      - agntcy-slim-latest
       - latest
       - komodor
       - tracing
@@ -334,7 +315,6 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-komodor-build
     profiles:
-      - agntcy-slim
       - build
       - komodor
       - build-tracing
@@ -352,7 +332,6 @@ services:
     image: ghcr.io/cnoe-io/agent-komodor:a2a-latest
     container_name: agent-komodor-latest
     profiles:
-      - agntcy-slim-latest
       - latest
       - komodor
       - tracing
@@ -374,7 +353,6 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-pagerduty-build
     profiles:
-      - agntcy-slim
       - build
       - build-tracing
     volumes:
@@ -392,7 +370,6 @@ services:
     image: ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
     container_name: agent-pagerduty-latest
     profiles:
-      - agntcy-slim-latest
       - latest
       - komodor
       - tracing
@@ -415,7 +392,6 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-slack-build
     profiles:
-      - agntcy-slim
       - build
       - build-tracing
     volumes:
@@ -435,7 +411,6 @@ services:
     image: ghcr.io/cnoe-io/agent-slack:a2a-latest
     container_name: agent-slack-latest
     profiles:
-      - agntcy-slim-latest
       - latest
       - komodor
       - tracing
@@ -485,41 +460,6 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
-  ####################################################################################################
-  #                                      AGENT WEATHER BUILD & LATEST                                 #
-  ####################################################################################################
-  slim:
-    image: ghcr.io/agntcy/slim:0.3.15
-    container_name: slim-dataplane
-    profiles:
-      - build
-      - agntcy-slim
-      - agntcy-slim-latest
-    ports:
-      - "46357:46357"
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes:
-      - ./slim-config.yaml:/config.yaml
-    command: ["/slim", "--config", "/config.yaml"]
-  agent-weather-build:
-    build:
-      context: ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile
-      cache_from: []
-    container_name: agent-weather-build
-    profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
-    depends_on:
-      - slim
-    volumes:
-      - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/weather:/app
-    ports:
-      - "8100:8000"
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                        #
   ####################################################################################################
