@@ -37,7 +37,7 @@ services:
       - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
       # Uncomment for local development
-      # - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     command: platform-engineer
   # AI Platform Engineer Multi-Agent System (local build for tracing)
   # TODO: Remove this local build service once the stable GHCR image includes tracing evaluation support

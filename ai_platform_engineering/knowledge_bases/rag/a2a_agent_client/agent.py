@@ -4,7 +4,7 @@
 from langgraph.prebuilt import create_react_agent
 from cnoe_agent_utils import LLMFactory
 
-from ai_platform_engineering.agents.kb_rag.a2a_agent_client.agentcard import (
+from ai_platform_engineering.knowledge_bases.rag.a2a_agent_client.agentcard import (
     kb_rag_agent_card, kb_rag_agent_skill, )
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
