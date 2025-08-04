@@ -30,7 +30,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ matrix.agent == 'kb-rag' && 'cnoe-io/kb-rag' || format('cnoe-io/agent-{0}', matrix.agent) }}
-      AGENT_DIR: ${{ matrix.agent == 'kb-rag' && 'ai_platform_engineering/knowledge_bases/kb-rag' || format('ai_platform_engineering/agents/{0}', matrix.agent) }}
+      AGENT_DIR: ${{ matrix.agent == 'kb-rag' && 'ai_platform_engineering/knowledge_bases/rag' || format('ai_platform_engineering/agents/{0}', matrix.agent) }}
 
     steps:
       - name: 🔒 harden runner
