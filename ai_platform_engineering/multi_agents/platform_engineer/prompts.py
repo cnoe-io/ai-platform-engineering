@@ -34,7 +34,7 @@ from ai_platform_engineering.agents.komodor.a2a_agent_client.agentcard import (
   komodor_agent_card,
   komodor_agent_skill
 )
-from ai_platform_engineering.knowledge_bases.kb_rag.a2a_agent_client.agentcard import (
+from ai_platform_engineering.knowledge_bases.rag.a2a_agent_client.agentcard import (
   kb_rag_agent_card,
   kb_rag_agent_skill
 )
