@@ -2,7 +2,7 @@ services:
   ####################################################################################################
   #                                      PLATFORM ENGINEER BUILD                                     #
   ####################################################################################################
-  platform-engineer:
+  platform-engineer-slim:
     build:
       context: .
       dockerfile: build/Dockerfile
@@ -11,33 +11,30 @@ services:
       - ./ai_platform_engineering:/app/ai_platform_engineering
     container_name: platform-engineering
     profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
+      - slim
     depends_on:
-      - agent-argocd-build
-      - agent-backstage-build
-      - agent-confluence-build
-      - agent-github-build
-      - agent-jira-build
-      - agent-komodor-build
-      - agent-pagerduty-build
-      - agent-slack-build
+      - agent-argocd-slim
+      - agent-backstage-slim
+      - agent-confluence-slim
+      - agent-github-slim
+      - agent-jira-slim
+      - agent-pagerduty-slim
+      - agent-slack-slim
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
       - AGENT_PROTOCOL=a2a
-      - ARGOCD_AGENT_HOST=agent-argocd-latest
-      - BACKSTAGE_AGENT_HOST=agent-backstage-build
-      - CONFLUENCE_AGENT_HOST=agent-confluence-build
-      - GITHUB_AGENT_HOST=agent-github-build
-      - JIRA_AGENT_HOST=agent-jira-build
-      - KOMODOR_AGENT_HOST=agent-komodor-build
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty-build
-      - SLACK_AGENT_HOST=agent-slack-build
-      - WEBEX_AGENT_HOST=agent-webex-build
+      - ARGOCD_AGENT_HOST=agent-argocd-slim
+      - BACKSTAGE_AGENT_HOST=agent-backstage-slim
+      - CONFLUENCE_AGENT_HOST=agent-confluence-slim
+      - GITHUB_AGENT_HOST=agent-github-slim
+      - JIRA_AGENT_HOST=agent-jira-slim
+      - KOMODOR_AGENT_HOST=agent-komodor-slim
+      - PAGERDUTY_AGENT_HOST=agent-pagerduty-slim
+      - SLACK_AGENT_HOST=agent-slack-slim
+      - WEBEX_AGENT_HOST=agent-webex-slim
       - ENABLE_KOMODOR=true
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -48,77 +45,16 @@ services:
     command: platform-engineer
 
   ####################################################################################################
-  #                                      PLATFORM ENGINEER LATEST                                    #
+  #                                      AGENT ARGOCD SLIM                                           #
   ####################################################################################################
-  platform-engineer-latest:
-    build:
-      context: .
-      dockerfile: build/Dockerfile
-    volumes:
-      - ./prompt_config.yaml:/app/prompt_config.yaml
-      - ./ai_platform_engineering:/app/ai_platform_engineering
-    container_name: platform-engineering
-    profiles:
-      - agntcy-slim-latest
-      - latest
-      - komodor
-      - tracing
-    # depends_on:
-      # - agent-argocd-latest
-      # - agent-backstage-latest
-      # - agent-confluence-latest
-      # - agent-github-latest
-      # - agent-jira-latest
-      # - agent-komodor-latest
-      # - agent-pagerduty-latest
-      # - agent-slack-latest
-      # - agent-webex-latest
-      # - slim
-      # - agent-weather-build
-    env_file:
-      - .env
-    ports:
-      - "8000:8000"
-    environment:
-      - AGENT_PROTOCOL=a2a
-      - ARGOCD_AGENT_HOST=agent-argocd-latest
-      - ARGOCD_AGENT_PORT=8000
-      - BACKSTAGE_AGENT_HOST=agent-backstage-latest
-      - BACKSTAGE_AGENT_PORT=8000
-      - CONFLUENCE_AGENT_HOST=agent-confluence-latest
-      - CONFLUENCE_AGENT_PORT=8000
-      - GITHUB_AGENT_HOST=agent-github-latest
-      - GITHUB_AGENT_PORT=8000
-      - JIRA_AGENT_HOST=agent-jira-latest
-      - JIRA_AGENT_PORT=8000
-      - KOMODOR_AGENT_HOST=agent-komodor-latest
-      - KOMODOR_AGENT_PORT=8000
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty-latest
-      - PAGERDUTY_AGENT_PORT=8000
-      - SLACK_AGENT_HOST=agent-slack-latest
-      - SLACK_AGENT_PORT=8000
-      - WEBEX_AGENT_HOST=agent-webex-latest
-      - WEBEX_AGENT_PORT=8000
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
-      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
-    command: platform-engineer
-
-  ####################################################################################################
-  #                                      AGENT ARGOCD BUILD & LATEST                                 #
-  ####################################################################################################
-  agent-argocd-build:
+  agent-argocd-slim:
     build:
       context: ai_platform_engineering/agents/argocd
       dockerfile: build/Dockerfile.a2a
-    container_name: agent-argocd-build
+    container_name: agent-argocd-slim
     profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
+      - slim
+      - slim-tracing
     depends_on:
       - slim
     volumes:
@@ -133,36 +69,17 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
-  agent-argocd-latest:
-    image: ghcr.io/cnoe-io/agent-argocd:a2a-latest
-    container_name: agent-argocd-latest
-    profiles:
-      - agntcy-slim-latest
-      - latest
-      - komodor
-      - tracing
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      - "8001:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
   ####################################################################################################
-  #                                      AGENT BACKSTAGE BUILD & LATEST                              #
+  #                                      AGENT BACKSTAGE SLIM                                        #
   ####################################################################################################
-  agent-backstage-build:
+  agent-backstage-slim:
     build:
       context: ai_platform_engineering/agents/backstage
       dockerfile: build/Dockerfile.a2a
-    container_name: agent-backstage-build
+    container_name: agent-backstage-slim
     profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
+      - slim
+      - slim-tracing
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/backstage:/app
@@ -176,36 +93,19 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
-  agent-backstage-latest:
-    image: ghcr.io/cnoe-io/agent-backstage:a2a-latest
-    container_name: agent-backstage-latest
-    profiles:
-      - agntcy-slim-latest
-      - latest
-      - komodor
-      - tracing
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      - "8002:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
   ####################################################################################################
-  #                                      AGENT CONFLUENCE BUILD & LATEST                             #
+  #                                      AGENT CONFLUENCE SLIM                                       #
   ####################################################################################################
-  agent-confluence-build:
+  agent-confluence-slim:
     build:
       context: ai_platform_engineering/agents/confluence
       dockerfile: build/Dockerfile.a2a
-    container_name: agent-confluence-build
+    container_name: agent-confluence-slim
     profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/confluence:/app
@@ -217,36 +117,19 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
-  agent-confluence-latest:
-    image: ghcr.io/cnoe-io/agent-confluence:a2a-latest
-    container_name: agent-confluence-latest
-    profiles:
-      - agntcy-slim-latest
-      - latest
-      - komodor
-      - tracing
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      - "8003:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
   ####################################################################################################
-  #                                      AGENT GITHUB BUILD & LATEST                                 #
+  #                                      AGENT GITHUB SLIM                                           #
   ####################################################################################################
-  agent-github-build:
+  agent-github-slim:
     build:
       context: ai_platform_engineering/agents/github
       dockerfile: build/Dockerfile.a2a
-    container_name: agent-github-build
+    container_name: agent-github-slim
     profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
@@ -261,39 +144,19 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-github-agent}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-github-agent}
 
-  agent-github-latest:
-    image: ghcr.io/cnoe-io/agent-github:a2a-latest
-    container_name: agent-github-latest
-    profiles:
-      - agntcy-slim-latest
-      - latest
-      - komodor
-      - tracing
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./.env:/app/.env
-    ports:
-      - "8004:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-github-agent}
-      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-github-agent}
-
   ####################################################################################################
-  #                                      AGENT JIRA BUILD & LATEST                                   #
+  #                                      AGENT JIRA SLIM                                             #
   ####################################################################################################
-  agent-jira-build:
+  agent-jira-slim:
     build:
       context: ai_platform_engineering/agents/jira
       dockerfile: build/Dockerfile.a2a
-    container_name: agent-jira-build
+    container_name: agent-jira-slim
     profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/jira:/app
@@ -307,37 +170,16 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-jira-agent}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-jira-agent}
 
-  agent-jira-latest:
-    image: ghcr.io/cnoe-io/agent-jira:a2a-latest
-    container_name: agent-jira-latest
-    profiles:
-      - agntcy-slim-latest
-      - latest
-      - komodor
-      - tracing
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      - "8005:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
   ####################################################################################################
-  #                                      AGENT KOMODOR BUILD & LATEST                                #
+  #                                      AGENT KOMODOR SLIM                                          #
   ####################################################################################################
-  agent-komodor-build:
+  agent-komodor-slim:
     build:
       context: ai_platform_engineering/agents/komodor
       dockerfile: build/Dockerfile.a2a
-    container_name: agent-komodor-build
+    container_name: agent-komodor-slim
     profiles:
-      - agntcy-slim
-      - build
       - komodor
-      - build-tracing
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/komodor:/app
@@ -348,35 +190,20 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-  agent-komodor-latest:
-    image: ghcr.io/cnoe-io/agent-komodor:a2a-latest
-    container_name: agent-komodor-latest
-    profiles:
-      - agntcy-slim-latest
-      - latest
-      - komodor
-      - tracing
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      - "8006:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
   ####################################################################################################
-  #                                      AGENT PAGERDUTY BUILD & LATEST                              #
+  #                                      AGENT PAGERDUTY SLIM                                        #
   ####################################################################################################
-  agent-pagerduty-build:
+  agent-pagerduty-slim:
     build:
       context: ai_platform_engineering/agents/pagerduty
       dockerfile: build/Dockerfile.a2a
-    container_name: agent-pagerduty-build
+    container_name: agent-pagerduty-slim
     profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/pagerduty:/app
@@ -388,36 +215,19 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
-  agent-pagerduty-latest:
-    image: ghcr.io/cnoe-io/agent-pagerduty:a2a-latest
-    container_name: agent-pagerduty-latest
-    profiles:
-      - agntcy-slim-latest
-      - latest
-      - komodor
-      - tracing
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      - "8007:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
   ####################################################################################################
-  #                                      AGENT SLACK BUILD & LATEST                                  #
+  #                                      AGENT SLACK SLIM                                            #
   ####################################################################################################
-  agent-slack-build:
+  agent-slack-slim:
     build:
       context: ai_platform_engineering/agents/slack
       dockerfile: build/Dockerfile.a2a
-    container_name: agent-slack-build
+    container_name: agent-slack-slim
     profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/slack:/app
@@ -431,33 +241,16 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-slack-agent}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-slack-agent}
 
-  agent-slack-latest:
-    image: ghcr.io/cnoe-io/agent-slack:a2a-latest
-    container_name: agent-slack-latest
-    profiles:
-      - agntcy-slim-latest
-      - latest
-      - komodor
-      - tracing
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      - "8008:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
   ####################################################################################################
-  #                                      AGENT WEBEX BUILD & LATEST                                  #
+  #                                      AGENT WEBEX SLIM                                            #
   ####################################################################################################
-  agent-webex-build:
+  agent-webex-slim:
     build:
       context: ai_platform_engineering/agents/webex
       dockerfile: build/Dockerfile.a2a
-    container_name: agent-webex-build
+    container_name: agent-webex-slim
     profiles:
+      - slim
       - webex
     volumes:
       - ./.env:/app/.env
@@ -468,33 +261,16 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-  agent-webex-latest:
-    image: ghcr.io/cnoe-io/agent-webex:a2a-latest
-    container_name: agent-webex-latest
-    profiles:
-      - latest
-      - komodor
-      - tracing
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      - "8009:8000"
-    environment:
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
-  #                                      AGENT WEATHER BUILD & LATEST                                 #
+  #                                      AGENT WEATHER SLIM                                           #
   ####################################################################################################
   slim:
     image: ghcr.io/agntcy/slim:0.3.15
     container_name: slim-dataplane
     profiles:
-      - build
-      - agntcy-slim
-      - agntcy-slim-latest
+      - slim
+      - slim-tracing
     ports:
       - "46357:46357"
     environment:
@@ -503,16 +279,14 @@ services:
     volumes:
       - ./slim-config.yaml:/config.yaml
     command: ["/slim", "--config", "/config.yaml"]
-  agent-weather-build:
+  agent-weather-slim:
     build:
       context: ai_platform_engineering/agents/weather
       dockerfile: build/Dockerfile
       cache_from: []
-    container_name: agent-weather-build
+    container_name: agent-weather-slim
     profiles:
-      - agntcy-slim
-      - build
-      - build-tracing
+      - slim-tracing
     depends_on:
       - slim
     volumes:
@@ -520,16 +294,16 @@ services:
       - ./ai_platform_engineering/agents/weather:/app
     ports:
       - "8100:8000"
+
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                        #
   ####################################################################################################
   backstage-agent-forge:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
-    profiles:
-      - build
     ports:
       - "13000:3000"
+
   ####################################################################################################
   #                                    NEXIGRAPH SERVICES (GRAPHRAG/GEN)                             #
   ####################################################################################################
@@ -652,8 +426,7 @@ services:
     container_name: langfuse-worker
     restart: always
     profiles:
-      - build-tracing
-      - tracing
+      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -696,8 +469,7 @@ services:
     container_name: langfuse-web
     restart: always
     profiles:
-      - build-tracing
-      - tracing
+      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -742,8 +514,7 @@ services:
     container_name: langfuse-clickhouse
     restart: always
     profiles:
-      - build-tracing
-      - tracing
+      - slim-tracing
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -767,8 +538,7 @@ services:
     container_name: langfuse-minio
     restart: always
     profiles:
-      - build-tracing
-      - tracing
+      - slim-tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
@@ -791,8 +561,7 @@ services:
     container_name: langfuse-redis
     restart: always
     profiles:
-      - build-tracing
-      - tracing
+      - slim-tracing
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
     ports:
@@ -808,8 +577,8 @@ services:
     container_name: langfuse-postgres
     restart: always
     profiles:
-      - build-tracing
-      - tracing
+      - slim-tracing
+
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s

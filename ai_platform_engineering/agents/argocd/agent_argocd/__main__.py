@@ -67,7 +67,7 @@ def main(host: str, port: int):
 
         bridge = factory.create_bridge(server, transport=transport)
         print("Bridge created successfully. Starting the bridge.")
-        await bridge.start(blocking=True)
+        asyncio.run(bridge.start(blocking=True))
     else:
         # Run a p2p A2A server
         print("Running A2A server in p2p mode.")
@@ -83,7 +83,7 @@ def main(host: str, port: int):
 
         config = uvicorn.Config(app, host=host, port=port)
         server = uvicorn.Server(config=config)
-        await server.serve()
+        asyncio.run(server.serve())
 
 if __name__ == '__main__':
     main()
