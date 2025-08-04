@@ -34,7 +34,7 @@ load_dotenv()
 
 
 def main(host: str, port: int):
-    milvus_uri = os.getenv('MILVUS_URI', 'milvus-standalone:19530')
+    milvus_uri = os.getenv('MILVUS_URI', 'http://milvus-standalone:19530')
     logger.info(f"Starting RAG agent with Milvus URI: {milvus_uri}")
     client = httpx.AsyncClient()
     push_notification_config_store = InMemoryPushNotificationConfigStore()
