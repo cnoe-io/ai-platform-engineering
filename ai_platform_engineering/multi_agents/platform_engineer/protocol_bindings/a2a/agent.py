@@ -41,11 +41,11 @@ class AIPlatformEngineerA2ABinding:
       logging.info(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
       inputs = {'messages': [('user', query)]}
       config = self.tracing.create_config(context_id)
-      
+
       # Ensure trace_id is always in config metadata for tools to access
       if 'metadata' not in config:
           config['metadata'] = {}
-      
+
       if trace_id:
           config['metadata']['trace_id'] = trace_id
           logging.info(f"Added trace_id to config metadata: {trace_id}")
@@ -57,7 +57,7 @@ class AIPlatformEngineerA2ABinding:
               logging.info(f"Added trace_id from context to config metadata: {current_trace_id}")
           else:
               logging.warning("No trace_id available from parameter or context")
-      
+
       logging.info(f"Created tracing config: {config}")
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):

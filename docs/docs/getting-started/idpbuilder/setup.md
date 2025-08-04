@@ -6,6 +6,10 @@
 	<iframe src="https://app.vidcast.io/share/embed/3dc7f168-c8b0-40d3-aa45-66f74ec0ec03?disableCopyDropdown=1" width="100%" height="100%" title="Run AI Platform Engineering using IDPBuilder" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
 </div>
 
+<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
+	<iframe src="https://app.vidcast.io/share/embed/3dc7f168-c8b0-40d3-aa45-66f74ec0ec03?disableCopyDropdown=1" width="100%" height="100%" title="Run AI Platform Engineering using IDPBuilder" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
+</div>
+
 ## Prerequisites
 
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) installed
