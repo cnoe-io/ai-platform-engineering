@@ -58,10 +58,10 @@ class SlackAgent:
         self.graph = None
 
         # Find installed path of the slack_mcp sub-module
-        spec = importlib.util.find_spec("agent_slack.protocol_bindings.mcp_server.mcp_slack.server")
+        spec = importlib.util.find_spec("mcp.mcp_slack.server")
         if not spec or not spec.origin:
             try:
-                spec = importlib.util.find_spec("agent_slack.protocol_bindings.mcp_server.mcp_slack.server")
+                spec = importlib.util.find_spec("mcp.mcp_slack.server")
                 if not spec or not spec.origin:
                     raise ImportError("Cannot find slack_mcp server module")
             except ImportError:

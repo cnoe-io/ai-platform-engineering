@@ -11,7 +11,7 @@ RUN pip install uv
 
 COPY mcp /app/mcp
 
-RUN uv add /app/mcp/argocd
+RUN uv add /app/mcp
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev

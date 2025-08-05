@@ -52,7 +52,7 @@ class ConfluenceAgent:
     Set response status to error if the input indicates an error."""
 
     def __init__(self):
-      # Setup the math agent and load MCP tools
+      # Setup the agent and load MCP tools
       self.model = LLMFactory().get_llm()
       self.tracing = TracingManager()
       self.graph = None
@@ -61,7 +61,7 @@ class ConfluenceAgent:
       async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
-          server_path = args.get("server_path", "./agent_confluence/protocol_bindings/mcp_server/mcp_confluence/server.py")
+          server_path = args.get("server_path", "./mcp/mcp_confluence/server.py")
           logger.info(f"Launching MCP server at: {server_path}")
 
           confluence_token = os.getenv("ATLASSIAN_TOKEN")
@@ -71,20 +71,49 @@ class ConfluenceAgent:
           confluence_api_url = os.getenv("CONFLUENCE_API_URL")
           if not confluence_api_url:
             raise ValueError("CONFLUENCE_API_URL must be set as an environment variable.")
-          client = MultiServerMCPClient(
+          client = None
+          mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+          if mcp_mode == "http" or mcp_mode == "streamable_http":
+            logging.info("Using HTTP transport for MCP client")
+            # For HTTP transport, we need to connect to the MCP server
+            # This is useful for production or when the MCP server is running separately
+            # Ensure MCP_HOST and MCP_PORT are set in the environment
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            # TBD: Handle user authentication
+            user_jwt = "TBD_USER_JWT"
+
+            client = MultiServerMCPClient(
               {
-                  "math": {
-                      "command": "uv",
-                      "args": ["run", server_path],
-                      "env": {
-                          "ATLASSIAN_TOKEN": os.getenv("ATLASSIAN_TOKEN"),
-                          "CONFLUENCE_API_URL": os.getenv("CONFLUENCE_API_URL"),
-                          "ATLASSIAN_VERIFY_SSL": "false"
-                      },
-                      "transport": "stdio",
-                  }
+                "argocd": {
+                  "transport": "streamable_http",
+                  "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                  "headers": {
+                    "Authorization": f"Bearer {user_jwt}",
+                  },
+                }
               }
-          )
+            )
+          else:
+            logging.info("Using STDIO transport for MCP client")
+            # For STDIO transport, we can use a simple client without URL
+            # This is useful for local development or testing
+            client = MultiServerMCPClient(
+                {
+                    "confluence": {
+                        "command": "uv",
+                        "args": ["run", server_path],
+                        "env": {
+                            "ATLASSIAN_TOKEN": os.getenv("ATLASSIAN_TOKEN"),
+                            "CONFLUENCE_API_URL": os.getenv("CONFLUENCE_API_URL"),
+                            "ATLASSIAN_VERIFY_SSL": "false"
+                        },
+                        "transport": "stdio",
+                    }
+                }
+            )
+
           tools = await client.get_tools()
           logger.debug('*'*80)
           logger.debug("Available Tools and Parameters:")
