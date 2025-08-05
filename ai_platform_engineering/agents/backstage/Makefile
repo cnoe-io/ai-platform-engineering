@@ -53,25 +53,41 @@ clean:             ## Clean all build artifacts and cache
 
 check-env:         ## Check if .env file exists
 	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found."; exit 1; \
+		echo "Warning: .env file not found in $$(pwd)"; \
+	fi
+	@if [ ! -f ".env" ]; then \
+		$(MAKE) copy-env-from-root; \
 	fi
 
-venv-activate = . .venv/bin/activate
-load-env = set -a && . .env && set +a
-venv-run = $(venv-activate) && $(load-env) &&
+copy-env-from-root: ## Copy .env file from root directory
+	@echo "Root directory: $(shell git rev-parse --show-toplevel)"
+	@if [ -f "../../../.env" ]; then \
+		cp ../../../.env . && echo ".env file copied from root directory."; \
+	else \
+		echo "Error: .env file not found in root directory."; exit 1; \
+	fi
 
-## ========== Install ==========
 
-install: setup-venv ## Install Python dependencies using Poetry
+## ========== UV Sync ==========
+
+uv-sync: setup-venv ## Sync Python dependencies using uv
 	@echo "Installing dependencies..."
-	@$(venv-activate) && poetry install --no-interaction
+	@uv sync --no-dev
 	@echo "Dependencies installed successfully."
 
-install-uv:        ## Install uv package manager
-	@$(venv-run) pip install uv
+uv-install:        ## Install uv package manager
+	@if ! command -v uv &> /dev/null; then \
+		read -p "uv is not installed. Do you want to install it? (y/n): " confirm; \
+		if [ "$$confirm" = "y" ]; then \
+			curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		else \
+			echo "uv installation skipped."; \
+			exit 1; \
+		fi; \
+	else \
+		echo "uv is already installed."; \
+	fi
 
-install-wfsm:      ## Install workflow server manager (wfsm)
-	curl -sSL https://raw.githubusercontent.com/agntcy/workflow-srv-mgr/refs/heads/install-sh-tag-cmd-args/install.sh -t v0.3.1 | bash
 
 ## ========== Build & Lint ==========
 
@@ -86,10 +102,10 @@ ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 
 ## ========== Run ==========
 
-run-a2a: setup-venv ## Run A2A agent with uvicorn
+run-a2a: setup-venv check-env uv-sync ## Run A2A agent with uvicorn
 	@$(MAKE) check-env
-	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
-	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_AGENT_PORT:-8000}
+	@A2A_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
+	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
 
 run-mcp: setup-venv ## Run MCP server in SSE mode
 	@$(MAKE) check-env

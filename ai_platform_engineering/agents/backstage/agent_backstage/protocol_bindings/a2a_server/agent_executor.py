@@ -40,7 +40,7 @@ class BackstageAgentExecutor(AgentExecutor):
         if not task:
             task = new_task(context.message)
             event_queue.enqueue_event(task)
-        
+
         # Extract trace_id from A2A context - THIS IS A SUB-AGENT, should NEVER generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
@@ -48,11 +48,11 @@ class BackstageAgentExecutor(AgentExecutor):
             trace_id = None
         else:
             logger.info(f"Backstage Agent: Using trace_id from supervisor: {trace_id}")
-        
+
         # invoke the underlying agent, using streaming results
         async for event in self.agent.stream(query, context_id, trace_id):
             if event['is_task_complete']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
                         contextId=task.contextId,
@@ -65,7 +65,7 @@ class BackstageAgentExecutor(AgentExecutor):
                         ),
                     )
                 )
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
                         final=True,
@@ -74,7 +74,7 @@ class BackstageAgentExecutor(AgentExecutor):
                     )
                 )
             elif event['require_user_input']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
@@ -90,7 +90,7 @@ class BackstageAgentExecutor(AgentExecutor):
                     )
                 )
             else:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.working,
@@ -110,4 +110,4 @@ class BackstageAgentExecutor(AgentExecutor):
     async def cancel(
         self, context: RequestContext, event_queue: EventQueue
     ) -> None:
-        raise Exception('cancel not supported') 
+        raise Exception('cancel not supported')

@@ -109,7 +109,7 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
       async def _async_komodor_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
-          server_path = args.get("server_path", "./agent_komodor/protocol_bindings/mcp_server/mcp_komodor/server.py")
+          server_path = args.get("server_path", "./mcp/mcp_komodor/server.py")
           print(f"Launching MCP server at: {server_path}")
 
           komodor_token = os.getenv("KOMODOR_TOKEN")

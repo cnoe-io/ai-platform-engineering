@@ -54,12 +54,20 @@ clean:             ## Clean all build artifacts and cache
 
 check-env:         ## Check if .env file exists
 	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found."; exit 1; \
+		echo "Warning: .env file not found in $$(pwd)"; \
+	fi
+	@if [ ! -f ".env" ]; then \
+		$(MAKE) copy-env-from-root; \
 	fi
 
-venv-activate = . .venv/bin/activate
-load-env = set -a && . .env && set +a
-venv-run = $(venv-activate) && $(load-env) &&
+copy-env-from-root: ## Copy .env file from root directory
+	@echo "Root directory: $(shell git rev-parse --show-toplevel)"
+	@if [ -f "../../../.env" ]; then \
+		cp ../../../.env . && echo ".env file copied from root directory."; \
+	else \
+		echo "Error: .env file not found in root directory."; exit 1; \
+	fi
+
 
 ## ========== Install ==========
 
@@ -89,9 +97,8 @@ ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 ## ========== Run ==========
 
 run-a2a: setup-venv ## Run A2A agent with uvicorn
-	@$(MAKE) check-env
 	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
-	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
+	uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
 
 run-mcp: setup-venv ## Run MCP server in SSE mode
 	@$(MAKE) check-env

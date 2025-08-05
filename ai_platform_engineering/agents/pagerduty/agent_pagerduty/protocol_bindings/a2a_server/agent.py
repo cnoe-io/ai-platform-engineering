@@ -65,7 +65,7 @@ class PagerDutyAgent:
             logger.debug("Graph already initialized, skipping")
             return
 
-        server_path = "./agent_pagerduty/protocol_bindings/mcp_server/pagerduty_mcp/server.py"
+        server_path = "./mcp/pagerduty_mcp/server.py"
         print(f"Launching MCP server at: {server_path}")
 
         pagerduty_api_key = os.getenv("PAGERDUTY_API_KEY")
@@ -138,10 +138,10 @@ class PagerDutyAgent:
         thread_id = context_id or uuid.uuid4().hex
         logger.info(f"Stream started - Query: {query}, Thread ID: {thread_id}, Context ID: {context_id}")
         debug_print(f"Starting stream with query: {query} using thread ID: {thread_id}")
-        
+
         # Initialize agent if needed
         await self.initialize()
-        
+
         inputs: dict[str, Any] = {'messages': [('user', query)]}
         config: RunnableConfig = self.tracing.create_config(thread_id)
         logger.debug(f"Stream config: {config}")

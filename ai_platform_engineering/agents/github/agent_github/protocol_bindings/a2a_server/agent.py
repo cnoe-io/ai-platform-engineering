@@ -85,24 +85,51 @@ class GitHubAgent:
             if os.getenv("GITHUB_DYNAMIC_TOOLSETS"):
                 env_vars["GITHUB_DYNAMIC_TOOLSETS"] = os.getenv("GITHUB_DYNAMIC_TOOLSETS")
 
-            # Configure the GitHub MCP server client
-            client = MultiServerMCPClient(
+            mcp_mode = os.getenv("MCP_MODE", "http").lower()
+            if mcp_mode == "http" or mcp_mode == "streamable_http":
+              logging.info("Using HTTP transport for MCP client")
+              # For HTTP transport, we need to connect to the MCP server
+              # This is useful for production or when the MCP server is running separately
+              # Ensure MCP_HOST and MCP_PORT are set in the environment
+              mcp_host = os.getenv("MCP_HOST", "localhost")
+              mcp_port = os.getenv("MCP_PORT", "3000")
+              logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+              # TBD: Handle user authentication
+              user_jwt = "TBD_USER_JWT"
+
+              client = MultiServerMCPClient(
                 {
-                    "github": {
-                        "command": "docker",
-                        "args": [
-                            "run",
-                            "-i",
-                            "--rm",
-                            "-e", f"GITHUB_PERSONAL_ACCESS_TOKEN={self.github_token}",
-                        ] + (["-e", f"GITHUB_HOST={github_host}"] if github_host else []) +
-                        (["-e", f"GITHUB_TOOLSETS={toolsets}"] if toolsets else []) +
-                        (["-e", "GITHUB_DYNAMIC_TOOLSETS=true"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
-                        ["ghcr.io/github/github-mcp-server:latest"],
-                        "transport": "stdio",
-                    }
+                  "argocd": {
+                    "transport": "streamable_http",
+                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "headers": {
+                      "Authorization": f"Bearer {user_jwt}",
+                    },
+                  }
                 }
-            )
+              )
+            else:
+              logging.info("Using Docker-in-Docker for MCP client")
+
+              # Configure the GitHub MCP server client
+              client = MultiServerMCPClient(
+                  {
+                      "github": {
+                          "command": "docker",
+                          "args": [
+                              "run",
+                              "-i",
+                              "--rm",
+                              "-e", f"GITHUB_PERSONAL_ACCESS_TOKEN={self.github_token}",
+                          ] + (["-e", f"GITHUB_HOST={github_host}"] if github_host else []) +
+                          (["-e", f"GITHUB_TOOLSETS={toolsets}"] if toolsets else []) +
+                          (["-e", "GITHUB_DYNAMIC_TOOLSETS=true"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
+                          ["ghcr.io/github/github-mcp-server:latest"],
+                          "transport": "stdio",
+                      }
+                  }
+              )
+
 
             # Get tools via the client
             client_tools = await client.get_tools()

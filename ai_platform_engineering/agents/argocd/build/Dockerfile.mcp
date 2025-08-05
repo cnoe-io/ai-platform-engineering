@@ -6,7 +6,7 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 WORKDIR /app
 
 # Copy the entire project to leverage the main package structure
-COPY . /app/
+COPY ./mcp /app/
 
 # Install uv for dependency management
 RUN pip install uv
@@ -17,16 +17,17 @@ RUN uv sync --no-dev
 # Set ownership of the application directory to the non-root user
 RUN chown -R appuser:appuser /app
 
+# Create the .cache/uv directory and set ownership for the non-root user
+RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
+
 # Switch to non-root user
 USER appuser
 
 # Set environment variables for MCP server
 ENV PYTHONPATH=/app
-ENV MCP_HOST="0.0.0.0"
-ENV MCP_PORT="9000"
 
 # Expose the default MCP server port (can be overridden)
-EXPOSE 3002
+EXPOSE 9000
 
 # Run the HTTP/SSE MCP server
-CMD ["uv", "run", "python", "-m", "mcp.argocd.mcp_argocd.server"]
+CMD ["uv", "run", "python", "mcp_argocd/server.py"]

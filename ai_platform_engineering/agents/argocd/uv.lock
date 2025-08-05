@@ -1,9 +1,15 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13, <4.0"
 resolution-markers = [
     "platform_python_implementation != 'PyPy'",
     "platform_python_implementation == 'PyPy'",
+]
+
+[manifest]
+members = [
+    "agent-argocd",
+    "mcp-argocd",
 ]
 
 [[package]]
@@ -57,11 +63,11 @@ requires-dist = [
     { name = "click", specifier = ">=8.2.0" },
     { name = "cnoe-agent-utils", specifier = "==0.2.0" },
     { name = "fastapi", specifier = ">=0.100.0" },
-    { name = "fastmcp", specifier = ">=0.1.0" },
+    { name = "fastmcp", specifier = ">=2.11.1" },
     { name = "langchain-core", specifier = ">=0.3.60" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
     { name = "langgraph", specifier = "==0.5.3" },
-    { name = "mcp-argocd", directory = "mcp/argocd" },
+    { name = "mcp-argocd", editable = "mcp" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
@@ -625,7 +631,7 @@ wheels = [
 
 [[package]]
 name = "fastmcp"
-version = "2.11.0"
+version = "2.11.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -640,9 +646,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/02/0701624e938fe4d1f13464de9bdc27be9aba2e4c4d41edab3ea496d31751/fastmcp-2.11.0.tar.gz", hash = "sha256:af0c52988607d8e9197df300e91880169e8fe24fd6ca177dca6a9eb6b245ce3c", size = 2663877, upload-time = "2025-08-01T21:30:11.629Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/89/d100073d15cdfa5fa029107b44ef55916b04ed6010ff2b0f7bed92a35ed9/fastmcp-2.11.1.tar.gz", hash = "sha256:2b5af21b093d4926fef17a9a162d5729a2fcb46f3b195699762fa01f61ac3c60", size = 2672724, upload-time = "2025-08-04T15:39:29.623Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/9a/51108b68e77650a7289b5f1ceff8dc0929ab48a26d1d2015f22121a9d183/fastmcp-2.11.0-py3-none-any.whl", hash = "sha256:8709a04522e66fda407b469fbe4d3290651aa7b06097b91c097e9a973c9b9bb3", size = 256193, upload-time = "2025-08-01T21:30:09.905Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/9f/f3703867a8be93f2a139f6664fa7ff46c5c844e28998ce288f7b919ed197/fastmcp-2.11.1-py3-none-any.whl", hash = "sha256:9f0b6a3f61dcf6f688a0a24b8b507be24bfae051a00b7d590c01395d63da8c00", size = 256573, upload-time = "2025-08-04T15:39:27.594Z" },
 ]
 
 [[package]]
@@ -1827,8 +1833,9 @@ cli = [
 [[package]]
 name = "mcp-argocd"
 version = "0.1.0"
-source = { directory = "mcp/argocd" }
+source = { editable = "mcp" }
 dependencies = [
+    { name = "fastmcp" },
     { name = "httpx" },
     { name = "mcp" },
     { name = "pydantic" },
@@ -1837,8 +1844,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastmcp", specifier = ">=2.11.1" },
     { name = "httpx", specifier = ">=0.24.0" },
-    { name = "mcp", specifier = ">=1.9.0" },
+    { name = "mcp", specifier = ">=1.12.3" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
 ]

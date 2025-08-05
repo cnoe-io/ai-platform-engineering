@@ -31,10 +31,12 @@ SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=10000)
 def main(host: str, port: int):
-    httpx_client = httpx.AsyncClient()
+    asyncio.run(async_main(host, port))
 
+async def async_main(host: str, port: int):
+    client = httpx.AsyncClient()
     push_config_store = InMemoryPushNotificationConfigStore()
-    push_sender = BasePushNotificationSender(httpx_client=httpx_client,
+    push_sender = BasePushNotificationSender(httpx_client=client,
                     config_store=push_config_store)
     request_handler = DefaultRequestHandler(
       agent_executor=ArgoCDAgentExecutor(),
@@ -62,7 +64,7 @@ def main(host: str, port: int):
 
         bridge = factory.create_bridge(server, transport=transport)
         print("Bridge created successfully. Starting the bridge.")
-        asyncio.run(bridge.start(blocking=True))
+        await bridge.start(blocking=True)
     else:
         # Run a p2p A2A server
         print("Running A2A server in p2p mode.")
@@ -78,7 +80,7 @@ def main(host: str, port: int):
 
         config = uvicorn.Config(app, host=host, port=port)
         server = uvicorn.Server(config=config)
-        asyncio.run(server.serve())
+        await server.serve()
 
 if __name__ == '__main__':
     main()

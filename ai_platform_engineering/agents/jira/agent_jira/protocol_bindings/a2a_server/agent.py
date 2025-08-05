@@ -66,7 +66,7 @@ class JiraAgent:
       async def _async_jira_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
-          server_path = args.get("server_path", "./agent_jira/protocol_bindings/mcp_server/mcp_jira/server.py")
+          server_path = args.get("server_path", "./mcp/mcp_jira/server.py")
           print(f"Launching MCP server at: {server_path}")
 
           jira_token = os.getenv("ATLASSIAN_TOKEN")
