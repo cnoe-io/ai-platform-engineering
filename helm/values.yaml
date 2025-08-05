@@ -1,25 +1,34 @@
+# Global configuration shared across all subcharts
+global:
+  slim:
+    enabled: true
+    endpoint: "http://ai-platform-engineering-slim:46357"
+    transport: "slim"
+
 # AI Platform Engineer Multi-Agent
 ai-platform-engineering:
   enabled: true
   nameOverride: "ai-platform-engineering"
   isMultiAgent: true
   image:
-    repository: "ghcr.io/cnoe-io/ai-platform-engineering"
-    tag: "stable"
+    repository: "ghcr.io/suwhang-cisco/platform-engineer"
+    tag: "dev-slim"
     pullPolicy: "Always"
-    command: ["poetry", "run", "ai-platform-engineering"]
     args: ["platform-engineer"]
+  env:
+    EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
     releasePrefix: "ai-platform-engineering"
     agents:
       - argocd
+      - backstage
+      - confluence
+      - github
       - jira
       - pagerduty
-      - github
       - slack
-      - komodor
 
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
@@ -44,56 +53,56 @@ agent-argocd:
   enabled: true
   nameOverride: "agent-argocd"
   image:
-    repository: "ghcr.io/cnoe-io/agent-argocd"
-    pullPolicy: "Always"
-
-agent-pagerduty:
-  enabled: true
-  nameOverride: "agent-pagerduty"
-  image:
-    repository: "ghcr.io/cnoe-io/agent-pagerduty"
-    pullPolicy: "Always"
-
-agent-github:
-  enabled: true
-  nameOverride: "agent-github"
-  image:
-    repository: "ghcr.io/cnoe-io/agent-github"
-    pullPolicy: "Always"
-
-agent-atlassian:
-  enabled: false
-  nameOverride: "agent-atlassian"
-  image:
-    repository: "ghcr.io/cnoe-io/agent-atlassian"
+    repository: "ghcr.io/suwhang-cisco/agent-argocd"
+    tag: "dev-slim"
     pullPolicy: "Always"
 
 agent-backstage:
   enabled: true
   nameOverride: "agent-backstage"
   image:
-    repository: "ghcr.io/cnoe-io/agent-backstage"
-    pullPolicy: "Always"
-
-agent-slack:
-  enabled: false
-  nameOverride: "agent-slack"
-  image:
-    repository: "ghcr.io/cnoe-io/agent-slack"
+    repository: "ghcr.io/suwhang-cisco/agent-backstage"
+    tag: "dev-slim"
     pullPolicy: "Always"
 
 agent-confluence:
-  enabled: false
+  enabled: true
   nameOverride: "agent-confluence"
   image:
-    repository: "ghcr.io/cnoe-io/agent-confluence"
+    repository: "ghcr.io/suwhang-cisco/agent-confluence"
+    tag: "dev-slim"
+    pullPolicy: "Always"
+
+agent-github:
+  enabled: true
+  nameOverride: "agent-github"
+  image:
+    repository: "ghcr.io/suwhang-cisco/agent-github"
+    tag: "dev-slim"
     pullPolicy: "Always"
 
 agent-jira:
   enabled: true
   nameOverride: "agent-jira"
   image:
-    repository: "ghcr.io/cnoe-io/agent-jira"
+    repository: "ghcr.io/suwhang-cisco/agent-jira"
+    tag: "dev-slim"
+    pullPolicy: "Always"
+
+agent-pagerduty:
+  enabled: true
+  nameOverride: "agent-pagerduty"
+  image:
+    repository: "ghcr.io/suwhang-cisco/agent-pagerduty"
+    tag: "dev-slim"
+    pullPolicy: "Always"
+
+agent-slack:
+  enabled: true
+  nameOverride: "agent-slack"
+  image:
+    repository: "ghcr.io/suwhang-cisco/agent-slack"
+    tag: "dev-slim"
     pullPolicy: "Always"
 
 agent-reflection:
