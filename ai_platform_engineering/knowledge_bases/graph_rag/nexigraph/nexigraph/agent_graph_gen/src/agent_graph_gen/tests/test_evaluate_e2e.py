@@ -2,14 +2,11 @@ import asyncio
 import json
 import logging
 import pytest
-import pytest_asyncio
 from core.models import RelationCandidate
 from core.graph_db.neo4j.graph_db import Neo4jDB
 from agent_graph_gen.relation_manager import RelationCandidateManager
 from agent_graph_gen.heuristics import HeuristicsProcessor
-from agent_graph_gen.evaluate import FkeyEvaluator
 from agent_graph_gen.agent import ForeignKeyRelationAgent
-from core.constants import DEFAULT_LABEL, UPDATED_BY_KEY
 from core.utils import get_default_fresh_until
 from core.models import Entity
 
@@ -35,8 +32,8 @@ async def initialise():
 
     # Clear existing data for the client
     logging.info("Clearing existing data for the client...")
-    await graph_db.raw_query(f"MATCH ()-[r]-() DELETE r")
-    await graph_db.raw_query(f"MATCH (n) DETACH DELETE n") 
+    await graph_db.raw_query("MATCH ()-[r]-() DELETE r")
+    await graph_db.raw_query("MATCH (n) DETACH DELETE n") 
     await rc.delete_all_candidates()
 
     logging.info("Waiting 10s for the database to clear...")
@@ -114,7 +111,7 @@ async def test_each_evaluation():
         logs.append(f"True Positives: {tp}, True Negatives: {tn}, False Positives: {fp}, False Negatives: {fn}")
         logs.append(f"Precision: {precision}, Recall: {recall}, Accuracy: {accuracy}, F1 Score: {f1_score}")
 
-        with open(f"test_results_{i + 1}.log", "w") as f:
+        with open(f"test_results_{i + 1}._log", "w") as f:
             for log in logs:
                 f.write(log + "\n")
         
