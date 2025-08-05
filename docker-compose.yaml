@@ -387,6 +387,7 @@ services:
   milvus-standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.5.14
+    command: ["milvus", "run", "standalone"]
     profiles:
       - kb-rag
     security_opt:
@@ -396,6 +397,7 @@ services:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: milvus-minio:9000
       LOG_LEVEL: error
+
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
     healthcheck:
