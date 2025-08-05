@@ -15,10 +15,14 @@ Things to consider:
   - Beware of shared properties. If two entities have a common property, they might have a relation that is not a foreign key.
     - E.g. if both entities share a property like 'namespace', it does not mean that one is a foreign key to the other, but rather that they are both related to another common entity like 'namespace'.
     - REJECT such relations with LOW confidence.
-  - Check other relation candidates of this entity type, is it already related to the same entity type with a more meaningful relation?
   - Does a DIRECT relationship between the two entity types make sense?
   - Does it make sense for entity_a property to be a foreign key to entity_b?
+  - Its better to be unsure than to make a wrong assumption.
 
+4. **Other similar relationships**
+  - Check other relation candidates for the entity types.
+  - If there are other relations, check the count and confidence of those relations.
+  - If the other relations are more meaningful or there are already many accepted relations, then DONT recommend a new relation unless there's a strong semantic justification.
 
 Things to output:
 1. **Confidence in the relationship**
@@ -58,6 +62,6 @@ coverage of this relation (based on the count): {entity_a_with_property_percenta
 example_matches: 
 {example_matches}
 
-Other relationship candidates of {entity_a}:
+Other relationship candidates between {entity_a} and {entity_b}:
 {entity_a_relation_candidates}
 """
