@@ -14,6 +14,7 @@ ai-platform-engineering:
     repository: "ghcr.io/suwhang-cisco/platform-engineer"
     tag: "dev-slim"
     pullPolicy: "Always"
+    command: []
     args: ["platform-engineer"]
   env:
     EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
