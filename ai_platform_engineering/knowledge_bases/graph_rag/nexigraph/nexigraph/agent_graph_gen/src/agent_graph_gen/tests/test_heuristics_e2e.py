@@ -33,17 +33,24 @@ async def initialise():
 
     # Clear existing data for the client
     logging.info("Clearing existing data for the client...")
-    await graph_db.raw_query(f"MATCH (n) WHERE n.{UPDATED_BY_KEY} = '{CLIENT_NAME}' DETACH DELETE n")
+    await graph_db.raw_query(f"MATCH ()-[r]-() DELETE r")
+    await graph_db.raw_query(f"MATCH (n) DETACH DELETE n") 
+    await rc.delete_all_candidates()
 
     logging.info("Loading test data...")
     with open(TEST_DATA_FILE, "r") as f:
         data = json.load(f)
 
     logging.info("Writing test data to the database...")
-    for entity in data["entities"]:
-        logging.info(f"Creating entity {entity}...")
+    for i, entity in enumerate(data["entities"]):
+        logging.info(f"Creating entity {i}...")
         entity = Entity.model_validate(entity)
-        await rc.graph_db.update_entity(entity, client_name=CLIENT_NAME, fresh_until=get_default_fresh_until())
+
+        # write entity to a file
+        with open(f"entities/{i}.json", "w") as ef:
+            json.dump(entity.dict(), ef, cls=ObjEncoder, indent=2)
+
+        # await rc.graph_db.update_entity(entity, client_name=CLIENT_NAME, fresh_until=get_default_fresh_until())
     
     # Process all entities in the database, and compute heuristics
     logging.info("Processing all entities in the database...")
@@ -94,28 +101,28 @@ async def test_relation_candidate_count():
         assert ground_truth_candidate.heuristic.count == test_candidate.heuristic.count, f"Mismatch in count for {rel_id}, expected {ground_truth_candidate.heuristic.count}, got {test_candidate.heuristic.count}"
 
 
-async def fetch_all():
-    """    
-    Fetch all relation candidates and save them to a JSON file. Used to update the test data for heuristics.
-    Used to update the test data for heuristics.
-    """
-    candidates = await rc.fetch_all_candidates()
-    output={}
-    for rel_id, candidate in candidates.items():
-        print(f"Candidate: {candidate}")
-        if candidate.evaluation is not None:
-            candidate.evaluation.relation_confidence = 1.0
-            candidate.evaluation.justification = ""
-            candidate.evaluation.thought = ""
-        candidate.is_applied = False
-        output[rel_id] = candidate.model_dump() 
-    with open(TEST_DATA_HEURISTICS_FILE, "w") as f:
+# async def fetch_all():
+#     """    
+#     Fetch all relation candidates and save them to a JSON file. Used to update the test data for heuristics.
+#     Used to update the test data for heuristics.
+#     """
+#     candidates = await rc.fetch_all_candidates()
+#     output={}
+#     for rel_id, candidate in candidates.items():
+#         print(f"Candidate: {candidate}")
+#         if candidate.evaluation is not None:
+#             candidate.evaluation.relation_confidence = 1.0
+#             candidate.evaluation.justification = ""
+#             candidate.evaluation.thought = ""
+#         candidate.is_applied = False
+#         output[rel_id] = candidate.model_dump() 
+#     with open("new_"+TEST_DATA_HEURISTICS_FILE, "w") as f:
 
-        json.dump(output, f, indent=4, cls=ObjEncoder)
+#         json.dump(output, f, indent=4, cls=ObjEncoder)
 
-def main():
-    import asyncio
-    asyncio.run(fetch_all())
+# def main():
+#     import asyncio
+#     asyncio.run(fetch_all())
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
