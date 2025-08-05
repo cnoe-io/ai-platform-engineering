@@ -5,7 +5,7 @@ import json
 from agent_graph_gen.relation_manager import RelationCandidateManager
 
 from core.graph_db.neo4j.graph_db import Neo4jDB
-from core.utils import get_default_fresh_until, ObjEncoder
+from core.utils import ObjEncoder
 
 from core.models import RelationCandidate
 
@@ -33,8 +33,8 @@ async def initialise():
 
     # Clear existing data for the client
     logging.info("Clearing existing data for the client...")
-    await graph_db.raw_query(f"MATCH ()-[r]-() DELETE r")
-    await graph_db.raw_query(f"MATCH (n) DETACH DELETE n") 
+    await graph_db.raw_query("MATCH ()-[r]-() DELETE r")
+    await graph_db.raw_query("MATCH (n) DETACH DELETE n") 
     await rc.delete_all_candidates()
 
     logging.info("Loading test data...")
