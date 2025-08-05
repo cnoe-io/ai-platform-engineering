@@ -6,10 +6,10 @@ from core.agent.tools import fetch_entity
 from core.graph_db.neo4j.graph_db import Neo4jDB
 import langchain.chat_models.base
 from core.constants import FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC
-from evaluate import FkeyEvaluator
-from heuristics import HeuristicsProcessor
-from relation_manager import RelationCandidateManager
-from prompts import SYSTEM_PROMPT_1
+from agent_graph_gen.evaluate import FkeyEvaluator
+from agent_graph_gen.heuristics import HeuristicsProcessor
+from agent_graph_gen.relation_manager import RelationCandidateManager
+from agent_graph_gen.prompts import SYSTEM_PROMPT_1
 from core.models import AgentOutputFKeyRelation, RelationCandidate, Entity
 from core.msg_pubsub.redis.msg_pubsub import RedisPubSub
 from langchain_core.prompts import PromptTemplate

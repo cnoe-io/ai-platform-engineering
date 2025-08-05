@@ -57,7 +57,7 @@ class RelationCandidateManager:
         Deletes all relation candidates from the Redis database.
         This is used to reset the relation candidates, e.g. when starting a new dataset.
         """
-        self.logger.debug("Deleting all relation candidates from the database.")
+        self.logger.info(f"Deleting all relation candidates from the database. {self.hset_key()}")
         await self.redis.delete(self.hset_key())
 
 
