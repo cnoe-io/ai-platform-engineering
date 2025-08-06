@@ -28,6 +28,8 @@ dependencies = [
     "uv",
     "a2a-sdk==0.2.16",
     "cnoe-agent-utils>=0.2.0",
+    "fastmcp>=2.11.1",
+    "mcp-jira",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]
@@ -63,3 +65,6 @@ select = [
     "F",
 ]
 ignore = ["F403"]
+
+[tool.uv.sources]
+mcp-jira = { path = "mcp" }

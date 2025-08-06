@@ -16,6 +16,8 @@ from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent  # type: ignore
+from cnoe_agent_utils import LLMFactory
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 import os
 
@@ -216,7 +218,7 @@ class ArgoCDAgent:
     async def stream(
       self, query: str, context_id: str, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
-      print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
+      logger.debug("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
 
       # Initialize the agent if not already done
       await self._initialize_agent()

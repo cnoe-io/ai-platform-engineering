@@ -13,23 +13,23 @@ MCP_SERVER_DIR ?= mcp_$(AGENT_NAME)
 
 ## -------------------------------------------------
 .PHONY: \
-  build setup-venv activate-venv install run run-acp run-client \
-  langgraph-dev help clean clean-pyc clean-venv clean-build-artifacts \
-  install-uv install-wfsm verify-a2a-sdk evals \
-  run-a2a run-acp-client run-a2a-client run-curl-client \
-  run-mcp run-mcp-client test registry-agntcy-directory \
-  build-docker-acp build-docker-acp-tag build-docker-acp-push build-docker-acp-tag-and-push \
+	build setup-venv uv-install  uv-sync \
+	run run-a2a run-a2a-client \
   build-docker-a2a build-docker-a2a-tag build-docker-a2a-push build-docker-a2a-tag-and-push \
-  run-docker-acp run-docker-a2a \
+	run-docker-a2a \
+	run-mcp run-mcp-client \
+	langgraph-dev evals test \
+	clean clean-pyc clean-venv clean-build-artifacts \
   check-env lint ruff-fix \
-  help add-copyright-license-headers
+	registry-agntcy-directory release \
+	add-copyright-license-headers help
 
 ## ========== Setup & Clean ==========
 
-setup-venv:        ## Create the Python virtual environment
-	@echo "Setting up virtual environment..."
+setup-venv:        ## Create the Python virtual environment using uv
+	@echo "Setting up virtual environment with uv..."
 	@if [ ! -d ".venv" ]; then \
-		python3 -m venv .venv && echo "Virtual environment created."; \
+		uv venv .venv && echo "Virtual environment created."; \
 	else \
 		echo "Virtual environment already exists."; \
 	fi
@@ -55,48 +55,58 @@ clean:             ## Clean all build artifacts and cache
 
 check-env:         ## Check if .env file exists
 	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found."; exit 1; \
+		echo "Warning: .env file not found in $$(pwd)"; \
+	fi
+	@if [ ! -f ".env" ]; then \
+		$(MAKE) copy-env-from-root; \
 	fi
 
-venv-activate = . .venv/bin/activate
-load-env = set -a && . .env && set +a
-venv-run = $(venv-activate) && $(load-env) &&
+copy-env-from-root: ## Copy .env file from root directory
+	@echo "Root directory: $(shell git rev-parse --show-toplevel)"
+	@if [ -f "../../../.env" ]; then \
+		cp ../../../.env . && echo ".env file copied from root directory."; \
+	else \
+		echo "Error: .env file not found in root directory."; exit 1; \
+	fi
 
-## ========== Install ==========
+## ========== UV Sync ==========
 
-install: setup-venv ## Install Python dependencies using Poetry
+uv-sync: setup-venv ## Sync Python dependencies using uv
 	@echo "Installing dependencies..."
-	@$(venv-activate) && poetry install --no-interaction
+	@uv sync --no-dev
 	@echo "Dependencies installed successfully."
 
-install-uv:        ## Install uv package manager
-	@$(venv-run) pip install uv
-
-
-install-wfsm:      ## Install workflow server manager (wfsm)
-	curl -sSL https://raw.githubusercontent.com/agntcy/workflow-srv-mgr/refs/heads/install-sh-tag-cmd-args/install.sh -t v0.3.1 | bash
+uv-install:        ## Install uv package manager
+	@if ! command -v uv &> /dev/null; then \
+		read -p "uv is not installed. Do you want to install it? (y/n): " confirm; \
+		if [ "$$confirm" = "y" ]; then \
+			curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		else \
+			echo "uv installation skipped."; \
+			exit 1; \
+		fi; \
+	else \
+		echo "uv is already installed."; \
+	fi
 
 ## ========== Build & Lint ==========
+lint: setup-venv     ## Lint code with ruff
+	@uv add ruff --dev
+	@uv run python -m ruff check $(AGENT_PKG_NAME) tests --select E,F --ignore F403 --ignore E402 --line-length 320
 
-build: setup-venv  ## Build the package using Poetry
-	@$(venv-activate) && poetry build
-
-lint: setup-venv   ## Lint code with ruff
-	@$(venv-activate) && poetry install && ruff check $(AGENT_PKG_NAME) tests
+ruff: lint				   ## Run ruff linter
 
 ruff-fix: setup-venv ## Auto-fix lint issues with ruff
-	@$(venv-activate) && ruff check $(AGENT_PKG_NAME) tests --fix
+	@uv add ruff --dev
+	@uv run python -m ruff check $(AGENT_PKG_NAME) tests --fix
 
 ## ========== Run ==========
 
-run-acp: setup-venv ## Deploy ACP agent via wfsm
-	@$(MAKE) check-env
-	@$(venv-run) wfsm deploy -m ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json --envFilePath=./.env --dryRun=false
+run: run-a2a ## Run the agent application
 
-run-a2a: setup-venv ## Run A2A agent with uvicorn
-	@$(MAKE) check-env
-	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
-	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
+run-a2a: setup-venv check-env uv-sync ## Run A2A agent with uvicorn
+	@A2A_PORT=$$(grep ARGOCD_A2A_PORT .env | cut -d '=' -f2); \
+	uv run python -m $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
 
 run-mcp: setup-venv ## Run MCP server in SSE mode
 	@$(MAKE) check-env
@@ -104,36 +114,24 @@ run-mcp: setup-venv ## Run MCP server in SSE mode
 
 ## ========== Clients ==========
 
-## ========== Clients ==========
+run-a2a-client: setup-venv check-env ## Run A2A client script
+	@uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 
-run-a2a-client: setup-venv ## Run A2A client script
-	@$(MAKE) check-env
-	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+run-mcp-client: setup-venv check-env ## Run MCP client script
+	@uvx https://github.com/cnoe-io/agent-chat-cli.git mcp
 
-run-mcp-client: setup-venv ## Run MCP client script
-	@$(MAKE) check-env
-	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git mcp
-
+## ========== LangGraph Development ==========
 langgraph-dev: setup-venv ## Run LangGraph dev mode
+	@$(venv-run) uv add langgraph-cli[inmem] --dev
+	@$(venv-run) uv sync --dev
 	@$(venv-run) langgraph dev
 
+## ========== Evals ==========
 evals: setup-venv ## Run agentevals with test cases
 	@$(venv-run) uv add agentevals tabulate pytest
-	@$(venv-run) uv run evals/strict_match/test_strict_match.py
+	@$(venv-run) uv run evals/strict_match/eval_strict_match.py
 
 ## ========== Docker ==========
-
-build-docker-acp:            ## Build ACP Docker image
-	docker build -t $(AGENT_DIR_NAME):acp-latest --build-arg AGENT_NAME=jira -f build/Dockerfile.acp .
-
-build-docker-acp-tag:        ## Tag ACP Docker image
-	docker tag $(AGENT_DIR_NAME):acp-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest
-
-build-docker-acp-push:       ## Push ACP Docker image
-	docker push ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest
-
-build-docker-acp-tag-and-push: ## Tag and push ACP Docker image
-	@$(MAKE) build-docker-acp build-docker-acp-tag build-docker-acp-push
 
 build-docker-a2a:            ## Build A2A Docker image
 	docker build -t $(AGENT_DIR_NAME):a2a-latest -f build/Dockerfile.a2a .
@@ -146,36 +144,6 @@ build-docker-a2a-push:       ## Push A2A Docker image
 
 build-docker-a2a-tag-and-push: ## Tag and push A2A Docker image
 	@$(MAKE) build-docker-a2a build-docker-a2a-tag build-docker-a2a-push
-
-run-docker-acp: ## Run the ACP agent in Docker
-	@$(MAKE) check-env
-	@AGENT_ID=$$(grep CNOE_AGENT_$$(echo $(AGENT_NAME) | tr a-z A-Z)_ID .env | cut -d '=' -f2); \
-	AGENT_PORT=$$(grep CNOE_AGENT_$$(echo $(AGENT_NAME) | tr a-z A-Z)_PORT .env | cut -d '=' -f2); \
-	ACP_AGENT_IMAGE=$$(grep ACP_AGENT_IMAGE .env | cut -d '=' -f2 || echo ""); \
-	LOCAL_AGENT_PORT=$${AGENT_PORT:-10000}; \
-	LOCAL_AGENT_IMAGE=$${ACP_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):acp-latest}; \
-	echo "========================================================================"; \
-	echo "==                     ACP AGENT DOCKER RUN                           =="; \
-	echo "========================================================================"; \
-	echo "Using Agent Image : $$LOCAL_AGENT_IMAGE"; \
-	echo "Using Agent ID    : $$AGENT_ID"; \
-	echo "Using Agent Port  : localhost:$$LOCAL_AGENT_PORT"; \
-	echo "========================================================================"; \
-	echo "==               Do not use uvicorn port in the logs                  =="; \
-	echo "========================================================================"; \
-	docker run -p $$LOCAL_AGENT_PORT:8000 -it \
-		-v $(PWD)/.env:/opt/agent_src/.env \
-		--env-file .env \
-		-e AGWS_STORAGE_PERSIST=False \
-		-e AGENT_MANIFEST_PATH="manifest.json" \
-		-e AGENTS_REF='{"'$$AGENT_ID'": "$(AGENT_PKG_NAME).graph:graph"}' \
-		-e AGENT_ID=$$AGENT_ID \
-		-e AIOHTTP_CLIENT_MAX_REDIRECTS=10 \
-		-e AIOHTTP_CLIENT_TIMEOUT=60 \
-		-e API_HOST=0.0.0.0 \
-		$$LOCAL_AGENT_IMAGE
-
-# Run Docker container for A2A agent
 
 run-docker-a2a: ## Run the A2A agent in Docker
 	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
@@ -194,15 +162,25 @@ run-docker-a2a: ## Run the A2A agent in Docker
 
 ## ========== Tests ==========
 
-test: setup-venv build ## Run tests using pytest and coverage
-	@$(venv-activate) && poetry install
-	@$(venv-activate) && poetry add pytest-asyncio pytest-cov --dev
-	@$(venv-activate) && pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
+test: setup-venv uv-sync ## Run tests using pytest and coverage
+	@$(venv-activate) && uv add pytest-asyncio pytest-cov --dev
+	@$(venv-activate) && uv run pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
 
 ## ========== AGNTCY Directory ==========
 
 registry-agntcy-directory:  ## Push agent.json to AGNTCY registry
-	@dirctl hub push outshift_platform_engineering/$(AGENT_DIR_NAME) ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json
+	@dirctl hub push outshift_platform_engineering/$(AGENT_DIR_NAME) ./$(AGENT_PKG_NAME)/protocol_bindings/agntcy_directory/agent.json
+
+## ========== Release & Versioning ==========
+release: setup-venv  ## Bump version and create a release
+	@. .venv/bin/activate; uv add commitizen --dev
+	@. .venv/bin/activate; git tag -d stable || echo "No stable tag found."
+	@. .venv/bin/activate; cz changelog
+	@git add CHANGELOG.md
+	@git commit -m "docs: update changelog"
+	@. .venv/bin/activate; cz bump --increment PATCH
+	@. .venv/bin/activate; git tag -f stable
+	@echo "Version bumped and stable tag updated successfully."
 
 ## ========== Licensing & Help ==========
 

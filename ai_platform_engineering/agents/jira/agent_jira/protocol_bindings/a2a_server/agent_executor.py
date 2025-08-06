@@ -52,7 +52,7 @@ class JiraAgentExecutor(AgentExecutor):
         # invoke the underlying agent, using streaming results
         async for event in self.agent.stream(query, context_id, trace_id):
             if event['is_task_complete']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
                         contextId=task.contextId,
@@ -65,7 +65,7 @@ class JiraAgentExecutor(AgentExecutor):
                         ),
                     )
                 )
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
                         final=True,
@@ -74,7 +74,7 @@ class JiraAgentExecutor(AgentExecutor):
                     )
                 )
             elif event['require_user_input']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
@@ -90,7 +90,7 @@ class JiraAgentExecutor(AgentExecutor):
                     )
                 )
             else:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.working,
