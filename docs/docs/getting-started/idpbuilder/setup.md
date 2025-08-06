@@ -1,6 +1,6 @@
 # Run with IDPBuilder 🏗️ 💻
 
-[IDPBuilder](https://cnoe.io/docs/intro/idpbuilder) is a tool for creating local Internal Developer Platform environments using KIND clusters. It provides a fast way to deploy and test platform components including ArgoCD, Vault, Backstage, and AI Platform Engineering agents.
+[IDPBuilder](https://cnoe.io/docs/idpbuilder) is a tool for creating local Internal Developer Platform environments using KIND clusters. It provides a fast way to deploy and test platform components including ArgoCD, Vault, Backstage, and AI Platform Engineering agents.
 
 <div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
 	<iframe src="https://app.vidcast.io/share/embed/3dc7f168-c8b0-40d3-aa45-66f74ec0ec03?disableCopyDropdown=1" width="100%" height="100%" title="Run AI Platform Engineering using IDPBuilder" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
@@ -9,7 +9,7 @@
 ## Prerequisites
 
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) installed
-- [IDPBuilder](https://cnoe.io/docs/reference-implementation/idpbuilder) binary installed
+- [IDPBuilder](https://cnoe.io/docs/idpbuilder/installation) binary installed
 
 ## Architecture Overview
 
