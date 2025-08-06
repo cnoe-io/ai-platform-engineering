@@ -54,7 +54,7 @@ dependencies:
     version: 0.0.3
   # AGNTCY Slim dataplane service
   - name: slim
-    version: v0.1.9
+    version: v0.1.8
     repository: oci://ghcr.io/agntcy/slim/helm
     condition: global.slim.enabled
   - name: slim-control-plane
