@@ -1,4 +1,4 @@
-# Copyright 2025 Cisco
+# Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
 from agent_backstage.protocol_bindings.a2a_server.agent import BackstageAgent # type: ignore[import-untyped]
@@ -52,6 +52,7 @@ class BackstageAgentExecutor(AgentExecutor):
         # invoke the underlying agent, using streaming results
         async for event in self.agent.stream(query, context_id, trace_id):
             if event['is_task_complete']:
+                logger.info("Task complete event received. Enqueuing TaskArtifactUpdateEvent and TaskStatusUpdateEvent.")
                 await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
@@ -73,7 +74,9 @@ class BackstageAgentExecutor(AgentExecutor):
                         taskId=task.id,
                     )
                 )
+                logger.info(f"Task {task.id} marked as completed.")
             elif event['require_user_input']:
+                logger.info("User input required event received. Enqueuing TaskStatusUpdateEvent with input_required state.")
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
@@ -89,7 +92,9 @@ class BackstageAgentExecutor(AgentExecutor):
                         taskId=task.id,
                     )
                 )
+                logger.info(f"Task {task.id} requires user input.")
             else:
+                logger.info("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
@@ -105,7 +110,7 @@ class BackstageAgentExecutor(AgentExecutor):
                         taskId=task.id,
                     )
                 )
-
+                logger.info(f"Task {task.id} is in progress.")
     @override
     async def cancel(
         self, context: RequestContext, event_queue: EventQueue
