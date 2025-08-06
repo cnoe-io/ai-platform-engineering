@@ -41,7 +41,7 @@ class RAGAgent:
             # Parse host and port from URI
             from urllib.parse import urlparse
             logger.info(f"DEBUG: Milvus URI: {milvus_uri}")
-            parsed = urlparse(milvus_uri)
+            # parsed = urlparse(milvus_uri)
             self.milvus_conn = {
                 "uri": milvus_uri
             }
