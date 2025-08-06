@@ -34,7 +34,7 @@ class RAGAgentExecutor(AgentExecutor):
     ) -> None:
         query = context.get_user_input()
         task = context.current_task
-        context_id = context.message.contextId if context.message else None
+        # context_id = context.message.contextId if context.message else None
 
         if not context.message:
             raise Exception('No message provided')
