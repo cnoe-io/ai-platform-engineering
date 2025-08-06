@@ -57,6 +57,9 @@ agent-argocd:
     repository: "ghcr.io/suwhang-cisco/agent-argocd"
     tag: "dev-slim"
     pullPolicy: "Always"
+  # Disable liveness probe for message bridge agents
+  livenessProbe: {}
+  readinessProbe: {}
 
 agent-backstage:
   enabled: true
@@ -65,6 +68,9 @@ agent-backstage:
     repository: "ghcr.io/suwhang-cisco/agent-backstage"
     tag: "dev-slim"
     pullPolicy: "Always"
+  # Disable liveness probe for message bridge agents
+  livenessProbe: {}
+  readinessProbe: {}
 
 agent-confluence:
   enabled: true
@@ -73,6 +79,9 @@ agent-confluence:
     repository: "ghcr.io/suwhang-cisco/agent-confluence"
     tag: "dev-slim"
     pullPolicy: "Always"
+  # Disable liveness probe for message bridge agents
+  livenessProbe: {}
+  readinessProbe: {}
 
 agent-github:
   enabled: true
@@ -81,6 +90,9 @@ agent-github:
     repository: "ghcr.io/suwhang-cisco/agent-github"
     tag: "dev-slim"
     pullPolicy: "Always"
+  # Disable liveness probe for message bridge agents
+  livenessProbe: {}
+  readinessProbe: {}
 
 agent-jira:
   enabled: true
@@ -89,6 +101,9 @@ agent-jira:
     repository: "ghcr.io/suwhang-cisco/agent-jira"
     tag: "dev-slim"
     pullPolicy: "Always"
+  # Disable liveness probe for message bridge agents
+  livenessProbe: {}
+  readinessProbe: {}
 
 agent-pagerduty:
   enabled: true
@@ -97,6 +112,9 @@ agent-pagerduty:
     repository: "ghcr.io/suwhang-cisco/agent-pagerduty"
     tag: "dev-slim"
     pullPolicy: "Always"
+  # Disable liveness probe for message bridge agents
+  livenessProbe: {}
+  readinessProbe: {}
 
 agent-slack:
   enabled: true
@@ -105,6 +123,9 @@ agent-slack:
     repository: "ghcr.io/suwhang-cisco/agent-slack"
     tag: "dev-slim"
     pullPolicy: "Always"
+  # Disable liveness probe for message bridge agents
+  livenessProbe: {}
+  readinessProbe: {}
 
 agent-reflection:
   enabled: false
