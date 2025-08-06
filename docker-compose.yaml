@@ -26,6 +26,7 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
       - SLACK_AGENT_HOST=agent-slack
       - KOMODOR_AGENT_HOST=agent-komodor
+      - KB_RAG_AGENT_HOST=kb-rag
       # Uncomment this once the stable GHCR image includes tracing evaluation support
       # - ENABLE_TRACING=${ENABLE_TRACING:-false}
       # - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
