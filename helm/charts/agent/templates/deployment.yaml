@@ -110,6 +110,7 @@ spec:
             {{- end }}
             {{- include "agent.multiAgentEnvVars" . | nindent 12 }}
           {{- end }}
+          {{- if not .Values.global.slim.enabled }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -117,6 +118,7 @@ spec:
           {{- with .Values.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- end }}
           {{- with .Values.resources }}
           resources:

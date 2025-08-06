@@ -14,10 +14,17 @@ ai-platform-engineering:
     repository: "ghcr.io/suwhang-cisco/platform-engineer"
     tag: "dev-slim"
     pullPolicy: "Always"
-    command: ["poetry", "run", "ai-platform-engineering"]
     args: ["platform-engineer"]
   env:
     EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
+  volumes:
+    - name: prompt-config
+      configMap:
+        name: prompt-config
+  volumeMounts:
+    - name: prompt-config
+      mountPath: /app/prompt_config.yaml
+      subPath: prompt_config.yaml
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
