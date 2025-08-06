@@ -58,8 +58,8 @@ agent-argocd:
     tag: "dev-slim"
     pullPolicy: "Always"
   # Disable liveness probe for message bridge agents
-  livenessProbe: {}
-  readinessProbe: {}
+  livenessProbe: null
+  readinessProbe: null
 
 agent-backstage:
   enabled: true
@@ -69,8 +69,8 @@ agent-backstage:
     tag: "dev-slim"
     pullPolicy: "Always"
   # Disable liveness probe for message bridge agents
-  livenessProbe: {}
-  readinessProbe: {}
+  livenessProbe: null
+  readinessProbe: null
 
 agent-confluence:
   enabled: true
@@ -80,8 +80,8 @@ agent-confluence:
     tag: "dev-slim"
     pullPolicy: "Always"
   # Disable liveness probe for message bridge agents
-  livenessProbe: {}
-  readinessProbe: {}
+  livenessProbe: null
+  readinessProbe: null
 
 agent-github:
   enabled: true
@@ -91,8 +91,8 @@ agent-github:
     tag: "dev-slim"
     pullPolicy: "Always"
   # Disable liveness probe for message bridge agents
-  livenessProbe: {}
-  readinessProbe: {}
+  livenessProbe: null
+  readinessProbe: null
 
 agent-jira:
   enabled: true
@@ -102,8 +102,8 @@ agent-jira:
     tag: "dev-slim"
     pullPolicy: "Always"
   # Disable liveness probe for message bridge agents
-  livenessProbe: {}
-  readinessProbe: {}
+  livenessProbe: null
+  readinessProbe: null
 
 agent-pagerduty:
   enabled: true
@@ -113,8 +113,8 @@ agent-pagerduty:
     tag: "dev-slim"
     pullPolicy: "Always"
   # Disable liveness probe for message bridge agents
-  livenessProbe: {}
-  readinessProbe: {}
+  livenessProbe: null
+  readinessProbe: null
 
 agent-slack:
   enabled: true
@@ -124,8 +124,8 @@ agent-slack:
     tag: "dev-slim"
     pullPolicy: "Always"
   # Disable liveness probe for message bridge agents
-  livenessProbe: {}
-  readinessProbe: {}
+  livenessProbe: null
+  readinessProbe: null
 
 agent-reflection:
   enabled: false
