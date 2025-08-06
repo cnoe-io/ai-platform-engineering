@@ -13,9 +13,6 @@ ai-platform-engineering:
   image:
     repository: "ghcr.io/suwhang-cisco/platform-engineer"
     tag: "dev-slim"
-    pullPolicy: "Always"
-    command: []
-    args: ["platform-engineer"]
   env:
     EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
   multiAgentConfig:
@@ -57,9 +54,6 @@ agent-argocd:
     repository: "ghcr.io/suwhang-cisco/agent-argocd"
     tag: "dev-slim"
     pullPolicy: "Always"
-  # Disable liveness probe for message bridge agents
-  livenessProbe: null
-  readinessProbe: null
 
 agent-backstage:
   enabled: true
@@ -68,9 +62,6 @@ agent-backstage:
     repository: "ghcr.io/suwhang-cisco/agent-backstage"
     tag: "dev-slim"
     pullPolicy: "Always"
-  # Disable liveness probe for message bridge agents
-  livenessProbe: null
-  readinessProbe: null
 
 agent-confluence:
   enabled: true
@@ -79,9 +70,6 @@ agent-confluence:
     repository: "ghcr.io/suwhang-cisco/agent-confluence"
     tag: "dev-slim"
     pullPolicy: "Always"
-  # Disable liveness probe for message bridge agents
-  livenessProbe: null
-  readinessProbe: null
 
 agent-github:
   enabled: true
@@ -90,9 +78,6 @@ agent-github:
     repository: "ghcr.io/suwhang-cisco/agent-github"
     tag: "dev-slim"
     pullPolicy: "Always"
-  # Disable liveness probe for message bridge agents
-  livenessProbe: null
-  readinessProbe: null
 
 agent-jira:
   enabled: true
@@ -101,9 +86,6 @@ agent-jira:
     repository: "ghcr.io/suwhang-cisco/agent-jira"
     tag: "dev-slim"
     pullPolicy: "Always"
-  # Disable liveness probe for message bridge agents
-  livenessProbe: null
-  readinessProbe: null
 
 agent-pagerduty:
   enabled: true
@@ -112,9 +94,6 @@ agent-pagerduty:
     repository: "ghcr.io/suwhang-cisco/agent-pagerduty"
     tag: "dev-slim"
     pullPolicy: "Always"
-  # Disable liveness probe for message bridge agents
-  livenessProbe: null
-  readinessProbe: null
 
 agent-slack:
   enabled: true
@@ -123,9 +102,6 @@ agent-slack:
     repository: "ghcr.io/suwhang-cisco/agent-slack"
     tag: "dev-slim"
     pullPolicy: "Always"
-  # Disable liveness probe for message bridge agents
-  livenessProbe: null
-  readinessProbe: null
 
 agent-reflection:
   enabled: false
