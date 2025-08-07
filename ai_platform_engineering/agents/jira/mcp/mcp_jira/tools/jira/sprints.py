@@ -5,7 +5,6 @@ import json
 from pydantic import Field
 from typing_extensions import Annotated
 from mcp_jira.api.client import make_api_request
-from mcp.server.fastmcp import Context
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -43,7 +42,7 @@ async def get_sprints_from_board(
         "startAt": start_at,
         "maxResults": limit,
     }
-    response = await make_api_request(ctx, f"/rest/agile/1.0/board/{board_id}/sprint", params=params, method='GET')
+    response = await make_api_request(f"/rest/agile/1.0/board/{board_id}/sprint", params=params, method='GET')
     if not response or response.status_code != 200:
         raise ValueError(f"Failed to fetch sprints for board {board_id}. Response: {response}")
     return json.dumps(response.json(), indent=2, ensure_ascii=False)
@@ -83,7 +82,7 @@ async def create_sprint(
         "endDate": end_date,
         "goal": goal,
     }
-    response = await make_api_request(ctx, f"/rest/agile/1.0/board/{board_id}/sprint", method="POST", json=payload)
+    response = await make_api_request(f"/rest/agile/1.0/board/{board_id}/sprint", method="POST", json=payload)
     if not response or response.status_code != 201:
         raise ValueError(f"Failed to create sprint for board {board_id}. Response: {response}")
     return json.dumps(response.json(), indent=2, ensure_ascii=False)
@@ -108,7 +107,6 @@ async def update_sprint(
     """Update jira sprint.
 
     Args:
-        ctx: The FastMCP context.
         sprint_id: The ID of the sprint.
         sprint_name: Optional new name.
         state: Optional new state (future|active|closed).
@@ -129,7 +127,7 @@ async def update_sprint(
         "endDate": end_date,
         "goal": goal,
     }
-    response = await make_api_request(ctx, f"/rest/agile/1.0/sprint/{sprint_id}", method="PUT", json=payload)
+    response = await make_api_request(f"/rest/agile/1.0/sprint/{sprint_id}", method="PUT", json=payload)
     if not response or response.status_code != 200:
         error_payload = {
             "error": f"Failed to update sprint {sprint_id}. Response: {response}"

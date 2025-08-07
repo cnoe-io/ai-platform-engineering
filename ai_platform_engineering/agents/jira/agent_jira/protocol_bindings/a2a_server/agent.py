@@ -28,13 +28,11 @@ from agent_jira.protocol_bindings.a2a_server.state import (
     Message,
     MsgType,
 )
-from cnoe_agent_utils import LLMFactory
-from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 logger = logging.getLogger(__name__)
 
 def debug_print(message: str, banner: bool = True):
-    if os.getenv("ACP_SERVER_DEBUG", "false").lower() == "true":
+    if os.getenv("A2A_SERVER_DEBUG", "false").lower() == "true":
         if banner:
             print("=" * 80)
         print(f"DEBUG: {message}")
@@ -114,7 +112,6 @@ class JiraAgent:
             logging.info("Using STDIO transport for MCP client")
             # For STDIO transport, we can use a simple client without URL
             # This is useful for local development or testing
-            # Ensure ARGOCD_TOKEN and ARGOCD_API_URL are set in the environment
             client = MultiServerMCPClient(
                 {
                     "jira": {

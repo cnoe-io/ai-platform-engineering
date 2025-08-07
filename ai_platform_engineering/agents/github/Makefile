@@ -109,9 +109,8 @@ run-a2a-client: setup-venv ## Run A2A client script
 	@$(MAKE) check-env
 	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 
-run-mcp-client: setup-venv ## Run MCP client script
-	@$(MAKE) check-env
-	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git mcp
+run-mcp-client:  ## Run MCP client script
+	@npx @modelcontextprotocol/inspector
 
 langgraph-dev: setup-venv ## Run LangGraph dev mode
 	@$(venv-run) langgraph dev

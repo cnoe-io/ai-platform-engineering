@@ -27,8 +27,6 @@ from agent_argocd.state import (
     Message,
     MsgType,
 )
-from cnoe_agent_utils import LLMFactory
-from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 logger = logging.getLogger(__name__)
 

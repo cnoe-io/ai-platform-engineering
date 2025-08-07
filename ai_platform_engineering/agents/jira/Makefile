@@ -110,15 +110,15 @@ run-a2a: setup-venv check-env uv-sync ## Run A2A agent with uvicorn
 
 run-mcp: setup-venv ## Run MCP server in SSE mode
 	@$(MAKE) check-env
-	@$(venv-run) MCP_MODE=SSE uv run $(AGENT_PKG_NAME)/protocol_bindings/mcp_server/$(MCP_SERVER_DIR)/server.py
+	@$(venv-run) MCP_MODE=HTTP uv run $(AGENT_PKG_NAME)/mcp/$(MCP_SERVER_DIR)/server.py
 
 ## ========== Clients ==========
 
 run-a2a-client: setup-venv check-env ## Run A2A client script
 	@uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 
-run-mcp-client: setup-venv check-env ## Run MCP client script
-	@uvx https://github.com/cnoe-io/agent-chat-cli.git mcp
+run-mcp-client:  ## Run MCP client script
+	@npx @modelcontextprotocol/inspector
 
 ## ========== LangGraph Development ==========
 langgraph-dev: setup-venv ## Run LangGraph dev mode
@@ -163,13 +163,13 @@ run-docker-a2a: ## Run the A2A agent in Docker
 ## ========== Tests ==========
 
 test: setup-venv uv-sync ## Run tests using pytest and coverage
-	@$(venv-activate) && uv add pytest-asyncio pytest-cov --dev
-	@$(venv-activate) && uv run pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
+	@uv add pytest-asyncio pytest-cov --dev
+	@uv run pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
 
 ## ========== AGNTCY Directory ==========
 
 registry-agntcy-directory:  ## Push agent.json to AGNTCY registry
-	@dirctl hub push outshift_platform_engineering/$(AGENT_DIR_NAME) ./$(AGENT_PKG_NAME)/protocol_bindings/agntcy_directory/agent.json
+	@dirctl hub push outshift_platform_engineering/$(AGENT_DIR_NAME) ./$(AGENT_PKG_NAME)/cards/oasf.json
 
 ## ========== Release & Versioning ==========
 release: setup-venv  ## Bump version and create a release

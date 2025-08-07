@@ -19,7 +19,11 @@ async def get_entity_facets(param_facet: List[str], param_filter: List[str] = No
 
   Args:
       param_facet (List[str]): List of facet names to retrieve for the entities.
-      param_filter (List[str], optional): One or more filter sets to match against each entity. Each filter set is a list of conditions that must all be true for the set to match (AND logic within a set). At least one filter set must match for the entity to be included in the result (OR logic between sets). Each condition can be in the form `<key>` (checks for existence) or `<key>=<value>` (checks for a specific value). Keys use a simplified JSON path and are case-insensitive. Defaults to None.
+      param_filter (List[str], optional): One or more filter sets to match against each entity.
+          Each filter set is a list of conditions that must all be true for the set to match (AND logic within a set).
+          At least one filter set must match for the entity to be included in the result (OR logic between sets).
+          Each condition can be in the form `<key>` (checks for existence) or `<key>=<value>` (checks for a specific value).
+          Keys use a simplified JSON path and are case-insensitive. Defaults to None.
 
   Returns:
       Any: The JSON response from the API call containing the matching entity facets.

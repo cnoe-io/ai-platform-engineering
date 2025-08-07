@@ -27,12 +27,20 @@ async def get_entities_by_query(
   Search for entities by a given query.
 
   Args:
-      param_fields (List[str], optional): A list of simplified JSON paths specifying which parts of the entity data to retain in the response. This reduces the response size and may improve query efficiency. For example, ['metadata.name', 'metadata.annotations', 'spec'] will only include those fields in each entity. Defaults to None.
+      param_fields (List[str], optional): A list of simplified JSON paths specifying which parts of the entity data to retain in the response.
+          This reduces the response size and may improve query efficiency.
+          For example, ['metadata.name', 'metadata.annotations', 'spec'] will only include those fields in each entity. Defaults to None.
       param_limit (int, optional): The maximum number of records to return in the response. Defaults to None.
       param_offset (int, optional): The number of records to skip in the query page, used for pagination. Defaults to None.
-      param_orderField (List[str], optional): A list of fields to order the returned entities by. Each field can be followed by 'asc' or 'desc' to specify ascending or descending order, respectively. For example, ['metadata.name,asc']. Defaults to None.
-      param_cursor (str, optional): A cursor string for cursor-based pagination. When provided, it is used to retrieve the next or previous batch of entities. Note: 'filter', 'orderField', and 'fullTextFilter' are mutually exclusive with 'cursor'. Defaults to None.
-      param_filter (List[str], optional): One or more filter sets to match against each entity. Each filter set is a list of conditions (ANDed together), and at least one filter set must match (ORed together). Conditions can be of the form '<key>' (existence) or '<key>=<value>' (equality). For example, ['kind=user,metadata.namespace=default', 'kind=group,spec.type']. Defaults to None.
+      param_orderField (List[str], optional): A list of fields to order the returned entities by.
+          Each field can be followed by 'asc' or 'desc' to specify ascending or descending order, respectively.
+          For example, ['metadata.name,asc']. Defaults to None.
+      param_cursor (str, optional): A cursor string for cursor-based pagination.
+          When provided, it is used to retrieve the next or previous batch of entities.
+          Note: 'filter', 'orderField', and 'fullTextFilter' are mutually exclusive with 'cursor'. Defaults to None.
+      param_filter (List[str], optional): One or more filter sets to match against each entity.
+          Each filter set is a list of conditions (ANDed together), and at least one filter set must match (ORed together).
+          Conditions can be of the form '<key>' (existence) or '<key>=<value>' (equality). For example, ['kind=user,metadata.namespace=default', 'kind=group,spec.type']. Defaults to None.
       param_fullTextFilterTerm (str, optional): A text search term to filter entities by full-text search. Defaults to None.
       param_fullTextFilterFields (List[str], optional): A list of fields to apply the full-text search term to. Defaults to None.
 

@@ -3,7 +3,6 @@
 import logging
 from typing import Annotated
 from pydantic import Field
-from mcp.server.fastmcp import Context
 from mcp_jira.api.client import make_api_request
 from mcp_jira.models.jira.agile import JiraBoard
 

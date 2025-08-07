@@ -106,6 +106,7 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
       self.model = LLMFactory().get_llm()
       self.tracing = TracingManager()
       self.graph = None
+
       async def _async_komodor_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
@@ -119,20 +120,49 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
           komodor_api_url = os.getenv("KOMODOR_API_URL")
           if not komodor_api_url:
             raise ValueError("KOMODOR_API_URL must be set as an environment variable.")
-          client = MultiServerMCPClient(
+          client = None
+          mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+          if mcp_mode == "http" or mcp_mode == "streamable_http":
+            logging.info("Using HTTP transport for MCP client")
+            # For HTTP transport, we need to connect to the MCP server
+            # This is useful for production or when the MCP server is running separately
+            # Ensure MCP_HOST and MCP_PORT are set in the environment
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            # TBD: Handle user authentication
+            user_jwt = "TBD_USER_JWT"
+
+            client = MultiServerMCPClient(
               {
-                  "komodor": {
-                      "command": "uv",
-                      "args": ["run", "--project", os.path.dirname(server_path), server_path],
-                      "env": {
-                          "KOMODOR_TOKEN": os.getenv("KOMODOR_TOKEN"),
-                          "KOMODOR_API_URL": os.getenv("KOMODOR_API_URL"),
-                          "KOMODOR_VERIFY_SSL": "false"
-                      },
-                      "transport": "stdio",
-                  }
+                "argocd": {
+                  "transport": "streamable_http",
+                  "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                  "headers": {
+                    "Authorization": f"Bearer {user_jwt}",
+                  },
+                }
               }
-          )
+            )
+          else:
+            logging.info("Using STDIO transport for MCP client")
+            # For STDIO transport, we can use a simple client without URL
+            # This is useful for local development or testing
+
+            client = MultiServerMCPClient(
+                {
+                    "komodor": {
+                        "command": "uv",
+                        "args": ["run", "--project", os.path.dirname(server_path), server_path],
+                        "env": {
+                            "KOMODOR_TOKEN": os.getenv("KOMODOR_TOKEN"),
+                            "KOMODOR_API_URL": os.getenv("KOMODOR_API_URL"),
+                            "KOMODOR_VERIFY_SSL": "false"
+                        },
+                        "transport": "stdio",
+                    }
+                }
+            )
           tools = await client.get_tools()
           print('*'*80)
           tools_docs = ["Available Tools and Parameters:"]
@@ -186,8 +216,9 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
           # Add a banner before printing the output messages
           debug_print(f"Agent MCP Capabilities: {output_messages[-1].content}")
 
-      def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-          return asyncio.run(_async_komodor_agent(state, config))
+      async def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
+          return await _async_komodor_agent(state, config)
+
       messages = []
       state_input = InputState(messages=messages)
       agent_input = AgentState(input=state_input).model_dump(mode="json")
@@ -195,7 +226,17 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
           messages.append(HumanMessage(content="What is 2 + 2?"))
-      _create_agent(agent_input, config=runnable_config)
+      try:
+          loop = asyncio.get_running_loop()
+      except RuntimeError:
+          loop = None
+      if loop and loop.is_running():
+          # If we're in an async context, schedule and wait for the coroutine
+          import nest_asyncio
+          nest_asyncio.apply()
+          loop.run_until_complete(_create_agent(agent_input, config=runnable_config))
+      else:
+          asyncio.run(_create_agent(agent_input, config=runnable_config))
 
     @trace_agent_stream("komodor")
     async def stream(
@@ -226,6 +267,37 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
               }
 
       yield self.get_agent_response(config)
+
+    @trace_agent_stream("komodor")
+    async def stream(
+      self, query: str, sessionId: str, trace_id: str = None
+    ) -> AsyncIterable[dict[str, Any]]:
+      print("DEBUG: Starting stream with query:", query, "and sessionId:", sessionId)
+      inputs: dict[str, Any] = {'messages': [('user', query)]}
+      config: RunnableConfig = self.tracing.create_config(sessionId)
+
+      async for item in self.graph.astream(inputs, config, stream_mode='values'):
+          message = item['messages'][-1]
+          debug_print(f"Streamed message: {message}")
+          if (
+              isinstance(message, AIMessage)
+              and message.tool_calls
+              and len(message.tool_calls) > 0
+          ):
+              yield {
+                'is_task_complete': False,
+                'require_user_input': False,
+                'content': 'Looking up Komodor Resources rates...',
+              }
+          elif isinstance(message, ToolMessage):
+              yield {
+                'is_task_complete': False,
+                'require_user_input': False,
+                'content': 'Processing Komodor Resources rates..',
+              }
+
+      yield self.get_agent_response(config)
+
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
       debug_print(f"Fetching agent response with config: {config}")
       current_state = self.graph.get_state(config)

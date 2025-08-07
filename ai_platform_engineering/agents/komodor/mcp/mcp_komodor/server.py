@@ -126,7 +126,7 @@ def main():
     logging.info(f"Starting MCP server in {MCP_MODE} mode on {MCP_HOST}:{MCP_PORT}")
 
     # Get server name from environment variables
-    SERVER_NAME = os.getenv("SERVER_NAME", "ArgoCD")
+    SERVER_NAME = os.getenv("SERVER_NAME", "Komodor")
     logging.info('*'*40)
     logging.info(f"MCP Server name: {SERVER_NAME}")
     logging.info('*'*40)

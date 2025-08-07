@@ -28,6 +28,8 @@ dependencies = [
     "rich (>=14.0.0,<15.0.0)",
     "sseclient (>=0.0.27,<0.0.28)",
     "cnoe-agent-utils>=0.2.0",
+    "fastmcp>=2.11.2",
+    "mcp-slack",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]
@@ -64,3 +66,6 @@ select = [
     "F",
 ]
 ignore = ["F403"]
+
+[tool.uv.sources]
+mcp-slack = { path = "mcp" }

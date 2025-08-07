@@ -5,23 +5,19 @@ import json
 from pydantic import Field
 from typing_extensions import Annotated
 from mcp_jira.api.client import make_api_request
-from mcp.server.fastmcp import Context
 from mcp_jira.models.jira.link import JiraIssueLinkType
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp-jira")
 
-async def get_link_types(ctx: Context) -> str:
+async def get_link_types() -> str:
     """Get all available issue link types.
-
-    Args:
-        ctx: The FastMCP context.
 
     Returns:
         JSON string representing a list of issue link type objects.
     """
-    response = await make_api_request(ctx, "/rest/api/2/issueLinkType")
+    response = await make_api_request("/rest/api/2/issueLinkType")
     if not response or response.status_code != 200:
         raise ValueError("Failed to fetch issue link types. Response: {response}")
     link_types_data = response.json().get("issueLinkTypes", [])
@@ -38,7 +34,6 @@ async def link_to_epic(
     """Link an existing issue to an epic.
 
     Args:
-        ctx: The FastMCP context.
         issue_key: The key of the issue to link.
         epic_key: The key of the epic to link to.
 
@@ -52,7 +47,7 @@ async def link_to_epic(
         "issues": [issue_key],
         "epicKey": epic_key,
     }
-    response = await make_api_request(ctx, "/rest/agile/1.0/epic/{epic_key}/issue", method="POST", json=payload)
+    response = await make_api_request("/rest/agile/1.0/epic/{epic_key}/issue", method="POST", json=payload)
     if not response or response.status_code != 200:
         raise ValueError(f"Failed to link issue {issue_key} to epic {epic_key}. Response: {response}")
     result = {

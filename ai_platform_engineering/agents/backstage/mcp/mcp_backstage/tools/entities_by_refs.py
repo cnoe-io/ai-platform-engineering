@@ -19,7 +19,11 @@ async def get_entities_by_refs(body_entityRefs: List[str], param_filter: List[st
 
   Args:
       body_entityRefs (List[str]): A list of entity reference strings to retrieve entities for.
-      param_filter (List[str], optional): One or more filter sets to match against each entity. Each filter set is a group of conditions that must all be true for the set to match (AND logic within a set). At least one filter set must match for the entity to be included in the result (OR logic between sets). Each condition can be in the form `<key>` (checks for existence) or `<key>=<value>` (checks for a specific value). Keys are simplified JSON paths and checks are case-insensitive. Defaults to None.
+      param_filter (List[str], optional): One or more filter sets to match against each entity.
+          Each filter set is a group of conditions that must all be true for the set to match (AND logic within a set).
+          At least one filter set must match for the entity to be included in the result (OR logic between sets).
+          Each condition can be in the form `<key>` (checks for existence) or `<key>=<value>` (checks for a specific value).
+          Keys are simplified JSON paths and checks are case-insensitive. Defaults to None.
       body_fields (List[str], optional): A list of specific fields to include in the response for each entity. Defaults to None.
 
   Returns:
