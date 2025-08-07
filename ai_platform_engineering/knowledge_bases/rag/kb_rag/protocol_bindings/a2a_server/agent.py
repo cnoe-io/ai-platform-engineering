@@ -94,7 +94,8 @@ class RAGAgent:
                 input_variables=["context", "question"],
                 template="""
                 You are a Retrieval-Augmented Generation (RAG) assistant. Answer the user's question using only the information provided in the retrieved context below. 
-                If the answer is not present in the context, respond with "I do not know based on the provided documentation." 
+                The chucked context you might have is very unorganized, try to first organize it and then make sense of what it's saying. You must try giving a answer in the best of your ability. 
+                Try to compound as many words as well but only if they relate the context of the question. Do not Hallucinate 
                 Do not make up answers or use outside knowledge. Be concise and accurate, and cite relevant context if possible.
 
                 Context:
@@ -110,7 +111,7 @@ class RAGAgent:
             self.qa_chain = RetrievalQA.from_chain_type(
                 llm=self.llm,
                 chain_type="stuff",
-                retriever=self.vector_store.as_retriever(search_kwargs={"k": 5}),
+                retriever=self.vector_store.as_retriever(search_kwargs={"k": 10}),
                 chain_type_kwargs={"prompt": prompt_template}
             )
             
