@@ -16,31 +16,31 @@ from dotenv import load_dotenv
 from fastmcp import FastMCP
 
 
-from mcp_backstage.tools import refresh
+# from mcp_backstage.tools import refresh
 
-from mcp_backstage.tools import entities
+# from mcp_backstage.tools import entities
 
-from mcp_backstage.tools import entities_by_uid_uid
+# from mcp_backstage.tools import entities_by_uid_uid
 
-from mcp_backstage.tools import entities_by_name_kind_namespace_name
+# from mcp_backstage.tools import entities_by_name_kind_namespace_name
 
-from mcp_backstage.tools import entities_by_name_kind_namespace_name_ancestry
+# from mcp_backstage.tools import entities_by_name_kind_namespace_name_ancestry
 
-from mcp_backstage.tools import entities_by_refs
+# from mcp_backstage.tools import entities_by_refs
 
 from mcp_backstage.tools import entities_by_query
 
-from mcp_backstage.tools import entity_facets
+# from mcp_backstage.tools import entity_facets
 
-from mcp_backstage.tools import locations
+# from mcp_backstage.tools import locations
 
-from mcp_backstage.tools import locations_id
+# from mcp_backstage.tools import locations_id
 
-from mcp_backstage.tools import locations_by_entity_kind_namespace_name
+# from mcp_backstage.tools import locations_by_entity_kind_namespace_name
 
-from mcp_backstage.tools import analyze_location
+# from mcp_backstage.tools import analyze_location
 
-from mcp_backstage.tools import validate_entity
+# from mcp_backstage.tools import validate_entity
 
 
 def main():

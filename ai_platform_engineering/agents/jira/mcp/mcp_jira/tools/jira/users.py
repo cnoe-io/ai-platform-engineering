@@ -3,7 +3,6 @@
 import json
 import logging
 
-from mcp.server.fastmcp import Context
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
 
@@ -24,7 +23,6 @@ class JiraUser(BaseModel):
 
 async def handle_user_operations(
     action: str,
-    ctx: Context = None,
     identifier: str = None,
     query: str = None,
 ) -> str:
@@ -33,7 +31,6 @@ async def handle_user_operations(
 
     Args:
         action: The type of action to perform (e.g., 'get_user', 'search_users', 'get_user_profile').
-        ctx: The FastMCP context (required for 'get_user_profile').
         identifier: The user's identifier (e.g., account ID, username, or email).
         query: The search query for users.
 
@@ -45,8 +42,6 @@ async def handle_user_operations(
         Exception: If the API request fails.
     """
     if action == "get_user_profile":
-        if not ctx or not ctx.request_context.lifespan_context or not ctx.request_context.lifespan_context.jira:
-            raise ValueError("Jira client is not configured or available.")
         logger.debug(f"Fetching user profile for identifier: {identifier}")
         params = {"accountId": identifier}
         path = "rest/api/2/user"

@@ -13,22 +13,23 @@ MCP_SERVER_DIR ?= mcp_$(AGENT_NAME)
 
 ## -------------------------------------------------
 .PHONY: \
-  build setup-venv activate-venv install run run-client \
-  langgraph-dev help clean clean-pyc clean-venv clean-build-artifacts \
-  install-uv install-wfsm verify-a2a-sdk evals \
-  run-a2a run-a2a-client run-curl-client \
-  run-mcp run-mcp-client test registry-agntcy-directory \
+	build setup-venv uv-install  uv-sync \
+	run run-a2a run-a2a-client \
   build-docker-a2a build-docker-a2a-tag build-docker-a2a-push build-docker-a2a-tag-and-push \
   run-docker-a2a \
+	run-mcp run-mcp-client \
+	langgraph-dev evals test \
+	clean clean-pyc clean-venv clean-build-artifacts \
   check-env lint ruff-fix \
-  help add-copyright-license-headers
+	registry-agntcy-directory release \
+	add-copyright-license-headers help
 
 ## ========== Setup & Clean ==========
 
-setup-venv:        ## Create the Python virtual environment
-	@echo "Setting up virtual environment..."
+setup-venv:        ## Create the Python virtual environment using uv
+	@echo "Setting up virtual environment with uv..."
 	@if [ ! -d ".venv" ]; then \
-		python3 -m venv .venv && echo "Virtual environment created."; \
+		uv venv .venv && echo "Virtual environment created."; \
 	else \
 		echo "Virtual environment already exists."; \
 	fi
@@ -54,71 +55,81 @@ clean:             ## Clean all build artifacts and cache
 
 check-env:         ## Check if .env file exists
 	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found."; exit 1; \
+		echo "Warning: .env file not found in $$(pwd)"; \
+	fi
+	@if [ ! -f ".env" ]; then \
+		$(MAKE) copy-env-from-root; \
 	fi
 
-venv-activate = . .venv/bin/activate
-load-env = set -a && . .env && set +a
-venv-run = $(venv-activate) && $(load-env) &&
+copy-env-from-root: ## Copy .env file from root directory
+	@echo "Root directory: $(shell git rev-parse --show-toplevel)"
+	@if [ -f "../../../.env" ]; then \
+		cp ../../../.env . && echo ".env file copied from root directory."; \
+	else \
+		echo "Error: .env file not found in root directory."; exit 1; \
+	fi
 
-## ========== Install ==========
+## ========== UV Sync ==========
 
-install: setup-venv ## Install Python dependencies using Poetry
+uv-sync: setup-venv ## Sync Python dependencies using uv
 	@echo "Installing dependencies..."
-	@$(venv-activate) && poetry install --no-interaction
+	@uv sync --no-dev
 	@echo "Dependencies installed successfully."
 
-install-uv:        ## Install uv package manager
-	@$(venv-run) pip install uv
-
-
-install-wfsm:      ## Install workflow server manager (wfsm)
-	curl -sSL https://raw.githubusercontent.com/agntcy/workflow-srv-mgr/v0.3.1/install.sh | bash
-
-install-a2a: setup-venv ## Install A2A SDK
-	@git clone https://github.com/google/a2a-python -b main --depth 1 || { echo "a2a-python repo already cloned or failed to clone."; }
-	@. .venv/bin/activate && cd a2a-python && pip install -e . && \
-		echo "A2A SDK installed successfully."
-	@. .venv/bin/activate && python3 -c "import a2a; print('A2A SDK imported successfully')"
+uv-install:        ## Install uv package manager
+	@if ! command -v uv &> /dev/null; then \
+		read -p "uv is not installed. Do you want to install it? (y/n): " confirm; \
+		if [ "$$confirm" = "y" ]; then \
+			curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		else \
+			echo "uv installation skipped."; \
+			exit 1; \
+		fi; \
+	else \
+		echo "uv is already installed."; \
+	fi
 
 ## ========== Build & Lint ==========
+lint: setup-venv     ## Lint code with ruff
+	@uv add ruff --dev
+	@uv run python -m ruff check $(AGENT_PKG_NAME) tests --select E,F --ignore F403 --ignore E402 --line-length 320
 
-build: setup-venv  ## Build the package using Poetry
-	@$(venv-activate) && poetry build
-
-lint: setup-venv   ## Lint code with ruff
-	@$(venv-activate) && poetry install && ruff check $(AGENT_PKG_NAME) tests
+ruff: lint				   ## Run ruff linter
 
 ruff-fix: setup-venv ## Auto-fix lint issues with ruff
-	@$(venv-activate) && ruff check $(AGENT_PKG_NAME) tests --fix
+	@uv add ruff --dev
+	@uv run python -m ruff check $(AGENT_PKG_NAME) tests --fix
 
 ## ========== Run ==========
 
-run-a2a: setup-venv ## Run A2A agent with uvicorn
-	@$(MAKE) check-env
-	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
-	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_AGENT_PORT:-8000}
+run: run-a2a ## Run the agent application
+
+run-a2a: setup-venv check-env uv-sync ## Run A2A agent with uvicorn
+	@A2A_PORT=$$(grep ARGOCD_A2A_PORT .env | cut -d '=' -f2); \
+	uv run python -m $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
 
 run-mcp: setup-venv ## Run MCP server in SSE mode
 	@$(MAKE) check-env
-	@$(venv-run) MCP_MODE=SSE uv run $(AGENT_PKG_NAME)/protocol_bindings/mcp_server/$(MCP_SERVER_DIR)/server.py
+	@$(venv-run) MCP_MODE=HTTP uv run $(AGENT_PKG_NAME)/mcp/$(MCP_SERVER_DIR)/server.py
 
 ## ========== Clients ==========
 
-run-a2a-client: setup-venv ## Run A2A client script
-	@$(MAKE) check-env
-	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+run-a2a-client: setup-venv check-env ## Run A2A client script
+	@uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 
-run-mcp-client: setup-venv ## Run MCP client script
-	@$(MAKE) check-env
-	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git mcp
+run-mcp-client:  ## Run MCP client script
+	@npx @modelcontextprotocol/inspector
 
+## ========== LangGraph Development ==========
 langgraph-dev: setup-venv ## Run LangGraph dev mode
+	@$(venv-run) uv add langgraph-cli[inmem] --dev
+	@$(venv-run) uv sync --dev
 	@$(venv-run) langgraph dev
 
+## ========== Evals ==========
 evals: setup-venv ## Run agentevals with test cases
 	@$(venv-run) uv add agentevals tabulate pytest
-	@$(venv-run) uv run evals/strict_match/test_strict_match.py
+	@$(venv-run) uv run evals/strict_match/eval_strict_match.py
 
 ## ========== Docker ==========
 
@@ -181,10 +192,25 @@ run-docker-a2a: install-a2a ## Run the A2A agent in Docker
 
 ## ========== Tests ==========
 
-test: setup-venv build ## Run tests using pytest and coverage
-	@$(venv-activate) && poetry install
-	@$(venv-activate) && poetry add pytest-asyncio pytest-cov --dev
-	@$(venv-activate) && pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
+test: setup-venv uv-sync ## Run tests using pytest and coverage
+	@uv add pytest-asyncio pytest-cov --dev
+	@uv run pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
+
+## ========== AGNTCY Directory ==========
+
+registry-agntcy-directory:  ## Push agent.json to AGNTCY registry
+	@dirctl hub push outshift_platform_engineering/$(AGENT_DIR_NAME) ./$(AGENT_PKG_NAME)/cards/oasf.json
+
+## ========== Release & Versioning ==========
+release: setup-venv  ## Bump version and create a release
+	@. .venv/bin/activate; uv add commitizen --dev
+	@. .venv/bin/activate; git tag -d stable || echo "No stable tag found."
+	@. .venv/bin/activate; cz changelog
+	@git add CHANGELOG.md
+	@git commit -m "docs: update changelog"
+	@. .venv/bin/activate; cz bump --increment PATCH
+	@. .venv/bin/activate; git tag -f stable
+	@echo "Version bumped and stable tag updated successfully."
 
 ## ========== Licensing & Help ==========
 

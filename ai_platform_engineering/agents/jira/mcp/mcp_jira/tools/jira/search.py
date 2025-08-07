@@ -4,7 +4,6 @@ import logging
 import json
 from typing import List, Optional
 from mcp_jira.api.client import make_api_request
-from mcp.server.fastmcp import Context
 from mcp_jira.models.jira.search import JiraSearchResult
 
 # Configure logging

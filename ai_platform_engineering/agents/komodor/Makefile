@@ -13,23 +13,23 @@ MCP_SERVER_DIR ?= mcp_$(AGENT_NAME)
 
 ## -------------------------------------------------
 .PHONY: \
-  build setup-venv activate-venv install run run-acp run-client \
-  langgraph-dev help clean clean-pyc clean-venv clean-build-artifacts \
-  install-uv install-wfsm verify-a2a-sdk evals \
-  run-a2a run-acp-client run-a2a-client run-curl-client \
-  run-mcp run-mcp-client test registry-agntcy-directory \
-  build-docker-acp build-docker-acp-tag build-docker-acp-push build-docker-acp-tag-and-push \
+	build setup-venv uv-install  uv-sync \
+	run run-a2a run-a2a-client \
   build-docker-a2a build-docker-a2a-tag build-docker-a2a-push build-docker-a2a-tag-and-push \
-  run-docker-acp run-docker-a2a \
+	run-docker-a2a \
+	run-mcp run-mcp-client \
+	langgraph-dev evals test \
+	clean clean-pyc clean-venv clean-build-artifacts \
   check-env lint ruff-fix \
-  help add-copyright-license-headers
+	registry-agntcy-directory release \
+	add-copyright-license-headers help
 
 ## ========== Setup & Clean ==========
 
-setup-venv:        ## Create the Python virtual environment
-	@echo "Setting up virtual environment..."
+setup-venv:        ## Create the Python virtual environment using uv
+	@echo "Setting up virtual environment with uv..."
 	@if [ ! -d ".venv" ]; then \
-		python3 -m venv .venv && echo "Virtual environment created."; \
+		uv venv .venv && echo "Virtual environment created."; \
 	else \
 		echo "Virtual environment already exists."; \
 	fi
@@ -55,70 +55,63 @@ clean:             ## Clean all build artifacts and cache
 
 check-env:         ## Check if .env file exists
 	@if [ ! -f ".env" ]; then \
-		echo "Error: .env file not found."; exit 1; \
+		echo "Warning: .env file not found in $$(pwd)"; \
+	fi
+	@if [ ! -f ".env" ]; then \
+		$(MAKE) copy-env-from-root; \
 	fi
 
-venv-activate = . .venv/bin/activate
-load-env = set -a && . .env && set +a
-venv-run = $(venv-activate) && $(load-env) &&
+## ========== UV Sync ==========
 
-## ========== Install ==========
-
-install: setup-venv ## Install Python dependencies using Poetry
+uv-sync: setup-venv ## Sync Python dependencies using uv
 	@echo "Installing dependencies..."
-	@$(venv-activate) && poetry install --no-interaction
+	@uv sync --no-dev
 	@echo "Dependencies installed successfully."
 
-install-uv:        ## Install uv package manager
-	@$(venv-run) pip install uv
-
-
-install-wfsm:      ## Install workflow server manager (wfsm)
-	curl -sSL https://raw.githubusercontent.com/agntcy/workflow-srv-mgr/refs/heads/install-sh-tag-cmd-args/install.sh -t v0.3.1 | bash
+uv-install:        ## Install uv package manager
+	@if ! command -v uv &> /dev/null; then \
+		read -p "uv is not installed. Do you want to install it? (y/n): " confirm; \
+		if [ "$$confirm" = "y" ]; then \
+			curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		else \
+			echo "uv installation skipped."; \
+			exit 1; \
+		fi; \
+	else \
+		echo "uv is already installed."; \
+	fi
 
 ## ========== Build & Lint ==========
+lint: setup-venv     ## Lint code with ruff
+	@uv add ruff --dev
+	@uv run python -m ruff check $(AGENT_PKG_NAME) tests --select E,F --ignore F403 --ignore E402 --line-length 320
 
-build: setup-venv  ## Build the package using Poetry
-	@$(venv-activate) && poetry build
-
-lint: setup-venv   ## Lint code with ruff
-	@$(venv-activate) && poetry install && ruff check $(AGENT_PKG_NAME) tests
+ruff: lint				   ## Run ruff linter
 
 ruff-fix: setup-venv ## Auto-fix lint issues with ruff
-	@$(venv-activate) && ruff check $(AGENT_PKG_NAME) tests --fix
+	@uv add ruff --dev
+	@uv run python -m ruff check $(AGENT_PKG_NAME) tests --fix
 
 ## ========== Run ==========
 
-run-acp: setup-venv ## Deploy ACP agent via wfsm
-	@$(MAKE) check-env
-	@$(venv-run) wfsm deploy -b ghcr.io/sriaradhyula/acp/wfsrv:latest -m ./$(AGENT_PKG_NAME)/protocol_bindings/acp_server/agent.json --envFilePath=./.env --dryRun=false
+run: run-a2a ## Run the agent application
 
-run-a2a: setup-venv ## Run A2A agent with uvicorn
-	@$(MAKE) check-env
-	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
-	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_AGENT_PORT:-8000}
+run-a2a: setup-venv check-env uv-sync ## Run A2A agent with uvicorn
+	@A2A_PORT=$$(grep ARGOCD_A2A_PORT .env | cut -d '=' -f2); \
+	uv run python -m $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
 
 run-mcp: setup-venv ## Run MCP server in SSE mode
 	@$(MAKE) check-env
-	@$(venv-run) MCP_MODE=SSE uv run --project $(AGENT_PKG_NAME)/protocol_bindings/mcp_server/$(MCP_SERVER_DIR) $(AGENT_PKG_NAME)/protocol_bindings/mcp_server/$(MCP_SERVER_DIR)/server.py
+	@$(venv-run) MCP_MODE=HTTP uv run $(AGENT_PKG_NAME)/protocol_bindings/mcp_server/$(MCP_SERVER_DIR)/server.py
 
 ## ========== Clients ==========
 
-run-acp-client: setup-venv ## Run ACP client script
-	@$(MAKE) check-env
-	@$(venv-run) uv run client/acp_client.py
-
 run-a2a-client: setup-venv ## Run A2A client script
-	@$(MAKE) check-env
-	@$(venv-run) uv run client/a2a_client.py
+	@uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 
-run-mcp-client: setup-venv ## Run MCP client script
-	@$(MAKE) check-env
-	@$(venv-run) uv run client/mcp_client.py
 
-run-curl-client: setup-venv ## Run shell-based CURL client
-	@$(MAKE) check-env
-	@$(venv-run) ./client/client_curl.sh
+run-mcp-client:  ## Run MCP client script
+	@npx @modelcontextprotocol/inspector
 
 langgraph-dev: setup-venv ## Run LangGraph dev mode
 	@$(venv-run) langgraph dev

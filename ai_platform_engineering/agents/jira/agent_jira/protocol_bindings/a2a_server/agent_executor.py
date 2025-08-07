@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class JiraAgentExecutor(AgentExecutor):
-    """Currency AgentExecutor Example."""
+    """Jira AgentExecutor"""
 
     def __init__(self):
         self.agent = JiraAgent()

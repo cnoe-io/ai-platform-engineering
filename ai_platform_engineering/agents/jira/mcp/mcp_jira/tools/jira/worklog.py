@@ -4,7 +4,6 @@ import json
 import logging
 from typing import Annotated
 from pydantic import Field
-from mcp.server.fastmcp import Context
 from mcp_jira.api.client import make_api_request
 from mcp_jira.models.jira.worklog import JiraWorklog
 
@@ -43,13 +42,6 @@ async def add_worklog(
         f"Parameters: issue_key={issue_key}, time_spent={time_spent}, comment={comment}, "
         f"started={started}, original_estimate={original_estimate}, remaining_estimate={remaining_estimate}"
     )
-
-    lifespan_ctx = ctx.request_context.lifespan_context
-    if lifespan_ctx.read_only:
-        logger.warning("Attempted to call add_worklog in read-only mode.")
-        raise ValueError("Cannot add worklog in read-only mode.")
-    if not lifespan_ctx or not lifespan_ctx.jira:
-        raise ValueError("Jira client is not configured or available.")
 
     worklog_data = {
         "timeSpent": time_spent,

@@ -9,16 +9,34 @@ from typing import Any, Literal, AsyncIterable
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
-from langchain_core.runnables.config import RunnableConfig
+from langchain_core.runnables.config import (
+    RunnableConfig,
+)
 from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import create_react_agent
-
+from langgraph.prebuilt import create_react_agent  # type: ignore
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
+import os
+
+from agent_jira.protocol_bindings.a2a_server.state import (
+    AgentState,
+    InputState,
+    Message,
+    MsgType,
+)
+
 logger = logging.getLogger(__name__)
+
+def debug_print(message: str, banner: bool = True):
+    if os.getenv("A2A_SERVER_DEBUG", "false").lower() == "true":
+        if banner:
+            print("=" * 80)
+        print(f"DEBUG: {message}")
+        if banner:
+            print("=" * 80)
 
 memory = MemorySaver()
 

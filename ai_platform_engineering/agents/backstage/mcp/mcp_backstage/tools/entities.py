@@ -25,9 +25,14 @@ async def get_entities(
   Retrieve all entities matching the specified filters.
 
   Args:
-      param_fields (List[str], optional): A list of fields to include in the response for each entity. By default, the full entity is returned. Specifying fields reduces the response size and may improve query performance. Each field should be a simplified JSON path, e.g., 'metadata.name,metadata.annotations,spec'. Defaults to None.
+      param_fields (List[str], optional): A list of fields to include in the response for each entity.
+          By default, the full entity is returned. Specifying fields reduces the response size and may improve query performance.
+          Each field should be a simplified JSON path, e.g., 'metadata.name,metadata.annotations,spec'. Defaults to None.
       param_limit (int, optional): The maximum number of records to return in the response. Defaults to None.
-      param_filter (List[str], optional): One or more filter sets to match against each entity. Each filter set is a list of conditions (ANDed together), and at least one filter set must match (ORed together). Conditions can be of the form '<key>' (existence) or '<key>=<value>' (equality), using simplified JSON paths. Examples include filtering by kind, namespace, tags, or relations. Defaults to None.
+      param_filter (List[str], optional): One or more filter sets to match against each entity.
+          Each filter set is a list of conditions (ANDed together), and at least one filter set must match (ORed together).
+          Conditions can be of the form '<key>' (existence) or '<key>=<value>' (equality), using simplified JSON paths.
+          Examples include filtering by kind, namespace, tags, or relations. Defaults to None.
       param_offset (int, optional): The number of records to skip in the query page, for pagination. Defaults to None.
       param_after (str, optional): A pointer to the previous page of results, used for pagination. Defaults to None.
       param_order (List[str], optional): A list of fields to order the results by. Defaults to None.

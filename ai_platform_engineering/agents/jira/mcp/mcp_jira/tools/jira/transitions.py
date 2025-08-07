@@ -4,7 +4,6 @@ import json
 import logging
 from typing import Annotated, Optional, Any, Dict
 
-from mcp.server.fastmcp import Context
 from pydantic import Field
 from mcp_jira.api.client import make_api_request
 

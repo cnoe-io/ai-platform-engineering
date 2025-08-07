@@ -91,14 +91,13 @@ uv-install:        ## Install uv package manager
 
 ## ========== Build & Lint ==========
 
-build: setup-venv  ## Build the package using Poetry
-	@$(venv-activate) && poetry build
-
 lint: setup-venv   ## Lint code with ruff (ignoring F401)
-	@$(venv-activate) && poetry install && ruff check --ignore F401 $(AGENT_PKG_NAME) tests
+	@uv add ruff --dev
+	@uv run ruff check --ignore F401 $(AGENT_PKG_NAME) tests
 
 ruff-fix: setup-venv ## Auto-fix lint issues with ruff
-	@$(venv-activate) && ruff check $(AGENT_PKG_NAME) tests --fix
+	@uv add ruff --dev
+	@uv run ruff check $(AGENT_PKG_NAME) tests --fix
 
 ## ========== Run ==========
 
@@ -115,10 +114,10 @@ run-mcp: setup-venv ## Run MCP server in SSE mode
 
 run-a2a-client: setup-venv ## Run A2A client script
 	@$(MAKE) check-env
-	@$(venv-run) uv run client/a2a_client.py
-run-mcp-client: setup-venv ## Run MCP client script
-	@$(MAKE) check-env
-	@$(venv-run) uv run client/mcp_client.py
+	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+
+run-mcp-client:  ## Run MCP client script
+	@npx @modelcontextprotocol/inspector
 
 langgraph-dev: setup-venv ## Run LangGraph dev mode
 	@$(venv-run) langgraph dev
