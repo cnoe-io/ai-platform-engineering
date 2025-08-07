@@ -12,7 +12,7 @@ ai-platform-engineering:
   isMultiAgent: true
   image:
     repository: "ghcr.io/suwhang-cisco/platform-engineer"
-    tag: "dev-slim"
+    tag: "dev-slim-json"
   env:
     EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
   multiAgentConfig:
