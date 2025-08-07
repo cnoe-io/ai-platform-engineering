@@ -1,11 +1,11 @@
 # Copyright 2025 CNOE
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: apache-2.0
 
 import logging
 import os
 from langchain.chains import RetrievalQA
 from langchain_milvus import Milvus
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import AzureOpenAIEmbeddings
 from pymilvus import connections, utility
 from cnoe_agent_utils import LLMFactory
 from langchain.prompts import PromptTemplate
@@ -32,14 +32,8 @@ class RAGAgent:
         """
         debug_print(f"Initializing RAG agent with Milvus URI: {milvus_uri}")
         logger.info(f"Initializing RAG agent with Milvus URI: {milvus_uri}")
-        try:
-            # Check for OpenAI API key
-            openai_api_key = os.getenv('OPENAI_API_KEY')
-            if not openai_api_key:
-                raise ValueError("OPENAI_API_KEY environment variable is not set")
-            
+        try:            
             # Parse host and port from URI
-
             logger.info(f"DEBUG: Milvus URI: {milvus_uri}")
             # parsed = urlparse(milvus_uri)
             self.milvus_conn = {
@@ -52,8 +46,7 @@ class RAGAgent:
             self.llm = llm_factory.get_llm()
             
             # Initialize embeddings directly
-            self.embeddings = OpenAIEmbeddings(
-                api_key=openai_api_key,
+            self.embeddings = AzureOpenAIEmbeddings(
                 deployment="text-embedding-3-small",
                 chunk_size=1
             )
@@ -135,14 +128,15 @@ class RAGAgent:
             retriever = self.vector_store.as_retriever(search_kwargs={"k": 5})
             relevant_docs = retriever.get_relevant_documents(question)
             
-            # Print the retrieved chunks
             debug_print("Retrieved RAG chunks:")
             for i, doc in enumerate(relevant_docs, 1):
-                debug_print(f"Chunk {i}:", banner=False)
+                # 20 dashes, space, Chunk i, space, 20 dashes
+                sep = "-" * 20
+                debug_print(f"{sep} Chunk {i} {sep}", banner=False)
                 debug_print(f"Content: {doc.page_content}", banner=False)
                 if hasattr(doc, 'metadata') and doc.metadata:
                     debug_print(f"Metadata: {doc.metadata}", banner=False)
-                debug_print("", banner=False)
+
             
             # Get answer
             answer = self.qa_chain.invoke({"query": question})["result"]
