@@ -39,7 +39,7 @@ class RAGAgent:
                 raise ValueError("OPENAI_API_KEY environment variable is not set")
             
             # Parse host and port from URI
-            from urllib.parse import urlparse
+
             logger.info(f"DEBUG: Milvus URI: {milvus_uri}")
             # parsed = urlparse(milvus_uri)
             self.milvus_conn = {
