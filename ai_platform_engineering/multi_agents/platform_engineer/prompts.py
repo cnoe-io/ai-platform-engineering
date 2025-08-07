@@ -4,6 +4,8 @@ import os
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 
+import logging
+logger = logging.getLogger(__name__)
 
 # Load YAML config
 def load_prompt_config(path="prompt_config.yaml"):
@@ -14,6 +16,9 @@ def load_prompt_config(path="prompt_config.yaml"):
 
 config = load_prompt_config()
 print("DEBUG: config keys:", list(config.keys()))
+print("DEBUG: system_prompt_template length:", len(config.get('system_prompt_template', '')))
+print("DEBUG: system_prompt_template content:")
+print(repr(config.get('system_prompt_template', '')))
 
 agent_name = config.get("agent_name", "AI Platform Engineer")
 agent_description = config.get("agent_description", (
@@ -61,6 +66,8 @@ def generate_system_prompt(tools):
 
   yaml_template = config.get("system_prompt_template")
 
+  logger.info(f"System Prompt Template: {yaml_template}")
+
   if yaml_template:
       return yaml_template.format(
         tool_instructions=tool_instructions_str
@@ -83,9 +90,9 @@ LLM Instructions:
 # Generate the system prompt
 system_prompt = generate_system_prompt(tools)
 
-print("="*50)
-print("System Prompt Generated:\n", system_prompt)
-print("="*50)
+logger.info("="*50)
+logger.info(f"System Prompt Generated:\n{system_prompt}")
+logger.info("="*50)
 
 response_format_instruction: str = config.get(
   "response_format_instruction",
