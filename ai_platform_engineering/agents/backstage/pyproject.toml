@@ -5,10 +5,10 @@ license = "Apache-2.0"
 description = "A Backstage natural language agent using LangChain, LangGraph, and MCP."
 readme = "README.md"
 authors = [
-    { name = "Rehan", email = "rehagraw@cisco.com" },
+    { name = "Rehan Agrawal", email = "rehagraw@cisco.com" },
 ]
 maintainers = [
-    { name = "Rehan", email = "rehagraw@cisco.com" },
+    { name = "Rehan Agrawal", email = "rehagraw@cisco.com" },
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
@@ -32,7 +32,7 @@ dependencies = [
     "httpx>=0.27.0",
     "httpx-sse>=0.3.0",
     "python-dotenv>=1.0.1",
-    "cnoe-agent-utils>=0.2.0",
+    "cnoe-agent-utils==0.2.2",
     "langchain>=0.1.0",
     "pydantic>=2.0.0",
     "a2a>=0.0.1",

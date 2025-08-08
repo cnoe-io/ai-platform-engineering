@@ -1,12 +1,12 @@
-# ArgoCD MCP Server Makefile
+# PagerDuty MCP Server Makefile
 # --------------------------------------------------
-# This Makefile provides targets for the ArgoCD MCP server.
+# This Makefile provides targets for the PagerDuty MCP server.
 # It includes common functionality from ../../mcp-common.mk
 # --------------------------------------------------
 
 # MCP configuration
-AGENT_NAME = argocd
-MCP_PACKAGE_NAME = mcp_argocd
+AGENT_NAME = pagerduty
+MCP_PACKAGE_NAME = mcp_pagerduty
 
 # Include common functionality
 include ../../mcp-common.mk

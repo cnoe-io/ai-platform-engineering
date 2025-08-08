@@ -268,36 +268,6 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
 
       yield self.get_agent_response(config)
 
-    @trace_agent_stream("komodor")
-    async def stream(
-      self, query: str, sessionId: str, trace_id: str = None
-    ) -> AsyncIterable[dict[str, Any]]:
-      print("DEBUG: Starting stream with query:", query, "and sessionId:", sessionId)
-      inputs: dict[str, Any] = {'messages': [('user', query)]}
-      config: RunnableConfig = self.tracing.create_config(sessionId)
-
-      async for item in self.graph.astream(inputs, config, stream_mode='values'):
-          message = item['messages'][-1]
-          debug_print(f"Streamed message: {message}")
-          if (
-              isinstance(message, AIMessage)
-              and message.tool_calls
-              and len(message.tool_calls) > 0
-          ):
-              yield {
-                'is_task_complete': False,
-                'require_user_input': False,
-                'content': 'Looking up Komodor Resources rates...',
-              }
-          elif isinstance(message, ToolMessage):
-              yield {
-                'is_task_complete': False,
-                'require_user_input': False,
-                'content': 'Processing Komodor Resources rates..',
-              }
-
-      yield self.get_agent_response(config)
-
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
       debug_print(f"Fetching agent response with config: {config}")
       current_state = self.graph.get_state(config)

@@ -85,8 +85,8 @@ lint-fix: setup-venv ## Automatically fix linting issues using Ruff
 
 test: setup-venv install ## Install dependencies and run tests using pytest
 	@echo "Installing ai_platform_engineering, agents, and argocd..."
-	@. .venv/bin/activate && uv add ./ai_platform_engineering/agents/argocd --group unittest
-	@. .venv/bin/activate && uv add ./ai_platform_engineering/agents/komodor --group unittest
+	@. .venv/bin/activate && uv pip install -e ./ai_platform_engineering/agents/argocd
+	@. .venv/bin/activate && uv pip install -e ./ai_platform_engineering/agents/komodor
 	@. .venv/bin/activate && uv add pytest-asyncio --group unittest
 
 	@echo "Running tests..."

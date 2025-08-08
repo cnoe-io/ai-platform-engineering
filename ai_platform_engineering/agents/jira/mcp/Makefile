@@ -1,12 +1,12 @@
-# ArgoCD MCP Server Makefile
+# Jira MCP Server Makefile
 # --------------------------------------------------
-# This Makefile provides targets for the ArgoCD MCP server.
+# This Makefile provides targets for the Jira MCP server.
 # It includes common functionality from ../../mcp-common.mk
 # --------------------------------------------------
 
 # MCP configuration
-AGENT_NAME = argocd
-MCP_PACKAGE_NAME = mcp_argocd
+AGENT_NAME = jira
+MCP_PACKAGE_NAME = mcp_jira
 
 # Include common functionality
 include ../../mcp-common.mk

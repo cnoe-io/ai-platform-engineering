@@ -85,7 +85,7 @@ class GitHubAgent:
             if os.getenv("GITHUB_DYNAMIC_TOOLSETS"):
                 env_vars["GITHUB_DYNAMIC_TOOLSETS"] = os.getenv("GITHUB_DYNAMIC_TOOLSETS")
 
-            mcp_mode = os.getenv("MCP_MODE", "http").lower()
+            mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
             if mcp_mode == "http" or mcp_mode == "streamable_http":
               logging.info("Using HTTP transport for MCP client")
               # For HTTP transport, we need to connect to the MCP server

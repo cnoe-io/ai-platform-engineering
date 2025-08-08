@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
   "a2a-sdk (==0.2.16)",
-  "agntcy-app-sdk>=0.1.4",
+  "agntcy-app-sdk==0.1.4",
   "agentevals (>=0.0.7)",
   "click (>=8.2.0)",
   "langchain-core (>=0.3.60)",
@@ -21,10 +21,10 @@ dependencies = [
   "uv",
   "rich (>=14.0.0,<15.0.0)",
   "sseclient (>=0.0.27,<0.0.28)",
-  "cnoe-agent-utils (==0.2.0)",
+  "cnoe-agent-utils==0.2.2",
   "python-dotenv (>=1.0.0)",
   "fastapi (>=0.100.0)",
-  "fastmcp>=2.11.1",
+  "fastmcp==2.11.1",
   "mcp-argocd",
 ]
 

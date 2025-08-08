@@ -5,7 +5,7 @@ import logging
 import uuid
 
 from collections.abc import AsyncIterable
-from typing import Any, Literal, Dict
+from typing import Any, Literal
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -22,12 +22,6 @@ from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 import os
 
-from agent_pagerduty.protocol_bindings.a2a_server.state import (
-    AgentState,
-    InputState,
-    Message,
-    MsgType,
-)
 
 logger = logging.getLogger(__name__)
 
