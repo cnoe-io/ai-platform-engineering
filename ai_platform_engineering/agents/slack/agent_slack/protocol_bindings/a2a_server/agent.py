@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import os
-import importlib.util
-from pathlib import Path
-from typing import Any, Literal, AsyncIterable
+
+from collections.abc import AsyncIterable
+from typing import Any, Literal
+import importlib
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
@@ -20,13 +20,8 @@ from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 import os
+from pathlib import Path
 
-from agent_jira.protocol_bindings.a2a_server.state import (
-    AgentState,
-    InputState,
-    Message,
-    MsgType,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +71,7 @@ class SlackAgent:
         self.graph = None
 
         # Find installed path of the slack_mcp sub-module
-        spec = importlib.util.find_spec("mcp.mcp_slack.server")
+        spec = importlib.util.find_spec("mcp_slack.server")
         if not spec or not spec.origin:
             try:
                 spec = importlib.util.find_spec("mcp.mcp_slack.server")
@@ -102,18 +97,49 @@ class SlackAgent:
         logger.info(f"Launching MCP server at: {self.server_path}")
 
         try:
-            client = MultiServerMCPClient(
+
+            client = None
+            mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+            if mcp_mode == "http" or mcp_mode == "streamable_http":
+              logging.info("Using HTTP transport for MCP client")
+              # For HTTP transport, we need to connect to the MCP server
+              # This is useful for production or when the MCP server is running separately
+              # Ensure MCP_HOST and MCP_PORT are set in the environment
+              mcp_host = os.getenv("MCP_HOST", "localhost")
+              mcp_port = os.getenv("MCP_PORT", "3000")
+              logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+              # TBD: Handle user authentication
+              user_jwt = "TBD_USER_JWT"
+
+              client = MultiServerMCPClient(
                 {
-                    "slack": {
-                        "command": "uv",
-                        "args": ["run", self.server_path],
-                        "env": {
-                            "SLACK_BOT_TOKEN": self.slack_token,
-                        },
-                        "transport": "stdio",
-                    }
+                  "argocd": {
+                    "transport": "streamable_http",
+                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "headers": {
+                      "Authorization": f"Bearer {user_jwt}",
+                    },
+                  }
                 }
-            )
+              )
+            else:
+              logging.info("Using STDIO transport for MCP client")
+              # For STDIO transport, we can use a simple client without URL
+              # This is useful for local development or testing
+              # Ensure ARGOCD_TOKEN and ARGOCD_API_URL are set in the environment
+
+              client = MultiServerMCPClient(
+                  {
+                      "slack": {
+                          "command": "uv",
+                          "args": ["run", self.server_path],
+                          "env": {
+                              "SLACK_BOT_TOKEN": self.slack_token,
+                          },
+                          "transport": "stdio",
+                      }
+                  }
+              )
 
             # Get tools via the client
             client_tools = await client.get_tools()

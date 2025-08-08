@@ -28,7 +28,7 @@ services:
       - "8000:8000"
     environment:
       - AGENT_PROTOCOL=a2a
-      - ARGOCD_AGENT_HOST=agent-argocd-latest
+      - ARGOCD_AGENT_HOST=agent-argocd-build
       - BACKSTAGE_AGENT_HOST=agent-backstage-build
       - CONFLUENCE_AGENT_HOST=agent-confluence-build
       - GITHUB_AGENT_HOST=agent-github-build

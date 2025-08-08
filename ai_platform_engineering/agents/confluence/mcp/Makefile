@@ -1,12 +1,12 @@
-# ArgoCD MCP Server Makefile
+# Backstage MCP Server Makefile
 # --------------------------------------------------
-# This Makefile provides targets for the ArgoCD MCP server.
+# This Makefile provides targets for the Backstage MCP server.
 # It includes common functionality from ../../mcp-common.mk
 # --------------------------------------------------
 
 # MCP configuration
-AGENT_NAME = argocd
-MCP_PACKAGE_NAME = mcp_argocd
+AGENT_NAME = confluence
+MCP_PACKAGE_NAME = mcp_confluence
 
 # Include common functionality
 include ../../mcp-common.mk

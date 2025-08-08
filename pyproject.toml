@@ -50,3 +50,6 @@ ignore = ["F403"]
 dev = [
     "ruff>=0.12.7",
 ]
+unittest = [
+    "pytest-asyncio>=1.1.0",
+]

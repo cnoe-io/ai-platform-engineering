@@ -12,14 +12,19 @@ services:
     container_name: platform-engineering
     profiles:
       - slim
+      - argocd
+      - weather
     depends_on:
-      - agent-argocd-slim
-      - agent-backstage-slim
-      - agent-confluence-slim
-      - agent-github-slim
-      - agent-jira-slim
-      - agent-pagerduty-slim
-      - agent-slack-slim
+        - slim-dataplane
+        - agent-argocd-slim
+        - agent-backstage-slim
+        - agent-confluence-slim
+        - agent-github-slim
+        - agent-jira-slim
+        - agent-komodor-slim
+        - agent-pagerduty-slim
+        - agent-slack-slim
+      # - agent-weather-slim
     env_file:
       - .env
     ports:
@@ -45,6 +50,39 @@ services:
     command: platform-engineer
 
   ####################################################################################################
+  #                                            SLIM                                                  #
+  ####################################################################################################
+  slim-dataplane:
+    image: ghcr.io/agntcy/slim:latest
+    container_name: slim-dataplane
+    profiles:
+      - slim
+      - argocd
+      - weather
+    ports:
+      - "46357:46357"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
+  slim-control-plane:
+    image: ghcr.io/agntcy/slim/control-plane:0.0.1
+    container_name: slim-control-plane
+    profiles:
+      - slim
+      - argocd
+    ports:
+      - "50051:50051"
+      - "50052:50052"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
+  ####################################################################################################
   #                                      AGENT ARGOCD SLIM                                           #
   ####################################################################################################
   agent-argocd-slim:
@@ -53,10 +91,11 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-argocd-slim
     profiles:
+      - argocd
       - slim
       - slim-tracing
     depends_on:
-      - slim
+      - slim-dataplane
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/argocd:/app
@@ -84,7 +123,7 @@ services:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/backstage:/app
     depends_on:
-      - slim
+      - slim-dataplane
     ports:
       - "8002:8000"
     environment:
@@ -105,7 +144,7 @@ services:
       - slim
       - slim-tracing
     depends_on:
-      - slim
+      - slim-dataplane
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/confluence:/app
@@ -129,7 +168,7 @@ services:
       - slim
       - slim-tracing
     depends_on:
-      - slim
+      - slim-dataplane
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
@@ -156,7 +195,7 @@ services:
       - slim
       - slim-tracing
     depends_on:
-      - slim
+      - slim-dataplane
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/jira:/app
@@ -179,7 +218,10 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-komodor-slim
     profiles:
+      - slim
       - komodor
+    depends_on:
+      - slim-dataplane
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/komodor:/app
@@ -203,7 +245,7 @@ services:
       - slim
       - slim-tracing
     depends_on:
-      - slim
+      - slim-dataplane
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/pagerduty:/app
@@ -227,7 +269,7 @@ services:
       - slim
       - slim-tracing
     depends_on:
-      - slim
+      - slim-dataplane
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/slack:/app
@@ -250,10 +292,11 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-webex-slim
     profiles:
-      - slim
       - webex
     volumes:
       - ./.env:/app/.env
+    depends_on:
+      - slim-dataplane
     ports:
       - "8009:8000"
     environment:
@@ -265,20 +308,6 @@ services:
   ####################################################################################################
   #                                      AGENT WEATHER SLIM                                           #
   ####################################################################################################
-  slim:
-    image: ghcr.io/agntcy/slim:0.3.15
-    container_name: slim-dataplane
-    profiles:
-      - slim
-      - slim-tracing
-    ports:
-      - "46357:46357"
-    environment:
-      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
-      - CONFIG_PATH=/config.yaml
-    volumes:
-      - ./slim-config.yaml:/config.yaml
-    command: ["/slim", "--config", "/config.yaml"]
   agent-weather-slim:
     build:
       context: ai_platform_engineering/agents/weather
@@ -286,9 +315,11 @@ services:
       cache_from: []
     container_name: agent-weather-slim
     profiles:
+      - weather
+      - slim
       - slim-tracing
     depends_on:
-      - slim
+      - slim-dataplane
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/weather:/app
