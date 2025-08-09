@@ -42,8 +42,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
           raise Exception('No message provided')
 
         if not task:
-          task = new_task(context.message)
-          await event_queue.enqueue_event(task)
+            task = new_task(context.message)
+            if not task:
+                raise Exception("Failed to create a new task from the provided message.")
+            await event_queue.enqueue_event(task)
         # Extract trace_id from A2A context (or generate if root)
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:

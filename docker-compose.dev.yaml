@@ -6,6 +6,9 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile
+    volumes:
+      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     container_name: platform-engineering
     profiles:
       - build
@@ -19,7 +22,6 @@ services:
       - agent-komodor-build
       - agent-pagerduty-build
       - agent-slack-build
-      - agent-webex-build
     env_file:
       - .env
     ports:
@@ -48,8 +50,13 @@ services:
   #                                      PLATFORM ENGINEER LATEST                                    #
   ####################################################################################################
   platform-engineer-latest:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:latest
-    container_name: platform-engineering-latest
+    build:
+      context: .
+      dockerfile: build/Dockerfile
+    volumes:
+      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./ai_platform_engineering:/app/ai_platform_engineering
+    container_name: platform-engineering
     profiles:
       - latest
       - komodor
@@ -109,6 +116,7 @@ services:
       - build-tracing
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/argocd:/app
     ports:
       - "8001:8000"
     environment:
@@ -147,6 +155,7 @@ services:
       - build-tracing
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/backstage:/app
     ports:
       - "8002:8000"
     environment:
@@ -185,6 +194,7 @@ services:
       - build-tracing
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/confluence:/app
     ports:
       - "8003:8000"
     environment:
@@ -224,6 +234,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/github:/app
     ports:
       - "8004:8000"
     environment:
@@ -267,6 +278,7 @@ services:
       - build-tracing
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/jira:/app
     ports:
       - "8005:8000"
     environment:
@@ -308,6 +320,7 @@ services:
       - build-tracing
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/komodor:/app
     ports:
       - "8006:8000"
     environment:
@@ -344,6 +357,7 @@ services:
       - build-tracing
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/pagerduty:/app
     ports:
       - "8007:8000"
     environment:
@@ -382,6 +396,7 @@ services:
       - build-tracing
     volumes:
       - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/slack:/app
     ports:
       - "8008:8000"
     environment:
@@ -418,8 +433,7 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-webex-build
     profiles:
-      - build
-      - build-tracing
+      - webex
     volumes:
       - ./.env:/app/.env
     ports:
@@ -452,9 +466,10 @@ services:
   backstage-agent-forge:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
+    profiles:
+      - build
     ports:
       - "13000:3000"
-
   ####################################################################################################
   #                                    NEXIGRAPH SERVICES (GRAPHRAG/GEN)                             #
   ####################################################################################################
@@ -511,7 +526,7 @@ services:
         API_KEYS: dummy_key
         CLEANUP_INTERVAL: 86400
     restart: unless-stopped
-  
+
   agent_graph_gen:
     image: ghcr.io/cnoe-io/nexigraph-agent_graph_gen:latest
     profiles:
@@ -528,7 +543,7 @@ services:
         OPENAI_API_VERSION: $OPENAI_API_VERSION
         AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
         AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
-        # Optional for langsith tracing:
+        # Optional for langsith tracing:
         LANGSMITH_TRACING: "true"
         LANGSMITH_PROJECT: $LANGSMITH_PROJECT
         LANGSMITH_API_KEY: $LANGSMITH_API_KEY
@@ -553,7 +568,7 @@ services:
         AZURE_OPENAI_ENDPOINT: $AZURE_OPENAI_ENDPOINT
         AZURE_OPENAI_API_KEY: $AZURE_OPENAI_API_KEY
     restart: unless-stopped
-  
+
   nexigraph_dummy_client:
     image: ghcr.io/cnoe-io/nexigraph-clients:latest
     profiles:

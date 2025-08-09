@@ -1,0 +1,17 @@
+.idea/
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+.idea_workspace/
+# JetBrains IDE specific
+.idea/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+# VSCode
+.vscode/
+.venv/
+dist/

@@ -1,0 +1,15 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY . /app/
+
+# Install uv and use it to install the package
+RUN pip install uv
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
+
+EXPOSE 8000
+
+CMD ["uv", "run", "python", "main.py", "--host", "0.0.0.0", "--port", "8000"]

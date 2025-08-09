@@ -1,8 +1,8 @@
 import types
 import pytest
 from unittest import mock
-from agent_argocd.agent import ArgoCDAgent, ResponseFormat
-from agent_argocd import agent
+from agent_argocd.protocol_bindings.a2a_server.agent import ArgoCDAgent, ResponseFormat
+from agent_argocd.protocol_bindings.a2a_server import agent
 
 @pytest.fixture(autouse=True)
 def set_env_vars(monkeypatch):
@@ -15,14 +15,14 @@ def test_response_format_defaults():
   assert resp.message == "Test message"
 
 def test_debug_print_banner(capsys, monkeypatch):
-  monkeypatch.setenv("ACP_SERVER_DEBUG", "true")
+  monkeypatch.setenv("A2A_SERVER_DEBUG", "true")
   agent.debug_print("hello", banner=True)
   out = capsys.readouterr().out
   assert "DEBUG: hello" in out
   assert "=" * 80 in out
 
 def test_debug_print_no_banner(capsys, monkeypatch):
-  monkeypatch.setenv("ACP_SERVER_DEBUG", "true")
+  monkeypatch.setenv("A2A_SERVER_DEBUG", "true")
   agent.debug_print("no-banner", banner=False)
   out = capsys.readouterr().out
   assert "DEBUG: no-banner" in out

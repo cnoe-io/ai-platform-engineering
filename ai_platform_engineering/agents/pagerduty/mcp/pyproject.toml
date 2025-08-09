@@ -1,0 +1,49 @@
+[project]
+name = "mcp_pagerduty"
+version = "0.1.0"
+description = "PagerDuty MCP Server"
+readme = "README.md"
+authors = [
+    { name = "Rehan Agrawal", email = "rehagraw@cisco.com" }
+]
+license = "Apache-2.0"
+requires-python = ">=3.13"
+dependencies = [
+  "httpx>=0.24.0",
+  "python-dotenv>=1.0.0",
+  "pydantic>=2.0.0",
+  "mcp>=1.12.3",
+  "fastmcp>=2.11.1"
+]
+
+[project.optional-dependencies]
+dev = [
+  "black",
+  "isort",
+  "mypy",
+  "pytest",
+  "ruff",
+]
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+python_version = "3.9"
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+strict_optional = true
+warn_no_return = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
