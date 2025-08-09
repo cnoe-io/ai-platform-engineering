@@ -48,6 +48,10 @@ class AgentRegistry:
         "komodor": {
             "slim": "ai_platform_engineering.agents.komodor.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.komodor.clients.a2a.agent"
+        },
+        "weather": {
+            "slim": "ai_platform_engineering.agents.weather.clients.slim.agent",
+            "a2a": "ai_platform_engineering.agents.weather.clients.a2a.agent"
         }
     }
 

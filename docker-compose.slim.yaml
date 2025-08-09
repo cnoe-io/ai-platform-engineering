@@ -30,7 +30,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - AGENT_PROTOCOL=a2a
+      - A2A_TRANSPORT=slim
       - ARGOCD_AGENT_HOST=agent-argocd-slim
       - BACKSTAGE_AGENT_HOST=agent-backstage-slim
       - CONFLUENCE_AGENT_HOST=agent-confluence-slim

@@ -16,7 +16,6 @@ from langchain_core.runnables import RunnableLambda
 import json
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
-from ai_platform_engineering.agents.weather.agntcy_agent_client.agent import weather_agntcy_remote_agent
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
@@ -65,7 +64,6 @@ class AIPlatformEngineerMAS:
       store = InMemoryStore()
 
     agent_tools = platform_registry.get_all_agents()
-    agent_tools.append(weather_agntcy_remote_agent)
 
     # The argument is the name to assign to the resulting forwarded message
     forwarding_tool = create_forward_message_tool("platform_engineer_supervisor")
