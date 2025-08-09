@@ -15,7 +15,7 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'GitHub'
+AGENT_NAME = 'github'
 AGENT_DESCRIPTION="An AI agent that interacts with GitHub to manage repositories, pull requests, and workflows."
 
 agent_skill = AgentSkill(

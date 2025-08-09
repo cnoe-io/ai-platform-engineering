@@ -127,6 +127,7 @@ services:
     ports:
       - "8002:8000"
     environment:
+      - A2A_TRANSPORT=slim
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -151,6 +152,7 @@ services:
     ports:
       - "8003:8000"
     environment:
+      - A2A_TRANSPORT=slim
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -176,6 +178,7 @@ services:
     ports:
       - "8004:8000"
     environment:
+      - A2A_TRANSPORT=slim
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -202,6 +205,7 @@ services:
     ports:
       - "8005:8000"
     environment:
+      - A2A_TRANSPORT=slim
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -228,6 +232,7 @@ services:
     ports:
       - "8006:8000"
     environment:
+      - A2A_TRANSPORT=slim
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -252,6 +257,7 @@ services:
     ports:
       - "8007:8000"
     environment:
+      - A2A_TRANSPORT=slim
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -276,6 +282,7 @@ services:
     ports:
       - "8008:8000"
     environment:
+      - A2A_TRANSPORT=slim
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}

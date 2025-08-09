@@ -15,7 +15,7 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Pagerduty'
+AGENT_NAME = 'pagerduty'
 AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform PagerDuty operations.'
 
 agent_skill = AgentSkill(

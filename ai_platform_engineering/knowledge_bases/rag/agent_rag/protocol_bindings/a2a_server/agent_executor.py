@@ -41,14 +41,14 @@ class RAGAgentExecutor(AgentExecutor):
 
         if not task:
             task = new_task(context.message)
-            event_queue.enqueue_event(task)
+            await event_queue.enqueue_event(task)
 
         try:
             # Get answer from RAG agent
             answer = self.agent.answer_question(query)
 
             # Send the final result
-            event_queue.enqueue_event(
+            await event_queue.enqueue_event(
                 TaskArtifactUpdateEvent(
                     append=False,
                     contextId=task.contextId,
@@ -61,7 +61,7 @@ class RAGAgentExecutor(AgentExecutor):
                     ),
                 )
             )
-            event_queue.enqueue_event(
+            await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     status=TaskStatus(state=TaskState.completed),
                     final=True,
@@ -72,7 +72,7 @@ class RAGAgentExecutor(AgentExecutor):
         except Exception as e:
             # Handle errors by sending an error message
             error_msg = f"Error processing query: {str(e)}"
-            event_queue.enqueue_event(
+            await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     status=TaskStatus(
                         state=TaskState.failed,

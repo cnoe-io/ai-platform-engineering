@@ -164,15 +164,15 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
                 }
             )
           tools = await client.get_tools()
-          print('*'*80)
-          tools_docs = ["Available Tools and Parameters:"]
-          for tool in tools:
-            tools_docs.append(f"Tool: {tool.name}")
-            tools_docs.append(f"  Description: {tool.description}")
-            tools_docs.append("")
-          tools_docs = "\n".join(tools_docs)
-          print(tools_docs)
-          print('*'*80)
+          # print('*'*80)
+          # tools_docs = ["Available Tools and Parameters:"]
+          # for tool in tools:
+          #   tools_docs.append(f"Tool: {tool.name}")
+          #   tools_docs.append(f"  Description: {tool.description}")
+          #   tools_docs.append("")
+          # tools_docs = "\n".join(tools_docs)
+          # print(tools_docs)
+          # print('*'*80)
           self.graph = create_react_agent(
             self.model,
             tools,

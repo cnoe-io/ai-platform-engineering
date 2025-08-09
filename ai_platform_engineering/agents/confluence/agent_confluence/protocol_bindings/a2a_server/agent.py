@@ -115,25 +115,25 @@ class ConfluenceAgent:
             )
 
           tools = await client.get_tools()
-          logger.debug('*'*80)
-          logger.debug("Available Tools and Parameters:")
-          for tool in tools:
-            logger.debug(f"Tool: {tool.name}")
-            logger.debug(f"  Description: {tool.description.strip().splitlines()[0]}")
-            params = tool.args_schema.get('properties', {})
-            if params:
-              logger.debug("  Parameters:")
-              for param, meta in params.items():
-                param_type = meta.get('type', 'unknown')
-                param_title = meta.get('title', param)
-                default = meta.get('default', None)
-                if default is not None:
-                  logger.debug(f"    - {param} ({param_type}): {param_title} [default: {default}]")
-                else:
-                  logger.debug(f"    - {param} ({param_type}): {param_title}")
-            else:
-              logger.debug("  Parameters: None")
-          logger.debug('*'*80)
+          # logger.debug('*'*80)
+          # logger.debug("Available Tools and Parameters:")
+          # for tool in tools:
+          #   logger.debug(f"Tool: {tool.name}")
+          #   logger.debug(f"  Description: {tool.description.strip().splitlines()[0]}")
+          #   params = tool.args_schema.get('properties', {})
+          #   if params:
+          #     logger.debug("  Parameters:")
+          #     for param, meta in params.items():
+          #       param_type = meta.get('type', 'unknown')
+          #       param_title = meta.get('title', param)
+          #       default = meta.get('default', None)
+          #       if default is not None:
+          #         logger.debug(f"    - {param} ({param_type}): {param_title} [default: {default}]")
+          #       else:
+          #         logger.debug(f"    - {param} ({param_type}): {param_title}")
+          #   else:
+          #     logger.debug("  Parameters: None")
+          # logger.debug('*'*80)
           self.graph = create_react_agent(
             self.model,
             tools,

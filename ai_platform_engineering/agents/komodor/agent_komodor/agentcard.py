@@ -15,7 +15,7 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Komodor'
+AGENT_NAME = 'komodor'
 AGENT_DESCRIPTION = 'An AI agent that provides capabilities to list, manage, and retrieve details of clusters, services and workloads in Komodor.'
 
 agent_skill = AgentSkill(

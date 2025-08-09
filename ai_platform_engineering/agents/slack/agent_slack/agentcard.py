@@ -15,7 +15,7 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Slack'
+AGENT_NAME = 'slack'
 AGENT_DESCRIPTION = (
   "An AI agent that integrates with Slack to assist with managing channels, "
   "sending messages, retrieving user information, and other Slack-based operations."

@@ -15,7 +15,7 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'ArgoCD'
+AGENT_NAME = 'argocd'
 AGENT_DESCRIPTION = 'An AI agent that provides capabilities to list, manage, and retrieve details of applications in ArgoCD.'
 
 agent_skill = AgentSkill(

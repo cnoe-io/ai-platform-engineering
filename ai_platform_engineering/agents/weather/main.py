@@ -82,7 +82,7 @@ class WeatherAgentExecutor(AgentExecutor):
     try:
       result = await self.agent.invoke()
       logger.info(f"WeatherAgent returned result: {result}")
-      event_queue.enqueue_event(new_agent_text_message(result))
+      await event_queue.enqueue_event(new_agent_text_message(result))
     except Exception as e:
       logger.error(f"Error during execution: {e}", exc_info=True)
 

@@ -15,7 +15,7 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Jira'
+AGENT_NAME = 'jira'
 AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Jira operations.'
 
 agent_skill = AgentSkill(

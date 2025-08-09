@@ -15,7 +15,7 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Backstage'
+AGENT_NAME = 'backstage'
 AGENT_DESCRIPTION = 'An AI agent that provides capabilities to interact with Backstage for catalog management, entity lookup, and service metadata.'
 
 agent_skill = AgentSkill(

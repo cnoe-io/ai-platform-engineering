@@ -15,7 +15,7 @@ load_dotenv()
 # AGENT SPECIFIC CONFIGURATION
 # Modify these values for your specific agent
 # ==================================================
-AGENT_NAME = 'Confluence'
+AGENT_NAME = 'confluence'
 AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform Confluence operations.'
 
 agent_skill = AgentSkill(

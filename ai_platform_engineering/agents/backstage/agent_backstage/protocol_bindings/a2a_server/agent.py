@@ -121,27 +121,27 @@ class BackstageAgent:
           )
 
         tools = await client.get_tools()
-        print('*'*80)
-        print("Available Tools and Parameters:")
-        for tool in tools:
-            print(f"Tool: {tool.name}")
-            print(f"  Description: {tool.description.strip().splitlines()[0]}")
-            params = tool.args_schema.get('properties', {})
-            if params:
-                print("  Parameters:")
-                for param, meta in params.items():
-                    param_type = meta.get('type', 'unknown')
-                    param_title = meta.get('title', param)
-                    default = meta.get('default', None)
-                    print(f"    - {param} ({param_type}): {param_title}", end='')
-                    if default is not None:
-                        print(f" [default: {default}]")
-                    else:
-                        print()
-            else:
-                print("  Parameters: None")
-            print()
-        print('*'*80)
+        # print('*'*80)
+        # print("Available Tools and Parameters:")
+        # for tool in tools:
+        #     print(f"Tool: {tool.name}")
+        #     print(f"  Description: {tool.description.strip().splitlines()[0]}")
+        #     params = tool.args_schema.get('properties', {})
+        #     if params:
+        #         print("  Parameters:")
+        #         for param, meta in params.items():
+        #             param_type = meta.get('type', 'unknown')
+        #             param_title = meta.get('title', param)
+        #             default = meta.get('default', None)
+        #             print(f"    - {param} ({param_type}): {param_title}", end='')
+        #             if default is not None:
+        #                 print(f" [default: {default}]")
+        #             else:
+        #                 print()
+        #     else:
+        #         print("  Parameters: None")
+        #     print()
+        # print('*'*80)
 
         logger.debug("Creating React agent with LangGraph")
         self.graph = create_react_agent(
