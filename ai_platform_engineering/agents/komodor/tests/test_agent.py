@@ -1,4 +1,3 @@
-import pytest
 from agent_komodor.protocol_bindings.a2a_server.agent import KomodorAgent, ResponseFormat
 
 def test_komodor_agent_class_exists():
