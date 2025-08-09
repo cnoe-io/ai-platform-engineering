@@ -16,6 +16,8 @@ from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent  # type: ignore
+from cnoe_agent_utils import LLMFactory
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 import os
 
@@ -25,13 +27,11 @@ from agent_argocd.state import (
     Message,
     MsgType,
 )
-from cnoe_agent_utils import LLMFactory
-from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 logger = logging.getLogger(__name__)
 
 def debug_print(message: str, banner: bool = True):
-    if os.getenv("ACP_SERVER_DEBUG", "false").lower() == "true":
+    if os.getenv("A2A_SERVER_DEBUG", "false").lower() == "true":
         if banner:
             print("=" * 80)
         print(f"DEBUG: {message}")
@@ -74,7 +74,7 @@ class ArgoCDAgent:
       async def _async_argocd_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
-          server_path = args.get("server_path", "./mcp/argocd/mcp_argocd/server.py")
+          server_path = args.get("server_path", "./mcp/mcp_argocd/server.py")
           print(f"Launching MCP server at: {server_path}")
 
           argocd_token = os.getenv("ARGOCD_TOKEN")
@@ -84,20 +84,50 @@ class ArgoCDAgent:
           argocd_api_url = os.getenv("ARGOCD_API_URL")
           if not argocd_api_url:
             raise ValueError("ARGOCD_API_URL must be set as an environment variable.")
-          client = MultiServerMCPClient(
+          client = None
+          mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+          if mcp_mode == "http" or mcp_mode == "streamable_http":
+            logging.info("Using HTTP transport for MCP client")
+            # For HTTP transport, we need to connect to the MCP server
+            # This is useful for production or when the MCP server is running separately
+            # Ensure MCP_HOST and MCP_PORT are set in the environment
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            # TBD: Handle user authentication
+            user_jwt = "TBD_USER_JWT"
+
+            client = MultiServerMCPClient(
               {
-                  "math": {
-                      "command": "uv",
-                      "args": ["run", server_path],
-                      "env": {
-                          "ARGOCD_TOKEN": os.getenv("ARGOCD_TOKEN"),
-                          "ARGOCD_API_URL": os.getenv("ARGOCD_API_URL"),
-                          "ARGOCD_VERIFY_SSL": "false"
-                      },
-                      "transport": "stdio",
-                  }
+                "argocd": {
+                  "transport": "streamable_http",
+                  "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                  "headers": {
+                    "Authorization": f"Bearer {user_jwt}",
+                  },
+                }
               }
-          )
+            )
+          else:
+            logging.info("Using STDIO transport for MCP client")
+            # For STDIO transport, we can use a simple client without URL
+            # This is useful for local development or testing
+            # Ensure ARGOCD_TOKEN and ARGOCD_API_URL are set in the environment
+            client = MultiServerMCPClient(
+                {
+                  "argocd": {
+                    "command": "uv",
+                    "args": ["run", server_path],
+                    "env": {
+                        "ARGOCD_TOKEN": os.getenv("ARGOCD_TOKEN"),
+                        "ARGOCD_API_URL": os.getenv("ARGOCD_API_URL"),
+                        "ARGOCD_VERIFY_SSL": "false"
+                    },
+                    "transport": "stdio",
+                  }
+                }
+            )
+
           tools = await client.get_tools()
           print('*'*80)
           print("Available Tools and Parameters:")
@@ -186,7 +216,7 @@ class ArgoCDAgent:
     async def stream(
       self, query: str, context_id: str, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
-      print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
+      logger.debug("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
 
       # Initialize the agent if not already done
       await self._initialize_agent()

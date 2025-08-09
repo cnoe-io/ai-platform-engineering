@@ -14,12 +14,12 @@ KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
 logger.info("Komodor enabled: %s", KOMODOR_ENABLED)
 
 AGENT_NAMES = [
-    "github",
-    "pagerduty",
-    "jira",
     "argocd",
     "backstage",
     "confluence",
+    "github",
+    "jira",
+    "pagerduty",
     "slack"
 ]
 

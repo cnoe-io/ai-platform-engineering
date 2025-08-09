@@ -1,41 +1,32 @@
 [project]
 name = "agent_argocd"
 version = "0.1.0"
-license = "Apache-2.0"
 description = "An ArgoCD natural language agent using LangChain, LangGraph, and MCP."
-readme = "README.md"
 authors = [
-  { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
+  {name = "Sri Aradhyula", email = "sraradhy@cisco.com"}
 ]
-maintainers = [
-  { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
-]
+license = {text = "Apache-2.0"}
+readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "a2a-sdk>=0.2.1",
-  "agentevals>=0.0.7",
-  "agntcy-app-sdk>=0.1.1",
-  "click>=8.2.0",
-  "langchain-anthropic>=0.3.13",
-  "langchain-core>=0.3.60",
-  "langchain-google-genai>=2.1.4",
-  "langchain-mcp-adapters>=0.1.0",
-  "langchain-openai>=0.3.17",
-  "langgraph>=0.4.5",
-  "pytest>=8.3.5",
-  "tabulate>=0.9.0",
+  "a2a-sdk (==0.2.16)",
+  "agntcy-app-sdk==0.1.4",
+  "agentevals (>=0.0.7)",
+  "click (>=8.2.0)",
+  "langchain-core (>=0.3.60)",
+  "langchain-mcp-adapters (>=0.1.0)",
+  "langgraph (==0.5.3)",
+  "pytest (>=8.3.5)",
+  "tabulate (>=0.9.0)",
   "uv",
-  "rich>=14.0.0,<15.0.0",
-  "sseclient>=0.0.27,<0.0.28",
-  "cnoe-agent-utils>=0.2.0",
-  "python-dotenv>=1.0.0",
-  "fastmcp>=0.1.0",
-  "fastapi>=0.100.0",
+  "rich (>=14.0.0,<15.0.0)",
+  "sseclient (>=0.0.27,<0.0.28)",
+  "cnoe-agent-utils==0.2.2",
+  "python-dotenv (>=1.0.0)",
+  "fastapi (>=0.100.0)",
+  "fastmcp==2.11.1",
   "mcp-argocd",
 ]
-
-[tool.uv.sources]
-mcp-argocd = { path = "./mcp/argocd" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
@@ -68,3 +59,11 @@ markers = [
     "integration: marks tests as integration tests",
     "parsers: marks tests as parser tests"
 ]
+
+[tool.uv.workspace]
+members = [
+    "mcp",
+]
+
+[tool.uv.sources]
+mcp-argocd = { workspace = true }

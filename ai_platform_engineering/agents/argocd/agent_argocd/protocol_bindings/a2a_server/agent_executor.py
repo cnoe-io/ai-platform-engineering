@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class ArgoCDAgentExecutor(AgentExecutor):
-    """Currency AgentExecutor Example."""
+    """ArgoCD AgentExecutor Example."""
 
     def __init__(self):
         self.agent = ArgoCDAgent()
@@ -41,7 +41,7 @@ class ArgoCDAgentExecutor(AgentExecutor):
             task = new_task(context.message)
             event_queue.enqueue_event(task)
 
-        # Extract trace_id from A2A context - ArgoCD is a SUB-AGENT, should NEVER generate trace_id
+        # Extract trace_id from A2A context - THIS IS A SUB-AGENT, should NEVER generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
             logger.warning("ArgoCD Agent: No trace_id from supervisor")
@@ -52,7 +52,8 @@ class ArgoCDAgentExecutor(AgentExecutor):
         # invoke the underlying agent, using streaming results
         async for event in self.agent.stream(query, context_id, trace_id):
             if event['is_task_complete']:
-                event_queue.enqueue_event(
+                logger.info("Task complete event received. Enqueuing TaskArtifactUpdateEvent and TaskStatusUpdateEvent.")
+                await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
                         contextId=task.contextId,
@@ -65,7 +66,7 @@ class ArgoCDAgentExecutor(AgentExecutor):
                         ),
                     )
                 )
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
                         final=True,
@@ -73,8 +74,10 @@ class ArgoCDAgentExecutor(AgentExecutor):
                         taskId=task.id,
                     )
                 )
+                logger.info(f"Task {task.id} marked as completed.")
             elif event['require_user_input']:
-                event_queue.enqueue_event(
+                logger.info("User input required event received. Enqueuing TaskStatusUpdateEvent with input_required state.")
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
@@ -89,8 +92,10 @@ class ArgoCDAgentExecutor(AgentExecutor):
                         taskId=task.id,
                     )
                 )
+                logger.info(f"Task {task.id} requires user input.")
             else:
-                event_queue.enqueue_event(
+                logger.info("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.working,
@@ -105,7 +110,7 @@ class ArgoCDAgentExecutor(AgentExecutor):
                         taskId=task.id,
                     )
                 )
-
+                logger.info(f"Task {task.id} is in progress.")
     @override
     async def cancel(
         self, context: RequestContext, event_queue: EventQueue
