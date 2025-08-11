@@ -1,0 +1,70 @@
+prompts:
+  - id: "github_info"
+    messages:
+      - role: "user"
+        content: "show me the github info"
+    expected_keywords: ["github", "username", "name", "company", "location", "email", "bio", "repositories", "followers", "following", "profile"]
+    category: "github"
+
+  - id: "pagerduty_account"
+    messages:
+      - role: "user"
+        content: "get Pagerduty services for with SRE filter"
+    expected_keywords: ["pagerduty", "account", "service"]
+    category: "pagerduty"
+
+  - id: "argocd_version"
+    messages:
+      - role: "user"
+        content: "show argocd version"
+    expected_keywords: ["argocd", "version"]
+    category: "argocd"
+
+  - id: "slack_channels"
+    messages:
+      - role: "user"
+        content: "Describe your slack channels"
+    expected_keywords: ["can", "help", "capability", "service"]
+    category: "general"
+
+  - id: "help_info"
+    messages:
+      - role: "user"
+        content: "What can you help me with?"
+    expected_keywords: ["ArgoCD", "Backstage", "Confluence", "GitHub", "Jira", "PagerDuty", "Slack", "Komodor", "platform", "engineering", "help", "assist", "can", "service", "repositories", "applications", "incidents", "channels", "tickets"]
+    category: "general"
+
+  - id: "list_repositories"
+    messages:
+      - role: "user"
+        content: "list all repositories in cnoe-io organization"
+    expected_keywords: ["ai-platform-engineering"]
+    category: "github"
+
+  - id: "deployment_status"
+    messages:
+      - role: "user"
+        content: "get health status apps in jarvis-agent-dev project"
+    expected_keywords: ["deployment", "status", "argocd", "application"]
+    category: "argocd"
+
+  - id: "open_incidents"
+    messages:
+      - role: "user"
+        content: "what incidents are currently open in pagerduty"
+    expected_keywords: ["incident", "open", "pagerduty", "alert"]
+    category: "pagerduty"
+
+  - id: "slack_channels"
+    messages:
+      - role: "user"
+        content: "list all slack channels"
+    expected_keywords: ["slack", "channel", "list"]
+    category: "slack"
+
+  - id: "jira_issues"
+    messages:
+      - role: "user"
+        content: "show open jira issues assigned to me"
+    expected_keywords: ["jira", "issue", "assigned", "open"]
+    category: "jira"

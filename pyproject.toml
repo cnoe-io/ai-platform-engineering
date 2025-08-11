@@ -18,7 +18,9 @@ dependencies = [
     "langgraph-supervisor (==0.0.28)",
     "a2a-sdk (==0.2.16)",
     "cnoe-agent-utils (>=0.2.0)",
-    "langchain (>=0.3.25,<0.4.0)",
+    "langchain (>=0.3.25)",
+    "langfuse (>=3.0.8,<4.0.0)",
+    "agntcy-app-sdk>=0.1.1",
 ]
 
 [tool.pytest.ini_options]
@@ -44,25 +46,15 @@ indent-width = 2
 select = ["E", "F"]
 ignore = ["F403"]
 
-[tool.uv.sources]
-ai-platform-engineering = { workspace = true }
-agent-argocd = { workspace = true }
-agent-komodor = { workspace = true }
-
-[tool.uv.workspace]
-members = [
-    "ai_platform_engineering/agents/komodor",
-    "ai_platform_engineering/agents/argocd",
-]
-
 [dependency-groups]
 dev = [
-    "ai-platform-engineering",
-    "langgraph-cli[inmem]>=0.3.6",
-    "ruff>=0.12.5",
+    "httpx>=0.28.1",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pyyaml>=6.0.2",
+    "rich>=14.1.0",
+    "ruff>=0.12.7",
 ]
 unittest = [
-    "agent-argocd",
-    "agent-komodor",
     "pytest-asyncio>=1.1.0",
 ]

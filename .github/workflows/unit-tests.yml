@@ -23,18 +23,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13.2"
-      - name: Install Poetry
+      - name: Install UV
         run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-        env:
-          POETRY_HOME: /opt/poetry
-      - name: Add Poetry to PATH
-        run: echo "/opt/poetry/bin" >> $GITHUB_PATH
+          curl -LsSf https://astral.sh/uv/install.sh | sh
       - name: Install dependencies
         run: |
-          poetry install --with dev
-          echo "Installing ai_platform_engineering, agents, and argocd..."
-          poetry add ./ai_platform_engineering/agents/argocd --no-interaction
+          uv sync --dev
       - name: Run tests
         run: |
-          make test
+          uv run pytest --ignore=integration
