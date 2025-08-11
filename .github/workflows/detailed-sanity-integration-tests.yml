@@ -1,10 +1,7 @@
-name: Compose up and test via agent-chat-cli
+name: Detailed Integration Tests
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -101,4 +98,4 @@ jobs:
 
       - name: Run quick sanity integration tests
         run: |
-          make quick-sanity
+          make detailed-sanity
