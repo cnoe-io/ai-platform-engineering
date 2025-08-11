@@ -90,7 +90,7 @@ test: setup-venv install ## Install dependencies and run tests using pytest
 	@. .venv/bin/activate && uv add pytest-asyncio --group unittest
 
 	@echo "Running tests..."
-	@. .venv/bin/activate && uv run pytest
+	@. .venv/bin/activate && uv run pytest --ignore=integration
 
 ## ========== Integration Tests ==========
 
@@ -103,8 +103,6 @@ detailed-test: setup-venv ## Run tests with verbose output and detailed logs
 	@echo "Running integration tests with verbose output..."
 	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
 	cd integration && A2A_PROMPTS_FILE=test_prompts_detailed.yaml pytest -o log_cli=true -o log_cli_level=INFO
-
-
 
 validate:
 	@echo "Validating code..."
