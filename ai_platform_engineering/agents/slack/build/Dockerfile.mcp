@@ -13,4 +13,4 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 EXPOSE 8000
 
 # Run the HTTP/SSE MCP server
-CMD ["uv", "run", "python", "mcp_komodor/server.py"]
+CMD ["uv", "run", "python", "mcp_slack/server.py"]

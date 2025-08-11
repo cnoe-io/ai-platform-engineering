@@ -1,0 +1,46 @@
+[project]
+name = "ai-platform-engineering-integration-tests"
+version = "0.1.0"
+description = "Integration tests for AI Platform Engineering using A2A protocol"
+authors = [
+    {name = "CNOE Contributors", email = "info@cnoe.io"}
+]
+license = {text = "Apache-2.0"}
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "httpx>=0.25.0",
+    "rich>=13.0.0",
+    "a2a-sdk==0.2.16",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pyyaml>=6.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.3.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+testpaths = ["."]
+python_files = ["test_*.py", "*_test.py", "integration_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "ISC", "ICN", "G", "PIE", "T20", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "PD", "PGH", "PL", "TRY", "NPY", "RUF"]
+ignore = ["F403", "E402", "S101", "TRY003", "PLR0913", "PLR2004"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

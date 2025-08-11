@@ -68,6 +68,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
 unittest = [
@@ -91,7 +92,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.12.7" }]
+dev = [
+    { name = "pytest-asyncio", specifier = ">=1.1.0" },
+    { name = "ruff", specifier = ">=0.12.7" },
+]
 unittest = [{ name = "pytest-asyncio", specifier = ">=1.1.0" }]
 
 [[package]]

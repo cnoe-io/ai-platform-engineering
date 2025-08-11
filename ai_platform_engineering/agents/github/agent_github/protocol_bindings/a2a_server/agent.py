@@ -99,11 +99,11 @@ class GitHubAgent:
 
               client = MultiServerMCPClient(
                 {
-                  "argocd": {
+                  "github": {
                     "transport": "streamable_http",
-                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                    "url": f"https://api.githubcopilot.com/mcp",
                     "headers": {
-                      "Authorization": f"Bearer {user_jwt}",
+                      "Authorization": f"Bearer {self.github_token}",
                     },
                   }
                 }

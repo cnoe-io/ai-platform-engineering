@@ -1,8 +1,5 @@
 FROM python:3.13-slim
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-
 WORKDIR /app
 
 # Copy the entire project to leverage the main package structure
@@ -10,21 +7,10 @@ COPY ./mcp /app/
 
 # Install uv for dependency management
 RUN pip install uv
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
 
-# Install the main package and its dependencies using uv
-RUN uv sync --no-dev
-
-# Set ownership of the application directory to the non-root user
-RUN chown -R appuser:appuser /app
-
-# Switch to non-root user
-USER appuser
-
-# Set environment variables for MCP server
-ENV PYTHONPATH=/app
-
-# Expose the default MCP server port (can be overridden)
-EXPOSE 9000
+EXPOSE 8000
 
 # Run the HTTP/SSE MCP server
 CMD ["uv", "run", "python", "mcp_backstage/server.py"]

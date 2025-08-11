@@ -102,28 +102,24 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
 
     logger.info("Creating SendMessageRequest")
     request = SendMessageRequest(
-      id=request_id,
+      id=str(uuid4()),
       params=MessageSendParams(
         message=Message(
-          messageId=message_id,
+          messageId=str(uuid4()),
           role=role,
           parts=[Part(TextPart(text=message))]
         )
       )
     )
-    logger.info(f"SendMessageRequest created: {request}")
 
-    logger.info("Calling client.send_message()")
     response = await self._client.send_message(request)
     logger.info(f"Received response from the agent: {response}")
-    logger.info(f"Response type: {type(response)}, response content: {response}")
     return response
 
   def _run(self, input: Input) -> Any:
     """
     Synchronous interface (not supported).
     """
-    logger.info("_run called but not supported, raising NotImplementedError")
     raise NotImplementedError("Use _arun for async execution.")
 
   async def _arun(self, input: Input) -> Any:
@@ -138,14 +134,11 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
     """
     try:
       logger.info(f"Processing input of type: {type(input)}")
-      logger.info(f"Input content: {input}")
       prompt = input['prompt'] if isinstance(input, dict) else input.prompt
       logger.info(f"Received prompt: {prompt}")
-      logger.info(f"Extracted prompt: '{prompt}' (type: {type(prompt)})")
       if not prompt:
         logger.error("Invalid input: Prompt must be a non-empty string.")
         raise ValueError("Invalid input: Prompt must be a non-empty string.")
-      logger.info("Calling send_message with extracted prompt")
       response = await self.send_message(prompt)
       logger.info(f"Successfully received response: {response}")
       logger.info(f"Creating Output with response: {response}")
