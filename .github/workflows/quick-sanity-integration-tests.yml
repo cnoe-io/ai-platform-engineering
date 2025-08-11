@@ -72,12 +72,23 @@ jobs:
           docker version
           docker compose version || true
 
+      - name: Setup Python for A2A client test
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
       - name: Start AI Platform Engineering services
         run: |
+          echo "=========================================="
+          echo "Starting AI Platform Engineering services"
+          echo "=========================================="
+
           docker compose -f docker-compose.dev.yaml --profile=p2p up -d
 
-      - name: Wait for ai-platform-engineering services to be ready
-        run: |
+          echo "=========================================="
+          echo "Waiting for AI Platform Engineering services to be ready"
+          echo "=========================================="
+
           set -euo pipefail
           for i in $(seq 1 36); do
             if curl -sfS http://localhost:8000/ >/dev/null 2>&1; then
@@ -94,11 +105,7 @@ jobs:
           echo "Service on http://localhost:8000 did not become ready in time"
           exit 1
 
-      - name: Setup Python for A2A client test
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.13'
-
-      - name: Run quick sanity integration tests
-        run: |
+          echo "=========================================="
+          echo "Running Quick Sanity Integration Tests"
+          echo "=========================================="
           make quick-sanity
