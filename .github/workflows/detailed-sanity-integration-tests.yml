@@ -69,7 +69,7 @@ jobs:
           docker version
           docker compose version || true
 
-      - name: Start services (slim profile)
+      - name: Start AI Platform Engineering services
         run: |
           IMAGE_TAG=stable docker compose -f docker-compose.yaml --profile=p2p up -d
 

@@ -72,9 +72,9 @@ jobs:
           docker version
           docker compose version || true
 
-      - name: Start services (slim profile)
+      - name: Start AI Platform Engineering services
         run: |
-          docker compose -f docker-compose.slim.yaml --profile=slim up -d
+          docker compose -f docker-compose.dev.yaml --profile=p2p up -d
 
       - name: Wait for ai-platform-engineering services to be ready
         run: |
