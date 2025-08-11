@@ -20,9 +20,6 @@ from langgraph.prebuilt import create_react_agent  # type: ignore
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
-
-
-import asyncio
 import os
 
 from agent_jira.protocol_bindings.a2a_server.state import (
@@ -33,6 +30,14 @@ from agent_jira.protocol_bindings.a2a_server.state import (
 )
 
 logger = logging.getLogger(__name__)
+
+def debug_print(message: str, banner: bool = True):
+    if os.getenv("A2A_SERVER_DEBUG", "false").lower() == "true":
+        if banner:
+            print("=" * 80)
+        print(f"DEBUG: {message}")
+        if banner:
+            print("=" * 80)
 
 memory = MemorySaver()
 
@@ -62,12 +67,14 @@ class JiraAgent:
     def __init__(self):
       # Setup the math agent and load MCP tools
       self.model = LLMFactory().get_llm()
-      self.tracing = TracingManager()
       self.graph = None
+      self.tracing = TracingManager()
+      self._initialized = False
+
       async def _async_jira_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
-          server_path = args.get("server_path", "./agent_jira/protocol_bindings/mcp_server/mcp_jira/server.py")
+          server_path = args.get("server_path", "./mcp/mcp_jira/server.py")
           print(f"Launching MCP server at: {server_path}")
 
           jira_token = os.getenv("ATLASSIAN_TOKEN")
@@ -77,43 +84,72 @@ class JiraAgent:
           jira_api_url = os.getenv("ATLASSIAN_API_URL")
           if not jira_api_url:
             raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
-          client = MultiServerMCPClient(
+          client = None
+          mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+          if mcp_mode == "http" or mcp_mode == "streamable_http":
+            logging.info("Using HTTP transport for MCP client")
+            # For HTTP transport, we need to connect to the MCP server
+            # This is useful for production or when the MCP server is running separately
+            # Ensure MCP_HOST and MCP_PORT are set in the environment
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            # TBD: Handle user authentication
+            user_jwt = "TBD_USER_JWT"
+
+            client = MultiServerMCPClient(
               {
-                  "jira": {
-                      "command": "uv",
-                      "args": ["run", server_path],
-                      "env": {
-                          "ATLASSIAN_TOKEN": os.getenv("ATLASSIAN_TOKEN"),
-                          "ATLASSIAN_API_URL": os.getenv("ATLASSIAN_API_URL"),
-                          "ATLASSIAN_VERIFY_SSL": os.getenv("ATLASSIAN_VERIFY_SSL"),
-                          "ATLASSIAN_EMAIL": os.getenv("ATLASSIAN_EMAIL"),
-                      },
-                      "transport": "stdio",
-                  }
+                "argocd": {
+                  "transport": "streamable_http",
+                  "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                  "headers": {
+                    "Authorization": f"Bearer {user_jwt}",
+                  },
+                }
               }
-          )
+            )
+          else:
+            logging.info("Using STDIO transport for MCP client")
+            # For STDIO transport, we can use a simple client without URL
+            # This is useful for local development or testing
+            client = MultiServerMCPClient(
+                {
+                    "jira": {
+                        "command": "uv",
+                        "args": ["run", server_path],
+                        "env": {
+                            "ATLASSIAN_TOKEN": os.getenv("ATLASSIAN_TOKEN"),
+                            "ATLASSIAN_API_URL": os.getenv("ATLASSIAN_API_URL"),
+                            "ATLASSIAN_VERIFY_SSL": os.getenv("ATLASSIAN_VERIFY_SSL"),
+                            "ATLASSIAN_EMAIL": os.getenv("ATLASSIAN_EMAIL"),
+                        },
+                        "transport": "stdio",
+                    }
+                }
+            )
+
           tools = await client.get_tools()
-          print('*'*80)
-          print("Available Tools and Parameters:")
-          for tool in tools:
-            print(f"Tool: {tool.name}")
-            print(f"  Description: {tool.description.strip().splitlines()[0]}")
-            params = tool.args_schema.get('properties', {})
-            if params:
-              print("  Parameters:")
-              for param, meta in params.items():
-                param_type = meta.get('type', 'unknown')
-                param_title = meta.get('title', param)
-                default = meta.get('default', None)
-                print(f"    - {param} ({param_type}): {param_title}", end='')
-                if default is not None:
-                  print(f" [default: {default}]")
-                else:
-                  print()
-            else:
-              print("  Parameters: None")
-            print()
-          print('*'*80)
+          # print('*'*80)
+          # print("Available Tools and Parameters:")
+          # for tool in tools:
+          #   print(f"Tool: {tool.name}")
+          #   print(f"  Description: {tool.description.strip().splitlines()[0]}")
+          #   params = tool.args_schema.get('properties', {})
+          #   if params:
+          #     print("  Parameters:")
+          #     for param, meta in params.items():
+          #       param_type = meta.get('type', 'unknown')
+          #       param_title = meta.get('title', param)
+          #       default = meta.get('default', None)
+          #       print(f"    - {param} ({param_type}): {param_title}", end='')
+          #       if default is not None:
+          #         print(f" [default: {default}]")
+          #       else:
+          #         print()
+          #   else:
+          #     print("  Parameters: None")
+          #   print()
+          # print('*'*80)
           self.graph = create_react_agent(
             self.model,
             tools,
@@ -124,7 +160,7 @@ class JiraAgent:
 
 
           # Provide a 'configurable' key such as 'thread_id' for the checkpointer
-          runnable_config = RunnableConfig(configurable={"thread_id": "test-thread"})
+          runnable_config = RunnableConfig(configurable={"thread_id": "one-time-test-thread"})
           llm_result = await self.graph.ainvoke({"messages": HumanMessage(content="Summarize what you can do?")}, config=runnable_config)
 
           # Try to extract meaningful content from the LLM result
@@ -155,26 +191,35 @@ class JiraAgent:
               output_messages = []
 
           # Add a banner before printing the output messages
-          print("=" * 80)
-          print(f"Agent MCP Capabilities: {output_messages[-1].content}")
-          print("=" * 80)
+          debug_print(f"Agent MCP Capabilities: {output_messages[-1].content}")
 
-      def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-          return asyncio.run(_async_jira_agent(state, config))
+      # Store the async function for later use
+      self._async_jira_agent = _async_jira_agent
+    async def _initialize_agent(self) -> None:
+      """Initialize the agent asynchronously when first needed."""
+      if self._initialized:
+          return
+
       messages = []
       state_input = InputState(messages=messages)
       agent_input = AgentState(jira_input=state_input).model_dump(mode="json")
       runnable_config = RunnableConfig()
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
-          messages.append(HumanMessage(content="What is 2 + 2?"))
-      _create_agent(agent_input, config=runnable_config)
+          messages.append(HumanMessage(content="What can you do?"))
+
+      await self._async_jira_agent(agent_input, config=runnable_config)
+      self._initialized = True
 
     @trace_agent_stream("jira")
     async def stream(
       self, query: str, context_id: str | None = None, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
-      print("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
+      logger.debug("DEBUG: Starting stream with query:", query, "and context_id:", context_id)
+
+      # Initialize the agent if not already done
+      await self._initialize_agent()
+
       # Use the context_id as the thread_id, or generate a new one if none provided
       thread_id = context_id or uuid.uuid4().hex
       inputs: dict[str, Any] = {'messages': [('user', query)]}
@@ -182,9 +227,7 @@ class JiraAgent:
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
-          print('*'*80)
-          print("DEBUG: Streamed message:", message)
-          print('*'*80)
+          debug_print(f"Streamed message: {message}")
           if (
               isinstance(message, AIMessage)
               and message.tool_calls
@@ -204,22 +247,18 @@ class JiraAgent:
 
       yield self.get_agent_response(config)
     def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
-      print("DEBUG: Fetching agent response with config:", config)
+      debug_print(f"Fetching agent response with config: {config}")
       current_state = self.graph.get_state(config)
-      print('*'*80)
-      print("DEBUG: Current state:", current_state)
-      print('*'*80)
+      debug_print(f"Current state: {current_state}")
 
       structured_response = current_state.values.get('structured_response')
-      print('='*80)
-      print("DEBUG: Structured response:", structured_response)
-      print('='*80)
+      debug_print(f"Structured response: {structured_response}")
       if structured_response and isinstance(
         structured_response, ResponseFormat
       ):
-        print("DEBUG: Structured response is a valid ResponseFormat")
+        debug_print("Structured response is a valid ResponseFormat")
         if structured_response.status in {'input_required', 'error'}:
-          print("DEBUG: Status is input_required or error")
+          debug_print("Status is input_required or error")
           return {
             'is_task_complete': False,
             'require_user_input': True,
@@ -239,5 +278,3 @@ class JiraAgent:
         'require_user_input': True,
         'content': 'We are unable to process your request at the moment. Please try again.',
       }
-
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']

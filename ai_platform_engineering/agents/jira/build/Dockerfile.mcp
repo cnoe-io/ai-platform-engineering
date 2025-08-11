@@ -1,0 +1,16 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Copy the entire project to leverage the main package structure
+COPY ./mcp /app/
+
+# Install uv for dependency management
+RUN pip install uv
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
+
+EXPOSE 8000
+
+# Run the HTTP/SSE MCP server
+CMD ["uv", "run", "python", "mcp_jira/server.py"]
