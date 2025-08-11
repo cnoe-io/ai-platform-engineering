@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   quick-sanity:
-    runs-on: ubuntu-latest
+    runs-on: caipe-integration-test-runner
 
     steps:
       - name: Checkout
