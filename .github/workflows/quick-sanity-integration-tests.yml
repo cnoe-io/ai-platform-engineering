@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   quick-sanity:
-    runs-on: caipe-integration-test-runner
+    runs-on: caipe-integration-tests
 
     steps:
       - name: Checkout
