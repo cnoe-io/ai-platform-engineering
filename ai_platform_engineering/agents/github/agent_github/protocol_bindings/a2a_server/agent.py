@@ -94,14 +94,12 @@ class GitHubAgent:
               mcp_host = os.getenv("MCP_HOST", "localhost")
               mcp_port = os.getenv("MCP_PORT", "3000")
               logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
-              # TBD: Handle user authentication
-              user_jwt = "TBD_USER_JWT"
 
               client = MultiServerMCPClient(
                 {
                   "github": {
                     "transport": "streamable_http",
-                    "url": f"https://api.githubcopilot.com/mcp",
+                    "url": "https://api.githubcopilot.com/mcp",
                     "headers": {
                       "Authorization": f"Bearer {self.github_token}",
                     },

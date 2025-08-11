@@ -68,7 +68,11 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
+    { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "pyyaml" },
+    { name = "rich" },
     { name = "ruff" },
 ]
 unittest = [
@@ -93,7 +97,11 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "rich", specifier = ">=14.1.0" },
     { name = "ruff", specifier = ">=0.12.7" },
 ]
 unittest = [{ name = "pytest-asyncio", specifier = ">=1.1.0" }]

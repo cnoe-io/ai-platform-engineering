@@ -1,0 +1,9 @@
+anyio
+twisted
+pytest-asyncio
+pytest-tornasync
+pytest-trio
+pytest-twisted
+httpx
+a2a-sdk==0.2.16
+pyyaml

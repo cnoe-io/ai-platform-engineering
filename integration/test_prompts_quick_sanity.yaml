@@ -1,0 +1,7 @@
+prompts:
+  - id: "github_info"
+    messages:
+      - role: "user"
+        content: "show me the github info"
+    expected_keywords: ["github", "username", "name", "company", "location", "email", "bio", "repositories", "followers", "following", "profile"]
+    category: "github"

@@ -48,7 +48,11 @@ ignore = ["F403"]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
+    "pyyaml>=6.0.2",
+    "rich>=14.1.0",
     "ruff>=0.12.7",
 ]
 unittest = [

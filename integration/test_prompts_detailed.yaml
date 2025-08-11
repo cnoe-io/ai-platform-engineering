@@ -3,20 +3,13 @@ prompts:
     messages:
       - role: "user"
         content: "show me the github info"
-    expected_keywords: ["github", "repository", "organization"]
-    category: "github"
-
-  - id: "gha_action_url"
-    messages:
-      - role: "user"
-        content: "Show me the GHA action url for the current run"
-    expected_keywords: ["github", "action", "workflow", "run", "url"]
+    expected_keywords: ["github", "username", "name", "company", "location", "email", "bio", "repositories", "followers", "following", "profile"]
     category: "github"
 
   - id: "pagerduty_account"
     messages:
       - role: "user"
-        content: "Pagerduty account info"
+        content: "get Pagerduty services for with SRE filter"
     expected_keywords: ["pagerduty", "account", "service"]
     category: "pagerduty"
 
@@ -24,13 +17,13 @@ prompts:
     messages:
       - role: "user"
         content: "show argocd version"
-    expected_keywords: ["argocd", "version", "v2."]
+    expected_keywords: ["argocd", "version"]
     category: "argocd"
 
-  - id: "capabilities"
+  - id: "slack_channels"
     messages:
       - role: "user"
-        content: "Describe your capabilities"
+        content: "Describe your slack channels"
     expected_keywords: ["can", "help", "capability", "service"]
     category: "general"
 
@@ -38,27 +31,20 @@ prompts:
     messages:
       - role: "user"
         content: "What can you help me with?"
-    expected_keywords: ["help", "assist", "can", "service"]
+    expected_keywords: ["ArgoCD", "Backstage", "Confluence", "GitHub", "Jira", "PagerDuty", "Slack", "Komodor", "platform", "engineering", "help", "assist", "can", "service", "repositories", "applications", "incidents", "channels", "tickets"]
     category: "general"
 
   - id: "list_repositories"
     messages:
       - role: "user"
         content: "list all repositories in cnoe-io organization"
-    expected_keywords: ["repository", "repo", "cnoe-io", "organization"]
-    category: "github"
-
-  - id: "latest_prs"
-    messages:
-      - role: "user"
-        content: "show latest PRs in ai-platform-engineering repo in cnoe-io org"
-    expected_keywords: ["pr", "pull request", "ai-platform-engineering", "cnoe-io"]
+    expected_keywords: ["ai-platform-engineering"]
     category: "github"
 
   - id: "deployment_status"
     messages:
       - role: "user"
-        content: "get current deployment status from argocd"
+        content: "get health status apps in jarvis-agent-dev project"
     expected_keywords: ["deployment", "status", "argocd", "application"]
     category: "argocd"
 

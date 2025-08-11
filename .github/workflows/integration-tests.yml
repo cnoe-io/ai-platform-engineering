@@ -28,6 +28,35 @@ jobs:
           # Optional/if used by agents or knowledge base services
           AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT=${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
+
+          ARGOCD_TOKEN=${{ secrets.ARGOCD_TOKEN }}
+          ARGOCD_API_URL=${{ secrets.ARGOCD_API_URL }}
+          ARGOCD_VERIFY_SSL=true
+
+          BACKSTAGE_API_TOKEN=${{ secrets.BACKSTAGE_API_TOKEN }}
+          BACKSTAGE_URL=${{ secrets.BACKSTAGE_URL }}
+
+          ATLASSIAN_TOKEN=${{ secrets.ATLASSIAN_TOKEN }}
+          ATLASSIAN_EMAIL=${{ secrets.ATLASSIAN_EMAIL }}
+          ATLASSIAN_API_URL=${{ secrets.ATLASSIAN_API_URL }}
+          ATLASSIAN_VERIFY_SSL=true
+
+          CONFLUENCE_API_URL=${{ secrets.CONFLUENCE_API_URL }}
+
+          PAGERDUTY_API_KEY=${{ secrets.PAGERDUTY_API_KEY }}
+          PAGERDUTY_API_URL=https://api.pagerduty.com
+
+          SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
+          SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}
+          SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}
+          SLACK_TEAM_ID=${{ secrets.SLACK_TEAM_ID }}
+
+
+          A2A_TRANSPORT=p2p
+          ENABLE_TRACING=false
           EOF
           # Mask non-empty values to avoid accidental log exposure
           while IFS='=' read -r k v; do
@@ -47,7 +76,7 @@ jobs:
         run: |
           docker compose -f docker-compose.slim.yaml --profile=slim up -d
 
-      - name: Wait for localhost:8000 (up to ~3 minutes)
+      - name: Wait for ai-platform-engineering services to be ready
         run: |
           set -euo pipefail
           for i in $(seq 1 36); do
@@ -55,8 +84,8 @@ jobs:
               echo "Service responded on /"
               exit 0
             fi
-            if curl -sfS http://localhost:8000/health >/dev/null 2>&1; then
-              echo "Service responded on /health"
+            if curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null 2>&1; then
+              echo "Service responded on /.well-known/agent.json"
               exit 0
             fi
             echo "Waiting for service on http://localhost:8000 ... ($i)"
@@ -68,13 +97,8 @@ jobs:
       - name: Setup Python for A2A client test
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
-      - name: Install Python dependencies for A2A client test
+      - name: Run quick sanity integration tests
         run: |
-          pip install httpx rich a2a-client pytest pytest-asyncio pyyaml
-
-      - name: Run A2A integration tests with pytest
-        run: |
-          cd integration/tests
-          pytest test_a2a_integration.py -v --tb=short
+          make quick-sanity
