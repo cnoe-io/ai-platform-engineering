@@ -71,7 +71,7 @@ jobs:
 
       - name: Start services (slim profile)
         run: |
-          docker compose -f docker-compose.slim.yaml --profile=slim up -d
+          IMAGE_TAG=stable docker compose -f docker-compose.yaml --profile=p2p up -d
 
       - name: Wait for ai-platform-engineering services to be ready
         run: |
@@ -96,6 +96,6 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Run quick sanity integration tests
+      - name: Run detailed integration tests
         run: |
-          make detailed-sanity
+          make detailed-test
