@@ -355,6 +355,7 @@ class TestAgentErrorHandling:
     async def test_invalid_query_handling(self):
         """Test how the agent handles invalid/nonsensical queries"""
         response = await send_message_to_agent("asdfghjkl qwerty invalid query 12345")
+        logger.info(f"Response: {response}")
         assert response is not None
         assert len(response) > 0
         logger.info("✅ Invalid query handled gracefully")

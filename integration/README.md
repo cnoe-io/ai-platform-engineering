@@ -17,7 +17,7 @@ The integration tests validate that the AI Platform Engineering agents can:
 1. **Running Services**: Ensure AI Platform Engineering services are running:
    ```bash
    # From project root
-   docker compose -f docker-compose.slim.yaml --profile=slim up -d
+   docker compose -f docker-compose.dev.yaml --profile=p2p up -d
    ```
 
 2. **uv Package Manager**: The Makefile will install `uv` automatically if not present.
@@ -31,22 +31,7 @@ make quick-sanity
 # Run with verbose output
 make detailed-sanity
 
-# Check if services are running
-make check-services
-
-# Run specific test
-make test-specific TEST_NAME=github_info
-
-# Run tests by category
-make test-category CATEGORY=github
 ```
-
-### Test Classes
-
-1. **TestAgentCard**: Tests agent card discovery and validation
-2. **TestAgentCommunication**: Tests prompts from YAML file (data-driven)
-3. **TestAgentErrorHandling**: Tests error scenarios
-4. **TestSpecificAgentCapabilities**: Tests agent-specific functionality
 
 ## Adding New Tests
 
@@ -75,28 +60,4 @@ async def test_my_new_functionality(self):
     assert response is not None
     assert len(response) > 0
     # Add specific assertions
-```
-
-## Troubleshooting
-
-### Services Not Running
-```bash
-# Check service status
-make check-services
-
-# Start services
-docker compose -f docker-compose.slim.yaml --profile=slim up -d
-```
-
-### Missing Dependencies
-```bash
-# Reinstall dependencies
-make clean install
-```
-
-### Test Failures
-```bash
-# Run with verbose output for debugging
-make quick-sanity
-
 ```

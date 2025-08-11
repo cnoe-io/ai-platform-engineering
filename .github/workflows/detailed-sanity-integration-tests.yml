@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  compose-and-test:
+  detailed-sanity:
     runs-on: ubuntu-latest
 
     steps:

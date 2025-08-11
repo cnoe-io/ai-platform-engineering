@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 tracing:
-  log_level: debug
+  log_level: info
   display_thread_names: true
   display_thread_ids: true
 
