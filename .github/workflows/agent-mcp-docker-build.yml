@@ -19,7 +19,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
+      IMAGE_NAME: cnoe-io/mcp-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -47,10 +47,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=mcp-latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch,prefix=mcp-
-            type=ref,event=tag,prefix=mcp-
-            type=sha,format=short,prefix=mcp-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,prefix=
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
