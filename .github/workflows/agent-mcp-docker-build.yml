@@ -2,9 +2,15 @@ name: MCP Docker Build and Push
 
 on:
   push:
-    paths:
-      - 'ai_platform_engineering/agents/**'
-
+    branches:
+      - main
+    # Build on all new tags as well
+    tags:
+      - '**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
