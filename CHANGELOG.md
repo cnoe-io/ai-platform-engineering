@@ -1,7 +1,391 @@
-# Changelog
-
-## 0.0.1 (2025-05-02)
+## Unreleased
 
 ### Feat
 
-- Initial Commit to create the agent scaffolding
+- use agntcy-app-sdk to integrate with agntcy slim (#171)
+- **graph-rag**: add evaluation and tests
+- embed vidcast in idpbuilder doc
+- add a new pre-release helm chart github action
+- implement distributed tracing across all agents (#139)
+- add idpbuilder docs (#142)
+- allow external url as the A2A url (#122)
+- intial commit incident engineer (#111)
+- **graph_rag**: create nexigraph graph rag system (#97)
+- **rag**: doc load, embed, vector store, retrieve (#96)
+- updates
+- updates
+- remove dependency.yml
+- updates
+- update OSS artifacts and github actions
+- add some colours to the docs code block
+- add doc for eks deployment
+- **helm**: add command and args to deployment
+- **helm**: publish chart
+- add CORS and use LLMFactory
+- use cnoe_agent_utlis
+- publish helm
+- added ci pipeline
+- added ci pipeline
+- added A2A server and re-formatted
+- add A2A integration and new MCP server (#5)
+- Use cnoe utlis to get rid of llm_factory to encompass latest LLMs
+- added google's A2A server and client side
+- short term memory to the agent
+- add helm publish
+- add CORS and fix lint errors
+- use cnoe_agent_utlis instead of llm_factory
+- add agent forge
+- **agent-komodor**: add komodor agent
+- add script to automate Helm configuration for new agents
+- **docs**: add docs website
+- implement dual-mode docker-compose and update the readme and example env
+- **tracing**: use env to enable tracing
+- monkey patch a2a noise
+- implement langfuse v3
+- publish helm
+- added ci pipeline
+- added ci pipeline
+- added A2A server and re-formatted
+- add A2A integration and new MCP server (#5)
+- adding confluence agent
+- publish helm
+- added ci pipeline
+- added ci pipeline
+- added A2A server and re-formatted
+- add A2A integration and new MCP server (#5)
+- add agent-a2a-docker-build.yml
+- add mcp server support (#45)
+- **helm**: Implement helm chart (#42)
+- propogate context_id from user client LangGraph thread_id (#34)
+- **Dockerfile**: add multi-arch support
+- **cors**: add CORS and update ACP/A2A graph entry point (#11)
+- add A2A integration and new MCP server (#5)
+- adding 6th agent backstage
+- allow custom prompts via YAML config and restore original agent/platform prompt defaults
+
+### Fix
+
+- add make release
+- quick sanity tests and docker-compose files (#185)
+- **quick-sanity**: add komodor variables
+- **quick-sanity**: clean-up workspace
+- **quick-sanity**: update variables
+- **quick-sanity**: update runner name
+- **quick-sanity**: use caipe-integration-test-runner
+- **mcp**: use mcp-xxx container names
+- **ipdbuilder**: update idpbuild docs (#182)
+- linting, add eval results for graph-rag
+- **graph-rag**: give similar relations when evluating
+- **README.md**: add note to latest docs
+- docs images need to be svg not png
+- **docs**: update tracing docs
+- add profiles to graph_rag/nexigraph services
+- remove a2a from nexigraph images
+- add ghcr.io prefix to images
+- nexigraph client path
+- nexigraph build path
+- docker-compose graphrag image
+- **docs**: nexigraph agent names
+- helm correct externalSecret templating
+- agent-jira and agent-confluence (#133)
+- ruff lint
+- **graph-rag**: adding tests for heuristics; better heuristics; more accurate evalaution
+- helm chart agent-forge needs http for healthcheck
+- always pull and expose external url
+- **lint**: errors
+- **supervisor_agent**: system prompt optimization and use agent tools (#117)
+- **atlassian**: remove agent-atlassian (#116)
+- add tools, utils and meeting recordings
+- **docs**: ics file path
+- **docs**: ics file path
+- **docs**: ics file path
+- **README.md**: update arch diagram
+- ruff linter fails (#102)
+- allow multiple ports for agents
+- **tracing**: enable tracing in local build docker-compose
+- remove GOOGLE_API_KEY dependency
+- **docker-compose**: restore
+- import error
+- **prompts**: update backstage import
+- **docker-compose**: create multiple profiles build, latest (#98)
+- **a2a-docker**: update triggers
+- **clean-up**: remove helm charts
+- remove .DS_Store
+- reconcile updates
+- migrate agent-pagerduty
+- ruff linter
+- updated line length ruff linter
+- deleted tests
+- updated mcp server to reflect correct imports
+- updated imports
+- docker action build
+- cleanup of agent-template
+- updated dependencies
+- updates
+- **Makefile**: clean-up targets
+- updates to code
+- reconcile PR comments
+- add ai_platform_engineering/agents/argocd/build/Dockerfile.mcp
+- **lint**: reconcile
+- **ci**: run A2A parallel build on PR push
+- **langgraph**: updates
+- **clean-up**: remove redundant files
+- **ci**: build all agent docker images
+- updates
+- updates
+- add Dockerfile.a2a
+- **agents**: update Dockerfile.a2a file and clean-up
+- update build/Dockerfile.a2a
+- **docs**: authors.yml
+- **docs**: broken link
+- correct sidebar order
+- helm deployment rendering fix
+- update app and chart versions to 0.1.3 and adjust secret reference logic in deployment.yaml
+- correct conditional logic for secret reference in deployment.yaml
+- update app and chart versions to 0.1.2 and adjust values for backstage plugin
+- lint errors in add-new-agent-helm-chart.py
+- agent-forge should be port 3000
+- bump helm chart patch version
+- updated stable tag
+- mcp server api/catalog fixes
+- remove .keep files
+- **Dockerfile**: use python:3.13-slim
+- client side context_id
+- server side context_id
+- ruff lint changes
+- async error fixed.
+- lint errors
+- lint github actions
+- **Dockerfile**: use python:3.13-slim
+- updates
+- updates
+- client side context_id
+- server side context_id
+- remove AzureChatOpenAI in agent
+- remove AzureChatOpenAI in agent
+- **jira**: update search results
+- lint errors
+- add CORS support
+- add ruff in ci pipeline
+- ci errors
+- remove acp docker build
+- remove GOOGLE_API_KEY
+- README.md
+- **acp**: update run-acp based on latest wfsm changes
+- **acp**: update run-acp based on latest wfsm changes
+- update GHA
+- **acp**: update run-acp based on latest wfsm changes
+- **SECURITY.md**: add CNOE steering committe email
+- update docker-build-push.yaml
+- update copyright headers
+- add argocd_mcp submodule
+- **Dockerfile**: use python:3.13-slim
+- **helm**: publish helm chart
+- server side context_id
+- client_slide_context_id
+- add CORS support
+- ruff pipeline
+- ci errors
+- ci updates
+- remove GOOGLE_API_KEY
+- **acp**: update agent.json
+- **acp**: update agent.json
+- updated .gtihub
+- added dockerfile.a2a and acp
+- path changed for docker acp and a2a
+- update a2a and acp docker
+- updated docker files in .github
+- remove invalid async context usage with MultiServerMCPClient
+- technical issue with data retrieval
+- pagerduty token and logs
+- **docs**: updates
+- **README.md**: updates
+- **README.md**: updates
+- **README.md**: updates
+- **README.md**: updates
+- **README.md**: updates
+- **docs**: update README.md
+- **Dockefile**: use python:3.13-slim
+- **helm**: change default service port to 8000
+- **helm**: rename chart to agent-github
+- ruff linter
+- use LLMFactory and lint errors
+- remove acp docker build
+- ruff lint
+- client side context_id
+- server side context_id
+- **docs**: add some under construction anchors
+- **docs**: add github issues
+- **docs**: broken link
+- **docs**: update usecases
+- **.env.example**: remove it to fix linter
+- helm gh wf with correct paths
+- helm chart push on merge
+- **docs**: updates
+- Update user-interfaces.md
+- broken links
+- **komodor-agent**: only deploy komodor agent if use docker compose override
+- **komodor-agent**: use llm factory instead of langchain library
+- update python script name
+- reconcile
+- **docs**: README.md
+- **docs**: updates
+- **docs**: updates
+- **docs**: updates
+- **docs**: update sidebars.ts
+- **docs**: add blog and simplify
+- updates
+- editUrl link
+- **docs**: update edit links
+- **docs**: github action publishing update baseUrl
+- **docs**: github action publishing
+- **docs**: github action publishing
+- **docs**: github action publishing
+- add langfuse reference
+- updates
+- merge updates
+- add missing import os
+- updates
+- updates
+- client side context_id
+- server side context_id
+- remove AzureChatOpenAI in agent
+- remove AzureChatOpenAI in agent
+- **jira**: update search results
+- lint errors
+- add CORS support
+- add ruff in ci pipeline
+- ci errors
+- remove acp docker build
+- remove GOOGLE_API_KEY
+- README.md
+- **acp**: update run-acp based on latest wfsm changes
+- **acp**: update run-acp based on latest wfsm changes
+- update GHA
+- **acp**: update run-acp based on latest wfsm changes
+- **SECURITY.md**: add CNOE steering committe email
+- update docker-build-push.yaml
+- update copyright headers
+- add argocd_mcp submodule
+- docker container build
+- fixed agent tools
+- updates
+- updates
+- client side context_id
+- server side context_id
+- remove AzureChatOpenAI in agent
+- remove AzureChatOpenAI in agent
+- **jira**: update search results
+- lint errors
+- add CORS support
+- add ruff in ci pipeline
+- ci errors
+- remove acp docker build
+- remove GOOGLE_API_KEY
+- README.md
+- **acp**: update run-acp based on latest wfsm changes
+- **acp**: update run-acp based on latest wfsm changes
+- update GHA
+- **acp**: update run-acp based on latest wfsm changes
+- **SECURITY.md**: add CNOE steering committe email
+- update docker-build-push.yaml
+- update copyright headers
+- add argocd_mcp submodule
+- helm chart workflow improvements
+- correctly add global secretName
+- **argocd**: update poetry.lock
+- **multi_agents**: rename mas->multi_agents
+- github actions workflows
+- **gha**: typo
+- **poetry**: updates
+- build docker errors
+- update test dependencies
+- unit tests
+- lint
+- import errors
+- **query-params**: Don't add query param to request if None (#44)
+- **Dockerfile**: use python:3.13-slim
+- **api**: support nested body parameters and fix boolean types
+- **helm**: default service port 8000
+- **helm**: version 0.1.1
+- **helm**: Update image.tag in values.yaml
+- **helm**: updates
+- **helm**: updates
+- **helm**: updates
+- **helm**: only trigger on tags
+- **test**: lint errors
+- **helm**: update gh workflow
+- **helm**: update gh workflow
+- **README.md**: update local dev tasks
+- temporarily remove api_v1_applications_manifestsWithFiles
+- update mcp_server bindings (#33)
+- **README.md**: updates
+- **README.md**: update architecture diagram
+- add MCP_VERIFY_SSL for local development and update README (#32)
+- rename to A2A_HOST and A2A_PORT (#31)
+- **acp**: docker image
+- updates to A2A client (#22)
+- update to use argocd
+- updates with AGENT_NAME
+- **MAINTAINERS.md**: updates
+- **README.md**: status badgese
+- update README.md
+- **README.md**: demos
+- **README.md**: project structure
+- **README.md**: update badges
+- **agent.json**: update to conform to new specification (#12)
+- **README.md**: update mcp server link
+- import error for a2a and python3 (#9)
+- **protocols**: add a2a-sdk and update makefile (#10)
+- README.md
+- **acp**: update run-acp based on latest wfsm changes
+- **acp**: update run-acp based on latest wfsm changes
+- update GHA
+- **acp**: update run-acp based on latest wfsm changes
+- **SECURITY.md**: add CNOE steering committe email
+- update docker-build-push.yaml
+- update copyright headers
+- add argocd_mcp submodule
+- updates
+- updates
+- prompt_config.yaml
+- add prompt_config_example.yaml
+- minor fixes
+- updates
+- **Makefile**: update run-ai-platform-engineer and set run as default target
+- **docker-compose**: comment out agentconnect by default
+- add incident_engineer placeholder
+- **env**: use .env instead of .env.foo per agent
+- **docker-compose**: restore agentconnect ui
+- add CORS and update system prompt
+- **a2a**: update docker-compose bring up
+- **Makefile**: add setup-venv
+- update the default AGENT_PORT 8000
+- updates
+- unittest, lint and container name
+- updates
+- **Dockerfile**: update ci
+- updates
+
+### Refactor
+
+- prompt config to use structure output. Use UV, langgraph==0.5.3, a2a-sdk==0.2.16 (#155)
+- **docs**: simplify the top level menu (#110)
+- **agent-atlassian**: remove and update that it is split into Jira and Confluence agents (#103)
+- **multi_agents**: move build directory
+- update Makefile, Dockerfiles, and clients for LangGraph agent deployment
+- with latest changes
+- create protocol_bindings directory for acp/a2a/mcp
+- updated a2a, acp, mcp and docker addition
+- updated previous acp and standardized new format.
+- with latest changes
+- create protocol_bindings directory for acp/a2a/mcp
+- with latest changes
+- create protocol_bindings directory for acp/a2a/mcp
+- **external-secrets**: improve secret name handling and update configuration examples
+- **monorepo**: rename mas->multi_agents, use seperate mcp python project
+- **agent-argocd**: collapse to ai-platform-engineering
+- clean-up old code and update docs (#38)
+- docker support, clean-up, new chat client interface (#13)
+- create protocol_bindings directory for acp/a2a/mcp
+- optimize system prompt from a2a cards and skills
