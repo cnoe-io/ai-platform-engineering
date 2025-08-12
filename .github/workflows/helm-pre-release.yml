@@ -1,0 +1,179 @@
+name: 🔬 Pre-release Helm Chart Publishing
+
+on:
+  pull_request:
+    paths:
+      - helm/**
+  pull_request_target:
+    types: [closed]
+    paths:
+      - helm/**
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+jobs:
+  publish-pre-release:
+    name: Publish Pre-release Helm Chart
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' && 
+      startsWith(github.head_ref, 'pre/') &&
+      github.event.action != 'closed'
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ⚙️ Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: 🔐 Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: 🏷️ Generate Pre-release Version
+        id: version
+        run: |
+          # Get current version from main branch
+          git fetch origin main
+          BASE_VERSION=$(git show origin/main:helm/Chart.yaml | grep "^version:" | awk '{print $2}')
+          echo "Base version: $BASE_VERSION"
+          
+          # Extract version components
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+          
+          # Increment patch version for pre-release
+          NEXT_PATCH=$((PATCH + 1))
+          
+          # Get branch name without 'pre/' prefix and sanitize for version
+          BRANCH_NAME="${{ github.head_ref }}"
+          CLEAN_BRANCH=$(echo "${BRANCH_NAME#pre/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
+          
+          # Get commit count for this PR
+          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          
+          # Create pre-release version
+          PRE_RELEASE_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
+          
+          echo "Generated pre-release version: $PRE_RELEASE_VERSION"
+          echo "pre-release-version=$PRE_RELEASE_VERSION" >> $GITHUB_OUTPUT
+          echo "clean-branch=$CLEAN_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: 📦 Package Pre-release Helm Chart
+        run: |
+          # Update Chart.yaml with pre-release version
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.pre-release-version }}/" helm/Chart.yaml
+          
+          # Update dependencies and package
+          helm dependency update helm/
+          helm package helm/ --destination ./
+
+      - name: 🚀 Push Pre-release Chart to GHCR
+        run: |
+          CHART_FILE=$(ls ./*.tgz)
+          CHART_VERSION=$(helm show chart "$CHART_FILE" | grep '^version:' | awk '{print $2}')
+          CHART_NAME=$(helm show chart "$CHART_FILE" | grep '^name:' | awk '{print $2}')
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts"
+          
+          echo "Chart file: $CHART_FILE"
+          echo "Chart name: $CHART_NAME"
+          echo "Version: $CHART_VERSION"
+          echo "Registry: $REGISTRY"
+
+          echo "📦 Pushing pre-release chart: $CHART_NAME:$CHART_VERSION"
+          helm push "$CHART_FILE" "$REGISTRY"
+          
+          echo "✅ Pre-release chart published successfully!"
+          echo "📋 To use this pre-release version:"
+          echo "   helm upgrade --install my-release oci://ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts/$CHART_NAME --version ${{ steps.version.outputs.pre-release-version }}"
+
+      - name: 💬 Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const chartName = 'ai-platform-engineering';
+            const preReleaseVersion = '${{ steps.version.outputs.pre-release-version }}';
+            const registry = `ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts`;
+            
+            const body = `## 📦 Pre-release Helm Chart Published
+
+            **Version:** \`${preReleaseVersion}\`
+            **Registry:** \`${registry}\`
+
+            ### Usage
+            \`\`\`bash
+            helm upgrade --install my-release oci://${registry}/${chartName} --version ${preReleaseVersion}
+            \`\`\`
+
+            > **Note:** This pre-release version will be automatically cleaned up when the PR is closed or merged.`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  cleanup-pre-release:
+    name: Cleanup Pre-release Charts
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request_target' && 
+      github.event.action == 'closed' &&
+      startsWith(github.event.pull_request.head.ref, 'pre/')
+    
+    steps:
+      - name: 🔐 Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: 🗑️ Delete Pre-release Chart Versions
+        run: |
+          # Get branch name and sanitize
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          CLEAN_BRANCH=$(echo "${BRANCH_NAME#pre/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
+          
+          echo "🧹 Cleaning up pre-release versions for branch: $CLEAN_BRANCH"
+          
+          # Chart details
+          CHART_NAME="ai-platform-engineering"
+          PACKAGE_NAME="pre-release-helm-charts/ai-platform-engineering"
+          OWNER="${{ github.repository_owner }}"
+          
+          echo "🔍 Searching for pre-release versions matching pattern: *-${CLEAN_BRANCH}-*"
+          
+          # Get package versions using GitHub CLI (for OCI packages)
+          # Note: Forward slash in package name must be URL encoded as %2F
+          gh api \
+            "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions" \
+            --jq '.[] | select(.metadata.container.tags[]? | test(".*-'${CLEAN_BRANCH}'-.*")) | {id: .id, tags: .metadata.container.tags}' > pre_release_versions.json || true
+          
+          if [ -s pre_release_versions.json ]; then
+            echo "🗑️ Found pre-release versions to delete:"
+            cat pre_release_versions.json
+            
+            # Delete each version
+            while IFS= read -r version; do
+              VERSION_ID=$(echo "$version" | jq -r '.id')
+              TAGS=$(echo "$version" | jq -r '.tags | join(", ")')
+              
+              echo "Deleting version $VERSION_ID with tags: $TAGS"
+              
+              gh api \
+                --method DELETE \
+                "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions/${VERSION_ID}" || true
+            done < <(cat pre_release_versions.json | jq -c '.')
+            
+            echo "✅ Pre-release chart cleanup completed"
+          else
+            echo "ℹ️ No pre-release versions found for branch: $CLEAN_BRANCH"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
