@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.1.0"
+version = "0.1.2"
 description = "AI Platform Engineering Multi-Agent Systems"
 authors = [
   {name = "CNOE Contributors"}
@@ -57,6 +57,14 @@ members = [
 agent-argocd = { workspace = true }
 agent-komodor = { workspace = true }
 
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "$version"
+version_scheme = "semver"
+version_provider = "uv"
+update_changelog_on_bump = true
+major_version_zero = true
 [dependency-groups]
 dev = [
     "agent-argocd",
