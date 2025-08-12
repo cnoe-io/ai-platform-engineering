@@ -2,9 +2,9 @@ name: Quick Sanity Integration Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ quick_sanity ]
   pull_request:
-    branches: [ main ]
+    branches: [ quick_sanity ]
 
 permissions:
   contents: read
@@ -83,49 +83,56 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Start AI Platform Engineering services
+      - name: Start services
         run: |
-          echo "=========================================="
-          echo "Starting AI Platform Engineering services"
-          echo "=========================================="
-
+          set -euo pipefail
           docker compose -f docker-compose.dev.yaml --profile=p2p up -d
+          docker compose -f docker-compose.dev.yaml --profile=p2p logs -f --no-color --timestamps \
+              | tee -a compose-live.log
 
-          echo "=========================================="
-          echo "Waiting for AI Platform Engineering services to be ready"
-          echo "=========================================="
+      - name: Stream service logs (background)
+        run: |
+          set -euo pipefail
+          # Optional: fold logs in the UI
+          echo "::group::Service logs"
 
+          # Stream logs to console AND file for artifact upload
+          ( docker compose -f docker-compose.dev.yaml --profile=p2p logs -f --no-color --timestamps \
+              | tee -a compose-live.log ) &
+          echo $! > logs.pid
+        shell: bash
+
+      - name: Wait for readiness
+        run: |
           set -euo pipefail
           for i in $(seq 1 36); do
-            if curl -sfS http://localhost:8000/ >/dev/null 2>&1; then
-              echo "Service responded on /"
-              exit 0
+            if curl -sfS http://localhost:8000/ >/dev/null || \
+                curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null; then
+              echo "Service is up"
+              break
             fi
-            if curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null 2>&1; then
-              echo "Service responded on /.well-known/agent.json"
-              exit 0
-            fi
-            echo "Waiting for service on http://localhost:8000 ... ($i)"
+            echo "Not ready yet ($i/36). Sleeping 5s..."
             sleep 5
           done
-          echo "Service on http://localhost:8000 did not become ready in time"
-          exit 1
 
-          echo "=========================================="
-          echo "Running Quick Sanity Integration Tests"
-          echo "=========================================="
+      - name: Run Quick Sanity Integration Tests
+        run: |
+          set -euo pipefail
           make quick-sanity
 
-      - name: Cleanup workspace
-        if: always()
+      # If tests fail, also dump a concise tail so it’s easy to see
+      - name: On failure: show recent logs
+        if: failure()
         run: |
-          echo "=========================================="
-          echo "Cleaning up workspace"
-          echo "=========================================="
-          docker compose -f docker-compose.dev.yaml --profile=p2p down -v --remove-orphans || true
-          docker system prune -f || true
-          sudo rm -rf ${{ github.workspace }} || true
+          set -euo pipefail
+          echo "::group::Recent logs (last 300 lines)"
+          tail -n 300 compose-live.log || true
+          echo "::endgroup::"
 
-
-
-
+      - name: Upload logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-logs
+          path: compose-live.log
+          if-no-files-found: warn
