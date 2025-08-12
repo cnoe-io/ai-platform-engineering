@@ -19,4 +19,6 @@ spec:
       {{- end }}
   selector:
     {{- include "agent.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
+    app.kubernetes.io/component: mcp
 {{- end }}
