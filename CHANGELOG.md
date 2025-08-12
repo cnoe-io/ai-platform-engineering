@@ -1,3 +1,11 @@
+## Unreleased
+
+### Fix
+
+- **build**: update workflow triggers
+- **build**: remove a2a prefix for agent container images
+- **build**: build and publish agents on every push to main and tags
+
 ## 0.1.3 (2025-08-12)
 
 ### Feat
