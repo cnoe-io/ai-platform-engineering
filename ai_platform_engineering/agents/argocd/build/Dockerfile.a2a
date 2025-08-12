@@ -12,8 +12,12 @@ RUN pip install uv
 
 RUN uv add /app/mcp
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+# Create UV cache directory for appuser and set permissions
+RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
+
+RUN --mount=type=cache,target=/home/appuser/.cache/uv \
     uv sync --locked --no-dev
+
 
 # Change ownership of the entire app directory
 RUN chown -R appuser:appuser /app
