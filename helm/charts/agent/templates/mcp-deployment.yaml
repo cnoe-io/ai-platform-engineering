@@ -14,6 +14,8 @@ spec:
   selector:
     matchLabels:
       {{- include "agent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
+      app.kubernetes.io/component: mcp
   template:
     metadata:
       {{- with .Values.podAnnotations }}
