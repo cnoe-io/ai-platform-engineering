@@ -17,8 +17,10 @@ jobs:
       - name: Cleanup previous run artifacts
         run: |
           echo "::group::Cleaning up previous run artifacts"
-          # Remove the entire workspace directory to ensure clean state
-          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering || true
+          # Remove problematic cache files and directories
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "*.pyc" -type f -delete 2>/dev/null || true
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "*.pyo" -type f -delete 2>/dev/null || true
           echo "::endgroup::"
 
       - name: Checkout
