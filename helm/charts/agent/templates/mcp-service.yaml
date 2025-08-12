@@ -1,0 +1,20 @@
+{{- if eq .Values.mcp.mode "http" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent.fullname" . }}-mcp
+  labels:
+    {{- include "agent.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.mcp.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ .Values.mcp.service.port | default 8000 }}
+      targetPort: 8000
+      protocol: TCP
+      name: http
+      {{- if and (eq (.Values.mcp.service.type | default "ClusterIP") "NodePort") .Values.mcp.service.nodePort }}
+      nodePort: {{ .Values.mcp.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "agent.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -1,9 +1,11 @@
+{{- if eq .Values.mcp.mode "http" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "agent.fullname" . }}
+  name: {{ include "agent.fullname" . }}-mcp
   labels:
     {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
@@ -33,36 +35,29 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: {{ .Chart.Name }}
+        - name: mcp
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "ghcr.io/cnoe-io/mcp-{{ include "agent.name" . }}:{{ .Values.mcp.image.tag | default "stable" }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if .Values.image.command }}
-          command:
-            {{- range .Values.image.command }}
-            - {{ . | quote }}
-            {{- end }}
-          {{- end }}
-          {{- if .Values.image.args }}
-          args:
-            {{- range .Values.image.args }}
-            - {{ . | quote }}
-            {{- end }}
-          {{- end }}
           ports:
-            {{- if .Values.service.ports }}
-            {{- range .Values.service.ports }}
-            - name: {{ .name }}
-              containerPort: {{ .port }}
-              protocol: {{ .protocol | default "TCP" }}
-            {{- end }}
-            {{- else }}
             - name: http
-              containerPort: {{ .Values.service.port }}
+              containerPort: 8000
               protocol: TCP
+          env:
+            - name: MCP_MODE
+              value: {{ .Values.mcp.mode }}
+            - name: MCP_HOST
+              value: {{ include "agent.fullname" . }}-mcp
+            - name: MCP_PORT
+              value: {{ .Values.mcp.service.port }}
+            {{- if .Values.mcp.env }}
+            {{- range $key, $value := .Values.mcp.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
             {{- end }}
           envFrom:
             {{- if include "agent.externalSecrets.enabled" . | eq "true" }}
@@ -88,57 +83,31 @@ spec:
             {{- else }}
                 name: llm-secret
             {{- end }}
+            {{- end }}
             {{- if not .Values.isMultiAgent }}
             - secretRef:
                 name: {{ printf "%s-secret" (include "agent.name" .) }}
             {{- end }}
             {{- end }}
-            {{- end }}
-          {{- if or .Values.env .Values.isMultiAgent .Values.global.slim.enabled (eq .Values.mcp.mode "http") }}
-          env:
-            {{- if .Values.env }}
-            {{- range $key, $value := .Values.env }}
-            - name: {{ $key }}
-              value: {{ $value | quote }}
-            {{- end }}
-            {{- end }}
-            {{- if .Values.global.slim.enabled }}
-            - name: A2A_TRANSPORT
-              value: {{ .Values.global.slim.transport | quote }}
-            - name: SLIM_ENDPOINT
-              value: {{ .Values.global.slim.endpoint | quote }}
-            {{- end }}
-            {{- if eq .Values.mcp.mode "http" }}
-            {{- if and (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) }}
-            - name: MCP_MODE
-              value: http
-            - name: MCP_PORT
-              value: {{ .Values.mcp.service.port }}
-            - name: MCP_HOST
-              value: {{ include "agent.fullname" . }}-mcp
-            {{- end }}
-            {{- end }}
-            {{- include "agent.multiAgentEnvVars" . | nindent 12 }}
-          {{- end }}
           {{- if not .Values.global.slim.enabled }}
-          {{- with .Values.livenessProbe }}
+          {{- with .Values.mcp.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.readinessProbe }}
+          {{- with .Values.mcp.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           {{- end }}
-          {{- with .Values.resources }}
+          {{- with .Values.mcp.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.volumeMounts }}
+          {{- with .Values.mcp.volumeMounts }}
           volumeMounts:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- with .Values.volumes }}
+      {{- with .Values.mcp.volumes }}
       volumes:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -154,3 +123,4 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}
