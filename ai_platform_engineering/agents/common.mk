@@ -200,6 +200,15 @@ registry-agntcy-directory:  ## Push agent.json to AGNTCY registry
 add-copyright-license-headers: ## Add license headers
 	docker run --rm -v $(shell pwd)/$(AGENT_PKG_NAME):/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
 
+## ========== Release & Versioning ==========
+release: setup-venv  ## Bump version and create a release
+	@uv tool install commitizen
+	@cz changelog
+	@git add CHANGELOG.md
+	@git commit -m "docs: update changelog"
+	@cz bump --increment $${INCREMENT:-PATCH}
+	@echo "Version bumped successfully."
+
 help: ## Show this help message
 	@echo "Available targets for $(AGENT_NAME) agent:"
 	@echo "Variables:"
