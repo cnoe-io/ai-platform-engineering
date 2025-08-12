@@ -38,8 +38,8 @@ class KomodorAgentExecutor(AgentExecutor):
 
         if not task:
             task = new_task(context.message)
-            event_queue.enqueue_event(task)
-        
+            await event_queue.enqueue_event(task)
+
         # Extract trace_id from A2A context - THIS IS A SUB-AGENT, should NEVER generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
@@ -47,11 +47,11 @@ class KomodorAgentExecutor(AgentExecutor):
             trace_id = None
         else:
             logger.info(f"Komodor Agent: Using trace_id from supervisor: {trace_id}")
-        
+
         # invoke the underlying agent, using streaming results
         async for event in self.agent.stream(query, task.contextId, trace_id):
             if event['is_task_complete']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
                         contextId=task.contextId,
@@ -64,7 +64,7 @@ class KomodorAgentExecutor(AgentExecutor):
                         ),
                     )
                 )
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
                         final=True,
@@ -73,7 +73,7 @@ class KomodorAgentExecutor(AgentExecutor):
                     )
                 )
             elif event['require_user_input']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
@@ -89,7 +89,7 @@ class KomodorAgentExecutor(AgentExecutor):
                     )
                 )
             else:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.working,
