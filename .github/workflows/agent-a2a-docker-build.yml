@@ -62,18 +62,12 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Check last commit message for hash publish
-        id: check_publish
-        run: |
-          echo "publish=$((git log -1 --pretty=%B | grep -q '#publish') && ([[ ${{ github.ref }} == 'refs/heads/main' || ${{ github.ref }} == refs/tags/* ]] && echo true || echo false))" >> $GITHUB_ENV
-
       - name: Build and Push A2A Docker image
-        if: env.publish == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.AGENT_DIR }}
           file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
-          push: true
+          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
