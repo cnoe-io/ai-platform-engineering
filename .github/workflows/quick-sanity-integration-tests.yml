@@ -16,10 +16,10 @@ jobs:
     steps:
       - name: Cleanup previous run artifacts
         run: |
-          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering/ai_platform_engineering/__pycache__/ || true
-          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering/ai_platform_engineering/**/__pycache__/ || true
-          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering/ai_platform_engineering/**/**/__pycache__/ || true
-          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering/ai_platform_engineering/**/**/**/__pycache__/ || true
+          echo "::group::Cleaning up previous run artifacts"
+          # Remove the entire workspace directory to ensure clean state
+          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering || true
+          echo "::endgroup::"
 
       - name: Checkout
         uses: actions/checkout@v4
