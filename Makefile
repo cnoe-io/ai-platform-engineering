@@ -129,6 +129,17 @@ lock-all:
 		); \
 	done
 
+## ========== Release & Versioning ==========
+release: setup-venv  ## Bump version and create a release
+	@uv tool install commitizen
+	@git tag -d stable || echo "No stable tag found."
+	@cz changelog
+	@git add CHANGELOG.md
+	@git commit -m "docs: update changelog"
+	@cz bump --increment $${INCREMENT:-PATCH}
+	@git tag -f stable
+	@echo "Version bumped and stable tag updated successfully."
+
 ## ========== Help ==========
 
 help: ## Show this help message
