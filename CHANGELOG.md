@@ -65,6 +65,7 @@
 
 ### Fix
 
+- remove poetry
 - add make release
 - quick sanity tests and docker-compose files (#185)
 - **quick-sanity**: add komodor variables
