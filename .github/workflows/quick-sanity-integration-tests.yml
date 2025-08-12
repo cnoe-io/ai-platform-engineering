@@ -87,8 +87,6 @@ jobs:
         run: |
           set -euo pipefail
           docker compose -f docker-compose.dev.yaml --profile=p2p up -d
-          docker compose -f docker-compose.dev.yaml --profile=p2p logs -f --no-color --timestamps \
-              | tee -a compose-live.log
 
       - name: Stream service logs (background)
         run: |
