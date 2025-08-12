@@ -29,6 +29,8 @@ ai-platform-engineering:
       - jira
       - pagerduty
       - slack
+  mcp: #TODO
+    mode: "stdio"
 
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
@@ -47,6 +49,8 @@ backstage-plugin-agent-forge:
       - name: backend
         port: 7007
         protocol: TCP
+  mcp: #TODO
+    mode: "stdio"
 
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
