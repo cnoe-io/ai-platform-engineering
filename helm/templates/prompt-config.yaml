@@ -1,0 +1,15 @@
+{{- if index .Values "ai-platform-engineering" "enabled" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prompt-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "ai-platform-engineering.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  prompt_config.yaml: |
+{{ .Files.Get "data/prompt_config.yaml" | nindent 4 }}
+{{- end }}

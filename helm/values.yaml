@@ -1,3 +1,10 @@
+# Global configuration shared across all subcharts
+global:
+  slim:
+    enabled: false
+    endpoint: "http://ai-platform-engineering-slim:46357"
+    transport: "slim"
+
 # AI Platform Engineer Multi-Agent
 ai-platform-engineering:
   enabled: true
