@@ -2,6 +2,7 @@
 
 ### Feat
 
+- add commitzen
 - use agntcy-app-sdk to integrate with agntcy slim (#171)
 - **graph-rag**: add evaluation and tests
 - embed vidcast in idpbuilder doc
