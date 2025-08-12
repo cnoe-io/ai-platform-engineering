@@ -1,8 +1,8 @@
-## 0.1.2 (2025-08-12)
+## Unreleased
 
 ### Feat
 
-- add commitzen
+- add slim to helm chart (#187)
 - use agntcy-app-sdk to integrate with agntcy slim (#171)
 - **graph-rag**: add evaluation and tests
 - embed vidcast in idpbuilder doc
@@ -66,8 +66,9 @@
 
 ### Fix
 
-- remove poetry
-- add make release
+- **build**: add latest tag for agent builds
+- **a2a-docker**: publish on main and tags
+- mcp docker improvements (#186)
 - quick sanity tests and docker-compose files (#185)
 - **quick-sanity**: add komodor variables
 - **quick-sanity**: clean-up workspace
