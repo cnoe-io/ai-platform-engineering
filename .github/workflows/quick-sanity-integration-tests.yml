@@ -62,7 +62,7 @@ jobs:
 
           CONFLUENCE_API_URL=${{ secrets.CONFLUENCE_API_URL }}
 
-          GITHUB_PERSONAL_ACCESS_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          GITHUB_PERSONAL_ACCESS_TOKEN=${{ secrets.GH_PAT }}
 
           PAGERDUTY_API_KEY=${{ secrets.PAGERDUTY_API_KEY }}
           PAGERDUTY_API_URL=https://api.pagerduty.com
