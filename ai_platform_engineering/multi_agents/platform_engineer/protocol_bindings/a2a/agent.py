@@ -36,7 +36,7 @@ class AIPlatformEngineerA2ABinding:
       self.graph = AIPlatformEngineerMAS().get_graph()
       self.tracing = TracingManager()
 
-  @trace_agent_stream("platform_engineer")
+  @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
       logging.info(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
       inputs = {'messages': [('user', query)]}
