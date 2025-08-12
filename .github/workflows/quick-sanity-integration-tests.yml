@@ -23,6 +23,13 @@ jobs:
           sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "*.pyo" -type f -delete 2>/dev/null || true
           echo "::endgroup::"
 
+      - name: Ensure workspace directory exists
+        run: |
+          echo "::group::Ensuring workspace directory exists"
+          sudo mkdir -p /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering
+          sudo chown -R ubuntu:ubuntu /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering
+          echo "::endgroup::"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -126,6 +133,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y make
+
+      - name: Install Python dependencies
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          uv sync --no-dev
 
       - name: Run Quick Sanity Integration Tests
         run: |
