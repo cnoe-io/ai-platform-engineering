@@ -60,10 +60,5 @@ markers = [
     "parsers: marks tests as parser tests"
 ]
 
-[tool.uv.workspace]
-members = [
-    "mcp",
-]
-
 [tool.uv.sources]
 mcp-argocd = { workspace = true }
