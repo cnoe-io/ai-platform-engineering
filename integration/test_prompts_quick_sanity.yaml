@@ -1,0 +1,7 @@
+prompts:
+  - id: "github_info"
+    messages:
+      - role: "user"
+        content: "show all repo description for ai-platform-engineering in cnoe-io org"
+    expected_keywords: ["github", "ai-platform-engineering", "cnoe-io", "description", "repository", "multi-agent", "systems", "platform", "engineering"]
+    category: "github"

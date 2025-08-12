@@ -1,3 +1,10 @@
+# Global configuration shared across all subcharts
+global:
+  slim:
+    enabled: false
+    endpoint: "http://ai-platform-engineering-slim:46357"
+    transport: "slim"
+
 # AI Platform Engineer Multi-Agent
 ai-platform-engineering:
   enabled: true
@@ -7,7 +14,6 @@ ai-platform-engineering:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
     tag: "stable"
     pullPolicy: "Always"
-    command: ["poetry", "run", "ai-platform-engineering"]
     args: ["platform-engineer"]
   env:
     EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client

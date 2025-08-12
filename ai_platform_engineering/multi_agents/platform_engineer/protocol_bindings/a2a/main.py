@@ -26,7 +26,11 @@ from dotenv import load_dotenv
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
+from a2a.server.tasks import (
+    BasePushNotificationSender,
+    InMemoryPushNotificationConfigStore,
+    InMemoryTaskStore,
+)
 from a2a.types import (
   AgentCapabilities,
   AgentCard,
@@ -88,12 +92,20 @@ if env_port and env_port.strip():
 else:
   port = 8000
 
-client = httpx.AsyncClient()
+httpx_client = httpx.AsyncClient()
+
+push_config_store = InMemoryPushNotificationConfigStore()
+push_sender = BasePushNotificationSender(httpx_client=httpx_client,
+                config_store=push_config_store)
+
+push_config_store = InMemoryPushNotificationConfigStore()
+push_sender = BasePushNotificationSender(httpx_client=httpx_client, config_store=push_config_store)
 
 request_handler = DefaultRequestHandler(
   agent_executor=AIPlatformEngineerA2AExecutor(),
   task_store=InMemoryTaskStore(),
-  push_notifier=InMemoryPushNotifier(client),
+  push_config_store=push_config_store,
+  push_sender= push_sender
 )
 
 a2a_server = A2AStarletteApplication(

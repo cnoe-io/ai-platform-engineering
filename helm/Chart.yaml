@@ -1,54 +1,66 @@
 apiVersion: v2
-appVersion: 0.1.6
+# pyproject.toml version
+appVersion: 0.1.2
 name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
-version: 0.1.11
+# Chart version for ai-platform-engineering parent chart
+version: 0.1.12
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: agent
-    version: 0.1.6
+    # Chart version for agent subchart
+    version: 0.1.7
     alias: ai-platform-engineering
     condition: ai-platform-engineering.enabled
   # Backstage plugin agent forge
   - name: agent
-    version: 0.1.6
+    version: 0.1.7
     alias: backstage-plugin-agent-forge
     condition: backstage-plugin-agent-forge.enabled
   # Single agent chart used multiple times with different aliases
   - name: agent
-    version: 0.1.6
+    version: 0.1.7
     alias: agent-argocd
     condition: agent-argocd.enabled
   - name: agent
-    version: 0.1.6
+    version: 0.1.7
     alias: agent-backstage
     condition: agent-backstage.enabled
   - name: agent
-    version: 0.1.6
+    version: 0.1.7
     alias: agent-confluence
     condition: agent-confluence.enabled
   - name: agent
-    version: 0.1.6
+    version: 0.1.7
     alias: agent-github
     condition: agent-github.enabled
   - name: agent
-    version: 0.1.6
+    version: 0.1.7
     alias: agent-jira
     condition: agent-jira.enabled
   - name: agent
-    version: 0.1.6
+    version: 0.1.7
     alias: agent-pagerduty
     condition: agent-pagerduty.enabled
   - name: agent
-    version: 0.1.6
+    version: 0.1.7
     alias: agent-slack
     condition: agent-slack.enabled
   - name: agent
-    version: 0.1.6
+    version: 0.1.7
     alias: agent-reflection
     condition: agent-reflection.enabled
+  # AGNTCY Slim dataplane service
+  - name: slim
+    version: v0.1.8
+    repository: oci://ghcr.io/agntcy/slim/helm
+    condition: global.slim.enabled
+  - name: slim-control-plane
+    version: v0.1.3
+    repository: oci://ghcr.io/agntcy/slim/helm
+    condition: global.slim.enabled
   # Separate chart for external secrets
   - name: external-secrets-configuration
     version: 0.0.3

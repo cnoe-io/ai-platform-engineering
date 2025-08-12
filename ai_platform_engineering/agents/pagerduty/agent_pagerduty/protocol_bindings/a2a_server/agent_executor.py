@@ -39,7 +39,7 @@ class PagerDutyAgentExecutor(AgentExecutor):
 
         if not task:
             task = new_task(context.message)
-            event_queue.enqueue_event(task)
+            await event_queue.enqueue_event(task)
 
         # Extract trace_id from A2A context - PagerDuty is a SUB-AGENT, should NEVER generate trace_id
         trace_id = extract_trace_id_from_context(context)
@@ -52,7 +52,7 @@ class PagerDutyAgentExecutor(AgentExecutor):
         # invoke the underlying agent, using streaming results
         async for event in self.agent.stream(query, context_id, trace_id):
             if event['is_task_complete']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
                         contextId=task.contextId,
@@ -65,7 +65,7 @@ class PagerDutyAgentExecutor(AgentExecutor):
                         ),
                     )
                 )
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
                         final=True,
@@ -74,7 +74,7 @@ class PagerDutyAgentExecutor(AgentExecutor):
                     )
                 )
             elif event['require_user_input']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
@@ -90,7 +90,7 @@ class PagerDutyAgentExecutor(AgentExecutor):
                     )
                 )
             else:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.working,
@@ -110,4 +110,4 @@ class PagerDutyAgentExecutor(AgentExecutor):
     async def cancel(
         self, context: RequestContext, event_queue: EventQueue
     ) -> None:
-        raise Exception('cancel not supported') 
+        raise Exception('cancel not supported')
