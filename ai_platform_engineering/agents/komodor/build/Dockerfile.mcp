@@ -1,0 +1,29 @@
+FROM python:3.13-slim
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
+
+WORKDIR /app
+
+# Copy the entire project to leverage the main package structure
+COPY --chown=appuser:appuser ./mcp /app/
+
+# Install uv for dependency management
+RUN pip install uv
+
+# Create UV cache directory for appuser and set permissions
+RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
+
+RUN --mount=type=cache,target=/home/appuser/.cache/uv \
+    uv sync --locked --no-dev
+
+# Change ownership of the entire app directory
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+EXPOSE 8000
+
+# Run the HTTP/SSE MCP server
+CMD ["uv", "run", "python", "mcp_komodor/server.py"]

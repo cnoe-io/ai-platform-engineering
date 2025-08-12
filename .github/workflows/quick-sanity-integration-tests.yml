@@ -1,0 +1,164 @@
+name: Quick Sanity Integration Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  quick-sanity:
+    runs-on: caipe-integration-tests
+
+    steps:
+      - name: Cleanup previous run artifacts
+        run: |
+          echo "::group::Cleaning up previous run artifacts"
+          # Remove problematic cache files and directories
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "*.pyc" -type f -delete 2>/dev/null || true
+          sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "*.pyo" -type f -delete 2>/dev/null || true
+          echo "::endgroup::"
+
+      - name: Ensure workspace directory exists
+        run: |
+          echo "::group::Ensuring workspace directory exists"
+          sudo mkdir -p /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering
+          sudo chown -R ubuntu:ubuntu /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering
+          echo "::endgroup::"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env from GitHub Secrets
+        run: |
+          set -euo pipefail
+          # Create .env using commonly referenced keys. Add more as needed.
+          # If your repo has `.env.example`, update this list to match its keys, and
+          # ensure corresponding GitHub Action secrets exist with the same names.
+          cat > .env << 'EOF'
+
+          # Optional/if used by agents or knowledge base services
+          LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
+          AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT=${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
+
+          ARGOCD_TOKEN=${{ secrets.ARGOCD_TOKEN }}
+          ARGOCD_API_URL=${{ secrets.ARGOCD_API_URL }}
+          ARGOCD_VERIFY_SSL=true
+
+          BACKSTAGE_API_TOKEN=${{ secrets.BACKSTAGE_API_TOKEN }}
+          BACKSTAGE_URL=${{ secrets.BACKSTAGE_URL }}
+
+          ATLASSIAN_TOKEN=${{ secrets.ATLASSIAN_TOKEN }}
+          ATLASSIAN_EMAIL=${{ secrets.ATLASSIAN_EMAIL }}
+          ATLASSIAN_API_URL=${{ secrets.ATLASSIAN_API_URL }}
+          ATLASSIAN_VERIFY_SSL=true
+
+          CONFLUENCE_API_URL=${{ secrets.CONFLUENCE_API_URL }}
+
+          GITHUB_PERSONAL_ACCESS_TOKEN=${{ secrets.GH_PAT }}
+
+          PAGERDUTY_API_KEY=${{ secrets.PAGERDUTY_API_KEY }}
+          PAGERDUTY_API_URL=https://api.pagerduty.com
+
+          KOMODOR_TOKEN=${{ secrets.KOMODOR_TOKEN }}
+          KOMODOR_API_URL=${{ secrets.KOMODOR_API_URL }}
+
+          SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
+          SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}
+          SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}
+          SLACK_TEAM_ID=${{ secrets.SLACK_TEAM_ID }}
+
+
+          A2A_TRANSPORT=p2p
+          ENABLE_TRACING=false
+          EOF
+          # Mask non-empty values to avoid accidental log exposure
+          while IFS='=' read -r k v; do
+            [ -z "${k:-}" ] && continue
+            [ "${k#\#}" != "$k" ] && continue
+            if [ -n "${v:-}" ]; then
+              echo "::add-mask::${v}"
+            fi
+          done < .env
+
+      - name: Show Docker version
+        run: |
+          docker version
+          docker compose version || true
+
+      - name: Setup Python for A2A client test
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
+      - name: Start services
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.dev.yaml --profile=p2p up -d
+
+      - name: Stream service logs (background)
+        run: |
+          set -euo pipefail
+          # Optional: fold logs in the UI
+          echo "::group::Service logs"
+
+          # Stream logs to console AND file for artifact upload
+          ( docker compose -f docker-compose.dev.yaml --profile=p2p logs -f --no-color --timestamps \
+              | tee -a compose-live.log ) &
+          echo $! > logs.pid
+        shell: bash
+
+      - name: Wait for readiness
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 36); do
+            if curl -sfS http://localhost:8000/ >/dev/null || \
+                curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null; then
+              echo "Service is up"
+              break
+            fi
+            echo "Not ready yet ($i/36). Sleeping 5s..."
+            sleep 5
+          done
+
+      - name: Install GNU Make
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+      - name: Run Quick Sanity Integration Tests
+        run: |
+          set -euo pipefail
+          make quick-sanity
+
+      - name: On failure show recent logs
+        if: failure()
+        run: |
+          set -euo pipefail
+          echo "::group::Recent logs (last 300 lines)"
+          tail -n 300 compose-live.log || true
+          echo "::endgroup::"
+
+      - name: Upload logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-logs
+          path: compose-live.log
+          if-no-files-found: warn
+
+      - name: Clean-up workspace
+        if: always()
+        run: |
+          echo "::group::Clean-up workspace"
+          docker compose -f docker-compose.dev.yaml --profile=p2p down -v --remove-orphans || true
+          docker system prune -f || true
+          echo "::endgroup::"

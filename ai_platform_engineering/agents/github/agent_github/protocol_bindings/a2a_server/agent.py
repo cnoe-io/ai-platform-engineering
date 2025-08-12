@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import asyncio
 import os
 from typing import Any, Literal, AsyncIterable
 
@@ -53,12 +52,13 @@ class GitHubAgent:
         self.model = LLMFactory().get_llm()
         self.graph = None
         self.tracing = TracingManager()
-
-        # Initialize the agent
-        asyncio.run(self._initialize_agent())
+        self._initialized = False
 
     async def _initialize_agent(self):
         """Initialize the agent with tools and configuration."""
+        if self._initialized:
+            return
+
         if not self.model:
             logger.error("Cannot initialize agent without a valid model")
             return
@@ -85,24 +85,49 @@ class GitHubAgent:
             if os.getenv("GITHUB_DYNAMIC_TOOLSETS"):
                 env_vars["GITHUB_DYNAMIC_TOOLSETS"] = os.getenv("GITHUB_DYNAMIC_TOOLSETS")
 
-            # Configure the GitHub MCP server client
-            client = MultiServerMCPClient(
+            mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+            if mcp_mode == "http" or mcp_mode == "streamable_http":
+              logging.info("Using HTTP transport for MCP client")
+              # For HTTP transport, we need to connect to the MCP server
+              # This is useful for production or when the MCP server is running separately
+              # Ensure MCP_HOST and MCP_PORT are set in the environment
+              mcp_host = os.getenv("MCP_HOST", "localhost")
+              mcp_port = os.getenv("MCP_PORT", "3000")
+              logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+
+              client = MultiServerMCPClient(
                 {
-                    "github": {
-                        "command": "docker",
-                        "args": [
-                            "run",
-                            "-i",
-                            "--rm",
-                            "-e", f"GITHUB_PERSONAL_ACCESS_TOKEN={self.github_token}",
-                        ] + (["-e", f"GITHUB_HOST={github_host}"] if github_host else []) +
-                        (["-e", f"GITHUB_TOOLSETS={toolsets}"] if toolsets else []) +
-                        (["-e", "GITHUB_DYNAMIC_TOOLSETS=true"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
-                        ["ghcr.io/github/github-mcp-server:latest"],
-                        "transport": "stdio",
-                    }
+                  "github": {
+                    "transport": "streamable_http",
+                    "url": "https://api.githubcopilot.com/mcp",
+                    "headers": {
+                      "Authorization": f"Bearer {self.github_token}",
+                    },
+                  }
                 }
-            )
+              )
+            else:
+              logging.info("Using Docker-in-Docker for MCP client")
+
+              # Configure the GitHub MCP server client
+              client = MultiServerMCPClient(
+                  {
+                      "github": {
+                          "command": "docker",
+                          "args": [
+                              "run",
+                              "-i",
+                              "--rm",
+                              "-e", f"GITHUB_PERSONAL_ACCESS_TOKEN={self.github_token}",
+                          ] + (["-e", f"GITHUB_HOST={github_host}"] if github_host else []) +
+                          (["-e", f"GITHUB_TOOLSETS={toolsets}"] if toolsets else []) +
+                          (["-e", "GITHUB_DYNAMIC_TOOLSETS=true"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
+                          ["ghcr.io/github/github-mcp-server:latest"],
+                          "transport": "stdio",
+                      }
+                  }
+              )
+
 
             # Get tools via the client
             client_tools = await client.get_tools()
@@ -162,6 +187,8 @@ class GitHubAgent:
                 print("=" * 80)
             except Exception as e:
                 logger.error(f"Error testing agent: {e}")
+
+            self._initialized = True
         except Exception as e:
             logger.exception(f"Error initializing agent: {e}")
             self.graph = None
@@ -170,6 +197,9 @@ class GitHubAgent:
     async def stream(self, query: str, context_id: str, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
         """Stream responses from the agent."""
         logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
+
+        # Initialize the agent if not already done
+        await self._initialize_agent()
 
         if not self.graph:
             logger.error("Agent graph not initialized")
@@ -274,5 +304,3 @@ class GitHubAgent:
             'require_user_input': True,
             'content': 'We are unable to process your GitHub request at the moment. Please try again.',
         }
-
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
