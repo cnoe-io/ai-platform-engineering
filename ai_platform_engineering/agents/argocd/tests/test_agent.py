@@ -1,8 +1,8 @@
 import types
 import pytest
 from unittest import mock
-from agent_argocd.protocol_bindings.a2a_server.agent import ArgoCDAgent, ResponseFormat
-from agent_argocd.protocol_bindings.a2a_server import agent
+from ..agent_argocd.protocol_bindings.a2a_server.agent import ArgoCDAgent, ResponseFormat
+from ..agent_argocd.protocol_bindings.a2a_server import agent
 
 @pytest.fixture(autouse=True)
 def set_env_vars(monkeypatch):
