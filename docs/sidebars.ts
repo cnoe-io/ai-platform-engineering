@@ -272,6 +272,10 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'tools-utils/agent-forge-backstage-plugin',
         },
+        {
+          type: 'doc',
+          id: 'tools-utils/jira-mcp-implementations-comparison',
+        }
       ],
     },
     {
