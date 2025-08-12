@@ -1,5 +1,8 @@
 FROM python:3.13-slim
 
+# Create non-root user and add to docker group for Docker socket access
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
+
 WORKDIR /app
 
 # Install Docker CLI
@@ -18,13 +21,22 @@ RUN apt-get update && \
     apt-get install -y docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
-COPY . /app/
+# Add appuser to docker group for Docker socket access
+RUN groupadd -f docker && usermod -aG docker appuser
+
+COPY --chown=appuser:appuser . /app/
 
 # Install uv and use it to install the package
 RUN pip install uv
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
+
+# Change ownership of the entire app directory
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 EXPOSE 8000
 
