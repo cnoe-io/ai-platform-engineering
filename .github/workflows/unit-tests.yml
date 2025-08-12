@@ -25,4 +25,6 @@ jobs:
           python-version: "3.13"
       - name: Run tests
         run: |
+          pip install uv
+          uv sync --dev
           make test-quick
