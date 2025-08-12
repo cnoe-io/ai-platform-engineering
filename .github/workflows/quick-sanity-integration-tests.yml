@@ -112,3 +112,17 @@ jobs:
           echo "Running Quick Sanity Integration Tests"
           echo "=========================================="
           make quick-sanity
+
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          echo "=========================================="
+          echo "Cleaning up workspace"
+          echo "=========================================="
+          docker compose -f docker-compose.dev.yaml --profile=p2p down -v --remove-orphans || true
+          docker system prune -f || true
+          sudo rm -rf ${{ github.workspace }} || true
+
+
+
+
