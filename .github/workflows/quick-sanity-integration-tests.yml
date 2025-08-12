@@ -134,11 +134,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y make
 
-      - name: Install Python dependencies
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          uv sync --no-dev
-
       - name: Run Quick Sanity Integration Tests
         run: |
           set -euo pipefail
