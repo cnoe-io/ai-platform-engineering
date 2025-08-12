@@ -1,0 +1,42 @@
+# Values file for AGNTCY Slim dataplane service
+# This translates your slim-config.yaml into proper Helm values structure
+
+slim:
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 46357
+
+  # Configuration from your slim-config.yaml file
+  config:
+    tracing:
+      log_level: info
+      display_thread_names: true
+      display_thread_ids: true
+
+    runtime:
+      n_cores: 0
+      thread_name: "slim-data-plane"
+      drain_timeout: 10s
+
+    services:
+      slim/0:
+        pubsub:
+          servers:
+            - endpoint: "0.0.0.0:46357"
+              tls:
+                insecure: true
+          clients: []
+        controller:
+          server:
+            endpoint: "0.0.0.0:46358"
+            tls:
+              insecure: true
+
+# Environment variables (equivalent to docker-compose env vars)
+env:
+  - name: PASSWORD
+    value: "${SLIM_GATEWAY_PASSWORD:-dummy_password}"
+  - name: CONFIG_PATH
+    value: "/config.yaml"
