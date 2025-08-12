@@ -80,7 +80,7 @@ spec:
             - name: MCP_MODE
               value: {{ .Values.mcp.mode }}
             - name: MCP_HOST
-              value: {{ include "agent.fullname" . }}-mcp
+              value: "0.0.0.0"
             - name: MCP_PORT
               value: {{ .Values.mcp.service.port | quote }}
             {{- if .Values.mcp.env }}
