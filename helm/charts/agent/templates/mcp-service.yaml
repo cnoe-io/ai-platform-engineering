@@ -5,6 +5,8 @@ metadata:
   name: {{ include "agent.fullname" . }}-mcp
   labels:
     {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
+    app.kubernetes.io/component: mcp
 spec:
   type: {{ .Values.mcp.service.type | default "ClusterIP" }}
   ports:
