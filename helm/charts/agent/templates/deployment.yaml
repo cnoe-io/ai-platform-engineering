@@ -94,7 +94,7 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
-          {{- if or .Values.env .Values.isMultiAgent }}
+          {{- if or .Values.env .Values.isMultiAgent .Values.global.slim.enabled }}
           env:
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
@@ -102,8 +102,15 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.global.slim.enabled }}
+            - name: A2A_TRANSPORT
+              value: {{ .Values.global.slim.transport | quote }}
+            - name: SLIM_ENDPOINT
+              value: {{ .Values.global.slim.endpoint | quote }}
+            {{- end }}
             {{- include "agent.multiAgentEnvVars" . | nindent 12 }}
           {{- end }}
+          {{- if not .Values.global.slim.enabled }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -111,6 +118,7 @@ spec:
           {{- with .Values.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- end }}
           {{- with .Values.resources }}
           resources:
