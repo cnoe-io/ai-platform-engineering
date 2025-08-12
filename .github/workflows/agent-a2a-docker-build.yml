@@ -4,13 +4,12 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'ai_platform_engineering/agents/**'
-    tags-ignore:
+    # Build on all new tags as well
+    tags:
       - '**'
   pull_request:
-    paths:
-      - 'ai_platform_engineering/agents/**'
+    branches:
+      - main
   workflow_dispatch:
 jobs:
   build-and-push:
