@@ -57,6 +57,14 @@ members = [
 agent-argocd = { workspace = true }
 agent-komodor = { workspace = true }
 
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "$version"
+version_scheme = "semver"
+version_provider = "uv"
+update_changelog_on_bump = true
+major_version_zero = true
 [dependency-groups]
 dev = [
     "agent-argocd",
