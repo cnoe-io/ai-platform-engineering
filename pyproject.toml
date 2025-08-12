@@ -51,6 +51,8 @@ members = [
     "ai_platform_engineering/agents/argocd",
     "ai_platform_engineering/agents/argocd/mcp",
     "ai_platform_engineering/agents/komodor",
+    "ai_platform_engineering/agents/confluence",
+    "ai_platform_engineering/agents/confluence/mcp",
 ]
 
 [tool.uv.sources]
