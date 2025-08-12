@@ -14,6 +14,13 @@ jobs:
     runs-on: caipe-integration-tests
 
     steps:
+      - name: Cleanup previous run artifacts
+        run: |
+          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering/ai_platform_engineering/__pycache__/ || true
+          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering/ai_platform_engineering/**/__pycache__/ || true
+          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering/ai_platform_engineering/**/**/__pycache__/ || true
+          sudo rm -rf /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering/ai_platform_engineering/**/**/**/__pycache__/ || true
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -138,3 +145,11 @@ jobs:
           name: compose-logs
           path: compose-live.log
           if-no-files-found: warn
+
+      - name: Clean-up workspace
+        if: always()
+        run: |
+          echo "::group::Clean-up workspace"
+          docker compose -f docker-compose.dev.yaml --profile=p2p down -v --remove-orphans || true
+          docker system prune -f || true
+          echo "::endgroup::"
