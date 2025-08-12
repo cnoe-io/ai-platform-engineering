@@ -55,7 +55,7 @@ agent-argocd:
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
     pullPolicy: "Always"
-    tag: "latest"
+    tag: "42075dc"
 
 agent-backstage:
   enabled: true
