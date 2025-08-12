@@ -23,12 +23,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-
-      - name: Install dependencies
+      - name: Install UV
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio
+          curl -LsSf https://astral.sh/uv/install.sh | sh
 
-      - name: Run tests
-        run: |
-          PYTHONPATH=ai_platform_engineering/agents/argocd:ai_platform_engineering/agents/komodor:$PYTHONPATH python -m pytest ai_platform_engineering/agents/argocd/tests/ ai_platform_engineering/agents/komodor/tests/ --ignore=integration
+          /home/ubuntu/.local/bin/uv venv
+
+          @echo "Installing ai_platform_engineering, agents, and argocd..."
+
+          @. .venv/bin/activate && uv add pytest-asyncio --group unittest
+          @. .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
+          @. .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
+
+          @echo "Running tests..."
+          @. .venv/bin/activate && uv run pytest --ignore=integration

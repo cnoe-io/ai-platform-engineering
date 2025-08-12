@@ -49,11 +49,18 @@ ignore = ["F403"]
 [tool.uv.workspace]
 members = [
     "ai_platform_engineering/agents/argocd",
+    "ai_platform_engineering/agents/argocd/mcp",
     "ai_platform_engineering/agents/komodor",
 ]
 
+[tool.uv.sources]
+agent-argocd = { workspace = true }
+agent-komodor = { workspace = true }
+
 [dependency-groups]
 dev = [
+    "agent-argocd",
+    "agent-komodor",
     "httpx>=0.28.1",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",

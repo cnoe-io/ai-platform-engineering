@@ -83,13 +83,14 @@ lint-fix: setup-venv ## Automatically fix linting issues using Ruff
 
 ## ========== Test ==========
 
-test: setup-venv ## Run tests using pytest with proper PYTHONPATH (verbose)
-	@echo "Running tests with PYTHONPATH setup..."
-	@. .venv/bin/activate && PYTHONPATH=ai_platform_engineering/agents/argocd:ai_platform_engineering/agents/komodor:$$PYTHONPATH python -m pytest ai_platform_engineering/agents/argocd/tests/ ai_platform_engineering/agents/komodor/tests/ --ignore=integration -v
+test: setup-venv ## Install dependencies and run tests using pytest
+	@echo "Installing ai_platform_engineering, agents, and argocd..."
+	@. .venv/bin/activate && uv add pytest-asyncio --group unittest
+	@. .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
+	@. .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
 
-test-quick: setup-venv ## Run tests using pytest with proper PYTHONPATH (quiet)
-	@echo "Running tests with PYTHONPATH setup..."
-	@. .venv/bin/activate && PYTHONPATH=ai_platform_engineering/agents/argocd:ai_platform_engineering/agents/komodor:$$PYTHONPATH python -m pytest ai_platform_engineering/agents/argocd/tests/ ai_platform_engineering/agents/komodor/tests/ --ignore=integration
+	@echo "Running tests..."
+	@. .venv/bin/activate && uv run pytest --ignore=integration
 
 ## ========== Integration Tests ==========
 
