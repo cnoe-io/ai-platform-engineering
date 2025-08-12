@@ -40,12 +40,14 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-slim
       - SLACK_AGENT_HOST=agent-slack-slim
       - WEBEX_AGENT_HOST=agent-webex-slim
+      # Enable Komodor
       - ENABLE_KOMODOR=true
+      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-platform-engineer}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
     command: platform-engineer
 
@@ -105,8 +107,6 @@ services:
     container_name: slim-dataplane
     profiles:
       - slim
-      - argocd
-      - weather
     ports:
       - "46357:46357"
     environment:
@@ -120,7 +120,6 @@ services:
     container_name: slim-control-plane
     profiles:
       - slim
-      - argocd
     ports:
       - "50051:50051"
       - "50052:50052"
@@ -174,7 +173,7 @@ services:
       - ./ai_platform_engineering/agents/argocd:/app
       - /app/.venv
     ports:
-      - "8001:18000"
+      - "8001:8000"
     environment:
       - A2A_TRANSPORT=slim
       - MCP_MODE=http
@@ -202,7 +201,7 @@ services:
       - ./ai_platform_engineering/agents/argocd:/app
       - /app/.venv
     ports:
-      - "8001:18000"
+      - "8001:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=http
@@ -293,6 +292,7 @@ services:
   ####################################################################################################
   #                                      AGENT CONFLUENCE A2A over SLIM                              #
   ####################################################################################################
+
   agent-confluence-slim:
     build:
       context: ai_platform_engineering/agents/confluence
@@ -939,7 +939,7 @@ services:
   ####################################################################################################
   #                                      LANGFUSE TRACING SERVICES                                   #
   ####################################################################################################
-  # Langfuse Tracing Services (use --profile tracing to enable)
+  # Langfuse Tracing Services (use ENABLE_TRACING=true to enable)
   langfuse-worker:
     image: langfuse/langfuse-worker:3
     container_name: langfuse-worker
