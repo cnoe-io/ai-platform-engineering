@@ -23,8 +23,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio
+
       - name: Run tests
         run: |
-          pip install uv
-          uv sync --dev
-          make test-quick
+          PYTHONPATH=ai_platform_engineering/agents/argocd:ai_platform_engineering/agents/komodor:$PYTHONPATH python -m pytest ai_platform_engineering/agents/argocd/tests/ ai_platform_engineering/agents/komodor/tests/ --ignore=integration
