@@ -36,7 +36,7 @@ backstage-plugin-agent-forge:
   nameOverride: "backstage-plugin-agent-forge"
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
-    tag: "a2a-latest"
+    tag: "latest"
     pullPolicy: "Always"
   isBackstagePlugin: true
   service:
