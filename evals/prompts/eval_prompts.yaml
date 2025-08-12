@@ -1,0 +1,870 @@
+prompts:
+  # GitHub Integration Tests
+  - id: "github_repo_description"
+    messages:
+      - role: "user"
+        content: "show all repo description for ai-platform-engineering in cnoe-io org"
+    expected_keywords: ["github", "ai-platform-engineering", "cnoe-io", "description", "repository", "multi-agent", "systems", "platform", "engineering"]
+    category: "github"
+    operation: "read"
+
+  - id: "github_list_repositories"
+    messages:
+      - role: "user"
+        content: "list all repositories in cnoe-io organization"
+    expected_keywords: ["ai-platform-engineering", "repositories", "organization", "cnoe-io"]
+    category: "github"
+    operation: "read"
+
+  - id: "github_get_repo_details"
+    messages:
+      - role: "user"
+        content: "get detailed information about the ai-platform-engineering repository"
+    expected_keywords: ["github", "repository", "details", "ai-platform-engineering", "information"]
+    category: "github"
+    operation: "read"
+
+  - id: "github_list_branches"
+    messages:
+      - role: "user"
+        content: "list all branches in the ai-platform-engineering repository"
+    expected_keywords: ["github", "branches", "list", "ai-platform-engineering"]
+    category: "github"
+    operation: "read"
+
+  - id: "github_get_commit_history"
+    messages:
+      - role: "user"
+        content: "show the last 10 commits in the main branch"
+    expected_keywords: ["github", "commits", "history", "main", "branch"]
+    category: "github"
+    operation: "read"
+
+  - id: "github_create_repo"
+    messages:
+      - role: "user"
+        content: "create a new GitHub repository named 'my-repo'"
+    expected_keywords: ["github", "repository", "create", "my-repo"]
+    category: "github"
+    operation: "create"
+
+  - id: "github_list_prs"
+    messages:
+      - role: "user"
+        content: "list all open pull requests in the 'frontend' repository"
+    expected_keywords: ["github", "pull request", "open", "frontend", "repository"]
+    category: "github"
+    operation: "read"
+
+  - id: "github_get_pr_details"
+    messages:
+      - role: "user"
+        content: "get details for pull request #42 in the backend repository"
+    expected_keywords: ["github", "pull request", "details", "42", "backend"]
+    category: "github"
+    operation: "read"
+
+  - id: "github_merge_pr"
+    messages:
+      - role: "user"
+        content: "merge the pull request #42 in the 'backend' repository"
+    expected_keywords: ["github", "merge", "pull request", "42", "backend"]
+    category: "github"
+    operation: "update"
+
+  - id: "github_close_issue"
+    messages:
+      - role: "user"
+        content: "close the issue #101 in the 'docs' repository"
+    expected_keywords: ["github", "close", "issue", "101", "docs"]
+    category: "github"
+    operation: "U"
+
+  - id: "github_latest_commit"
+    messages:
+      - role: "user"
+        content: "get the latest commit in the 'main' branch of 'my-repo'"
+    expected_keywords: ["github", "commit", "main", "branch", "my-repo"]
+    category: "github"
+    operation: "read"
+
+  - id: "github_search_code"
+    messages:
+      - role: "user"
+        content: "search for code containing 'docker' in the ai-platform-engineering repository"
+    expected_keywords: ["github", "search", "code", "docker", "ai-platform-engineering"]
+    category: "github"
+    operation: "read"
+
+  - id: "github_get_workflow_status"
+    messages:
+      - role: "user"
+        content: "check the status of GitHub Actions workflows in the main branch"
+    expected_keywords: ["github", "actions", "workflows", "status", "main", "branch"]
+    category: "github"
+    operation: "read"
+
+  # ArgoCD Integration Tests
+  - id: "argocd_version"
+    messages:
+      - role: "user"
+        content: "show argocd version"
+    expected_keywords: ["argocd", "version"]
+    category: "argocd"
+    operation: "read"
+
+  - id: "argocd_deployment_status"
+    messages:
+      - role: "user"
+        content: "get health status apps in jarvis-agent-dev project"
+    expected_keywords: ["deployment", "status", "argocd", "application", "health", "jarvis-agent-dev"]
+    category: "argocd"
+    operation: "read"
+
+  - id: "argocd_list_applications"
+    messages:
+      - role: "user"
+        content: "list all ArgoCD applications in the cluster"
+    expected_keywords: ["argocd", "applications", "list", "cluster"]
+    category: "argocd"
+    operation: "read"
+
+  - id: "argocd_get_app_health"
+    messages:
+      - role: "user"
+        content: "get the health status of the frontend application"
+    expected_keywords: ["argocd", "health", "status", "frontend", "application"]
+    category: "argocd"
+    operation: "read"
+
+  - id: "argocd_get_sync_status"
+    messages:
+      - role: "user"
+        content: "check the sync status of all applications in the production namespace"
+    expected_keywords: ["argocd", "sync", "status", "applications", "production", "namespace"]
+    category: "argocd"
+    operation: "read"
+
+  - id: "argocd_create_app"
+    messages:
+      - role: "user"
+        content: "create a new ArgoCD application named 'my-app'"
+    expected_keywords: ["argocd", "application", "create", "my-app"]
+    category: "argocd"
+    operation: "C"
+
+  - id: "argocd_get_status"
+    messages:
+      - role: "user"
+        content: "get the status of the 'frontend' ArgoCD application"
+    expected_keywords: ["argocd", "status", "frontend", "application"]
+    category: "argocd"
+    operation: "read"
+
+  - id: "argocd_update_image"
+    messages:
+      - role: "user"
+        content: "update the image version for 'backend' app"
+    expected_keywords: ["argocd", "update", "image", "version", "backend"]
+    category: "argocd"
+    operation: "U"
+
+  - id: "argocd_sync_app"
+    messages:
+      - role: "user"
+        content: "sync the 'production' ArgoCD application to the latest commit"
+    expected_keywords: ["argocd", "sync", "production", "application", "commit"]
+    category: "argocd"
+    operation: "U"
+
+  - id: "argocd_get_cluster_info"
+    messages:
+      - role: "user"
+        content: "get information about all clusters managed by ArgoCD"
+    expected_keywords: ["argocd", "clusters", "information", "managed"]
+    category: "argocd"
+    operation: "read"
+
+  - id: "argocd_get_repo_info"
+    messages:
+      - role: "user"
+        content: "list all Git repositories configured in ArgoCD"
+    expected_keywords: ["argocd", "repositories", "git", "configured", "list"]
+    category: "argocd"
+    operation: "read"
+
+  # Backstage Integration Tests
+  - id: "backstage_list_entities"
+    messages:
+      - role: "user"
+        content: "list all entities in the Backstage catalog"
+    expected_keywords: ["backstage", "catalog", "entities", "list"]
+    category: "backstage"
+    operation: "read"
+
+  - id: "backstage_get_service_details"
+    messages:
+      - role: "user"
+        content: "get details for the 'frontend' service in Backstage"
+    expected_keywords: ["backstage", "service", "details", "frontend"]
+    category: "backstage"
+    operation: "read"
+
+  - id: "backstage_search_by_owner"
+    messages:
+      - role: "user"
+        content: "search for all components owned by 'team-a'"
+    expected_keywords: ["backstage", "search", "components", "owned", "team-a"]
+    category: "backstage"
+    operation: "read"
+
+  - id: "backstage_search_by_type"
+    messages:
+      - role: "user"
+        content: "find all API components in the Backstage catalog"
+    expected_keywords: ["backstage", "search", "components", "API", "catalog"]
+    category: "backstage"
+    operation: "read"
+
+  - id: "backstage_get_entity_relations"
+    messages:
+      - role: "user"
+        content: "show all dependencies for the backend service"
+    expected_keywords: ["backstage", "dependencies", "backend", "service", "relations"]
+    category: "backstage"
+    operation: "read"
+
+  - id: "backstage_add_api_entity"
+    messages:
+      - role: "user"
+        content: "add a new API entity to the Backstage catalog"
+    expected_keywords: ["backstage", "add", "API", "entity", "catalog"]
+    category: "backstage"
+    operation: "C"
+
+  - id: "backstage_update_metadata"
+    messages:
+      - role: "user"
+        content: "update metadata for the 'backend' service"
+    expected_keywords: ["backstage", "update", "metadata", "backend", "service"]
+    category: "backstage"
+    operation: "U"
+
+  - id: "backstage_get_tech_docs"
+    messages:
+      - role: "user"
+        content: "get technical documentation for the frontend service"
+    expected_keywords: ["backstage", "technical", "documentation", "frontend", "service"]
+    category: "backstage"
+    operation: "read"
+
+  - id: "backstage_list_plugins"
+    messages:
+      - role: "user"
+        content: "show all installed plugins in Backstage"
+    expected_keywords: ["backstage", "plugins", "installed", "list"]
+    category: "backstage"
+    operation: "read"
+
+  # Confluence Integration Tests
+  - id: "confluence_list_spaces"
+    messages:
+      - role: "user"
+        content: "list all Confluence spaces I have access to"
+    expected_keywords: ["confluence", "spaces", "list", "access"]
+    category: "confluence"
+    operation: "read"
+
+  - id: "confluence_create_page"
+    messages:
+      - role: "user"
+        content: "create a new Confluence page in the 'AI Project' space"
+    expected_keywords: ["confluence", "create", "page", "AI Project", "space"]
+    category: "confluence"
+    operation: "C"
+
+  - id: "confluence_list_pages"
+    messages:
+      - role: "user"
+        content: "list all pages in the 'Platform Engineering' space"
+    expected_keywords: ["confluence", "list", "pages", "Platform Engineering", "space"]
+    category: "confluence"
+    operation: "read"
+
+  - id: "confluence_search_by_label"
+    messages:
+      - role: "user"
+        content: "search for Confluence pages with the label 'urgent'"
+    expected_keywords: ["confluence", "search", "pages", "label", "urgent"]
+    category: "confluence"
+    operation: "read"
+
+  - id: "confluence_search_by_keyword"
+    messages:
+      - role: "user"
+        content: "search for pages in the 'Platform Engineering' space containing the keyword 'deployment'"
+    expected_keywords: ["confluence", "search", "pages", "Platform Engineering", "space", "keyword", "deployment"]
+    category: "confluence"
+    operation: "read"
+
+  - id: "confluence_get_page_content"
+    messages:
+      - role: "user"
+        content: "get the content of the 'Deployment Guide' page"
+    expected_keywords: ["confluence", "content", "Deployment Guide", "page"]
+    category: "confluence"
+    operation: "read"
+
+  - id: "confluence_update_page"
+    messages:
+      - role: "user"
+        content: "update the 'API Documentation' page with new information"
+    expected_keywords: ["confluence", "update", "API Documentation", "page", "information"]
+    category: "confluence"
+    operation: "U"
+
+  - id: "confluence_get_page_history"
+    messages:
+      - role: "user"
+        content: "show the version history of the 'Architecture Overview' page"
+    expected_keywords: ["confluence", "version", "history", "Architecture Overview", "page"]
+    category: "confluence"
+    operation: "read"
+
+  - id: "confluence_list_attachments"
+    messages:
+      - role: "user"
+        content: "list all attachments in the 'Technical Specs' page"
+    expected_keywords: ["confluence", "attachments", "list", "Technical Specs", "page"]
+    category: "confluence"
+    operation: "read"
+
+  # Jira Integration Tests
+  - id: "jira_list_projects"
+    messages:
+      - role: "user"
+        content: "list all Jira projects I have access to"
+    expected_keywords: ["jira", "projects", "list", "access"]
+    category: "jira"
+    operation: "read"
+
+  - id: "jira_create_issue"
+    messages:
+      - role: "user"
+        content: "create a new Jira issue in the 'AI Project' project"
+    expected_keywords: ["jira", "create", "issue", "AI Project", "project"]
+    category: "jira"
+    operation: "C"
+
+  - id: "jira_list_issues"
+    messages:
+      - role: "user"
+        content: "list all Jira issues in the 'Platform Engineering' project"
+    expected_keywords: ["jira", "list", "issues", "Platform Engineering", "project"]
+    category: "jira"
+    operation: "read"
+
+  - id: "jira_search_by_label"
+    messages:
+      - role: "user"
+        content: "search for Jira issues with the label 'urgent'"
+    expected_keywords: ["jira", "search", "issues", "label", "urgent"]
+    category: "jira"
+    operation: "read"
+
+  - id: "jira_search_by_keyword"
+    messages:
+      - role: "user"
+        content: "search for issues in the 'Platform Engineering' project containing the keyword 'deployment'"
+    expected_keywords: ["jira", "search", "issues", "Platform Engineering", "project", "keyword", "deployment"]
+    category: "jira"
+    operation: "read"
+
+  - id: "jira_my_issues"
+    messages:
+      - role: "user"
+        content: "show open jira issues assigned to me"
+    expected_keywords: ["jira", "issue", "assigned", "open", "me"]
+    category: "jira"
+    operation: "read"
+
+  - id: "jira_get_issue_details"
+    messages:
+      - role: "user"
+        content: "get detailed information about issue PROJ-123"
+    expected_keywords: ["jira", "issue", "details", "PROJ-123", "information"]
+    category: "jira"
+    operation: "read"
+
+  - id: "jira_update_issue"
+    messages:
+      - role: "user"
+        content: "update the priority of issue PROJ-456 to high"
+    expected_keywords: ["jira", "update", "issue", "priority", "PROJ-456", "high"]
+    category: "jira"
+    operation: "U"
+
+  - id: "jira_add_comment"
+    messages:
+      - role: "user"
+        content: "add a comment to issue PROJ-789 about the deployment status"
+    expected_keywords: ["jira", "add", "comment", "issue", "PROJ-789", "deployment", "status"]
+    category: "jira"
+    operation: "U"
+
+  - id: "jira_get_workflow_status"
+    messages:
+      - role: "user"
+        content: "show the current workflow status of issue PROJ-101"
+    expected_keywords: ["jira", "workflow", "status", "issue", "PROJ-101"]
+    category: "jira"
+    operation: "read"
+
+  - id: "jira_list_sprints"
+    messages:
+      - role: "user"
+        content: "list all active sprints in the Platform Engineering project"
+    expected_keywords: ["jira", "sprints", "active", "list", "Platform Engineering", "project"]
+    category: "jira"
+    operation: "read"
+
+  # PagerDuty Integration Tests
+  - id: "pagerduty_account_services"
+    messages:
+      - role: "user"
+        content: "get Pagerduty services for with SRE filter"
+    expected_keywords: ["pagerduty", "account", "service", "SRE", "filter"]
+    category: "pagerduty"
+    operation: "read"
+
+  - id: "pagerduty_open_incidents"
+    messages:
+      - role: "user"
+        content: "what incidents are currently open in pagerduty"
+    expected_keywords: ["incident", "open", "pagerduty", "alert"]
+    category: "pagerduty"
+    operation: "read"
+
+  - id: "pagerduty_create_incident"
+    messages:
+      - role: "user"
+        content: "create a new PagerDuty incident with title 'Server Down'"
+    expected_keywords: ["pagerduty", "create", "incident", "Server Down"]
+    category: "pagerduty"
+    operation: "C"
+
+  - id: "pagerduty_list_alerts"
+    messages:
+      - role: "user"
+        content: "list all active alerts in the 'Production' service"
+    expected_keywords: ["pagerduty", "list", "alerts", "active", "Production", "service"]
+    category: "pagerduty"
+    operation: "read"
+
+  - id: "pagerduty_resolve_incident"
+    messages:
+      - role: "user"
+        content: "resolve the incident #12345 in PagerDuty"
+    expected_keywords: ["pagerduty", "resolve", "incident", "12345"]
+    category: "pagerduty"
+    operation: "U"
+
+  - id: "pagerduty_add_note"
+    messages:
+      - role: "user"
+        content: "add a note to the incident #67890 in PagerDuty"
+    expected_keywords: ["pagerduty", "add", "note", "incident", "67890"]
+    category: "pagerduty"
+    operation: "U"
+
+  - id: "pagerduty_oncall_schedule"
+    messages:
+      - role: "user"
+        content: "get the on-call schedule for the 'Engineering' team"
+    expected_keywords: ["pagerduty", "on-call", "schedule", "Engineering", "team"]
+    category: "pagerduty"
+    operation: "read"
+
+  - id: "pagerduty_get_incident_history"
+    messages:
+      - role: "user"
+        content: "show the history of incident #12345 including all updates and notes"
+    expected_keywords: ["pagerduty", "incident", "history", "12345", "updates", "notes"]
+    category: "pagerduty"
+    operation: "read"
+
+  - id: "pagerduty_list_teams"
+    messages:
+      - role: "user"
+        content: "list all teams configured in PagerDuty"
+    expected_keywords: ["pagerduty", "teams", "list", "configured"]
+    category: "pagerduty"
+    operation: "read"
+
+  - id: "pagerduty_get_service_info"
+    messages:
+      - role: "user"
+        content: "get detailed information about the Production service"
+    expected_keywords: ["pagerduty", "service", "details", "Production", "information"]
+    category: "pagerduty"
+    operation: "read"
+
+  - id: "pagerduty_update_incident_priority"
+    messages:
+      - role: "user"
+        content: "change the priority of incident #12345 to P1"
+    expected_keywords: ["pagerduty", "update", "incident", "priority", "12345", "P1"]
+    category: "pagerduty"
+    operation: "U"
+
+  # Slack Integration Tests
+  - id: "slack_describe_channels"
+    messages:
+      - role: "user"
+        content: "Describe your slack channels"
+    expected_keywords: ["can", "help", "capability", "service", "slack", "channels"]
+    category: "slack"
+    operation: "read"
+
+  - id: "slack_list_channels"
+    messages:
+      - role: "user"
+        content: "list all slack channels"
+    expected_keywords: ["slack", "channel", "list"]
+    category: "slack"
+    operation: "read"
+
+  - id: "slack_send_message"
+    messages:
+      - role: "user"
+        content: "send a message to the 'devops' Slack channel"
+    expected_keywords: ["slack", "send", "message", "devops", "channel"]
+    category: "slack"
+    operation: "C"
+
+  - id: "slack_list_members"
+    messages:
+      - role: "user"
+        content: "list all members of the 'engineering' Slack workspace"
+    expected_keywords: ["slack", "list", "members", "engineering", "workspace"]
+    category: "slack"
+    operation: "read"
+
+  - id: "slack_create_channel"
+    messages:
+      - role: "user"
+        content: "create a new Slack channel named 'project-updates'"
+    expected_keywords: ["slack", "create", "channel", "project-updates"]
+    category: "slack"
+    operation: "C"
+
+  - id: "slack_post_notification"
+    messages:
+      - role: "user"
+        content: "post a notification to the 'alerts' Slack channel"
+    expected_keywords: ["slack", "post", "notification", "alerts", "channel"]
+    category: "slack"
+    operation: "C"
+
+  - id: "slack_get_channel_info"
+    messages:
+      - role: "user"
+        content: "get information about the #general channel including member count and purpose"
+    expected_keywords: ["slack", "channel", "information", "general", "members", "purpose"]
+    category: "slack"
+    operation: "read"
+
+  - id: "slack_search_messages"
+    messages:
+      - role: "user"
+        content: "search for messages containing 'deployment' in the #devops channel"
+    expected_keywords: ["slack", "search", "messages", "deployment", "devops", "channel"]
+    category: "slack"
+    operation: "read"
+
+  - id: "slack_get_user_info"
+    messages:
+      - role: "user"
+        content: "get information about user @john.doe in Slack"
+    expected_keywords: ["slack", "user", "information", "john.doe"]
+    category: "slack"
+    operation: "read"
+
+  - id: "slack_update_channel_topic"
+    messages:
+      - role: "user"
+        content: "update the topic of the #project-updates channel to 'Latest project status and updates'"
+    expected_keywords: ["slack", "update", "topic", "project-updates", "channel"]
+    category: "slack"
+    operation: "U"
+
+  # Komodor Integration Tests
+  - id: "komodor_get_clusters"
+    messages:
+      - role: "user"
+        content: "Get my clusters"
+    expected_keywords: ["komodor", "clusters", "get"]
+    category: "komodor"
+    operation: "read"
+
+  - id: "komodor_health_risks"
+    messages:
+      - role: "user"
+        content: "Get my health risks on cluster jarvis-sandbox"
+    expected_keywords: ["komodor", "health", "risks", "cluster", "jarvis-sandbox"]
+    category: "komodor"
+    operation: "read"
+
+  - id: "komodor_trigger_rca"
+    messages:
+      - role: "user"
+        content: "Trigger a RCA for service httpbin in namespace sandbox-adrozdov on cluster jarvis-sandbox"
+    expected_keywords: ["komodor", "RCA", "trigger", "service", "httpbin", "namespace", "sandbox-adrozdov", "cluster", "jarvis-sandbox"]
+    category: "komodor"
+    operation: "C"
+
+  - id: "komodor_get_rca_result"
+    messages:
+      - role: "user"
+        content: "Get the RCA result for the session ID"
+    expected_keywords: ["komodor", "RCA", "result", "session", "ID"]
+    category: "komodor"
+    operation: "read"
+
+  - id: "komodor_list_services"
+    messages:
+      - role: "user"
+        content: "list all services in the production namespace"
+    expected_keywords: ["komodor", "services", "list", "production", "namespace"]
+    category: "komodor"
+    operation: "read"
+
+  - id: "komodor_get_service_metrics"
+    messages:
+      - role: "user"
+        content: "get performance metrics for the frontend service"
+    expected_keywords: ["komodor", "performance", "metrics", "frontend", "service"]
+    category: "komodor"
+    operation: "read"
+
+  - id: "komodor_get_deployment_status"
+    messages:
+      - role: "user"
+        content: "check the deployment status of all services in the staging environment"
+    expected_keywords: ["komodor", "deployment", "status", "services", "staging", "environment"]
+    category: "komodor"
+    operation: "read"
+
+  - id: "komodor_get_logs"
+    messages:
+      - role: "user"
+        content: "get recent logs for the backend service in the production namespace"
+    expected_keywords: ["komodor", "logs", "recent", "backend", "service", "production", "namespace"]
+    category: "komodor"
+    operation: "read"
+
+  - id: "komodor_get_alerts"
+    messages:
+      - role: "user"
+        content: "show all active alerts in the monitoring system"
+    expected_keywords: ["komodor", "alerts", "active", "monitoring", "system"]
+    category: "komodor"
+    operation: "read"
+
+  - id: "komodor_update_service_config"
+    messages:
+      - role: "user"
+        content: "update the configuration for the database service"
+    expected_keywords: ["komodor", "update", "configuration", "database", "service"]
+    category: "komodor"
+    operation: "U"
+
+  # General Help and Capability Tests
+  - id: "help_capabilities"
+    messages:
+      - role: "user"
+        content: "What can you help me with?"
+    expected_keywords: ["ArgoCD", "Backstage", "Confluence", "GitHub", "Jira", "PagerDuty", "Slack", "Komodor", "platform", "engineering", "help", "assist", "can", "service", "repositories", "applications", "incidents", "channels", "tickets"]
+    category: "general"
+    operation: "read"
+
+  - id: "system_status"
+    messages:
+      - role: "user"
+        content: "What is the current status of all connected services?"
+    expected_keywords: ["status", "connected", "services", "health", "available"]
+    category: "general"
+    operation: "read"
+
+  - id: "service_capabilities"
+    messages:
+      - role: "user"
+        content: "List all the services you can interact with and their main functions"
+    expected_keywords: ["services", "interact", "functions", "capabilities", "list"]
+    category: "general"
+    operation: "read"
+
+  # Multi-Service Integration Tests
+  - id: "cross_service_deployment"
+    messages:
+      - role: "user"
+        content: "Create a new GitHub repository, set up ArgoCD application, and deploy to production"
+    expected_keywords: ["github", "repository", "argocd", "application", "deploy", "production"]
+    category: "integration"
+    operation: "C"
+
+  - id: "incident_response_workflow"
+    messages:
+      - role: "user"
+        content: "Create a PagerDuty incident for server downtime, notify Slack, and create a Jira ticket for tracking"
+    expected_keywords: ["pagerduty", "incident", "server", "downtime", "slack", "notify", "jira", "ticket", "tracking"]
+    category: "integration"
+    operation: "C"
+
+  - id: "documentation_workflow"
+    messages:
+      - role: "user"
+        content: "Create a Confluence page documenting the deployment process and link it to the Backstage service catalog"
+    expected_keywords: ["confluence", "page", "documentation", "deployment", "process", "backstage", "service", "catalog", "link"]
+    category: "integration"
+    operation: "C"
+
+  - id: "monitoring_workflow"
+    messages:
+      - role: "user"
+        content: "Check Komodor for service health, create PagerDuty incident if needed, and notify the team via Slack"
+    expected_keywords: ["komodor", "service", "health", "pagerduty", "incident", "slack", "notify", "team"]
+    category: "integration"
+    operation: "C"
+
+  - id: "release_management_workflow"
+    messages:
+      - role: "user"
+        content: "Create GitHub release, update ArgoCD application, and post release notes to Confluence"
+    expected_keywords: ["github", "release", "argocd", "application", "update", "confluence", "notes"]
+    category: "integration"
+    operation: "C"
+
+  # Error Handling and Edge Cases
+  - id: "invalid_service_request"
+    messages:
+      - role: "user"
+        content: "Create a new service in a non-existent platform"
+    expected_keywords: ["error", "not found", "doesn't exist", "unavailable", "invalid"]
+    category: "error_handling"
+    operation: "read"
+
+  - id: "permission_denied"
+    messages:
+      - role: "user"
+        content: "Delete the production ArgoCD application without proper permissions"
+    expected_keywords: ["permission", "denied", "unauthorized", "access", "forbidden"]
+    category: "error_handling"
+    operation: "read"
+
+  - id: "service_unavailable"
+    messages:
+      - role: "user"
+        content: "Get Jira issues when the service is down"
+    expected_keywords: ["service", "unavailable", "down", "connection", "error", "timeout"]
+    category: "error_handling"
+    operation: "read"
+
+  - id: "invalid_parameters"
+    messages:
+      - role: "user"
+        content: "Create a GitHub repository with an empty name"
+    expected_keywords: ["error", "invalid", "parameters", "empty", "name", "required"]
+    category: "error_handling"
+    operation: "read"
+
+  - id: "rate_limit_exceeded"
+    messages:
+      - role: "user"
+        content: "Make 1000 API calls to GitHub in one minute"
+    expected_keywords: ["rate limit", "exceeded", "too many", "requests", "wait", "retry"]
+    category: "error_handling"
+    operation: "read"
+
+  - id: "authentication_failed"
+    messages:
+      - role: "user"
+        content: "Access PagerDuty with expired credentials"
+    expected_keywords: ["authentication", "failed", "expired", "credentials", "login", "unauthorized"]
+    category: "error_handling"
+    operation: "read"
+
+  # Advanced Workflow Tests
+  - id: "cicd_pipeline_workflow"
+    messages:
+      - role: "user"
+        content: "Set up a complete CI/CD pipeline: create GitHub repo, configure ArgoCD, set up monitoring in Komodor, and create documentation in Confluence"
+    expected_keywords: ["cicd", "pipeline", "github", "argocd", "komodor", "monitoring", "confluence", "documentation"]
+    category: "advanced_workflow"
+    operation: "C"
+
+  - id: "disaster_recovery_workflow"
+    messages:
+      - role: "user"
+        content: "Create a disaster recovery plan: document in Confluence, create Jira epic, set up PagerDuty escalation policies, and notify stakeholders via Slack"
+    expected_keywords: ["disaster recovery", "plan", "confluence", "jira", "epic", "pagerduty", "escalation", "slack", "notify"]
+    category: "advanced_workflow"
+    operation: "C"
+
+  - id: "security_audit_workflow"
+    messages:
+      - role: "user"
+        content: "Perform security audit: check GitHub for secrets, review ArgoCD permissions, audit Backstage access, and create security report in Confluence"
+    expected_keywords: ["security", "audit", "github", "secrets", "argocd", "permissions", "backstage", "access", "confluence", "report"]
+    category: "advanced_workflow"
+    operation: "C"
+
+  # Performance and Scalability Tests
+  - id: "bulk_operations"
+    messages:
+      - role: "user"
+        content: "Create 50 new services in Backstage and update their metadata"
+    expected_keywords: ["bulk", "operations", "services", "backstage", "metadata", "batch", "efficient"]
+    category: "performance"
+    operation: "C"
+
+  - id: "concurrent_requests"
+    messages:
+      - role: "user"
+        content: "Simulate 100 concurrent users accessing different services simultaneously"
+    expected_keywords: ["concurrent", "requests", "simulate", "users", "services", "performance", "load"]
+    category: "performance"
+    operation: "read"
+
+  - id: "large_data_handling"
+    messages:
+      - role: "user"
+        content: "Process 10,000 Jira issues and generate a comprehensive report"
+    expected_keywords: ["large data", "process", "jira", "issues", "report", "comprehensive", "efficient"]
+    category: "performance"
+    operation: "read"
+
+  # Compliance and Governance Tests
+  - id: "audit_trail"
+    messages:
+      - role: "user"
+        content: "Generate audit trail for all changes made to production ArgoCD applications in the last 30 days"
+    expected_keywords: ["audit trail", "changes", "production", "argocd", "applications", "30 days", "compliance"]
+    category: "compliance"
+    operation: "read"
+
+  - id: "policy_compliance"
+    messages:
+      - role: "user"
+        content: "Check if all services comply with security policies and create compliance report"
+    expected_keywords: ["policy", "compliance", "security", "services", "check", "report"]
+    category: "compliance"
+    operation: "read"
+
+  - id: "access_review"
+    messages:
+      - role: "user"
+        content: "Review all user access permissions across GitHub, ArgoCD, and Backstage"
+    expected_keywords: ["access review", "permissions", "github", "argocd", "backstage", "security"]
+    category: "compliance"
+    operation: "read"
