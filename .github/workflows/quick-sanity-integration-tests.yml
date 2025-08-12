@@ -2,9 +2,9 @@ name: Quick Sanity Integration Tests
 
 on:
   push:
-    branches: [ quick_sanity ]
+    branches: [ main ]
   pull_request:
-    branches: [ quick_sanity ]
+    branches: [ main ]
 
 permissions:
   contents: read
