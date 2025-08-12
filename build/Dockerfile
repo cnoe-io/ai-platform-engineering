@@ -11,11 +11,15 @@ COPY pyproject.toml uv.lock /app/
 # Install Git and uv
 RUN apt-get update && apt-get install -y git && pip install uv && rm -rf /var/lib/apt/lists/*
 
+# Create UV cache directory for appuser and set permissions
+RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
+
 # Copy actual source code and set ownership
 COPY --chown=appuser:appuser ./ai_platform_engineering /app/ai_platform_engineering
 
-# Install dependencies (without dev packages)
-RUN uv sync --locked --no-dev
+# Install dependencies (without dev packages) with cache mount
+RUN --mount=type=cache,target=/home/appuser/.cache/uv \
+    uv sync --locked --no-dev
 
 # Change ownership of the entire app directory
 RUN chown -R appuser:appuser /app

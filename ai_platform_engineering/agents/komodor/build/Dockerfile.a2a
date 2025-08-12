@@ -10,7 +10,10 @@ COPY --chown=appuser:appuser . /app/
 # Install uv and use it to install the package
 RUN pip install uv
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+# Create UV cache directory for appuser and set permissions
+RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
+
+RUN --mount=type=cache,target=/home/appuser/.cache/uv \
     uv sync --locked --no-dev
 
 # Change ownership of the entire app directory
