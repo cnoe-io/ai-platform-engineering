@@ -40,7 +40,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "ghcr.io/cnoe-io/mcp-{{ include "agent.name" . }}:{{ .Values.mcp.image.tag | default "stable" }}"
+          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
