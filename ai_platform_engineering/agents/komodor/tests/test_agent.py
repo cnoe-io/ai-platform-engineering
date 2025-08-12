@@ -1,4 +1,4 @@
-from agent_komodor.protocol_bindings.a2a_server.agent import KomodorAgent, ResponseFormat
+from ..agent_komodor.protocol_bindings.a2a_server.agent import KomodorAgent, ResponseFormat
 
 def test_komodor_agent_class_exists():
     """Test that KomodorAgent class can be imported"""
