@@ -36,7 +36,7 @@ backstage-plugin-agent-forge:
   nameOverride: "backstage-plugin-agent-forge"
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
-    tag: "latest"
+    tag: "a2a-latest"
     pullPolicy: "Always"
   isBackstagePlugin: true
   service:
@@ -55,7 +55,7 @@ agent-argocd:
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
     pullPolicy: "Always"
-    tag: "42075dc"
+    tag: "a2a-latest"
 
 agent-backstage:
   enabled: true
@@ -63,7 +63,7 @@ agent-backstage:
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
     pullPolicy: "Always"
-    tag: "latest"
+    tag: "a2a-latest"
 
 agent-confluence:
   enabled: true
@@ -71,7 +71,7 @@ agent-confluence:
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
     pullPolicy: "Always"
-    tag: "latest"
+    tag: "a2a-latest"
 
 agent-github:
   enabled: true
@@ -79,7 +79,7 @@ agent-github:
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
     pullPolicy: "Always"
-    tag: "latest"
+    tag: "a2a-latest"
 
 agent-jira:
   enabled: true
@@ -87,7 +87,7 @@ agent-jira:
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
     pullPolicy: "Always"
-    tag: "latest"
+    tag: "a2a-latest"
 
 agent-pagerduty:
   enabled: true
@@ -95,7 +95,7 @@ agent-pagerduty:
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
     pullPolicy: "Always"
-    tag: "latest"
+    tag: "a2a-latest"
 
 agent-slack:
   enabled: true
@@ -103,7 +103,7 @@ agent-slack:
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
     pullPolicy: "Always"
-    tag: "latest"
+    tag: "a2a-latest"
 
 agent-reflection:
   enabled: false
@@ -111,4 +111,4 @@ agent-reflection:
   image:
     repository: "ghcr.io/cnoe-io/agent-reflection"
     pullPolicy: "Always"
-    tag: "latest"
+    tag: "a2a-latest"
