@@ -22,13 +22,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13.2"
-      - name: Install UV
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: Install dependencies
-        run: |
-          uv sync --dev
+          python-version: "3.13"
       - name: Run tests
         run: |
-          uv run pytest --ignore=integration
+          make test-quick
