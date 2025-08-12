@@ -27,7 +27,7 @@ jobs:
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
 
-          /home/ubuntu/.local/bin/uv venv
+          /home/runner/.local/bin venv
 
           @echo "Installing ai_platform_engineering, agents, and argocd..."
 
