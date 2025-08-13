@@ -102,10 +102,6 @@ agent-github:
     repository: "ghcr.io/cnoe-io/agent-github"
     pullPolicy: "Always"
   mcp:
-    image:
-      repository: "ghcr.io/cnoe-io/mcp-github"
-      tag: "stable"
-      pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
 
