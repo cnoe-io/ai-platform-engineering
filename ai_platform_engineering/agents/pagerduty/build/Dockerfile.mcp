@@ -14,8 +14,13 @@ RUN pip install uv
 # Create UV cache directory for appuser and set permissions
 RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
 
+# Install dependencies as root first
 RUN --mount=type=cache,target=/home/appuser/.cache/uv \
     uv sync --locked --no-dev
+
+# Ensure .venv directory and all contents are owned by appuser
+RUN chown -R appuser:appuser /app/.venv || true
+RUN chmod -R 755 /app/.venv || true
 
 # Change ownership of the entire app directory
 RUN chown -R appuser:appuser /app
