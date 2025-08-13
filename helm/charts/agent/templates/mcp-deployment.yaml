@@ -24,6 +24,8 @@ spec:
       {{- end }}
       labels:
         {{- include "agent.labels" . | nindent 8 }}
+        app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
+        app.kubernetes.io/component: mcp
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
