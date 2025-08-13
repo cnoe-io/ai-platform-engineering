@@ -61,4 +61,4 @@ markers = [
 ]
 
 [tool.uv.sources]
-mcp-argocd = { workspace = true }
+mcp-argocd = { path = "mcp" }
