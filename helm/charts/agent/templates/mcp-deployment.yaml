@@ -1,4 +1,4 @@
-{{- if and (eq .Values.mcp.mode "http") (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) }}
+{{- if and (eq .Values.mcp.mode "http") (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) (not .Values.useRemoteMcpServer) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
