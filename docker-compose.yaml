@@ -150,7 +150,8 @@ services:
   #                                      AGENT ARGOCD A2A over SLIM                                  #
   ####################################################################################################
   agent-argocd-slim:
-    container_name: ghcr.io/cnoe-io/agent-argocd:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-argocd:a2a-${IMAGE_TAG:-stable}
+    container_name: agent-argocd-slim
     profiles:
       - slim
       - slim-tracing
@@ -199,7 +200,8 @@ services:
   #                                      AGENT BACKSTAGE A2A over SLIM                               #
   ####################################################################################################
   agent-backstage-slim:
-    container_name: ghcr.io/cnoe-io/agent-backstage:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-backstage:a2a-${IMAGE_TAG:-stable}
+    container_name: agent-backstage-slim
     profiles:
       - slim
       - slim-tracing

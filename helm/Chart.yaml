@@ -6,50 +6,50 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.1.11
+version: 0.1.12
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: agent
     # Chart version for agent subchart
-    version: 0.1.7
+    version: 0.1.8
     alias: ai-platform-engineering
     condition: ai-platform-engineering.enabled
   # Backstage plugin agent forge
   - name: agent
-    version: 0.1.7
+    version: 0.1.8
     alias: backstage-plugin-agent-forge
     condition: backstage-plugin-agent-forge.enabled
   # Single agent chart used multiple times with different aliases
   - name: agent
-    version: 0.1.7
+    version: 0.1.8
     alias: agent-argocd
     condition: agent-argocd.enabled
   - name: agent
-    version: 0.1.7
+    version: 0.1.8
     alias: agent-backstage
     condition: agent-backstage.enabled
   - name: agent
-    version: 0.1.7
+    version: 0.1.8
     alias: agent-confluence
     condition: agent-confluence.enabled
   - name: agent
-    version: 0.1.7
+    version: 0.1.8
     alias: agent-github
     condition: agent-github.enabled
   - name: agent
-    version: 0.1.7
+    version: 0.1.8
     alias: agent-jira
     condition: agent-jira.enabled
   - name: agent
-    version: 0.1.7
+    version: 0.1.8
     alias: agent-pagerduty
     condition: agent-pagerduty.enabled
   - name: agent
-    version: 0.1.7
+    version: 0.1.8
     alias: agent-slack
     condition: agent-slack.enabled
   - name: agent
-    version: 0.1.7
+    version: 0.1.8
     alias: agent-reflection
     condition: agent-reflection.enabled
   # AGNTCY Slim dataplane service
