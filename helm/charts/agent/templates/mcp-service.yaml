@@ -1,4 +1,4 @@
-{{- if and (eq .Values.mcp.mode "http") (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) (not .Values.useRemoteMcpServer) }}
+{{- if include "agent.createMcpHttpServer" . | eq "true" }}
 apiVersion: v1
 kind: Service
 metadata:
