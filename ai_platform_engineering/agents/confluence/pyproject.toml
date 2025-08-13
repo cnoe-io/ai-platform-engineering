@@ -67,4 +67,4 @@ select = [
 ignore = ["F403"]
 
 [tool.uv.sources]
-mcp-confluence = { workspace = true }
+mcp-confluence = { path = "mcp" }

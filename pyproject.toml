@@ -32,8 +32,6 @@ langgraph-cli = "^0.3.3"
 
 
 [tool.poetry.group.unittest.dependencies]
-agent-argocd = {path = "ai_platform_engineering/agents/argocd"}
-agent-komodor = {path = "ai_platform_engineering/agents/komodor"}
 pytest-asyncio = "^1.0.0"
 
 [tool.ruff]
@@ -46,18 +44,7 @@ indent-width = 2
 select = ["E", "F"]
 ignore = ["F403"]
 
-[tool.uv.workspace]
-members = [
-    "ai_platform_engineering/agents/argocd",
-    "ai_platform_engineering/agents/argocd/mcp",
-    "ai_platform_engineering/agents/komodor",
-    "ai_platform_engineering/agents/confluence",
-    "ai_platform_engineering/agents/confluence/mcp",
-]
 
-[tool.uv.sources]
-agent-argocd = { workspace = true }
-agent-komodor = { workspace = true }
 
 
 [tool.commitizen]
@@ -69,8 +56,6 @@ update_changelog_on_bump = true
 major_version_zero = true
 [dependency-groups]
 dev = [
-    "agent-argocd",
-    "agent-komodor",
     "httpx>=0.28.1",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
