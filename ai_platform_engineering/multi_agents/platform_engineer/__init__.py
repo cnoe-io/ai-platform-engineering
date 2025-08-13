@@ -4,6 +4,19 @@
 import os
 import logging
 
+# =====================================================
+# CRITICAL: Disable a2a tracing BEFORE any A2A imports
+# =====================================================
+from cnoe_agent_utils.tracing import disable_a2a_tracing
+
+# Disable A2A framework tracing to prevent interference with custom tracing
+disable_a2a_tracing()
+logging.info("A2A tracing disabled for Platform Engineer")
+
+# =====================================================
+# Now safe to import AgentRegistry and create platform_registry
+# =====================================================
+
 from ai_platform_engineering.multi_agents import AgentRegistry
 
 
