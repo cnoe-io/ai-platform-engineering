@@ -113,7 +113,7 @@ class SlackAgent:
 
               client = MultiServerMCPClient(
                 {
-                  "argocd": {
+                  "slack": {
                     "transport": "streamable_http",
                     "url": f"http://{mcp_host}:{mcp_port}/mcp/",
                     "headers": {

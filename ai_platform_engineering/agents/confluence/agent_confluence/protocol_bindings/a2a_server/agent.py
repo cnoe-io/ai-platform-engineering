@@ -86,7 +86,7 @@ class ConfluenceAgent:
 
             client = MultiServerMCPClient(
               {
-                "argocd": {
+                "confluence": {
                   "transport": "streamable_http",
                   "url": f"http://{mcp_host}:{mcp_port}/mcp/",
                   "headers": {
