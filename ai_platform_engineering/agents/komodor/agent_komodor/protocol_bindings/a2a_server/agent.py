@@ -135,7 +135,7 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
 
             client = MultiServerMCPClient(
               {
-                "argocd": {
+                "komodor": {
                   "transport": "streamable_http",
                   "url": f"http://{mcp_host}:{mcp_port}/mcp/",
                   "headers": {
