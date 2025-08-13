@@ -36,15 +36,6 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - SLACK_AGENT_HOST=agent-slack-p2p
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
-      - AGENT_PROTOCOL=a2a
-      - ARGOCD_AGENT_HOST=agent-argocd
-      - BACKSTAGE_AGENT_HOST=agent-backstage
-      - CONFLUENCE_AGENT_HOST=agent-confluence
-      - JIRA_AGENT_HOST=agent-jira
-      - GITHUB_AGENT_HOST=agent-github
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - SLACK_AGENT_HOST=agent-slack
-      - KOMODOR_AGENT_HOST=agent-komodor
       - KB_RAG_AGENT_HOST=kb-rag
       # Uncomment this once the stable GHCR image includes tracing evaluation support
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -687,21 +678,9 @@ services:
     ports:
       - "3000:3000"
 
-    # Agent KB-RAG
-  kb-rag:
-    image: ghcr.io/cnoe-io/kb-rag:a2a-latest
-    container_name: kb-rag
-    profiles:
-      - kb-rag
-    depends_on:
-      - milvus-standalone
-    volumes:
-      - ./.env:/app/.env
-    ports:
-      - "8009:8000"
+
 
   
-
 
   ####################################################################################################
   #                                      LANGFUSE TRACING SERVICES                                   #
@@ -882,6 +861,23 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
+
+  ####################################################################################################
+  #                                      RAG            SERVICES                                   #
+  ####################################################################################################
+
+      # Agent KB-RAG
+  kb-rag:
+    image: ghcr.io/cnoe-io/kb-rag:a2a-latest
+    container_name: kb-rag
+    profiles:
+      - kb-rag
+    depends_on:
+      - milvus-standalone
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8009:8000"
 
   etcd:
     container_name: milvus-etcd
