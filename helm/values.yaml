@@ -29,6 +29,8 @@ ai-platform-engineering:
       - jira
       - pagerduty
       - slack
+  mcp: #TODO
+    mode: "stdio"
 
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
@@ -47,6 +49,8 @@ backstage-plugin-agent-forge:
       - name: backend
         port: 7007
         protocol: TCP
+  mcp: #TODO
+    mode: "stdio"
 
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
@@ -55,6 +59,13 @@ agent-argocd:
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-argocd"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-backstage:
   enabled: false
@@ -62,6 +73,13 @@ agent-backstage:
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-backstage"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-confluence:
   enabled: false
@@ -69,6 +87,13 @@ agent-confluence:
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-confluence"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-github:
   enabled: false
@@ -76,6 +101,13 @@ agent-github:
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-github"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-jira:
   enabled: false
@@ -83,6 +115,13 @@ agent-jira:
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-jira"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-pagerduty:
   enabled: false
@@ -90,12 +129,27 @@ agent-pagerduty:
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-pagerduty"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-slack:
   enabled: false
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-slack"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
     pullPolicy: "Always"
 
 agent-reflection:
