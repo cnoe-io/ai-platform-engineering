@@ -8,7 +8,9 @@ services:
       dockerfile: build/Dockerfile
     volumes:
       - ./prompt_config.yaml:/app/prompt_config.yaml
-      - ./ai_platform_engineering:/app/ai_platform_engineering
+      # Mount only code that changes during development
+      - ./ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     container_name: platform-engineering
     profiles:
       - slim
@@ -61,7 +63,9 @@ services:
       dockerfile: build/Dockerfile
     volumes:
       - ./prompt_config.yaml:/app/prompt_config.yaml
-      - ./ai_platform_engineering:/app/ai_platform_engineering
+      # Mount only code that changes during development
+      - ./ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     container_name: platform-engineering
     profiles:
       - p2p

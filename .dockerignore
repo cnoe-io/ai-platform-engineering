@@ -1,0 +1,42 @@
+# Exclude heavy agent implementations but keep essential files
+ai_platform_engineering/agents/*/agent_*/**
+!ai_platform_engineering/agents/*/agent_*/agentcard.py
+!ai_platform_engineering/agents/*/agent_*/__init__.py
+
+# Exclude special client directories for weather/webex (they use different structure)
+ai_platform_engineering/agents/weather/agntcy_agent_client/**
+!ai_platform_engineering/agents/weather/agntcy_agent_client/agentcard.py
+!ai_platform_engineering/agents/weather/agntcy_agent_client/__init__.py
+!ai_platform_engineering/agents/weather/agntcy_agent_client/agent.py
+ai_platform_engineering/agents/webex/a2a_agent_client/**
+!ai_platform_engineering/agents/webex/a2a_agent_client/agentcard.py
+!ai_platform_engineering/agents/webex/a2a_agent_client/__init__.py
+!ai_platform_engineering/agents/webex/a2a_agent_client/agent.py
+
+# Exclude heavy directories 
+ai_platform_engineering/agents/*/mcp/**
+ai_platform_engineering/agents/*/build/**
+ai_platform_engineering/agents/*/tests/**
+ai_platform_engineering/agents/*/evals/**
+ai_platform_engineering/agents/*/langgraph.json
+ai_platform_engineering/agents/*/pyproject.toml
+ai_platform_engineering/agents/*/uv.lock
+ai_platform_engineering/agents/*/README.md
+ai_platform_engineering/agents/*/CHANGELOG.md
+ai_platform_engineering/agents/*/CODE_OF_CONDUCT.md
+ai_platform_engineering/agents/*/MAINTAINERS.md
+ai_platform_engineering/agents/*/Makefile
+
+# Exclude main agent implementation files but keep __init__.py
+ai_platform_engineering/agents/*/main.py
+ai_platform_engineering/agents/*/__main__.py
+
+# Exclude knowledge bases
+ai_platform_engineering/knowledge_bases/**
+
+# Exclude other heavy directories
+ai_platform_engineering/evaluation/**
+ai_platform_engineering/cli/**
+
+# Exclude main project lock file (use minimal one instead)
+uv.lock
