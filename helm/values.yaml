@@ -170,12 +170,7 @@ neo4j:
   disableLookups: true
   services:
     neo4j:
-      enabled: true
-      ports:
-        http:
-          enabled: false
-        https:
-          enabled: false
+      enabled: false
   neo4j:
     name: ai-platform-engineering-graphrag-neo4j
     password: "dummy_password"
