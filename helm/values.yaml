@@ -103,9 +103,6 @@ agent-github:
     pullPolicy: "Always"
   mcp:
     useRemoteMcpServer: true
-  
-    mode: "http" # Options: stdio, http
-    port: 8000
 
 agent-jira:
   enabled: false

@@ -7,6 +7,8 @@ global:
     knowledgeBase: true
     graphRag: true
     nexigraph: true
+  secrets:
+    secretName: llm-secret
 
 # Neo4j Database Configuration
 neo4j:
@@ -15,14 +17,14 @@ neo4j:
     repository: neo4j
     tag: latest
     pullPolicy: IfNotPresent
-  
+
   auth:
     username: neo4j
     password: dummy_password
-  
+
   plugins:
     - apoc
-  
+
   config:
     apoc:
       export:
@@ -32,7 +34,7 @@ neo4j:
         file:
           enabled: true
           use_neo4j_config: true
-  
+
   persistence:
     enabled: true
     data:
@@ -47,14 +49,14 @@ neo4j:
     plugins:
       size: 1Gi
       storageClass: ""
-  
+
   service:
     type: ClusterIP
     http:
       port: 7474
     bolt:
       port: 7687
-  
+
   resources: {}
   nodeSelector: {}
   tolerations: []
@@ -67,16 +69,16 @@ redis:
     repository: redis
     tag: latest
     pullPolicy: IfNotPresent
-  
+
   persistence:
     enabled: true
     size: 5Gi
     storageClass: ""
-  
+
   service:
     type: ClusterIP
     port: 6379
-  
+
   resources: {}
   nodeSelector: {}
   tolerations: []
@@ -89,16 +91,16 @@ nexigraphServer:
     repository: ghcr.io/cnoe-io/nexigraph-server
     tag: latest
     pullPolicy: IfNotPresent
-  
+
   env:
     logLevel: DEBUG
     apiKeys: dummy_key
     cleanupInterval: 86400
-  
+
   service:
     type: ClusterIP
     port: 8095
-  
+
   resources: {}
   nodeSelector: {}
   tolerations: []
@@ -111,7 +113,7 @@ agentGraphGen:
     repository: ghcr.io/cnoe-io/nexigraph-agent_graph_gen
     tag: latest
     pullPolicy: IfNotPresent
-  
+
   env:
     logLevel: DEBUG
     syncInterval: 86400
@@ -124,7 +126,7 @@ agentGraphGen:
     langsmithProject: ""
     langsmithApiKey: ""
     langsmithEndpoint: ""
-  
+
   resources: {}
   nodeSelector: {}
   tolerations: []
@@ -137,18 +139,18 @@ agentGraphQa:
     repository: ghcr.io/cnoe-io/nexigraph-agent_graph_qa
     tag: latest
     pullPolicy: IfNotPresent
-  
+
   env:
     logLevel: DEBUG
     # Azure OpenAI Configuration (will be injected from parent values)
     openaiApiVersion: ""
     azureOpenaiEndpoint: ""
     azureOpenaiApiKey: ""
-  
+
   service:
     type: ClusterIP
     port: 8096
-  
+
   resources: {}
   nodeSelector: {}
   tolerations: []
@@ -161,11 +163,11 @@ dummyClient:
     repository: ghcr.io/cnoe-io/nexigraph-clients
     tag: latest
     pullPolicy: IfNotPresent
-  
+
   env:
     apiKey: dummy_key
     dummyEntitiesFile: dummy_data.json
-  
+
   # Configuration for dummy data
   dummyData:
     # This will be populated from a ConfigMap
@@ -180,7 +182,7 @@ dummyClient:
           }
         ]
       }
-  
+
   resources: {}
   nodeSelector: {}
   tolerations: []
