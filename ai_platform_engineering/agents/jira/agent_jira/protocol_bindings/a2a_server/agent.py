@@ -99,7 +99,7 @@ class JiraAgent:
 
             client = MultiServerMCPClient(
               {
-                "argocd": {
+                "jira": {
                   "transport": "streamable_http",
                   "url": f"http://{mcp_host}:{mcp_port}/mcp/",
                   "headers": {
