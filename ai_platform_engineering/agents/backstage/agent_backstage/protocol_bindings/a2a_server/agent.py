@@ -93,7 +93,7 @@ class BackstageAgent:
 
           client = MultiServerMCPClient(
             {
-              "argocd": {
+              "backstage": {
                 "transport": "streamable_http",
                 "url": f"http://{mcp_host}:{mcp_port}/mcp/",
                 "headers": {
