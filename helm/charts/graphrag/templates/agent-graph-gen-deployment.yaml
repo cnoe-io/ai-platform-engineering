@@ -43,14 +43,14 @@ spec:
               value: "{{ .Values.agentGraphGen.env.logLevel }}"
             - name: SYNC_INTERVAL
               value: "{{ .Values.agentGraphGen.env.syncInterval }}"
-            - name: NEO4J_URL
-              value: "bolt://{{ include "graphrag.fullname" . }}-neo4j:{{ .Values.neo4j.service.bolt.port }}"
-            - name: NEO4J_USER
+            - name: REDIS_HOST
+              value: "{{ include "graphrag.fullname" . }}-redis"
+            - name: NEO4J_ADDR
+              value: "neo4j://{{ include "graphrag.fullname" . }}-neo4j:{{ .Values.neo4j.service.bolt.port }}"
+            - name: NEO4J_USERNAME
               value: "{{ .Values.neo4j.auth.username }}"
             - name: NEO4J_PASSWORD
               value: "{{ .Values.neo4j.auth.password }}"
-            - name: NEXIGRAPH_SERVER_URL
-              value: "http://{{ include "graphrag.fullname" . }}-nexigraph-server:{{ .Values.nexigraphServer.service.port }}"
             {{- if .Values.agentGraphGen.env.openaiApiVersion }}
             - name: OPENAI_API_VERSION
               value: "{{ .Values.agentGraphGen.env.openaiApiVersion }}"
