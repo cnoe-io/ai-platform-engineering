@@ -112,3 +112,6 @@ agent-reflection:
     repository: "ghcr.io/cnoe-io/agent-reflection"
     pullPolicy: "Always"
     tag: "a2a-latest"
+
+graphrag:
+  enabled: true
