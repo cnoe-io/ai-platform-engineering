@@ -40,7 +40,7 @@ spec:
               value: "{{ .Values.dummyClient.env.apiKey }}"
             - name: DUMMY_ENTITIES_FILE
               value: "/data/{{ .Values.dummyClient.env.dummyEntitiesFile }}"
-            - name: NEXIGRAPH_SERVER_URL
+            - name: SERVER_ADDR
               value: "http://{{ include "graphrag.fullname" . }}-nexigraph-server:{{ .Values.nexigraphServer.service.port }}"
           volumeMounts:
             - name: dummy-data
