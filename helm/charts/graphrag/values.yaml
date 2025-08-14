@@ -183,3 +183,11 @@ ingress:
   annotations: {}
   hosts: []
   tls: []
+
+neo4j:
+  service:
+    bolt:
+      port: 7687
+  auth:
+    username: neo4j
+    password: dummy_password
