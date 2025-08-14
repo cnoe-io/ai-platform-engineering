@@ -1,11 +1,11 @@
 [tool.poetry]
-name = "agent-rag"
+name = "kb-rag"
 version = "0.1.0"
 description = "A RAG agent that ingests documentation from any URL and answers questions using RAG with Milvus."
 authors = ["Your Name <your.email@example.com>"]
 license = "Apache-2.0"
 readme = "README.md"
-packages = [{include = "agent_rag"}]
+packages = [{include = "kb_rag"}]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4.0"
@@ -19,8 +19,7 @@ beautifulsoup4 = "^4.12.3"
 httpx = "^0.28.1"
 python-dotenv = "^1.0.0"
 click = "^8.1.7"
-a2a-python = ">=0.0.1"
-a2a-sdk = ">=0.2.1"
+a2a-sdk = "0.2.16"
 pymilvus = "^2.3.6"
 cnoe-agent-utils = "^0.1.4"
 pydantic = ">=2.0.0"

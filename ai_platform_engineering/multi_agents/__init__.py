@@ -52,6 +52,10 @@ class AgentRegistry:
         "weather": {
             "slim": "ai_platform_engineering.agents.weather.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.weather.clients.a2a.agent"
+        },
+        "kb-rag": {
+            "slim": "ai_platform_engineering.knowledge_bases.rag.clients.slim.agent",
+            "a2a": "ai_platform_engineering.knowledge_bases.rag.clients.a2a.agent"
         }
     }
 
