@@ -46,14 +46,14 @@ spec:
               value: "{{ .Values.nexigraphServer.env.apiKeys }}"
             - name: CLEANUP_INTERVAL
               value: "{{ .Values.nexigraphServer.env.cleanupInterval }}"
-            - name: NEO4J_URL
-              value: "bolt://{{ include "graphrag.fullname" . }}-neo4j:{{ .Values.neo4j.service.bolt.port }}"
-            - name: NEO4J_USER
+            - name: NEO4J_ADDR
+              value: "neo4j://{{ include "graphrag.fullname" . }}-neo4j:{{ .Values.neo4j.service.bolt.port }}"
+            - name: NEO4J_USERNAME
               value: "{{ .Values.neo4j.auth.username }}"
             - name: NEO4J_PASSWORD
               value: "{{ .Values.neo4j.auth.password }}"
-            - name: REDIS_URL
-              value: "redis://{{ include "graphrag.fullname" . }}-redis:{{ .Values.redis.service.port }}"
+            - name: REDIS_HOST
+              value: "{{ include "graphrag.fullname" . }}-redis"
           {{- with .Values.nexigraphServer.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
