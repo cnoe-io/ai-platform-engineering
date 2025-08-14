@@ -14,7 +14,7 @@ sidebar_position: 7
 2. **Start the application**
 
    ```bash
-   make run-ai-platform-engineer
+   docker compose -f docker-compose.yaml --profile=p2p up
    ```
 
 3. **Run the client**
@@ -40,7 +40,7 @@ Enable observability and evaluation with Langfuse v3:
 2. **Start with tracing enabled**
    ```bash
    docker-compose down
-   docker-compose --profile tracing up
+   docker-compose --profile=p2p-tracing up
    ```
 
 3. **Access Langfuse dashboard** at `http://localhost:3000` and create an account and apply for API key
