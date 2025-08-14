@@ -58,17 +58,21 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if .Values.nexigraphServer.livenessProbe.enabled }}
           livenessProbe:
             httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
+              path: {{ .Values.nexigraphServer.livenessProbe.httpGet.path }}
+              port: {{ .Values.nexigraphServer.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.nexigraphServer.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.nexigraphServer.livenessProbe.periodSeconds }}
+          {{- end }}
+          {{- if .Values.nexigraphServer.readinessProbe.enabled }}
           readinessProbe:
             httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 5
+              path: {{ .Values.nexigraphServer.readinessProbe.httpGet.path }}
+              port: {{ .Values.nexigraphServer.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.nexigraphServer.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.nexigraphServer.readinessProbe.periodSeconds }}
+          {{- end }}
       restartPolicy: Always
 {{- end }}

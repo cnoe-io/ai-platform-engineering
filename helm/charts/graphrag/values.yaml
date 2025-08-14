@@ -101,6 +101,23 @@ nexigraphServer:
     type: ClusterIP
     port: 8095
 
+  # Health check configuration (disabled by default to match docker-compose behavior)
+  livenessProbe:
+    enabled: false
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  readinessProbe:
+    enabled: false
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
   resources: {}
   nodeSelector: {}
   tolerations: []
@@ -150,6 +167,23 @@ agentGraphQa:
   service:
     type: ClusterIP
     port: 8096
+
+  # Health check configuration (disabled by default to match docker-compose behavior)
+  livenessProbe:
+    enabled: false
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+  readinessProbe:
+    enabled: false
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
 
   resources: {}
   nodeSelector: {}

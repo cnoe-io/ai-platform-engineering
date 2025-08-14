@@ -69,17 +69,21 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if .Values.agentGraphQa.livenessProbe.enabled }}
           livenessProbe:
             httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
+              path: {{ .Values.agentGraphQa.livenessProbe.httpGet.path }}
+              port: {{ .Values.agentGraphQa.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.agentGraphQa.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.agentGraphQa.livenessProbe.periodSeconds }}
+          {{- end }}
+          {{- if .Values.agentGraphQa.readinessProbe.enabled }}
           readinessProbe:
             httpGet:
-              path: /health
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 5
+              path: {{ .Values.agentGraphQa.readinessProbe.httpGet.path }}
+              port: {{ .Values.agentGraphQa.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.agentGraphQa.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.agentGraphQa.readinessProbe.periodSeconds }}
+          {{- end }}
       restartPolicy: Always
 {{- end }}
