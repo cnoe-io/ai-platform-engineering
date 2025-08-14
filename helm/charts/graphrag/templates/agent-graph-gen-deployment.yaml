@@ -37,7 +37,7 @@ spec:
           imagePullPolicy: {{ .Values.agentGraphGen.image.pullPolicy }}
           envFrom:
             - secretRef:
-                name: {{ .Values.agentGraphGen.secrets.secretName }}
+                name: {{ .Values.global.secrets.secretName }}
           env:
             - name: LOG_LEVEL
               value: "{{ .Values.agentGraphGen.env.logLevel }}"
