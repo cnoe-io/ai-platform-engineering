@@ -160,5 +160,5 @@ jobs:
         run: |
           echo "::group::Clean-up workspace"
           docker compose -f docker-compose.dev.yaml --profile=p2p down -v --remove-orphans || true
-          docker system prune -f || true
+          docker rmi -f $(docker images -aq) || true
           echo "::endgroup::"

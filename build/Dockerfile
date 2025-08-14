@@ -5,8 +5,9 @@ RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
 
 WORKDIR /app
 
-# Copy project metadata first to leverage caching
-COPY pyproject.toml uv.lock /app/
+# Copy minimal platform-engineer project metadata first to leverage caching
+COPY --chown=appuser:appuser ai_platform_engineering/multi_agents/pyproject.toml /app/pyproject.toml
+COPY --chown=appuser:appuser ai_platform_engineering/multi_agents/uv.lock /app/uv.lock
 
 # Install Git and uv
 RUN apt-get update && apt-get install -y git && pip install uv && rm -rf /var/lib/apt/lists/*
@@ -14,18 +15,18 @@ RUN apt-get update && apt-get install -y git && pip install uv && rm -rf /var/li
 # Create UV cache directory for appuser and set permissions
 RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
 
-# Copy actual source code and set ownership
+# Copy source code (filtered by .dockerignore)
 COPY --chown=appuser:appuser ./ai_platform_engineering /app/ai_platform_engineering
 
-# Install dependencies (without dev packages) with cache mount
-RUN --mount=type=cache,target=/home/appuser/.cache/uv \
-    uv sync --locked --no-dev
+# Change ownership of /app directory
+RUN chown appuser:appuser /app
 
-# Change ownership of the entire app directory
-RUN chown -R appuser:appuser /app
-
-# Switch to non-root user
+# Switch to non-root user before installing dependencies
 USER appuser
+
+# Install minimal dependencies (without dev packages) with cache mount
+RUN --mount=type=cache,target=/home/appuser/.cache/uv,uid=1001,gid=1001 \
+    uv sync --no-dev
 
 EXPOSE 8000
 

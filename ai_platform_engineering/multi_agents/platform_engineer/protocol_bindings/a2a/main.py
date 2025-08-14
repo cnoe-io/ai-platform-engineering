@@ -2,27 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import logging
-
-# =====================================================
-# CRITICAL: Disable a2a tracing BEFORE any a2a imports
-# =====================================================
-from cnoe_agent_utils.tracing import disable_a2a_tracing
-
-# Disable A2A framework tracing to prevent interference with custom tracing
-disable_a2a_tracing()
-logging.debug("A2A tracing disabled using cnoe-agent-utils")
-
-# =====================================================
-# Now safe to import a2a modules
-# =====================================================
-
 import httpx
 
 from starlette.middleware.cors import CORSMiddleware
 
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import AIPlatformEngineerA2AExecutor # type: ignore[import-untyped]
-from dotenv import load_dotenv
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -43,8 +27,6 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   agent_description,
   agent_skill_examples
 )
-
-load_dotenv()
 
 def get_agent_card(host: str, port: int, external_url: str = None):
   capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
