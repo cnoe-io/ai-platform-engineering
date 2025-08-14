@@ -39,16 +39,16 @@ neo4j:
     enabled: true
     data:
       size: 10Gi
-      storageClass: ""
+      storageClass: "gp2"
     logs:
       size: 1Gi
-      storageClass: ""
+      storageClass: "gp2"
     config:
       size: 1Gi
-      storageClass: ""
+      storageClass: "gp2"
     plugins:
       size: 1Gi
-      storageClass: ""
+      storageClass: "gp2"
 
   service:
     type: ClusterIP
@@ -73,7 +73,7 @@ redis:
   persistence:
     enabled: true
     size: 5Gi
-    storageClass: ""
+    storageClass: "gp2"
 
   service:
     type: ClusterIP

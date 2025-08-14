@@ -16,7 +16,7 @@ spec:
   {{- if .Values.neo4j.persistence.data.storageClass }}
   {{- if (eq "-" .Values.neo4j.persistence.data.storageClass) }}
   storageClassName: ""
-  {{- else }}
+  {{- else if ne .Values.neo4j.persistence.data.storageClass "" }}
   storageClassName: "{{ .Values.neo4j.persistence.data.storageClass }}"
   {{- end }}
   {{- end }}
@@ -37,7 +37,7 @@ spec:
   {{- if .Values.neo4j.persistence.logs.storageClass }}
   {{- if (eq "-" .Values.neo4j.persistence.logs.storageClass) }}
   storageClassName: ""
-  {{- else }}
+  {{- else if ne .Values.neo4j.persistence.logs.storageClass "" }}
   storageClassName: "{{ .Values.neo4j.persistence.logs.storageClass }}"
   {{- end }}
   {{- end }}
@@ -58,7 +58,7 @@ spec:
   {{- if .Values.neo4j.persistence.config.storageClass }}
   {{- if (eq "-" .Values.neo4j.persistence.config.storageClass) }}
   storageClassName: ""
-  {{- else }}
+  {{- else if ne .Values.neo4j.persistence.config.storageClass "" }}
   storageClassName: "{{ .Values.neo4j.persistence.config.storageClass }}"
   {{- end }}
   {{- end }}
@@ -79,7 +79,7 @@ spec:
   {{- if .Values.neo4j.persistence.plugins.storageClass }}
   {{- if (eq "-" .Values.neo4j.persistence.plugins.storageClass) }}
   storageClassName: ""
-  {{- else }}
+  {{- else if ne .Values.neo4j.persistence.plugins.storageClass "" }}
   storageClassName: "{{ .Values.neo4j.persistence.plugins.storageClass }}"
   {{- end }}
   {{- end }}
