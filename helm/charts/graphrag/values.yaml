@@ -65,15 +65,9 @@ neo4j:
 # Redis Configuration
 redis:
   enabled: true
-  image:
-    repository: redis
-    tag: latest
-    pullPolicy: IfNotPresent
-
-  persistence:
-    enabled: true
-    size: 5Gi
-    storageClass: "gp2"
+  imageRepository: redis
+  tagversion: latest
+  imagePullPolicy: IfNotPresent
 
   service:
     type: ClusterIP
