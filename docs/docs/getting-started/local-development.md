@@ -14,7 +14,7 @@ sidebar_position: 7
 2. **Start the application**
 
    ```bash
-   docker compose -f docker-compose.yaml --profile=p2p up
+   docker-compose --profile=p2p up
    ```
 
 3. **Run the client**
