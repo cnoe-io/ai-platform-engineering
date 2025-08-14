@@ -156,3 +156,34 @@ agent-reflection:
 
 graphrag:
   enabled: false
+
+neo4j:
+  config:
+    server.directories.plugins: "/var/lib/neo4j/labs"
+    dbms.security.procedures.unrestricted: "apoc.*"
+    dbms.security.procedures.allowlist: "apoc.*"
+    server.config.strict_validation.enabled: "false"
+  apoc_config:
+    apoc.trigger.enabled: "true"
+    apoc.import.file.enabled: "true"
+  disableLookups: true
+  services:
+    neo4j:
+      enabled: true
+      ports:
+        http:
+          enabled: false
+        https:
+          enabled: false
+  neo4j:
+    name: ai-platform-engineering-graphrag-neo4j
+    password: "dummy_password"
+    resources:
+      cpu: "1"
+      memory: "2Gi"
+
+  volumes:
+    data:
+      mode: "dynamic"
+      dynamic:
+        storageClassName: gp2

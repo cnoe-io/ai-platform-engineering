@@ -10,58 +10,6 @@ global:
   secrets:
     secretName: llm-secret
 
-# Neo4j Database Configuration
-neo4j:
-  enabled: true
-  image:
-    repository: neo4j
-    tag: latest
-    pullPolicy: IfNotPresent
-
-  auth:
-    username: neo4j
-    password: dummy_password
-
-  plugins:
-    - apoc
-
-  config:
-    apoc:
-      export:
-        file:
-          enabled: true
-      import:
-        file:
-          enabled: true
-          use_neo4j_config: true
-
-  persistence:
-    enabled: true
-    data:
-      size: 10Gi
-      storageClass: "gp2"
-    logs:
-      size: 1Gi
-      storageClass: "gp2"
-    config:
-      size: 1Gi
-      storageClass: "gp2"
-    plugins:
-      size: 1Gi
-      storageClass: "gp2"
-
-  service:
-    type: ClusterIP
-    http:
-      port: 7474
-    bolt:
-      port: 7687
-
-  resources: {}
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
 # Redis Configuration
 redis:
   enabled: true

@@ -68,3 +68,7 @@ dependencies:
   - name: graphrag
     version: 0.1.0
     condition: graphrag.enabled
+  - name: neo4j
+    version: "2025.07.1"
+    repository: "https://helm.neo4j.com/neo4j"
+    condition: graphrag.enabled
