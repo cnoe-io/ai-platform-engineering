@@ -103,6 +103,7 @@ services:
     container_name: slim-dataplane
     profiles:
       - slim
+      - slim-tracing
     ports:
       - "46357:46357"
     environment:
@@ -116,6 +117,7 @@ services:
     container_name: slim-control-plane
     profiles:
       - slim
+      - slim-tracing
     ports:
       - "50051:50051"
       - "50052:50052"
@@ -300,6 +302,7 @@ services:
     container_name: agent-confluence-p2p
     profiles:
       - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
     ports:
@@ -675,7 +678,7 @@ services:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
     ports:
-      - "3000:3000"
+      - "13000:3000"
 
   ####################################################################################################
   #                                      LANGFUSE TRACING SERVICES                                   #
@@ -688,6 +691,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -733,6 +738,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -780,6 +787,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -804,6 +813,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
@@ -827,6 +838,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
     ports:
@@ -843,6 +856,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s

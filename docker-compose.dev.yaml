@@ -69,6 +69,7 @@ services:
     container_name: platform-engineering
     profiles:
       - p2p
+      - p2p-tracing
       - argocd
       - weather
     depends_on:
@@ -149,11 +150,11 @@ services:
       - slim
       - p2p
       - slim-tracing
+      - p2p-tracing
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/argocd/mcp:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/argocd/mcp/mcp_argocd:/app/mcp_argocd
     ports:
       - "18000:8000"
     environment:
@@ -178,8 +179,8 @@ services:
       - mcp-argocd
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/argocd:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/agent_argocd
+      - ./ai_platform_engineering/agents/argocd/clients:/app/clients
     ports:
       - "8001:8000"
     environment:
@@ -202,12 +203,13 @@ services:
     container_name: agent-argocd-p2p
     profiles:
       - p2p
+      - p2p-tracing
     depends_on:
       - mcp-argocd
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/argocd:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/agent_argocd
+      - ./ai_platform_engineering/agents/argocd/clients:/app/clients
     ports:
       - "8001:8000"
     environment:
@@ -233,8 +235,8 @@ services:
       - slim-tracing
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/backstage:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/agent_backstage
+      - ./ai_platform_engineering/agents/backstage/clients:/app/clients
     depends_on:
       - slim-dataplane
     ports:
@@ -259,10 +261,11 @@ services:
     container_name: agent-backstage-p2p
     profiles:
       - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/backstage:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/agent_backstage
+      - ./ai_platform_engineering/agents/backstage/clients:/app/clients
     ports:
       - "8002:8000"
     environment:
@@ -287,11 +290,11 @@ services:
       - slim
       - p2p
       - slim-tracing
+      - p2p-tracing
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/backstage/mcp:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/backstage/mcp/mcp_backstage:/app/mcp_backstage
     ports:
       - "18001:8000"
     environment:
@@ -314,8 +317,8 @@ services:
       - slim-dataplane
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/confluence:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/agent_confluence
+      - ./ai_platform_engineering/agents/confluence/clients:/app/clients
     ports:
       - "8003:8000"
     environment:
@@ -338,10 +341,11 @@ services:
     container_name: agent-confluence-p2p
     profiles:
       - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/confluence:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/agent_confluence
+      - ./ai_platform_engineering/agents/confluence/clients:/app/clients
     ports:
       - "8003:8000"
     environment:
@@ -366,11 +370,11 @@ services:
       - slim
       - p2p
       - slim-tracing
+      - p2p-tracing
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/confluence/mcp:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/confluence/mcp/mcp_confluence:/app/mcp_confluence
     ports:
       - "18002:8000"
     environment:
@@ -394,8 +398,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/github:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/github/agent_github:/app/agent_github
+      - ./ai_platform_engineering/agents/github/clients:/app/clients
     ports:
       - "8004:8000"
     environment:
@@ -418,18 +422,17 @@ services:
     container_name: agent-github-p2p
     profiles:
       - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/github:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/github/agent_github:/app/agent_github
+      - ./ai_platform_engineering/agents/github/clients:/app/clients
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8004:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=http
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-github
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -449,8 +452,8 @@ services:
       - slim-dataplane
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/jira:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/jira/agent_jira:/app/agent_jira
+      - ./ai_platform_engineering/agents/jira/clients:/app/clients
     ports:
       - "8005:8000"
     environment:
@@ -475,10 +478,11 @@ services:
     container_name: agent-jira-p2p
     profiles:
       - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/jira:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/jira/agent_jira:/app/agent_jira
+      - ./ai_platform_engineering/agents/jira/clients:/app/clients
     ports:
       - "8005:8000"
     environment:
@@ -503,12 +507,12 @@ services:
     profiles:
       - slim
       - p2p
+      - p2p-tracing
       - slim-tracing
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/jira/mcp:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/mcp_jira
     ports:
       - "18003:8000"
     environment:
@@ -532,8 +536,8 @@ services:
       - slim-dataplane
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/komodor:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/agent_komodor
+      - ./ai_platform_engineering/agents/komodor/clients:/app/clients
     ports:
       - "8006:8000"
     environment:
@@ -556,10 +560,11 @@ services:
     container_name: agent-komodor-p2p
     profiles:
       - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/komodor:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/agent_komodor
+      - ./ai_platform_engineering/agents/komodor/clients:/app/clients
     ports:
       - "8006:8000"
     environment:
@@ -584,11 +589,11 @@ services:
       - slim
       - p2p
       - slim-tracing
+      - p2p-tracing
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/komodor/mcp:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/komodor/mcp/mcp_komodor:/app/mcp_komodor
     ports:
       - "18004:8000"
     environment:
@@ -611,8 +616,8 @@ services:
       - slim-dataplane
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/pagerduty:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/agent_pagerduty
+      - ./ai_platform_engineering/agents/pagerduty/clients:/app/clients
     ports:
       - "8007:8000"
     environment:
@@ -635,10 +640,11 @@ services:
     container_name: agent-pagerduty-p2p
     profiles:
       - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/pagerduty:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/agent_pagerduty
+      - ./ai_platform_engineering/agents/pagerduty/clients:/app/clients
     ports:
       - "8007:8000"
     environment:
@@ -663,11 +669,11 @@ services:
       - slim
       - p2p
       - slim-tracing
+      - p2p-tracing
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/pagerduty/mcp:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/pagerduty/mcp/mcp_pagerduty:/app/mcp_pagerduty
     ports:
       - "18005:8000"
     environment:
@@ -690,8 +696,8 @@ services:
       - slim-dataplane
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/slack:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/slack/agent_slack:/app/agent_slack
+      - ./ai_platform_engineering/agents/slack/clients:/app/clients
     ports:
       - "8008:8000"
     environment:
@@ -716,10 +722,11 @@ services:
     container_name: agent-slack-p2p
     profiles:
       - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/slack:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/slack/agent_slack:/app/agent_slack
+      - ./ai_platform_engineering/agents/slack/clients:/app/clients
     ports:
       - "8008:8000"
     environment:
@@ -744,11 +751,11 @@ services:
       - slim
       - p2p
       - slim-tracing
+      - p2p-tracing
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/slack/mcp:/app
-      - /app/.venv
+      - ./ai_platform_engineering/agents/slack/mcp/mcp_slack:/app/mcp_slack
     ports:
       - "18006:8000"
     environment:
@@ -769,7 +776,6 @@ services:
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/webex:/app
-      - /app/.venv
     ports:
       - "8009:8000"
     environment:
@@ -821,7 +827,6 @@ services:
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/weather:/app
-      - /app/.venv
     ports:
       - "8100:8000"
 
@@ -835,6 +840,7 @@ services:
       - p2p
       - slim
       - slim-tracing
+      - p2p-tracing
     ports:
       - "13000:3000"
 
@@ -961,6 +967,7 @@ services:
     restart: always
     profiles:
       - slim-tracing
+      - p2p-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -1004,6 +1011,7 @@ services:
     restart: always
     profiles:
       - slim-tracing
+      - p2p-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -1049,6 +1057,7 @@ services:
     restart: always
     profiles:
       - slim-tracing
+      - p2p-tracing
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -1073,6 +1082,7 @@ services:
     restart: always
     profiles:
       - slim-tracing
+      - p2p-tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
@@ -1096,6 +1106,7 @@ services:
     restart: always
     profiles:
       - slim-tracing
+      - p2p-tracing
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
     ports:
@@ -1112,7 +1123,7 @@ services:
     restart: always
     profiles:
       - slim-tracing
-
+      - p2p-tracing
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s
