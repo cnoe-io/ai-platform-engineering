@@ -80,34 +80,34 @@ Determine if ingress is enabled - global takes precedence
 Determine if external secrets are enabled - global takes precedence
 */}}
 {{- define "agent.externalSecrets.enabled" -}}
-{{- if hasKey .Values.global "externalSecrets" }}
-{{- if hasKey .Values.global.externalSecrets "enabled" }}
-{{- .Values.global.externalSecrets.enabled }}
-{{- else }}
-{{- .Values.externalSecrets.enabled | default false }}
-{{- end }}
-{{- else }}
-{{- .Values.externalSecrets.enabled | default false }}
-{{- end }}
+    {{- if hasKey .Values.global "externalSecrets" }}
+        {{- if hasKey .Values.global.externalSecrets "enabled" }}
+            {{- .Values.global.externalSecrets.enabled }}
+        {{- else }}
+            {{- .Values.externalSecrets.enabled | default false }}
+        {{- end }}
+    {{- else }}
+        {{- .Values.externalSecrets.enabled | default false }}
+    {{- end }}
 {{- end }}
 
 {{/*
 Determine external secret names - global takes precedence
 */}}
 {{- define "agent.externalSecrets.secretNames" -}}
-{{- if eq (include "agent.externalSecrets.enabled" .) "true" -}}
-  {{- if .Values.externalSecrets.secretNames -}}
-    {{- .Values.externalSecrets.secretNames | join "," -}}
-  {{- else -}}
-    {{- if .Values.isMultiAgent -}}
-      {{- printf "llm-secret" -}}
-    {{- else if .Values.isBackstagePlugin -}}
-      {{- "" -}}
-    {{- else -}}
-      {{- printf "llm-secret,%s-secret" (include "agent.name" .) -}}
+    {{- if eq (include "agent.externalSecrets.enabled" .) "true" -}}
+        {{- if .Values.externalSecrets.secretNames -}}
+            {{- .Values.externalSecrets.secretNames | join "," -}}
+        {{- else -}}
+            {{- if .Values.isMultiAgent -}}
+                {{- printf "llm-secret" -}}
+            {{- else if .Values.isBackstagePlugin -}}
+                {{- "" -}}
+            {{- else -}}
+                {{- printf "llm-secret,%s-secret" (include "agent.name" .) -}}
+            {{- end -}}
+        {{- end -}}
     {{- end -}}
-  {{- end -}}
-{{- end -}}
 {{- end -}}
 
 {{/*
@@ -115,7 +115,6 @@ Generate multi-agent environment variables
 */}}
 {{- define "agent.multiAgentEnvVars" -}}
 {{- if and .Values.isMultiAgent .Values.multiAgentConfig -}}
-{{- $releasePrefix := include "agent.fullname" . -}}
 {{- $port := .Values.multiAgentConfig.port | default "8000" -}}
 {{- $protocol := .Values.multiAgentConfig.protocol | default "a2a" -}}
 - name: AGENT_PROTOCOL
@@ -124,9 +123,24 @@ Generate multi-agent environment variables
 {{- $agentName := . -}}
 {{- $envPrefix := upper (replace "-" "_" $agentName) }}
 - name: {{ $envPrefix }}_AGENT_HOST
-  value: {{ printf "%s-agent-%s" $releasePrefix $agentName | quote }}
+  value: {{ printf "%s-agent-%s" $.Release.Name $agentName | quote }}
 - name: {{ $envPrefix }}_AGENT_PORT
   value: {{ $port | quote }}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+Determine MCP mode
+*/}}
+{{- define "agent.createMcpHttpServer" -}}
+    {{- if and (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) }}
+        {{- if and (eq .Values.mcp.mode "http") (not .Values.mcp.useRemoteMcpServer) }}
+            {{- true -}}
+        {{- else -}}
+            {{- false -}}
+        {{- end -}}
+    {{- else -}}
+        {{- false -}}
+    {{- end -}}
 {{- end -}}
