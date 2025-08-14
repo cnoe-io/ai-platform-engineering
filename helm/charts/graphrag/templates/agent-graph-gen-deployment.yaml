@@ -35,6 +35,9 @@ spec:
         - name: agent-graph-gen
           image: "{{ .Values.agentGraphGen.image.repository }}:{{ .Values.agentGraphGen.image.tag }}"
           imagePullPolicy: {{ .Values.agentGraphGen.image.pullPolicy }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.agentGraphGen.secrets.secretName }}
           env:
             - name: LOG_LEVEL
               value: "{{ .Values.agentGraphGen.env.logLevel }}"

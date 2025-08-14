@@ -39,6 +39,9 @@ spec:
             - name: http
               containerPort: {{ .Values.agentGraphQa.service.port }}
               protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ .Values.global.secrets.secretName }}
           env:
             - name: LOG_LEVEL
               value: "{{ .Values.agentGraphQa.env.logLevel }}"
