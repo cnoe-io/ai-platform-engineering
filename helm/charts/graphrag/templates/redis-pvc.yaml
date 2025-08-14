@@ -15,7 +15,7 @@ spec:
   {{- if .Values.redis.persistence.storageClass }}
   {{- if (eq "-" .Values.redis.persistence.storageClass) }}
   storageClassName: ""
-  {{- else }}
+  {{- else if ne .Values.redis.persistence.storageClass "" }}
   storageClassName: "{{ .Values.redis.persistence.storageClass }}"
   {{- end }}
   {{- end }}
