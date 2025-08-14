@@ -29,7 +29,7 @@ dependencies:
     alias: agent-backstage
     condition: agent-backstage.enabled
   - name: agent
-    version: 0.1.8
+    version: 0.1.9
     alias: agent-confluence
     condition: agent-confluence.enabled
   - name: agent
