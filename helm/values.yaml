@@ -158,6 +158,7 @@ graphrag:
   enabled: false
 
 neo4j:
+  fullnameOverride: "ai-platform-engineering-graphrag-neo4j"
   config:
     server.directories.plugins: "/var/lib/neo4j/labs"
     dbms.security.procedures.unrestricted: "apoc.*"
