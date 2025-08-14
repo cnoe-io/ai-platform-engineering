@@ -6,12 +6,6 @@ resolution-markers = [
     "platform_python_implementation == 'PyPy'",
 ]
 
-[manifest]
-members = [
-    "agent-argocd",
-    "mcp-argocd",
-]
-
 [[package]]
 name = "a2a-sdk"
 version = "0.2.16"
@@ -67,7 +61,7 @@ requires-dist = [
     { name = "langchain-core", specifier = ">=0.3.60" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
     { name = "langgraph", specifier = "==0.5.3" },
-    { name = "mcp-argocd", editable = "mcp" },
+    { name = "mcp-argocd", directory = "mcp" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
@@ -1833,7 +1827,7 @@ cli = [
 [[package]]
 name = "mcp-argocd"
 version = "0.1.0"
-source = { editable = "mcp" }
+source = { directory = "mcp" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },

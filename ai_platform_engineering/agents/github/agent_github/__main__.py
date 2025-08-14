@@ -1,6 +1,24 @@
 # Copyright 2025 Cisco
 # SPDX-License-Identifier: Apache-2.0
 
+# =====================================================
+# CRITICAL: Load environment variables FIRST
+# =====================================================
+from dotenv import load_dotenv
+load_dotenv()
+
+# =====================================================
+# CRITICAL: Disable a2a tracing BEFORE any a2a imports
+# =====================================================
+from cnoe_agent_utils.tracing import disable_a2a_tracing
+
+# Disable A2A framework tracing to prevent interference with custom tracing
+disable_a2a_tracing()
+
+# =====================================================
+# Now safe to import a2a modules
+# =====================================================
+
 import click
 import httpx
 import uvicorn
