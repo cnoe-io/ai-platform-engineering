@@ -45,9 +45,11 @@ spec:
           env:
             - name: LOG_LEVEL
               value: "{{ .Values.agentGraphQa.env.logLevel }}"
-            - name: NEO4J_URL
-              value: "bolt://{{ include "graphrag.fullname" . }}-neo4j:{{ .Values.neo4j.service.bolt.port }}"
-            - name: NEO4J_USER
+            - name: REDIS_HOST
+              value: "{{ include "graphrag.fullname" . }}-redis"
+            - name: NEO4J_ADDR
+              value: "neo4j://{{ include "graphrag.fullname" . }}-neo4j:{{ .Values.neo4j.service.bolt.port }}"
+            - name: NEO4J_USERNAME
               value: "{{ .Values.neo4j.auth.username }}"
             - name: NEO4J_PASSWORD
               value: "{{ .Values.neo4j.auth.password }}"
