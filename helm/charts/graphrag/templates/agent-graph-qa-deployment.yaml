@@ -48,7 +48,7 @@ spec:
             - name: REDIS_HOST
               value: "{{ include "graphrag.fullname" . }}-redis"
             - name: NEO4J_ADDR
-              value: "neo4j://{{ include "graphrag.fullname" . }}-neo4j:{{ .Values.neo4j.service.bolt.port }}"
+              value: "neo4j://{{ include "graphrag.neo4j.fullname" . }}:{{ .Values.neo4j.service.port }}"
             - name: NEO4J_USERNAME
               value: "{{ .Values.neo4j.auth.username }}"
             - name: NEO4J_PASSWORD

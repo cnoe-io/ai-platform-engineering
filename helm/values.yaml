@@ -156,9 +156,11 @@ agent-reflection:
 
 graphrag:
   enabled: false
+  neo4jNameOverride: "graphrag-neo4j" # This needs to match the value in neo4j.fullnameOverride
 
+# neo4j is used by graphrag to store the graph data. If graphrag.enabled is false, neo4j is not deployed.
 neo4j:
-  fullnameOverride: "ai-platform-engineering-graphrag-neo4j"
+  fullnameOverride: "graphrag-neo4j"
   config:
     server.directories.plugins: "/var/lib/neo4j/labs"
     dbms.security.procedures.unrestricted: "apoc.*"
@@ -172,8 +174,8 @@ neo4j:
     neo4j:
       enabled: false
   neo4j:
-    name: ai-platform-engineering-graphrag-neo4j
-    password: "dummy_password"
+    name: graphrag-neo4j
+    password: "dummy_password" # This dummy password needs to match the value in graphrag.neo4j.auth.password
     resources:
       cpu: "1"
       memory: "2Gi"

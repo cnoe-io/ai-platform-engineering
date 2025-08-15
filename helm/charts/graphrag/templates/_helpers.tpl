@@ -11,16 +11,27 @@ We truncate at 63 chars because some Kubernetes name fields are limited to this 
 If release name contains chart name it will be used as a full name.
 */}}
 {{- define "graphrag.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+    {{- if .Values.fullnameOverride }}
+        {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+    {{- else }}
+        {{- $name := default .Chart.Name .Values.nameOverride }}
+        {{- if contains $name .Release.Name }}
+            {{- .Release.Name | trunc 63 | trimSuffix "-" }}
+        {{- else }}
+            {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+        {{- end }}
+    {{- end }}
 {{- end }}
-{{- end }}
+
+{{/*
+Create a fully qualified neo4j name that is used to connect to the neo4j database.
+*/}}
+{{- define "graphrag.neo4j.fullname" -}}
+    {{- if .Values.neo4jNameOverride }}
+        {{- .Values.neo4jNameOverride | trunc 63 | trimSuffix "-" }}
+    {{- else }}
+        {{- printf "%s-%s" .Release.Name "neo4j" | trunc 63 | trimSuffix "-" }}
+    {{- end }}
 {{- end }}
 
 {{/*
@@ -54,9 +65,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "graphrag.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "graphrag.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
+    {{- if .Values.serviceAccount.create }}
+        {{- default (include "graphrag.fullname" .) .Values.serviceAccount.name }}
+    {{- else }}
+        {{- default "default" .Values.serviceAccount.name }}
+    {{- end }}
 {{- end }}
