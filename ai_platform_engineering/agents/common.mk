@@ -19,6 +19,7 @@ endif
 
 # Default derived variables
 AGENT_DIR_NAME ?= agent-$(AGENT_NAME)
+MCP_AGENT_DIR_NAME ?= mcp-$(AGENT_NAME)
 AGENT_PKG_NAME ?= agent_$(AGENT_NAME)
 MCP_SERVER_DIR ?= mcp_$(AGENT_NAME)
 
@@ -149,16 +150,16 @@ evals: setup-venv ## Run agentevals with test cases
 	@$(venv-run) uv add agentevals tabulate pytest
 	@$(venv-run) uv run evals/strict_match/test_strict_match.py
 
-## ========== Docker ==========
+## ========== Docker A2A ==========
 
 build-docker-a2a:            ## Build A2A Docker image
-	docker build -t $(AGENT_DIR_NAME):a2a-latest -f build/Dockerfile.a2a .
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(AGENT_DIR_NAME):latest -f build/Dockerfile.a2a .
 
 build-docker-a2a-tag:        ## Tag A2A Docker image
-	docker tag $(AGENT_DIR_NAME):a2a-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest
+	docker tag $(AGENT_DIR_NAME):latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):latest
 
 build-docker-a2a-push:       ## Push A2A Docker image
-	docker push ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest
+	docker push ghcr.io/cnoe-io/$(AGENT_DIR_NAME):latest
 
 build-docker-a2a-tag-and-push: ## Tag and push A2A Docker image
 	@$(MAKE) build-docker-a2a build-docker-a2a-tag build-docker-a2a-push
@@ -166,7 +167,7 @@ build-docker-a2a-tag-and-push: ## Tag and push A2A Docker image
 run-docker-a2a: ## Run the A2A agent in Docker
 	@$(MAKE) check-env
 	LOCAL_AGENT_PORT=$${AGENT_PORT:-8000}; \
-	LOCAL_AGENT_IMAGE=$${A2A_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest}; \
+	LOCAL_AGENT_IMAGE=$${A2A_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):latest}; \
 	echo "========================================================================"; \
 	echo "==                     A2A AGENT DOCKER RUN                           =="; \
 	echo "========================================================================"; \
@@ -181,8 +182,41 @@ run-docker-a2a: ## Run the A2A agent in Docker
 		$$LOCAL_AGENT_IMAGE
 
 run-local-docker-a2a: build-docker-a2a
-	@A2A_AGENT_IMAGE="$(AGENT_DIR_NAME):a2a-latest" $(MAKE) run-docker-a2a
+	@A2A_AGENT_IMAGE="$(AGENT_DIR_NAME):latest" $(MAKE) run-docker-a2a
 
+## ========== Docker MCP ==========
+
+build-docker-mcp:            ## Build MCP Docker image
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(MCP_AGENT_DIR_NAME):latest -f build/Dockerfile.mcp .
+
+build-docker-mcp-tag:        ## Tag MCP Docker image
+	docker tag $(MCP_AGENT_DIR_NAME):latest ghcr.io/cnoe-io/$(MCP_AGENT_DIR_NAME):latest
+
+build-docker-mcp-push:       ## Push MCP Docker image
+	docker push ghcr.io/cnoe-io/$(MCP_AGENT_DIR_NAME):latest
+
+build-docker-mcp-tag-and-push: ## Tag and push MCP Docker image
+	@$(MAKE) build-docker-mcp build-docker-mcp-tag build-docker-mcp-push
+
+run-docker-mcp: ## Run the MCP agent in Docker
+	@$(MAKE) check-env
+	LOCAL_AGENT_PORT=$${AGENT_PORT:-8000}; \
+	LOCAL_AGENT_IMAGE=$${MCP_AGENT_IMAGE:-ghcr.io/cnoe-io/$(MCP_AGENT_DIR_NAME):latest}; \
+	echo "========================================================================"; \
+	echo "==                     MCP AGENT DOCKER RUN                           =="; \
+	echo "========================================================================"; \
+	echo "Using Agent Image : $$LOCAL_AGENT_IMAGE"; \
+	echo "Using Agent Port  : localhost:$$LOCAL_AGENT_PORT"; \
+	echo "========================================================================"; \
+	echo "==               Do not use uvicorn port in the logs                  =="; \
+	echo "========================================================================"; \
+	docker run -p $$LOCAL_AGENT_PORT:8000 -it \
+		-v $(PWD)/.env:/app/.env \
+		--env-file .env \
+		$$LOCAL_AGENT_IMAGE
+
+run-local-docker-mcp: build-docker-mcp
+	@MCP_AGENT_IMAGE="$(MCP_AGENT_DIR_NAME):latest" $(MAKE) run-docker-mcp
 
 ## ========== Tests ==========
 
