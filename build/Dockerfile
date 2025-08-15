@@ -1,9 +1,13 @@
 FROM python:3.13-slim
 
 # Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
 WORKDIR /app
+
+# Set environment variables including PATH
+ENV UV_PROJECT_ENVIRONMENT=/home/appuser/.venv \
+    PATH="/home/appuser/.venv/bin:${PATH}"
 
 # Copy minimal platform-engineer project metadata first to leverage caching
 COPY --chown=appuser:appuser ai_platform_engineering/multi_agents/pyproject.toml /app/pyproject.toml
@@ -21,7 +25,7 @@ COPY --chown=appuser:appuser ./ai_platform_engineering /app/ai_platform_engineer
 # Change ownership of /app directory
 RUN chown appuser:appuser /app
 
-# Switch to non-root user before installing dependencies
+# Switch to non-root user
 USER appuser
 
 # Install minimal dependencies (without dev packages) with cache mount
