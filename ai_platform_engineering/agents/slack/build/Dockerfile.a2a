@@ -1,11 +1,15 @@
 FROM python:3.13-slim
 
 # Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
 WORKDIR /app
 
 COPY --chown=appuser:appuser . /app/
+
+# Set environment variables including PATH
+ENV UV_PROJECT_ENVIRONMENT=/home/appuser/.venv \
+    PATH="/home/appuser/.venv/bin:${PATH}"
 
 # Install uv and use it to install the package
 RUN pip install uv
@@ -14,10 +18,11 @@ RUN pip install uv
 RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
 
 RUN --mount=type=cache,target=/home/appuser/.cache/uv \
+    uv add /app/mcp
+
+RUN --mount=type=cache,target=/home/appuser/.cache/uv \
     uv sync --locked --no-dev
 
-# Change ownership of the entire app directory
-RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
 USER appuser

@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python:3.13-slim-bookworm
 
 # Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
