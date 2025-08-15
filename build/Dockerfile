@@ -1,37 +1,47 @@
+# ---------- Stage 1: Build dependencies ----------
+FROM python:3.13-slim AS builder
+
+# Install system dependencies and uv in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    git \
+    && pip install uv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the entire project structure first since uv sync needs it to build
+COPY --chown=root:root . /app/
+
+# Install dependencies into venv (no dev deps)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev
+
+# ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
 
-# Create non-root user
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
 WORKDIR /app
 
-# Set environment variables including PATH
-ENV UV_PROJECT_ENVIRONMENT=/home/appuser/.venv \
-    PATH="/home/appuser/.venv/bin:${PATH}"
+# Set env vars for uv & PATH
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-# Copy minimal platform-engineer project metadata first to leverage caching
-COPY --chown=appuser:appuser ai_platform_engineering/multi_agents/pyproject.toml /app/pyproject.toml
-COPY --chown=appuser:appuser ai_platform_engineering/multi_agents/uv.lock /app/uv.lock
+# Copy venv & code from builder
+COPY --from=builder --chown=appuser:appuser /app /app
 
-# Install Git and uv
-RUN apt-get update && apt-get install -y git && pip install uv && rm -rf /var/lib/apt/lists/*
-
-# Create UV cache directory for appuser and set permissions
-RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
-
-# Copy source code (filtered by .dockerignore)
-COPY --chown=appuser:appuser ./ai_platform_engineering /app/ai_platform_engineering
-
-# Change ownership of /app directory
-RUN chown appuser:appuser /app
-
-# Switch to non-root user
 USER appuser
-
-# Install minimal dependencies (without dev packages) with cache mount
-RUN --mount=type=cache,target=/home/appuser/.cache/uv,uid=1001,gid=1001 \
-    uv sync --no-dev
 
 EXPOSE 8000
 
-ENTRYPOINT [ "uv", "run", "python", "-m", "ai_platform_engineering.multi_agents" ]
+ENTRYPOINT [ "python", "-m", "ai_platform_engineering.multi_agents" ]
