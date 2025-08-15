@@ -137,7 +137,8 @@ spec:
           volumeMounts:
             {{- if .Values.isMultiAgent }}
             - name: prompt-config
-              mountPath: /etc/prompt-config
+              mountPath: /app/prompt_config.yaml
+              subPath: prompt_config.yaml
               readOnly: true
             {{- end }}
             {{- with .Values.volumeMounts }}
