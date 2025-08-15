@@ -1,7 +1,7 @@
 FROM python:3.13-slim
 
 # Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
 WORKDIR /app
 
@@ -17,9 +17,6 @@ RUN poetry config cache-dir /app/.cache
 RUN poetry build
 
 RUN poetry install --no-interaction --no-root
-
-# Change ownership of the entire app directory
-RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
 USER appuser
