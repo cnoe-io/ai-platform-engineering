@@ -14,7 +14,6 @@ dependencies = [
   "pydantic>=2.0.0",
   "mcp>=1.12.3",
   "fastmcp>=2.11.1",
-  "dotenv>=0.9.9",
 ]
 
 [tool.poetry.scripts]
