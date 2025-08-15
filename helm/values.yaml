@@ -103,9 +103,6 @@ agent-github:
     pullPolicy: "Always"
   mcp:
     useRemoteMcpServer: true
-  
-    mode: "http" # Options: stdio, http
-    port: 8000
 
 agent-jira:
   enabled: false
@@ -156,3 +153,35 @@ agent-reflection:
   image:
     repository: "ghcr.io/cnoe-io/agent-reflection"
     pullPolicy: "Always"
+
+graphrag:
+  enabled: false
+  neo4jNameOverride: "graphrag-neo4j" # This needs to match the value in neo4j.fullnameOverride
+
+# neo4j is used by graphrag to store the graph data. If graphrag.enabled is false, neo4j is not deployed.
+neo4j:
+  fullnameOverride: "graphrag-neo4j"
+  config:
+    server.directories.plugins: "/var/lib/neo4j/labs"
+    dbms.security.procedures.unrestricted: "apoc.*"
+    dbms.security.procedures.allowlist: "apoc.*"
+    server.config.strict_validation.enabled: "false"
+  apoc_config:
+    apoc.trigger.enabled: "true"
+    apoc.import.file.enabled: "true"
+  disableLookups: true
+  services:
+    neo4j:
+      enabled: false
+  neo4j:
+    name: graphrag-neo4j
+    password: "dummy_password" # This dummy password needs to match the value in graphrag.neo4j.auth.password
+    resources:
+      cpu: "1"
+      memory: "2Gi"
+
+  volumes:
+    data:
+      mode: "dynamic"
+      dynamic:
+        storageClassName: gp2
