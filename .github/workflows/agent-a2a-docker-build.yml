@@ -25,10 +25,11 @@ jobs:
         agent: [argocd, backstage, confluence, github, jira, komodor, pagerduty, slack, template, webex]
       fail-fast: false
 
+
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: format('cnoe-io/agent-{0}', matrix.agent)
-      AGENT_DIR: format('ai_platform_engineering/agents/{0}', matrix.agent)
+      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
+      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
       - name: 🔒 harden runner
