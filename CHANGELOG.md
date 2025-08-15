@@ -1,3 +1,17 @@
+## Unreleased
+
+### Feat
+
+- fix Langfuse trace ID propagation in multi-agent system (#195)
+- **helm**: add useRemoteMcpServer to use remote MCP server (#193)
+- add mcp http support to helm chart (#190)
+
+### Fix
+
+- Dockerfile improvements and add .dockerignore (#197)
+- fix missing sub helm chart bump
+- mcp dockerfile to give .venv permissions (#192)
+
 ## 0.1.4 (2025-08-12)
 
 ### Fix
