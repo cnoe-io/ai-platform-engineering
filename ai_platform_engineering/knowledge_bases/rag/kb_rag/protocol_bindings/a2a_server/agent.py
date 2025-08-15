@@ -61,10 +61,8 @@ class RAGAgent:
             connections.connect(alias="default", **self.milvus_conn)
             
             # Get collection name from environment (must be set)
-            vectorstore_name = os.getenv('VECTORSTORE_NAME')
-            if not vectorstore_name:
-                raise ValueError("VECTORSTORE_NAME environment variable is not set. Please provide the name of the Milvus collection to use.")
-            self.collection_name = vectorstore_name
+            self.collection_name = os.environ.get('VSTORE_COLLECTION', 'default')
+            logger.info(f"Using collection '{self.collection_name}'")
             
             # Check if collection exists
             if not utility.has_collection(self.collection_name, using="default"):
