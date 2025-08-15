@@ -5,6 +5,10 @@ RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
 WORKDIR /app
 
+# Set environment variables including PATH
+ENV UV_PROJECT_ENVIRONMENT=/home/appuser/.venv \
+    PATH="/home/appuser/.venv/bin:${PATH}"
+
 # Copy minimal platform-engineer project metadata first to leverage caching
 COPY --chown=appuser:appuser ai_platform_engineering/multi_agents/pyproject.toml /app/pyproject.toml
 COPY --chown=appuser:appuser ai_platform_engineering/multi_agents/uv.lock /app/uv.lock
