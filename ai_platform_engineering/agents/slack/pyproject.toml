@@ -30,7 +30,7 @@ dependencies = [
     "cnoe-agent-utils==0.2.2",
     "fastmcp>=2.11.2",
     "mcp-slack",
-    "dotenv>=0.9.9",
+    "python-dotenv>=1.1.0",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]

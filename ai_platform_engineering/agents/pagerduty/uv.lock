@@ -2005,7 +2005,6 @@ name = "mcp-pagerduty"
 version = "0.1.0"
 source = { directory = "mcp" }
 dependencies = [
-    { name = "dotenv" },
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "mcp" },
@@ -2016,7 +2015,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
-    { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastmcp", specifier = ">=2.11.1" },
     { name = "httpx", specifier = ">=0.24.0" },
     { name = "isort", marker = "extra == 'dev'" },
