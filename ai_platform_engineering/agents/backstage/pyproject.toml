@@ -39,6 +39,7 @@ dependencies = [
     "fastmcp>=2.11.1",
     "mcp>=1.12.3",
     "mcp-backstage",
+    "dotenv>=0.9.9",
 ]
 
 [tool.hatch.build.targets.wheel]

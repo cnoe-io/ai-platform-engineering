@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.13, <4.0"
 resolution-markers = [
     "platform_python_implementation != 'PyPy'",
@@ -35,6 +35,7 @@ dependencies = [
     { name = "agntcy-app-sdk" },
     { name = "click" },
     { name = "cnoe-agent-utils" },
+    { name = "dotenv" },
     { name = "fastmcp" },
     { name = "langchain-anthropic" },
     { name = "langchain-core" },
@@ -57,6 +58,7 @@ requires-dist = [
     { name = "agntcy-app-sdk", specifier = "==0.1.4" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "cnoe-agent-utils", specifier = "==0.2.2" },
+    { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastmcp", specifier = ">=2.11.2" },
     { name = "langchain-anthropic", specifier = ">=0.3.13" },
     { name = "langchain-core", specifier = ">=0.3.60" },
