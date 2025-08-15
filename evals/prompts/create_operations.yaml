@@ -1,0 +1,165 @@
+prompts:
+  # CREATE OPERATIONS - Operations that create new resources
+
+  # GitHub Create Operations
+  - id: "github_create_repo"
+    messages:
+      - role: "user"
+        content: "create a new GitHub repository named 'my-repo'"
+    expected_keywords: ["github", "repository", "create", "my-repo"]
+    category: "github"
+    operation: "create"
+
+  # ArgoCD Create Operations
+  - id: "argocd_create_app"
+    messages:
+      - role: "user"
+        content: "create a new ArgoCD application named 'my-app'"
+    expected_keywords: ["argocd", "application", "create", "my-app"]
+    category: "argocd"
+    operation: "create"
+
+  # Backstage Create Operations
+  - id: "backstage_add_api_entity"
+    messages:
+      - role: "user"
+        content: "add a new API entity to the Backstage catalog"
+    expected_keywords: ["backstage", "add", "API", "entity", "catalog"]
+    category: "backstage"
+    operation: "create"
+
+  # Confluence Create Operations
+  - id: "confluence_create_page"
+    messages:
+      - role: "user"
+        content: "create a new Confluence page in the 'AI Project' space"
+    expected_keywords: ["confluence", "create", "page", "AI Project", "space"]
+    category: "confluence"
+    operation: "create"
+
+  # Jira Create Operations
+  - id: "jira_create_issue"
+    messages:
+      - role: "user"
+        content: "create a new Jira issue in the 'AI Project' project"
+    expected_keywords: ["jira", "create", "issue", "AI Project", "project"]
+    category: "jira"
+    operation: "create"
+
+  # PagerDuty Create Operations
+  - id: "pagerduty_create_incident"
+    messages:
+      - role: "user"
+        content: "create a new PagerDuty incident with title 'Server Down'"
+    expected_keywords: ["pagerduty", "create", "incident", "Server Down"]
+    category: "pagerduty"
+    operation: "create"
+
+  # Slack Create Operations
+  - id: "slack_send_message"
+    messages:
+      - role: "user"
+        content: "send a message to the 'devops' Slack channel"
+    expected_keywords: ["slack", "send", "message", "devops", "channel"]
+    category: "slack"
+    operation: "create"
+
+  - id: "slack_create_channel"
+    messages:
+      - role: "user"
+        content: "create a new Slack channel named 'project-updates'"
+    expected_keywords: ["slack", "create", "channel", "project-updates"]
+    category: "slack"
+    operation: "create"
+
+  - id: "slack_post_notification"
+    messages:
+      - role: "user"
+        content: "post a notification to the 'alerts' Slack channel"
+    expected_keywords: ["slack", "post", "notification", "alerts", "channel"]
+    category: "slack"
+    operation: "create"
+
+  # Komodor Create Operations
+  - id: "komodor_trigger_rca"
+    messages:
+      - role: "user"
+        content: "Trigger a RCA for service httpbin in namespace sandbox-adrozdov on cluster jarvis-sandbox"
+    expected_keywords: ["komodor", "RCA", "trigger", "service", "httpbin", "namespace", "sandbox-adrozdov", "cluster", "jarvis-sandbox"]
+    category: "komodor"
+    operation: "create"
+
+  # Multi-Service Integration Create Operations
+  - id: "cross_service_deployment"
+    messages:
+      - role: "user"
+        content: "Create a new GitHub repository, set up ArgoCD application, and deploy to production"
+    expected_keywords: ["github", "repository", "argocd", "application", "deploy", "production"]
+    category: "integration"
+    operation: "create"
+
+  - id: "incident_response_workflow"
+    messages:
+      - role: "user"
+        content: "Create a PagerDuty incident for server downtime, notify Slack, and create a Jira ticket for tracking"
+    expected_keywords: ["pagerduty", "incident", "server", "downtime", "slack", "notify", "jira", "ticket", "tracking"]
+    category: "integration"
+    operation: "create"
+
+  - id: "documentation_workflow"
+    messages:
+      - role: "user"
+        content: "Create a Confluence page documenting the deployment process and link it to the Backstage service catalog"
+    expected_keywords: ["confluence", "page", "documentation", "deployment", "process", "backstage", "service", "catalog", "link"]
+    category: "integration"
+    operation: "create"
+
+  - id: "monitoring_workflow"
+    messages:
+      - role: "user"
+        content: "Check Komodor for service health, create PagerDuty incident if needed, and notify the team via Slack"
+    expected_keywords: ["komodor", "service", "health", "pagerduty", "incident", "slack", "notify", "team"]
+    category: "integration"
+    operation: "create"
+
+  - id: "release_management_workflow"
+    messages:
+      - role: "user"
+        content: "Create GitHub release, update ArgoCD application, and post release notes to Confluence"
+    expected_keywords: ["github", "release", "argocd", "application", "update", "confluence", "notes"]
+    category: "integration"
+    operation: "create"
+
+  # Advanced Workflow Create Operations
+  - id: "cicd_pipeline_workflow"
+    messages:
+      - role: "user"
+        content: "Set up a complete CI/CD pipeline: create GitHub repo, configure ArgoCD, set up monitoring in Komodor, and create documentation in Confluence"
+    expected_keywords: ["cicd", "pipeline", "github", "argocd", "komodor", "monitoring", "confluence", "documentation"]
+    category: "advanced_workflow"
+    operation: "create"
+
+  - id: "disaster_recovery_workflow"
+    messages:
+      - role: "user"
+        content: "Create a disaster recovery plan: document in Confluence, create Jira epic, set up PagerDuty escalation policies, and notify stakeholders via Slack"
+    expected_keywords: ["disaster recovery", "plan", "confluence", "jira", "epic", "pagerduty", "escalation", "slack", "notify"]
+    category: "advanced_workflow"
+    operation: "create"
+
+  - id: "security_audit_workflow"
+    messages:
+      - role: "user"
+        content: "Perform security audit: check GitHub for secrets, review ArgoCD permissions, audit Backstage access, and create security report in Confluence"
+    expected_keywords: ["security", "audit", "github", "secrets", "argocd", "permissions", "backstage", "access", "confluence", "report"]
+    category: "advanced_workflow"
+    operation: "create"
+
+  # Performance Create Operations
+  - id: "bulk_operations"
+    messages:
+      - role: "user"
+        content: "Create 50 new services in Backstage and update their metadata"
+    expected_keywords: ["bulk", "operations", "services", "backstage", "metadata", "batch", "efficient"]
+    category: "performance"
+    operation: "create"
