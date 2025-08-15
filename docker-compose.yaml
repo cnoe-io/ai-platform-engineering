@@ -36,15 +36,6 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - SLACK_AGENT_HOST=agent-slack-p2p
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
-      - AGENT_PROTOCOL=a2a
-      - ARGOCD_AGENT_HOST=agent-argocd
-      - BACKSTAGE_AGENT_HOST=agent-backstage
-      - CONFLUENCE_AGENT_HOST=agent-confluence
-      - JIRA_AGENT_HOST=agent-jira
-      - GITHUB_AGENT_HOST=agent-github
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - SLACK_AGENT_HOST=agent-slack
-      - KOMODOR_AGENT_HOST=agent-komodor
       - KB_RAG_AGENT_HOST=kb-rag
       # Uncomment this once the stable GHCR image includes tracing evaluation support
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
