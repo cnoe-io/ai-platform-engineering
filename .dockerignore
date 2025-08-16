@@ -13,7 +13,7 @@ ai_platform_engineering/agents/webex/a2a_agent_client/**
 !ai_platform_engineering/agents/webex/a2a_agent_client/__init__.py
 !ai_platform_engineering/agents/webex/a2a_agent_client/agent.py
 
-# Exclude heavy directories 
+# Exclude heavy directories
 ai_platform_engineering/agents/*/mcp/**
 ai_platform_engineering/agents/*/build/**
 ai_platform_engineering/agents/*/tests/**
@@ -41,10 +41,13 @@ ai_platform_engineering/cli/**
 # Exclude main project lock file (use minimal one instead)
 uv.lock
 
-# Python virtual environment
+# Python virtual environment - exclude ALL venv directories
 .venv/
 venv/
 env/
+**/.venv/
+**/venv/
+**/env/
 
 # Python cache files
 __pycache__/
