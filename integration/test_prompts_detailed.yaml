@@ -24,7 +24,7 @@ prompts:
     messages:
       - role: "user"
         content: "Describe your slack channels"
-    expected_keywords: ["can", "help", "capability", "service"]
+    expected_keywords: ["slack", "channel", "description", "list", "information"]
     category: "general"
 
   - id: "help_info"
