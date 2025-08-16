@@ -1,3 +1,33 @@
+## Unreleased
+
+### Feat
+
+- **docker**: use multi-stage builds to reduce container size (#198)
+- add a new graphrag helm chart
+
+### Fix
+
+- remove a2a- image prefix
+- replace dotenv to python-dotenv
+- **uv**: add dotenv
+- **uv**: add dotenv
+- remove bad file change
+- bump all chart v and app v
+- mount path
+- fix multiagent volume mount and clean up
+- no lb
+- fix2
+- fix"
+- neo4j official chart
+- redis
+- no probe
+- similar env fix
+- correct var names
+- set storage class default to gp2 for now
+- wrong secretRef path
+- create json file and make graphrag optional
+- add SA field
+
 ## 0.1.5 (2025-08-15)
 
 ### Feat
