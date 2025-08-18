@@ -29,6 +29,9 @@ logger.info("Komodor enabled: %s", KOMODOR_ENABLED)
 WEATHER_AGENT_ENABLED = os.getenv("ENABLE_WEATHER_AGENT", "false").lower() == "true"
 logger.info("Weather agent enabled: %s", WEATHER_AGENT_ENABLED)
 
+KB_RAG_ENABLED = os.getenv("ENABLE_KB_RAG", "false").lower() == "true"
+logger.info("KB-RAG enabled: %s", KB_RAG_ENABLED)
+
 AGENT_NAMES = [
     "argocd",
     "backstage",
@@ -44,6 +47,9 @@ if KOMODOR_ENABLED:
 
 if WEATHER_AGENT_ENABLED:
     AGENT_NAMES.append("weather")
+
+if KB_RAG_ENABLED:
+    AGENT_NAMES.append("kb-rag")
 
 class PlatformRegistry(AgentRegistry):
     """Registry for platform engineer multi-agent system."""
