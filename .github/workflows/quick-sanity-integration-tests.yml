@@ -31,7 +31,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Create .env from GitHub Secrets
         run: |
@@ -95,7 +95,7 @@ jobs:
           docker compose version || true
 
       - name: Setup Python for A2A client test
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
@@ -160,5 +160,5 @@ jobs:
         run: |
           echo "::group::Clean-up workspace"
           docker compose -f docker-compose.dev.yaml --profile=p2p down -v --remove-orphans || true
-          docker system prune -f || true
+          docker rmi -f $(docker images -aq) || true
           echo "::endgroup::"

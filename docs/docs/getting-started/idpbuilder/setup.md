@@ -23,7 +23,7 @@ flowchart LR
         IDB[IDPBuilder] --> create
         IDB --> AC
         IDB --> GITEA
-        
+
         subgraph KIND["KIND Cluster"]
         subgraph CORE["Core Platform"]
             AC[ArgoCD]
@@ -32,14 +32,14 @@ flowchart LR
             V[Vault]
             KC[Keycloak]
         end
-        
+
         subgraph PORTAL["Backstage"]
             direction TB
             BS[Backstage]
             AF[Agent-Forge]
             BS --- AF
         end
-        
+
         subgraph AIPLATFORM["AI Platform Engineering"]
             MA[multi-agent]
             A1[GitHub Agent]
@@ -48,14 +48,14 @@ flowchart LR
             A4[ArgoCD Agent]
             A5["...other agents"]
         end
-        
+
         ES[External Secrets]
     end
-    
+
     subgraph EXT["External"]
         LT[cnoe.localtest.me] ~~~ GH[GitHub Repos]
     end
-    
+
     %% Key relationships only
     GITEA --> AC
     AC --> BS
@@ -63,23 +63,23 @@ flowchart LR
     AC --> KC
     AC --> V
     AC --> IG
-    
+
     KC --> BS
     V --> ES
     ES --> MA
-    
+
     AF --> MA
     MA --> A1
     MA --> A2
     MA --> A3
     MA --> A4
     MA --> A5
-    
+
         %% External connections
         AC --> GH
         IG --> LT
     end
-    
+
     %% Styling
     classDef core fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef portal fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
@@ -87,7 +87,7 @@ flowchart LR
     classDef agents fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     classDef external fill:#fafafa,stroke:#616161,stroke-width:2px
     classDef whitebg fill:#ffffff,stroke:#ffffff,stroke-width:0px
-    
+
     class AC,GITEA,IG,V,KC,ES core
     class BS,AF portal
     class AIPE ai
@@ -193,7 +193,7 @@ Open https://vault.cnoe.localtest.me:8443/. When you are asked to log in to the 
 
 1. Navigate to `secrets/ai-platform-engineering` in Vault UI: https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/list/ai-platform-engineering/
 
-2. **Configure Global LLM Settings**: 
+2. **Configure Global LLM Settings**:
 ![Vault Secrets](./images/vault-secrets.svg)
 The `global` secret is required and contains LLM provider configuration shared across all agents:
    - `LLM_PROVIDER`: Defaults to `azure-openai`. Available options are: `azure-openai`, `openai`, `aws-bedrock`

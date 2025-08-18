@@ -1,4 +1,4 @@
-from typing import Any, Union
+from typing import Any, Union, Optional
 from a2a.types import (
     AgentCard,
     SendMessageRequest,
@@ -12,11 +12,13 @@ from agntcy_app_sdk.factory import AgntcyFactory, ProtocolTypes
 from agntcy_app_sdk.protocols.a2a.protocol import A2AProtocol
 
 # Example Input/Output types for illustration (replace as needed)
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel, PrivateAttr, Field
 from langchain_core.tools import BaseTool
 
-class Input(BaseModel):
-    prompt: str
+class AgntcyToolInput(BaseModel):
+    """Input schema for Agntcy remote agent tool."""
+    prompt: str = Field(description="The prompt to send to the agent")
+    trace_id: Optional[str] = Field(default=None, description="Optional trace ID for distributed tracing")
 
 class Output(BaseModel):
     response: Any
@@ -33,6 +35,7 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
   description: str = (
     "Connects to a remote agent using the SLIM transport and sends messages via A2A protocol."
   )
+  args_schema: type[BaseModel] = AgntcyToolInput
   endpoint: str
   remote_agent_card: Union[AgentCard, str]
   _factory: AgntcyFactory = PrivateAttr()
@@ -85,11 +88,11 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
     logger.info("Connection to the remote agent established successfully.")
     logger.info(f"Client instance created: {type(self._client)}")
 
-  async def send_message(self, message: str, role: Role = Role.user) -> Message:
+  async def send_message(self, message: str, role: Role = Role.user, trace_id: Optional[str] = None) -> Message:
     """
     Sends a message to the connected agent and returns the response.
     """
-    logger.info(f"send_message called with message: '{message}', role: {role}")
+    logger.info(f"send_message called with message: '{message}', role: {role}, trace_id: {trace_id}")
     if self._client is None:
       logger.info("Client is not connected. Initiating connection.")
       logger.info("Client is None, calling _connect()")
@@ -101,14 +104,26 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
     logger.info(f"Generated message ID: {message_id}, request ID: {request_id}")
 
     logger.info("Creating SendMessageRequest")
+    
+    # Create message with optional metadata for trace_id
+    message_parts = [Part(TextPart(text=message))]
+    message_kwargs = {
+      "messageId": str(uuid4()),
+      "role": role,
+      "parts": message_parts
+    }
+    
+    # Add trace_id to metadata if provided (similar to A2A transport)
+    if trace_id:
+        message_kwargs["metadata"] = {"trace_id": trace_id}
+        logger.info(f"Adding trace_id to Agntcy message metadata: {trace_id}")
+    else:
+        logger.info("No trace_id provided - message sent without trace metadata")
+    
     request = SendMessageRequest(
       id=str(uuid4()),
       params=MessageSendParams(
-        message=Message(
-          messageId=str(uuid4()),
-          role=role,
-          parts=[Part(TextPart(text=message))]
-        )
+        message=Message(**message_kwargs)
       )
     )
 
@@ -116,36 +131,49 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
     logger.info(f"Received response from the agent: {response}")
     return response
 
-  def _run(self, input: Input) -> Any:
+  def _run(self, prompt: str, trace_id: Optional[str] = None) -> Any:
     """
     Synchronous interface (not supported).
     """
     raise NotImplementedError("Use _arun for async execution.")
 
-  async def _arun(self, input: Input) -> Any:
+  async def _arun(self, prompt: str, trace_id: Optional[str] = None) -> Any:
     """
     Asynchronously sends a prompt to the A2A agent and returns the response.
 
     Args:
-      input (Input): The input containing the prompt to send to the agent.
+      prompt (str): The prompt to send to the agent.
+      trace_id (Optional[str]): Optional trace ID for distributed tracing.
 
     Returns:
       Output: The response from the agent.
     """
     try:
-      logger.info(f"Processing input of type: {type(input)}")
-      prompt = input['prompt'] if isinstance(input, dict) else input.prompt
-      logger.info(f"Received prompt: {prompt}")
+      logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
       if not prompt:
         logger.error("Invalid input: Prompt must be a non-empty string.")
         raise ValueError("Invalid input: Prompt must be a non-empty string.")
-      response = await self.send_message(prompt)
+      
+      # Use provided trace_id or try to get from TracingManager context
+      if not trace_id:
+        from cnoe_agent_utils.tracing import TracingManager
+        tracing = TracingManager()
+        trace_id = tracing.get_trace_id() if tracing.is_enabled else None
+        if trace_id:
+          logger.info(f"AgntcySlimRemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
+      
+      if trace_id:
+        logger.info(f"AgntcySlimRemoteAgentConnectTool: Using trace_id: {trace_id}")
+      else:
+        logger.warning("AgntcySlimRemoteAgentConnectTool: No trace_id available")
+      
+      response = await self.send_message(prompt, trace_id=trace_id)
       logger.info(f"Successfully received response: {response}")
       logger.info(f"Creating Output with response: {response}")
       output = Output(response=response)
       logger.info(f"Output created: {output}")
       return output
     except Exception as e:
-      logger.error(f"Failed to execute A2A client tool with input: {input}. Error: {str(e)}")
+      logger.error(f"Failed to execute A2A client tool with prompt: {prompt}. Error: {str(e)}")
       logger.info(f"Exception details: {type(e).__name__}: {str(e)}", exc_info=True)
       raise RuntimeError(f"Failed to execute A2A client tool: {str(e)}")

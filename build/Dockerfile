@@ -1,32 +1,47 @@
-FROM python:3.13-slim
+# ---------- Stage 1: Build dependencies ----------
+FROM python:3.13-slim AS builder
 
-# Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
+# Install system dependencies and uv in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    git \
+    && pip install uv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy project metadata first to leverage caching
-COPY pyproject.toml uv.lock /app/
+# Copy the entire project structure first since uv sync needs it to build
+COPY --chown=root:root . /app/
 
-# Install Git and uv
-RUN apt-get update && apt-get install -y git && pip install uv && rm -rf /var/lib/apt/lists/*
+# Install dependencies into venv (no dev deps)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev
 
-# Create UV cache directory for appuser and set permissions
-RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.cache
+# ---------- Stage 2: Final runtime image ----------
+FROM python:3.13-slim
 
-# Copy actual source code and set ownership
-COPY --chown=appuser:appuser ./ai_platform_engineering /app/ai_platform_engineering
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies (without dev packages) with cache mount
-RUN --mount=type=cache,target=/home/appuser/.cache/uv \
-    uv sync --locked --no-dev
+# Create appuser in final image
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
-# Change ownership of the entire app directory
-RUN chown -R appuser:appuser /app
+WORKDIR /app
 
-# Switch to non-root user
+# Set env vars for uv & PATH
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Copy venv & code from builder
+COPY --from=builder --chown=appuser:appuser /app /app
+
 USER appuser
 
 EXPOSE 8000
 
-ENTRYPOINT [ "uv", "run", "python", "-m", "ai_platform_engineering.multi_agents" ]
+ENTRYPOINT [ "python", "-m", "ai_platform_engineering.multi_agents" ]

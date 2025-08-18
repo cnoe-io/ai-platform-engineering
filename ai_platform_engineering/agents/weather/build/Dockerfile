@@ -1,7 +1,7 @@
 FROM python:3.13-slim
 
 # Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser -u 1001 appuser
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
 WORKDIR /app
 
@@ -15,9 +15,6 @@ RUN mkdir -p /home/appuser/.cache/uv && chown -R appuser:appuser /home/appuser/.
 
 RUN --mount=type=cache,target=/home/appuser/.cache/uv \
     uv sync --locked --no-dev
-
-# Change ownership of the entire app directory
-RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
 USER appuser

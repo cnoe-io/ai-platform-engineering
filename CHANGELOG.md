@@ -1,8 +1,60 @@
-## 0.1.2 (2025-08-12)
+## 0.1.6 (2025-08-15)
 
 ### Feat
 
-- add commitzen
+- **docker**: use multi-stage builds to reduce container size (#198)
+- add a new graphrag helm chart
+
+### Fix
+
+- remove a2a- image prefix
+- replace dotenv to python-dotenv
+- **uv**: add dotenv
+- **uv**: add dotenv
+- remove bad file change
+- bump all chart v and app v
+- mount path
+- fix multiagent volume mount and clean up
+- no lb
+- fix2
+- fix"
+- neo4j official chart
+- redis
+- no probe
+- similar env fix
+- correct var names
+- set storage class default to gp2 for now
+- wrong secretRef path
+- create json file and make graphrag optional
+- add SA field
+
+## 0.1.5 (2025-08-15)
+
+### Feat
+
+- fix Langfuse trace ID propagation in multi-agent system (#195)
+- **helm**: add useRemoteMcpServer to use remote MCP server (#193)
+- add mcp http support to helm chart (#190)
+
+### Fix
+
+- Dockerfile improvements and add .dockerignore (#197)
+- fix missing sub helm chart bump
+- mcp dockerfile to give .venv permissions (#192)
+
+## 0.1.4 (2025-08-12)
+
+### Fix
+
+- **build**: update workflow triggers
+- **build**: remove a2a prefix for agent container images
+- **build**: build and publish agents on every push to main and tags
+
+## 0.1.3 (2025-08-12)
+
+### Feat
+
+- add slim to helm chart (#187)
 - use agntcy-app-sdk to integrate with agntcy slim (#171)
 - **graph-rag**: add evaluation and tests
 - embed vidcast in idpbuilder doc
@@ -66,8 +118,9 @@
 
 ### Fix
 
-- remove poetry
-- add make release
+- **build**: add latest tag for agent builds
+- **a2a-docker**: publish on main and tags
+- mcp docker improvements (#186)
 - quick sanity tests and docker-compose files (#185)
 - **quick-sanity**: add komodor variables
 - **quick-sanity**: clean-up workspace
