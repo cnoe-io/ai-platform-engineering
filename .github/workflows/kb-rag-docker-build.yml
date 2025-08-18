@@ -1,0 +1,71 @@
+name: KB-RAG A2A Docker Build and Push
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'ai_platform_engineering/knowledge_bases/rag/**'
+    tags-ignore:
+      - '**'
+  pull_request:
+    paths:
+      - 'ai_platform_engineering/knowledge_bases/rag/**'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: cnoe-io/kb-rag
+      AGENT_DIR: ai_platform_engineering/knowledge_bases/rag
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@v2.13.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=a2a-latest,enable=true
+            type=ref,event=branch,prefix=a2a-
+            type=ref,event=tag,prefix=a2a-
+            type=sha,format=short,prefix=a2a-
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Push KB-RAG Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.AGENT_DIR }}
+          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

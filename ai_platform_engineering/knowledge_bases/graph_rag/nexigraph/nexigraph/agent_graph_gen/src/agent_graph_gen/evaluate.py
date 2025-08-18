@@ -67,8 +67,11 @@ class FkeyEvaluator:
         all_candidates =  await self.rc_manager.fetch_all_candidates()
         entity_a_relation_candidates = []
         for _, rel_candidate in all_candidates.items():
-            if rel_candidate.heuristic.entity_a_type == candidate.heuristic.entity_a_type and rel_candidate.heuristic.entity_b_type in entity_types:
-                entity_a_relation_candidates.append(f"{rel_candidate.heuristic.entity_a_type}.{rel_candidate.heuristic.entity_a_property} -> {rel_candidate.heuristic.entity_b_type} (count = {rel_candidate.heuristic.count})")
+            eval_confidence = str(rel_candidate.evaluation.relation_confidence) if rel_candidate.evaluation is not None else "Not evaluated"
+            if rel_candidate.heuristic.entity_a_type == candidate.heuristic.entity_a_type and rel_candidate.heuristic.entity_b_type == candidate.heuristic.entity_b_type:
+                candidate_str = f"{rel_candidate.heuristic.entity_a_type}.{rel_candidate.heuristic.entity_a_property} -> {rel_candidate.heuristic.entity_b_type}"
+                candidate_str += f"(count: {rel_candidate.heuristic.count}, confidence (if already evaluated): {eval_confidence})"
+                entity_a_relation_candidates.append(candidate_str)
 
         logger.info("Evaluating with agent")
         prompt_tpl = PromptTemplate.from_template(RELATION_PROMPT)
@@ -81,7 +84,7 @@ class FkeyEvaluator:
             entity_a_with_property_count=entity_a_with_property_count,
             entity_a_with_property_percentage=entity_a_with_property_percentage,
             example_matches=utils.json_encode(candidate.heuristic.example_matches, indent=2),
-            entity_a_relation_candidates=entity_a_relation_candidates
+            entity_a_relation_candidates=utils.json_encode(entity_a_relation_candidates, indent=2),
         )
 
         logger.info(prompt)

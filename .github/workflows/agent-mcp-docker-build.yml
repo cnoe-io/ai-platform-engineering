@@ -2,9 +2,15 @@ name: MCP Docker Build and Push
 
 on:
   push:
-    paths:
-      - 'ai_platform_engineering/agents/**'
-
+    branches:
+      - main
+    # Build on all new tags as well
+    tags:
+      - '**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -14,12 +20,12 @@ jobs:
 
     strategy:
       matrix:
-        agent: [argocd]
+        agent: [argocd, backstage, confluence, jira, komodor, pagerduty, slack]
       fail-fast: false
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
+      IMAGE_NAME: cnoe-io/mcp-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -29,7 +35,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -47,10 +53,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=mcp-latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch,prefix=mcp-
-            type=ref,event=tag,prefix=mcp-
-            type=sha,format=short,prefix=mcp-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,prefix=
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

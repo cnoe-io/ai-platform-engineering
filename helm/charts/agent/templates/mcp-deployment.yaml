@@ -1,0 +1,129 @@
+{{- if include "agent.createMcpHttpServer" . | eq "true" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent.fullname" . }}-mcp
+  labels:
+    {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "agent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "agent.labels" . | nindent 8 }}
+        app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
+        app.kubernetes.io/component: mcp
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "agent.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mcp
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            {{- if include "agent.externalSecrets.enabled" . | eq "true" }}
+            {{- range include "agent.externalSecrets.secretNames" . | splitList "," }}
+            {{- if . }}
+            - secretRef:
+                name: {{ . | trim }}
+            {{- end }}
+            {{- end }}
+            {{- else }}
+            # Traditional secret handling when external secrets are disabled
+            {{- if .Values.secrets.secretName }}
+            - secretRef:
+                name: {{ .Values.secrets.secretName }}
+            {{- if .Values.global.secrets.secretName }}
+            - secretRef:
+                name: {{ .Values.global.secrets.secretName }}
+            {{- end }}
+            {{- else if not .Values.isBackstagePlugin}}
+            - secretRef:
+            {{- if .Values.global.secrets.secretName }}
+                name: {{ .Values.global.secrets.secretName }}
+            {{- else }}
+                name: llm-secret
+            {{- end }}
+            {{- if not .Values.isMultiAgent }}
+            - secretRef:
+                name: {{ printf "%s-secret" (include "agent.name" .) }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          env:
+            - name: MCP_MODE
+              value: {{ .Values.mcp.mode }}
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: {{ .Values.mcp.service.port | quote }}
+            {{- if .Values.mcp.env }}
+            {{- range $key, $value := .Values.mcp.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          {{- with .Values.mcp.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.mcp.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.mcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.mcp.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.mcp.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
