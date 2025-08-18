@@ -94,7 +94,7 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
-          {{- if or .Values.env .Values.isMultiAgent }}
+          {{- if or .Values.env .Values.isMultiAgent .Values.global.slim.enabled (eq .Values.mcp.mode "http") }}
           env:
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
@@ -102,8 +102,25 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.global.slim.enabled }}
+            - name: A2A_TRANSPORT
+              value: {{ .Values.global.slim.transport | quote }}
+            - name: SLIM_ENDPOINT
+              value: {{ .Values.global.slim.endpoint | quote }}
+            {{- end }}
+            {{- if eq .Values.mcp.mode "http" }}
+            {{- if and (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) }}
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: {{ .Values.mcp.service.port | quote }}
+            - name: MCP_HOST
+              value: {{ include "agent.fullname" . }}-mcp
+            {{- end }}
+            {{- end }}
             {{- include "agent.multiAgentEnvVars" . | nindent 12 }}
           {{- end }}
+          {{- if not .Values.global.slim.enabled }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -112,18 +129,30 @@ spec:
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.volumeMounts }}
           volumeMounts:
+            {{- if .Values.isMultiAgent }}
+            - name: prompt-config
+              mountPath: /app/prompt_config.yaml
+              subPath: prompt_config.yaml
+              readOnly: true
+            {{- end }}
+            {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.volumes }}
+            {{- end }}
       volumes:
+        {{- if .Values.isMultiAgent }}
+        - name: prompt-config
+          configMap:
+            name: prompt-config
+        {{- end }}
+        {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

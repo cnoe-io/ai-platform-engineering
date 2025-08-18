@@ -79,27 +79,27 @@ class PetStoreAgent:
             }
         )
         tools = await client.get_tools()
-        print('*'*80)
-        print("Available Tools and Parameters:")
-        for tool in tools:
-            print(f"Tool: {tool.name}")
-            print(f"  Description: {tool.description.strip().splitlines()[0]}")
-            params = tool.args_schema.get('properties', {})
-            if params:
-                print("  Parameters:")
-                for param, meta in params.items():
-                    param_type = meta.get('type', 'unknown')
-                    param_title = meta.get('title', param)
-                    default = meta.get('default', None)
-                    print(f"    - {param} ({param_type}): {param_title}", end='')
-                    if default is not None:
-                        print(f" [default: {default}]")
-                    else:
-                        print()
-            else:
-                print("  Parameters: None")
-            print()
-        print('*'*80)
+        # print('*'*80)
+        # print("Available Tools and Parameters:")
+        # for tool in tools:
+        #     print(f"Tool: {tool.name}")
+        #     print(f"  Description: {tool.description.strip().splitlines()[0]}")
+        #     params = tool.args_schema.get('properties', {})
+        #     if params:
+        #         print("  Parameters:")
+        #         for param, meta in params.items():
+        #             param_type = meta.get('type', 'unknown')
+        #             param_title = meta.get('title', param)
+        #             default = meta.get('default', None)
+        #             print(f"    - {param} ({param_type}): {param_title}", end='')
+        #             if default is not None:
+        #                 print(f" [default: {default}]")
+        #             else:
+        #                 print()
+        #     else:
+        #         print("  Parameters: None")
+        #     print()
+        # print('*'*80)
 
         logger.debug("Creating React agent with LangGraph")
         self.graph = create_react_agent(
@@ -124,10 +124,10 @@ class PetStoreAgent:
         thread_id = context_id or uuid.uuid4().hex
         logger.info(f"Stream started - Query: {query}, Thread ID: {thread_id}, Context ID: {context_id}")
         debug_print(f"Starting stream with query: {query} using thread ID: {thread_id}")
-        
+
         # Initialize agent if needed
         await self.initialize()
-        
+
         inputs: dict[str, Any] = {'messages': [('user', query)]}
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}}
         logger.debug(f"Stream config: {config}")
@@ -198,4 +198,4 @@ class PetStoreAgent:
             'content': 'We are unable to process your request at the moment. Please try again.',
         }
 
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain'] 
+    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']

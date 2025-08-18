@@ -1,0 +1,19 @@
+{{- if and .Values.nexigraphServer.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "graphrag.fullname" . }}-nexigraph-server
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nexigraph-server
+spec:
+  type: {{ .Values.nexigraphServer.service.type }}
+  ports:
+    - port: {{ .Values.nexigraphServer.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "graphrag.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nexigraph-server
+{{- end }}
