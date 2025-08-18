@@ -41,7 +41,7 @@ class GitHubAgentExecutor(AgentExecutor):
             task = new_task(context.message)
             event_queue.enqueue_event(task)
 
-        # Extract trace_id from A2A context - GitHub is a SUB-AGENT, should NEVER generate trace_id
+        # Extract trace_id from A2A context - GitHub is a SUB-AGENT, should never generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
             logger.warning("🔍 GitHub Agent Executor: No trace_id received from supervisor! This should not happen.")
