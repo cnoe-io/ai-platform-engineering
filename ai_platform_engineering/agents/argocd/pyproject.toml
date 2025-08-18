@@ -21,7 +21,7 @@ dependencies = [
   "uv",
   "rich (>=14.0.0,<15.0.0)",
   "sseclient (>=0.0.27,<0.0.28)",
-  "cnoe-agent-utils==0.2.2",
+  "cnoe-agent-utils==0.3.0",
   "python-dotenv (>=1.0.0)",
   "fastapi (>=0.100.0)",
   "fastmcp==2.11.1",
