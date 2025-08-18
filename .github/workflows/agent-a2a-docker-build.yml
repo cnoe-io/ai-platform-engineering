@@ -4,13 +4,12 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'ai_platform_engineering/agents/**'
-    tags-ignore:
+    # Build on all new tags as well
+    tags:
       - '**'
   pull_request:
-    paths:
-      - 'ai_platform_engineering/agents/**'
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -38,7 +37,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -56,10 +55,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=a2a-latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch,prefix=a2a-
-            type=ref,event=tag,prefix=a2a-
-            type=sha,format=short,prefix=a2a-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,prefix=
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

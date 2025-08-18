@@ -8,8 +8,6 @@ services:
     volumes:
       - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
-      # Uncomment for local development
-      # - ./ai_platform_engineering:/app/ai_platform_engineering
     depends_on:
       - agent-argocd-p2p
       - agent-backstage-p2p
@@ -104,6 +102,7 @@ services:
     container_name: slim-dataplane
     profiles:
       - slim
+      - slim-tracing
     ports:
       - "46357:46357"
     environment:
@@ -117,6 +116,7 @@ services:
     container_name: slim-control-plane
     profiles:
       - slim
+      - slim-tracing
     ports:
       - "50051:50051"
       - "50052:50052"
@@ -151,7 +151,8 @@ services:
   #                                      AGENT ARGOCD A2A over SLIM                                  #
   ####################################################################################################
   agent-argocd-slim:
-    container_name: ghcr.io/cnoe-io/agent-argocd:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
+    container_name: agent-argocd-slim
     profiles:
       - slim
       - slim-tracing
@@ -175,7 +176,7 @@ services:
   #                                      AGENT ARGOCD A2A P2P                                        #
   ####################################################################################################
   agent-argocd-p2p:
-    image: ghcr.io/cnoe-io/agent-argocd:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
     container_name: agent-argocd-p2p
     profiles:
       - p2p
@@ -200,7 +201,8 @@ services:
   #                                      AGENT BACKSTAGE A2A over SLIM                               #
   ####################################################################################################
   agent-backstage-slim:
-    container_name: ghcr.io/cnoe-io/agent-backstage:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
+    container_name: agent-backstage-slim
     profiles:
       - slim
       - slim-tracing
@@ -224,7 +226,7 @@ services:
   #                                      AGENT BACKSTAGE A2A P2P                                     #
   ####################################################################################################
   agent-backstage-p2p:
-    image: ghcr.io/cnoe-io/agent-backstage:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
     container_name: agent-backstage-p2p
     profiles:
       - p2p
@@ -256,8 +258,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/backstage/mcp:/app
     ports:
       - "18001:8000"
     environment:
@@ -270,7 +270,7 @@ services:
   ####################################################################################################
 
   agent-confluence-slim:
-    image: ghcr.io/cnoe-io/agent-confluence:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
     container_name: agent-confluence-slim
     profiles:
       - slim
@@ -295,10 +295,11 @@ services:
   #                                      AGENT CONFLUENCE A2A P2P                                    #
   ####################################################################################################
   agent-confluence-p2p:
-    image: ghcr.io/cnoe-io/agent-confluence:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
     container_name: agent-confluence-p2p
     profiles:
       - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
     ports:
@@ -365,7 +366,7 @@ services:
   #                                      AGENT GITHUB A2A P2P                                        #
   ####################################################################################################
   agent-github-p2p:
-    image: ghcr.io/cnoe-io/agent-github:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-stable}
     container_name: agent-github-p2p
     profiles:
       - p2p
@@ -388,7 +389,7 @@ services:
   #                                      AGENT JIRA SLIM                                             #
   ####################################################################################################
   agent-jira-slim:
-    image: ghcr.io/cnoe-io/agent-jira:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
     container_name: agent-jira-slim
     profiles:
       - slim
@@ -415,7 +416,7 @@ services:
   #                                      AGENT JIRA A2A P2P                                          #
   ####################################################################################################
   agent-jira-p2p:
-    image: ghcr.io/cnoe-io/agent-jira:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
     container_name: agent-jira-p2p
     profiles:
       - p2p
@@ -459,7 +460,7 @@ services:
   #                                      AGENT KOMODOR A2A over SLIM                                 #
   ####################################################################################################
   agent-komodor-slim:
-    image: ghcr.io/cnoe-io/agent-komodor:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
     container_name: agent-komodor-slim
     profiles:
       - slim
@@ -484,7 +485,7 @@ services:
   #                                      AGENT KOMODOR A2A P2P                                       #
   ####################################################################################################
   agent-komodor-p2p:
-    image: ghcr.io/cnoe-io/agent-komodor:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
     container_name: agent-komodor-p2p
     profiles:
       - p2p
@@ -529,7 +530,7 @@ services:
   #                                      AGENT PAGERDUTY A2A over SLIM                               #
   ####################################################################################################
   agent-pagerduty-slim:
-    image: ghcr.io/cnoe-io/agent-pagerduty:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
     profiles:
       - slim
       - slim-tracing
@@ -537,7 +538,6 @@ services:
       - slim-dataplane
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/pagerduty:/app
     ports:
       - "8007:8000"
     environment:
@@ -554,7 +554,7 @@ services:
   #                                      AGENT PAGERDUTY A2A P2P                                     #
   ####################################################################################################
   agent-pagerduty-p2p:
-    image: ghcr.io/cnoe-io/agent-pagerduty:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
     container_name: agent-pagerduty-p2p
     profiles:
       - p2p
@@ -588,8 +588,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/pagerduty/mcp:/app
     ports:
       - "18005:8000"
     environment:
@@ -601,7 +599,7 @@ services:
   #                                      AGENT SLACK A2A over SLIM                                   #
   ####################################################################################################
   agent-slack-slim:
-    image: ghcr.io/cnoe-io/agent-slack:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
     container_name: agent-slack-slim
     profiles:
       - slim
@@ -628,7 +626,7 @@ services:
   #                                      AGENT SLACK A2A P2P                                         #
   ####################################################################################################
   agent-slack-p2p:
-    image: ghcr.io/cnoe-io/agent-slack:a2a-${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
     container_name: agent-slack-p2p
     profiles:
       - p2p
@@ -660,8 +658,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/slack/mcp:/app
     ports:
       - "18006:8000"
     environment:
@@ -676,9 +672,7 @@ services:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
     ports:
-      - "3000:3000"
-    profiles:
-      - p2p
+      - "13000:3000"
   
   ####################################################################################################
   #                                          KB-RAG SERVICES                                         #
@@ -760,6 +754,8 @@ services:
       timeout: 20s
       retries: 3
 
+
+
   ####################################################################################################
   #                                      LANGFUSE TRACING SERVICES                                   #
   ####################################################################################################
@@ -771,6 +767,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -816,6 +814,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -863,6 +863,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -887,6 +889,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
@@ -910,6 +914,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
     ports:
@@ -926,6 +932,8 @@ services:
     restart: always
     profiles:
       - tracing
+      - p2p-tracing
+      - slim-tracing
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s
