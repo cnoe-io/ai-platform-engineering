@@ -1,0 +1,89 @@
+{{- if and .Values.agentGraphQa.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "graphrag.fullname" . }}-agent-graph-qa
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-graph-qa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "graphrag.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent-graph-qa
+  template:
+    metadata:
+      labels:
+        {{- include "graphrag.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent-graph-qa
+    spec:
+      serviceAccountName: {{ include "graphrag.serviceAccountName" . }}
+      {{- with .Values.agentGraphQa.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentGraphQa.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentGraphQa.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent-graph-qa
+          image: "{{ .Values.agentGraphQa.image.repository }}:{{ .Values.agentGraphQa.image.tag }}"
+          imagePullPolicy: {{ .Values.agentGraphQa.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agentGraphQa.service.port }}
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ .Values.global.secrets.secretName }}
+          env:
+            - name: LOG_LEVEL
+              value: "{{ .Values.agentGraphQa.env.logLevel }}"
+            - name: REDIS_HOST
+              value: "{{ include "graphrag.fullname" . }}-redis"
+            - name: NEO4J_ADDR
+              value: "neo4j://{{ include "graphrag.neo4j.fullname" . }}:{{ .Values.neo4j.service.port }}"
+            - name: NEO4J_USERNAME
+              value: "{{ .Values.neo4j.auth.username }}"
+            - name: NEO4J_PASSWORD
+              value: "{{ .Values.neo4j.auth.password }}"
+            {{- if .Values.agentGraphQa.env.openaiApiVersion }}
+            - name: OPENAI_API_VERSION
+              value: "{{ .Values.agentGraphQa.env.openaiApiVersion }}"
+            {{- end }}
+            {{- if .Values.agentGraphQa.env.azureOpenaiEndpoint }}
+            - name: AZURE_OPENAI_ENDPOINT
+              value: "{{ .Values.agentGraphQa.env.azureOpenaiEndpoint }}"
+            {{- end }}
+            {{- if .Values.agentGraphQa.env.azureOpenaiApiKey }}
+            - name: AZURE_OPENAI_API_KEY
+              value: "{{ .Values.agentGraphQa.env.azureOpenaiApiKey }}"
+            {{- end }}
+          {{- with .Values.agentGraphQa.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.agentGraphQa.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.agentGraphQa.livenessProbe.httpGet.path }}
+              port: {{ .Values.agentGraphQa.livenessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.agentGraphQa.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.agentGraphQa.livenessProbe.periodSeconds }}
+          {{- end }}
+          {{- if .Values.agentGraphQa.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.agentGraphQa.readinessProbe.httpGet.path }}
+              port: {{ .Values.agentGraphQa.readinessProbe.httpGet.port }}
+            initialDelaySeconds: {{ .Values.agentGraphQa.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.agentGraphQa.readinessProbe.periodSeconds }}
+          {{- end }}
+      restartPolicy: Always
+{{- end }}

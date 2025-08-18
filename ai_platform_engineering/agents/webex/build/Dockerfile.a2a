@@ -1,9 +1,11 @@
 FROM python:3.13-slim
 
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
+
 WORKDIR /app
 
-COPY . /app/
-
+COPY --chown=appuser:appuser . /app/
 
 # Install uv and use it to install the package
 RUN pip install uv poetry
@@ -13,6 +15,9 @@ RUN poetry config virtualenvs.in-project false
 RUN poetry config cache-dir /app/.cache
 
 RUN poetry install --no-interaction --no-root
+
+# Switch to non-root user
+USER appuser
 
 EXPOSE 8000
 

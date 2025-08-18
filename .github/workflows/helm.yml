@@ -21,7 +21,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - name: 📥 Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -74,7 +74,7 @@ jobs:
 
     steps:
       - name: 📥 Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: ⚙️ Set up Helm
         uses: azure/setup-helm@v4

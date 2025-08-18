@@ -1,38 +1,47 @@
-FROM python:3.13-slim
+# ---------- Stage 1: Build dependencies ----------
+FROM python:3.13-slim AS builder
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Install system dependencies and uv in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && pip install uv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy the entire project to leverage the main package structure
-COPY . /app/
+# Copy the entire MCP directory structure first since uv sync needs it to build
+COPY --chown=root:root ./mcp ./
 
-# Install uv and poetry for dependency management
-RUN pip install uv poetry
+# Install dependencies into venv (no dev deps)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
 
-# Configure poetry
-RUN poetry config virtualenvs.create true
-RUN poetry config virtualenvs.in-project true
-RUN poetry config cache-dir /app/.cache
-RUN poetry config virtualenvs.path /app/.venv
+# ---------- Stage 2: Final runtime image ----------
+FROM python:3.13-slim
 
-# Install the main package and its dependencies
-RUN poetry install --no-interaction
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set ownership of the application directory to the non-root user
-RUN chown -R appuser:appuser /app
+# Create appuser in final image
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
-# Switch to non-root user
+WORKDIR /app
+
+# Set env vars for uv & PATH
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Copy venv & code from builder
+COPY --from=builder --chown=appuser:appuser /app /app
+
 USER appuser
 
-# Set environment variables for MCP server
-ENV PYTHONPATH=/app
-ENV MCP_HOST="0.0.0.0"
-ENV MCP_PORT="9000"
-
-# Expose the default MCP server port (can be overridden)
-EXPOSE 3002
+EXPOSE 8000
 
 # Run the HTTP/SSE MCP server
-CMD ["poetry", "run", "python", "-m", "mcp.argocd.mcp_argocd.server"]
+CMD ["python", "mcp_argocd/server.py"]

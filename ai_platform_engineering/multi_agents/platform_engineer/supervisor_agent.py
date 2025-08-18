@@ -4,7 +4,7 @@
 import logging
 import uuid
 import os
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph_supervisor import create_supervisor
 from langgraph_supervisor.handoff import create_forward_message_tool
@@ -12,19 +12,13 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
 
-from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt
-from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_a2a_remote_agent
-from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_a2a_remote_agent
-from ai_platform_engineering.agents.confluence.a2a_agent_client.agent import confluence_a2a_remote_agent
-from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_a2a_remote_agent
-from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_a2a_remote_agent
-from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_a2a_remote_agent
-from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_a2a_remote_agent
+from langchain_core.runnables import RunnableLambda
+import json
 
-# Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
-KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
-if KOMODOR_ENABLED:
-    from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_a2a_remote_agent
+from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
+
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -59,7 +53,7 @@ class AIPlatformEngineerMAS:
     Returns:
     CompiledGraph: A fully compiled LangGraph instance ready for execution.
     """
-    model = LLMFactory().get_llm()
+    base_model = LLMFactory().get_llm()
 
     # Check if LANGGRAPH_DEV is defined in the environment
     if os.getenv("LANGGRAPH_DEV"):
@@ -69,21 +63,59 @@ class AIPlatformEngineerMAS:
       checkpointer = InMemorySaver()
       store = InMemoryStore()
 
-    agent_tools = [
-      argocd_a2a_remote_agent,
-      backstage_a2a_remote_agent,
-      confluence_a2a_remote_agent,
-      github_a2a_remote_agent,
-      jira_a2a_remote_agent,
-      pagerduty_a2a_remote_agent,
-      slack_a2a_remote_agent,
-    ]
-
-    if KOMODOR_ENABLED:
-      agent_tools.append(komodor_a2a_remote_agent)
+    agent_tools = platform_registry.get_all_agents()
 
     # The argument is the name to assign to the resulting forwarded message
     forwarding_tool = create_forward_message_tool("platform_engineer_supervisor")
+
+    # Get schema and fix for OpenAI strict validation requirements
+    schema = PlatformEngineerResponse.model_json_schema()
+    def fix_schema_for_openai(obj):
+        if isinstance(obj, dict):
+            if obj.get('type') == 'object':
+                obj['additionalProperties'] = False
+                # OpenAI strict mode requires ALL properties to be in required array
+                if 'properties' in obj:
+                    obj['required'] = list(obj['properties'].keys())
+            for value in obj.values():
+                fix_schema_for_openai(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                fix_schema_for_openai(item)
+
+    fix_schema_for_openai(schema)
+
+    # Create a base model with tools (for tool calling)
+    model_with_tools = base_model.bind_tools([forwarding_tool] + agent_tools)
+
+    # Create a conditional output processor that handles both tool calls and structured responses
+    def process_model_output(message):
+        # If the message has tool calls, return it as-is (don't apply structured output)
+        if hasattr(message, 'tool_calls') and message.tool_calls:
+            return message
+
+        # If it's a final response without tool calls, apply structured output
+        try:
+            # Try to parse the content as structured output
+            if hasattr(message, 'content') and message.content:
+                # Use the base model with structured output for final responses
+                structured_model = base_model.with_structured_output(
+                    schema=schema,
+                    method="json_schema",
+                    strict=True,
+                )
+                # Re-invoke with structured output
+                structured_response = structured_model.invoke([HumanMessage(content=message.content)])
+                return AIMessage(
+                    content=json.dumps(structured_response.model_dump() if hasattr(structured_response, 'model_dump') else structured_response)
+                )
+        except Exception as e:
+            logger.warning(f"Failed to apply structured output formatting: {e}")
+
+        # Fallback: return original message
+        return message
+
+    model = model_with_tools | RunnableLambda(process_model_output)
 
     graph = create_supervisor(
       model=model,
@@ -91,7 +123,7 @@ class AIPlatformEngineerMAS:
       prompt=system_prompt,
       add_handoff_back_messages=True,
       parallel_tool_calls=True,
-      tools= [forwarding_tool] + agent_tools,
+      tools=[forwarding_tool] + agent_tools,
       output_mode="last_message",
       supervisor_name="platform_engineer_supervisor",
     ).compile(
@@ -139,3 +171,4 @@ class AIPlatformEngineerMAS:
     except Exception as e:
       logger.error(f"Error in serve method: {e}")
       raise Exception(str(e))
+
