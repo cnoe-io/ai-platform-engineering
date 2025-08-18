@@ -72,3 +72,8 @@ dependencies:
     version: "2025.07.1"
     repository: "https://helm.neo4j.com/neo4j"
     condition: graphrag.enabled
+  # Langfuse tracing service
+  - name: langfuse
+    version: "1.4.0"
+    repository: "https://langfuse.github.io/langfuse-k8s"
+    condition: langfuse.enabled
