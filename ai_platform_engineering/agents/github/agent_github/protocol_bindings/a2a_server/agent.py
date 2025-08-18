@@ -697,7 +697,7 @@ class GitHubAgent:
         return {
             'is_task_complete': False,
             'require_user_input': True,
-            'content': 'We are unable to process your GitHub request at the moment. Please try again.',
+            'content': 'We are unable to process your GitHub request at the moment. Pls try again.',
         }
 
     def analyze_request_and_discover_tool(self, query: str) -> dict:
