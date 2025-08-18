@@ -50,7 +50,7 @@ class GitHubAgentExecutor(AgentExecutor):
             logger.info(f"🔍 GitHub Agent Executor: Using trace_id from supervisor: {trace_id}")
 
         # invoke the underlying agent, using streaming results
-        async for event in self.agent.stream(query, context_id, trace_id):
+        async for event in self.agent.stream(query, context_id, trace_id, task.id):
             if event['is_task_complete']:
                 event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
