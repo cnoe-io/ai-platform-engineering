@@ -185,3 +185,8 @@ neo4j:
       mode: "dynamic"
       dynamic:
         storageClassName: gp2
+
+langfuse:
+  enabled: false
+  image:
+    tag: "3"
