@@ -1,13 +1,14 @@
 # Copyright 2025 CNOE
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: apache-2.0
 
 import logging
 import os
 from langchain.chains import RetrievalQA
 from langchain_milvus import Milvus
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import AzureOpenAIEmbeddings
 from pymilvus import connections, utility
 from cnoe_agent_utils import LLMFactory
+from langchain.prompts import PromptTemplate
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -31,38 +32,37 @@ class RAGAgent:
         """
         debug_print(f"Initializing RAG agent with Milvus URI: {milvus_uri}")
         logger.info(f"Initializing RAG agent with Milvus URI: {milvus_uri}")
-        try:
-            # Check for OpenAI API key
-            openai_api_key = os.getenv('OPENAI_API_KEY')
-            if not openai_api_key:
-                raise ValueError("OPENAI_API_KEY environment variable is not set")
-            
+        try:            
             # Parse host and port from URI
-            from urllib.parse import urlparse
-            parsed = urlparse(milvus_uri)
+            logger.info(f"DEBUG: Milvus URI: {milvus_uri}")
+            # parsed = urlparse(milvus_uri)
             self.milvus_conn = {
-                "host": parsed.hostname or "localhost",
-                "port": str(parsed.port or 19530)
+                "uri": milvus_uri
             }
+            logger.info(f"DEBUG: Milvus Connection: {self.milvus_conn}")
             
             # Initialize LLM using LLMFactory
             llm_factory = LLMFactory()
             self.llm = llm_factory.get_llm()
             
             # Initialize embeddings directly
-            self.embeddings = OpenAIEmbeddings(
-                api_key=openai_api_key,
+            self.embeddings = AzureOpenAIEmbeddings(
                 deployment="text-embedding-3-small",
                 chunk_size=1
             )
             
             # Connect to Milvus
-            debug_print(f"Connecting to Milvus at {self.milvus_conn['host']}:{self.milvus_conn['port']}")
+            if 'host' in self.milvus_conn and 'port' in self.milvus_conn:
+                debug_print(f"Connecting to Milvus at {self.milvus_conn['host']}:{self.milvus_conn['port']}")
+            elif 'uri' in self.milvus_conn:
+                debug_print(f"Connecting to Milvus at {self.milvus_conn['uri']}")
+            else:
+                debug_print(f"Connecting to Milvus with connection args: {self.milvus_conn}")
             connections.connect(alias="default", **self.milvus_conn)
             
-            # Get collection name from environment
-            vectorstore_name = os.getenv('VECTORSTORE_NAME', 'outshift_docs')
-            self.collection_name = f"rag_{vectorstore_name}"
+            # Get collection name from environment (must be set)
+            self.collection_name = os.environ.get('VSTORE_COLLECTION', 'default')
+            logger.info(f"Using collection '{self.collection_name}'")
             
             # Check if collection exists
             if not utility.has_collection(self.collection_name, using="default"):
@@ -80,11 +80,30 @@ class RAGAgent:
             debug_print(f"Successfully connected to collection '{self.collection_name}'")
             logger.info(f"Successfully connected to collection '{self.collection_name}'")
             
-            # Create QA chain
+            # Create a smart, generalized RAG prompt
+            prompt_template = PromptTemplate(
+                input_variables=["context", "question"],
+                template="""
+                You are a Retrieval-Augmented Generation (RAG) assistant. Answer the user's question using only the information provided in the retrieved context below. 
+                The chucked context you might have is very unorganized, try to first organize it and then make sense of what it's saying. You must try giving a answer in the best of your ability. 
+                Try to compound as many words as well but only if they relate the context of the question. Do not Hallucinate. If the URL is part of the chunked context, you must add the URL when you output.
+                Do not make up answers or use outside knowledge. Be concise and accurate, and cite relevant context if possible.
+
+                Context:
+                {context}
+
+                Question:
+                {question}
+
+                Answer:
+                """
+            )
+            # Create QA chain with the custom prompt
             self.qa_chain = RetrievalQA.from_chain_type(
                 llm=self.llm,
                 chain_type="stuff",
-                retriever=self.vector_store.as_retriever(search_kwargs={"k": 5})
+                retriever=self.vector_store.as_retriever(search_kwargs={"k": 8}),
+                chain_type_kwargs={"prompt": prompt_template}
             )
             
         except Exception as e:
@@ -103,6 +122,20 @@ class RAGAgent:
         debug_print(f"Answering question: {question}")
         logger.info(f"Answering question: {question}")
         try:
+            # Get relevant documents first
+            retriever = self.vector_store.as_retriever(search_kwargs={"k": 8})
+            relevant_docs = retriever.get_relevant_documents(question)
+            
+            debug_print("Retrieved RAG chunks:")
+            for i, doc in enumerate(relevant_docs, 1):
+                # 20 dashes, space, Chunk i, space, 20 dashes
+                sep = "-" * 20
+                debug_print(f"{sep} Chunk {i} {sep}", banner=False)
+                debug_print(f"Content: {doc.page_content}", banner=False)
+                if hasattr(doc, 'metadata') and doc.metadata:
+                    debug_print(f"Metadata: {doc.metadata}", banner=False)
+
+            
             # Get answer
             answer = self.qa_chain.invoke({"query": question})["result"]
             debug_print(f"Generated answer: {answer}")

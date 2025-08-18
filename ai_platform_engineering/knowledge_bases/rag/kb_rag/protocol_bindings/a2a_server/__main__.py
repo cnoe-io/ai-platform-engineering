@@ -5,13 +5,19 @@ import click
 import httpx
 import uvicorn
 from dotenv import load_dotenv
+import os
 
-from agent_rag.protocol_bindings.a2a_server.agent import RAGAgent  # type: ignore[import-untyped]
-from agent_rag.protocol_bindings.a2a_server.agent_executor import RAGAgentExecutor  # type: ignore[import-untyped]
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+from kb_rag.protocol_bindings.a2a_server.agent import RAGAgent  # type: ignore[import-untyped]
+from kb_rag.protocol_bindings.a2a_server.agent_executor import RAGAgentExecutor  # type: ignore[import-untyped]
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
+from a2a.server.tasks import InMemoryPushNotificationConfigStore, BasePushNotificationSender, InMemoryTaskStore
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
@@ -20,16 +26,24 @@ from a2a.types import (
 
 load_dotenv()
 
+
+
 @click.command()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=8000)
-@click.option('--milvus-uri', 'milvus_uri', default='http://localhost:19530')
-def main(host: str, port: int, milvus_uri: str):
+
+
+def main(host: str, port: int):
+    milvus_uri = os.getenv('MILVUS_URI', 'http://milvus-standalone:19530')
+    logger.info(f"Starting RAG agent with Milvus URI: {milvus_uri}")
     client = httpx.AsyncClient()
+    push_notification_config_store = InMemoryPushNotificationConfigStore()
+    push_notification_sender = BasePushNotificationSender(client, config_store=push_notification_config_store)
     request_handler = DefaultRequestHandler(
         agent_executor=RAGAgentExecutor(milvus_uri=milvus_uri),
         task_store=InMemoryTaskStore(),
-        push_notifier=InMemoryPushNotifier(client),
+        push_config_store=push_notification_config_store,
+        push_sender=push_notification_sender
     )
 
     server = A2AStarletteApplication(
