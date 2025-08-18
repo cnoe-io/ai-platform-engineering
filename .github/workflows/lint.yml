@@ -24,7 +24,7 @@ jobs:
         uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
         with:
           egress-policy: audit
-      - uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2 # v4.1.7
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4.1.7
         with:
           fetch-depth: 0
       - name: Set up Python

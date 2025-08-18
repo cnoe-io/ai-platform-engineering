@@ -13,7 +13,7 @@ Follow these steps to deploy and manage your application efficiently.
 2. Create a `docker-compose.yml` file with the required services.
 3. Run the following command to start the services:
   ```bash
-  docker-compose up -d
+  docker-compose --profile=p2p up
   ```
 1. Verify the services are running:
   ```bash

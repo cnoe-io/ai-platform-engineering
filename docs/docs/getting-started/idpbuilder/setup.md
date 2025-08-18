@@ -1,6 +1,6 @@
 # Run with IDPBuilder 🏗️ 💻
 
-[IDPBuilder](https://cnoe.io/docs/intro/idpbuilder) is a tool for creating local Internal Developer Platform environments using KIND clusters. It provides a fast way to deploy and test platform components including ArgoCD, Vault, Backstage, and AI Platform Engineering agents.
+[IDPBuilder](https://cnoe.io/docs/idpbuilder) is a tool for creating local Internal Developer Platform environments using KIND clusters. It provides a fast way to deploy and test platform components including ArgoCD, Vault, Backstage, and AI Platform Engineering agents.
 
 <div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
 	<iframe src="https://app.vidcast.io/share/embed/3dc7f168-c8b0-40d3-aa45-66f74ec0ec03?disableCopyDropdown=1" width="100%" height="100%" title="Run AI Platform Engineering using IDPBuilder" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
@@ -9,7 +9,7 @@
 ## Prerequisites
 
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) installed
-- [IDPBuilder](https://cnoe.io/docs/reference-implementation/idpbuilder) binary installed
+- [IDPBuilder](https://cnoe.io/docs/idpbuilder/installation) binary installed
 
 ## Architecture Overview
 
@@ -23,7 +23,7 @@ flowchart LR
         IDB[IDPBuilder] --> create
         IDB --> AC
         IDB --> GITEA
-        
+
         subgraph KIND["KIND Cluster"]
         subgraph CORE["Core Platform"]
             AC[ArgoCD]
@@ -32,14 +32,14 @@ flowchart LR
             V[Vault]
             KC[Keycloak]
         end
-        
+
         subgraph PORTAL["Backstage"]
             direction TB
             BS[Backstage]
             AF[Agent-Forge]
             BS --- AF
         end
-        
+
         subgraph AIPLATFORM["AI Platform Engineering"]
             MA[multi-agent]
             A1[GitHub Agent]
@@ -48,14 +48,14 @@ flowchart LR
             A4[ArgoCD Agent]
             A5["...other agents"]
         end
-        
+
         ES[External Secrets]
     end
-    
+
     subgraph EXT["External"]
         LT[cnoe.localtest.me] ~~~ GH[GitHub Repos]
     end
-    
+
     %% Key relationships only
     GITEA --> AC
     AC --> BS
@@ -63,23 +63,23 @@ flowchart LR
     AC --> KC
     AC --> V
     AC --> IG
-    
+
     KC --> BS
     V --> ES
     ES --> MA
-    
+
     AF --> MA
     MA --> A1
     MA --> A2
     MA --> A3
     MA --> A4
     MA --> A5
-    
+
         %% External connections
         AC --> GH
         IG --> LT
     end
-    
+
     %% Styling
     classDef core fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef portal fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
@@ -87,7 +87,7 @@ flowchart LR
     classDef agents fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     classDef external fill:#fafafa,stroke:#616161,stroke-width:2px
     classDef whitebg fill:#ffffff,stroke:#ffffff,stroke-width:0px
-    
+
     class AC,GITEA,IG,V,KC,ES core
     class BS,AF portal
     class AIPE ai
@@ -193,7 +193,7 @@ Open https://vault.cnoe.localtest.me:8443/. When you are asked to log in to the 
 
 1. Navigate to `secrets/ai-platform-engineering` in Vault UI: https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/list/ai-platform-engineering/
 
-2. **Configure Global LLM Settings**: 
+2. **Configure Global LLM Settings**:
 ![Vault Secrets](./images/vault-secrets.svg)
 The `global` secret is required and contains LLM provider configuration shared across all agents:
    - `LLM_PROVIDER`: Defaults to `azure-openai`. Available options are: `azure-openai`, `openai`, `aws-bedrock`
