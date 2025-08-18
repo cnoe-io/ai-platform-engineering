@@ -8,6 +8,7 @@ services:
     volumes:
       - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     depends_on:
       - agent-argocd-p2p
       - agent-backstage-p2p
@@ -673,7 +674,7 @@ services:
     container_name: backstage-agent-forge
     ports:
       - "13000:3000"
-  
+
   ####################################################################################################
   #                                          KB-RAG SERVICES                                         #
   ####################################################################################################
