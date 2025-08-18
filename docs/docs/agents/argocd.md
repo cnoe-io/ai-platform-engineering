@@ -125,6 +125,7 @@ argocd app sync guestbook
 ```bash
 kubectl -n argocd patch configmap argocd-cm --type merge -p '{"data":{"accounts.admin":"login,apiKey"}}'
 kubectl -n argocd rollout restart deployment argocd-server
+kubectl config set-context --current --namespace=argocd
 argocd account generate-token --account admin --server-namespace argocd
 ```
 
