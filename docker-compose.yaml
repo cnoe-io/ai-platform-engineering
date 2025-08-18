@@ -16,6 +16,7 @@ services:
       - agent-jira-p2p
       - agent-pagerduty-p2p
       - agent-slack-p2p
+      - agent-weather-p2p
     profiles:
       - p2p
       - p2p-tracing
@@ -34,6 +35,7 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - SLACK_AGENT_HOST=agent-slack-p2p
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
+      - WEATHER_AGENT_HOST=agent-weather-p2p
       # Uncomment this once the stable GHCR image includes tracing evaluation support
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -66,6 +68,7 @@ services:
       - agent-komodor-slim
       - agent-pagerduty-slim
       - agent-slack-slim
+      - agent-weather-slim
     env_file:
       - .env
     ports:
@@ -82,6 +85,7 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-slim
       - SLACK_AGENT_HOST=agent-slack-slim
       - WEBEX_AGENT_HOST=agent-webex-slim
+      - WEATHER_AGENT_HOST=agent-weather-slim
       # Enable Komodor
       - ENABLE_KOMODOR=true
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
@@ -337,9 +341,7 @@ services:
   #                                      AGENT GITHUB A2A over SLIM                                  #
   ####################################################################################################
   agent-github-slim:
-    build:
-      context: ai_platform_engineering/agents/github
-      dockerfile: build/Dockerfile.a2a
+    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-stable}
     container_name: agent-github-slim
     profiles:
       - slim
@@ -507,9 +509,7 @@ services:
   #                                      MCP KOMODOR                                                 #
   ####################################################################################################
   mcp-komodor:
-    build:
-      context: ai_platform_engineering/agents/komodor
-      dockerfile: build/Dockerfile.mcp
+    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-stable}
     container_name: mcp-komodor
     profiles:
       - slim
@@ -661,6 +661,59 @@ services:
       - MCP_MODE=${MCP_MODE:-http}
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT WEATHER A2A over SLIM                                 #
+  ####################################################################################################
+  agent-weather-slim:
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
+    container_name: agent-weather-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
+      - ./ai_platform_engineering/agents/weather/clients:/app/clients
+    ports:
+      - "8009:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-weather-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-weather-agent}
+
+  ####################################################################################################
+  #                                      AGENT WEATHER A2A P2P                                       #
+  ####################################################################################################
+  agent-weather-p2p:
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
+    container_name: agent-weather-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
+      - ./ai_platform_engineering/agents/weather/clients:/app/clients
+    ports:
+      - "8009:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-weather
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
 
   ####################################################################################################
   #                                      AGENT BACKSTAGE A2A P2P                                     #
