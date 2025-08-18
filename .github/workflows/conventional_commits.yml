@@ -30,4 +30,5 @@ jobs:
       - name: 🧹 Conventional Commits
         uses: webiny/action-conventional-commits@v1.3.0
         with:
+          allowed-commit-types: feat,fix,docs,style,refactor,test,build,perf,ci,chore,revert,merge,wip,bump,release
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
