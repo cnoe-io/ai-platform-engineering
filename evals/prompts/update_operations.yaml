@@ -1,0 +1,114 @@
+prompts:
+  # UPDATE OPERATIONS - Operations that modify existing resources
+
+  # GitHub Update Operations
+  - id: "github_merge_pr"
+    messages:
+      - role: "user"
+        content: "merge the pull request #42 in the 'backend' repository"
+    expected_keywords: ["github", "merge", "pull request", "42", "backend"]
+    category: "github"
+    operation: "update"
+
+  - id: "github_close_issue"
+    messages:
+      - role: "user"
+        content: "close the issue #101 in the 'docs' repository"
+    expected_keywords: ["github", "close", "issue", "101", "docs"]
+    category: "github"
+    operation: "update"
+
+  # ArgoCD Update Operations
+  - id: "argocd_update_image"
+    messages:
+      - role: "user"
+        content: "update the image version for 'backend' app"
+    expected_keywords: ["argocd", "update", "image", "version", "backend"]
+    category: "argocd"
+    operation: "update"
+
+  - id: "argocd_sync_app"
+    messages:
+      - role: "user"
+        content: "sync the 'production' ArgoCD application to the latest commit"
+    expected_keywords: ["argocd", "sync", "production", "application", "commit"]
+    category: "argocd"
+    operation: "update"
+
+  # Backstage Update Operations
+  - id: "backstage_update_metadata"
+    messages:
+      - role: "user"
+        content: "update metadata for the 'backend' service"
+    expected_keywords: ["backstage", "update", "metadata", "backend", "service"]
+    category: "backstage"
+    operation: "update"
+
+  # Confluence Update Operations
+  - id: "confluence_update_page"
+    messages:
+      - role: "user"
+        content: "update the 'API Documentation' page with new information"
+    expected_keywords: ["confluence", "update", "API Documentation", "page", "information"]
+    category: "confluence"
+    operation: "update"
+
+  # Jira Update Operations
+  - id: "jira_update_issue"
+    messages:
+      - role: "user"
+        content: "update the priority of issue PROJ-456 to high"
+    expected_keywords: ["jira", "update", "issue", "priority", "PROJ-456", "high"]
+    category: "jira"
+    operation: "update"
+
+  - id: "jira_add_comment"
+    messages:
+      - role: "user"
+        content: "add a comment to issue PROJ-789 about the deployment status"
+    expected_keywords: ["jira", "add", "comment", "issue", "PROJ-789", "deployment", "status"]
+    category: "jira"
+    operation: "update"
+
+  # PagerDuty Update Operations
+  - id: "pagerduty_resolve_incident"
+    messages:
+      - role: "user"
+        content: "resolve the incident #12345 in PagerDuty"
+    expected_keywords: ["pagerduty", "resolve", "incident", "12345"]
+    category: "pagerduty"
+    operation: "update"
+
+  - id: "pagerduty_add_note"
+    messages:
+      - role: "user"
+        content: "add a note to the incident #67890 in PagerDuty"
+    expected_keywords: ["pagerduty", "add", "note", "incident", "67890"]
+    category: "pagerduty"
+    operation: "update"
+
+  - id: "pagerduty_update_incident_priority"
+    messages:
+      - role: "user"
+        content: "change the priority of incident #12345 to P1"
+    expected_keywords: ["pagerduty", "update", "incident", "priority", "12345", "P1"]
+    category: "pagerduty"
+    operation: "update"
+
+  # Slack Update Operations
+  - id: "slack_update_channel_topic"
+    messages:
+      - role: "user"
+        content: "update the topic of the #project-updates channel to 'Latest project status and updates'"
+    expected_keywords: ["slack", "update", "topic", "project-updates", "channel"]
+    category: "slack"
+    operation: "update"
+
+  # Komodor Update Operations
+  - id: "komodor_update_service_config"
+    messages:
+      - role: "user"
+        content: "update the configuration for the database service"
+    expected_keywords: ["komodor", "update", "configuration", "database", "service"]
+    category: "komodor"
+    operation: "update"
