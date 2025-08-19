@@ -3,6 +3,7 @@
 
 import logging
 import os
+import time
 from langchain.chains import RetrievalQA
 from langchain_milvus import Milvus
 from langchain_openai import AzureOpenAIEmbeddings
@@ -64,9 +65,42 @@ class RAGAgent:
             self.collection_name = os.environ.get('VSTORE_COLLECTION', 'default')
             logger.info(f"Using collection '{self.collection_name}'")
             
-            # Check if collection exists
-            if not utility.has_collection(self.collection_name, using="default"):
-                error_msg = f"Collection '{self.collection_name}' does not exist. Please ensure the vector store is properly initialized."
+            # Check if collection exists with retry mechanism
+            max_retries = int(os.environ.get('MILVUS_MAX_RETRIES', '10'))
+            retry_delay = int(os.environ.get('MILVUS_RETRY_DELAY', '10'))  # seconds
+            collection_exists = False
+            
+            for attempt in range(1, max_retries + 1):
+                try:
+                    debug_print(f"Attempting to connect to collection '{self.collection_name}' (attempt {attempt}/{max_retries})")
+                    logger.info(f"Checking collection existence - attempt {attempt}/{max_retries}")
+                    
+                    if utility.has_collection(self.collection_name, using="default"):
+                        collection_exists = True
+                        debug_print(f"Successfully found collection '{self.collection_name}' on attempt {attempt}")
+                        logger.info(f"Collection '{self.collection_name}' found on attempt {attempt}")
+                        break
+                    else:
+                        if attempt < max_retries:
+                            debug_print(f"Collection '{self.collection_name}' not found. Waiting {retry_delay} seconds before retry...")
+                            logger.info(f"Collection '{self.collection_name}' not found. Retrying in {retry_delay} seconds...")
+                            time.sleep(retry_delay)
+                        else:
+                            debug_print(f"Collection '{self.collection_name}' not found after {max_retries} attempts")
+                            logger.error(f"Collection '{self.collection_name}' not found after {max_retries} attempts")
+                            
+                except Exception as e:
+                    if attempt < max_retries:
+                        debug_print(f"Error checking collection on attempt {attempt}: {str(e)}. Retrying in {retry_delay} seconds...")
+                        logger.warning(f"Error checking collection on attempt {attempt}: {str(e)}. Retrying...")
+                        time.sleep(retry_delay)
+                    else:
+                        debug_print(f"Failed to check collection after {max_retries} attempts: {str(e)}")
+                        logger.error(f"Failed to check collection after {max_retries} attempts: {str(e)}")
+                        raise
+            
+            if not collection_exists:
+                error_msg = f"Collection '{self.collection_name}' does not exist after {max_retries} attempts. Please ensure the vector store is properly initialized."
                 logger.error(error_msg)
                 raise ValueError(error_msg)
             
