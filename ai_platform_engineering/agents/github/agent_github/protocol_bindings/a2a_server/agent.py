@@ -593,7 +593,7 @@ class GitHubAgent:
                             required_params = tool_info['required']
                             all_params = tool_info['parameters']
                             
-                            print(f"   📥 Required Variables:")
+                            print("   📥 Required Variables:")
                             if required_params:
                                 for param in required_params:
                                     param_info = all_params.get(param, {})
@@ -609,7 +609,7 @@ class GitHubAgent:
                             else:
                                 print("     • No required parameters")
                             
-                            print(f"   🟡 Optional Variables:")
+                            print("   🟡 Optional Variables:")
                             optional_params = [p for p in all_params.keys() if p not in required_params]
                             if optional_params:
                                 for param in optional_params:
@@ -630,8 +630,8 @@ class GitHubAgent:
                             else:
                                 print("     • No optional parameters")
                         else:
-                            print(f"   • Tool Description: Not available")
-                            print(f"   📥 Tool Arguments:")
+                            print("   • Tool Description: Not available")
+                            print("   📥 Tool Arguments:")
                             if args:
                                 for key, value in args.items():
                                     print(f"     - {key}: {value}")
@@ -653,7 +653,7 @@ class GitHubAgent:
                     print("=" * 80)
                     print(f"📋 Tool Name: {getattr(message, 'name', 'Unknown')}")
                     print(f"📋 Tool Call ID: {getattr(message, 'tool_call_id', 'Unknown')}")
-                    print(f"📥 Tool Result Content:")
+                    print("📥 Tool Result Content:")
                     content = getattr(message, 'content', '')
                     if content:
                         # Truncate long content for readability
@@ -946,7 +946,7 @@ class GitHubAgent:
         # Show optional parameters and their defaults
         optional_params = [p for p in all_params.keys() if p not in required_params]
         if optional_params:
-            print(f"🟡 Optional Parameters:")
+            print("🟡 Optional Parameters:")
             for param in optional_params:
                 param_info = all_params.get(param, {})
                 param_type = param_info.get('type', 'unknown')
