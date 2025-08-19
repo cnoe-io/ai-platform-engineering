@@ -4,6 +4,7 @@
 import logging
 import uuid
 import os
+import threading
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph_supervisor import create_supervisor
@@ -25,34 +26,77 @@ logger = logging.getLogger(__name__)
 
 class AIPlatformEngineerMAS:
   def __init__(self):
-    self.graph = self.build_graph()
+    # Use existing platform_registry and enable dynamic monitoring
+    platform_registry.enable_dynamic_monitoring(on_change_callback=self._on_agents_changed)
+
+    # Thread safety for graph access
+    self._graph_lock = threading.RLock()
+    self._graph = None
+    self._graph_generation = 0  # Track graph version for debugging
+
+    # Build initial graph
+    self._build_graph()
+
+    logger.info(f"AIPlatformEngineerMAS initialized with {len(platform_registry.agents)} agents")
 
   def get_graph(self) -> CompiledStateGraph:
     """
-    Returns the compiled LangGraph instance for the AI Platform Engineer MAS.
-
-    This method initializes the graph if it has not been created yet and returns
-    the compiled graph instance.
+    Returns the current compiled LangGraph instance.
+    Thread-safe access to the graph.
 
     Returns:
-        CompiledStateGraph: The compiled LangGraph instance.
+        CompiledStateGraph: The current compiled LangGraph instance.
     """
-    if not hasattr(self, 'graph'):
-      self.graph = self.build_graph()
-    return self.graph
+    with self._graph_lock:
+      return self._graph
 
-  def build_graph(self) -> CompiledStateGraph:
+  def _on_agents_changed(self):
+    """Callback triggered when agent registry detects changes."""
+    logger.info("Agent registry change detected, rebuilding graph...")
+    self._rebuild_graph()
+
+  def _rebuild_graph(self) -> bool:
     """
-    Constructs and compiles a LangGraph instance.
-
-    This function initializes a `SupervisorAgent` to create the base graph structure
-    and uses an `InMemorySaver` as the checkpointer for the compilation process.
-
-    The resulting compiled graph can be used to execute Supervisor workflow in LangGraph Studio.
+    Rebuild the graph with current agents from registry.
 
     Returns:
-    CompiledGraph: A fully compiled LangGraph instance ready for execution.
+        bool: True if graph was rebuilt successfully
     """
+    try:
+      with self._graph_lock:
+        old_generation = self._graph_generation
+        self._build_graph()
+        logger.info(f"Graph successfully rebuilt (generation {old_generation} → {self._graph_generation})")
+        return True
+    except Exception as e:
+      logger.error(f"Failed to rebuild graph: {e}")
+      return False
+
+  def force_refresh_agents(self) -> bool:
+    """
+    Force immediate refresh of agent connectivity and rebuild graph if needed.
+
+    Returns:
+        bool: True if changes were detected and graph was rebuilt
+    """
+    logger.info("Force refresh requested")
+    return platform_registry.force_refresh()
+
+  def get_status(self) -> dict:
+    """Get current status for monitoring/debugging."""
+    with self._graph_lock:
+      return {
+        "graph_generation": self._graph_generation,
+        "registry_status": platform_registry.get_registry_status()
+      }
+
+  def _build_graph(self) -> None:
+    """
+    Internal method to construct and compile a LangGraph instance with current agents.
+    Updates self._graph and increments generation counter.
+    """
+    logger.debug(f"Building graph (generation {self._graph_generation + 1})...")
+
     base_model = LLMFactory().get_llm()
 
     # Check if LANGGRAPH_DEV is defined in the environment
@@ -63,6 +107,7 @@ class AIPlatformEngineerMAS:
       checkpointer = InMemorySaver()
       store = InMemoryStore()
 
+    # Get current agents from platform registry
     agent_tools = platform_registry.get_all_agents()
 
     # The argument is the name to assign to the resulting forwarded message
@@ -117,7 +162,7 @@ class AIPlatformEngineerMAS:
 
     model = model_with_tools | RunnableLambda(process_model_output)
 
-    graph = create_supervisor(
+    new_graph = create_supervisor(
       model=model,
       agents=[],
       prompt=system_prompt,
@@ -130,8 +175,13 @@ class AIPlatformEngineerMAS:
       checkpointer=checkpointer,
       store=store,
     )
-    logger.debug("LangGraph supervisor created and compiled successfully.")
-    return graph
+
+    # Atomically update graph and increment generation
+    self._graph = new_graph
+    self._graph_generation += 1
+
+    logger.debug(f"LangGraph supervisor created and compiled successfully (generation {self._graph_generation})")
+    logger.info(f"Graph updated with {len(agent_tools)} agent tools")
 
   async def serve(self, prompt: str):
     """
