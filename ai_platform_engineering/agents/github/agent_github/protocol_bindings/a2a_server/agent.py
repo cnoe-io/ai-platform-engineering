@@ -68,10 +68,16 @@ class GitHubAgent:
         self.conversation_counter = 0  # Counter for generating stable conversation IDs
 
         # Initialize the agent
-        asyncio.run(self._initialize_agent())
+        #asyncio.run(self._initialize_agent())
+        self._initialized = False
+
 
     async def _initialize_agent(self):
         """Initialize the agent with tools and configuration."""
+
+        if self._initialized:
+          return
+        
         if not self.model:
             logger.error("Cannot initialize agent without a valid model")
             return
@@ -104,8 +110,33 @@ class GitHubAgent:
             if os.getenv("GITHUB_DYNAMIC_TOOLSETS"):
                 env_vars["GITHUB_DYNAMIC_TOOLSETS"] = os.getenv("GITHUB_DYNAMIC_TOOLSETS")
 
-            # Configure the GitHub MCP server client
-            client = MultiServerMCPClient(
+
+            mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+            if mcp_mode == "http" or mcp_mode == "streamable_http":
+              logging.info("Using HTTP transport for MCP client")
+              # For HTTP transport, we need to connect to the MCP server
+              # This is useful for production or when the MCP server is running separately
+              # Ensure MCP_HOST and MCP_PORT are set in the environment
+              mcp_host = os.getenv("MCP_HOST", "localhost")
+              mcp_port = os.getenv("MCP_PORT", "3000")
+              logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+
+              client = MultiServerMCPClient(
+                {
+                  "github": {
+                    "transport": "streamable_http",
+                    "url": "https://api.githubcopilot.com/mcp",
+                    "headers": {
+                      "Authorization": f"Bearer {self.github_token}",
+                    },
+                  }
+                }
+              )
+            else:
+              logging.info("Using Docker-in-Docker for MCP client")
+              
+              # Configure the GitHub MCP server client
+              client = MultiServerMCPClient(
                 {
                     "github": {
                         "command": "docker",
@@ -121,7 +152,7 @@ class GitHubAgent:
                         "transport": "stdio",
                     }
                 }
-            )
+              )
 
             # Get tools via the client
             client_tools = await client.get_tools()
@@ -217,6 +248,7 @@ class GitHubAgent:
                 print("=" * 80)
             except Exception as e:
                 logger.error(f"Error testing agent: {e}")
+            self._initialized = True
         except Exception as e:
             logger.exception(f"Error initializing agent: {e}")
             self.graph = None
@@ -261,6 +293,10 @@ class GitHubAgent:
         calling patterns from the A2A framework. The method extracts the expected
         parameters from the arguments dynamically.
         """
+
+        # Initialize the agent if not already done
+        await self._initialize_agent()
+
         # Comprehensive argument logging
         import inspect
         frame = inspect.currentframe()

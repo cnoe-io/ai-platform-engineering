@@ -39,7 +39,7 @@ class GitHubAgentExecutor(AgentExecutor):
 
         if not task:
             task = new_task(context.message)
-            event_queue.enqueue_event(task)
+            await event_queue.enqueue_event(task)
 
         # Extract trace_id from A2A context - GitHub is a SUB-AGENT, should never generate trace_id
         trace_id = extract_trace_id_from_context(context)
@@ -52,7 +52,7 @@ class GitHubAgentExecutor(AgentExecutor):
         # invoke the underlying agent, using streaming results
         async for event in self.agent.stream(query, context_id, trace_id, task.id):
             if event['is_task_complete']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
                         contextId=task.contextId,
@@ -65,7 +65,7 @@ class GitHubAgentExecutor(AgentExecutor):
                         ),
                     )
                 )
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
                         final=True,
@@ -88,7 +88,7 @@ class GitHubAgentExecutor(AgentExecutor):
                 if message_metadata:
                     agent_message.metadata = message_metadata
                 
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
@@ -100,7 +100,7 @@ class GitHubAgentExecutor(AgentExecutor):
                     )
                 )
             else:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.working,
