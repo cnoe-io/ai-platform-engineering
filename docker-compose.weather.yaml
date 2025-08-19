@@ -8,12 +8,14 @@ services:
       dockerfile: build/Dockerfile
     container_name: platform-engineer-p2p
     volumes:
+      - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
       # Mount only code that changes during development
       - ./ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     depends_on:
       - agent-weather-p2p
+      - agent-petstore-p2p
     profiles:
       - p2p
       - p2p-tracing
@@ -25,6 +27,7 @@ services:
     environment:
       - A2A_TRANSPORT=p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
+      - PETSTORE_AGENT_HOST=agent-petstore-p2p
       # Uncomment this once the stable GHCR image includes tracing evaluation support
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -39,17 +42,23 @@ services:
   #                                            AI Platform Engineer (tracing)                      #
   ####################################################################################################
   platform-engineer-slim:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
+    build:
+      context: .
+      dockerfile: build/Dockerfile
     container_name: platform-engineer-slim
     volumes:
       - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
+      # Mount only code that changes during development
+      - ./ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     profiles:
       - slim
       - slim-tracing
     depends_on:
       - slim-dataplane
       - agent-weather-slim
+      - agent-petstore-slim
     env_file:
       - .env
     ports:
@@ -58,6 +67,7 @@ services:
     environment:
       - A2A_TRANSPORT=slim
       - WEATHER_AGENT_HOST=agent-weather-slim
+      - PETSTORE_AGENT_HOST=agent-petstore-slim
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -99,7 +109,6 @@ services:
     volumes:
       - ./slim-config.yaml:/config.yaml
     command: ["/slim", "--config", "/config.yaml"]
-
 
   ####################################################################################################
   #                                      AGENT WEATHER A2A over SLIM                                 #
@@ -154,6 +163,63 @@ services:
       - MCP_MODE=${MCP_MODE:-http}
       - MCP_PORT=8000
       - MCP_HOST=mcp-weather
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+
+  ####################################################################################################
+  #                                      AGENT PETSTORE A2A over SLIM                                 #
+  ####################################################################################################
+  agent-petstore-slim:
+    build:
+      context: ai_platform_engineering/agents/template
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-petstore-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
+      - ./ai_platform_engineering/agents/template/clients:/app/clients
+    ports:
+      - "8010:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-petstore-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-petstore-agent}
+
+  ####################################################################################################
+  #                                      AGENT PETSTORE A2A P2P                                       #
+  ####################################################################################################
+  agent-petstore-p2p:
+    build:
+      context: ai_platform_engineering/agents/template
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-petstore-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
+      - ./ai_platform_engineering/agents/template/clients:/app/clients
+    ports:
+      - "8010:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-petstore
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
