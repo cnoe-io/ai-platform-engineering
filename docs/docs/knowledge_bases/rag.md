@@ -58,7 +58,47 @@ ENABLE_KB_RAG=true
 VSTORE_COLLECTION=rag_20250807_2cz951cb
 ```
 
-### 2️⃣ Start the RAG Services
+### 2️⃣ Configure Routing Prompt
+
+Update the `prompt_config.yaml` file to customize how the supervisor agent routes questions to the KB-RAG agent. You'll need to modify the `kb-rag` section to match your specific RAG documentation and use case.
+
+The default prompt configuration is:
+```yaml
+kb-rag:
+  system_prompt: |
+    If the user's prompt platform outshift docs, so if it sounds like an internal question that would refer to a documentation, then route to kb-rag.
+```
+
+**Example prompts for different use cases:**
+
+For general documentation:
+```yaml
+kb-rag:
+  system_prompt: |
+    Route to kb-rag when users ask questions about documentation, how-to guides, API references, troubleshooting steps, or any knowledge that would be found in technical documentation.
+```
+
+For platform-specific documentation:
+```yaml
+kb-rag:
+  system_prompt: |
+    Route to kb-rag for questions about our internal platform documentation, deployment guides, architecture decisions, best practices, runbooks, or any company-specific technical knowledge.
+```
+
+For product documentation:
+```yaml
+kb-rag:
+  system_prompt: |
+    Route to kb-rag when users ask about product features, user guides, configuration options, integration instructions, or any product-related documentation questions.
+```
+
+**💡 Prompt Engineering Tips:**
+- Be specific about what types of questions should be routed to KB-RAG
+- Include keywords that are common in your documentation domain
+- Consider the context of your ingested knowledge base
+- Test different prompts to ensure proper routing accuracy
+
+### 3️⃣ Start the RAG Services
 
 Run the following command from the main repository root to start the KB-RAG services:
 
@@ -73,7 +113,7 @@ This command will start:
 - **milvus-minio**: Object storage for Milvus (port 9000)
 - **platform-engineer-p2p**: Main platform engineer with KB-RAG integration (port 8000)
 
-### 3️⃣ Verify Setup
+### 4️⃣ Verify Setup
 
 Once the services are running, you can verify the setup by:
 
@@ -82,7 +122,7 @@ Once the services are running, you can verify the setup by:
 3. **Access the RAG agent directly**: Available at `http://localhost:8009`
 4. **Milvus Admin UI**: Available at `http://localhost:9091`
 
-### 4️⃣ Configuration Details
+### 5️⃣ Configuration Details
 
 #### Environment Variables
 
@@ -101,7 +141,7 @@ ENABLE_KB_RAG=true
 VSTORE_COLLECTION=rag_20250807_2cz951cb
 ```
 
-### 5️⃣ Using the RAG Agent
+### 6️⃣ Using the RAG Agent
 
 Once configured and running, the RAG agent can:
 - Answer questions based on ingested documentation
