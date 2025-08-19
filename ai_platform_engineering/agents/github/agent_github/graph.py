@@ -45,7 +45,7 @@ def should_execute_tool(state: AgentState) -> AgentState:
             tool_name = state.next_action.get("tool", "Unknown")
             tool_input = state.next_action.get("tool_input", {})
             print(f"🔧 Tool to Execute: {tool_name}")
-            print(f"📥 Tool Input Data:")
+            print("📥 Tool Input Data:")
             if tool_input:
                 for key, value in tool_input.items():
                     print(f"   • {key}: {value}")
@@ -79,7 +79,7 @@ def execute_tool(state: AgentState) -> AgentState:
         print("🔧 TOOL EXECUTION")
         print("=" * 80)
         print(f"📋 Tool Name: {tool_name}")
-        print(f"📥 Tool Input Data:")
+        print("📥 Tool Input Data:")
         if tool_input:
             for key, value in tool_input.items():
                 print(f"   • {key}: {value}")
