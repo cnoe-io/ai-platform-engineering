@@ -32,6 +32,8 @@ logger.info("Weather agent enabled: %s", WEATHER_AGENT_ENABLED)
 KB_RAG_ENABLED = os.getenv("ENABLE_KB_RAG", "false").lower() == "true"
 logger.info("KB-RAG enabled: %s", KB_RAG_ENABLED)
 
+logger.info("Local Build Running......")
+
 AGENT_NAMES = [
     "argocd",
     "backstage",
