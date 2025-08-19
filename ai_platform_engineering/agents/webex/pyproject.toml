@@ -27,10 +27,14 @@ dependencies = [
     "pytest>=8.3.5",
     "tabulate>=0.9.0",
     "uv",
-    "rich (>=14.0.0,<15.0.0)",
-    "sseclient (>=0.0.27,<0.0.28)",
-    "cnoe-agent-utils==0.2.2",
+    "rich>=14.0.0,<15.0.0",
+    "sseclient>=0.0.27,<0.0.28",
+    "cnoe-agent-utils==0.3.0",
 ]
+
+[project.scripts]
+agent_webex_a2a = "agent_webex.protocol_bindings.a2a_server:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 
@@ -51,6 +55,13 @@ pytest-cov = "^6.1.1"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.11.11",
+    "pytest-asyncio>=0.26.0",
+    "pytest-cov>=6.1.1",
+]
 
 [tool.ruff]
 # Allow lines to be as long as 140.

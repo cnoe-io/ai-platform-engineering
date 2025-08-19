@@ -18,12 +18,12 @@ dependencies = [
     "langgraph (==0.5.3)",
     "langgraph-supervisor (==0.0.28)",
     "langfuse (>=3.0.8,<4.0.0)",
-    
+
     # Transport dependencies for agent connections
     "a2a-sdk (==0.2.16)",
     "agntcy-app-sdk>=0.1.1",
-    "cnoe-agent-utils==0.2.2",
-    
+    "cnoe-agent-utils==0.3.0",
+
     # Basic utilities
     "python-dotenv>=1.0.1",
     "pydantic>=2.0.0",

@@ -60,6 +60,10 @@ class AgentRegistry:
         "petstore": {
             "slim": "ai_platform_engineering.agents.template.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.template.clients.a2a.agent"
+        },
+        "kb-rag": {
+            "slim": "ai_platform_engineering.knowledge_bases.rag.clients.slim.agent",
+            "a2a": "ai_platform_engineering.knowledge_bases.rag.clients.a2a.agent"
         }
     }
 

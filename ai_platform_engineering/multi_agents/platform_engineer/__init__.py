@@ -32,6 +32,11 @@ logger.info("Weather agent enabled: %s", WEATHER_AGENT_ENABLED)
 PETSTORE_AGENT_ENABLED = os.getenv("ENABLE_PETSTORE_AGENT", "false").lower() == "true"
 logger.info("Petstore agent enabled: %s", PETSTORE_AGENT_ENABLED)
 
+KB_RAG_ENABLED = os.getenv("ENABLE_KB_RAG", "false").lower() == "true"
+logger.info("KB-RAG enabled: %s", KB_RAG_ENABLED)
+
+logger.info("Local Build Running......")
+
 AGENT_NAMES = [
     "argocd",
     "backstage",
@@ -50,6 +55,9 @@ if WEATHER_AGENT_ENABLED:
 
 if PETSTORE_AGENT_ENABLED:
     AGENT_NAMES.append("petstore")
+
+if KB_RAG_ENABLED:
+    AGENT_NAMES.append("kb-rag")
 
 class PlatformRegistry(AgentRegistry):
     """Registry for platform engineer multi-agent system."""
