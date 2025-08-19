@@ -31,9 +31,6 @@ ai_platform_engineering/agents/*/Makefile
 ai_platform_engineering/agents/*/main.py
 ai_platform_engineering/agents/*/__main__.py
 
-# Exclude knowledge bases
-ai_platform_engineering/knowledge_bases/**
-
 # Exclude other heavy directories
 ai_platform_engineering/evaluation/**
 ai_platform_engineering/cli/**
