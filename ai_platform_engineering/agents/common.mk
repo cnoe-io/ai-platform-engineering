@@ -131,7 +131,7 @@ run-a2a: setup-venv check-env uv-sync ## Run A2A agent with uvicorn
 	uv run python -m $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
 
 run-mcp: setup-venv check-env ## Run MCP server in HTTP mode
-	@MCP_MODE=HTTP uv run $(AGENT_PKG_NAME)/mcp/$(MCP_SERVER_DIR)/server.py
+	@MCP_MODE=HTTP uv run mcp/$(MCP_SERVER_DIR)/server.py
 
 ## ========== Clients ==========
 

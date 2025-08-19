@@ -25,16 +25,16 @@ dependencies = [
     "pytest>=8.3.5",
     "tabulate>=0.9.0",
     "uv",
-    "rich>=14.0.0",
-    "sseclient>=0.0.27",
     "fastapi>=0.115.11",
     "uvicorn>=0.34.2",
     "httpx>=0.27.0",
     "httpx-sse>=0.3.0",
     "python-dotenv>=1.0.1",
-    "cnoe-agent-utils==0.2.2",
     "langchain>=0.1.0",
     "pydantic>=2.0.0",
+    "rich (>=14.0.0,<15.0.0)",
+    "sseclient (>=0.0.27,<0.0.28)",
+    "cnoe-agent-utils==0.3.0",
 ]
 
 [tool.hatch.build.targets.wheel]

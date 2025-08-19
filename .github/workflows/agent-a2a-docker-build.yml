@@ -11,6 +11,7 @@ on:
     branches:
       - main
   workflow_dispatch:
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -22,6 +23,7 @@ jobs:
       matrix:
         agent: [argocd, backstage, confluence, github, jira, komodor, pagerduty, slack, template, webex]
       fail-fast: false
+
 
     env:
       REGISTRY: ghcr.io
