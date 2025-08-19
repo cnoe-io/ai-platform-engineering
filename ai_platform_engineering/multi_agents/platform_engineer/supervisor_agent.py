@@ -149,8 +149,18 @@ class AIPlatformEngineerMAS:
                     method="json_schema",
                     strict=True,
                 )
-                # Re-invoke with structured output
-                structured_response = structured_model.invoke([HumanMessage(content=message.content)])
+                # Re-invoke with structured output, preserving context that this is a tool response
+                context_prompt = f"""TOOL RESPONSE - Format this according to structured output requirements. PRESERVE EXACT CONTENT:
+
+Tool/Agent Response: {message.content}
+
+Instructions:
+- If the tool asks for information, use the exact message in 'content' field
+- Set require_user_input=true if the tool is asking for user input
+- Set is_task_complete=false if the tool needs more information
+- Extract specific field requirements from the tool's actual request for input_fields
+- DO NOT rewrite or generalize the tool's specific request"""
+                structured_response = structured_model.invoke([HumanMessage(content=context_prompt)])
                 return AIMessage(
                     content=json.dumps(structured_response.model_dump() if hasattr(structured_response, 'model_dump') else structured_response)
                 )

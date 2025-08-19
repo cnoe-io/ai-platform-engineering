@@ -6,23 +6,23 @@ from typing import List, Optional
 
 
 class InputField(BaseModel):
-    """Model for input field requirements"""
-    field_name: str = Field(description="The name of the field that should be provided.")
-    field_description: str = Field(description="A description of what this field represents and how it will be used.")
-    field_values: Optional[List[str]] = Field(default=None, description="Possible values for the field, if any.")
+    """Model for input field requirements extracted from tool responses"""
+    field_name: str = Field(description="The name of the field that should be provided, extracted from the tool's specific request.")
+    field_description: str = Field(description="A description of what this field represents, based on the tool's actual request for information.")
+    field_values: Optional[List[str]] = Field(default=None, description="Possible values for the field mentioned by the tool, if any.")
 
 
 class Metadata(BaseModel):
     """Model for response metadata"""
-    user_input: bool = Field(description="Whether user input is required")
-    input_fields: Optional[List[InputField]] = Field(default=None, description="List of input fields if any")
+    user_input: bool = Field(description="Whether user input is required. Set to true when tools ask for specific information from user.")
+    input_fields: Optional[List[InputField]] = Field(default=None, description="List of input fields extracted from the tool's specific request, if any")
 
 
 class PlatformEngineerResponse(BaseModel):
     """Structured response format for AI Platform Engineer"""
-    is_task_complete: bool = Field(description="Whether the task is complete")
-    require_user_input: bool = Field(description="Whether user input is required")
-    content: str = Field(description="The main response content in markdown format")
+    is_task_complete: bool = Field(description="Whether the task is complete. Set to false if tools ask for more information.")
+    require_user_input: bool = Field(description="Whether user input is required. Set to true if tools request specific information from user.")
+    content: str = Field(description="The main response content in markdown format. When tools ask for information, preserve their exact message without rewriting.")
     metadata: Optional[Metadata] = Field(default=None, description="Additional metadata about the response")
 
     class Config:
@@ -30,14 +30,19 @@ class PlatformEngineerResponse(BaseModel):
             "example": {
                 "is_task_complete": False,
                 "require_user_input": True,
-                "content": "I need more information to complete this task. Please provide the project name.",
+                "content": "Please specify the required parameter and provide the necessary configuration details.",
                 "metadata": {
                     "user_input": True,
                     "input_fields": [
                         {
-                            "field_name": "project_name",
-                            "field_description": "Name of the project to work with",
-                            "field_values": ["project-a", "project-b"]
+                            "field_name": "parameter_name",
+                            "field_description": "The specific parameter that needs to be provided",
+                            "field_values": ["option1", "option2", "option3"]
+                        },
+                        {
+                            "field_name": "configuration_details",
+                            "field_description": "Additional configuration or context details",
+                            "field_values": None
                         }
                     ]
                 }
