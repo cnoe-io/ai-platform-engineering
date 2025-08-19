@@ -15,7 +15,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from cnoe_agent_utils import LLMFactory
-from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
+from cnoe_agent_utils.tracing import TracingManager
 
 logger = logging.getLogger(__name__)
 
@@ -625,7 +625,7 @@ class GitHubAgent:
                                     elif 'default' in param_info:
                                         print(f"       Default: {param_info['default']}")
                                     else:
-                                        print(f"       Default: None")
+                                        print("       Default: None")
                                     print()
                             else:
                                 print("     • No optional parameters")
@@ -956,7 +956,7 @@ class GitHubAgent:
                 if default is not None:
                     print(f"     Default: {default}")
                 else:
-                    print(f"     Default: None")
+                    print("     Default: None")
                 print()
         
         print("=" * 80)
@@ -1018,7 +1018,6 @@ Selection:"""
         import re  # Import re module at the top of the method
         
         extracted = {}
-        query_lower = query.lower()
         
         print(f"🔍 Extracting parameters from query: '{query}'")
         print(f"🔍 Available parameters: {list(all_params.keys())}")
@@ -1138,7 +1137,7 @@ Selection:"""
                         continue
                     
                     # Look for "issue 123" or "PR 123" format
-                    issue_pr_pattern = rf'(?:issue|pr|pull request)\s+(\d+)'
+                    issue_pr_pattern = r'(?:issue|pr|pull request)\s+(\d+)'
                     issue_pr_match = re.search(issue_pr_pattern, query, re.IGNORECASE)
                     if issue_pr_match:
                         extracted[param_name] = int(issue_pr_match.group(1))
@@ -1265,7 +1264,7 @@ Selection:"""
         all_params = analysis_result['all_params']
         required_params = analysis_result['all_required_params']
         
-        print(f"🔍 DEBUG: generate_missing_variables_message called with:")
+        print("🔍 DEBUG: generate_missing_variables_message called with:")
         print(f"🔍 DEBUG: tool_name: {tool_name}")
         print(f"🔍 DEBUG: all_params keys: {list(all_params.keys())}")
         print(f"🔍 DEBUG: required_params: {required_params}")
@@ -1296,7 +1295,7 @@ Information already provided:
             for param, value in meaningful_params.items():
                 prompt += f"- {param}: {value}\n"
             
-            prompt += f"""
+            prompt += """
 
 Please respond in a friendly, conversational way. Thank them for the additional information they've provided, 
 then show the complete parameter list in exactly the same format as before.
@@ -1376,7 +1375,7 @@ Here are ALL the parameters for this tool:
                     else:
                         prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
             
-            prompt += f"""
+            prompt += """
 
 Example format for the second message:
 Thanks for the additional information! In order to create a new GitHub repository I still need at least the required parameters from the list of parameters:
@@ -1434,7 +1433,7 @@ Please provide a simple, clean list of ALL parameters for this tool. Use this ex
                 else:
                     prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
             
-            prompt += f"""
+            prompt += """
 
 Please respond in a friendly, conversational way. Present the parameter list in the simple format shown above.
 
@@ -1918,7 +1917,7 @@ Possible operations I'm considering:
         for i, tool in enumerate(candidate_tools):
             prompt += f"{i+1}. {tool['name']}: {tool['description']}\n"
         
-        prompt += f"""
+        prompt += """
 Please respond in a friendly, conversational way. Ask the user to clarify what they want to do.
 Suggest the most likely operations and ask them to confirm or provide more details.
 Don't mention technical details like tool names or scores.
@@ -1947,7 +1946,7 @@ Response:"""
         """
         Generate a fallback clarification message if LLM fails.
         """
-        message = f"I'm not completely sure what you'd like to do with GitHub. Could you please clarify?\n\n"
+        message = "I'm not completely sure what you'd like to do with GitHub. Could you please clarify?\n\n"
         message += "Based on your request, I think you might want to:\n"
         
         for i, tool in enumerate(candidate_tools[:3]):  # Show top 3
@@ -1955,7 +1954,7 @@ Response:"""
             operation_name = self.extract_operation_from_tool_name(tool['name'])
             message += f"• {operation_name}\n"
         
-        message += f"\nCould you please be more specific about what you'd like to do?"
+        message += "\nCould you please be more specific about what you'd like to do?"
         
         return message
 
