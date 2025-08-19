@@ -95,13 +95,6 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 ```
 
-```bash
-kind create cluster --name cnoe-argocd-agent
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-```
-
 ### 🛂 Retrieve Admin Credentials
 
 ```bash
@@ -132,7 +125,8 @@ argocd app sync guestbook
 ```bash
 kubectl -n argocd patch configmap argocd-cm --type merge -p '{"data":{"accounts.admin":"login,apiKey"}}'
 kubectl -n argocd rollout restart deployment argocd-server
-argocd account generate-token --account admin
+kubectl config set-context --current --namespace=argocd
+argocd account generate-token --account admin --server-namespace argocd
 ```
 
 Add to your `.env`:
