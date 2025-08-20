@@ -688,6 +688,17 @@ services:
       - ./.env:/app/.env
     ports:
       - "8009:8000"
+  kb-rag-server:
+    image: rag_server:dev21
+    container_name: kb-rag-server
+    profiles:
+      - kb-rag
+    depends_on:
+      - milvus-standalone
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "9446:9446"
   milvus-standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.5.14
