@@ -37,7 +37,7 @@ Agentic Systems landscape is evolving rapidly, understanding the distinction bet
 
 This architecture makes agents **composable, validated black-box units** that can be reused across multi-agent systems and different personas.
 
-> **Note:** *Agents built in AI Platform Engineering project are exposed via the A2A protocol*, standardizing external I/O and providing authentication and authorization support.
+> **Note:** *Agents built in CAIPE (Community AI Platform Engineering) project are exposed via the A2A protocol*, standardizing external I/O and providing authentication and authorization support.
 
 ---
 
