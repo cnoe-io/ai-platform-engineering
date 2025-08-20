@@ -3,7 +3,8 @@ name = "kb-rag"
 version = "0.1.0"
 description = "A RAG agent that ingests documentation from any URL and answers questions using RAG with Milvus."
 authors = [
-    {name = "Rehan Agrawal", email = "rehagraw@cisco.com"}
+    {name = "Rehan Agrawal", email = "rehagraw@cisco.com"},
+    {name = "Shubham Bakshi", email = "subbaksh@cisco.com"}
 ]
 license = {text = "Apache-2.0"}
 readme = "README.md"
@@ -14,7 +15,6 @@ dependencies = [
     "langchain-milvus>=0.1.10",
     "langchain-openai>=0.3.18",
     "openai>=1.0.0",
-    "uvicorn>=0.29.0",
     "beautifulsoup4>=4.12.3",
     "httpx>=0.28.1",
     "python-dotenv>=1.0.0",
@@ -24,6 +24,11 @@ dependencies = [
     "cnoe-agent-utils>=0.1.4",
     "pydantic>=2.0.0",
     "a2a>=0.0.1",
+    "aiohttp>=3.12.15",
+    "aiofile>=3.9.0",
+    "langchain-community",
+    "uvicorn>=0.35.0",
+    "fastapi[standard]>=0.116.1",
 ]
 
 [project.optional-dependencies]
