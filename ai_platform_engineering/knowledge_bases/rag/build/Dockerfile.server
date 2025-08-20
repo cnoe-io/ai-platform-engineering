@@ -35,4 +35,4 @@ WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Run the FastAPI application by default
-CMD ["fastapi", "dev", "--host", "0.0.0.0", "/app/server/rag_api.py", "--port", "9446", "--proxy-headers"]
+CMD ["python3", "server/__main__.py"]
