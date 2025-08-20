@@ -2,7 +2,7 @@
 
 ## How to Contribute
 
-We welcome contributions to the AI Platform Engineering project! To get started, please review our [Contributing Guide](https://github.com/cnoe-io/ai-platform-engineering/blob/main/CONTRIBUTING.md). It outlines the process for submitting issues, proposing changes, and creating pull requests.
+We welcome contributions to the CAIPE (Community AI Platform Engineering) project! To get started, please review our [Contributing Guide](https://github.com/cnoe-io/ai-platform-engineering/blob/main/CONTRIBUTING.md). It outlines the process for submitting issues, proposing changes, and creating pull requests.
 
 ### Steps to Contribute:
 
@@ -16,4 +16,4 @@ We welcome contributions to the AI Platform Engineering project! To get started,
 
 Please adhere to our [Code of Conduct](https://github.com/cnoe-io/ai-platform-engineering/blob/main/CODE_OF_CONDUCT.md) to ensure a welcoming and inclusive environment for all contributors.
 
-Thank you for helping improve AI Platform Engineering!
+Thank you for helping improve CAIPE (Community AI Platform Engineering)

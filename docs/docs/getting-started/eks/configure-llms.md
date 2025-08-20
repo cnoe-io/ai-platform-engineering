@@ -2,7 +2,7 @@
 sidebar_position: 3
 ---
 
-# Deploy AI Platform Engineering on EKS
+# Deploy CAIPE on EKS
 
 This guide shows how to deploy the ai-platform-engineering helm chart to your EKS cluster using ArgoCD.
 
