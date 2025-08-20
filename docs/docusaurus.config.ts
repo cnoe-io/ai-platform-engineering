@@ -5,8 +5,8 @@ import type * as Preset from '@docusaurus/preset-classic';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
-  title: 'AI Platform Engineering',
-  tagline: 'AI Platform Engineering Multi-Agent Systems',
+  title: 'CAIPE (Community AI Platform Engineering)',
+  tagline: 'Community AI Platform Engineering Multi-Agent Systems',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -83,9 +83,9 @@ const config: Config = {
     // Replace with your project's social card
     image: 'img/logo.svg',
     navbar: {
-      title: 'AI Platform Engineering',
+      title: 'CAIPE (Community AI Platform Engineering)',
       logo: {
-        alt: 'AI Platform Engineering Logo',
+        alt: 'CAIPE Logo',
         src: 'img/logo.svg',
       },
       items: [
