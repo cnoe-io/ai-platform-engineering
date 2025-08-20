@@ -93,7 +93,11 @@ async def make_api_request(
         # Example usage:
         #   export VERIFY_SSL=false   # disables SSL verification
         #   export VERIFY_SSL=true    # enables SSL verification (default)
-        verify_ssl = os.getenv('VERIFY_SSL', 'true').lower() == 'true'
+        # Support both VERIFY_SSL and ARGOCD_VERIFY_SSL (ARGOCD_VERIFY_SSL takes precedence if set)
+        verify_ssl_env = os.getenv('ARGOCD_VERIFY_SSL', None)
+        if verify_ssl_env is None:
+            verify_ssl_env = os.getenv('VERIFY_SSL', 'true')
+        verify_ssl = verify_ssl_env.lower() == 'true'
 
         # Create unverified SSL context
         if verify_ssl:
