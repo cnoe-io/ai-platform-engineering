@@ -8,6 +8,7 @@ import os
 import logging
 from typing import Optional, Dict, Tuple, Any
 import httpx
+import ssl
 
 # Load environment variables
 API_URL = os.getenv("ARGOCD_API_URL")
@@ -85,9 +86,31 @@ async def make_api_request(
         if data:
             logger.debug(f"Request data: {data}")
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # Use environment variable to control SSL verification
+        # SSL certificate verification is controlled by the VERIFY_SSL environment variable.
+        # If VERIFY_SSL is set to 'false' (case-insensitive), SSL verification is disabled.
+        # In all other cases (unset or any value other than 'false'), SSL verification is enabled by default.
+        # Example usage:
+        #   export VERIFY_SSL=false   # disables SSL verification
+        #   export VERIFY_SSL=true    # enables SSL verification (default)
+        # Support both VERIFY_SSL and ARGOCD_VERIFY_SSL (ARGOCD_VERIFY_SSL takes precedence if set)
+        verify_ssl_env = os.getenv('ARGOCD_VERIFY_SSL', None)
+        if verify_ssl_env is None:
+            verify_ssl_env = os.getenv('VERIFY_SSL', 'true')
+        verify_ssl = verify_ssl_env.lower() == 'true'
+
+        # Create unverified SSL context
+        if verify_ssl:
+            async_client_kwargs = {"timeout": timeout}
+        else:
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            async_client_kwargs = {"timeout": timeout, "verify": ssl_context}
+
+        async with httpx.AsyncClient(**async_client_kwargs) as client:
             url = f"{API_URL}{path}"
-            logger.debug(f"Full request URL: {url}")
+            logger.info(f"Full request URL: {url}")
 
             method_map = {
                 "GET": client.get,
