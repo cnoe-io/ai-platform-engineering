@@ -136,7 +136,7 @@ class RAGAgent:
             self.qa_chain = RetrievalQA.from_chain_type(
                 llm=self.llm,
                 chain_type="stuff",
-                retriever=self.vector_store.as_retriever(search_kwargs={"k": 8}),
+                retriever=self.vector_store.as_retriever(search_kwargs={"k": 2}),
                 chain_type_kwargs={"prompt": prompt_template}
             )
             
