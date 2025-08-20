@@ -118,7 +118,7 @@ graph TD
 
 ## Overview
 
-The AI Platform Engineering system implements distributed tracing using **Langfuse** to provide end-to-end observability across multi-agent workflows. This enables debugging, performance analysis, and understanding of complex agent-to-agent interactions.
+The CAIPE (Community AI Platform Engineering) system implements distributed tracing using **Langfuse** to provide end-to-end observability across multi-agent workflows. This enables debugging, performance analysis, and understanding of complex agent-to-agent interactions.
 
 ## Architecture Diagram
 

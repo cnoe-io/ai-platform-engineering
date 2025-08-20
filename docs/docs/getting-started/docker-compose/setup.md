@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Run with Docker Compose 🚀🧑‍💻
 
-Setup AI Platform Engineering to run in a docker environment on a latop or a virtual machine like EC2 instance.
+Setup CAIPE to run in a docker environment on a latop or a virtual machine like EC2 instance.
 
 1. **Clone the repository**
 
@@ -37,7 +37,7 @@ Setup AI Platform Engineering to run in a docker environment on a latop or a vir
    ```bash
    docker compose -f docker-compose.incident_engineer.yaml up
    ```
-   
+
 3. **Connect to the A2A agent (host network)**
 
    ```bash
