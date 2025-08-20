@@ -1,4 +1,4 @@
-name: KB-RAG A2A Docker Build and Push
+name: KB RAG Build and Push
 
 on:
   push:
@@ -12,7 +12,6 @@ on:
     paths:
       - 'ai_platform_engineering/knowledge_bases/rag/**'
   workflow_dispatch:
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -20,19 +19,25 @@ jobs:
       contents: read
       packages: write
 
+    strategy:
+      matrix:
+        component: [agent-a2a, server]
+      fail-fast: false
+
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/kb-rag
-      AGENT_DIR: ai_platform_engineering/knowledge_bases/rag
+      IMAGE_NAME: cnoe-io/kb-rag-${{ matrix.component }}
+      BUILD_CTX: ai_platform_engineering/knowledge_bases/rag
+      DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
-      - name: 🔒 Harden runner
-        uses: step-security/harden-runner@v2.13.0
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
         with:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -50,20 +55,20 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=a2a-latest,enable=true
-            type=ref,event=branch,prefix=a2a-
-            type=ref,event=tag,prefix=a2a-
-            type=sha,format=short,prefix=a2a-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,format=short
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Build and Push KB-RAG Docker image
+      - name: Build and Push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.AGENT_DIR }}
-          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
-          push: true
+          context: ${{ env.BUILD_CTX }}
+          file: ${{ env.DOCKERFILE }}
+          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
