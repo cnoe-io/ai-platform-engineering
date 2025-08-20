@@ -1,4 +1,3 @@
-from ai_platform_engineering.knowledge_bases.rag.server.rag_api import vector_db
 from loader.url.docsaurus_scraper import scrape_docsaurus
 from loader.url.mkdocs_scraper import scrape_mkdocs
 import aiohttp
@@ -256,7 +255,9 @@ class Loader:
             self.logger.info(f"Loading sitemap: {sitemap_url}")
             urls = await self.get_urls_from_sitemap(sitemap_url)
             loader = WebBaseLoader()
-            for i, soup in enumerate(await loader.ascrape_all(urls)):
+            pages = await loader.ascrape_all(urls)
+            for i, soup in enumerate(pages):
+                self.logger.info(f"[{i+1}/{len(pages)}] Loading page")
                 content, metadata = await self.custom_parser(soup, urls[i])
                 doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
                 await self.process_document(doc)

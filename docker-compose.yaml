@@ -689,7 +689,7 @@ services:
     ports:
       - "8009:8000"
   kb-rag-server:
-    image: rag_server:dev18
+    image: rag_server:dev21
     container_name: kb-rag-server
     profiles:
       - kb-rag
