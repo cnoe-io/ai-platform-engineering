@@ -17,23 +17,38 @@ load_dotenv()
 # ==================================================
 AGENT_NAME = 'petstore'
 AGENT_DESCRIPTION = (
-  "A template AI agent for demonstration and extension. "
-  "This agent can be customized to integrate with various platforms and provide a range of capabilities."
+  "A comprehensive petstore management AI agent that handles pet inventory, customer orders, and user accounts. "
+  "Provides full CRUD operations for pets, order processing, user management, and store analytics."
 )
 
 agent_skill = AgentSkill(
-  id="template_agent_skill",
-  name="Template Skill",
-  description="Provides template capabilities for demonstration and extension.",
+  id="petstore_agent_skill",
+  name="Petstore Management",
+  description="Manages pets, orders, and users in the petstore system with comprehensive CRUD operations.",
   tags=[
-    "template",
-    "demo"],
-  examples=[
-      "Demonstrate a template action.",
-      "List all available template features.",
-      "Create a new template resource.",
-      "Archive a template item.",
-      "Post a notification using the template agent."
+    "petstore",
+    "pets",
+    "ecommerce",
+    "inventory",
+    "orders",
+    "users"],
+    examples=[
+      # Discovery & Getting Started
+      "What actions can you perform?",
+      "Show me what you can do with pets",
+      # Simple Pet Queries (work immediately)
+      "Find all available pets in the store",
+      "Get all cats that are pending",
+      "Show me dogs with 'sold' status",
+      "Get a summary of pets by status",
+      "Show me pets with 'friendly' tags",
+      # Interactive Operations (will ask for details)
+      "I want to add a new pet to the store",
+      "Help me place an order for a pet",
+      "Create a user account for me",
+      # Advanced Operations
+      "Check current store inventory levels",
+      "Update information for pet ID 12345"
   ])
 
 # ==================================================

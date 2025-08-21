@@ -79,6 +79,12 @@ def main():
 
     mcp.tool()(pet_findbystatus.find_pets_by_status)
 
+    mcp.tool()(pet_findbystatus.find_all_pets)
+
+    mcp.tool()(pet_findbystatus.find_pets_summary)
+
+    mcp.tool()(pet_findbystatus.find_pets_by_status_and_category)
+
     # Register pet_findbytags tools
 
     mcp.tool()(pet_findbytags.find_pets_by_tags)

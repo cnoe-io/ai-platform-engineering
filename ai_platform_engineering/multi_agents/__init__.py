@@ -582,7 +582,7 @@ class AgentRegistry:
                     break  # Stop signal received
 
                 # Perform connectivity refresh with fast timeout
-                logger.debug("Running background agent connectivity check...")
+                logger.info("Running background agent connectivity check...")
                 start_time = time.time()
 
                 has_changes = self.refresh_agents(use_fast_timeout=True)
@@ -591,7 +591,7 @@ class AgentRegistry:
                 if has_changes:
                     logger.info(f"Background check completed in {duration:.1f}s - changes detected")
                 else:
-                    logger.debug(f"Background check completed in {duration:.1f}s - no changes")
+                    logger.infor(f"Background check completed in {duration:.1f}s - no changes")
 
             except Exception as e:
                 logger.error(f"Error in background monitoring: {e}")

@@ -15,7 +15,7 @@ logger = logging.getLogger("mcp_tools")
 
 async def update_pet(
     body_name: str,
-    body_photoUrls: List[str],
+    body_photoUrls: List[str] = None,
     body_id: int = None,
     body_category_id: int = None,
     body_category_name: str = None,
@@ -27,7 +27,7 @@ async def update_pet(
 
     Args:
         body_name (str): The name of the pet.
-        body_photoUrls (List[str]): List of photo URLs for the pet.
+        body_photoUrls (List[str], optional): List of photo URLs for the pet. Defaults to placeholder image.
         body_id (int, optional): The unique identifier of the pet. Defaults to None.
         body_category_id (int, optional): The unique identifier of the pet's category. Defaults to None.
         body_category_name (str, optional): The name of the pet's category. Defaults to None.
@@ -106,12 +106,14 @@ async def update_pet(
         flat_body["photoUrls"] = body_photoUrls
     if body_id is not None:
         flat_body["id"] = body_id
-    if body_category_id is not None:
-        flat_body["category_id"] = body_category_id
-    if body_category_name is not None:
-        flat_body["category_name"] = body_category_name
+    # Handle category - ensure both id and name are provided
+    if body_category_id is not None or body_category_name is not None:
+        flat_body["category_id"] = body_category_id if body_category_id is not None else 1
+        flat_body["category_name"] = body_category_name if body_category_name is not None else "default"
     if body_tags is not None:
-        flat_body["tags"] = body_tags
+        # Convert string tags to proper object format for API
+        formatted_tags = [{"id": i+1, "name": tag} for i, tag in enumerate(body_tags)]
+        flat_body["tags"] = formatted_tags
     if body_status is not None:
         flat_body["status"] = body_status
     data = assemble_nested_body(flat_body)
@@ -126,7 +128,7 @@ async def update_pet(
 
 async def add_pet(
     body_name: str,
-    body_photoUrls: List[str],
+    body_photoUrls: List[str] = None,
     body_id: int = None,
     body_category_id: int = None,
     body_category_name: str = None,
@@ -138,7 +140,7 @@ async def add_pet(
 
     Args:
         body_name (str): Name of the pet.
-        body_photoUrls (List[str]): List of photo URLs for the pet.
+        body_photoUrls (List[str], optional): List of photo URLs for the pet. Defaults to placeholder image.
         body_id (int, optional): Unique identifier for the pet. Defaults to None.
         body_category_id (int, optional): Unique identifier for the pet's category. Defaults to None.
         body_category_name (str, optional): Name of the pet's category. Defaults to None.
@@ -210,16 +212,21 @@ async def add_pet(
     flat_body = {}
     if body_name is not None:
         flat_body["name"] = body_name
+    # PhotoUrls is required by API, provide default if not specified
     if body_photoUrls is not None:
         flat_body["photoUrls"] = body_photoUrls
+    else:
+        flat_body["photoUrls"] = ["https://via.placeholder.com/300x200?text=Pet+Photo"]
     if body_id is not None:
         flat_body["id"] = body_id
-    if body_category_id is not None:
-        flat_body["category_id"] = body_category_id
-    if body_category_name is not None:
-        flat_body["category_name"] = body_category_name
+    # Handle category - ensure both id and name are provided
+    if body_category_id is not None or body_category_name is not None:
+        flat_body["category_id"] = body_category_id if body_category_id is not None else 1
+        flat_body["category_name"] = body_category_name if body_category_name is not None else "default"
     if body_tags is not None:
-        flat_body["tags"] = body_tags
+        # Convert string tags to proper object format for API
+        formatted_tags = [{"id": i+1, "name": tag} for i, tag in enumerate(body_tags)]
+        flat_body["tags"] = formatted_tags
     if body_status is not None:
         flat_body["status"] = body_status
     data = assemble_nested_body(flat_body)
