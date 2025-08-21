@@ -39,6 +39,9 @@ ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
 # Copy venv & code from builder
 COPY --from=builder --chown=appuser:appuser /app /app
 
+# Create .venv directory with proper permissions
+RUN mkdir -p /app/.venv && chown -R appuser:appuser /app
+
 USER appuser
 
 EXPOSE 8000
