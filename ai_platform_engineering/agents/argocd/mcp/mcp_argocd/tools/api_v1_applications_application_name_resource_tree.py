@@ -6,7 +6,7 @@
 
 import logging
 from typing import Dict, Any
-from mcp_argocd.api.client import make_api_request
+from mcp_argocd.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -37,23 +37,41 @@ async def application_service__resource_tree(
         param_project (str, optional): The project associated with the application. Defaults to None.
 
     Returns:
-        Dict[str, Any]: A dictionary containing the JSON response from the API call, representing the resource tree.
+        Dict[str, Any]: The JSON response containing the resource tree of the application.
 
     Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
+        Exception: If the API request fails or returns an error.
     '''
     logger.debug("Making GET request to /api/v1/applications/{applicationName}/resource-tree")
 
     params = {}
     data = {}
 
-    params["namespace"] = param_namespace
-    params["name"] = param_name
-    params["version"] = param_version
-    params["group"] = param_group
-    params["kind"] = param_kind
-    params["appNamespace"] = param_appNamespace
-    params["project"] = param_project
+    if param_namespace is not None:
+        params["namespace"] = str(param_namespace).lower() if isinstance(param_namespace, bool) else param_namespace
+
+    if param_name is not None:
+        params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
+
+    if param_version is not None:
+        params["version"] = str(param_version).lower() if isinstance(param_version, bool) else param_version
+
+    if param_group is not None:
+        params["group"] = str(param_group).lower() if isinstance(param_group, bool) else param_group
+
+    if param_kind is not None:
+        params["kind"] = str(param_kind).lower() if isinstance(param_kind, bool) else param_kind
+
+    if param_appNamespace is not None:
+        params["appNamespace"] = (
+            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
+        )
+
+    if param_project is not None:
+        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
+
+    flat_body = {}
+    data = assemble_nested_body(flat_body)
 
     success, response = await make_api_request(
         f"/api/v1/applications/{path_applicationName}/resource-tree", method="GET", params=params, data=data

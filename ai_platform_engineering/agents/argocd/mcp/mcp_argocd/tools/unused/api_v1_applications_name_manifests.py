@@ -69,6 +69,36 @@ async def application_service__get_manifests(
         f"/api/v1/applications/{path_name}/manifests", method="GET", params=params, data=data
     )
 
+    # If the manifest is more than 500 lines, truncate it to the first 500 lines
+    if success and isinstance(response, dict):
+        # The manifest content is usually under a key like 'manifest', 'manifests', or similar
+        # Try to find the manifest content in the response
+        manifest_keys = ['manifest', 'manifests', 'yaml', 'content']
+        for key in manifest_keys:
+            if key in response and isinstance(response[key], str):
+                manifest_str = response[key]
+                lines = manifest_str.splitlines()
+                if len(lines) > 500:
+                    truncated_manifest = "\n".join(lines[:500])
+                    response[key] = truncated_manifest
+                break
+            # Sometimes manifests may be a list of strings (multiple manifests)
+            elif key in response and isinstance(response[key], list):
+                # Truncate each manifest in the list if needed
+                truncated_list = []
+                for manifest_str in response[key]:
+                    if isinstance(manifest_str, str):
+                        lines = manifest_str.splitlines()
+                        if len(lines) > 500:
+                            truncated_manifest = "\n".join(lines[:500])
+                            truncated_list.append(truncated_manifest)
+                        else:
+                            truncated_list.append(manifest_str)
+                    else:
+                        truncated_list.append(manifest_str)
+                response[key] = truncated_list
+                break
+
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
         return {"error": response.get("error", "Request failed")}

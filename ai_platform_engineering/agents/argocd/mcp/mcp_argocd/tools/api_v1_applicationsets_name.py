@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def application_set_service__get(path_name: str, param_appsetNamespace: str = None) -> Dict[str, Any]:
+async def applicationset_service__get(path_name: str, param_appsetNamespace: str = None) -> Dict[str, Any]:
     '''
     Get an applicationset by name.
 
@@ -50,7 +50,7 @@ async def application_set_service__get(path_name: str, param_appsetNamespace: st
     return response
 
 
-async def application_set_service__delete(path_name: str, param_appsetNamespace: str = None) -> Dict[str, Any]:
+async def applicationset_service__delete(path_name: str, param_appsetNamespace: str = None) -> Dict[str, Any]:
     '''
     Delete an application set.
 

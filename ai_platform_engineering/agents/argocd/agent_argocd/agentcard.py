@@ -27,11 +27,59 @@ agent_skill = AgentSkill(
     "list apps",
     "gitops"],
   examples=[
-      "Create a new ArgoCD application named 'my-app'.",
-      "Get the status of the 'frontend' ArgoCD application.",
-      "Update the image version for 'backend' app.",
-      "Delete the 'test-app' from ArgoCD.",
-      "Sync the 'production' ArgoCD application to the latest commit."
+      # Account Management
+      "Get the details of the current account.",
+      "List all accounts.",
+
+      # Token/Password Management (Not exposed by default due to security reasons)
+      # "Update the password for the current account.",
+      # "Create a new token for the current account.",
+      # "Delete a token for the current account.",
+
+      # RBAC Check
+      "Check if the current account has permission to delete the 'ai-platform-app' from ArgoCD.",
+
+      # Application Management
+      "Create a new ArgoCD application named 'ai-platform-app'.",
+      "Get the status of the 'ai-platform-app' ArgoCD application.",
+      "Update the repo url for 'ai-platform-app' app",
+      "Sync the 'ai-platform-app' ArgoCD application",
+      "Check if the current account has permission to delete the 'ai-platform-app' from ArgoCD."
+      "Delete the 'ai-platform-app' from ArgoCD.",
+
+      # Resource Events
+      "List the events for the 'ai-platform-app' ArgoCD application.",
+
+      # Get Pod Logs
+      "Get the logs for the 'ai-platform-app' ArgoCD application.",
+
+      # Projects
+      "List all projects in ArgoCD.",
+      "Create a new project named 'ai-platform-project' in ArgoCD.",
+      "Get the details of the 'ai-platform-project' project from ArgoCD.",
+      "Update the 'ai-platform-project' project in ArgoCD to have a description of 'This is a test project'.",
+      "Delete the 'ai-platform-project' project from ArgoCD.",
+
+      # ApplicationSets
+      "Generate an application set with a single in-cluster generator and a basic template.",
+      "Generate an application set with extra metadata labels.",
+      "Create an applicationset 'guestbook' with a single in-cluster generator and a basic template.",
+      "List all applicationsets in ArgoCD.",
+      "Get the details of the 'guestbook' applicationset from ArgoCD.",
+      "Delete the 'guestbook' applicationset from ArgoCD.",
+
+      # Certificates
+      "List all certificates in ArgoCD.",
+
+      # Clusters
+      "List all clusters in ArgoCD.",
+      "Get the details of the 'in-cluster' cluster from ArgoCD.",
+
+      # GPG Keys
+      "Create a new GPG key with a fingerprint of '1234567890'.",
+      "List all GPG keys in ArgoCD.",
+      "Get the details of the '1234567890' GPG key from ArgoCD.",
+      "Delete the GPG key with a fingerprint of '1234567890'.",
   ])
 
 # ==================================================
