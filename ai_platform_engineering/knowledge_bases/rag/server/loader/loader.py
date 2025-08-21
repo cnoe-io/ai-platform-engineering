@@ -131,10 +131,18 @@ class Loader:
         metadata = {"source": url}
         if title := soup.find("title"):
             metadata["title"] = title.get_text()
+        else:
+            metadata["title"] = ""
+
         if description := soup.find("meta", attrs={"name": "description"}):
-            metadata["description"] = description.get("content", "No description found.")
+            metadata["description"] = description.get("content", "")
+        else:
+            metadata["description"] = ""
+
         if html := soup.find("html"):
-            metadata["language"] = html.get("lang", "No language found.")
+            metadata["language"] = html.get("lang", "")
+        else:
+            metadata["language"] = ""
 
         return content, metadata
 
@@ -155,7 +163,7 @@ class Loader:
 
         # TODO: Check for duplicate
 
-        self.logger.info(f"Processing document: {source}")
+        self.logger.info(f"Embedding & adding document: {source}")
         # filename = document_id + ".txt"
 
         # TODO: Use UUID and store reference in a proper database

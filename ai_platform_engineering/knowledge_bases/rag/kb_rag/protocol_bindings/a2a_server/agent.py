@@ -46,9 +46,10 @@ class RAGAgent:
             llm_factory = LLMFactory()
             self.llm = llm_factory.get_llm()
             
-            # Initialize embeddings directly
+            # Initialize embeddings with configurable model
+            embeddings_deployment = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-large")
             self.embeddings = AzureOpenAIEmbeddings(
-                deployment="text-embedding-3-small",
+                deployment=embeddings_deployment,
                 chunk_size=1
             )
             
@@ -118,12 +119,13 @@ class RAGAgent:
             prompt_template = PromptTemplate(
                 input_variables=["context", "question"],
                 template="""
-                You are a Retrieval-Augmented Generation (RAG) assistant. Answer the user's question using only the information provided in the retrieved context below. 
-                The chucked context you might have is very unorganized, try to first organize it and then make sense of what it's saying. You must try giving a answer in the best of your ability. 
-                Try to compound as many words as well but only if they relate the context of the question. Do not Hallucinate. If the URL is part of the chunked context, you must add the URL when you output.
-                Do not make up answers or use outside knowledge. Be concise and accurate, and cite relevant context if possible.
+                You are a Retrieval-Augmented Generation (RAG) assistant. Answer the user's question using only the information provided in the retrieved Documents below. 
+                The chucked documents you might have is very unorganized, try to first organize it and then make sense of what it's saying. You must try giving a answer in the best of your ability. 
+                Try to compound as many words as well but only if they relate the documents of the question. Do not make things up, always use relevant documents. If there's a source for each document, you must add the source which would be a URL when you output.
+                Do not make up answers or use outside knowledge. Be concise and accurate, and cite relevant documents if possible.
 
-                Context:
+
+                Documents:
                 {context}
 
                 Question:
@@ -136,8 +138,10 @@ class RAGAgent:
             self.qa_chain = RetrievalQA.from_chain_type(
                 llm=self.llm,
                 chain_type="stuff",
-                retriever=self.vector_store.as_retriever(search_kwargs={"k": 8}),
-                chain_type_kwargs={"prompt": prompt_template}
+                retriever=self.vector_store.as_retriever(search_kwargs={"k": 2}),
+                # chain_type_kwargs={"prompt": prompt_template, "document_prompt":PromptTemplate.from_template("{page_content} {metadata}")},
+                chain_type_kwargs={"prompt": prompt_template},
+                return_source_documents=True
             )
             
         except Exception as e:
@@ -172,6 +176,10 @@ class RAGAgent:
             
             # Get answer
             answer = self.qa_chain.invoke({"query": question})["result"]
+            sources = self.qa_chain.invoke({"query": question})["source_documents"]
+            for source in sources:
+                debug_print(f"Source: {source.metadata.get('source', 'No source found')}", banner=False)
+                answer += f"\nSource: {source.metadata.get('source', 'No source found')}"
             debug_print(f"Generated answer: {answer}")
             logger.info(f"Generated answer: {answer}")
             return answer

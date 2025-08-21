@@ -65,4 +65,5 @@ agent_prompts:
       If the user's prompt is related to weather operations, such as getting the current weather, forecasting, or historical weather data, assign the task to the Weather agent.
   kb-rag:
     system_prompt: |
-      If the user's prompt platform outshift docs, so if it sounds like an internal question that would refer to a documentation, then route to kb-rag.
+      The RAG agent now encompasses everything about ai_platform_engineering. All our documentation lies there. So if there's any question about ai_platform_engineering, then route to kb-rag. 
+

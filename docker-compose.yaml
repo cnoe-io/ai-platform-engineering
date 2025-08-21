@@ -731,7 +731,7 @@ services:
   #                                          KB-RAG SERVICES                                         #
   ####################################################################################################
   kb-rag-agent:
-    image: ghcr.io/cnoe-io/kb-rag:a2a-latest
+    image: ghcr.io/cnoe-io/kb-rag-agent-a2a:latest
     container_name: kb-rag
     profiles:
       - kb-rag
@@ -742,7 +742,7 @@ services:
     ports:
       - "8009:8000"
   kb-rag-server:
-    image: rag_server:dev21
+    image: ghcr.io/cnoe-io/kb-rag-server:latest
     container_name: kb-rag-server
     profiles:
       - kb-rag
@@ -754,7 +754,7 @@ services:
       - "9446:9446"
   milvus-standalone:
     container_name: milvus-standalone
-    image: milvusdb/milvus:v2.5.14
+    image: milvusdb/milvus:v2.6.0
     command: ["milvus", "run", "standalone"]
     profiles:
       - kb-rag

@@ -52,7 +52,7 @@ class FileIngest(BaseModel):
 
 class QueryRequest(BaseModel):
     query: str = Field(..., description="Query string to search for")
-    limit: int = Field(10, description="Maximum number of results to return", ge=1, le=100)
+    limit: int = Field(3, description="Maximum number of results to return", ge=1, le=100)
     similarity_threshold: float = Field(0.7, description="Minimum similarity score", ge=0.0, le=1.0)
 
 class QueryResult(BaseModel):

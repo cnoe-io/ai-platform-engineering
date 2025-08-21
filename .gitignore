@@ -206,6 +206,8 @@ deploy/data/*
 
 # Milvus
 volumes
+volumes_old
+
 
 # VS Code
 .vscode/
