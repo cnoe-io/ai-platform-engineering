@@ -3,7 +3,7 @@ services:
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
     container_name: platform-engineer-p2p
     volumes:
       - .env:/app/.env
@@ -742,7 +742,9 @@ services:
     ports:
       - "8009:8000"
   kb-rag-server:
-    image: ghcr.io/cnoe-io/kb-rag-server:latest
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: build/Dockerfile.server
     container_name: kb-rag-server
     profiles:
       - kb-rag
@@ -752,6 +754,17 @@ services:
       - ./.env:/app/.env
     ports:
       - "9446:9446"
+  kb-rag-web:
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: build/Dockerfile.web
+    container_name: kb-rag-web
+    profiles:
+      - kb-rag
+    depends_on:
+      - kb-rag-server
+    ports:
+      - "9447:80"
   milvus-standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.6.0
