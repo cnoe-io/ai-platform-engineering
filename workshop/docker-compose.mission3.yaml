@@ -3,17 +3,11 @@ services:
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
-    build:
-      context: ../
-      dockerfile: build/Dockerfile
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-p2p
-    restart: unless-stopped
     volumes:
       - ../.env:/app/.env
       - ../prompt_config.yaml:/app/prompt_config.yaml
-      # Mount only code that changes during development
-      - ../ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
-      - ../ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     depends_on:
       - agent-weather-p2p
       - agent-petstore-p2p
@@ -34,17 +28,11 @@ services:
   #                                 AI Platform Engineer A2A SLIM                                  #
   ####################################################################################################
   platform-engineer-slim:
-    build:
-      context: ../
-      dockerfile: build/Dockerfile
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-slim
-    restart: unless-stopped
     volumes:
       - ../.env:/app/.env
       - ../prompt_config.yaml:/app/prompt_config.yaml
-      # Mount only code that changes during development
-      - ../ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
-      - ../ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     profiles:
       - slim
     depends_on:
@@ -68,7 +56,6 @@ services:
   slim-dataplane:
     image: ghcr.io/agntcy/slim:0.3.15
     container_name: slim-dataplane
-    restart: unless-stopped
     profiles:
       - slim
     ports:
@@ -82,7 +69,6 @@ services:
   slim-control-plane:
     image: ghcr.io/agntcy/slim/control-plane:0.0.1
     container_name: slim-control-plane
-    restart: unless-stopped
     profiles:
       - slim
       - slim-tracing
@@ -100,20 +86,14 @@ services:
   #                                      AGENT WEATHER A2A over SLIM                                 #
   ####################################################################################################
   agent-weather-slim:
-    build:
-      context: ../ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
     container_name: agent-weather-slim
-    restart: unless-stopped
     profiles:
       - slim
     depends_on:
       - slim-dataplane
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ../.env:/app/.env
-      - ../ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
-      - ../ai_platform_engineering/agents/weather/clients:/app/clients
     ports:
       - "8009:8000"
     environment:
@@ -124,18 +104,12 @@ services:
   #                                      AGENT WEATHER A2A P2P                                       #
   ####################################################################################################
   agent-weather-p2p:
-    build:
-      context: ../ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
     container_name: agent-weather-p2p
-    restart: unless-stopped
     profiles:
       - p2p
     volumes:
       - ../.env:/app/.env
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ../ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
-      - ../ai_platform_engineering/agents/weather/clients:/app/clients
     ports:
       - "8009:8000"
     environment:
@@ -148,20 +122,14 @@ services:
   #                                      AGENT PETSTORE A2A over SLIM                                 #
   ####################################################################################################
   agent-petstore-slim:
-    build:
-      context: ../ai_platform_engineering/agents/template
-      dockerfile: build/Dockerfile.a2a
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
     container_name: agent-petstore-slim
-    restart: unless-stopped
     profiles:
       - slim
     depends_on:
       - slim-dataplane
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ../.env:/app/.env
-      - ../ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
-      - ../ai_platform_engineering/agents/template/clients:/app/clients
     ports:
       - "8010:8000"
     environment:
@@ -172,17 +140,12 @@ services:
   #                                      AGENT PETSTORE A2A P2P                                       #
   ####################################################################################################
   agent-petstore-p2p:
-    build:
-      context: ../ai_platform_engineering/agents/template
-      dockerfile: build/Dockerfile.a2a
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
     container_name: agent-petstore-p2p
-    restart: unless-stopped
     profiles:
       - p2p
     volumes:
       - ../.env:/app/.env
-      - ../ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
-      - ../ai_platform_engineering/agents/template/clients:/app/clients
     ports:
       - "8010:8000"
     environment:
