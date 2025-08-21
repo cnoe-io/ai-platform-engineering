@@ -4,18 +4,13 @@ services:
   ####################################################################################################
   #                                    PETSTORE AGENT                                               #
   ####################################################################################################
-  petstore-agent:
-    build:
-      context: ../ai_platform_engineering/agents/template
-      dockerfile: build/Dockerfile.a2a
+  agent-petstore-p2p:
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
     container_name: petstore-agent-mission2
-    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
       - ../.env:/app/.env
-      - ../ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
-      - ../ai_platform_engineering/agents/template/clients:/app/clients
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=http
