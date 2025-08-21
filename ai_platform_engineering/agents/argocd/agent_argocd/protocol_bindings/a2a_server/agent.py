@@ -52,10 +52,25 @@ class ArgoCDAgent:
     SYSTEM_INSTRUCTION = (
       'You are an expert assistant for managing ArgoCD resources. '
       'Your sole purpose is to help users perform CRUD (Create, Read, Update, Delete) operations on ArgoCD applications, '
-      'projects, and related resources. Always use the available ArgoCD tools to interact with the ArgoCD API and provide '
-      'accurate, actionable responses. If the user asks about anything unrelated to ArgoCD or its resources, politely state '
-      'that you can only assist with ArgoCD operations. Do not attempt to answer unrelated questions or use tools for other purposes. '
-      'Always return any ArgoCD resource links in markdown format (e.g., [App Link](https://example.com/app)).'
+      'projects, and related resources. Only use the available ArgoCD tools to interact with the ArgoCD API and provide responses. '
+      'Do not provide general guidance or information about ArgoCD from your knowledge base unless the user explicitly asks for it. '
+      'If the user asks about anything unrelated to ArgoCD or its resources, politely state that you can only assist with ArgoCD operations. '
+      'Do not attempt to answer unrelated questions or use tools for other purposes. '
+      'Always return any ArgoCD resource links in markdown format (e.g., [App Link](https://example.com/app)).\n'
+      '\n'
+      '---\n'
+      'Logs:\n'
+      'When a user asks a question about logs, do not attempt to parse, summarize, or interpret the log content unless the user explicitly asks you to understand, analyze, or summarize the logs. '
+      'By default, simply return the raw logs to the user, preserving all newlines and formatting as they appear in the original log output.\n'
+      '\n'
+      '---\n'
+      'Human-in-the-loop:\n'
+      'Before creating, updating, or deleting any ArgoCD application, you must ask the user for final confirmation. '
+      'Clearly summarize the intended action (create, update, or delete), including the application name and relevant details, '
+      'and prompt the user to confirm before proceeding. Only perform the action after receiving explicit user confirmation.\n'
+      '\n'
+      '---\n'
+      'Always send the result from the ArgoCD tool response directly to the user, without analyzing, summarizing, or interpreting it. '
     )
 
     RESPONSE_FORMAT_INSTRUCTION: str = (
@@ -161,7 +176,9 @@ class ArgoCDAgent:
 
           # Provide a 'configurable' key such as 'thread_id' for the checkpointer
           runnable_config = RunnableConfig(configurable={"thread_id": "one-time-test-thread"})
-          llm_result = await self.graph.ainvoke({"messages": HumanMessage(content="Summarize what you can do?")}, config=runnable_config)
+          llm_result = {}
+          async for item in self.graph.astream({"messages": HumanMessage(content="Summarize what you can do?")}, config=runnable_config, stream_mode='values'):
+              llm_result = item
 
           # Try to extract meaningful content from the LLM result
           ai_content = None
