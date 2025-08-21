@@ -815,7 +815,7 @@ services:
   agent-weather-slim:
     build:
       context: ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile
+      dockerfile: build/Dockerfile.a2a
       cache_from: []
     container_name: agent-weather-slim
     profiles:
