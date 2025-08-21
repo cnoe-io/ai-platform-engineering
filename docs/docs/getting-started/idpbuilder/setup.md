@@ -3,7 +3,7 @@
 [IDPBuilder](https://cnoe.io/docs/idpbuilder) is a tool for creating local Internal Developer Platform environments using KIND clusters. It provides a fast way to deploy and test platform components including ArgoCD, Vault, Backstage, and AI Platform Engineering agents.
 
 <div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
-	<iframe src="https://app.vidcast.io/share/embed/3dc7f168-c8b0-40d3-aa45-66f74ec0ec03?disableCopyDropdown=1" width="100%" height="100%" title="Run AI Platform Engineering using IDPBuilder" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
+	<iframe src="https://app.vidcast.io/share/embed/3dc7f168-c8b0-40d3-aa45-66f74ec0ec03?disableCopyDropdown=1" width="100%" height="100%" title="Run CAIPE (Community AI Platform Engineering) using IDPBuilder" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
 </div>
 
 ## Prerequisites
@@ -13,7 +13,7 @@
 
 ## Architecture Overview
 
-IDPBuilder creates a KIND cluster and deploys platform components via ArgoCD. The AI Platform Engineering stack adds authentication, secret management, and multi-agent AI capabilities:
+IDPBuilder creates a KIND cluster and deploys platform components via ArgoCD. The CAIPE (Community AI Platform Engineering) stack adds authentication, secret management, and multi-agent AI capabilities:
 
 ```mermaid
 flowchart LR
@@ -40,7 +40,7 @@ flowchart LR
             BS --- AF
         end
 
-        subgraph AIPLATFORM["AI Platform Engineering"]
+        subgraph AIPLATFORM["CAIPE (Community AI Platform Engineering)"]
             MA[multi-agent]
             A1[GitHub Agent]
             A2[PagerDuty Agent]
@@ -103,7 +103,7 @@ flowchart LR
 3. **Authentication Setup**: Keycloak provides SSO for Backstage and other platform services
 4. **Secret Management**: Vault stores secrets, External Secrets distributes to applications
 5. **Developer Access**: NGINX Ingress routes traffic, Backstage provides developer portal
-6. **AI Integration**: Agent-Forge plugin in Backstage connects to AI Platform Engineering
+6. **AI Integration**: Agent-Forge plugin in Backstage connects to CAIPE MAS Agent
 7. **Multi-Agent System**: Orchestrator manages individual agents for different platform domains
 
 ## Section Outline
@@ -112,7 +112,7 @@ flowchart LR
 2. Access ArgoCD and Monitor Deployments
 3. Configure Vault Secrets
 4. Access Backstage Portal
-5. Use AI Platform Engineering Agent
+5. Use CAIPE MAS Agent
 
 ## Create KIND Cluster with IDPBuilder
 
@@ -250,7 +250,7 @@ Open https://cnoe.localtest.me:8443/ and login with:
 - Username: `user1`
 - Password: From Step 1 above
 
-## Use AI Platform Engineering Agent
+## Use CAIPE (Community AI Platform Engineering) MAS Agent
 
 Once logged into Backstage:
 

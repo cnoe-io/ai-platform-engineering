@@ -204,6 +204,10 @@ helm/tmp/*
 deploy/data/*
 !deploy/data/.gitkeep
 
-# Milvus 
+# Milvus
 volumes
 volumes_old
+
+
+# VS Code
+.vscode/

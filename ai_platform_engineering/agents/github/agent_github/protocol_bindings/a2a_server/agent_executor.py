@@ -41,7 +41,7 @@ class GitHubAgentExecutor(AgentExecutor):
             task = new_task(context.message)
             await event_queue.enqueue_event(task)
 
-        # Extract trace_id from A2A context - GitHub is a SUB-AGENT, should NEVER generate trace_id
+        # Extract trace_id from A2A context - GitHub is a SUB-AGENT, should never generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
             logger.warning("🔍 GitHub Agent Executor: No trace_id received from supervisor! This should not happen.")
@@ -50,7 +50,7 @@ class GitHubAgentExecutor(AgentExecutor):
             logger.info(f"🔍 GitHub Agent Executor: Using trace_id from supervisor: {trace_id}")
 
         # invoke the underlying agent, using streaming results
-        async for event in self.agent.stream(query, context_id, trace_id):
+        async for event in self.agent.stream(query, context_id, trace_id, task.id):
             if event['is_task_complete']:
                 await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
@@ -74,15 +74,25 @@ class GitHubAgentExecutor(AgentExecutor):
                     )
                 )
             elif event['require_user_input']:
+                # Create message with metadata if available
+                message_content = event['content']
+                message_metadata = event.get('metadata', {})
+                
+                agent_message = new_agent_text_message(
+                    message_content,
+                    task.contextId,
+                    task.id,
+                )
+                
+                # Add metadata to the message if present
+                if message_metadata:
+                    agent_message.metadata = message_metadata
+                
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
-                            message=new_agent_text_message(
-                                event['content'],
-                                task.contextId,
-                                task.id,
-                            ),
+                            message=agent_message,
                         ),
                         final=True,
                         contextId=task.contextId,
