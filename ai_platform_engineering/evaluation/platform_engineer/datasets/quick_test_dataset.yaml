@@ -1,0 +1,67 @@
+# Platform Engineer Quick Test Dataset
+# 5 sample prompts covering different agents for trajectory evaluation
+
+name: platform_engineer_quick_test
+description: Quick test dataset focusing on agent trajectory validation (5 prompts)
+
+prompts:
+  # GitHub Agent Test
+  - id: github_repo_description
+    category: github
+    operation: read
+    messages:
+      - role: user
+        content: "show all repo description for ai-platform-engineering in cnoe-io org"
+    expected_agents: 
+      - github
+
+  # ArgoCD Agent Test  
+  - id: argocd_version
+    category: argocd
+    operation: read
+    messages:
+      - role: user
+        content: "show argocd version"
+    expected_agents:
+      - argocd
+
+  # Backstage Agent Test
+  - id: backstage_list_entities
+    category: backstage
+    operation: read
+    messages:
+      - role: user
+        content: "list all entities in the Backstage catalog"
+    expected_agents:
+      - backstage
+
+  # Confluence Agent Test
+  - id: confluence_list_spaces
+    category: confluence
+    operation: read
+    messages:
+      - role: user
+        content: "list all Confluence spaces I have access to"
+    expected_agents:
+      - confluence
+
+  # Jira Agent Test
+  - id: jira_list_projects
+    category: jira
+    operation: read
+    messages:
+      - role: user
+        content: "list all Jira projects I have access to"
+    expected_agents:
+      - jira
+
+  # Multi-agent Test
+  - id: github_and_jira_integration
+    category: integration
+    operation: cross_platform
+    messages:
+      - role: user
+        content: "create a Jira issue for the latest GitHub issue in cnoe-io/ai-platform-engineering repo"
+    expected_agents:
+      - github
+      - jira

@@ -958,6 +958,33 @@ services:
      - ./ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/example/dummy_data.json:/app/clients/dummy_data.json
 
   ####################################################################################################
+  #                                     EVALUATION SERVICES                                          #
+  ####################################################################################################
+  # Platform Engineer evaluation webhook (triggered from Langfuse UI)
+  eval-webhook:
+    build:
+      context: .
+      dockerfile: ai_platform_engineering/evaluation/Dockerfile
+    container_name: eval-webhook
+    profiles:
+      - slim-tracing
+      - p2p-tracing
+    depends_on:
+      langfuse-web:
+        condition: service_started
+      platform-engineer-slim:
+        condition: service_started
+    ports:
+      - "8010:8000"
+    environment:
+      - PLATFORM_ENGINEER_URL=http://platform-engineering:8000
+      - LANGFUSE_HOST=http://langfuse-web:3000
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
+    volumes:
+      - ./ai_platform_engineering/evaluation:/app/ai_platform_engineering/evaluation
+
+  ####################################################################################################
   #                                      LANGFUSE TRACING SERVICES                                   #
   ####################################################################################################
   # Langfuse Tracing Services (use ENABLE_TRACING=true to enable)
