@@ -5,15 +5,100 @@
 """Tools for /api/v1/applications/{name}/logs operations"""
 
 import logging
-from typing import Dict, Any
+import json
+from typing import Dict, Any, List, Optional
 from mcp_argocd.api.client import make_api_request, assemble_nested_body
+from mcp_argocd.models import ParsedLogEntry, ProcessedLogs
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def application_service__pod_logs2(
+def parse_log_response(log_response: str) -> List[ParsedLogEntry]:
+    """
+    Parse the log response format and extract log entries.
+
+    Args:
+        log_response (str): Raw log response string containing multiple JSON objects
+
+    Returns:
+        List[ParsedLogEntry]: List of parsed log entries
+    """
+    logs = []
+
+    # Split the response by lines and parse each JSON object
+    lines = log_response.strip().split('\n')
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            # Parse the JSON response
+            parsed = json.loads(line)
+
+            # Extract the result content
+            if 'result' in parsed and isinstance(parsed['result'], dict):
+                result = parsed['result']
+
+                log_entry = ParsedLogEntry(
+                    content=result.get('content', ''),
+                    timestamp=result.get('timeStamp', ''),
+                    timestamp_str=result.get('timeStampStr', ''),
+                    pod_name=result.get('podName', ''),
+                    last=result.get('last', False)
+                )
+
+                logs.append(log_entry)
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse log line: {line}, error: {e}")
+            continue
+
+    return logs
+
+
+def concatenate_logs(logs: List[ParsedLogEntry]) -> str:
+    """
+    Concatenate log entries into a single string.
+
+    Args:
+        logs (List[ParsedLogEntry]): List of parsed log entries
+
+    Returns:
+        str: Concatenated log content
+    """
+    if not logs:
+        return ""
+
+    # Sort logs by timestamp if available
+    try:
+        logs_sorted = sorted(logs, key=lambda x: x.timestamp)
+    except:
+        logs_sorted = logs
+
+    # Concatenate the content
+    concatenated = []
+    for log in logs_sorted:
+        timestamp = log.timestamp
+        pod_name = log.pod_name
+        content = log.content
+
+        if timestamp and pod_name:
+            concatenated.append(f"[{timestamp}] [{pod_name}] {content}")
+        elif timestamp:
+            concatenated.append(f"[{timestamp}] {content}")
+        elif pod_name:
+            concatenated.append(f"[{pod_name}] {content}")
+        else:
+            concatenated.append(content)
+
+    return '\n'.join(concatenated)
+
+
+async def application_service__pod_logs(
     path_name: str,
     param_namespace: str = None,
     param_podName: str = None,
@@ -21,7 +106,6 @@ async def application_service__pod_logs2(
     param_sinceSeconds: str = None,
     param_sinceTime_seconds: str = None,
     param_sinceTime_nanos: int = None,
-    param_tailLines: str = None,
     param_follow: bool = False,
     param_untilTime: str = None,
     param_filter: str = None,
@@ -32,139 +116,96 @@ async def application_service__pod_logs2(
     param_appNamespace: str = None,
     param_project: str = None,
     param_matchCase: bool = False,
+    param_tailLines: str = "100",
 ) -> Dict[str, Any]:
     """
-        PodLogs returns stream of log entries for the specified pod. Pod
+    Stream log entries for a specified pod in an ArgoCD application.
 
-        OpenAPI Description:
+    Args:
+        path_name (str): Application name.
+        param_namespace (str, optional): Pod namespace.
+        param_podName (str, optional): Pod name.
+        param_container (str, optional): Container name.
+        param_sinceSeconds (str, optional): Only return logs newer than this duration (seconds).
+        param_sinceTime_seconds (str, optional): Only return logs after this UTC epoch seconds (1970-01-01T00:00:00Z to 9999-12-31T23:59:59Z).
+        param_sinceTime_nanos (int, optional): Nanosecond fraction of sinceTime_seconds (0 to 999,999,999).
+        param_tailLines (str, optional): Number of lines from the end of the logs to show. Defaults to 100.
+        param_follow (bool, optional): Stream logs.
+        param_untilTime (str, optional): Only return logs before this time.
+        param_filter (str, optional): Filter logs.
+        param_kind (str, optional): Resource kind.
+        param_group (str, optional): Resource group.
+        param_resourceName (str, optional): Resource name.
+        param_previous (bool, optional): Return previous pod logs.
+        param_appNamespace (str, optional): Application namespace.
+        param_project (str, optional): Project name.
+        param_matchCase (bool, optional): Case-sensitive filter.
 
+    Returns:
+        Dict[str, Any]: API response containing logs or error details.
 
-        Args:
-
-            path_name (str): OpenAPI parameter corresponding to 'path_name'
-
-            param_namespace (str): OpenAPI parameter corresponding to 'param_namespace'
-
-            param_podName (str): OpenAPI parameter corresponding to 'param_podName'
-
-            param_container (str): OpenAPI parameter corresponding to 'param_container'
-
-            param_sinceSeconds (str): OpenAPI parameter corresponding to 'param_sinceSeconds'
-
-            param_sinceTime_seconds (str): Represents seconds of UTC time since Unix epoch
-    1970-01-01T00:00:00Z. Must be from 0001-01-01T00:00:00Z to
-    9999-12-31T23:59:59Z inclusive.
-
-            param_sinceTime_nanos (int): Non-negative fractions of a second at nanosecond resolution. Negative
-    second values with fractions must still have non-negative nanos values
-    that count forward in time. Must be from 0 to 999,999,999
-    inclusive. This field may be limited in precision depending on context.
-
-            param_tailLines (str): OpenAPI parameter corresponding to 'param_tailLines'
-
-            param_follow (bool): OpenAPI parameter corresponding to 'param_follow'
-
-            param_untilTime (str): OpenAPI parameter corresponding to 'param_untilTime'
-
-            param_filter (str): OpenAPI parameter corresponding to 'param_filter'
-
-            param_kind (str): OpenAPI parameter corresponding to 'param_kind'
-
-            param_group (str): OpenAPI parameter corresponding to 'param_group'
-
-            param_resourceName (str): OpenAPI parameter corresponding to 'param_resourceName'
-
-            param_previous (bool): OpenAPI parameter corresponding to 'param_previous'
-
-            param_appNamespace (str): OpenAPI parameter corresponding to 'param_appNamespace'
-
-            param_project (str): OpenAPI parameter corresponding to 'param_project'
-
-            param_matchCase (bool): OpenAPI parameter corresponding to 'param_matchCase'
-
-
-        Returns:
-            Dict[str, Any]: The JSON response from the API call.
-
-        Raises:
-            Exception: If the API request fails or returns an error.
+    Raises:
+        Exception: If the API request fails or returns an error.
     """
-    logger.debug("Making GET request to /api/v1/applications/{name}/logs")
+    # Prepare query parameters for the API call
+    logger.info(f"Preparing to fetch logs for application '{path_name}' via /api/v1/applications/{path_name}/logs")
+
+    # Helper to add param if not None, converting bools to lowercase strings
+    def add_param(params, key, value):
+        if value is not None:
+            params[key] = str(value).lower() if isinstance(value, bool) else value
 
     params = {}
-    data = {}
+    add_param(params, "namespace", param_namespace)
+    add_param(params, "podName", param_podName)
+    add_param(params, "container", param_container)
+    add_param(params, "sinceSeconds", param_sinceSeconds)
+    add_param(params, "sinceTime_seconds", param_sinceTime_seconds)
+    add_param(params, "sinceTime_nanos", param_sinceTime_nanos)
+    add_param(params, "tailLines", param_tailLines)
+    add_param(params, "follow", param_follow)
+    add_param(params, "untilTime", param_untilTime)
+    add_param(params, "filter", param_filter)
+    add_param(params, "kind", param_kind)
+    add_param(params, "group", param_group)
+    add_param(params, "resourceName", param_resourceName)
+    add_param(params, "previous", param_previous)
+    add_param(params, "appNamespace", param_appNamespace)
+    add_param(params, "project", param_project)
+    add_param(params, "matchCase", param_matchCase)
 
-    if param_namespace is not None:
-        params["namespace"] = str(param_namespace).lower() if isinstance(param_namespace, bool) else param_namespace
+    # No body needed for GET, but assemble for consistency
+    data = assemble_nested_body({})
 
-    if param_podName is not None:
-        params["podName"] = str(param_podName).lower() if isinstance(param_podName, bool) else param_podName
+    logger.debug(f"GET /api/v1/applications/{path_name}/logs params: {params}")
 
-    if param_container is not None:
-        params["container"] = str(param_container).lower() if isinstance(param_container, bool) else param_container
-
-    if param_sinceSeconds is not None:
-        params["sinceSeconds"] = (
-            str(param_sinceSeconds).lower() if isinstance(param_sinceSeconds, bool) else param_sinceSeconds
-        )
-
-    if param_sinceTime_seconds is not None:
-        params["sinceTime_seconds"] = (
-            str(param_sinceTime_seconds).lower()
-            if isinstance(param_sinceTime_seconds, bool)
-            else param_sinceTime_seconds
-        )
-
-    if param_sinceTime_nanos is not None:
-        params["sinceTime_nanos"] = (
-            str(param_sinceTime_nanos).lower() if isinstance(param_sinceTime_nanos, bool) else param_sinceTime_nanos
-        )
-
-    if param_tailLines is not None:
-        params["tailLines"] = str(param_tailLines).lower() if isinstance(param_tailLines, bool) else param_tailLines
-
-    if param_follow is not None:
-        params["follow"] = str(param_follow).lower() if isinstance(param_follow, bool) else param_follow
-
-    if param_untilTime is not None:
-        params["untilTime"] = str(param_untilTime).lower() if isinstance(param_untilTime, bool) else param_untilTime
-
-    if param_filter is not None:
-        params["filter"] = str(param_filter).lower() if isinstance(param_filter, bool) else param_filter
-
-    if param_kind is not None:
-        params["kind"] = str(param_kind).lower() if isinstance(param_kind, bool) else param_kind
-
-    if param_group is not None:
-        params["group"] = str(param_group).lower() if isinstance(param_group, bool) else param_group
-
-    if param_resourceName is not None:
-        params["resourceName"] = (
-            str(param_resourceName).lower() if isinstance(param_resourceName, bool) else param_resourceName
-        )
-
-    if param_previous is not None:
-        params["previous"] = str(param_previous).lower() if isinstance(param_previous, bool) else param_previous
-
-    if param_appNamespace is not None:
-        params["appNamespace"] = (
-            str(param_appNamespace).lower() if isinstance(param_appNamespace, bool) else param_appNamespace
-        )
-
-    if param_project is not None:
-        params["project"] = str(param_project).lower() if isinstance(param_project, bool) else param_project
-
-    if param_matchCase is not None:
-        params["matchCase"] = str(param_matchCase).lower() if isinstance(param_matchCase, bool) else param_matchCase
-
-    flat_body = {}
-    data = assemble_nested_body(flat_body)
-
+    # Make the API request
     success, response = await make_api_request(
         f"/api/v1/applications/{path_name}/logs", method="GET", params=params, data=data
     )
 
+    logger.info(f"API request success: {success}")
+    logger.debug(f"Raw API response: {response}")
+
     if not success:
-        logger.error(f"Request failed: {response.get('error')}")
+        logger.error(f"Log fetch failed: {response.get('error')}")
         return {"error": response.get("error", "Request failed")}
+
+    # If the response is a raw log string, parse and process it
+    if isinstance(response, str):
+        logger.info("Parsing log response string into structured entries")
+        parsed_logs = parse_log_response(response)
+        concatenated_logs = concatenate_logs(parsed_logs)
+        logger.info(f"Parsed {len(parsed_logs)} log entries")
+
+        processed_logs = ProcessedLogs(
+            success=True,
+            parsed_logs=parsed_logs,
+            concatenated_logs=concatenated_logs,
+            total_logs=len(parsed_logs),
+            raw_response=response
+        )
+        return processed_logs.model_dump()
+
+    # If already structured, just return
     return response
