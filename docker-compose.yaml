@@ -3,7 +3,7 @@ services:
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-p2p
     volumes:
       - .env:/app/.env
