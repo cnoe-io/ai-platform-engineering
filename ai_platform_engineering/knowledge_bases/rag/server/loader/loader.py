@@ -163,7 +163,7 @@ class Loader:
 
         # TODO: Check for duplicate
 
-        self.logger.info(f"Processing document: {source}")
+        self.logger.info(f"Embedding & adding document: {source}")
         # filename = document_id + ".txt"
 
         # TODO: Use UUID and store reference in a proper database
