@@ -4,14 +4,13 @@
 import logging
 import os
 import re
-from copy import deepcopy
 from datetime import datetime
 from typing import Any, Literal, AsyncIterable, Type, Optional
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langchain_core.runnables.config import RunnableConfig
-from langchain_core.tools import tool, BaseTool
+from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
