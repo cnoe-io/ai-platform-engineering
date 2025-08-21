@@ -11,14 +11,43 @@ from aiofile import async_open
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
-from typing import Dict, Any
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from typing import Dict, Any, Optional
 import uuid
+import datetime
 
 class Loader:
     def __init__(self, vstore: VectorStore, logger: logging.Logger):
         self.session = None
         self.vstore = vstore
         self.logger = logger
+        self.jobs_store = None  # Will be set by the API
+        
+        # Initialize text splitter for chunking large documents
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=30000,
+            chunk_overlap=3000,
+            length_function=len,
+            separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""]
+        )
+    
+    def set_jobs_store(self, jobs_store: Dict[str, Any]):
+        """Set the jobs store reference"""
+        self.jobs_store = jobs_store
+    
+    def update_job_progress(self, job_id: Optional[str], **updates):
+        """Update job progress if job_id is provided and jobs_store exists"""
+        if job_id and self.jobs_store and job_id in self.jobs_store:
+            job_info = self.jobs_store[job_id]
+            self.logger.info(f"Updating job {job_id} with: {updates}")
+            for key, value in updates.items():
+                if key == "progress":
+                    job_info.progress.update(value)
+                else:
+                    setattr(job_info, key, value)
+            self.logger.info(f"Job {job_id} updated. Status: {job_info.status}, Progress: {job_info.progress}")
+        else:
+            self.logger.warning(f"Cannot update job {job_id}: job_id={job_id}, jobs_store exists={bool(self.jobs_store)}, job_id in store={job_id in self.jobs_store if self.jobs_store else False}")
     
     async def get_sitemaps(self, url: str) -> List[str]:
         """Return a list of sitemap URLs for the given site.
@@ -103,15 +132,16 @@ class Loader:
         """
         # check meta tag for generator
         content = ""
+        generator = None
         generator_tag = soup.find('meta', attrs={'name': 'generator'})
         if generator_tag:
             self.logger.info(f"Generator tag found: {generator_tag}")
             generator = generator_tag.get('content')
             self.logger.info(f"Generator: {generator}")
-            if "docusaurus" in generator.lower():
-                content = scrape_docsaurus(soup)
-            elif "mkdocs" in generator.lower():
-                content = scrape_mkdocs(soup)
+        if generator and "docusaurus" in generator.lower():
+            content = scrape_docsaurus(soup)
+        elif generator and "mkdocs" in generator.lower():
+            content = scrape_mkdocs(soup)
             # TODO: Add more processors
         else:
             # If no generator is found, just remove nav and header
@@ -154,23 +184,48 @@ class Loader:
         self.logger.debug(f"Sanitized filename: {filename}")
         return filename
 
-    async def process_document(self, doc: Document):
+    async def process_document(self, doc: Document, job_id: Optional[str] = None):
         """
-        Process a document.
+        Process a document, splitting into chunks if necessary.
         """
-        # Use source as filename if available, else use UUID
+        self.logger.info(f"Processing document: {doc}")
         source = doc.metadata.get("source", None)
+        content = doc.page_content
+        
+        self.logger.info(f"Processing document: {source} ({len(content)} characters)")
 
-        # TODO: Check for duplicate
+        # Check if document needs chunking
+        if len(content) > 30000:
+            self.logger.info(f"Document exceeds 30,000 characters, splitting into chunks using RecursiveCharacterTextSplitter")
+            
+            # Use LangChain's RecursiveCharacterTextSplitter
+            chunk_docs = self.text_splitter.split_documents([doc])
 
-        self.logger.info(f"Embedding & adding document: {source}")
-        # filename = document_id + ".txt"
+            self.logger.info(f"Length of chunk_docs: {len(chunk_docs)}")
 
-        # TODO: Use UUID and store reference in a proper database
-        # await self.save_to_file(filename, doc.page_content)
+            self.update_job_progress(job_id, 
+                status="in_progress", 
+                progress={"message": f"Splitting page into {len(chunk_docs)} chunks"}
+            )
 
-        doc_ids = await self.vstore.aadd_documents([doc])
-        self.logger.info(f"Document added to vector store: {doc_ids}")
+            # Add chunk metadata to each chunk
+            for i, chunk_doc in enumerate(chunk_docs):
+                chunk_doc.metadata["chunk_index"] = i
+                chunk_doc.metadata["total_chunks"] = len(chunk_docs)
+                chunk_doc.metadata["chunk_id"] = f"{doc.id}_chunk_{i}" if doc.id else f"{uuid.uuid4().hex}_chunk_{i}"
+                # Ensure each chunk has a unique ID
+                if not hasattr(chunk_doc, 'id') or not chunk_doc.id:
+                    chunk_doc.id = f"{doc.id}_chunk_{i}" if doc.id else uuid.uuid4().hex
+            
+            self.logger.info(f"Split document into {len(chunk_docs)} chunks for: {source}")
+            doc_ids = await self.vstore.aadd_documents(chunk_docs)
+            self.logger.info(f"Added {len(doc_ids)} document chunks to vector store")
+        else:
+            # Process as single document
+            self.logger.info(f"Embedding & adding document: {source}")
+            doc_ids = await self.vstore.aadd_documents([doc])
+            self.logger.info(f"Document added to vector store: {doc_ids}")
+        
         # TODO: Return document_id for tracking
 
     async def get_urls_from_sitemap(self, sitemap_url: str) -> List[str]:
@@ -239,38 +294,93 @@ class Loader:
             self.logger.error(f"Unexpected error reading sitemap {sitemap_url}: {e}")
             return []
 
-    async def load_url(self, url: str):
+    async def load_url(self, url: str, job_id: Optional[str] = None):
         """
         Loads documents from a URL and save contents to a files.
         # TODO: Support saving to S3 or MinIO for storage
 
         Returns: List of document_ids (filenames for now)
         """
+        try:
+            self.update_job_progress(job_id, 
+                status="in_progress", 
+                progress={"message": "Checking for sitemaps...", "processed": 0, "total": 0}
+            )
+            
+            # Check if the URL has sitemap
+            self.logger.info(f"Checking for sitemaps at: {url}")
+            sitemaps = await self.get_sitemaps(url)
+            
+            if not sitemaps:
+                self.logger.info(f"No sitemaps found at: {url}")
+                self.update_job_progress(job_id, 
+                    progress={"message": "No sitemaps found, processing single URL...", "processed": 0, "total": 1}
+                )
                 
-        # Check if the URL has sitemap
-        self.logger.info(f"Checking for sitemaps at: {url}")
-        sitemaps = await self.get_sitemaps(url)
-        
-        if not sitemaps:
-            self.logger.info(f"No sitemaps found at: {url}")
-            loader = WebBaseLoader(url)
-            doc = await loader.aload()
-            await self.process_document(doc)
-            return
+                # Use synchronous loading to avoid event loop conflicts
+                loader = WebBaseLoader(
+                    requests_per_second=1
+                )
+                docs = await loader.ascrape_all([url])
+                for doc in docs:
+                    self.logger.info(f"Processing single URL: {url}")
+                    content, metadata = await self.custom_parser(doc, url)
+                    doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata) 
+                    await self.process_document(doc, job_id)
+                
+                self.update_job_progress(job_id, 
+                    status="completed", 
+                    completed_at=datetime.datetime.now(),
+                    progress={"message": "Successfully processed 1 URL", "processed": 1, "total": 1}
+                )
+                return
 
-        # Load documents from URLs
-        for sitemap_url in sitemaps:
-            self.logger.info(f"Loading sitemap: {sitemap_url}")
-            urls = await self.get_urls_from_sitemap(sitemap_url)
-            loader = WebBaseLoader()
-            pages = await loader.ascrape_all(urls)
-            for i, soup in enumerate(pages):
-                self.logger.info(f"[{i+1}/{len(pages)}] Loading page")
-                content, metadata = await self.custom_parser(soup, urls[i])
-                doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
-                await self.process_document(doc)
-            return
-
+            # Load documents from URLs
+            for sitemap_url in sitemaps:
+                self.logger.info(f"Loading sitemap: {sitemap_url}")
+                self.update_job_progress(job_id, 
+                    progress={"message": f"Getting URLs from sitemap: {sitemap_url}...", "processed": 0, "total": 0}
+                )
+                
+                urls = await self.get_urls_from_sitemap(sitemap_url)
+                total_urls = len(urls)
+                
+                self.update_job_progress(job_id, 
+                    progress={"message": f"Found {total_urls} URLs to process", "processed": 0, "total": total_urls}
+                )
+                
+                loader = WebBaseLoader(
+                    requests_per_second=1
+                )
+                pages = await loader.ascrape_all(urls)
+                for i, soup in enumerate(pages):
+                    current_url = urls[i] if i < len(urls) else "unknown"
+                    self.logger.info(f"[{i+1}/{len(pages)}] Loading page: {current_url}")
+                    
+                    self.update_job_progress(job_id, 
+                        progress={"message": f"Processing page {i+1}/{total_urls}: {current_url}", "processed": i, "total": total_urls}
+                    )
+                    
+                    content, metadata = await self.custom_parser(soup, urls[i])
+                    doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
+                    await self.process_document(doc, job_id)
+                
+                self.update_job_progress(job_id, 
+                    status="completed", 
+                    completed_at=datetime.datetime.now(),
+                    progress={"message": f"Successfully processed {total_urls} URLs", "processed": total_urls, "total": total_urls}
+                )
+                return
+            
+        except Exception as e:
+            self.logger.error(f"Error during URL ingestion: {e}")
+            self.update_job_progress(job_id, 
+                status="failed", 
+                completed_at=datetime.datetime.now(),
+                error=str(e),
+                progress={"message": f"Failed: {str(e)}", "processed": 0, "total": 0}
+            )
+            raise
     
     async def save_to_file(self, filename: str, content: str):
         # create folder if not exists

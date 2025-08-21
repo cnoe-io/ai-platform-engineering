@@ -138,7 +138,7 @@ class RAGAgent:
             self.qa_chain = RetrievalQA.from_chain_type(
                 llm=self.llm,
                 chain_type="stuff",
-                retriever=self.vector_store.as_retriever(search_kwargs={"k": 2}),
+                retriever=self.vector_store.as_retriever(search_kwargs={"k": 3}),
                 # chain_type_kwargs={"prompt": prompt_template, "document_prompt":PromptTemplate.from_template("{page_content} {metadata}")},
                 chain_type_kwargs={"prompt": prompt_template},
                 return_source_documents=True
@@ -161,7 +161,7 @@ class RAGAgent:
         logger.info(f"Answering question: {question}")
         try:
             # Get relevant documents first
-            retriever = self.vector_store.as_retriever(search_kwargs={"k": 8})
+            retriever = self.vector_store.as_retriever(search_kwargs={"k": 3})
             relevant_docs = retriever.get_relevant_documents(question)
             
             debug_print("Retrieved RAG chunks:")
