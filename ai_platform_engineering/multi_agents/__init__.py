@@ -629,5 +629,6 @@ class AgentRegistry:
         try:
             if hasattr(self, 'stop_background_monitoring'):
                 self.stop_background_monitoring()
-        except:
+        except Exception as e:
+            logger.error(f"Error in __del__: {e}")
             pass
