@@ -701,7 +701,7 @@ services:
       - "9446:9446"
   milvus-standalone:
     container_name: milvus-standalone
-    image: milvusdb/milvus:v2.5.14
+    image: milvusdb/milvus:v2.6.0
     command: ["milvus", "run", "standalone"]
     profiles:
       - kb-rag
