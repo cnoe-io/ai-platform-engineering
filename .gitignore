@@ -208,6 +208,8 @@ deploy/data/*
 volumes
 volumes_old
 
+ai_platform_engineering/knowledge_bases/rag/web/node_modules
+
 
 # VS Code
 .vscode/
