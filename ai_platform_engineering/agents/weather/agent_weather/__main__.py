@@ -21,8 +21,8 @@ import os
 from dotenv import load_dotenv
 from agntcy_app_sdk.factory import AgntcyFactory
 
-from agent_petstore.protocol_bindings.a2a_server.agent_executor import PetStoreAgentExecutor # type: ignore[import-untyped]
-from agent_petstore.agentcard import create_agent_card
+from agent_weather.protocol_bindings.a2a_server.agent_executor import WeatherAgentExecutor # type: ignore[import-untyped]
+from agent_weather.agentcard import create_agent_card
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import (
@@ -51,7 +51,7 @@ async def async_main(host: str, port: int):
     push_sender = BasePushNotificationSender(httpx_client=client,
                     config_store=push_config_store)
     request_handler = DefaultRequestHandler(
-        agent_executor=PetStoreAgentExecutor(),
+        agent_executor=WeatherAgentExecutor(),
         task_store=InMemoryTaskStore(),
       push_config_store=push_config_store,
       push_sender= push_sender
