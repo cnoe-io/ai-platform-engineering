@@ -196,7 +196,7 @@ class Loader:
 
         # Check if document needs chunking
         if len(content) > 30000:
-            self.logger.info(f"Document exceeds 30,000 characters, splitting into chunks using RecursiveCharacterTextSplitter")
+            self.logger.info("Document exceeds 30,000 characters, splitting into chunks using RecursiveCharacterTextSplitter")
             
             # Use LangChain's RecursiveCharacterTextSplitter
             chunk_docs = self.text_splitter.split_documents([doc])
