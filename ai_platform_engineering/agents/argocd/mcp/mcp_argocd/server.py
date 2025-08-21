@@ -15,167 +15,51 @@ import os
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-
-from mcp_argocd.tools import api_v1_account
-
 from mcp_argocd.tools import api_v1_account_can_i_resource_action_subresource
 
-from mcp_argocd.tools import api_v1_account_password
+# Due to the fact that the token/password may be read by LLM,
+# we are not exposing the token creation and deletion tools
+# Note: Only expose these tools at your own risk
+#from mcp_argocd.tools import api_v1_account_name_token_id
+#from mcp_argocd.tools import api_v1_account_name_token
+#from mcp_argocd.tools import api_v1_account_password
 
 from mcp_argocd.tools import api_v1_account_name
 
-from mcp_argocd.tools import api_v1_account_name_token
-
-from mcp_argocd.tools import api_v1_account_name_token_id
+from mcp_argocd.tools import api_v1_account
 
 from mcp_argocd.tools import api_v1_applications
 
-from mcp_argocd.tools import api_v1_applications_manifestswithfiles
+from mcp_argocd.tools import api_version
 
-from mcp_argocd.tools import api_v1_applications_application_metadata_name
-
-from mcp_argocd.tools import (
-    api_v1_applications_applicationname_managed_resources,
-)
-
-from mcp_argocd.tools import api_v1_applications_applicationname_resource_tree
-
-from mcp_argocd.tools import api_v1_applications_name
+# TODO: These tools are not working as expected, need to fix them
+# ERROR:  Input is too long for requested model.
+# from mcp_argocd.tools import api_v1_applications_application_name_managed_resources
+# from mcp_argocd.tools import api_v1_applications_application_name_resource_tree
 
 from mcp_argocd.tools import api_v1_applications_name_events
-
 from mcp_argocd.tools import api_v1_applications_name_links
 
 from mcp_argocd.tools import api_v1_applications_name_logs
 
-from mcp_argocd.tools import api_v1_applications_name_manifests
-
-from mcp_argocd.tools import api_v1_applications_name_operation
-
-from mcp_argocd.tools import api_v1_applications_name_pods_podname_logs
-
-from mcp_argocd.tools import api_v1_applications_name_resource
-
-from mcp_argocd.tools import api_v1_applications_name_resource_actions
-
-from mcp_argocd.tools import api_v1_applications_name_resource_links
-
-from mcp_argocd.tools import (
-    api_v1_applications_name_revisions_revision_chartdetails,
-)
-
-from mcp_argocd.tools import (
-    api_v1_applications_name_revisions_revision_metadata,
-)
-
-from mcp_argocd.tools import api_v1_applications_name_rollback
-
-from mcp_argocd.tools import api_v1_applications_name_spec
-
-from mcp_argocd.tools import api_v1_applications_name_sync
-
-from mcp_argocd.tools import api_v1_applications_name_syncwindows
-
-from mcp_argocd.tools import api_v1_applicationsets
-
-from mcp_argocd.tools import api_v1_applicationsets_generate
-
-from mcp_argocd.tools import api_v1_applicationsets_name
-
-from mcp_argocd.tools import api_v1_applicationsets_name_resource_tree
-
-from mcp_argocd.tools import api_v1_certificates
-
-from mcp_argocd.tools import api_v1_clusters
-
-from mcp_argocd.tools import api_v1_clusters_id_value
-
-from mcp_argocd.tools import api_v1_clusters_id_value_invalidate_cache
-
-from mcp_argocd.tools import api_v1_clusters_id_value_rotate_auth
-
-from mcp_argocd.tools import api_v1_gpgkeys
-
-from mcp_argocd.tools import api_v1_gpgkeys_keyid
-
-from mcp_argocd.tools import api_v1_notifications_services
-
-from mcp_argocd.tools import api_v1_notifications_templates
-
-from mcp_argocd.tools import api_v1_notifications_triggers
-
+# Projects
 from mcp_argocd.tools import api_v1_projects
 
-from mcp_argocd.tools import api_v1_projects_name
+# ApplicationSets
+from mcp_argocd.tools import api_v1_applicationsets_generate
+from mcp_argocd.tools import api_v1_applicationsets
+from mcp_argocd.tools import api_v1_applicationsets_name
 
-from mcp_argocd.tools import api_v1_projects_name_detailed
+# Certificates
+from mcp_argocd.tools import api_v1_certificates
 
-from mcp_argocd.tools import api_v1_projects_name_events
+# Clusters
+from mcp_argocd.tools import api_v1_clusters
+from mcp_argocd.tools import api_v1_clusters_id_value
 
-from mcp_argocd.tools import api_v1_projects_name_globalprojects
-
-from mcp_argocd.tools import api_v1_projects_name_links
-
-from mcp_argocd.tools import api_v1_projects_name_syncwindows
-
-from mcp_argocd.tools import api_v1_projects_project_metadata_name
-
-from mcp_argocd.tools import api_v1_projects_project_roles_role_token
-
-from mcp_argocd.tools import api_v1_projects_project_roles_role_token_iat
-
-from mcp_argocd.tools import api_v1_repocreds
-
-from mcp_argocd.tools import api_v1_repocreds_creds_url
-
-from mcp_argocd.tools import api_v1_repocreds_url
-
-from mcp_argocd.tools import api_v1_repositories
-
-from mcp_argocd.tools import api_v1_repositories_repo_repo
-
-from mcp_argocd.tools import api_v1_repositories_repo
-
-from mcp_argocd.tools import api_v1_repositories_repo_apps
-
-from mcp_argocd.tools import api_v1_repositories_repo_helmcharts
-
-from mcp_argocd.tools import api_v1_repositories_repo_refs
-
-from mcp_argocd.tools import api_v1_repositories_repo_validate
-
-from mcp_argocd.tools import api_v1_repositories_source_repourl_appdetails
-
-from mcp_argocd.tools import api_v1_session
-
-from mcp_argocd.tools import api_v1_session_userinfo
-
-from mcp_argocd.tools import api_v1_settings
-
-from mcp_argocd.tools import api_v1_settings_plugins
-
-from mcp_argocd.tools import api_v1_stream_applications
-
-from mcp_argocd.tools import (
-    api_v1_stream_applications_applicationname_resource_tree,
-)
-
-from mcp_argocd.tools import api_v1_write_repocreds
-
-from mcp_argocd.tools import api_v1_write_repocreds_creds_url
-
-from mcp_argocd.tools import api_v1_write_repocreds_url
-
-from mcp_argocd.tools import api_v1_write_repositories
-
-from mcp_argocd.tools import api_v1_write_repositories_repo_repo
-
-from mcp_argocd.tools import api_v1_write_repositories_repo
-
-from mcp_argocd.tools import api_v1_write_repositories_repo_validate
-
-from mcp_argocd.tools import api_version
-
+# GPG Keys
+from mcp_argocd.tools import api_v1_gpgkeys
+from mcp_argocd.tools import api_v1_gpgkeys_keyid
 
 def main():
     # Load environment variables
@@ -205,359 +89,79 @@ def main():
     else:
         mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
-    # Register api_v1_account tools
-
-    mcp.tool()(api_v1_account.account_service__list_accounts)
-
-    # Register api_v1_account_can_i_resource_action_subresource tools
-
+    # Checks if the current account has permission to perform a specified action on a resource.
     mcp.tool()(api_v1_account_can_i_resource_action_subresource.account_service__can_i)
 
-    # Register api_v1_account_password tools
-
-    mcp.tool()(api_v1_account_password.account_service__update_password)
-
-    # Register api_v1_account_name tools
-
+    # Get the details of the current account
     mcp.tool()(api_v1_account_name.account_service__get_account)
 
-    # Register api_v1_account_name_token tools
+    # List all accounts
+    mcp.tool()(api_v1_account.account_service__list_accounts)
 
-    mcp.tool()(api_v1_account_name_token.account_service__create_token)
-
-    # Register api_v1_account_name_token_id tools
-
-    mcp.tool()(api_v1_account_name_token_id.account_service__delete_token)
-
-    # Register api_v1_applications tools
-
-    mcp.tool()(api_v1_applications.application_service__list)
-
-    mcp.tool()(api_v1_applications.application_service__create)
-
-    # Register api_v1_applications_manifestswithfiles tools
-
-    mcp.tool()(api_v1_applications_manifestswithfiles.application_service__get_manifests_with_files)
-
-    # Register api_v1_applications_application_metadata_name tools
-
-    mcp.tool()(api_v1_applications_application_metadata_name.application_service__update)
-
-    # Register api_v1_applications_applicationname_managed_resources tools
-
-    mcp.tool()(api_v1_applications_applicationname_managed_resources.application_service__managed_resources)
-
-    # Register api_v1_applications_applicationname_resource_tree tools
-
-    mcp.tool()(api_v1_applications_applicationname_resource_tree.application_service__resource_tree)
-
-    # Register api_v1_applications_name tools
-
-    mcp.tool()(api_v1_applications_name.application_service__get)
-
-    mcp.tool()(api_v1_applications_name.application_service__delete)
-
-    # Register api_v1_applications_name_events tools
-
+    # Resource events
     mcp.tool()(api_v1_applications_name_events.application_service__list_resource_events)
 
-    # Register api_v1_applications_name_links tools
-
+    # List of all application deep links.
+    # TODO: This tool is not working as expected.
     mcp.tool()(api_v1_applications_name_links.application_service__list_links)
 
-    # Register api_v1_applications_name_logs tools
+    # TODO: These tools are not working as expected, need to fix them
+    # ERROR:  Input is too long for requested model.
+    # # Managed Resources
+    # mcp.tool()(api_v1_applications_application_name_managed_resources.application_service__managed_resources)
+    # # Resource Tree
+    # mcp.tool()(api_v1_applications_application_name_resource_tree.application_service__resource_tree)
 
-    mcp.tool()(api_v1_applications_name_logs.application_service__pod_logs2)
+    # Application Logs
+    mcp.tool()(api_v1_applications_name_logs.application_service__pod_logs)
+    # mcp.tool()(api_v1_applications_name_pods_podname_logs.application_service__pod_logs)
 
-    # Register api_v1_applications_name_manifests tools
+    # Application Management
+    mcp.tool()(api_v1_applications.list_applications)
+    mcp.tool()(api_v1_applications.get_application_details)
+    mcp.tool()(api_v1_applications.create_application)
+    mcp.tool()(api_v1_applications.update_application)
+    mcp.tool()(api_v1_applications.delete_application)
+    mcp.tool()(api_v1_applications.sync_application)
+    mcp.tool()(api_version.version_service__version)
 
-    mcp.tool()(api_v1_applications_name_manifests.application_service__get_manifests)
+    # Due to the fact that the tokens/passwords may be read by LLM,
+    # we are not exposing the token creation and deletion tools
+    # Note: Only expose these tools at your own risk
 
-    # Register api_v1_applications_name_operation tools
+    # mcp.tool()(api_v1_account_name_token_id.account_service__delete_token)
+    # mcp.tool()(api_v1_account_name_token.account_service__create_token)
+    # mcp.tool()(api_v1_account_password.account_service__update_password)
 
-    mcp.tool()(api_v1_applications_name_operation.application_service__terminate_operation)
+    # Projects
+    mcp.tool()(api_v1_projects.project_list)
+    mcp.tool()(api_v1_projects.project_create)
+    mcp.tool()(api_v1_projects.project_delete)
+    mcp.tool()(api_v1_projects.project_get)
+    mcp.tool()(api_v1_projects.project_update)
 
-    # Register api_v1_applications_name_pods_podname_logs tools
-
-    mcp.tool()(api_v1_applications_name_pods_podname_logs.application_service__pod_logs)
-
-    # Register api_v1_applications_name_resource tools
-
-    mcp.tool()(api_v1_applications_name_resource.application_service__get_resource)
-
-    mcp.tool()(api_v1_applications_name_resource.application_service__patch_resource)
-
-    mcp.tool()(api_v1_applications_name_resource.application_service__delete_resource)
-
-    # Register api_v1_applications_name_resource_actions tools
-
-    mcp.tool()(api_v1_applications_name_resource_actions.application_service__list_resource_actions)
-
-    mcp.tool()(api_v1_applications_name_resource_actions.application_service__run_resource_action)
-
-    # Register api_v1_applications_name_resource_links tools
-
-    mcp.tool()(api_v1_applications_name_resource_links.application_service__list_resource_links)
-
-    # Register api_v1_applications_name_revisions_revision_chartdetails tools
-
-    mcp.tool()(api_v1_applications_name_revisions_revision_chartdetails.application_service__revision_chart_details)
-
-    # Register api_v1_applications_name_revisions_revision_metadata tools
-
-    mcp.tool()(api_v1_applications_name_revisions_revision_metadata.application_service__revision_metadata)
-
-    # Register api_v1_applications_name_rollback tools
-
-    mcp.tool()(api_v1_applications_name_rollback.application_service__rollback)
-
-    # Register api_v1_applications_name_spec tools
-
-    mcp.tool()(api_v1_applications_name_spec.application_service__update_spec)
-
-    # Register api_v1_applications_name_sync tools
-
-    mcp.tool()(api_v1_applications_name_sync.application_service__sync)
-
-    # Register api_v1_applications_name_syncwindows tools
-
-    mcp.tool()(api_v1_applications_name_syncwindows.application_service__get_application_sync_windows)
-
-    # Register api_v1_applicationsets tools
-
-    mcp.tool()(api_v1_applicationsets.application_set_service__list)
-
-    mcp.tool()(api_v1_applicationsets.application_set_service__create)
-
-    # Register api_v1_applicationsets_generate tools
-
+    # ApplicationSets
     mcp.tool()(api_v1_applicationsets_generate.application_set_service__generate)
+    mcp.tool()(api_v1_applicationsets.applicationset_list)
+    mcp.tool()(api_v1_applicationsets.applicationset_create)
+    mcp.tool()(api_v1_applicationsets_name.applicationset_service__get)
+    mcp.tool()(api_v1_applicationsets_name.applicationset_service__delete)
 
-    # Register api_v1_applicationsets_name tools
-
-    mcp.tool()(api_v1_applicationsets_name.application_set_service__get)
-
-    mcp.tool()(api_v1_applicationsets_name.application_set_service__delete)
-
-    # Register api_v1_applicationsets_name_resource_tree tools
-
-    mcp.tool()(api_v1_applicationsets_name_resource_tree.application_set_service__resource_tree)
-
-    # Register api_v1_certificates tools
-
+    # Certificates
     mcp.tool()(api_v1_certificates.certificate_service__list_certificates)
 
-    mcp.tool()(api_v1_certificates.certificate_service__create_certificate)
-
-    mcp.tool()(api_v1_certificates.certificate_service__delete_certificate)
-
-    # Register api_v1_clusters tools
-
+    # Clusters
+    mcp.tool()(api_v1_clusters_id_value.cluster_service__get)
     mcp.tool()(api_v1_clusters.cluster_service__list)
 
-    mcp.tool()(api_v1_clusters.cluster_service__create)
-
-    # Register api_v1_clusters_id_value tools
-
-    mcp.tool()(api_v1_clusters_id_value.cluster_service__get)
-
-    mcp.tool()(api_v1_clusters_id_value.cluster_service__update)
-
-    mcp.tool()(api_v1_clusters_id_value.cluster_service__delete)
-
-    # Register api_v1_clusters_id_value_invalidate_cache tools
-
-    mcp.tool()(api_v1_clusters_id_value_invalidate_cache.cluster_service__invalidate_cache)
-
-    # Register api_v1_clusters_id_value_rotate_auth tools
-
-    mcp.tool()(api_v1_clusters_id_value_rotate_auth.cluster_service__rotate_auth)
-
-    # Register api_v1_gpgkeys tools
-
-    mcp.tool()(api_v1_gpgkeys.gpg_key_service__list)
-
-    mcp.tool()(api_v1_gpgkeys.gpg_key_service__create)
-
-    mcp.tool()(api_v1_gpgkeys.gpg_key_service__delete)
-
-    # Register api_v1_gpgkeys_keyid tools
-
+    # GPG Keys
     mcp.tool()(api_v1_gpgkeys_keyid.gpg_key_service__get)
-
-    # Register api_v1_notifications_services tools
-
-    mcp.tool()(api_v1_notifications_services.notification_service__list_services)
-
-    # Register api_v1_notifications_templates tools
-
-    mcp.tool()(api_v1_notifications_templates.notification_service__list_templates)
-
-    # Register api_v1_notifications_triggers tools
-
-    mcp.tool()(api_v1_notifications_triggers.notification_service__list_triggers)
-
-    # Register api_v1_projects tools
-
-    mcp.tool()(api_v1_projects.project_service__list)
-
-    mcp.tool()(api_v1_projects.project_service__create)
-
-    # Register api_v1_projects_name tools
-
-    mcp.tool()(api_v1_projects_name.project_service__get)
-
-    mcp.tool()(api_v1_projects_name.project_service__delete)
-
-    # Register api_v1_projects_name_detailed tools
-
-    mcp.tool()(api_v1_projects_name_detailed.project_service__get_detailed_project)
-
-    # Register api_v1_projects_name_events tools
-
-    mcp.tool()(api_v1_projects_name_events.project_service__list_events)
-
-    # Register api_v1_projects_name_globalprojects tools
-
-    mcp.tool()(api_v1_projects_name_globalprojects.project_service__get_global_projects)
-
-    # Register api_v1_projects_name_links tools
-
-    mcp.tool()(api_v1_projects_name_links.project_service__list_links)
-
-    # Register api_v1_projects_name_syncwindows tools
-
-    mcp.tool()(api_v1_projects_name_syncwindows.project_service__get_sync_windows_state)
-
-    # Register api_v1_projects_project_metadata_name tools
-
-    mcp.tool()(api_v1_projects_project_metadata_name.project_service__update)
-
-    # Register api_v1_projects_project_roles_role_token tools
-
-    mcp.tool()(api_v1_projects_project_roles_role_token.project_service__create_token)
-
-    # Register api_v1_projects_project_roles_role_token_iat tools
-
-    mcp.tool()(api_v1_projects_project_roles_role_token_iat.project_service__delete_token)
-
-    # Register api_v1_repocreds tools
-
-    mcp.tool()(api_v1_repocreds.repo_creds_service__list_repository_credentials)
-
-    mcp.tool()(api_v1_repocreds.repo_creds_service__create_repository_credentials)
-
-    # Register api_v1_repocreds_creds_url tools
-
-    mcp.tool()(api_v1_repocreds_creds_url.repo_creds_service__update_repository_credentials)
-
-    # Register api_v1_repocreds_url tools
-
-    mcp.tool()(api_v1_repocreds_url.repo_creds_service__delete_repository_credentials)
-
-    # Register api_v1_repositories tools
-
-    mcp.tool()(api_v1_repositories.repository_service__list_repositories)
-
-    mcp.tool()(api_v1_repositories.repository_service__create_repository)
-
-    # Register api_v1_repositories_repo_repo tools
-
-    mcp.tool()(api_v1_repositories_repo_repo.repository_service__update_repository)
-
-    # Register api_v1_repositories_repo tools
-
-    mcp.tool()(api_v1_repositories_repo.repository_service__get)
-
-    mcp.tool()(api_v1_repositories_repo.repository_service__delete_repository)
-
-    # Register api_v1_repositories_repo_apps tools
-
-    mcp.tool()(api_v1_repositories_repo_apps.repository_service__list_apps)
-
-    # Register api_v1_repositories_repo_helmcharts tools
-
-    mcp.tool()(api_v1_repositories_repo_helmcharts.repository_service__get_helm_charts)
-
-    # Register api_v1_repositories_repo_refs tools
-
-    mcp.tool()(api_v1_repositories_repo_refs.repository_service__list_refs)
-
-    # Register api_v1_repositories_repo_validate tools
-
-    mcp.tool()(api_v1_repositories_repo_validate.repository_service__validate_access)
-
-    # Register api_v1_repositories_source_repourl_appdetails tools
-
-    mcp.tool()(api_v1_repositories_source_repourl_appdetails.repository_service__get_app_details)
-
-    # Register api_v1_session tools
-
-    mcp.tool()(api_v1_session.session_service__create)
-
-    mcp.tool()(api_v1_session.session_service__delete)
-
-    # Register api_v1_session_userinfo tools
-
-    mcp.tool()(api_v1_session_userinfo.session_service__get_user_info)
-
-    # Register api_v1_settings tools
-
-    mcp.tool()(api_v1_settings.settings_service__get)
-
-    # Register api_v1_settings_plugins tools
-
-    mcp.tool()(api_v1_settings_plugins.settings_service__get_plugins)
-
-    # Register api_v1_stream_applications tools
-
-    mcp.tool()(api_v1_stream_applications.application_service__watch)
-
-    # Register api_v1_stream_applications_applicationname_resource_tree tools
-
-    mcp.tool()(api_v1_stream_applications_applicationname_resource_tree.application_service__watch_resource_tree)
-
-    # Register api_v1_write_repocreds tools
-
-    mcp.tool()(api_v1_write_repocreds.repo_creds_service__list_write_repository_credentials)
-
-    mcp.tool()(api_v1_write_repocreds.repo_creds_service__create_write_repository_credentials)
-
-    # Register api_v1_write_repocreds_creds_url tools
-
-    mcp.tool()(api_v1_write_repocreds_creds_url.repo_creds_service__update_write_repository_credentials)
-
-    # Register api_v1_write_repocreds_url tools
-
-    mcp.tool()(api_v1_write_repocreds_url.repo_creds_service__delete_write_repository_credentials)
-
-    # Register api_v1_write_repositories tools
-
-    mcp.tool()(api_v1_write_repositories.repository_service__list_write_repositories)
-
-    mcp.tool()(api_v1_write_repositories.repository_service__create_write_repository)
-
-    # Register api_v1_write_repositories_repo_repo tools
-
-    mcp.tool()(api_v1_write_repositories_repo_repo.repository_service__update_write_repository)
-
-    # Register api_v1_write_repositories_repo tools
-
-    mcp.tool()(api_v1_write_repositories_repo.repository_service__get_write)
-
-    mcp.tool()(api_v1_write_repositories_repo.repository_service__delete_write_repository)
-
-    # Register api_v1_write_repositories_repo_validate tools
-
-    mcp.tool()(api_v1_write_repositories_repo_validate.repository_service__validate_write_access)
-
-    # Register api_version tools
-
-    mcp.tool()(api_version.version_service__version)
+    mcp.tool()(api_v1_gpgkeys.gpg_key_service__list)
+    mcp.tool()(api_v1_gpgkeys.gpg_key_service__create)
+    mcp.tool()(api_v1_gpgkeys.gpg_key_service__delete)
 
     # Run the MCP server
     mcp.run(transport=MCP_MODE.lower())
-
 
 if __name__ == "__main__":
     main()

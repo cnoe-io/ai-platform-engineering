@@ -11,8 +11,8 @@ import httpx
 import ssl
 
 # Load environment variables
-API_URL = os.getenv("ARGOCD_API_URL")
-API_TOKEN = os.getenv("ARGOCD_TOKEN")
+API_URL = os.getenv("ARGOCD_API_URL") or os.getenv("ARGOCD_URL")
+API_TOKEN = os.getenv("ARGOCD_API_TOKEN") or os.getenv("ARGOCD_TOKEN")
 
 if not API_URL:
     raise ValueError("ARGOCD_API_URL environment variable is not set.")

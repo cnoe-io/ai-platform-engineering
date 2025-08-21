@@ -21,7 +21,6 @@ async def application_service__pod_logs(
     param_sinceSeconds: str = None,
     param_sinceTime_seconds: str = None,
     param_sinceTime_nanos: int = None,
-    param_tailLines: str = None,
     param_follow: bool = False,
     param_untilTime: str = None,
     param_filter: str = None,
@@ -32,6 +31,7 @@ async def application_service__pod_logs(
     param_appNamespace: str = None,
     param_project: str = None,
     param_matchCase: bool = False,
+    param_tailLines: str = "100",
 ) -> Dict[str, Any]:
     '''
     PodLogs returns a stream of log entries for the specified pod.
@@ -44,7 +44,7 @@ async def application_service__pod_logs(
         param_sinceSeconds (str, optional): The time in seconds since the logs were generated. Defaults to None.
         param_sinceTime_seconds (str, optional): Represents seconds of UTC time since Unix epoch 1970-01-01T00:00:00Z. Must be from 0001-01-01T00:00:00Z to 9999-12-31T23:59:59Z inclusive. Defaults to None.
         param_sinceTime_nanos (int, optional): Non-negative fractions of a second at nanosecond resolution. Must be from 0 to 999,999,999 inclusive. Defaults to None.
-        param_tailLines (str, optional): The number of lines from the end of the logs to show. Defaults to None.
+        param_tailLines (str, optional): The number of lines from the end of the logs to show. Defaults to 100.
         param_follow (bool, optional): Whether to stream the logs. Defaults to False.
         param_untilTime (str, optional): The time until which logs should be fetched. Defaults to None.
         param_filter (str, optional): A filter to apply to the logs. Defaults to None.
@@ -134,6 +134,7 @@ async def application_service__pod_logs(
         f"/api/v1/applications/{path_name}/pods/{path_podName}/logs", method="GET", params=params, data=data
     )
 
+    print(response)
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
         return {"error": response.get("error", "Request failed")}
