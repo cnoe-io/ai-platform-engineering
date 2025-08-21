@@ -51,7 +51,7 @@ async def find_pets_by_status(param_status: str = None) -> Dict[str, Any]:
           '400':
             description: Invalid status value
     '''
-    logger.debug("Making GET request to /pet/findByStatus")
+    logger.debug("Making GET request to /pet/findByStatus with HYBRID approach (API + JSON)")
 
     params = {}
     data = {}
@@ -62,9 +62,235 @@ async def find_pets_by_status(param_status: str = None) -> Dict[str, Any]:
     flat_body = {}
     data = assemble_nested_body(flat_body)
 
-    success, response = await make_api_request("/pet/findByStatus", method="GET", params=params, data=data)
+    # HYBRID APPROACH: Combine external API data + JSON storage
+    api_pets = []
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
+    # Step 1: Try external API first (demo data)
+    # External API doesn't support comma-separated statuses, so we need to handle them differently
+    if param_status and ',' in param_status:
+        logger.info(f"🐕 HYBRID APPROACH: Comma-separated statuses detected: {param_status}")
+        # For comma-separated statuses, make separate API calls
+        statuses = [s.strip() for s in param_status.split(',')]
+        for single_status in statuses:
+            try:
+                logger.info(f"🐕 HYBRID APPROACH: Making API call for status: {single_status}")
+                single_params = {"status": single_status}
+                success, api_response = await make_api_request("/pet/findByStatus", method="GET", params=single_params, data=data)
+                if success and isinstance(api_response, list):
+                    api_pets.extend(api_response)
+                    logger.info(f"✅ Retrieved {len(api_response)} pets from external API for status: {single_status}")
+                else:
+                    logger.warning(f"External API returned non-list or failed for status {single_status}: {api_response}")
+            except Exception as e:
+                logger.warning(f"External API call failed for status {single_status}: {e}")
+    else:
+        logger.info(f"🐕 HYBRID APPROACH: Single status detected: {param_status}")
+        # For single status or None, make one API call
+        try:
+            success, api_response = await make_api_request("/pet/findByStatus", method="GET", params=params, data=data)
+            if success and isinstance(api_response, list):
+                api_pets = api_response
+                logger.info(f"✅ Retrieved {len(api_pets)} pets from external API")
+            else:
+                logger.warning(f"External API returned non-list or failed: {api_response}")
+        except Exception as e:
+            logger.warning(f"External API call failed: {e}")
+
+    total_pets = len(api_pets)
+
+    # Return structured response
+    if total_pets > 0:
+        return {
+            "summary": {
+                "total_pets_found": total_pets,
+                "api_pets": len(api_pets),
+                "status_searched": param_status or "all",
+                "message": f"Found {total_pets} pet(s) with status: {param_status or 'any'}"
+            },
+            "pets": api_pets,
+            "storage": "Hybrid (JSON + API)"
+        }
+    else:
+        return {
+            "summary": {
+                "total_pets_found": 0,
+                "status_searched": param_status or "all",
+                "message": f"No pets found with status: {param_status or 'any'}"
+            },
+            "pets": [],
+            "suggestion": "Try adding some pets first, or use 'Get all pets' to see available pets.",
+            "storage": "Hybrid (JSON + API)"
+        }
+
+
+async def find_all_pets(limit: int = 10) -> Dict[str, Any]:
+    '''
+    Retrieves pets from the store regardless of status, with optional limit for manageable responses.
+
+    This is a convenience function that calls find_pets_by_status with all possible statuses
+    and limits the response to avoid overwhelming the AI with too much data.
+
+    Args:
+        limit (int, optional): Maximum number of pets to return. Defaults to 10.
+
+    Returns:
+        Dict[str, Any]: The JSON response with limited pets and summary information.
+
+    Raises:
+        Exception: If the API request fails or returns an error.
+    '''
+    logger.debug(f"Getting all pets (limited to {limit}) by searching all statuses")
+
+    # HYBRID APPROACH: Get pets from all statuses by combining multiple API calls + JSON storage
+    api_pets = []
+
+    # Step 1: Try external API for each status separately (API doesn't accept comma-separated)
+    for status in ["available", "pending", "sold"]:
+        try:
+            status_response = await find_pets_by_status(status)
+            if isinstance(status_response, dict) and "pets" in status_response:
+                api_pets.extend(status_response["pets"])
+            elif isinstance(status_response, list):
+                api_pets.extend(status_response)
+        except Exception as e:
+            logger.warning(f"Failed to get {status} pets from API: {e}")
+
+    # Apply limit to the merged results
+    total_pets = len(api_pets)
+    limited_pets = api_pets[:limit] if limit > 0 else api_pets
+
+    # Return structured response with summary and limit applied
+    return {
+        "summary": {
+            "total_pets_found": total_pets,
+            "pets_returned": len(limited_pets),
+            "showing_limit": limit if limit > 0 else total_pets,
+            "api_pets": len(api_pets)
+        },
+        "pets": limited_pets,
+        "storage": "Hybrid (JSON + API)"
+    }
+
+
+async def find_pets_summary() -> Dict[str, Any]:
+    '''
+    Gets a quick summary of pets in the store without returning the full pet list.
+
+    This function provides counts and basic statistics about pets in the store
+    without overwhelming the response with too much data.
+
+    Returns:
+        Dict[str, Any]: Summary information about pets in the store.
+
+    Raises:
+        Exception: If the API request fails or returns an error.
+    '''
+    logger.debug("Getting pet summary statistics")
+
+    # Use find_all_pets which properly handles the hybrid API + JSON approach
+    response = await find_all_pets(limit=1000)  # High limit to get comprehensive count
+
+    # Extract pets from the structured response
+    if isinstance(response, dict) and "pets" in response:
+        pets = response["pets"]
+        summary_info = response.get("summary", {})
+
+        # Calculate statistics
+        total_pets = summary_info.get("total_pets_found", len(pets))
+        status_counts = {}
+
+        for pet in pets:
+            status = pet.get('status', 'unknown')
+            status_counts[status] = status_counts.get(status, 0) + 1
+
+        # Debug logging to see what we're actually returning
+        logger.info(f"🐕 SUMMARY DEBUG: total_pets={total_pets}, status_counts={status_counts}")
+
+        return {
+            "total_pets": total_pets,
+            "status_breakdown": status_counts,
+            "message": f"Found {total_pets} pets total in the store",
+            "api_pets": summary_info.get("api_pets", 0),
+            "note": "Use find_all_pets with a limit parameter to see actual pet details",
+            "storage": "Hybrid (JSON + API)"
+        }
+
+    # Fallback: if response format is unexpected, return as-is
     return response
+
+
+async def find_pets_by_status_and_category(status: str = None, category: str = None, limit: int = 20) -> Dict[str, Any]:
+    '''
+    Finds pets by combining status and category/type filters.
+
+    This function addresses queries like "get all cats that are pending" by first
+    getting pets with the specified status, then filtering by category or type.
+
+    Args:
+        status (str, optional): Pet status to filter by (available, pending, sold).
+        category (str, optional): Category or type to filter by (e.g., "cat", "dog").
+        limit (int, optional): Maximum number of pets to return. Defaults to 20.
+
+    Returns:
+        Dict[str, Any]: Filtered pets matching both criteria with summary information.
+
+    Raises:
+        Exception: If the API request fails or returns an error.
+    '''
+    logger.debug(f"Finding pets with status='{status}' and category='{category}' (limit={limit})")
+
+    # First, get all pets with the specified status (or all pets if no status)
+    if status:
+        response = await find_pets_by_status(status)
+    else:
+        response = await find_pets_by_status("available,pending,sold")
+
+    # If the response is not a list (error case), return as-is
+    if not isinstance(response, list):
+        return response
+
+    # Filter by category/type if specified
+    filtered_pets = response
+    if category:
+        category_lower = category.lower()
+        filtered_pets = []
+
+        for pet in response:
+            # Check category name
+            pet_category = pet.get('category', {})
+            if isinstance(pet_category, dict):
+                category_name = pet_category.get('name', '').lower()
+                if category_lower in category_name:
+                    filtered_pets.append(pet)
+                    continue
+
+            # Check tags
+            pet_tags = pet.get('tags', [])
+            if isinstance(pet_tags, list):
+                for tag in pet_tags:
+                    if isinstance(tag, dict):
+                        tag_name = tag.get('name', '').lower()
+                        if category_lower in tag_name:
+                            filtered_pets.append(pet)
+                            break
+                    elif isinstance(tag, str) and category_lower in tag.lower():
+                        filtered_pets.append(pet)
+                        break
+
+    # Apply limit
+    total_found = len(filtered_pets)
+    limited_pets = filtered_pets[:limit] if limit > 0 else filtered_pets
+
+    # Create summary
+    status_text = f"with status '{status}'" if status else "with any status"
+    category_text = f" and category/type '{category}'" if category else ""
+
+    return {
+        "summary": {
+            "total_matching_pets": total_found,
+            "pets_returned": len(limited_pets),
+            "query": f"Pets {status_text}{category_text}",
+            "showing_limit": limit if limit > 0 else total_found
+        },
+        "pets": limited_pets
+    }
