@@ -11,7 +11,6 @@ from langchain_openai import AzureOpenAIEmbeddings
 from langchain_core.documents import Document
 import dotenv
 import uuid
-import asyncio
 from enum import Enum
 
 dotenv.load_dotenv()
