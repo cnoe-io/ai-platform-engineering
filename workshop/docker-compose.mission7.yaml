@@ -134,6 +134,7 @@ services:
     image: langfuse/langfuse:3
     container_name: langfuse-web
     restart: always
+    network: host
     depends_on:
       langfuse-postgres:
         condition: service_healthy
