@@ -44,7 +44,10 @@ Together, these sub-agents enable users to perform complex operations using agen
 
 *For detailed information on project goals and our community, head to our [documentation site](https://cnoe-io.github.io/ai-platform-engineering/).*
 
-![](docs/docs/architecture/images/mas_architecture.svg)
+![](docs/docs/architecture/images/5_caipe-architecture-a2a-over-gateway.svg)
+
+
+![](docs/docs/architecture/images/6_solution_architecture.svg)
 
 ## 💡 Examples
 
