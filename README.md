@@ -85,6 +85,10 @@ Thinking about a big change? Feel free to [start a discussion](https://github.co
 
 We’re excited to collaborate with you!
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=cnoe-io/ai-platform-engineering&type=Date)](https://www.star-history.com/#cnoe-io/ai-platform-engineering&Date)
+
 ## 📄 License
 
 Licensed under the [Apache-2.0 License](LICENSE).
