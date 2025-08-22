@@ -57,12 +57,12 @@ class GitHubAgent:
         self.model = LLMFactory().get_llm()
         self.graph = None
         self.tracing = TracingManager()
-        
+
         # Enhanced state management for analysis results and parameters
         self.analysis_states = {}  # Store analysis results by context_id
         self.parameter_states = {}  # Store accumulated parameters by context_id
         self.conversation_contexts = {}  # Store conversation context by context_id
-        
+
         # Conversation tracking for A2A integration
         self.conversation_map = {}  # Map A2A contextId to stable conversation ID
         self.conversation_counter = 0  # Counter for generating stable conversation IDs
@@ -77,13 +77,13 @@ class GitHubAgent:
 
         if self._initialized:
           return
-        
+
         if not self.model:
             logger.error("Cannot initialize agent without a valid model")
             return
 
         logger.info("Launching GitHub MCP server")
-        
+
         # Add print statement for agent initialization
         print("=" * 80)
         print("🔧 INITIALIZING GITHUB AGENT")
@@ -114,12 +114,6 @@ class GitHubAgent:
             mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
             if mcp_mode == "http" or mcp_mode == "streamable_http":
               logging.info("Using HTTP transport for MCP client")
-              # For HTTP transport, we need to connect to the MCP server
-              # This is useful for production or when the MCP server is running separately
-              # Ensure MCP_HOST and MCP_PORT are set in the environment
-              mcp_host = os.getenv("MCP_HOST", "localhost")
-              mcp_port = os.getenv("MCP_PORT", "3000")
-              logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
 
               client = MultiServerMCPClient(
                 {
@@ -134,7 +128,7 @@ class GitHubAgent:
               )
             else:
               logging.info("Using Docker-in-Docker for MCP client")
-              
+
               # Configure the GitHub MCP server client
               client = MultiServerMCPClient(
                 {
@@ -156,7 +150,7 @@ class GitHubAgent:
 
             # Get tools via the client
             client_tools = await client.get_tools()
-            
+
             # Store tools for later reference
             self.tools_info = {}
 
@@ -166,17 +160,17 @@ class GitHubAgent:
             for tool in client_tools:
                 print(f"📋 Tool: {tool.name}")
                 print(f"📝 Description: {tool.description.strip()}")
-                
+
                 # Store tool info for later reference
                 self.tools_info[tool.name] = {
                     'description': tool.description.strip(),
                     'parameters': tool.args_schema.get('properties', {}),
                     'required': tool.args_schema.get('required', [])
                 }
-                
+
                 params = tool.args_schema.get('properties', {})
                 required_params = tool.args_schema.get('required', [])
-                
+
                 if params:
                     print("📥 Parameters:")
                     for param, meta in params.items():
@@ -185,28 +179,28 @@ class GitHubAgent:
                         param_description = meta.get('description', 'No description available')
                         default = meta.get('default', None)
                         is_required = param in required_params
-                        
+
                         # Determine requirement status
                         req_status = "🔴 REQUIRED" if is_required else "🟡 OPTIONAL"
-                        
+
                         print(f"   • {param} ({param_type}) - {req_status}")
                         print(f"     Title: {param_title}")
                         print(f"     Description: {param_description}")
-                        
+
                         if default is not None:
                             print(f"     Default: {default}")
-                        
+
                         # Show examples if available
                         if 'examples' in meta:
                             examples = meta['examples']
                             if examples:
                                 print(f"     Examples: {examples}")
-                        
+
                         # Show enum values if available
                         if 'enum' in meta:
                             enum_values = meta['enum']
                             print(f"     Allowed values: {enum_values}")
-                        
+
                         print()
                 else:
                     print("📥 Parameters: None")
@@ -260,16 +254,16 @@ class GitHubAgent:
         """
         if context_id in self.conversation_map:
             return self.conversation_map[context_id]
-        
+
         # Generate a new stable conversation ID
         if task_id:
             stable_id = f"conv_{task_id}_{self.conversation_counter}"
         else:
             stable_id = f"conv_{context_id}_{self.conversation_counter}"
-        
+
         self.conversation_counter += 1
         self.conversation_map[context_id] = stable_id
-        
+
         print(f"🔗 Mapped A2A contextId '{context_id}' to stable conversation ID '{stable_id}'")
         return stable_id
 
@@ -288,7 +282,7 @@ class GitHubAgent:
     async def stream(self, *args, **kwargs) -> AsyncIterable[dict[str, Any]]:
         """
         Stream responses from the agent.
-        
+
         Note: Using flexible argument signature (*args, **kwargs) to handle different
         calling patterns from the A2A framework. The method extracts the expected
         parameters from the arguments dynamically.
@@ -303,19 +297,19 @@ class GitHubAgent:
         if frame:
             caller_info = inspect.getframeinfo(frame.f_back)
             logger.info(f"Method called from: {caller_info.filename}:{caller_info.lineno}")
-        
+
         # Extract expected parameters from args and kwargs
         query = args[0] if len(args) > 0 else kwargs.get('query')
         context_id = args[1] if len(args) > 1 else kwargs.get('context_id')
         trace_id = args[2] if len(args) > 2 else kwargs.get('trace_id')
         task_id = args[3] if len(args) > 3 else kwargs.get('task_id')
-        
+
         logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
-        
+
         # Log all arguments for debugging
         logger.info(f"All arguments received: args={args}, kwargs={kwargs}")
         logger.info(f"Extracted parameters: query={query}, context_id={context_id}, trace_id={trace_id}, task_id={task_id}")
-        
+
         # Validate required parameters
         if not query:
             logger.error("No query provided")
@@ -325,7 +319,7 @@ class GitHubAgent:
                 'content': 'No query provided to the agent.',
             }
             return
-        
+
         if not context_id:
             logger.error("No context_id provided")
             yield {
@@ -337,7 +331,7 @@ class GitHubAgent:
 
         # Generate stable conversation ID for better follow-up handling
         stable_conversation_id = self.get_stable_conversation_id(context_id, task_id)
-        
+
         # Add print statement for new query processing
         print("=" * 80)
         print("🔄 PROCESSING NEW QUERY")
@@ -365,32 +359,32 @@ class GitHubAgent:
             'repository', 'repo', 'issue', 'pull request', 'pr', 'github', 'git',
             'branch', 'commit', 'tag', 'milestone', 'label', 'assign', 'comment',
             'fork', 'star', 'watch', 'clone', 'push', 'pull', 'merge', 'rebase',
-            
+
             # Actions/verbs
             'create', 'list', 'update', 'delete', 'close', 'open', 'edit', 'modify',
             'add', 'remove', 'set', 'change', 'switch', 'checkout', 'reset', 'revert',
             'approve', 'reject', 'request', 'submit', 'publish', 'release',
-            
+
             # Common parameter names and variations
             'name', 'description', 'private', 'public', 'autoinit', 'auto-init', 'auto init',
             'owner', 'user', 'username', 'state', 'status', 'title', 'body', 'content',
             'head', 'base', 'sort', 'direction', 'per_page', 'page', 'limit',
-            
+
             # GitHub-specific terms
             'readme', 'gitignore', 'license', 'template', 'collaborator', 'webhook',
             'secret', 'environment', 'deployment', 'workflow', 'action', 'runner',
-            
+
             # Common phrases and patterns
             'make it', 'should be', 'set to', 'enable', 'disable', 'turn on', 'turn off',
             'initialize', 'init', 'configure', 'setup', 'arrange', 'organize'
         ]
-        
+
         is_github_related = any(keyword in query_lower for keyword in github_related_keywords)
-        
+
         if not is_github_related:
             # This is not a GitHub-related query, inform the user about limitations
             print(f"🔍 Query '{query}' is not GitHub-related, informing user of limitations...")
-            
+
             # Check if this is a follow-up response to our GitHub help offer
             query_lower = query.lower().strip()
             if query_lower in ['yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'absolutely', 'definitely']:
@@ -427,38 +421,38 @@ class GitHubAgent:
                     )
                 }
                 return
-        
+
         # Check if we have a previous analysis for this context
         previous_analysis = self.analysis_states.get(stable_conversation_id)
         accumulated_params = self.parameter_states.get(stable_conversation_id, {})
-        
+
         print(f"🔍 Context check for {stable_conversation_id}:")
         print(f"   • Has previous analysis: {previous_analysis is not None}")
         print(f"   • Has accumulated params: {bool(accumulated_params)}")
         print(f"   • Accumulated params: {accumulated_params}")
-        
+
         if previous_analysis:
             # This is a follow-up message, update the analysis with accumulated parameters
             print("🔄 Processing follow-up message with accumulated parameters...")
             print(f"📊 Previously accumulated parameters: {accumulated_params}")
             print(f"📊 Previous analysis tool: {previous_analysis.get('tool_name', 'Unknown')}")
             print(f"📊 Previous missing params: {[p['name'] for p in previous_analysis.get('missing_params', [])]}")
-            
+
             # Extract new parameters from the followup query
             new_params = self.extract_parameters_from_query(query, previous_analysis['all_params'])
             print(f"🆕 New parameters extracted: {new_params}")
-            
+
             # Merge with accumulated parameters
             updated_params = accumulated_params.copy()
             updated_params.update(new_params)
             print(f"🔄 Merged parameters: {updated_params}")
-            
+
             # Update the analysis with the merged parameters
             analysis_result = self.update_analysis_with_parameters(previous_analysis, updated_params)
-            
+
             # Update stored parameters
             self.parameter_states[stable_conversation_id] = updated_params
-            
+
             # Check if we now have all required parameters
             if not analysis_result['missing_params']:
                 print("✅ All required parameters now available. Proceeding with execution...")
@@ -476,14 +470,14 @@ class GitHubAgent:
             # This is a new request, perform fresh analysis
             print("🆕 New request detected. Performing fresh analysis...")
             analysis_result = self.analyze_request_and_discover_tool(query)
-            
+
             # Store the analysis for potential follow-up messages
             self.analysis_states[stable_conversation_id] = analysis_result
-            
+
             # Initialize parameter state
             extracted_params = analysis_result.get('extracted_params', {})
             self.parameter_states[stable_conversation_id] = extracted_params
-            
+
             # Store conversation context
             self.conversation_contexts[stable_conversation_id] = {
                 'original_query': query,
@@ -492,23 +486,23 @@ class GitHubAgent:
                 'a2a_context_id': context_id,
                 'stable_conversation_id': stable_conversation_id
             }
-            
+
             print(f"📊 Stored analysis for {stable_conversation_id}:")
             print(f"   • Tool: {analysis_result.get('tool_name', 'Unknown')}")
             print(f"   • Extracted params: {extracted_params}")
             print(f"   • Missing params: {[p['name'] for p in analysis_result.get('missing_params', [])]}")
-        
+
         # If no tool found or missing required parameters, ask for clarification
         # Now we know the query is GitHub-related, so we can proceed with parameter handling
         if not analysis_result['tool_found'] or analysis_result['missing_params']:
             message = self.generate_missing_variables_message(analysis_result)
-            
+
             # Create input_fields metadata for dynamic form generation
             input_fields = self.create_input_fields_metadata(analysis_result)
-            
+
             # Generate meaningful explanation for why the form is needed using LLM
             form_explanation = self.generate_form_explanation_with_llm(analysis_result)
-            
+
             # Create comprehensive metadata with conversation context
             metadata = {
                 'input_fields': input_fields,
@@ -527,7 +521,7 @@ class GitHubAgent:
                     'stable_conversation_id': stable_conversation_id
                 }
             }
-            
+
             yield {
                 'is_task_complete': False,
                 'require_user_input': True,
@@ -538,7 +532,7 @@ class GitHubAgent:
 
         # If we have all required parameters, proceed with the normal agent flow
         print("✅ All required parameters found. Proceeding with tool execution...")
-        
+
         # Clear the analysis state since we're proceeding with execution
         if stable_conversation_id in self.analysis_states:
             del self.analysis_states[stable_conversation_id]
@@ -546,13 +540,13 @@ class GitHubAgent:
             del self.parameter_states[stable_conversation_id]
         if stable_conversation_id in self.conversation_contexts:
             del self.conversation_contexts[stable_conversation_id]
-        
+
         # Clean up the conversation mapping
         self.cleanup_conversation_mapping(context_id)
-        
+
         # Enhance the query with extracted parameters for better tool selection
         enhanced_query = self.enhance_query_with_parameters(query, analysis_result['extracted_params'])
-        
+
         inputs: dict[str, Any] = {'messages': [HumanMessage(content=enhanced_query)]}
         config: RunnableConfig = self.tracing.create_config(stable_conversation_id)
 
@@ -579,20 +573,20 @@ class GitHubAgent:
                         tool_name = tool_call.get('name', 'Unknown')
                         tool_id = tool_call.get('id', 'Unknown')
                         args = tool_call.get('args', {})
-                        
+
                         print(f"📋 Tool Call #{i+1}:")
                         print(f"   • Tool Name: {tool_name}")
                         print(f"   • Tool ID: {tool_id}")
-                        
+
                         # Display tool description and required variables
                         if hasattr(self, 'tools_info') and tool_name in self.tools_info:
                             tool_info = self.tools_info[tool_name]
                             print(f"   • Tool Description: {tool_info['description']}")
-                            
+
                             # Show required vs optional parameters
                             required_params = tool_info['required']
                             all_params = tool_info['parameters']
-                            
+
                             print("   📥 Required Variables:")
                             if required_params:
                                 for param in required_params:
@@ -608,7 +602,7 @@ class GitHubAgent:
                                     print()
                             else:
                                 print("     • No required parameters")
-                            
+
                             print("   🟡 Optional Variables:")
                             optional_params = [p for p in all_params.keys() if p not in required_params]
                             if optional_params:
@@ -637,10 +631,10 @@ class GitHubAgent:
                                     print(f"     - {key}: {value}")
                             else:
                                 print("     - No arguments provided")
-                        
+
                         print()
                     print("=" * 80)
-                    
+
                     yield {
                         'is_task_complete': False,
                         'require_user_input': False,
@@ -664,7 +658,7 @@ class GitHubAgent:
                     else:
                         print("   No content")
                     print("=" * 80)
-                    
+
                     yield {
                         'is_task_complete': False,
                         'require_user_input': False,
@@ -745,18 +739,18 @@ class GitHubAgent:
         print("🔍 ANALYZING REQUEST FOR TOOL DISCOVERY")
         print("=" * 80)
         print(f"📝 User Query: {query}")
-        
+
         if not hasattr(self, 'tools_info') or not self.tools_info:
             return {
                 'tool_found': False,
                 'message': 'No tools available for analysis'
             }
-        
+
         # Enhanced keyword-based tool matching with better scoring
         query_lower = query.lower()
         query_words = set(query_lower.split())
         matched_tools = []
-        
+
         # Define action keywords and their associated tool patterns
         action_keywords = {
             'create': ['create', 'new', 'make', 'add'],
@@ -789,20 +783,20 @@ class GitHubAgent:
             'assignee': ['assign', 'assignee'],
             'collaborator': ['collaborator', 'member', 'contributor']
         }
-        
+
         for tool_name, tool_info in self.tools_info.items():
             description = tool_info['description'].lower()
             name_lower = tool_name.lower()
-            
+
             # Initialize score
             score = 0
             matched_keywords = []
-            
+
             # Score based on exact tool name matches (highest priority)
             if name_lower in query_lower:
                 score += 100
                 matched_keywords.append(f"exact_name:{name_lower}")
-            
+
             # Score based on action keywords in tool name
             for action, keywords in action_keywords.items():
                 if action in name_lower:
@@ -811,61 +805,61 @@ class GitHubAgent:
                             score += 50
                             matched_keywords.append(f"action:{action}")
                             break
-            
+
             # Score based on resource keywords in tool name
             resource_keywords = ['repo', 'repository', 'issue', 'pr', 'pull', 'user', 'org', 'file', 'commit', 'branch', 'tag', 'milestone', 'label', 'secret', 'webhook', 'workflow']
             for resource in resource_keywords:
                 if resource in name_lower and resource in query_lower:
                     score += 30
                     matched_keywords.append(f"resource:{resource}")
-            
+
             # Special handling for common GitHub operations
             if 'create' in query_lower and 'repository' in query_lower:
                 if 'create' in name_lower and 'repository' in name_lower:
                     score += 200  # Very high score for exact match
                     matched_keywords.append("exact_operation:create_repository")
-            
+
             if 'create' in query_lower and 'issue' in query_lower:
                 if 'create' in name_lower and 'issue' in name_lower:
                     score += 200
                     matched_keywords.append("exact_operation:create_issue")
-            
+
             if 'create' in query_lower and ('pull' in query_lower or 'pr' in query_lower):
                 if 'create' in name_lower and ('pull' in name_lower or 'pr' in name_lower):
                     score += 200
                     matched_keywords.append("exact_operation:create_pull_request")
-            
+
             if 'list' in query_lower and 'repository' in query_lower:
                 if 'list' in name_lower and 'repository' in name_lower:
                     score += 150
                     matched_keywords.append("exact_operation:list_repositories")
-            
+
             if 'list' in query_lower and 'issue' in query_lower:
                 if 'list' in name_lower and 'issue' in name_lower:
                     score += 150
                     matched_keywords.append("exact_operation:list_issues")
-            
+
             # Score based on description relevance
             desc_words = set(description.split())
             common_words = query_words.intersection(desc_words)
             if common_words:
                 score += len(common_words) * 10
                 matched_keywords.extend([f"desc:{word}" for word in common_words])
-            
+
             # Penalize overly generic matches
             if len(name_lower.split('_')) > 4:  # Very long tool names
                 score -= 20
-            
+
             # Penalize matches that are too generic
             generic_terms = ['get', 'list', 'show', 'find']
             if all(term in name_lower for term in generic_terms):
                 score -= 10
-            
+
             # Bonus for exact phrase matches in description
             if 'create a new repository' in description.lower() and 'create' in query_lower and 'repository' in query_lower:
                 score += 100
                 matched_keywords.append("exact_phrase:create_repository")
-            
+
             # Only include tools with meaningful scores
             if score > 0:
                 matched_tools.append({
@@ -876,10 +870,10 @@ class GitHubAgent:
                     'required_params': tool_info['required'],
                     'all_params': tool_info['parameters']
                 })
-        
+
         # Sort by relevance score
         matched_tools.sort(key=lambda x: x['score'], reverse=True)
-        
+
         # Debug: Print all matches with scores
         print("🔍 Tool Matching Results:")
         for i, tool in enumerate(matched_tools[:5]):  # Show top 5
@@ -887,7 +881,7 @@ class GitHubAgent:
             print(f"      Keywords: {tool['matched_keywords']}")
             print(f"      Description: {tool['description'][:100]}...")
             print()
-        
+
         if not matched_tools:
             print("❌ No matching tools found for this request")
             print("=" * 80)
@@ -895,39 +889,39 @@ class GitHubAgent:
                 'tool_found': False,
                 'message': 'No GitHub tools match your request. Please try rephrasing or ask for available operations.'
             }
-        
+
         # If we have multiple close matches, use LLM to help decide
         if len(matched_tools) > 1 and matched_tools[0]['score'] - matched_tools[1]['score'] < 50:
             print("🤔 Multiple close matches detected. Using LLM to help decide...")
             best_tool = self.use_llm_for_tool_selection(query, matched_tools[:3])
         else:
             best_tool = matched_tools[0]
-        
+
         # Check if the confidence score is high enough
         confidence_threshold = 80  # Minimum score to be confident about tool selection
         print(f"🎯 Best tool score: {best_tool['score']} (threshold: {confidence_threshold})")
-        
+
         if best_tool['score'] < confidence_threshold:
             print(f"⚠️  Low confidence score ({best_tool['score']}) for tool selection. Asking for clarification.")
             return {
                 'tool_found': False,
                 'message': self.generate_low_confidence_message(query, matched_tools[:3])
             }
-        
+
         print(f"✅ High confidence score ({best_tool['score']}). Proceeding with tool selection.")
-        
+
         tool_name = best_tool['name']
         required_params = best_tool['required_params']
         all_params = best_tool['all_params']
-        
+
         print(f"🎯 Best Matching Tool: {tool_name}")
         print(f"📝 Description: {best_tool['description']}")
         print(f"📊 Relevance Score: {best_tool['score']}")
         print(f"🔑 Matched Keywords: {best_tool['matched_keywords']}")
-        
+
         # Extract potential parameters from the query
         extracted_params = self.extract_parameters_from_query(query, all_params)
-        
+
         # Check for missing required parameters
         missing_params = []
         for param in required_params:
@@ -939,10 +933,10 @@ class GitHubAgent:
                     'description': param_info.get('description', 'No description available'),
                     'title': param_info.get('title', param)
                 })
-        
+
         print(f"📥 Extracted Parameters: {extracted_params}")
         print(f"❌ Missing Required Parameters: {[p['name'] for p in missing_params]}")
-        
+
         # Show optional parameters and their defaults
         optional_params = [p for p in all_params.keys() if p not in required_params]
         if optional_params:
@@ -958,9 +952,9 @@ class GitHubAgent:
                 else:
                     print("     Default: None")
                 print()
-        
+
         print("=" * 80)
-        
+
         return {
             'tool_found': True,
             'tool_name': tool_name,
@@ -970,7 +964,7 @@ class GitHubAgent:
             'all_required_params': required_params,
             'all_params': all_params
         }
-    
+
     def use_llm_for_tool_selection(self, query: str, candidate_tools: list) -> dict:
         """
         Use the LLM to help select the best tool when keyword matching is ambiguous.
@@ -983,16 +977,16 @@ Available tools:
 """
             for i, tool in enumerate(candidate_tools):
                 prompt += f"{i+1}. {tool['name']}: {tool['description']}\n"
-            
+
             prompt += f"""
 Please select the most appropriate tool for this request. Respond with only the number (1-{len(candidate_tools)}) of the best tool.
 
 Selection:"""
-            
+
             # Use the LLM to get a response
             response = self.model.invoke(prompt)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             # Extract the number from the response
             import re
             number_match = re.search(r'\d+', response_text)
@@ -1001,42 +995,42 @@ Selection:"""
                 if 0 <= selected_index < len(candidate_tools):
                     print(f"🤖 LLM selected: {candidate_tools[selected_index]['name']}")
                     return candidate_tools[selected_index]
-            
+
             # Fallback to the highest scored tool
             print(f"🤖 LLM selection failed, using highest scored tool: {candidate_tools[0]['name']}")
             return candidate_tools[0]
-            
+
         except Exception as e:
             print(f"🤖 LLM tool selection failed: {e}, using highest scored tool: {candidate_tools[0]['name']}")
             return candidate_tools[0]
-    
+
     def extract_parameters_from_query(self, query: str, all_params: dict) -> dict:
         """
         Enhanced parameter extraction with better pattern matching for GitHub operations.
         Only extracts parameters that the user actually specified in their query.
         """
         import re  # Import re module at the top of the method
-        
+
         extracted = {}
-        
+
         print(f"🔍 Extracting parameters from query: '{query}'")
         print(f"🔍 Available parameters: {list(all_params.keys())}")
-        
+
         # Process all available parameters but only extract when user actually provides a value
         for param_name, param_info in all_params.items():
             param_type = param_info.get('type', 'string')
             print(f"🔍 Processing parameter: {param_name} (type: {param_type})")
-            
+
             # Try LLM-based extraction for intelligent understanding
             llm_extracted = self.extract_parameter_with_llm(query, param_name, param_info)
             if llm_extracted is not None:
                 extracted[param_name] = llm_extracted
                 print(f"✅ Extracted {param_name} using LLM: {extracted[param_name]}")
                 continue
-            
+
             # Fallback to pattern matching if LLM extraction fails
             print(f"🔍 LLM extraction failed for {param_name}, trying pattern matching...")
-            
+
             # Special handling for boolean parameters
             if param_type == 'boolean':
                 # Look for common boolean patterns with parameter name variations
@@ -1046,41 +1040,41 @@ Selection:"""
                     param_name.replace('_', ' ').lower(),  # auto_init -> auto init
                     param_name.replace('_', '-').lower(),  # auto_init -> auto-init
                 ]
-                
+
                 # Check for positive boolean indicators
                 positive_patterns = [
                     rf'(?:make it|should be|set to|enable|turn on)\s+({"|".join(param_variations)})',
                     rf'({"|".join(param_variations)})\s+(?:enabled|on|true|yes)',
                     rf'(?:enable|turn on)\s+({"|".join(param_variations)})',
                 ]
-                
+
                 for pattern in positive_patterns:
                     match = re.search(pattern, query, re.IGNORECASE)
                     if match:
                         extracted[param_name] = True
                         print(f"✅ Extracted {param_name} as True using pattern: {pattern}")
                         break
-                
+
                 if param_name in extracted:
                     continue
-                
+
                 # Check for negative boolean indicators
                 negative_patterns = [
                     rf'(?:make it not|should not be|disable|turn off)\s+({"|".join(param_variations)})',
                     rf'({"|".join(param_variations)})\s+(?:disabled|off|false|no)',
                     rf'(?:disable|turn off)\s+({"|".join(param_variations)})',
                 ]
-                
+
                 for pattern in negative_patterns:
                     match = re.search(pattern, query, re.IGNORECASE)
                     if match:
                         extracted[param_name] = False
                         print(f"✅ Extracted {param_name} as False using pattern: {pattern}")
                         break
-                
+
                 if param_name in extracted:
                     continue
-            
+
             # Try to extract based on parameter name patterns
             if param_type == 'string':
                 # Fallback to pattern matching if LLM extraction fails
@@ -1091,7 +1085,7 @@ Selection:"""
                     extracted[param_name] = quotes_match.group(1)
                     print(f"✅ Extracted {param_name} from quotes: {extracted[param_name]}")
                     continue
-                
+
                 # Look for parameter name followed by colon or equals
                 param_pattern = rf'{param_name}\s*[:=]\s*([^\s,]+)'
                 param_match = re.search(param_pattern, query, re.IGNORECASE)
@@ -1099,7 +1093,7 @@ Selection:"""
                     extracted[param_name] = param_match.group(1)
                     print(f"✅ Extracted {param_name} from key-value: {extracted[param_name]}")
                     continue
-                
+
                 # Enhanced GitHub-specific patterns
                 if param_name in ['owner', 'repo', 'repository']:
                     # Look for owner/repo pattern (most common)
@@ -1113,7 +1107,7 @@ Selection:"""
                             extracted[param_name] = owner_repo_match.group(2)
                             print(f"✅ Extracted {param_name} from owner/repo: {extracted[param_name]}")
                         continue
-                    
+
                     # Look for GitHub URLs
                     github_url_pattern = r'github\.com/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)'
                     github_match = re.search(github_url_pattern, query)
@@ -1125,7 +1119,7 @@ Selection:"""
                             extracted[param_name] = github_match.group(2)
                             print(f"✅ Extracted {param_name} from GitHub URL: {extracted[param_name]}")
                         continue
-                
+
                 # Look for issue/PR numbers with various formats
                 if param_name in ['issue_number', 'pull_number', 'number']:
                     # Look for #123 format
@@ -1135,7 +1129,7 @@ Selection:"""
                         extracted[param_name] = int(number_match.group(1))
                         print(f"✅ Extracted {param_name} from #number: {extracted[param_name]}")
                         continue
-                    
+
                     # Look for "issue 123" or "PR 123" format
                     issue_pr_pattern = r'(?:issue|pr|pull request)\s+(\d+)'
                     issue_pr_match = re.search(issue_pr_pattern, query, re.IGNORECASE)
@@ -1143,7 +1137,7 @@ Selection:"""
                         extracted[param_name] = int(issue_pr_match.group(1))
                         print(f"✅ Extracted {param_name} from issue/PR: {extracted[param_name]}")
                         continue
-                
+
                 # Look for branch names with various formats
                 if param_name in ['branch', 'ref']:
                     # Look for "branch name" format
@@ -1153,7 +1147,7 @@ Selection:"""
                         extracted[param_name] = branch_match.group(1)
                         print(f"✅ Extracted {param_name} from branch: {extracted[param_name]}")
                         continue
-                    
+
                     # Look for branch names after common words
                     branch_words = ['from', 'to', 'on', 'in', 'switch to', 'checkout']
                     for word in branch_words:
@@ -1165,7 +1159,7 @@ Selection:"""
                             break
                     if param_name in extracted:
                         continue
-                
+
                 # Look for commit hashes
                 if param_name in ['sha', 'commit_sha']:
                     sha_pattern = r'[a-fA-F0-9]{7,40}'
@@ -1174,7 +1168,7 @@ Selection:"""
                         extracted[param_name] = sha_match.group(0)
                         print(f"✅ Extracted {param_name} from SHA: {extracted[param_name]}")
                         continue
-                
+
                 # Look for labels with various formats
                 if param_name in ['labels', 'label']:
                     # Look for "label name" format
@@ -1184,7 +1178,7 @@ Selection:"""
                         extracted[param_name] = label_match.group(1)
                         print(f"✅ Extracted {param_name} from label: {extracted[param_name]}")
                         continue
-                    
+
                     # Look for labels in quotes
                     label_quotes_pattern = r'["\']([a-zA-Z0-9_-]+)["\']'
                     label_quotes_match = re.search(label_quotes_pattern, query)
@@ -1192,7 +1186,7 @@ Selection:"""
                         extracted[param_name] = label_quotes_match.group(1)
                         print(f"✅ Extracted {param_name} from label quotes: {extracted[param_name]}")
                         continue
-                
+
                 # Look for state values
                 if param_name in ['state', 'status']:
                     state_pattern = r'(open|closed|all|draft|published)'
@@ -1201,7 +1195,7 @@ Selection:"""
                         extracted[param_name] = state_match.group(1).lower()
                         print(f"✅ Extracted {param_name} from state: {extracted[param_name]}")
                         continue
-                
+
                 # Look for title/description in quotes
                 if param_name in ['title', 'description', 'body']:
                     title_pattern = r'["\']([^"\']{3,})["\']'
@@ -1210,7 +1204,7 @@ Selection:"""
                         extracted[param_name] = title_match.group(1)
                         print(f"✅ Extracted {param_name} from quotes: {extracted[param_name]}")
                         continue
-                
+
                 # Look for assignees
                 if param_name in ['assignee', 'assignees']:
                     # Look for @username format
@@ -1220,7 +1214,7 @@ Selection:"""
                         extracted[param_name] = assignee_match.group(1)
                         print(f"✅ Extracted {param_name} from @username: {extracted[param_name]}")
                         continue
-                    
+
                     # Look for "assign to username" format
                     assign_pattern = r'assign\s+(?:to\s+)?([a-zA-Z0-9_-]+)'
                     assign_match = re.search(assign_pattern, query, re.IGNORECASE)
@@ -1228,7 +1222,7 @@ Selection:"""
                         extracted[param_name] = assign_match.group(1)
                         print(f"✅ Extracted {param_name} from assign: {extracted[param_name]}")
                         continue
-            
+
             elif param_type == 'integer':
                 # Fallback to pattern matching if LLM extraction fails
                 # Look for numbers
@@ -1237,18 +1231,18 @@ Selection:"""
                 if number_match:
                     extracted[param_name] = int(number_match.group(1))
                     print(f"✅ Extracted {param_name} from number: {extracted[param_name]}")
-            
+
             elif param_type == 'boolean':
                 print(f"🔍 Processing boolean parameter: {param_name}")
                 # Boolean extraction is now handled by the comprehensive LLM method above
                 # This section is kept for fallback pattern matching if needed
                 pass
-        
+
         print(f"🔍 Final extracted parameters: {extracted}")
         return extracted
 
 
-    
+
     def generate_missing_variables_message(self, analysis_result: dict) -> str:
         """
         Enhanced message generation that better handles follow-up conversations.
@@ -1256,21 +1250,21 @@ Selection:"""
         """
         if not analysis_result['tool_found']:
             return analysis_result['message']
-        
+
         tool_name = analysis_result['tool_name']
         tool_description = analysis_result['tool_description']
         missing_params = analysis_result['missing_params']
         extracted_params = analysis_result['extracted_params']
         all_params = analysis_result['all_params']
         required_params = analysis_result['all_required_params']
-        
+
         print("🔍 DEBUG: generate_missing_variables_message called with:")
         print(f"🔍 DEBUG: tool_name: {tool_name}")
         print(f"🔍 DEBUG: all_params keys: {list(all_params.keys())}")
         print(f"🔍 DEBUG: required_params: {required_params}")
         print(f"🔍 DEBUG: missing_params: {missing_params}")
         print(f"🔍 DEBUG: extracted_params: {extracted_params}")
-        
+
         # Check if this is a follow-up conversation
         # Only treat as follow-up if we actually extracted meaningful parameters for the GitHub operation
         meaningful_params = {}
@@ -1278,13 +1272,13 @@ Selection:"""
             # Only include parameters that are actually part of the GitHub tool
             if param_name in all_params:
                 meaningful_params[param_name] = value
-        
+
         is_followup = bool(meaningful_params) and len(meaningful_params) > 0
-        
+
         print(f"🔍 DEBUG: extracted_params: {extracted_params}")
         print(f"🔍 DEBUG: meaningful_params: {meaningful_params}")
         print(f"🔍 DEBUG: is_followup: {is_followup}")
-        
+
         if is_followup:
             prompt = f"""You are a helpful GitHub assistant. The user is providing additional information for an ongoing request.
 
@@ -1294,13 +1288,13 @@ Information already provided:
 """
             for param, value in meaningful_params.items():
                 prompt += f"- {param}: {value}\n"
-            
+
             prompt += """
 
-Please respond in a friendly, conversational way. Thank them for the additional information they've provided, 
+Please respond in a friendly, conversational way. Thank them for the additional information they've provided,
 then show the complete parameter list in exactly the same format as before.
 
-IMPORTANT: 
+IMPORTANT:
 - Thank them briefly for the additional information they've provided (be generic, don't mention specific parameters)
 - Explain what's still needed: "In order to [operation] I still need at least the required parameters from the list of parameters:"
 - Show ALL parameters again in the EXACT same simple format as the first message
@@ -1318,13 +1312,13 @@ Here are ALL the parameters for this tool:
             # First show required parameters, then optional ones
             required_param_names = [p for p in all_params.keys() if p in required_params]
             optional_param_names = [p for p in all_params.keys() if p not in required_params]
-            
+
             # Show required parameters first
             for param_name in required_param_names:
                 param_info = all_params[param_name]
                 param_desc = param_info.get('description', 'No description available')
                 req_status = "REQUIRED"
-                
+
                 if param_name in meaningful_params:
                     # Show current value for provided parameters
                     current_value = meaningful_params[param_name]
@@ -1346,13 +1340,13 @@ Here are ALL the parameters for this tool:
                         prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Default: **{default_str}**\n"
                     else:
                         prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
-            
+
             # Then show optional parameters
             for param_name in optional_param_names:
                 param_info = all_params[param_name]
                 param_desc = param_info.get('description', 'No description available')
                 req_status = "optional"
-                
+
                 if param_name in meaningful_params:
                     # Show current value for provided parameters
                     current_value = meaningful_params[param_name]
@@ -1374,7 +1368,7 @@ Here are ALL the parameters for this tool:
                         prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Default: **{default_str}**\n"
                     else:
                         prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
-            
+
             prompt += """
 
 Example format for the second message:
@@ -1398,13 +1392,13 @@ Please provide a simple, clean list of ALL parameters for this tool. Use this ex
             # First show required parameters, then optional ones
             required_param_names = [p for p in all_params.keys() if p in required_params]
             optional_param_names = [p for p in all_params.keys() if p not in required_params]
-            
+
             # Show required parameters first
             for param_name in required_param_names:
                 param_info = all_params[param_name]
                 param_desc = param_info.get('description', 'No description available')
                 req_status = "REQUIRED"
-                
+
                 default = param_info.get('default', None)
                 if default is not None:
                     # Convert boolean values to lowercase
@@ -1415,13 +1409,13 @@ Please provide a simple, clean list of ALL parameters for this tool. Use this ex
                     prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Default: **{default_str}**\n"
                 else:
                     prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
-            
+
             # Then show optional parameters
             for param_name in optional_param_names:
                 param_info = all_params[param_name]
                 param_desc = param_info.get('description', 'No description available')
                 req_status = "optional"
-                
+
                 default = param_info.get('default', None)
                 if default is not None:
                     # Convert boolean values to lowercase
@@ -1432,12 +1426,12 @@ Please provide a simple, clean list of ALL parameters for this tool. Use this ex
                     prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Default: **{default_str}**\n"
                 else:
                     prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
-            
+
             prompt += """
 
 Please respond in a friendly, conversational way. Present the parameter list in the simple format shown above.
 
-IMPORTANT: 
+IMPORTANT:
 - Use the exact format: "**param_name** (type): REQUIRED/optional - Description - Default: **value**"
 - The **param_name** should be bold
 - The **Default: value** should be bold
@@ -1447,34 +1441,34 @@ IMPORTANT:
 - Show required parameters first, then optional ones, but keep them in one continuous list
 
 Response:"""
-        
+
         try:
             # Use the LLM to generate a user-friendly message
             response = self.model.invoke(prompt)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             # Clean up the response
             response_text = response_text.strip()
-            
+
             # If the LLM response is too short or generic, provide a fallback
             if len(response_text) < 50:
                 optional_params_info = self.get_optional_params_info(all_params, required_params)
                 return self.generate_fallback_message(missing_params, extracted_params, optional_params_info, is_followup)
-            
+
             return response_text
-            
+
         except Exception as e:
             print(f"🤖 LLM message generation failed: {e}")
             optional_params_info = self.get_optional_params_info(all_params, required_params)
             return self.generate_fallback_message(missing_params, extracted_params, optional_params_info, is_followup)
-    
+
     def get_optional_params_info(self, all_params: dict, required_params: list) -> list:
         """
         Get optional parameters with their full information.
         """
         optional_params_info = []
         optional_param_names = [p for p in all_params.keys() if p not in required_params]
-        
+
         for param_name in optional_param_names:
             param_info = all_params.get(param_name, {})
             optional_params_info.append({
@@ -1483,9 +1477,9 @@ Response:"""
                 'type': param_info.get('type', 'unknown'),
                 'default': param_info.get('default', None)
             })
-        
+
         return optional_params_info
-    
+
     def generate_fallback_message(self, missing_params: list, extracted_params: dict, optional_params_info: list, is_followup: bool = False) -> str:
         """
         Enhanced fallback message generation that handles follow-up conversations.
@@ -1493,7 +1487,7 @@ Response:"""
         """
         if not missing_params and not optional_params_info:
             return "I have all the information I need to help you with your GitHub request!"
-        
+
         if is_followup:
             message = "Thanks for the additional information! "
             if extracted_params:
@@ -1501,15 +1495,15 @@ Response:"""
             message += "Here's what I still need:\n\n"
         else:
             message = "I'd be happy to help you with that! Here's what I need:\n\n"
-        
+
         # Get all parameters (both required and optional) with their current status
         all_fields = []
-        
+
         # Add all required parameters first (both missing and already provided)
         for param_name in [p['name'] for p in missing_params]:
             param_info = next((p for p in missing_params if p['name'] == param_name), {})
             current_value = extracted_params.get(param_name)
-            
+
             all_fields.append({
                 'name': param_name,
                 'description': param_info.get('description', 'No description available'),
@@ -1517,11 +1511,11 @@ Response:"""
                 'current_value': current_value,
                 'status': 'provided' if current_value else 'missing'
             })
-        
+
         # Add all optional parameters after required ones
         for param in optional_params_info:
             current_value = extracted_params.get(param['name'])
-            
+
             all_fields.append({
                 'name': param['name'],
                 'description': param['description'],
@@ -1530,15 +1524,15 @@ Response:"""
                 'default': param.get('default'),
                 'status': 'available'
             })
-        
+
         # Sort: required first, then optional, then by status (missing first), then alphabetically
         all_fields.sort(key=lambda x: (not x['required'], x['status'] != 'missing', x['name']))
-        
+
         # Generate the unified list
         for field in all_fields:
             status = "REQUIRED" if field['required'] else "optional"
             message += f"**{field['name']}** ({field.get('type', 'unknown')}): {status} - {field['description']}"
-            
+
             # Show current value if provided
             if field['current_value'] is not None:
                 # Convert boolean values to lowercase
@@ -1547,7 +1541,7 @@ Response:"""
                 else:
                     current_value_str = str(field['current_value'])
                 message += f" - Current value: **{current_value_str}**"
-            
+
             # Show default value for optional parameters
             if not field['required'] and field.get('default') is not None:
                 # Convert boolean values to lowercase and make them bold
@@ -1556,14 +1550,14 @@ Response:"""
                 else:
                     default_str = str(field['default'])
                 message += f" - Default: **{default_str}**"
-            
+
             message += "\n"
-        
+
         if is_followup:
             message += "\nCould you please provide the remaining information?"
         else:
             message += "\nCould you please provide the missing information?"
-        
+
         return message
 
     def enhance_query_with_parameters(self, original_query: str, extracted_params: dict) -> str:
@@ -1572,14 +1566,14 @@ Response:"""
         """
         if not extracted_params:
             return original_query
-        
+
         enhanced_query = original_query + "\n\n"
         enhanced_query += "Extracted parameters from your request:\n"
         for param, value in extracted_params.items():
             enhanced_query += f"- {param}: {value}\n"
-        
+
         enhanced_query += "\nPlease use these parameters when executing the appropriate GitHub tool."
-        
+
         return enhanced_query
 
     def update_analysis_with_parameters(self, original_analysis: dict, updated_params: dict) -> dict:
@@ -1589,10 +1583,10 @@ Response:"""
         """
         if not original_analysis['tool_found']:
             return original_analysis
-        
+
         # Validate parameters as they come in
         validated_params = self.validate_parameters(updated_params, original_analysis['all_params'])
-        
+
         # Re-check for missing parameters
         missing_params = []
         for param in original_analysis['all_required_params']:
@@ -1604,7 +1598,7 @@ Response:"""
                     'description': param_info.get('description', 'No description available'),
                     'title': param_info.get('title', param)
                 })
-        
+
         return {
             'tool_found': True,
             'tool_name': original_analysis['tool_name'],
@@ -1620,14 +1614,14 @@ Response:"""
         Validate parameters against their expected types and constraints.
         """
         validated = {}
-        
+
         for param_name, value in params.items():
             if param_name not in all_params:
                 continue  # Skip unknown parameters
-                
+
             param_info = all_params[param_name]
             param_type = param_info.get('type', 'string')
-            
+
             try:
                 # Type validation
                 if param_type == 'integer':
@@ -1641,7 +1635,7 @@ Response:"""
                     validated[param_name] = str(value)
                 else:
                     validated[param_name] = value
-                    
+
                 # Additional validation for specific parameter types
                 if param_name in ['owner', 'repo', 'repository']:
                     # Validate GitHub repository format
@@ -1653,16 +1647,16 @@ Response:"""
                         validated[param_name] = str(value).split('/')[1]
                     else:
                         validated[param_name] = str(value)
-                        
+
                 elif param_name in ['issue_number', 'pull_number', 'number']:
                     # Ensure these are positive integers
                     if int(value) <= 0:
                         continue  # Skip invalid numbers
-                        
+
             except (ValueError, TypeError):
                 # Skip invalid parameters
                 continue
-                
+
         return validated
 
     def create_input_fields_metadata(self, analysis_result: dict) -> dict:
@@ -1672,11 +1666,11 @@ Response:"""
         """
         if not analysis_result['tool_found']:
             return {}
-        
+
         all_params = analysis_result['all_params']
         required_params = analysis_result['all_required_params']
         extracted_params = analysis_result['extracted_params']
-        
+
         input_fields = {
             'fields': [],
             'summary': {
@@ -1687,17 +1681,17 @@ Response:"""
                 'missing_required': len([p for p in required_params if p not in extracted_params])
             }
         }
-        
+
         # Process all parameters (both required and optional)
         for param_name in all_params.keys():
             param_info = all_params.get(param_name, {})
             is_required = param_name in required_params
             is_provided = param_name in extracted_params
-            
+
             # Only include missing required parameters and all optional parameters
             if is_required and param_name in extracted_params:
                 continue  # Skip required params that are already provided
-            
+
             field_info = {
                 'name': param_name,
                 'type': param_info.get('type', 'string'),
@@ -1706,11 +1700,11 @@ Response:"""
                 'required': is_required,
                 'status': 'provided' if is_provided else 'missing'
             }
-            
+
             # Add default value if available
             if 'default' in param_info and param_info['default'] is not None:
                 field_info['default_value'] = param_info['default']
-            
+
             # Add additional metadata
             if 'enum' in param_info:
                 field_info['enum'] = param_info['enum']
@@ -1722,16 +1716,16 @@ Response:"""
                 field_info['maximum'] = param_info['maximum']
             if 'pattern' in param_info:
                 field_info['pattern'] = param_info['pattern']
-            
+
             # Add provided value if available
             if is_provided:
                 field_info['provided_value'] = extracted_params[param_name]
-            
+
             input_fields['fields'].append(field_info)
-        
+
         # Sort fields: required fields first, then optional fields
         input_fields['fields'].sort(key=lambda x: (not x['required'], x['name']))
-        
+
         return input_fields
 
     def generate_form_explanation_with_llm(self, analysis_result: dict) -> str:
@@ -1741,11 +1735,11 @@ Response:"""
         """
         if not analysis_result['tool_found']:
             return "Please provide additional information to help with your request."
-        
+
         tool_name = analysis_result['tool_name']
         tool_description = analysis_result['tool_description']
         operation = self.extract_operation_from_tool_name(tool_name)
-        
+
         # Create a prompt for the LLM to generate a user-friendly explanation
         prompt = f"""You are a helpful GitHub assistant. I need to generate a brief, friendly explanation for why a form is needed.
 
@@ -1766,21 +1760,21 @@ Examples:
 Keep it simple, friendly, and consistent with the examples above. Just return the explanation text, nothing else.
 
 Response:"""
-        
+
         try:
             # Use the LLM to generate a user-friendly explanation
             response = self.model.invoke(prompt)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             # Clean up the response
             response_text = response_text.strip()
-            
+
             # If the LLM response is too short or generic, provide a fallback
             if len(response_text) < 20:
                 return f"Here's the list of parameters you'll need to {operation.lower()}:"
-            
+
             return response_text
-            
+
         except Exception as e:
             print(f"🤖 LLM form explanation generation failed: {e}")
             # Fallback to a generic explanation
@@ -1792,7 +1786,7 @@ Response:"""
         """
         if not tool_name:
             return ''
-        
+
         # Common operation mappings
         operation_mappings = {
             'create_repository': 'Create Repository',
@@ -1817,18 +1811,18 @@ Response:"""
             'create_webhook': 'Create Webhook',
             'create_secret': 'Create Secret'
         }
-        
+
         # Try exact match first
         if tool_name in operation_mappings:
             return operation_mappings[tool_name]
-        
+
         # Try to extract operation from tool name
         parts = tool_name.split('_')
         if len(parts) >= 2:
             action = parts[0].title()
             resource = ' '.join(parts[1:]).title()
             return f"{action} {resource}"
-        
+
         # Fallback to title case
         return tool_name.replace('_', ' ').title()
 
@@ -1864,30 +1858,30 @@ Response:"""
         print("=" * 80)
         print("🔍 CURRENT CONVERSATION STATE")
         print("=" * 80)
-        
+
         print(f"📊 Conversation Map ({len(self.conversation_map)} mappings):")
         for a2a_id, stable_id in self.conversation_map.items():
             print(f"   • {a2a_id} -> {stable_id}")
-        
+
         print(f"\n📊 Analysis States ({len(self.analysis_states)}):")
         for conv_id, analysis in self.analysis_states.items():
             tool_name = analysis.get('tool_name', 'Unknown')
             missing_count = len(analysis.get('missing_params', []))
             print(f"   • {conv_id}: {tool_name} (missing: {missing_count})")
-        
+
         print(f"\n📊 Parameter States ({len(self.parameter_states)}):")
         for conv_id, params in self.parameter_states.items():
             param_count = len(params)
             print(f"   • {conv_id}: {param_count} parameters")
             for param, value in params.items():
                 print(f"     - {param}: {value}")
-        
+
         print(f"\n📊 Conversation Contexts ({len(self.conversation_contexts)}):")
         for conv_id, context in self.conversation_contexts.items():
             tool_name = context.get('tool_name', 'Unknown')
             timestamp = context.get('timestamp', 0)
             print(f"   • {conv_id}: {tool_name} at {timestamp}")
-        
+
         print("=" * 80)
 
     def reset_session(self, context_id: str):
@@ -1905,7 +1899,7 @@ Response:"""
         """
         if not candidate_tools:
             return "I'm not sure what GitHub operation you'd like to perform. Could you please be more specific?"
-        
+
         # Create a prompt for the LLM to generate a user-friendly clarification message
         prompt = f"""You are a helpful GitHub assistant. The user made a request, but I'm not completely confident about which GitHub operation they want to perform.
 
@@ -1913,49 +1907,49 @@ User's request: "{query}"
 
 Possible operations I'm considering:
 """
-        
+
         for i, tool in enumerate(candidate_tools):
             prompt += f"{i+1}. {tool['name']}: {tool['description']}\n"
-        
+
         prompt += """
 Please respond in a friendly, conversational way. Ask the user to clarify what they want to do.
 Suggest the most likely operations and ask them to confirm or provide more details.
 Don't mention technical details like tool names or scores.
 
 Response:"""
-        
+
         try:
             # Use the LLM to generate a user-friendly clarification message
             response = self.model.invoke(prompt)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             # Clean up the response
             response_text = response_text.strip()
-            
+
             # If the LLM response is too short or generic, provide a fallback
             if len(response_text) < 50:
                 return self.generate_fallback_clarification_message(query, candidate_tools)
-            
+
             return response_text
-            
+
         except Exception as e:
             print(f"🤖 LLM clarification message generation failed: {e}")
             return self.generate_fallback_clarification_message(query, candidate_tools)
-    
+
     def generate_fallback_clarification_message(self, query: str, candidate_tools: list) -> str:
         """
         Generate a fallback clarification message if LLM fails.
         """
         message = "I'm not completely sure what you'd like to do with GitHub. Could you please clarify?\n\n"
         message += "Based on your request, I think you might want to:\n"
-        
+
         for i, tool in enumerate(candidate_tools[:3]):  # Show top 3
             # Extract a human-readable operation name
             operation_name = self.extract_operation_from_tool_name(tool['name'])
             message += f"• {operation_name}\n"
-        
+
         message += "\nCould you please be more specific about what you'd like to do?"
-        
+
         return message
 
     def extract_boolean_with_llm(self, query: str, param_name: str, query_lower: str) -> bool:
@@ -1975,13 +1969,13 @@ Query: "{query}"
 Parameter: "{param_name}"
 
 Response:"""
-            
+
             response = self.model.invoke(prompt)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             # Clean up the response
             response_text = response_text.strip()
-            
+
             if response_text.lower() in ['true', 'yes', '1', 'on']:
                 print(f"🤖 LLM determined {param_name} should be True.")
                 return True
@@ -2018,25 +2012,25 @@ Parameter: "{param_name}"
 Parameter Type: "{param_info.get('type', 'string')}"
 
 Response:"""
-            
+
             response = self.model.invoke(prompt)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             # Clean up the response
             response_text = response_text.strip()
-            
+
             # If the LLM response is a direct value, return it
             if response_text.lower() in ['true', 'false', 'yes', 'no', 'on', 'off', '1', '0']:
                 return response_text
-            
+
             # If the LLM response is a number
             if response_text.isdigit():
                 return int(response_text)
-            
+
             # If the LLM response is a string value
             if response_text:
                 return response_text
-            
+
             return None
         except Exception as e:
             print(f"🤖 LLM string extraction failed for {param_name}: {e}")
@@ -2061,24 +2055,24 @@ Parameter: "{param_name}"
 Parameter Type: "{param_info.get('type', 'string')}"
 
 Response:"""
-            
+
             response = self.model.invoke(prompt)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             # Clean up the response
             response_text = response_text.strip()
-            
+
             # If the LLM response is a direct integer value
             if response_text.isdigit():
                 return int(response_text)
-            
+
             # If the LLM response is a string value that can be converted to an integer
             if response_text:
                 try:
                     return int(response_text)
                 except ValueError:
                     pass # Not an integer, continue to other extraction methods
-            
+
             return None
         except Exception as e:
             print(f"🤖 LLM integer extraction failed for {param_name}: {e}")
@@ -2089,17 +2083,17 @@ Response:"""
         Use the LLM to intelligently extract parameter values from natural language.
         This method understands context and can handle various ways users express their intent.
         Only extracts parameters when there's high confidence they were specified.
-        
+
         Examples:
         - "make it private" → private: True
-        - "should be autoinit" → autoInit: True  
+        - "should be autoinit" → autoInit: True
         - "the name is MyRepo" → name: "MyRepo"
         - "issue number 123" → issue_number: 123
         """
         try:
             param_type = param_info.get('type', 'string')
             param_description = param_info.get('description', 'No description available')
-            
+
             prompt = f"""Given the user's query: "{query}" and the parameter: "{param_name}",
 determine if the user is explicitly specifying a value for this parameter.
 
@@ -2130,20 +2124,20 @@ Examples of UNCLEAR or AMBIGUOUS (should return None):
 - "make it good" → None (subjective, not specific)
 
 Response (just the value, or "None" if unclear):"""
-            
+
             response = self.model.invoke(prompt)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             # Clean up the response
             response_text = response_text.strip()
-            
+
             print(f"🤖 LLM response for {param_name}: '{response_text}'")
-            
+
             # If the LLM says "None" or similar, return None
             if response_text.lower() in ['none', 'null', 'undefined', 'n/a', 'not specified', 'unclear', 'ambiguous']:
                 print(f"🤖 LLM determined {param_name} is not specified")
                 return None
-            
+
             # Handle different parameter types
             if param_type == 'boolean':
                 if response_text.lower() in ['true', 'yes', '1', 'on', 'enabled']:
@@ -2157,7 +2151,7 @@ Response (just the value, or "None" if unclear):"""
                     elif any(word in response_text.lower() for word in ['false', 'no', 'disable', 'off']):
                         return False
                     return None
-                    
+
             elif param_type == 'integer':
                 try:
                     return int(response_text)
@@ -2168,17 +2162,17 @@ Response (just the value, or "None" if unclear):"""
                     if number_match:
                         return int(number_match.group())
                     return None
-                    
+
             elif param_type == 'string':
                 # Return the response text if it's not empty and not a "none" indicator
                 if response_text and response_text.lower() not in ['none', 'null', 'undefined', 'n/a']:
                     return response_text
                 return None
-                
+
             else:
                 # For unknown types, return the response as-is
                 return response_text if response_text else None
-                
+
         except Exception as e:
             print(f"🤖 LLM parameter extraction failed for {param_name}: {e}")
             return None
