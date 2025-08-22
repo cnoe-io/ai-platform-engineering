@@ -68,6 +68,10 @@ def main():
     # Configure logging
     logging.basicConfig(level=logging.DEBUG)
 
+    # Suppress DEBUG level messages from sse_starlette.sse
+    logging.getLogger("sse_starlette.sse").setLevel(logging.INFO)
+    logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.INFO)
+
     # Get MCP configuration from environment variables
     MCP_MODE = os.getenv("MCP_MODE", "STDIO")
 

@@ -20,7 +20,7 @@ dependencies = [
     "cnoe-agent-utils==0.3.0",
     "langchain (>=0.3.25)",
     "langfuse (>=3.0.8,<4.0.0)",
-    "agntcy-app-sdk>=0.1.1",
+    "agntcy-app-sdk==0.1.4",
     "identity-service-sdk>=0.0.1",
 ]
 
