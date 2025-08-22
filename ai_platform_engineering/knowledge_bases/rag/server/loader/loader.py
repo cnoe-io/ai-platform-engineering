@@ -22,11 +22,13 @@ class Loader:
         self.vstore = vstore
         self.logger = logger
         self.jobs_store = None  # Will be set by the API
+        self.chunk_size = 10000
+        self.chunk_overlap = 2000
         
         # Initialize text splitter for chunking large documents
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=30000,
-            chunk_overlap=3000,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
             length_function=len,
             separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""]
         )
@@ -195,8 +197,8 @@ class Loader:
         self.logger.info(f"Processing document: {source} ({len(content)} characters)")
 
         # Check if document needs chunking
-        if len(content) > 30000:
-            self.logger.info("Document exceeds 30,000 characters, splitting into chunks using RecursiveCharacterTextSplitter")
+        if len(content) > self.chunk_size:
+            self.logger.info("Document exceeds 10,000 characters, splitting into chunks using RecursiveCharacterTextSplitter")
             
             # Use LangChain's RecursiveCharacterTextSplitter
             chunk_docs = self.text_splitter.split_documents([doc])
@@ -205,7 +207,7 @@ class Loader:
 
             self.update_job_progress(job_id, 
                 status="in_progress", 
-                progress={"message": f"Splitting page into {len(chunk_docs)} chunks"}
+                progress={"message": f"Splitting page into {len(chunk_docs)} chunks..."}
             )
 
             # Add chunk metadata to each chunk
@@ -217,6 +219,10 @@ class Loader:
                 if not hasattr(chunk_doc, 'id') or not chunk_doc.id:
                     chunk_doc.id = f"{doc.id}_chunk_{i}" if doc.id else uuid.uuid4().hex
             
+            self.update_job_progress(job_id, 
+                status="in_progress", 
+                progress={"message": f"Adding {len(chunk_docs)} document chunks to vector store..."}
+            )
             self.logger.info(f"Split document into {len(chunk_docs)} chunks for: {source}")
             doc_ids = await self.vstore.aadd_documents(chunk_docs)
             self.logger.info(f"Added {len(doc_ids)} document chunks to vector store")
