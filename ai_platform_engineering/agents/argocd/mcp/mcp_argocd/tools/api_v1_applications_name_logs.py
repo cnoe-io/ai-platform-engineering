@@ -6,7 +6,7 @@
 
 import logging
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from mcp_argocd.api.client import make_api_request, assemble_nested_body
 from mcp_argocd.models import ParsedLogEntry, ProcessedLogs
 
@@ -76,7 +76,8 @@ def concatenate_logs(logs: List[ParsedLogEntry]) -> str:
     # Sort logs by timestamp if available
     try:
         logs_sorted = sorted(logs, key=lambda x: x.timestamp)
-    except:
+    except Exception as e:
+        logger.error(f"Failed to sort logs: {e}")
         logs_sorted = logs
 
     # Concatenate the content

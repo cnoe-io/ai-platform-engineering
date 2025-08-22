@@ -4,12 +4,11 @@
 
 """Tools for /api/v1/applications operations"""
 
-from typing import Dict, Any, List, Optional, Union, cast
+from typing import Dict, Any, List, Optional
 import logging
 from api.client import make_api_request
 from models.applications import (
     application_to_api_format,
-    api_format_to_application,
     Application,
     ApplicationSource,
     ApplicationDestination,
