@@ -1,6 +1,6 @@
 services:
   ####################################################################################################
-  #                                 AI Platform Engineer A2A P2P                                  #
+  #                                    AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
@@ -25,7 +25,7 @@ services:
     command: platform-engineer
 
   ####################################################################################################
-  #                                 AI Platform Engineer A2A SLIM                                  #
+  #                                   AI Platform Engineer A2A SLIM                                  #
   ####################################################################################################
   platform-engineer-slim:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
@@ -51,7 +51,7 @@ services:
     command: platform-engineer
 
   ####################################################################################################
-  #                                            SLIM Dataplane and control plane                      #
+  #                                 SLIM Dataplane and control plane                                 #
   ####################################################################################################
   slim-dataplane:
     image: ghcr.io/agntcy/slim:0.3.15
@@ -119,7 +119,7 @@ services:
       - MCP_HOST=mcp-weather
 
   ####################################################################################################
-  #                                      AGENT PETSTORE A2A over SLIM                                 #
+  #                                      AGENT PETSTORE A2A over SLIM                                #
   ####################################################################################################
   agent-petstore-slim:
     image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
@@ -137,7 +137,7 @@ services:
       - MCP_MODE=${MCP_MODE:-http}
 
   ####################################################################################################
-  #                                      AGENT PETSTORE A2A P2P                                       #
+  #                                      AGENT PETSTORE A2A P2P                                      #
   ####################################################################################################
   agent-petstore-p2p:
     image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
@@ -150,8 +150,4 @@ services:
       - "8010:8000"
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-petstore
-      - MCP_API_URL=https://petstore.swagger.io/v2
-      - MCP_API_KEY=your_api_key_here # Dummy key for demo server
+      - MCP_MODE=${MCP_MODE:-http}

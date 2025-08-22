@@ -69,6 +69,17 @@ class WeatherAgent:
         self.tracing = TracingManager()
         self._initialized = False
 
+        self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+
+        self.mcp_api_key = os.getenv("WEATHER_MCP_API_KEY")
+        if not self.mcp_api_key and self.mcp_mode != "stdio":
+            raise ValueError("WEATHER_MCP_API_KEY must be set as an environment variable for HTTP transport.")
+
+        self.mcp_api_url = os.getenv("WEATHER_MCP_API_URL")
+        # Defaults for each transport mode
+        if not self.mcp_api_url and self.mcp_mode != "stdio":
+            self.mcp_api_url = "https://weather.outshift.io/mcp"
+
     async def _initialize_agent(self):
         """Initialize the agent with tools and configuration."""
         if self._initialized:
@@ -99,19 +110,35 @@ class WeatherAgent:
                 env_vars["WEATHER_DYNAMIC_TOOLSETS"] = os.getenv("WEATHER_DYNAMIC_TOOLSETS")
 
             # Log what's being requested and current support
-            mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
-            if mcp_mode == "http" or mcp_mode == "streamable_http":
-                logger.warning("Ccurrently we only supports stdio transport for the weather agent. Defaulting to stdio transport.")
-            logger.info("Using mcp_weather_server package with stdio transport")
+            if self.mcp_mode == "http" or self.mcp_mode == "streamable_http":
 
-            client = MultiServerMCPClient({
-                "weather": {
-                    "command": "uv",
-                    "args": ["run", "mcp_weather_server"],
-                    "env": env_vars,
-                    "transport": "stdio",
-                }
-            })
+                logger.info(f"Using HTTP transport for MCP client: {self.mcp_api_url}")
+
+                client = MultiServerMCPClient(
+                    {
+                        "weather": {
+                            "transport": "streamable_http",
+                            "url": self.mcp_api_url,
+                            "headers": {
+                                "Authorization": f"Bearer {self.mcp_api_key}",
+                            },
+                        }
+                    }
+                )
+
+            else:
+                logger.info("Using mcp_weather_server package with stdio transport")
+
+                client = MultiServerMCPClient(
+                    {
+                        "weather": {
+                            "command": "uv",
+                            "args": ["run", "mcp_weather_server"],
+                            "env": env_vars,
+                            "transport": "stdio",
+                        }
+                    }
+                )
 
             # Get tools via the client
             client_tools = await client.get_tools()
