@@ -21,7 +21,7 @@ jobs:
 
     strategy:
       matrix:
-        component: [agent-a2a, server]
+        component: [agent-a2a, server, web]
       fail-fast: false
 
     env:
