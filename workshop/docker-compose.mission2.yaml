@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   ####################################################################################################
-  #                                    PETSTORE AGENT                                               #
+  #                                         PETSTORE AGENT                                           #
   ####################################################################################################
   agent-petstore-p2p:
     image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
@@ -13,12 +13,7 @@ services:
       - ../.env:/app/.env
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-petstore
-      - MCP_API_URL=https://petstore.swagger.io/v2
-      - MCP_API_KEY=your_api_key_here # Dummy key for demo server
-      - ENABLE_TRACING=false
+      - MCP_MODE=${MCP_MODE:-http}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/.well-known/agent.json"]
       interval: 10s
