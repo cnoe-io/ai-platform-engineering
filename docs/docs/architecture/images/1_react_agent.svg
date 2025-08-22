@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 416 724" width="416" height="724">
+  <defs>
+    <style>
+      @font-face { font-family: Excalifont; src: url(data:font/woff2;base64,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); }
+    </style>
+  </defs>
+  
+  <!-- User Query Circle -->
+  <g transform="translate(89.5 10)">
+    <path d="M163.67 6.99 C177.12 9.37, 190.12 15.32, 200.49 21.67 C210.86 28.01, 220.45 36.61, 225.88 45.05 C231.31 53.48, 233.51 63.27, 233.07 72.27 C232.62 81.26, 229.22 90.77, 223.21 99 C217.19 107.23, 207.88 115.57, 196.98 121.67 C186.08 127.77, 171.51 132.36, 157.79 135.61 C144.06 138.86, 129.49 141.16, 114.61 141.17 C99.74 141.17, 82.45 139.34, 68.55 135.61 C54.65 131.88, 41.45 125.29, 31.21 118.78 C20.97 112.27, 12.28 105.01, 7.13 96.54 C1.99 88.06, 0 76.98, 0.36 67.94 C0.72 58.89, 3.37 50.26, 9.31 42.26 C15.26 34.27, 25.27 26.08, 36.03 19.97 C46.79 13.86, 59.96 8.79, 73.87 5.61 C87.79 2.43, 103.69 0.58, 119.53 0.88 C135.36 1.19, 160.06 5.72, 168.88 7.43 C177.7 9.14, 173.43 9.91, 172.44 11.13" fill="#40c057"/>
+    <path d="M85.09 1.6 C98.23 -1.73, 114.48 -0.6, 129.45 0.79 C144.41 2.18, 161.57 5.44, 174.87 9.95 C188.17 14.46, 200.33 20.97, 209.26 27.85 C218.19 34.73, 224.44 42.48, 228.45 51.22 C232.46 59.97, 235.12 71.09, 233.3 80.32 C231.49 89.56, 225.07 99.24, 217.57 106.64 C210.07 114.04, 200.08 119.51, 188.29 124.72 C176.5 129.93, 161.12 135.36, 146.81 137.89 C132.5 140.43, 117.1 140.84, 102.44 139.95 C87.77 139.07, 71.85 137.14, 58.83 132.56 C45.8 127.98, 33.41 119.82, 24.3 112.47 C15.2 105.12, 7.85 96.85, 4.19 88.46 C0.53 80.07, 0.71 70.96, 2.36 62.11 C4.01 53.27, 6.76 43.21, 14.09 35.37 C21.42 27.52, 34.63 20.53, 46.36 15.04 C58.1 9.54, 77.81 4.21, 84.51 2.4 C91.22 0.59, 85.88 3.1, 86.58 4.17" stroke="#1971c2" stroke-width="2" fill="none"/>
+  </g>
+  
+  <!-- User Query Text -->
+  <g transform="translate(155.8 35.6)">
+    <text x="50.3" y="32" font-family="Excalifont, Xiaolai, Segoe UI Emoji" font-size="36" fill="#1971c2" text-anchor="middle">User</text>
+    <text x="50.3" y="77" font-family="Excalifont, Xiaolai, Segoe UI Emoji" font-size="36" fill="#1971c2" text-anchor="middle">Query</text>
+  </g>
+  
+  <!-- Agent/LLM Rectangle -->
+  <g transform="translate(10 249.4)">
+    <path d="M32 0 C101.64 -0.38, 169.28 2.41, 363.69 0 C383.24 2.09, 397.67 11.14, 395.69 32 C396.25 56.04, 397.83 77.96, 395.69 134.89 C392.31 157.32, 384.1 169.43, 363.69 166.89 C269.12 167.39, 176.75 164.37, 32 166.89 C9.42 168.52, -2.32 155.42, 0 134.89 C0.11 117.07, 1.69 95.47, 0 32 C-0.44 7.17, 10.31 -2.37, 32 0" fill="#eebefa"/>
+    <path d="M32 0 C114.68 -3.32, 194.64 -2.12, 363.69 0 M363.69 0 C386.57 -1.88, 394.27 9.14, 395.69 32 M395.69 32 C393.96 62.35, 394.46 91.33, 395.69 134.89 M395.69 134.89 C395.76 157.77, 384.55 168.82, 363.69 166.89 M363.69 166.89 C232.45 166.91, 103.61 166.92, 32 166.89 M32 166.89 C10.43 167.79, -1.86 155.54, 0 134.89 M0 134.89 C1.6 94.68, 1.45 55.18, 0 32 M0 32 C0.86 12.03, 11.83 0.09, 32 0" stroke="#1971c2" stroke-width="2" fill="none"/>
+  </g>
+  
+  <!-- Agent/LLM Text -->
+  <g transform="translate(105.5 287.8)">
+    <text x="102.3" y="32" font-family="Excalifont, Xiaolai, Segoe UI Emoji" font-size="36" fill="#1971c2" text-anchor="middle">Agent/LLM</text>
+    <text x="102.3" y="77" font-family="Excalifont, Xiaolai, Segoe UI Emoji" font-size="36" fill="#1971c2" text-anchor="middle">(Reasoning)</text>
+  </g>
+  
+  <!-- Tools Circle -->
+  <g transform="translate(84.3 559)">
+    <path d="M190.49 5.81 C206.11 8.02, 220.89 14.21, 233.34 20.24 C245.79 26.27, 257.55 33.52, 265.18 41.97 C272.81 50.42, 277.57 61.35, 279.13 70.94 C280.7 80.53, 279.28 90.6, 274.58 99.5 C269.89 108.39, 261.18 117.17, 250.95 124.31 C240.73 131.44, 227.54 137.59, 213.21 142.32 C198.89 147.04, 181.62 150.64, 165 152.66 C148.38 154.67, 129.98 156.14, 113.5 154.41 C97.02 152.68, 80.18 147.35, 66.12 142.28 C52.06 137.2, 39.44 131.1, 29.15 123.97 C18.86 116.83, 9.24 108.44, 4.4 99.48 C-0.44 90.51, -1.51 79.46, 0.1 70.17 C1.71 60.88, 6.56 52.25, 14.06 43.76 C21.55 35.26, 32.62 25.55, 45.08 19.2 C57.55 12.86, 73.03 8.95, 88.86 5.69 C104.69 2.42, 121.3 -0.84, 140.05 -0.41 C158.8 0.03, 189.65 6.13, 201.36 8.29 C213.07 10.45, 211.28 11.65, 210.31 12.56" fill="#4dabf7"/>
+    <path d="M194.49 5.77 C210.08 8.15, 224.12 15.21, 236.23 21.55 C248.35 27.88, 259.94 35.24, 267.18 43.75 C274.41 52.26, 278.59 63.32, 279.63 72.63 C280.67 81.94, 278.41 90.84, 273.42 99.6 C268.42 108.36, 260.19 117.62, 249.66 125.19 C239.13 132.75, 224.7 140.26, 210.26 144.99 C195.81 149.72, 179.64 152.36, 162.99 153.55 C146.35 154.75, 127.15 154.01, 110.38 152.17 C93.61 150.32, 76.27 147.52, 62.36 142.47 C48.45 137.42, 36.52 129.48, 26.92 121.87 C17.32 114.25, 9.22 105.81, 4.78 96.78 C0.34 87.76, -1.69 77.15, 0.28 67.73 C2.24 58.31, 8.43 48.56, 16.56 40.26 C24.69 31.96, 36.26 23.78, 49.05 17.93 C61.85 12.09, 77.63 8.11, 93.32 5.2 C109.01 2.29, 125.93 0.31, 143.2 0.48 C160.46 0.64, 187.43 4.72, 196.91 6.2 C206.39 7.68, 200.77 8.23, 200.06 9.35" stroke="#1971c2" stroke-width="2" fill="none"/>
+  </g>
+  
+  <!-- Tools Text -->
+  <g transform="translate(175.1 613.6)">
+    <text x="49.2" y="32" font-family="Excalifont, Xiaolai, Segoe UI Emoji" font-size="36" fill="#1971c2" text-anchor="middle">Tools</text>
+  </g>
+  
+  <!-- Act Arrow -->
+  <g transform="translate(183.3 416.7)">
+    <path d="M0.17 0.49 C-5.78 11.98, -35.1 46.44, -35.05 70.12 C-34.99 93.8, -5.53 130.42, 0.49 142.59" stroke="#e03131" stroke-width="2" fill="none"/>
+    <path d="M-18.69 126.75 C-11.14 131.51, -4.84 139.18, -0.05 143.41" stroke="#e03131" stroke-width="2" fill="none"/>
+  </g>
+  
+  <!-- Act Text -->
+  <g transform="translate(117.7 464)">
+    <text x="31.2" y="32" font-family="Excalifont, Xiaolai, Segoe UI Emoji" font-size="36" fill="#e03131" text-anchor="middle">Act</text>
+  </g>
+  
+  <!-- Response Arrow -->
+  <g transform="translate(276.7 562)">
+    <path d="M0.1 -0.39 C6.52 -12.16, 36.99 -47.33, 37.4 -71.41 C37.8 -95.49, 8.09 -132.73, 2.53 -144.85" stroke="#e03131" stroke-width="2" fill="none"/>
+    <path d="M20.47 -130.65 C15.99 -134.38, 12.63 -138.22, 1.51 -146.95" stroke="#e03131" stroke-width="2" fill="none"/>
+  </g>
+  
+  <!-- Response Text -->
+  <g transform="translate(232.2 468.1)">
+    <text x="82.1" y="32" font-family="Excalifont, Xiaolai, Segoe UI Emoji" font-size="36" fill="#e03131" text-anchor="middle">Response</text>
+  </g>
+  
+  <!-- Feedback Arrow -->
+  <g transform="translate(217.4 154)">
+    <path d="M-0.13 1.06 C-0.03 16.92, 1.26 79.1, 1.41 94.5" stroke="#1971c2" stroke-width="2" fill="none"/>
+    <path d="M-8.62 69.49 C-3.66 78.16, -0.87 85.6, 0.51 92.76" stroke="#1971c2" stroke-width="2" fill="none"/>
+    <path d="M8.48 69.07 C7.2 77.87, 3.74 85.46, 0.51 92.76" stroke="#1971c2" stroke-width="2" fill="none"/>
+  </g>
+</svg>
