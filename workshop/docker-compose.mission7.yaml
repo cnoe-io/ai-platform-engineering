@@ -180,10 +180,6 @@ services:
     image: langfuse/langfuse-worker:3
     container_name: langfuse-worker
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
-      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -227,10 +223,6 @@ services:
     image: langfuse/langfuse:3
     container_name: langfuse-web
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
-      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -276,10 +268,6 @@ services:
     image: clickhouse/clickhouse-server
     container_name: langfuse-clickhouse
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
-      - slim-tracing
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -302,10 +290,6 @@ services:
     image: minio/minio
     container_name: langfuse-minio
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
-      - slim-tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
@@ -327,10 +311,6 @@ services:
     image: redis:7
     container_name: langfuse-redis
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
-      - slim-tracing
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
     ports:
@@ -345,10 +325,6 @@ services:
     image: postgres:15
     container_name: langfuse-postgres
     restart: always
-    profiles:
-      - tracing
-      - p2p-tracing
-      - slim-tracing
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s
