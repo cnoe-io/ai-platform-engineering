@@ -14,6 +14,7 @@ services:
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
+      - PETSTORE_MCP_API_URL=https://petstore.outshift.io/mcp
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/.well-known/agent.json"]
       interval: 10s
