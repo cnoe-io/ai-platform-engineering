@@ -1,4 +1,4 @@
-## Unreleased
+## 0.1.7 (2025-08-25)
 
 ### Feat
 
@@ -15,6 +15,8 @@
 - add eval prompts (#191)
 - **docker**: use multi-stage builds to reduce container size (#198)
 - add a new graphrag helm chart
+- output URL to help user.
+- updated kb-rag from agent-rag
 
 ### Fix
 
@@ -70,6 +72,26 @@
 - wrong secretRef path
 - create json file and make graphrag optional
 - add SA field
+- add kb-rag to Platform Registry
+- readding new clients to kb-rag
+- updated-docker compose
+- format in agent a2a docker builder
+- update chunk number
+- using the right azure embeddings
+- updating prompts
+- ruff linter
+- loaded kb-rag into caipe's environment
+- another version number
+- updated a2a version
+- surpress milvus logs
+- github workflows
+- renamed kb-rag to rag to fix import errors
+- updated kb_rag
+- fixed breaking change
+- updated docker-build
+- added kb-rag
+- updated docker builder
+- updated docker build
 
 ## 0.1.5 (2025-08-15)
 
