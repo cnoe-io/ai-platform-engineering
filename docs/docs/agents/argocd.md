@@ -136,3 +136,9 @@ ARGOCD_TOKEN=<your_token>
 ARGOCD_API_URL=https://localhost:8080
 ARGOCD_VERIFY_SSL=false
 ```
+
+### Run ArgoCD Sanity tests
+
+```
+make argocd-sanity
+```
