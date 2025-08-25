@@ -45,7 +45,6 @@ dependencies = [
     { name = "langchain-mcp-adapters" },
     { name = "langchain-openai" },
     { name = "langgraph" },
-    { name = "mcp-weather-server" },
     { name = "pydantic" },
     { name = "pytest" },
     { name = "python-dotenv" },
@@ -73,7 +72,6 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
     { name = "langchain-openai", specifier = ">=0.3.17" },
     { name = "langgraph", specifier = "==0.5.3" },
-    { name = "mcp-weather-server" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
@@ -223,15 +221,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f1/b4/636b3b65173d3ce9a38ef5f0522789614e590dab6a8d505340a4efe4c567/anyio-4.10.0.tar.gz", hash = "sha256:3f3fae35c96039744587aa5b8371e7e8e603c0702999535961dd336026973ba6", size = 213252, upload-time = "2025-08-04T08:54:26.451Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6f/12/e5e0282d673bb9746bacfb6e2dba8719989d3660cdb2ea79aee9a9651afb/anyio-4.10.0-py3-none-any.whl", hash = "sha256:60e474ac86736bbfd6f210f7a61218939c318f43f9972497381f1c5e930ed3d1", size = 107213, upload-time = "2025-08-04T08:54:24.882Z" },
-]
-
-[[package]]
-name = "argparse"
-version = "1.4.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/18/dd/e617cfc3f6210ae183374cd9f6a26b20514bbb5a792af97949c5aacddf0f/argparse-1.4.0.tar.gz", hash = "sha256:62b089a55be1d8949cd2bc7e0df0bddb9e028faefc8c32038cc84862aefdd6e4", size = 70508, upload-time = "2015-09-12T20:22:16.217Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/94/3af39d34be01a24a6e65433d19e107099374224905f1e0cc6bbe1fd22a2f/argparse-1.4.0-py2.py3-none-any.whl", hash = "sha256:c31647edb69fd3d465a847ea3157d37bed1f95f19760b11a47aa91c04b666314", size = 23000, upload-time = "2015-09-14T16:03:16.137Z" },
 ]
 
 [[package]]
@@ -1674,21 +1663,6 @@ wheels = [
 cli = [
     { name = "python-dotenv" },
     { name = "typer" },
-]
-
-[[package]]
-name = "mcp-weather-server"
-version = "0.2.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "argparse" },
-    { name = "httpx" },
-    { name = "mcp", extra = ["cli"] },
-    { name = "python-dotenv" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/2b/c0/37c7eb71b47c589877828f4ef10278f65e65f7c07e91814416d44f26c298/mcp_weather_server-0.2.1.tar.gz", hash = "sha256:de0abbe613ebd087e0936f415aae6a281df5295df0c3ffebc3f132f49ef11341", size = 11856, upload-time = "2025-04-27T07:53:32.064Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/1d/245448e4be8326a513059debeb6aad644be0347070d2bd6cf3e7e8870f8b/mcp_weather_server-0.2.1-py3-none-any.whl", hash = "sha256:b40a101d4e231eda01a5a22754265cebb223a68621f25a73c7d7131f5f54b890", size = 12576, upload-time = "2025-04-27T07:53:30.874Z" },
 ]
 
 [[package]]
