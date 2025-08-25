@@ -54,8 +54,8 @@ class PetStoreAgent:
         self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
 
         self.mcp_api_key = os.getenv("PETSTORE_MCP_API_KEY")
-        if not self.petstore_api_key and self.mcp_mode != "stdio":
-            raise ValueError("PETSTORE_API_KEY must be set as an environment variable for HTTP transport.")
+        if not self.mcp_api_key and self.mcp_mode != "stdio":
+            raise ValueError("PETSTORE_MCP_API_KEY must be set as an environment variable for HTTP transport.")
 
         self.mcp_api_url = os.getenv("PETSTORE_MCP_API_URL")
         # Defaults for each transport mode
