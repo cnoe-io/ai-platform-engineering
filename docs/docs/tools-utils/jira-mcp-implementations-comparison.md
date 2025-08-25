@@ -12,7 +12,7 @@ This comparison analyzes three different approaches to implementing JIRA tools v
 
 | Implementation | Total Tools | Approach |
 |----------------|-------------|----------|
-| AWS OpenAPI JIRA | 44 tools | Auto-generated from OpenAPI spec (filtered to <2MB) |
+| AWS OpenAPI JIRA | 44 tools | Auto-generated from OpenAPI spec (filtered to `&lt;2MB`) |
 | AWS JIRA Integration | 35 tools | Pre-built AWS integration |
 | CNOE Jira MCP Server | 26 tools | Custom-built MCP server |
 
@@ -138,35 +138,35 @@ This comparison analyzes three different approaches to implementing JIRA tools v
 ## Key Differences
 
 ### 1. AWS OpenAPI JIRA (44 tools)
-- **Strengths**: 
+- **Strengths**:
   - Most comprehensive coverage of core JIRA operations
   - Excellent metadata and configuration management
   - Strong user management capabilities
   - Auto-generated from official OpenAPI spec ensures accuracy
-- **Weaknesses**: 
+- **Weaknesses**:
   - No Agile/Sprint features (likely filtered out for size)
   - Missing issue linking functionality
   - No attachment download capability
 
 ### 2. AWS JIRA Integration (35 tools)
-- **Strengths**: 
+- **Strengths**:
   - Best Agile/Sprint support with board management
   - Good balance of features
   - Includes sprint ranking and backlog management
   - Label management support
-- **Weaknesses**: 
+- **Weaknesses**:
   - Limited metadata operations
   - No user creation/deletion
   - Missing worklog functionality
 
 ### 3. CNOE Jira MCP Server (26 tools)
-- **Strengths**: 
+- **Strengths**:
   - Excellent issue linking capabilities
   - Unique features like batch changelog retrieval
   - Complete attachment handling (upload/download)
   - Worklog management
   - Epic linking support
-- **Weaknesses**: 
+- **Weaknesses**:
   - No project management operations
   - Limited metadata access
   - No comment management
@@ -180,6 +180,6 @@ This comparison analyzes three different approaches to implementing JIRA tools v
 
 ## Implementation Notes
 
-- AWS OpenAPI was filtered from >3MB to <2MB to meet AgentCore Gateway limits, which explains missing Agile features
+- AWS OpenAPI was filtered from >3MB to &lt;2MB to meet AgentCore Gateway limits, which explains missing Agile features
 - AWS Integration appears to be a curated subset focusing on common operations
 - CNOE MCP Server seems designed for specific workflow automation use cases
