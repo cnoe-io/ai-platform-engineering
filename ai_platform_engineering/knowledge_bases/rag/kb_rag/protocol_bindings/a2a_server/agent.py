@@ -7,7 +7,6 @@ from langchain.chains import RetrievalQA
 from langchain_milvus import Milvus
 from langchain_openai import AzureOpenAIEmbeddings
 from pymilvus import connections
-from langchain_core.callbacks.stdout import StdOutCallbackHandler
 from cnoe_agent_utils import LLMFactory
 from langchain.prompts import PromptTemplate
 
