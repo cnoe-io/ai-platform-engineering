@@ -3,11 +3,10 @@
 
 import logging
 import os
-import time
 from langchain.chains import RetrievalQA
 from langchain_milvus import Milvus
 from langchain_openai import AzureOpenAIEmbeddings
-from pymilvus import connections, utility
+from pymilvus import connections
 from cnoe_agent_utils import LLMFactory
 from langchain.prompts import PromptTemplate
 
@@ -63,66 +62,58 @@ class RAGAgent:
             connections.connect(alias="default", **self.milvus_conn)
             
             # Get collection name from environment (must be set)
-            self.collection_name = os.environ.get('VSTORE_COLLECTION', 'default')
+            self.collection_name = os.environ.get('VSTORE_COLLECTION', 'rag_default')
             logger.info(f"Using collection '{self.collection_name}'")
             
             # Check if collection exists with retry mechanism
-            max_retries = int(os.environ.get('MILVUS_MAX_RETRIES', '10'))
-            retry_delay = int(os.environ.get('MILVUS_RETRY_DELAY', '10'))  # seconds
-            collection_exists = False
+            # max_retries = int(os.environ.get('MILVUS_MAX_RETRIES', '10'))
+            # retry_delay = int(os.environ.get('MILVUS_RETRY_DELAY', '10'))  # seconds
+            # collection_exists = False
             
-            for attempt in range(1, max_retries + 1):
-                try:
-                    debug_print(f"Attempting to connect to collection '{self.collection_name}' (attempt {attempt}/{max_retries})")
-                    logger.info(f"Checking collection existence - attempt {attempt}/{max_retries}")
+            # for attempt in range(1, max_retries + 1):
+            #     try:
+            #         debug_print(f"Attempting to connect to collection '{self.collection_name}' (attempt {attempt}/{max_retries})")
+            #         logger.info(f"Checking collection existence - attempt {attempt}/{max_retries}")
                     
-                    if utility.has_collection(self.collection_name, using="default"):
-                        collection_exists = True
-                        debug_print(f"Successfully found collection '{self.collection_name}' on attempt {attempt}")
-                        logger.info(f"Collection '{self.collection_name}' found on attempt {attempt}")
-                        break
-                    else:
-                        if attempt < max_retries:
-                            debug_print(f"Collection '{self.collection_name}' not found. Waiting {retry_delay} seconds before retry...")
-                            logger.info(f"Collection '{self.collection_name}' not found. Retrying in {retry_delay} seconds...")
-                            time.sleep(retry_delay)
-                        else:
-                            debug_print(f"Collection '{self.collection_name}' not found after {max_retries} attempts")
-                            logger.error(f"Collection '{self.collection_name}' not found after {max_retries} attempts")
+            #         if utility.has_collection(self.collection_name, using="default"):
+            #             collection_exists = True
+            #             debug_print(f"Successfully found collection '{self.collection_name}' on attempt {attempt}")
+            #             logger.info(f"Collection '{self.collection_name}' found on attempt {attempt}")
+            #             break
+            #         else:
+            #             if attempt < max_retries:
+            #                 debug_print(f"Collection '{self.collection_name}' not found. Waiting {retry_delay} seconds before retry...")
+            #                 logger.info(f"Collection '{self.collection_name}' not found. Retrying in {retry_delay} seconds...")
+            #                 time.sleep(retry_delay)
+            #             else:
+            #                 debug_print(f"Collection '{self.collection_name}' not found after {max_retries} attempts")
+            #                 logger.error(f"Collection '{self.collection_name}' not found after {max_retries} attempts")
                             
-                except Exception as e:
-                    if attempt < max_retries:
-                        debug_print(f"Error checking collection on attempt {attempt}: {str(e)}. Retrying in {retry_delay} seconds...")
-                        logger.warning(f"Error checking collection on attempt {attempt}: {str(e)}. Retrying...")
-                        time.sleep(retry_delay)
-                    else:
-                        debug_print(f"Failed to check collection after {max_retries} attempts: {str(e)}")
-                        logger.error(f"Failed to check collection after {max_retries} attempts: {str(e)}")
-                        raise
+            #     except Exception as e:
+            #         if attempt < max_retries:
+            #             debug_print(f"Error checking collection on attempt {attempt}: {str(e)}. Retrying in {retry_delay} seconds...")
+            #             logger.warning(f"Error checking collection on attempt {attempt}: {str(e)}. Retrying...")
+            #             time.sleep(retry_delay)
+            #         else:
+            #             debug_print(f"Failed to check collection after {max_retries} attempts: {str(e)}")
+            #             logger.error(f"Failed to check collection after {max_retries} attempts: {str(e)}")
+            #             raise
             
-            if not collection_exists:
-                error_msg = f"Collection '{self.collection_name}' does not exist after {max_retries} attempts. Please ensure the vector store is properly initialized."
-                logger.error(error_msg)
-                raise ValueError(error_msg)
+            # if not collection_exists:
+            #     error_msg = f"Collection '{self.collection_name}' does not exist after {max_retries} attempts. Please ensure the vector store is properly initialized."
+            #     logger.error(error_msg)
+            #     raise ValueError(error_msg)
             
-            # Initialize vector store
-            self.vector_store = Milvus(
-                embedding_function=self.embeddings,
-                collection_name=self.collection_name,
-                connection_args=self.milvus_conn,
-                drop_old=False,
-            )
-            debug_print(f"Successfully connected to collection '{self.collection_name}'")
-            logger.info(f"Successfully connected to collection '{self.collection_name}'")
-            
+
             # Create a smart, generalized RAG prompt
-            prompt_template = PromptTemplate(
+            self.prompt_template = PromptTemplate(
                 input_variables=["context", "question"],
                 template="""
                 You are a Retrieval-Augmented Generation (RAG) assistant. Answer the user's question using only the information provided in the retrieved Documents below. 
                 The chucked documents you might have is very unorganized, try to first organize it and then make sense of what it's saying. You must try giving a answer in the best of your ability. 
-                Try to compound as many words as well but only if they relate the documents of the question. Do not make things up, always use relevant documents. If there's a source for each document, you must add the source which would be a URL when you output.
-                Do not make up answers or use outside knowledge. Be concise and accurate, and cite relevant documents if possible.
+                Try to compound as many words as well but only if they relate the documents of the question. Do not make things up, always use relevant documents.
+                Always include the source of the document in the answer (if available).
+                Do not make up answers or use outside knowledge. Be concise and accurate, and cite relevant sources.
 
 
                 Documents:
@@ -134,15 +125,10 @@ class RAGAgent:
                 Answer:
                 """
             )
-            # Create QA chain with the custom prompt
-            self.qa_chain = RetrievalQA.from_chain_type(
-                llm=self.llm,
-                chain_type="stuff",
-                retriever=self.vector_store.as_retriever(search_kwargs={"k": 3}),
-                # chain_type_kwargs={"prompt": prompt_template, "document_prompt":PromptTemplate.from_template("{page_content} {metadata}")},
-                chain_type_kwargs={"prompt": prompt_template},
-                return_source_documents=True
-            )
+
+            # Initialize these when needed
+            self.qa_chain = None
+            self.vector_store = None
             
         except Exception as e:
             logger.error(f"Error initializing RAG agent: {str(e)}", exc_info=True)
@@ -160,23 +146,35 @@ class RAGAgent:
         debug_print(f"Answering question: {question}")
         logger.info(f"Answering question: {question}")
         try:
-            # Get relevant documents first
-            retriever = self.vector_store.as_retriever(search_kwargs={"k": 3})
-            relevant_docs = retriever.get_relevant_documents(question)
-            
-            debug_print("Retrieved RAG chunks:")
-            for i, doc in enumerate(relevant_docs, 1):
-                # 20 dashes, space, Chunk i, space, 20 dashes
-                sep = "-" * 20
-                debug_print(f"{sep} Chunk {i} {sep}", banner=False)
-                debug_print(f"Content: {doc.page_content}", banner=False)
-                if hasattr(doc, 'metadata') and doc.metadata:
-                    debug_print(f"Metadata: {doc.metadata}", banner=False)
 
+            if self.vector_store is None:
+                # Initialize vector store
+                self.vector_store = Milvus(
+                    embedding_function=self.embeddings,
+                    collection_name=self.collection_name,
+                    connection_args=self.milvus_conn,
+                    drop_old=False,
+                )
             
+            if self.qa_chain is None:
+                # Initialize QA chain 
+                self.qa_chain = RetrievalQA.from_chain_type(
+                    llm=self.llm,
+                    chain_type="stuff",
+                    retriever=self.vector_store.as_retriever(search_kwargs={"k": 3}),
+                    # chain_type_kwargs={"prompt": prompt_template, "document_prompt":PromptTemplate.from_template("{page_content} {metadata}")},
+                    chain_type_kwargs={"prompt": self.prompt_template},
+                    return_source_documents=True,
+                    verbose=True,
+                )
+
+            debug_print(f"Successfully connected to collection '{self.collection_name}'")
+            logger.info(f"Successfully connected to collection '{self.collection_name}'")
+
             # Get answer
-            answer = self.qa_chain.invoke({"query": question})["result"]
-            sources = self.qa_chain.invoke({"query": question})["source_documents"]
+            result = self.qa_chain.invoke({"query": question})
+            answer = result["result"]
+            sources = result["source_documents"]
             for source in sources:
                 debug_print(f"Source: {source.metadata.get('source', 'No source found')}", banner=False)
                 answer += f"\nSource: {source.metadata.get('source', 'No source found')}"
