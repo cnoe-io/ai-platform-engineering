@@ -1,13 +1,56 @@
-## 0.1.6 (2025-08-15)
+## Unreleased
 
 ### Feat
 
+- **workshop**: add workshop 7 docker-compose
+- add http mcp remote support for petstore and weather agents
+- implement job tracking and ingestion progress for URL processing
+- initialize frontend for KB RAG with React, Vite, and Tailwind CSS
+- create dev mission docker file
+- add petstore to docker-compose.weather
+- add multi-agent dynamic connectivity and petstore refactor
+- add weather agent with stdio mcp server
+- adding rag-ingestion pipeline
+- **brand**: update docs to CAIPE branding (#211)
+- add eval prompts (#191)
 - **docker**: use multi-stage builds to reduce container size (#198)
 - add a new graphrag helm chart
 
 ### Fix
 
-- remove a2a- image prefix
+- docker-compose.mission2.yaml
+- **weather**: use remove URL (#223)
+- **workshop**: remove langfuse components from mission 7
+- **workshop**: add network host to langfuse web
+- **workshop**: remove rag from mission 7
+- **workshop**: remove profiles from docker compose 7
+- **docs**: update solution architecture
+- **docs**: update solution architecture
+- **docs**: update solution architecture
+- add docker build for kb-rag ui
+- add mission docker-compose, add prgress message for chunked doc
+- **README.md**: add start history (#217)
+- lint errors and argocd mcp bugs (#218)
+- ruff lint
+- **argocd**: test and validate mcp after auto-generation changes (#215)
+- update reference/source when outputting answer
+- default top_k for query 10 -> 3, better log
+- add empty document fields instead of omitting
+- kb-rag-agent image
+- add weather for a2a build gh action
+- lint
+- petstore agent and refactors
+- Dockerfile, add page counter
+- **argocd**: add VERIFY_SSL and ARGOCD_VERIFY_SSL support in mcp (#209)
+- removing knowledge base from .dockerignore
+- **argocd.md**: update kubectl context
+- **kb**: add init file to make it a package
+- **kb**: add init file to make it a package
+- **common.mk**: make run-mcp
+- adding init files
+- platform engineering workflow push to main
+- **docker-compose**: remove a2a- prefix (#200)
+- docker latest images with uv.lock (#199)
 - replace dotenv to python-dotenv
 - **uv**: add dotenv
 - **uv**: add dotenv
@@ -59,6 +102,8 @@
 - **graph-rag**: add evaluation and tests
 - embed vidcast in idpbuilder doc
 - add a new pre-release helm chart github action
+- output URL to help user.
+- updated kb-rag from agent-rag
 - implement distributed tracing across all agents (#139)
 - add idpbuilder docs (#142)
 - allow external url as the A2A url (#122)
@@ -119,6 +164,10 @@
 ### Fix
 
 - **build**: add latest tag for agent builds
+- add kb-rag to Platform Registry
+- readding new clients to kb-rag
+- updated-docker compose
+- format in agent a2a docker builder
 - **a2a-docker**: publish on main and tags
 - mcp docker improvements (#186)
 - quick sanity tests and docker-compose files (#185)
@@ -133,6 +182,22 @@
 - **graph-rag**: give similar relations when evluating
 - **README.md**: add note to latest docs
 - docs images need to be svg not png
+- update chunk number
+- using the right azure embeddings
+- updating prompts
+- ruff linter
+- loaded kb-rag into caipe's environment
+- another version number
+- updated a2a version
+- surpress milvus logs
+- github workflows
+- renamed kb-rag to rag to fix import errors
+- updated kb_rag
+- fixed breaking change
+- updated docker-build
+- added kb-rag
+- updated docker builder
+- updated docker build
 - **docs**: update tracing docs
 - add profiles to graph_rag/nexigraph services
 - remove a2a from nexigraph images
