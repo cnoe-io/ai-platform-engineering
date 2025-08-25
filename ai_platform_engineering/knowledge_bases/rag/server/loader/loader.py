@@ -229,6 +229,11 @@ class Loader:
         else:
             # Process as single document
             self.logger.info(f"Embedding & adding document: {source}")
+
+            # Add these to maintian consistency with chunked documents
+            doc.metadata["chunk_index"] = 0
+            doc.metadata["total_chunks"] = 1
+            doc.metadata["chunk_id"] = f"{doc.id}_chunk_0" if doc.id else f"{uuid.uuid4().hex}_chunk_0"
             doc_ids = await self.vstore.aadd_documents([doc])
             self.logger.info(f"Document added to vector store: {doc_ids}")
         
