@@ -60,6 +60,9 @@ agent_prompts:
   komodor:
     system_prompt: |
       If the user's prompt is related to Komodor operations, such as getting the status of a cluster, fetching health risks, triggering a RCA, or getting RCA results, assign the task to the Komodor agent.
+  petstore:
+    system_prompt: |
+      If the user's prompt is related to Petstore operations, such as getting the pet details, adding a new pet, updating a pet, deleting a pet, or getting the pet by id, assign the task to the Petstore agent.
   weather:
     system_prompt: |
       If the user's prompt is related to weather operations, such as getting the current weather, forecasting, or historical weather data, assign the task to the Weather agent.
@@ -67,4 +70,4 @@ agent_prompts:
     system_prompt: |
       This rag agent knows everything about mars. If the question seems or appears to be about mars or any planet or anything to do with the universe, solar system or space direct and assign to kb-rag   # kb-rag:
   #   system_prompt: |
-  #     The RAG agent now encompasses everything about ai_platform_engineering. All our documentation lies there. So if there's any question about ai_platform_engineering, then route to kb-rag. 
+  #     The RAG agent now encompasses everything about ai_platform_engineering. All our documentation lies there. So if there's any question about ai_platform_engineering, then route to kb-rag.

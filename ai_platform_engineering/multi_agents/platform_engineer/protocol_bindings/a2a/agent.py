@@ -61,7 +61,7 @@ class AIPlatformEngineerA2ABinding:
       logging.info(f"Created tracing config: {config}")
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
-          logging.info(f"Received item from graph stream: {item}")
+          logging.debug(f"Received item from graph stream: {item}")
           message = item['messages'][-1]
           if (
               isinstance(message, AIMessage)
@@ -82,17 +82,17 @@ class AIPlatformEngineerA2ABinding:
                   'content': 'Processing..',
               }
 
-      logging.info("Stream processing complete, fetching final agent response")
-      logging.info(f"Finalizing response with config: {config}")
+      logging.debug("Stream processing complete, fetching final agent response")
+      logging.debug(f"Finalizing response with config: {config}")
       result = self.get_agent_response(config)
       logging.info(f"Final agent response: {result}")
 
       yield result
 
   def get_agent_response(self, config):
-      logging.info("Fetching current state from graph with provided config")
+      logging.debug("Fetching current state from graph with provided config")
       current_state = self.graph.get_state(config)
-      logging.info(f"Current state retrieved: {current_state}")
+      logging.debug(f"Current state retrieved: {current_state}")
 
       # Extract the AIMessage from the current state
       messages = current_state.values.get('messages', [])
