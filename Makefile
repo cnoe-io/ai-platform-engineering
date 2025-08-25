@@ -99,6 +99,11 @@ quick-sanity: setup-venv  ## Run all integration tests
 	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
 	cd integration && A2A_PROMPTS_FILE=test_prompts_quick_sanity.yaml uv run pytest -o log_cli=true -o log_cli_level=INFO
 
+argocd-sanity: setup-venv  ## Run argocd agent integration tests
+	@echo "Running argocd agent integration tests..."
+	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
+	cd integration && A2A_PROMPTS_FILE=test_prompts_argocd_sanity.yaml uv run pytest -o log_cli=true -o log_cli_level=INFO
+
 detailed-sanity: detailed-test ## Run tests with verbose output and detailed logs
 detailed-test: setup-venv ## Run tests with verbose output and detailed logs
 	@echo "Running integration tests with verbose output..."
