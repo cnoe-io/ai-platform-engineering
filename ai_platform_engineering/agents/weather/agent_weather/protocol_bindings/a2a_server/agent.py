@@ -71,10 +71,6 @@ class WeatherAgent:
 
         self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
 
-        self.mcp_api_key = os.getenv("WEATHER_MCP_API_KEY")
-        if not self.mcp_api_key and self.mcp_mode != "stdio":
-            raise ValueError("WEATHER_MCP_API_KEY must be set as an environment variable for HTTP transport.")
-
         self.mcp_api_url = os.getenv("WEATHER_MCP_API_URL")
         # Defaults for each transport mode
         if not self.mcp_api_url and self.mcp_mode != "stdio":
