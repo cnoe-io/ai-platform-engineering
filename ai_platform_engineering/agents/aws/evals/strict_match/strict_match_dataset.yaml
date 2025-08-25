@@ -1,0 +1,45 @@
+tests:
+  aws_eks_agent_1:
+    input: |
+      show eks cluster status for cluster named production
+    reference_trajectory:
+      solution_1: __start__;agent_aws
+    metadata:
+      comments: |
+        Shows the status of the production EKS cluster.
+
+  aws_eks_agent_2:
+    input: |
+      list all pods in the default namespace
+    reference_trajectory:
+      solution_1: __start__;agent_aws
+    metadata:
+      comments: |
+        Lists all pods running in the default namespace.
+
+  aws_eks_agent_3:
+    input: |
+      create a deployment for nginx with 3 replicas
+    reference_trajectory:
+      solution_1: __start__;agent_aws
+    metadata:
+      comments: |
+        Creates a new nginx deployment with 3 replicas.
+
+  aws_eks_agent_4:
+    input: |
+      get logs from the failing pod in backend namespace
+    reference_trajectory:
+      solution_1: __start__;agent_aws
+    metadata:
+      comments: |
+        Retrieves logs from pods that are failing in the backend namespace.
+
+  aws_eks_agent_5:
+    input: |
+      show CPU metrics for nodes in the cluster
+    reference_trajectory:
+      solution_1: __start__;agent_aws
+    metadata:
+      comments: |
+        Displays CPU utilization metrics for all nodes in the EKS cluster.
