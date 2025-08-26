@@ -1,3 +1,11 @@
+## Unreleased
+
+### Fix
+
+- **petstore**: add PETSTORE_API_KEY support
+- correct petstore mcp env var name
+- Update README.md (#230)
+
 ## 0.1.9 (2025-08-26)
 
 ### Fix
