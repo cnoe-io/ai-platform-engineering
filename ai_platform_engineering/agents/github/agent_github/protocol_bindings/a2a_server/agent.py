@@ -75,6 +75,7 @@ class GitHubAgent:
         #asyncio.run(self._initialize_agent())
         self._initialized = False
 
+
     async def _initialize_agent(self):
         """Initialize the agent with tools and configuration."""
 
@@ -134,31 +135,30 @@ class GitHubAgent:
 
               # Configure the GitHub MCP server client
               client = MultiServerMCPClient(
-                  {
-                      "github": {
-                          "command": "docker",
-                          "args": [
-                              "run",
-                              "-i",
-                              "--rm",
-                              "-e", f"GITHUB_PERSONAL_ACCESS_TOKEN={self.github_token}",
-                          ] + (["-e", f"GITHUB_HOST={github_host}"] if github_host else []) +
-                          (["-e", f"GITHUB_TOOLSETS={toolsets}"] if toolsets else []) +
-                          (["-e", "GITHUB_DYNAMIC_TOOLSETS=true"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
-                          ["ghcr.io/github/github-mcp-server:latest"],
-                          "transport": "stdio",
-                      }
-                  }
+                {
+                    "github": {
+                        "command": "docker",
+                        "args": [
+                            "run",
+                            "-i",
+                            "--rm",
+                            "-e", f"GITHUB_PERSONAL_ACCESS_TOKEN={self.github_token}",
+                        ] + (["-e", f"GITHUB_HOST={github_host}"] if github_host else []) +
+                        (["-e", f"GITHUB_TOOLSETS={toolsets}"] if toolsets else []) +
+                        (["-e", "GITHUB_DYNAMIC_TOOLSETS=true"] if os.getenv("GITHUB_DYNAMIC_TOOLSETS") else []) +
+                        ["ghcr.io/github/github-mcp-server:latest"],
+                        "transport": "stdio",
+                    }
+                }
               )
 
             # Get tools via the client
             client_tools = await client.get_tools()
 
-            # Store tools for later reference
-            self.tools_info = {}
-
-            # Feature flag controlled MCP tool matching and display functionality
+            # Store tools for later reference (only when MCP tool match is enabled)
             if ENABLE_MCP_TOOL_MATCH:
+                self.tools_info = {}
+
                 print('*'*80)
                 print("🔧 AVAILABLE GITHUB TOOLS AND PARAMETERS")
                 print('*'*80)
@@ -213,7 +213,7 @@ class GitHubAgent:
                 print('*'*80)
 
             # Create the agent with the tools
-            logging.info("🔧 Creating agent graph with tools...")
+            print("🔧 Creating agent graph with tools...")
             self.graph = create_react_agent(
                 self.model,
                 client_tools,
@@ -221,7 +221,7 @@ class GitHubAgent:
                 prompt=self.SYSTEM_INSTRUCTION,
                 response_format=(self.RESPONSE_FORMAT_INSTRUCTION, ResponseFormat),
             )
-            logging.info("✅ Agent graph created successfully!")
+            print("✅ Agent graph created successfully!")
 
             # Test the agent with a simple query
             runnable_config = RunnableConfig(configurable={"thread_id": "init-thread"})
@@ -252,6 +252,43 @@ class GitHubAgent:
             logger.exception(f"Error initializing agent: {e}")
             self.graph = None
 
+    def get_stable_conversation_id(self, context_id: str, task_id: str = None) -> str:
+        """
+        Generate a stable conversation ID that persists across multiple messages.
+        This is needed because A2A generates new contextIds for each message.
+        """
+        if not ENABLE_MCP_TOOL_MATCH:
+            return context_id  # Fallback to original context_id when feature is disabled
+
+        if context_id in self.conversation_map:
+            return self.conversation_map[context_id]
+
+        # Generate a new stable conversation ID
+        if task_id:
+            stable_id = f"conv_{task_id}_{self.conversation_counter}"
+        else:
+            stable_id = f"conv_{context_id}_{self.conversation_counter}"
+
+        self.conversation_counter += 1
+        self.conversation_map[context_id] = stable_id
+
+        print(f"🔗 Mapped A2A contextId '{context_id}' to stable conversation ID '{stable_id}'")
+        return stable_id
+
+    def cleanup_conversation_mapping(self, context_id: str):
+        """
+        Clean up the conversation mapping when a conversation is complete.
+        """
+        if not ENABLE_MCP_TOOL_MATCH:
+            return  # No cleanup needed when feature is disabled
+
+        if context_id in self.conversation_map:
+            stable_id = self.conversation_map[context_id]
+            # Clean up all related states
+            self.cleanup_session(stable_id)
+            del self.conversation_map[context_id]
+            print(f"🧹 Cleaned up conversation mapping for {context_id} -> {stable_id}")
+
     @trace_agent_stream("github")
     async def stream(self, *args, **kwargs) -> AsyncIterable[dict[str, Any]]:
         """
@@ -261,17 +298,27 @@ class GitHubAgent:
         calling patterns from the A2A framework. The method extracts the expected
         parameters from the arguments dynamically.
         """
+        # Check if enhanced MCP tool matching is enabled
+        if ENABLE_MCP_TOOL_MATCH:
+            # Use enhanced functionality with comprehensive request analysis
+            async for item in self._stream_with_enhanced_analysis(*args, **kwargs):
+                yield item
+        else:
+            # Use basic functionality (original behavior)
+            async for item in self._stream_basic(*args, **kwargs):
+                yield item
 
-        # Initialize the agent if not already done
-        await self._initialize_agent()
-
+    async def _stream_basic(self, *args, **kwargs) -> AsyncIterable[dict[str, Any]]:
+        """Basic streaming functionality without enhanced analysis."""
         # Extract expected parameters from args and kwargs
         query = args[0] if len(args) > 0 else kwargs.get('query')
         context_id = args[1] if len(args) > 1 else kwargs.get('context_id')
         trace_id = args[2] if len(args) > 2 else kwargs.get('trace_id')
-        task_id = args[3] if len(args) > 3 else kwargs.get('task_id')
 
-        logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
+        # Initialize the agent if not already done
+        await self._initialize_agent()
+
+        logger.info(f"Starting basic stream with query: {query} and sessionId: {context_id}")
 
         # Validate required parameters
         if not query:
@@ -301,18 +348,6 @@ class GitHubAgent:
             }
             return
 
-        # Check if enhanced MCP tool matching is enabled
-        if ENABLE_MCP_TOOL_MATCH:
-            # Use enhanced functionality with comprehensive request analysis
-            async for item in self._stream_with_enhanced_analysis(query, context_id, trace_id, task_id):
-                yield item
-        else:
-            # Use basic functionality (original behavior)
-            async for item in self._stream_basic(query, context_id, trace_id):
-                yield item
-
-    async def _stream_basic(self, query: str, context_id: str, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
-        """Basic streaming functionality without enhanced analysis."""
         inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
         config: RunnableConfig = self.tracing.create_config(context_id)
 
@@ -382,6 +417,15 @@ class GitHubAgent:
         print(f"🔗 Stable Conversation ID: {stable_conversation_id}")
         print(f"🔍 Trace ID: {trace_id}")
         print("=" * 80)
+
+        if not self.graph:
+            logger.error("Agent graph not initialized")
+            yield {
+                'is_task_complete': False,
+                'require_user_input': True,
+                'content': 'GitHub agent is not properly initialized. Please check the logs.',
+            }
+            return
 
         # Enhanced parameter handling with better state management
         # FIRST: Check if this query is actually GitHub-related before any processing
@@ -759,39 +803,8 @@ class GitHubAgent:
         return {
             'is_task_complete': False,
             'require_user_input': True,
-            'content': 'We are unable to process your GitHub request at the moment. Please try again.',
+            'content': 'We are unable to process your GitHub request at the moment. Pls try again.',
         }
-
-    def get_stable_conversation_id(self, context_id: str, task_id: str = None) -> str:
-        """
-        Generate a stable conversation ID that persists across multiple messages.
-        This is needed because A2A generates new contextIds for each message.
-        """
-        if context_id in self.conversation_map:
-            return self.conversation_map[context_id]
-
-        # Generate a new stable conversation ID
-        if task_id:
-            stable_id = f"conv_{task_id}_{self.conversation_counter}"
-        else:
-            stable_id = f"conv_{context_id}_{self.conversation_counter}"
-
-        self.conversation_counter += 1
-        self.conversation_map[context_id] = stable_id
-
-        print(f"🔗 Mapped A2A contextId '{context_id}' to stable conversation ID '{stable_id}'")
-        return stable_id
-
-    def cleanup_conversation_mapping(self, context_id: str):
-        """
-        Clean up the conversation mapping when a conversation is complete.
-        """
-        if context_id in self.conversation_map:
-            stable_id = self.conversation_map[context_id]
-            # Clean up all related states
-            self.cleanup_session(stable_id)
-            del self.conversation_map[context_id]
-            print(f"🧹 Cleaned up conversation mapping for {context_id} -> {stable_id}")
 
     def analyze_request_and_discover_tool(self, query: str) -> dict:
         """
@@ -1304,221 +1317,7 @@ Selection:"""
         print(f"🔍 Final extracted parameters: {extracted}")
         return extracted
 
-    def extract_parameter_with_llm(self, query: str, param_name: str, param_info: dict) -> Any:
-        """
-        Use the LLM to intelligently extract parameter values from natural language.
-        This method understands context and can handle various ways users express their intent.
-        Only extracts parameters when there's high confidence they were specified.
 
-        Examples:
-        - "make it private" → private: True
-        - "should be autoinit" → autoInit: True
-        - "the name is MyRepo" → name: "MyRepo"
-        - "issue number 123" → issue_number: 123
-        """
-        try:
-            param_type = param_info.get('type', 'string')
-            param_description = param_info.get('description', 'No description available')
-
-            prompt = f"""Given the user's query: "{query}" and the parameter: "{param_name}",
-determine if the user is explicitly specifying a value for this parameter.
-
-Parameter Details:
-- Name: {param_name}
-- Type: {param_type}
-- Description: {param_description}
-
-User Query: "{query}"
-
-Instructions:
-1. ONLY extract a value if the user's query CLEARLY and EXPLICITLY specifies a value for this parameter
-2. If the user's query implies a value (e.g., "make it private" implies private: true), extract and return it
-3. If the user's query is ambiguous or doesn't provide a clear value, return None
-4. Be CONSERVATIVE - only extract when you're very confident the user specified this parameter
-5. Return the value in the appropriate type (boolean, integer, string, etc.)
-
-Examples of CLEAR specifications:
-- "make it private" → True (for boolean parameter 'private')
-- "should be autoinit" → True (for boolean parameter 'autoInit')
-- "the name is MyRepo" → "MyRepo" (for string parameter 'name')
-- "issue number 123" → 123 (for integer parameter 'issue_number')
-- "set state to open" → "open" (for string parameter 'state')
-
-Examples of UNCLEAR or AMBIGUOUS (should return None):
-- "create a repository" → None (no specific name mentioned)
-- "I want to create something" → None (too vague)
-- "make it good" → None (subjective, not specific)
-
-Response (just the value, or "None" if unclear):"""
-
-            response = self.model.invoke(prompt)
-            response_text = response.content if hasattr(response, 'content') else str(response)
-
-            # Clean up the response
-            response_text = response_text.strip()
-
-            print(f"🤖 LLM response for {param_name}: '{response_text}'")
-
-            # If the LLM says "None" or similar, return None
-            if response_text.lower() in ['none', 'null', 'undefined', 'n/a', 'not specified', 'unclear', 'ambiguous']:
-                print(f"🤖 LLM determined {param_name} is not specified")
-                return None
-
-            # Handle different parameter types
-            if param_type == 'boolean':
-                if response_text.lower() in ['true', 'yes', '1', 'on', 'enabled']:
-                    return True
-                elif response_text.lower() in ['false', 'no', '0', 'off', 'disabled']:
-                    return False
-                else:
-                    # Check if the response implies a boolean value
-                    if any(word in response_text.lower() for word in ['true', 'yes', 'enable', 'on']):
-                        return True
-                    elif any(word in response_text.lower() for word in ['false', 'no', 'disable', 'off']):
-                        return False
-                    return None
-
-            elif param_type == 'integer':
-                try:
-                    return int(response_text)
-                except ValueError:
-                    # Try to extract numbers from the response
-                    import re
-                    number_match = re.search(r'\d+', response_text)
-                    if number_match:
-                        return int(number_match.group())
-                    return None
-
-            elif param_type == 'string':
-                # Return the response text if it's not empty and not a "none" indicator
-                if response_text and response_text.lower() not in ['none', 'null', 'undefined', 'n/a']:
-                    return response_text
-                return None
-
-            else:
-                # For unknown types, return the response as-is
-                return response_text if response_text else None
-
-        except Exception as e:
-            print(f"🤖 LLM parameter extraction failed for {param_name}: {e}")
-            return None
-
-    def cleanup_session(self, context_id: str):
-        """
-        Clean up all stored session data for a given context.
-        """
-        if context_id in self.analysis_states:
-            del self.analysis_states[context_id]
-        if context_id in self.parameter_states:
-            del self.parameter_states[context_id]
-        if context_id in self.conversation_contexts:
-            del self.conversation_contexts[context_id]
-        print(f"🧹 Cleaned up session data for context: {context_id}")
-
-    def generate_low_confidence_message(self, query: str, candidate_tools: list) -> str:
-        """
-        Generate a message asking for clarification when tool selection confidence is low.
-        """
-        if not candidate_tools:
-            return "I'm not sure what GitHub operation you'd like to perform. Could you please be more specific?"
-
-        # Create a prompt for the LLM to generate a user-friendly clarification message
-        prompt = f"""You are a helpful GitHub assistant. The user made a request, but I'm not completely confident about which GitHub operation they want to perform.
-
-User's request: "{query}"
-
-Possible operations I'm considering:
-"""
-
-        for i, tool in enumerate(candidate_tools):
-            prompt += f"{i+1}. {tool['name']}: {tool['description']}\n"
-
-        prompt += """
-Please respond in a friendly, conversational way. Ask the user to clarify what they want to do.
-Suggest the most likely operations and ask them to confirm or provide more details.
-Don't mention technical details like tool names or scores.
-
-Response:"""
-
-        try:
-            # Use the LLM to generate a user-friendly clarification message
-            response = self.model.invoke(prompt)
-            response_text = response.content if hasattr(response, 'content') else str(response)
-
-            # Clean up the response
-            response_text = response_text.strip()
-
-            # If the LLM response is too short or generic, provide a fallback
-            if len(response_text) < 50:
-                return self.generate_fallback_clarification_message(query, candidate_tools)
-
-            return response_text
-
-        except Exception as e:
-            print(f"🤖 LLM clarification message generation failed: {e}")
-            return self.generate_fallback_clarification_message(query, candidate_tools)
-
-    def generate_fallback_clarification_message(self, query: str, candidate_tools: list) -> str:
-        """
-        Generate a fallback clarification message if LLM fails.
-        """
-        message = "I'm not completely sure what you'd like to do with GitHub. Could you please clarify?\n\n"
-        message += "Based on your request, I think you might want to:\n"
-
-        for i, tool in enumerate(candidate_tools[:3]):  # Show top 3
-            # Extract a human-readable operation name
-            operation_name = self.extract_operation_from_tool_name(tool['name'])
-            message += f"• {operation_name}\n"
-
-        message += "\nCould you please be more specific about what you'd like to do?"
-
-        return message
-
-    def extract_operation_from_tool_name(self, tool_name: str) -> str:
-        """
-        Extract a human-readable operation name from the tool name.
-        """
-        if not tool_name:
-            return ''
-
-        # Common operation mappings
-        operation_mappings = {
-            'create_repository': 'Create Repository',
-            'create_issue': 'Create Issue',
-            'create_pull_request': 'Create Pull Request',
-            'list_repositories': 'List Repositories',
-            'list_issues': 'List Issues',
-            'list_pull_requests': 'List Pull Requests',
-            'update_issue': 'Update Issue',
-            'close_issue': 'Close Issue',
-            'merge_pull_request': 'Merge Pull Request',
-            'add_comment': 'Add Comment',
-            'star_repository': 'Star Repository',
-            'fork_repository': 'Fork Repository',
-            'create_branch': 'Create Branch',
-            'delete_branch': 'Delete Branch',
-            'create_tag': 'Create Tag',
-            'create_milestone': 'Create Milestone',
-            'add_label': 'Add Label',
-            'assign_issue': 'Assign Issue',
-            'add_collaborator': 'Add Collaborator',
-            'create_webhook': 'Create Webhook',
-            'create_secret': 'Create Secret'
-        }
-
-        # Try exact match first
-        if tool_name in operation_mappings:
-            return operation_mappings[tool_name]
-
-        # Try to extract operation from tool name
-        parts = tool_name.split('_')
-        if len(parts) >= 2:
-            action = parts[0].title()
-            resource = ' '.join(parts[1:]).title()
-            return f"{action} {resource}"
-
-        # Fallback to title case
-        return tool_name.replace('_', ' ').title()
 
     def generate_missing_variables_message(self, analysis_result: dict) -> str:
         """
@@ -1716,3 +1515,403 @@ Response:"""
                 continue
 
         return validated
+
+    def cleanup_session(self, context_id: str):
+        """
+        Clean up all stored session data for a given context.
+        """
+        if not ENABLE_MCP_TOOL_MATCH:
+            return  # No cleanup needed when feature is disabled
+
+        if context_id in self.analysis_states:
+            del self.analysis_states[context_id]
+        if context_id in self.parameter_states:
+            del self.parameter_states[context_id]
+        if context_id in self.conversation_contexts:
+            del self.conversation_contexts[context_id]
+        print(f"🧹 Cleaned up session data for context: {context_id}")
+
+    def get_session_status(self, context_id: str) -> dict:
+        """
+        Get the current status of a session for debugging purposes.
+        """
+        return {
+            'has_analysis': context_id in self.analysis_states,
+            'has_parameters': context_id in self.parameter_states,
+            'has_context': context_id in self.conversation_contexts,
+            'analysis': self.analysis_states.get(context_id, {}),
+            'parameters': self.parameter_states.get(context_id, {}),
+            'conversation_context': self.conversation_contexts.get(context_id, {})
+        }
+
+    def show_conversation_state(self):
+        """
+        Show the current state of all conversations for debugging.
+        """
+        print("=" * 80)
+        print("🔍 CURRENT CONVERSATION STATE")
+        print("=" * 80)
+
+        print(f"📊 Conversation Map ({len(self.conversation_map)} mappings):")
+        for a2a_id, stable_id in self.conversation_map.items():
+            print(f"   • {a2a_id} -> {stable_id}")
+
+        print(f"\n📊 Analysis States ({len(self.analysis_states)}):")
+        for conv_id, analysis in self.analysis_states.items():
+            tool_name = analysis.get('tool_name', 'Unknown')
+            missing_count = len(analysis.get('missing_params', []))
+            print(f"   • {conv_id}: {tool_name} (missing: {missing_count})")
+
+        print(f"\n📊 Parameter States ({len(self.parameter_states)}):")
+        for conv_id, params in self.parameter_states.items():
+            param_count = len(params)
+            print(f"   • {conv_id}: {param_count} parameters")
+            for param, value in params.items():
+                print(f"     - {param}: {value}")
+
+        print(f"\n📊 Conversation Contexts ({len(self.conversation_contexts)}):")
+        for conv_id, context in self.conversation_contexts.items():
+            tool_name = context.get('tool_name', 'Unknown')
+            timestamp = context.get('timestamp', 0)
+            print(f"   • {conv_id}: {tool_name} at {timestamp}")
+
+        print("=" * 80)
+
+    def reset_session(self, context_id: str):
+        """
+        Reset a session to start fresh.
+        """
+        self.cleanup_session(context_id)
+        print(f"🔄 Reset session for context: {context_id}")
+
+    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
+
+    def generate_low_confidence_message(self, query: str, candidate_tools: list) -> str:
+        """
+        Generate a message asking for clarification when tool selection confidence is low.
+        """
+        if not candidate_tools:
+            return "I'm not sure what GitHub operation you'd like to perform. Could you please be more specific?"
+
+        # Create a prompt for the LLM to generate a user-friendly clarification message
+        prompt = f"""You are a helpful GitHub assistant. The user made a request, but I'm not completely confident about which GitHub operation they want to perform.
+
+User's request: "{query}"
+
+Possible operations I'm considering:
+"""
+
+        for i, tool in enumerate(candidate_tools):
+            prompt += f"{i+1}. {tool['name']}: {tool['description']}\n"
+
+        prompt += """
+Please respond in a friendly, conversational way. Ask the user to clarify what they want to do.
+Suggest the most likely operations and ask them to confirm or provide more details.
+Don't mention technical details like tool names or scores.
+
+Response:"""
+
+        try:
+            # Use the LLM to generate a user-friendly clarification message
+            response = self.model.invoke(prompt)
+            response_text = response.content if hasattr(response, 'content') else str(response)
+
+            # Clean up the response
+            response_text = response_text.strip()
+
+            # If the LLM response is too short or generic, provide a fallback
+            if len(response_text) < 50:
+                return self.generate_fallback_clarification_message(query, candidate_tools)
+
+            return response_text
+
+        except Exception as e:
+            print(f"🤖 LLM clarification message generation failed: {e}")
+            return self.generate_fallback_clarification_message(query, candidate_tools)
+
+    def generate_fallback_clarification_message(self, query: str, candidate_tools: list) -> str:
+        """
+        Generate a fallback clarification message if LLM fails.
+        """
+        message = "I'm not completely sure what you'd like to do with GitHub. Could you please clarify?\n\n"
+        message += "Based on your request, I think you might want to:\n"
+
+        for i, tool in enumerate(candidate_tools[:3]):  # Show top 3
+            # Extract a human-readable operation name
+            operation_name = self.extract_operation_from_tool_name(tool['name'])
+            message += f"• {operation_name}\n"
+
+        message += "\nCould you please be more specific about what you'd like to do?"
+
+        return message
+
+    def extract_boolean_with_llm(self, query: str, param_name: str, query_lower: str) -> bool:
+        """
+        Use the LLM to intelligently extract boolean values from natural language.
+        Handles cases like "make it private", "should be private", "enable autoinit".
+        """
+        try:
+            prompt = f"""Given the user's query: "{query}" and the parameter name: "{param_name}",
+determine if the user wants to set this parameter to True or False.
+
+If the user's query strongly implies True, return True.
+If the user's query strongly implies False, return False.
+If the user's query is neutral or ambiguous, return None.
+
+Query: "{query}"
+Parameter: "{param_name}"
+
+Response:"""
+
+            response = self.model.invoke(prompt)
+            response_text = response.content if hasattr(response, 'content') else str(response)
+
+            # Clean up the response
+            response_text = response_text.strip()
+
+            if response_text.lower() in ['true', 'yes', '1', 'on']:
+                print(f"🤖 LLM determined {param_name} should be True.")
+                return True
+            elif response_text.lower() in ['false', 'no', '0', 'off']:
+                print(f"🤖 LLM determined {param_name} should be False.")
+                return False
+            else:
+                # Check if the response implies a boolean value
+                if any(word in response_text.lower() for word in ['true', 'yes', 'enable', 'on']):
+                    return True
+                elif any(word in response_text.lower() for word in ['false', 'no', 'disable', 'off']):
+                    return False
+                return None
+        except Exception as e:
+            print(f"🤖 LLM boolean extraction failed for {param_name}: {e}")
+            return None
+
+    def extract_string_with_llm(self, query: str, param_name: str, param_info: dict) -> str | None:
+        """
+        Use the LLM to extract a string value from a natural language query.
+        This is particularly useful for complex expressions or when the query
+        doesn't directly match a rigid pattern.
+        """
+        try:
+            prompt = f"""Given the user's query: "{query}" and the parameter name: "{param_name}",
+extract the value for this parameter.
+
+If the user's query directly provides the value, return it.
+If the user's query implies the value, return it.
+If the user's query is ambiguous or doesn't provide a clear value, return None.
+
+Query: "{query}"
+Parameter: "{param_name}"
+Parameter Type: "{param_info.get('type', 'string')}"
+
+Response:"""
+
+            response = self.model.invoke(prompt)
+            response_text = response.content if hasattr(response, 'content') else str(response)
+
+            # Clean up the response
+            response_text = response_text.strip()
+
+            # If the LLM response is a direct value, return it
+            if response_text.lower() in ['true', 'false', 'yes', 'no', 'on', 'off', '1', '0']:
+                return response_text
+
+            # If the LLM response is a number
+            if response_text.isdigit():
+                return int(response_text)
+
+            # If the LLM response is a string value
+            if response_text:
+                return response_text
+
+            return None
+        except Exception as e:
+            print(f"🤖 LLM string extraction failed for {param_name}: {e}")
+            return None
+
+    def extract_integer_with_llm(self, query: str, param_name: str, param_info: dict) -> int | None:
+        """
+        Use the LLM to extract an integer value from a natural language query.
+        This is particularly useful for complex expressions or when the query
+        doesn't directly match a rigid pattern.
+        """
+        try:
+            prompt = f"""Given the user's query: "{query}" and the parameter name: "{param_name}",
+extract the integer value for this parameter.
+
+If the user's query directly provides the value, return it.
+If the user's query implies the value, return it.
+If the user's query is ambiguous or doesn't provide a clear integer value, return None.
+
+Query: "{query}"
+Parameter: "{param_name}"
+Parameter Type: "{param_info.get('type', 'string')}"
+
+Response:"""
+
+            response = self.model.invoke(prompt)
+            response_text = response.content if hasattr(response, 'content') else str(response)
+
+            # Clean up the response
+            response_text = response_text.strip()
+
+            # If the LLM response is a direct integer value
+            if response_text.isdigit():
+                return int(response_text)
+
+            # If the LLM response is a string value that can be converted to an integer
+            if response_text:
+                try:
+                    return int(response_text)
+                except ValueError:
+                    pass # Not an integer, continue to other extraction methods
+
+            return None
+        except Exception as e:
+            print(f"🤖 LLM integer extraction failed for {param_name}: {e}")
+            return None
+
+    def extract_parameter_with_llm(self, query: str, param_name: str, param_info: dict) -> Any:
+        """
+        Use the LLM to intelligently extract parameter values from natural language.
+        This method understands context and can handle various ways users express their intent.
+        Only extracts parameters when there's high confidence they were specified.
+
+        Examples:
+        - "make it private" → private: True
+        - "should be autoinit" → autoInit: True
+        - "the name is MyRepo" → name: "MyRepo"
+        - "issue number 123" → issue_number: 123
+        """
+        try:
+            param_type = param_info.get('type', 'string')
+            param_description = param_info.get('description', 'No description available')
+
+            prompt = f"""Given the user's query: "{query}" and the parameter: "{param_name}",
+determine if the user is explicitly specifying a value for this parameter.
+
+Parameter Details:
+- Name: {param_name}
+- Type: {param_type}
+- Description: {param_description}
+
+User Query: "{query}"
+
+Instructions:
+1. ONLY extract a value if the user's query CLEARLY and EXPLICITLY specifies a value for this parameter
+2. If the user's query implies a value (e.g., "make it private" implies private: true), extract and return it
+3. If the user's query is ambiguous or doesn't provide a clear value, return None
+4. Be CONSERVATIVE - only extract when you're very confident the user specified this parameter
+5. Return the value in the appropriate type (boolean, integer, string, etc.)
+
+Examples of CLEAR specifications:
+- "make it private" → True (for boolean parameter 'private')
+- "should be autoinit" → True (for boolean parameter 'autoInit')
+- "the name is MyRepo" → "MyRepo" (for string parameter 'name')
+- "issue number 123" → 123 (for integer parameter 'issue_number')
+- "set state to open" → "open" (for string parameter 'state')
+
+Examples of UNCLEAR or AMBIGUOUS (should return None):
+- "create a repository" → None (no specific name mentioned)
+- "I want to create something" → None (too vague)
+- "make it good" → None (subjective, not specific)
+
+Response (just the value, or "None" if unclear):"""
+
+            response = self.model.invoke(prompt)
+            response_text = response.content if hasattr(response, 'content') else str(response)
+
+            # Clean up the response
+            response_text = response_text.strip()
+
+            print(f"🤖 LLM response for {param_name}: '{response_text}'")
+
+            # If the LLM says "None" or similar, return None
+            if response_text.lower() in ['none', 'null', 'undefined', 'n/a', 'not specified', 'unclear', 'ambiguous']:
+                print(f"🤖 LLM determined {param_name} is not specified")
+                return None
+
+            # Handle different parameter types
+            if param_type == 'boolean':
+                if response_text.lower() in ['true', 'yes', '1', 'on', 'enabled']:
+                    return True
+                elif response_text.lower() in ['false', 'no', '0', 'off', 'disabled']:
+                    return False
+                else:
+                    # Check if the response implies a boolean value
+                    if any(word in response_text.lower() for word in ['true', 'yes', 'enable', 'on']):
+                        return True
+                    elif any(word in response_text.lower() for word in ['false', 'no', 'disable', 'off']):
+                        return False
+                    return None
+
+            elif param_type == 'integer':
+                try:
+                    return int(response_text)
+                except ValueError:
+                    # Try to extract numbers from the response
+                    import re
+                    number_match = re.search(r'\d+', response_text)
+                    if number_match:
+                        return int(number_match.group())
+                    return None
+
+            elif param_type == 'string':
+                # Return the response text if it's not empty and not a "none" indicator
+                if response_text and response_text.lower() not in ['none', 'null', 'undefined', 'n/a']:
+                    return response_text
+                return None
+
+            else:
+                # For unknown types, return the response as-is
+                return response_text if response_text else None
+
+        except Exception as e:
+            print(f"🤖 LLM parameter extraction failed for {param_name}: {e}")
+            return None
+
+    def extract_operation_from_tool_name(self, tool_name: str) -> str:
+        """
+        Extract a human-readable operation name from the tool name.
+        """
+        if not tool_name:
+            return ''
+
+        # Common operation mappings
+        operation_mappings = {
+            'create_repository': 'Create Repository',
+            'create_issue': 'Create Issue',
+            'create_pull_request': 'Create Pull Request',
+            'list_repositories': 'List Repositories',
+            'list_issues': 'List Issues',
+            'list_pull_requests': 'List Pull Requests',
+            'update_issue': 'Update Issue',
+            'close_issue': 'Close Issue',
+            'merge_pull_request': 'Merge Pull Request',
+            'add_comment': 'Add Comment',
+            'star_repository': 'Star Repository',
+            'fork_repository': 'Fork Repository',
+            'create_branch': 'Create Branch',
+            'delete_branch': 'Delete Branch',
+            'create_tag': 'Create Tag',
+            'create_milestone': 'Create Milestone',
+            'add_label': 'Add Label',
+            'assign_issue': 'Assign Issue',
+            'add_collaborator': 'Add Collaborator',
+            'create_webhook': 'Create Webhook',
+            'create_secret': 'Create Secret'
+        }
+
+        # Try exact match first
+        if tool_name in operation_mappings:
+            return operation_mappings[tool_name]
+
+        # Try to extract operation from tool name
+        parts = tool_name.split('_')
+        if len(parts) >= 2:
+            action = parts[0].title()
+            resource = ' '.join(parts[1:]).title()
+            return f"{action} {resource}"
+
+        # Fallback to title case
+        return tool_name.replace('_', ' ').title()
