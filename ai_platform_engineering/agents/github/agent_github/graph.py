@@ -3,15 +3,18 @@
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.memory import InMemorySave
+import os
 
 from .agent import agent_github
 from .state import AgentState
 
 import logging
 
-# Feature flag for MCP tool matching debug output
-ENABLE_MCP_TOOL_MATCH = False
+# This flag enables or disables the MCP tool matching debug output.
+# It reads the environment variable "ENABLE_MCP_TOOL_MATCH" (case-insensitive).
+# If the variable is set to "true" (as a string), the flag is True; otherwise, it is False.
+ENABLE_MCP_TOOL_MATCH = os.getenv("ENABLE_MCP_TOOL_MATCH", "false").lower() == "true"
 
 logger = logging.getLogger(__name__)
 
