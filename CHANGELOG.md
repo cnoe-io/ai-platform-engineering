@@ -1,3 +1,9 @@
+## Unreleased
+
+### Fix
+
+- **weather**: add self.mcp_api_key
+
 ## 0.1.10 (2025-08-26)
 
 ### Fix
