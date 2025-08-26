@@ -11,21 +11,15 @@ from .state import AgentState
 
 import logging
 
-# This flag enables or disables the MCP tool matching debug output.
-# It reads the environment variable "ENABLE_MCP_TOOL_MATCH" (case-insensitive).
-# If the variable is set to "true" (as a string), the flag is True; otherwise, it is False.
-ENABLE_MCP_TOOL_MATCH = os.getenv("ENABLE_MCP_TOOL_MATCH", "false").lower() == "true"
-
 logger = logging.getLogger(__name__)
 
 def start_node(state: AgentState) -> AgentState:
     logger.info("Agent Github workflow started")
 
-    if ENABLE_MCP_TOOL_MATCH:
-        # Add print statement for workflow start
-        print("=" * 80)
-        print("🚀 GITHUB AGENT WORKFLOW STARTED")
-        print("=" * 80)
+    # Add print statement for workflow start
+    print("=" * 50)
+    print("🚀 GITHUB AGENT WORKFLOW STARTED")
+    print("=" * 50)
 
     state.conversation_history = state.conversation_history or []
     state.metadata = state.metadata or {}
@@ -40,28 +34,27 @@ def should_execute_tool(state: AgentState) -> AgentState:
     """
     logger.info(f"Determining next step. next_action: {state.next_action}")
 
-    if ENABLE_MCP_TOOL_MATCH:
-        # Add detailed print statements for next action decision
-        print("=" * 80)
-        print("🤔 DECIDING NEXT ACTION")
-        print("=" * 80)
-        if state.next_action:
-            print(f"📋 Next Action: {state.next_action}")
-            if isinstance(state.next_action, dict):
-                tool_name = state.next_action.get("tool", "Unknown")
-                tool_input = state.next_action.get("tool_input", {})
-                print(f"🔧 Tool to Execute: {tool_name}")
-                print("📥 Tool Input Data:")
-                if tool_input:
-                    for key, value in tool_input.items():
-                        print(f"   • {key}: {value}")
-                else:
-                    print("   • No input data")
-            print("➡️  Routing to: execute_tool")
-        else:
-            print("📋 Next Action: None")
-            print("➡️  Routing to: end")
-        print("=" * 80)
+    # Add detailed print statements for next action decision
+    print("=" * 50)
+    print("🤔 DECIDING NEXT ACTION")
+    print("=" * 50)
+    if state.next_action:
+        print(f"📋 Next Action: {state.next_action}")
+        if isinstance(state.next_action, dict):
+            tool_name = state.next_action.get("tool", "Unknown")
+            tool_input = state.next_action.get("tool_input", {})
+            print(f"🔧 Tool to Execute: {tool_name}")
+            print("📥 Tool Input Data:")
+            if tool_input:
+                for key, value in tool_input.items():
+                    print(f"   • {key}: {value}")
+            else:
+                print("   • No input data")
+        print("➡️  Routing to: execute_tool")
+    else:
+        print("📋 Next Action: None")
+        print("➡️  Routing to: end")
+    print("=" * 50)
 
     state.metadata = state.metadata or {}
 
@@ -80,19 +73,18 @@ def execute_tool(state: AgentState) -> AgentState:
         tool_name = state.next_action.get("tool")
         tool_input = state.next_action.get("tool_input", {})
 
-        if ENABLE_MCP_TOOL_MATCH:
-            # Add detailed print statements to display tool information
-            print("=" * 80)
-            print("🔧 TOOL EXECUTION")
-            print("=" * 80)
-            print(f"📋 Tool Name: {tool_name}")
-            print("📥 Tool Input Data:")
-            if tool_input:
-                for key, value in tool_input.items():
-                    print(f"   • {key}: {value}")
-            else:
-                print("   • No input data provided")
-            print("=" * 80)
+        # Add detailed print statements to display tool information
+        print("=" * 50)
+        print("🔧 TOOL EXECUTION")
+        print("=" * 50)
+        print(f"📋 Tool Name: {tool_name}")
+        print("📥 Tool Input Data:")
+        if tool_input:
+            for key, value in tool_input.items():
+                print(f"   • {key}: {value}")
+        else:
+            print("   • No input data provided")
+        print("=" * 50)
 
         logger.info(f"Executing tool: {tool_name} with input: {tool_input}")
         state.tool_results = state.tool_results or {}

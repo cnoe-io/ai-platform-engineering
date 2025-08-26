@@ -164,9 +164,9 @@ class GitHubAgent:
             # Store tools for later reference
             self.tools_info = {}
 
-            print('*'*80)
+            print('*' * 50)
             print("🔧 AVAILABLE GITHUB TOOLS AND PARAMETERS")
-            print('*'*80)
+            print('*' * 50)
             for tool in client_tools:
                 print(f"📋 Tool: {tool.name}")
                 print(f"📝 Description: {tool.description.strip()}")
