@@ -1,4 +1,4 @@
-# 🤖 AI Platform Engineering Multi-Agent System
+# 🤖 CAIPE: Community AI Platform Engineering Multi-Agent System
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue?logo=python)](https://www.python.org/)
 [![Publish Docs](https://github.com/cnoe-io/ai-platform-engineering/actions/workflows/publish-gh-pages.yml/badge.svg)](https://github.com/cnoe-io/ai-platform-engineering/actions/workflows/publish-gh-pages.yml)
@@ -25,13 +25,15 @@
 
 As Platform Engineering, SRE, and DevOps environments grow in complexity, traditional approaches often lead to delays, increased operational overhead, and developer frustration. By adopting Multi-Agentic Systems and Agentic AI, Platform Engineering teams can move from manual, task-driven processes to more adaptive and automated operations, better supporting development and business goals.
 
-**AI Platform Engineering** project provides a *customizable*, *secure*, *enterprise-ready* and *cloud deployable* reference multi-agent system that streamlines platform operations through persona-driven “usecase agents” such as _Platform Engineer_, _Incident Engineer_, and _Product Owner_ etc. Each usecase agent is empowered by a set of specialized sub-agents that integrate seamlessly with essential engineering tools. Below are some common platform agents leveraged by the persona agents:
+**Community AI Platform Engineering (CAIPE)** (pronounced as `cape`) is an open-source, Multi-Agentic AI System (MAS) championed by the [CNOE (Cloud Native Operational Excellence)](http://cnoe.io/) forum. CAIPE provides a secure, scalable, persona-driven reference implementation with built-in knowledge base retrieval that streamlines platform operations, accelerates workflows, and fosters innovation for modern engineering teams. It integrates seamlessly with Internal Developer Portals like Backstage and developer environments such as VS Code, enabling frictionless adoption and extensibility.
 
-* 🚀 **ArgoCD Agent** for continuous deployment
-* 🚨 **PagerDuty Agent** for incident management
-* 🐙 **GitHub Agent** for version control
-* 🗂️ **Jira Agent** for project management
-* 💬 **Slack Agent** for team communication
+CAIPE is empowered by a set of specialized sub-agents that integrate seamlessly with essential engineering tools. Below are some common platform agents leveraged by the MAS agent:
+
+* 🚀 ArgoCD Agent for continuous deployment
+* 🚨 PagerDuty Agent for incident management
+* 🐙 GitHub Agent for version control
+* 🗂️ Jira/Confluence Agent for project management
+* 💬 Slack/Webex Agents for team communication
 
 *...and many more platform agents are available for additional tools and use cases.*
 
