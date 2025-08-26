@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class KomodorAgentExecutor(AgentExecutor):
-    """Currency AgentExecutor Example."""
+    """Komodor AgentExecutor implementation."""
 
     def __init__(self):
         self.agent = KomodorAgent()
