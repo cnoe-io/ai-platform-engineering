@@ -36,6 +36,7 @@ services:
     image: ghcr.io/cnoe-io/agent-github:a2a-latest
     pull_policy: always
     container_name: agent-github-p2p
+    restart: unless-stopped
     user: root
     volumes:
       - ../.env.mission4:/app/.env
@@ -56,6 +57,7 @@ services:
     image: ghcr.io/cnoe-io/kb-rag-agent-a2a:latest
     pull_policy: always
     container_name: kb-rag-agent
+    restart: unless-stopped
     depends_on:
       - milvus-standalone
       - kb-rag-server
@@ -69,6 +71,7 @@ services:
     image: ghcr.io/cnoe-io/kb-rag-server:latest
     pull_policy: always
     container_name: kb-rag-server
+    restart: unless-stopped
     depends_on:
       - milvus-standalone
     volumes:
@@ -81,6 +84,7 @@ services:
     image: ghcr.io/cnoe-io/kb-rag-web:latest
     pull_policy: always
     container_name: kb-rag-web
+    restart: unless-stopped
     depends_on:
       - kb-rag-server
     ports:
