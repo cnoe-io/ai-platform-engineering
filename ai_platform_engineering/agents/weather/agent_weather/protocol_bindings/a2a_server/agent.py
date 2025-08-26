@@ -38,7 +38,7 @@ class WeatherAgent:
       'Use the available Weather tools to interact with the Weather API and provide accurate, '
       'actionable responses. If the user asks about anything unrelated to Weather, politely state '
       'that you can only assist with Weather operations. Do not attempt to answer unrelated questions '
-      'or use tools for other purposes.\n\n'
+      'or use tools for other purposes. Show weather in Fahrenheit for US cities and Celsius for European cities.\n\n'
 
       'TOOL USAGE GUIDELINES:\n'
       '1. get_current_weather: Use for current weather conditions (e.g., "What\'s the weather like now in Paris?")\n'
@@ -105,6 +105,12 @@ class WeatherAgent:
             if os.getenv("WEATHER_DYNAMIC_TOOLSETS"):
                 env_vars["WEATHER_DYNAMIC_TOOLSETS"] = os.getenv("WEATHER_DYNAMIC_TOOLSETS")
 
+            # Support both WEATHER_MCP_API_KEY and WEATHER_API_KEY for backward compatibility
+            self.mcp_api_key = None
+            self.mcp_api_key = (
+                os.getenv("WEATHER_MCP_API_KEY", None)
+                or os.getenv("WEATHER_API_KEY", None)
+            )
             # Log what's being requested and current support
             if self.mcp_mode == "http" or self.mcp_mode == "streamable_http":
 
