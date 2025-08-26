@@ -127,7 +127,7 @@ VSTORE_COLLECTION=rag_default
 
 The KB-RAG system includes a user-friendly web interface for managing your knowledge base:
 
-![RAG Web UI](images/image.png)
+![RAG Web UI](images/image.svg)
 
 **Access the Web UI**: Navigate to `http://localhost:9447` in your browser
 
