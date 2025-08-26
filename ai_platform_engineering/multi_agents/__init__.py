@@ -591,7 +591,7 @@ class AgentRegistry:
                 if has_changes:
                     logger.info(f"Background check completed in {duration:.1f}s - changes detected")
                 else:
-                    logger.infor(f"Background check completed in {duration:.1f}s - no changes")
+                    logger.info(f"Background check completed in {duration:.1f}s - no changes")
 
             except Exception as e:
                 logger.error(f"Error in background monitoring: {e}")
