@@ -8,7 +8,7 @@ services:
     container_name: platform-engineer-p2p
     restart: unless-stopped
     volumes:
-      - ../.env:/app/.env
+      - ../.env.mission4:/app/.env
       - ../prompt_config.yaml:/app/prompt_config.yaml
       - ../ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
       - ../ai_platform_engineering/utils:/app/ai_platform_engineering/utils
@@ -16,7 +16,7 @@ services:
       - agent-github-p2p
       - kb-rag-agent
     env_file:
-      - ../.env
+      - ../.env.mission4
     ports:
       - "8000:8000"
     environment:
@@ -38,7 +38,7 @@ services:
     container_name: agent-github-p2p
     user: root
     volumes:
-      - ../.env:/app/.env
+      - ../.env.mission4:/app/.env
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8004:8000"
@@ -60,7 +60,7 @@ services:
       - milvus-standalone
       - kb-rag-server
     volumes:
-      - ../.env:/app/.env
+      - ../.env.mission4:/app/.env
     environment:
       - VSTORE_COLLECTION=rag_default
     ports:
@@ -72,7 +72,7 @@ services:
     depends_on:
       - milvus-standalone
     volumes:
-      - ../.env:/app/.env
+      - ../.env.mission4:/app/.env
     environment:
       - VSTORE_COLLECTION=rag_default
     ports:
