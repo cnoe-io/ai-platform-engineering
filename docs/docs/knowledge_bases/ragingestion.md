@@ -12,7 +12,7 @@ The RAG Ingestion Service provides a convenient way to populate your knowledge b
 
 The RAG system includes a user-friendly web interface for document ingestion and querying, accessible at `http://localhost:9447` when running the KB-RAG services.
 
-![RAG Web UI](images/image.png)
+![RAG Web UI](images/image.svg)
 
 ### Features
 
@@ -62,7 +62,7 @@ How do I configure authentication?
 
 The ingestion process follows these steps:
 
-![RAG Ingestion Process](images/rag-ingestion.png)
+![RAG Ingestion Process](images/rag-ingestion.svg)
 
 ### Processing Steps
 
