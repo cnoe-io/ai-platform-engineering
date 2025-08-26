@@ -14,7 +14,7 @@ sidebar_position: 10
 
 ## Architecture
 
-![RAG Agent Architecture](images/rag-agent-arch.png)
+![RAG Agent Architecture](images/rag-agent-arch.svg)
 
 ---
 
