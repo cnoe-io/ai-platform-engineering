@@ -15,14 +15,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from cnoe_agent_utils import LLMFactory
-from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
+from cnoe_agent_utils.tracing import TracingManager
 
 logger = logging.getLogger(__name__)
 
 memory = MemorySaver()
-
-# Feature flag for MCP tool matching functionality
-ENABLE_MCP_TOOL_MATCH = os.getenv("ENABLE_MCP_TOOL_MATCH", "false").lower() == "true"
 
 class ResponseFormat(BaseModel):
     """Respond to the user in this format."""
@@ -61,15 +58,14 @@ class GitHubAgent:
         self.graph = None
         self.tracing = TracingManager()
 
-        # Enhanced state management for analysis results and parameters (only when MCP tool match is enabled)
-        if ENABLE_MCP_TOOL_MATCH:
-            self.analysis_states = {}  # Store analysis results by context_id
-            self.parameter_states = {}  # Store accumulated parameters by context_id
-            self.conversation_contexts = {}  # Store conversation context by context_id
+        # Enhanced state management for analysis results and parameters
+        self.analysis_states = {}  # Store analysis results by context_id
+        self.parameter_states = {}  # Store accumulated parameters by context_id
+        self.conversation_contexts = {}  # Store conversation context by context_id
 
-            # Conversation tracking for A2A integration
-            self.conversation_map = {}  # Map A2A contextId to stable conversation ID
-            self.conversation_counter = 0  # Counter for generating stable conversation IDs
+        # Conversation tracking for A2A integration
+        self.conversation_map = {}  # Map A2A contextId to stable conversation ID
+        self.conversation_counter = 0  # Counter for generating stable conversation IDs
 
         # Initialize the agent
         #asyncio.run(self._initialize_agent())
@@ -155,62 +151,61 @@ class GitHubAgent:
             # Get tools via the client
             client_tools = await client.get_tools()
 
-            # Store tools for later reference (only when MCP tool match is enabled)
-            if ENABLE_MCP_TOOL_MATCH:
-                self.tools_info = {}
+            # Store tools for later reference
+            self.tools_info = {}
 
-                print('*'*80)
-                print("🔧 AVAILABLE GITHUB TOOLS AND PARAMETERS")
-                print('*'*80)
-                for tool in client_tools:
-                    print(f"📋 Tool: {tool.name}")
-                    print(f"📝 Description: {tool.description.strip()}")
+            print('*'*80)
+            print("🔧 AVAILABLE GITHUB TOOLS AND PARAMETERS")
+            print('*'*80)
+            for tool in client_tools:
+                print(f"📋 Tool: {tool.name}")
+                print(f"📝 Description: {tool.description.strip()}")
 
-                    # Store tool info for later reference
-                    self.tools_info[tool.name] = {
-                        'description': tool.description.strip(),
-                        'parameters': tool.args_schema.get('properties', {}),
-                        'required': tool.args_schema.get('required', [])
-                    }
+                # Store tool info for later reference
+                self.tools_info[tool.name] = {
+                    'description': tool.description.strip(),
+                    'parameters': tool.args_schema.get('properties', {}),
+                    'required': tool.args_schema.get('required', [])
+                }
 
-                    params = tool.args_schema.get('properties', {})
-                    required_params = tool.args_schema.get('required', [])
+                params = tool.args_schema.get('properties', {})
+                required_params = tool.args_schema.get('required', [])
 
-                    if params:
-                        print("📥 Parameters:")
-                        for param, meta in params.items():
-                            param_type = meta.get('type', 'unknown')
-                            param_title = meta.get('title', param)
-                            param_description = meta.get('description', 'No description available')
-                            default = meta.get('default', None)
-                            is_required = param in required_params
+                if params:
+                    print("📥 Parameters:")
+                    for param, meta in params.items():
+                        param_type = meta.get('type', 'unknown')
+                        param_title = meta.get('title', param)
+                        param_description = meta.get('description', 'No description available')
+                        default = meta.get('default', None)
+                        is_required = param in required_params
 
-                            # Determine requirement status
-                            req_status = "🔴 REQUIRED" if is_required else "🟡 OPTIONAL"
+                        # Determine requirement status
+                        req_status = "🔴 REQUIRED" if is_required else "🟡 OPTIONAL"
 
-                            print(f"   • {param} ({param_type}) - {req_status}")
-                            print(f"     Title: {param_title}")
-                            print(f"     Description: {param_description}")
+                        print(f"   • {param} ({param_type}) - {req_status}")
+                        print(f"     Title: {param_title}")
+                        print(f"     Description: {param_description}")
 
-                            if default is not None:
-                                print(f"     Default: {default}")
+                        if default is not None:
+                            print(f"     Default: {default}")
 
-                            # Show examples if available
-                            if 'examples' in meta:
-                                examples = meta['examples']
-                                if examples:
-                                    print(f"     Examples: {examples}")
+                        # Show examples if available
+                        if 'examples' in meta:
+                            examples = meta['examples']
+                            if examples:
+                                print(f"     Examples: {examples}")
 
-                            # Show enum values if available
-                            if 'enum' in meta:
-                                enum_values = meta['enum']
-                                print(f"     Allowed values: {enum_values}")
+                        # Show enum values if available
+                        if 'enum' in meta:
+                            enum_values = meta['enum']
+                            print(f"     Allowed values: {enum_values}")
 
-                            print()
-                    else:
-                        print("📥 Parameters: None")
-                    print("-" * 60)
-                print('*'*80)
+                        print()
+                else:
+                    print("📥 Parameters: None")
+                print("-" * 60)
+            print('*'*80)
 
             # Create the agent with the tools
             print("🔧 Creating agent graph with tools...")
@@ -257,9 +252,6 @@ class GitHubAgent:
         Generate a stable conversation ID that persists across multiple messages.
         This is needed because A2A generates new contextIds for each message.
         """
-        if not ENABLE_MCP_TOOL_MATCH:
-            return context_id  # Fallback to original context_id when feature is disabled
-
         if context_id in self.conversation_map:
             return self.conversation_map[context_id]
 
@@ -279,9 +271,6 @@ class GitHubAgent:
         """
         Clean up the conversation mapping when a conversation is complete.
         """
-        if not ENABLE_MCP_TOOL_MATCH:
-            return  # No cleanup needed when feature is disabled
-
         if context_id in self.conversation_map:
             stable_id = self.conversation_map[context_id]
             # Clean up all related states
@@ -289,7 +278,7 @@ class GitHubAgent:
             del self.conversation_map[context_id]
             print(f"🧹 Cleaned up conversation mapping for {context_id} -> {stable_id}")
 
-    @trace_agent_stream("github")
+    # @trace_agent_stream("github")
     async def stream(self, *args, **kwargs) -> AsyncIterable[dict[str, Any]]:
         """
         Stream responses from the agent.
@@ -298,27 +287,28 @@ class GitHubAgent:
         calling patterns from the A2A framework. The method extracts the expected
         parameters from the arguments dynamically.
         """
-        # Check if enhanced MCP tool matching is enabled
-        if ENABLE_MCP_TOOL_MATCH:
-            # Use enhanced functionality with comprehensive request analysis
-            async for item in self._stream_with_enhanced_analysis(*args, **kwargs):
-                yield item
-        else:
-            # Use basic functionality (original behavior)
-            async for item in self._stream_basic(*args, **kwargs):
-                yield item
-
-    async def _stream_basic(self, *args, **kwargs) -> AsyncIterable[dict[str, Any]]:
-        """Basic streaming functionality without enhanced analysis."""
-        # Extract expected parameters from args and kwargs
-        query = args[0] if len(args) > 0 else kwargs.get('query')
-        context_id = args[1] if len(args) > 1 else kwargs.get('context_id')
-        trace_id = args[2] if len(args) > 2 else kwargs.get('trace_id')
 
         # Initialize the agent if not already done
         await self._initialize_agent()
 
-        logger.info(f"Starting basic stream with query: {query} and sessionId: {context_id}")
+        # Comprehensive argument logging
+        import inspect
+        frame = inspect.currentframe()
+        if frame:
+            caller_info = inspect.getframeinfo(frame.f_back)
+            logger.info(f"Method called from: {caller_info.filename}:{caller_info.lineno}")
+
+        # Extract expected parameters from args and kwargs
+        query = args[0] if len(args) > 0 else kwargs.get('query')
+        context_id = args[1] if len(args) > 1 else kwargs.get('context_id')
+        trace_id = args[2] if len(args) > 2 else kwargs.get('trace_id')
+        task_id = args[3] if len(args) > 3 else kwargs.get('task_id')
+
+        logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
+
+        # Log all arguments for debugging
+        logger.info(f"All arguments received: args={args}, kwargs={kwargs}")
+        logger.info(f"Extracted parameters: query={query}, context_id={context_id}, trace_id={trace_id}, task_id={task_id}")
 
         # Validate required parameters
         if not query:
@@ -338,72 +328,6 @@ class GitHubAgent:
                 'content': 'No context ID provided to the agent.',
             }
             return
-
-        if not self.graph:
-            logger.error("Agent graph not initialized")
-            yield {
-                'is_task_complete': False,
-                'require_user_input': True,
-                'content': 'GitHub agent is not properly initialized. Please check the logs.',
-            }
-            return
-
-        inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
-        config: RunnableConfig = self.tracing.create_config(context_id)
-
-        try:
-            async for item in self.graph.astream(inputs, config, stream_mode='values'):
-                message = item.get('messages', [])[-1] if item.get('messages') else None
-
-                if not message:
-                    continue
-
-                logger.debug(f"Streamed message type: {type(message)}")
-
-                if (
-                    isinstance(message, AIMessage)
-                    and hasattr(message, 'tool_calls')
-                    and message.tool_calls
-                    and len(message.tool_calls) > 0
-                ):
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': 'Processing GitHub operations...',
-                    }
-                elif isinstance(message, ToolMessage):
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': 'Interacting with GitHub API...',
-                    }
-                elif isinstance(message, AIMessage) and message.content:
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': message.content,
-                    }
-
-            yield self.get_agent_response(config)
-        except Exception as e:
-            logger.exception(f"Error in stream: {e}")
-            yield {
-                'is_task_complete': False,
-                'require_user_input': True,
-                'content': f'An error occurred while processing your GitHub request: {str(e)}',
-            }
-
-    async def _stream_with_enhanced_analysis(self, query: str, context_id: str, trace_id: str = None, task_id: str = None) -> AsyncIterable[dict[str, Any]]:
-        """Enhanced streaming functionality with comprehensive request analysis."""
-        # Comprehensive argument logging
-        import inspect
-        frame = inspect.currentframe()
-        if frame:
-            caller_info = inspect.getframeinfo(frame.f_back)
-            logger.info(f"Method called from: {caller_info.filename}:{caller_info.lineno}")
-
-        # Log all arguments for debugging
-        logger.info(f"All arguments received: query={query}, context_id={context_id}, trace_id={trace_id}, task_id={task_id}")
 
         # Generate stable conversation ID for better follow-up handling
         stable_conversation_id = self.get_stable_conversation_id(context_id, task_id)
@@ -1321,102 +1245,320 @@ Selection:"""
 
     def generate_missing_variables_message(self, analysis_result: dict) -> str:
         """
-        Generate a message asking for missing variables.
+        Enhanced message generation that better handles follow-up conversations.
+        Only shows parameters that actually exist in the tool.
         """
         if not analysis_result['tool_found']:
             return analysis_result['message']
 
         tool_name = analysis_result['tool_name']
+        tool_description = analysis_result['tool_description']
         missing_params = analysis_result['missing_params']
-
-        message = f"I'd be happy to help you with that! Here's what I need for {tool_name}:\n\n"
-
-        for param in missing_params:
-            message += f"**{param['name']}** ({param['type']}): REQUIRED - {param['description']}\n"
-
-        message += "\nCould you please provide the missing information?"
-        return message
-
-    def create_input_fields_metadata(self, analysis_result: dict) -> dict:
-        """
-        Create structured input fields metadata for dynamic form generation.
-        """
-        if not analysis_result['tool_found']:
-            return {}
-
+        extracted_params = analysis_result['extracted_params']
         all_params = analysis_result['all_params']
         required_params = analysis_result['all_required_params']
-        extracted_params = analysis_result['extracted_params']
 
-        input_fields = {
-            'fields': [],
-            'summary': {
-                'total_required': len(required_params),
-                'total_optional': len(all_params) - len(required_params),
-                'provided_required': len([p for p in required_params if p in extracted_params]),
-                'provided_optional': len([p for p in all_params.keys() if p not in required_params and p in extracted_params]),
-                'missing_required': len([p for p in required_params if p not in extracted_params])
-            }
-        }
+        print("🔍 DEBUG: generate_missing_variables_message called with:")
+        print(f"🔍 DEBUG: tool_name: {tool_name}")
+        print(f"🔍 DEBUG: all_params keys: {list(all_params.keys())}")
+        print(f"🔍 DEBUG: required_params: {required_params}")
+        print(f"🔍 DEBUG: missing_params: {missing_params}")
+        print(f"🔍 DEBUG: extracted_params: {extracted_params}")
 
-        # Process all parameters (both required and optional)
-        for param_name in all_params.keys():
+        # Check if this is a follow-up conversation
+        # Only treat as follow-up if we actually extracted meaningful parameters for the GitHub operation
+        meaningful_params = {}
+        for param_name, value in extracted_params.items():
+            # Only include parameters that are actually part of the GitHub tool
+            if param_name in all_params:
+                meaningful_params[param_name] = value
+
+        is_followup = bool(meaningful_params) and len(meaningful_params) > 0
+
+        print(f"🔍 DEBUG: extracted_params: {extracted_params}")
+        print(f"🔍 DEBUG: meaningful_params: {meaningful_params}")
+        print(f"🔍 DEBUG: is_followup: {is_followup}")
+
+        if is_followup:
+            prompt = f"""You are a helpful GitHub assistant. The user is providing additional information for an ongoing request.
+
+Current context: The user is trying to perform a GitHub operation: {tool_description}
+
+Information already provided:
+"""
+            for param, value in meaningful_params.items():
+                prompt += f"- {param}: {value}\n"
+
+            prompt += """
+
+Please respond in a friendly, conversational way. Thank them for the additional information they've provided,
+then show the complete parameter list in exactly the same format as before.
+
+IMPORTANT:
+- Thank them briefly for the additional information they've provided (be generic, don't mention specific parameters)
+- Explain what's still needed: "In order to [operation] I still need at least the required parameters from the list of parameters:"
+- Show ALL parameters again in the EXACT same simple format as the first message
+- Use the format: "**param_name** (type): REQUIRED/optional - Description - Default: **value**"
+- For parameters with current values, show " - Current value: **value**" instead of the default
+- Do NOT show both default and current value for the same parameter
+- IMPORTANT: Use lowercase boolean values (true/false, not True/False)
+- Keep it simple and clean, just like the first message
+- Do NOT add extra text, extra formatting, or verbose explanations
+- Show required parameters first, then optional ones, but keep them in one continuous list
+
+Here are ALL the parameters for this tool:
+"""
+            # List only the actual tool parameters in the simple format
+            # First show required parameters, then optional ones
+            required_param_names = [p for p in all_params.keys() if p in required_params]
+            optional_param_names = [p for p in all_params.keys() if p not in required_params]
+
+            # Show required parameters first
+            for param_name in required_param_names:
+                param_info = all_params[param_name]
+                param_desc = param_info.get('description', 'No description available')
+                req_status = "REQUIRED"
+
+                if param_name in meaningful_params:
+                    # Show current value for provided parameters
+                    current_value = meaningful_params[param_name]
+                    # Convert boolean values to lowercase
+                    if isinstance(current_value, bool):
+                        current_value_str = str(current_value).lower()
+                    else:
+                        current_value_str = str(current_value)
+                    prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Current value: **{current_value_str}**\n"
+                else:
+                    # Show default value for non-provided parameters
+                    default = param_info.get('default', None)
+                    if default is not None:
+                        # Convert boolean values to lowercase
+                        if isinstance(default, bool):
+                            default_str = str(default).lower()
+                        else:
+                            default_str = str(default)
+                        prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Default: **{default_str}**\n"
+                    else:
+                        prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
+
+            # Then show optional parameters
+            for param_name in optional_param_names:
+                param_info = all_params[param_name]
+                param_desc = param_info.get('description', 'No description available')
+                req_status = "optional"
+
+                if param_name in meaningful_params:
+                    # Show current value for provided parameters
+                    current_value = meaningful_params[param_name]
+                    # Convert boolean values to lowercase
+                    if isinstance(current_value, bool):
+                        current_value_str = str(current_value).lower()
+                    else:
+                        current_value_str = str(current_value)
+                    prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Current value: **{current_value_str}**\n"
+                else:
+                    # Show default value for non-provided parameters
+                    default = param_info.get('default', None)
+                    if default is not None:
+                        # Convert boolean values to lowercase
+                        if isinstance(default, bool):
+                            default_str = str(default).lower()
+                        else:
+                            default_str = str(default)
+                        prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Default: **{default_str}**\n"
+                    else:
+                        prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
+
+            prompt += """
+
+Example format for the second message:
+Thanks for the additional information! In order to create a new GitHub repository I still need at least the required parameters from the list of parameters:
+
+**name** (string): REQUIRED - Repository name
+**autoInit** (boolean): optional - Initialize with README - Default: **false**
+**description** (string): optional - Repository description - Default: **""**
+**private** (boolean): optional - Whether repo should be private - Current value: **true**
+
+Response:"""
+        else:
+            prompt = f"""You are a helpful GitHub assistant. The user wants to perform an operation, but some required information is missing.
+
+User's request context: The user is trying to perform a GitHub operation: {tool_description}
+
+Please provide a simple, clean list of ALL parameters for this tool. Use this exact format:
+
+"""
+            # List only the actual tool parameters in the simple format
+            # First show required parameters, then optional ones
+            required_param_names = [p for p in all_params.keys() if p in required_params]
+            optional_param_names = [p for p in all_params.keys() if p not in required_params]
+
+            # Show required parameters first
+            for param_name in required_param_names:
+                param_info = all_params[param_name]
+                param_desc = param_info.get('description', 'No description available')
+                req_status = "REQUIRED"
+
+                default = param_info.get('default', None)
+                if default is not None:
+                    # Convert boolean values to lowercase
+                    if isinstance(default, bool):
+                        default_str = str(default).lower()
+                    else:
+                        default_str = str(default)
+                    prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Default: **{default_str}**\n"
+                else:
+                    prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
+
+            # Then show optional parameters
+            for param_name in optional_param_names:
+                param_info = all_params[param_name]
+                param_desc = param_info.get('description', 'No description available')
+                req_status = "optional"
+
+                default = param_info.get('default', None)
+                if default is not None:
+                    # Convert boolean values to lowercase
+                    if isinstance(default, bool):
+                        default_str = str(default).lower()
+                    else:
+                        default_str = str(default)
+                    prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc} - Default: **{default_str}**\n"
+                else:
+                    prompt += f"**{param_name}** ({param_info.get('type', 'unknown')}): {req_status} - {param_desc}\n"
+
+            prompt += """
+
+Please respond in a friendly, conversational way. Present the parameter list in the simple format shown above.
+
+IMPORTANT:
+- Use the exact format: "**param_name** (type): REQUIRED/optional - Description - Default: **value**"
+- The **param_name** should be bold
+- The **Default: value** should be bold
+- Keep it simple and clean
+- Do NOT add extra formatting, bullet points, or verbose explanations
+- Just show the parameters in the simple format with proper bold formatting
+- Show required parameters first, then optional ones, but keep them in one continuous list
+
+Response:"""
+
+        try:
+            # Use the LLM to generate a user-friendly message
+            response = self.model.invoke(prompt)
+            response_text = response.content if hasattr(response, 'content') else str(response)
+
+            # Clean up the response
+            response_text = response_text.strip()
+
+            # If the LLM response is too short or generic, provide a fallback
+            if len(response_text) < 50:
+                optional_params_info = self.get_optional_params_info(all_params, required_params)
+                return self.generate_fallback_message(missing_params, extracted_params, optional_params_info, is_followup)
+
+            return response_text
+
+        except Exception as e:
+            print(f"🤖 LLM message generation failed: {e}")
+            optional_params_info = self.get_optional_params_info(all_params, required_params)
+            return self.generate_fallback_message(missing_params, extracted_params, optional_params_info, is_followup)
+
+    def get_optional_params_info(self, all_params: dict, required_params: list) -> list:
+        """
+        Get optional parameters with their full information.
+        """
+        optional_params_info = []
+        optional_param_names = [p for p in all_params.keys() if p not in required_params]
+
+        for param_name in optional_param_names:
             param_info = all_params.get(param_name, {})
-            is_required = param_name in required_params
-            is_provided = param_name in extracted_params
-
-            # Only include missing required parameters and all optional parameters
-            if is_required and param_name in extracted_params:
-                continue  # Skip required params that are already provided
-
-            field_info = {
+            optional_params_info.append({
                 'name': param_name,
-                'type': param_info.get('type', 'string'),
-                'title': param_info.get('title', param_name),
                 'description': param_info.get('description', 'No description available'),
-                'required': is_required,
-                'status': 'provided' if is_provided else 'missing'
-            }
+                'type': param_info.get('type', 'unknown'),
+                'default': param_info.get('default', None)
+            })
 
-            # Add default value if available
-            if 'default' in param_info and param_info['default'] is not None:
-                field_info['default_value'] = param_info['default']
+        return optional_params_info
 
-            # Add additional metadata
-            if 'enum' in param_info:
-                field_info['enum'] = param_info['enum']
-            if 'examples' in param_info:
-                field_info['examples'] = param_info['examples']
-            if 'minimum' in param_info:
-                field_info['minimum'] = param_info['minimum']
-            if 'maximum' in param_info:
-                field_info['maximum'] = param_info['maximum']
-            if 'pattern' in param_info:
-                field_info['pattern'] = param_info['pattern']
-
-            # Add provided value if available
-            if is_provided:
-                field_info['provided_value'] = extracted_params[param_name]
-
-            input_fields['fields'].append(field_info)
-
-        # Sort fields: required fields first, then optional fields
-        input_fields['fields'].sort(key=lambda x: (not x['required'], x['name']))
-
-        return input_fields
-
-    def generate_form_explanation_with_llm(self, analysis_result: dict) -> str:
+    def generate_fallback_message(self, missing_params: list, extracted_params: dict, optional_params_info: list, is_followup: bool = False) -> str:
         """
-        Generate a meaningful explanation for why the form generated by input_fields is needed.
+        Enhanced fallback message generation that handles follow-up conversations.
+        Shows all parameters in a unified list format.
         """
-        if not analysis_result['tool_found']:
-            return "Please provide additional information to help with your request."
+        if not missing_params and not optional_params_info:
+            return "I have all the information I need to help you with your GitHub request!"
 
-        tool_name = analysis_result['tool_name']
-        tool_description = analysis_result['tool_description']
-        operation = self.extract_operation_from_tool_name(tool_name)
+        if is_followup:
+            message = "Thanks for the additional information! "
+            if extracted_params:
+                message += f"I now have: {', '.join([f'{k}: {v}' for k, v in extracted_params.items()])}. "
+            message += "Here's what I still need:\n\n"
+        else:
+            message = "I'd be happy to help you with that! Here's what I need:\n\n"
 
-        return f"Here's the list of parameters you'll need to {operation.lower()}:"
+        # Get all parameters (both required and optional) with their current status
+        all_fields = []
+
+        # Add all required parameters first (both missing and already provided)
+        for param_name in [p['name'] for p in missing_params]:
+            param_info = next((p for p in missing_params if p['name'] == param_name), {})
+            current_value = extracted_params.get(param_name)
+
+            all_fields.append({
+                'name': param_name,
+                'description': param_info.get('description', 'No description available'),
+                'required': True,
+                'current_value': current_value,
+                'status': 'provided' if current_value else 'missing'
+            })
+
+        # Add all optional parameters after required ones
+        for param in optional_params_info:
+            current_value = extracted_params.get(param['name'])
+
+            all_fields.append({
+                'name': param['name'],
+                'description': param['description'],
+                'required': False,
+                'current_value': current_value,
+                'default': param.get('default'),
+                'status': 'available'
+            })
+
+        # Sort: required first, then optional, then by status (missing first), then alphabetically
+        all_fields.sort(key=lambda x: (not x['required'], x['status'] != 'missing', x['name']))
+
+        # Generate the unified list
+        for field in all_fields:
+            status = "REQUIRED" if field['required'] else "optional"
+            message += f"**{field['name']}** ({field.get('type', 'unknown')}): {status} - {field['description']}"
+
+            # Show current value if provided
+            if field['current_value'] is not None:
+                # Convert boolean values to lowercase
+                if isinstance(field['current_value'], bool):
+                    current_value_str = str(field['current_value']).lower()
+                else:
+                    current_value_str = str(field['current_value'])
+                message += f" - Current value: **{current_value_str}**"
+
+            # Show default value for optional parameters
+            if not field['required'] and field.get('default') is not None:
+                # Convert boolean values to lowercase and make them bold
+                if isinstance(field['default'], bool):
+                    default_str = str(field['default']).lower()
+                else:
+                    default_str = str(field['default'])
+                message += f" - Default: **{default_str}**"
+
+            message += "\n"
+
+        if is_followup:
+            message += "\nCould you please provide the remaining information?"
+        else:
+            message += "\nCould you please provide the missing information?"
+
+        return message
 
     def enhance_query_with_parameters(self, original_query: str, extracted_params: dict) -> str:
         """
@@ -1437,6 +1579,7 @@ Selection:"""
     def update_analysis_with_parameters(self, original_analysis: dict, updated_params: dict) -> dict:
         """
         Update the original analysis with new accumulated parameters.
+        This is an enhanced version that better handles parameter accumulation.
         """
         if not original_analysis['tool_found']:
             return original_analysis
@@ -1516,13 +1659,177 @@ Selection:"""
 
         return validated
 
+    def create_input_fields_metadata(self, analysis_result: dict) -> dict:
+        """
+        Create structured input fields metadata for dynamic form generation.
+        Enhanced to better handle follow-up scenarios.
+        """
+        if not analysis_result['tool_found']:
+            return {}
+
+        all_params = analysis_result['all_params']
+        required_params = analysis_result['all_required_params']
+        extracted_params = analysis_result['extracted_params']
+
+        input_fields = {
+            'fields': [],
+            'summary': {
+                'total_required': len(required_params),
+                'total_optional': len(all_params) - len(required_params),
+                'provided_required': len([p for p in required_params if p in extracted_params]),
+                'provided_optional': len([p for p in all_params.keys() if p not in required_params and p in extracted_params]),
+                'missing_required': len([p for p in required_params if p not in extracted_params])
+            }
+        }
+
+        # Process all parameters (both required and optional)
+        for param_name in all_params.keys():
+            param_info = all_params.get(param_name, {})
+            is_required = param_name in required_params
+            is_provided = param_name in extracted_params
+
+            # Only include missing required parameters and all optional parameters
+            if is_required and param_name in extracted_params:
+                continue  # Skip required params that are already provided
+
+            field_info = {
+                'name': param_name,
+                'type': param_info.get('type', 'string'),
+                'title': param_info.get('title', param_name),
+                'description': param_info.get('description', 'No description available'),
+                'required': is_required,
+                'status': 'provided' if is_provided else 'missing'
+            }
+
+            # Add default value if available
+            if 'default' in param_info and param_info['default'] is not None:
+                field_info['default_value'] = param_info['default']
+
+            # Add additional metadata
+            if 'enum' in param_info:
+                field_info['enum'] = param_info['enum']
+            if 'examples' in param_info:
+                field_info['examples'] = param_info['examples']
+            if 'minimum' in param_info:
+                field_info['minimum'] = param_info['minimum']
+            if 'maximum' in param_info:
+                field_info['maximum'] = param_info['maximum']
+            if 'pattern' in param_info:
+                field_info['pattern'] = param_info['pattern']
+
+            # Add provided value if available
+            if is_provided:
+                field_info['provided_value'] = extracted_params[param_name]
+
+            input_fields['fields'].append(field_info)
+
+        # Sort fields: required fields first, then optional fields
+        input_fields['fields'].sort(key=lambda x: (not x['required'], x['name']))
+
+        return input_fields
+
+    def generate_form_explanation_with_llm(self, analysis_result: dict) -> str:
+        """
+        Generate a meaningful explanation for why the form generated by input_fields is needed.
+        Uses the LLM to create a natural, user-friendly explanation.
+        """
+        if not analysis_result['tool_found']:
+            return "Please provide additional information to help with your request."
+
+        tool_name = analysis_result['tool_name']
+        tool_description = analysis_result['tool_description']
+        operation = self.extract_operation_from_tool_name(tool_name)
+
+        # Create a prompt for the LLM to generate a user-friendly explanation
+        prompt = f"""You are a helpful GitHub assistant. I need to generate a brief, friendly explanation for why a form is needed.
+
+Tool Information:
+- Tool Name: {tool_name}
+- Tool Description: {tool_description}
+- Operation: {operation}
+
+Please generate a simple, user-friendly explanation that tells the user why they need to fill out a form.
+The explanation should be in the format: "Here's the list of parameters you'll need to [operation]:"
+
+Examples:
+- For creating a repository: "Here's the list of parameters you'll need to create a new GitHub repository:"
+- For creating an issue: "Here's the list of parameters you'll need to create a new GitHub issue:"
+- For listing repositories: "Here's the list of parameters you'll need to list GitHub repositories:"
+- For updating an issue: "Here's the list of parameters you'll need to update a GitHub issue:"
+
+Keep it simple, friendly, and consistent with the examples above. Just return the explanation text, nothing else.
+
+Response:"""
+
+        try:
+            # Use the LLM to generate a user-friendly explanation
+            response = self.model.invoke(prompt)
+            response_text = response.content if hasattr(response, 'content') else str(response)
+
+            # Clean up the response
+            response_text = response_text.strip()
+
+            # If the LLM response is too short or generic, provide a fallback
+            if len(response_text) < 20:
+                return f"Here's the list of parameters you'll need to {operation.lower()}:"
+
+            return response_text
+
+        except Exception as e:
+            print(f"🤖 LLM form explanation generation failed: {e}")
+            # Fallback to a generic explanation
+            return f"Here's the list of parameters you'll need to {operation.lower()}:"
+
+    def extract_operation_from_tool_name(self, tool_name: str) -> str:
+        """
+        Extract a human-readable operation name from the tool name.
+        """
+        if not tool_name:
+            return ''
+
+        # Common operation mappings
+        operation_mappings = {
+            'create_repository': 'Create Repository',
+            'create_issue': 'Create Issue',
+            'create_pull_request': 'Create Pull Request',
+            'list_repositories': 'List Repositories',
+            'list_issues': 'List Issues',
+            'list_pull_requests': 'List Pull Requests',
+            'update_issue': 'Update Issue',
+            'close_issue': 'Close Issue',
+            'merge_pull_request': 'Merge Pull Request',
+            'add_comment': 'Add Comment',
+            'star_repository': 'Star Repository',
+            'fork_repository': 'Fork Repository',
+            'create_branch': 'Create Branch',
+            'delete_branch': 'Delete Branch',
+            'create_tag': 'Create Tag',
+            'create_milestone': 'Create Milestone',
+            'add_label': 'Add Label',
+            'assign_issue': 'Assign Issue',
+            'add_collaborator': 'Add Collaborator',
+            'create_webhook': 'Create Webhook',
+            'create_secret': 'Create Secret'
+        }
+
+        # Try exact match first
+        if tool_name in operation_mappings:
+            return operation_mappings[tool_name]
+
+        # Try to extract operation from tool name
+        parts = tool_name.split('_')
+        if len(parts) >= 2:
+            action = parts[0].title()
+            resource = ' '.join(parts[1:]).title()
+            return f"{action} {resource}"
+
+        # Fallback to title case
+        return tool_name.replace('_', ' ').title()
+
     def cleanup_session(self, context_id: str):
         """
         Clean up all stored session data for a given context.
         """
-        if not ENABLE_MCP_TOOL_MATCH:
-            return  # No cleanup needed when feature is disabled
-
         if context_id in self.analysis_states:
             del self.analysis_states[context_id]
         if context_id in self.parameter_states:
@@ -1869,49 +2176,3 @@ Response (just the value, or "None" if unclear):"""
         except Exception as e:
             print(f"🤖 LLM parameter extraction failed for {param_name}: {e}")
             return None
-
-    def extract_operation_from_tool_name(self, tool_name: str) -> str:
-        """
-        Extract a human-readable operation name from the tool name.
-        """
-        if not tool_name:
-            return ''
-
-        # Common operation mappings
-        operation_mappings = {
-            'create_repository': 'Create Repository',
-            'create_issue': 'Create Issue',
-            'create_pull_request': 'Create Pull Request',
-            'list_repositories': 'List Repositories',
-            'list_issues': 'List Issues',
-            'list_pull_requests': 'List Pull Requests',
-            'update_issue': 'Update Issue',
-            'close_issue': 'Close Issue',
-            'merge_pull_request': 'Merge Pull Request',
-            'add_comment': 'Add Comment',
-            'star_repository': 'Star Repository',
-            'fork_repository': 'Fork Repository',
-            'create_branch': 'Create Branch',
-            'delete_branch': 'Delete Branch',
-            'create_tag': 'Create Tag',
-            'create_milestone': 'Create Milestone',
-            'add_label': 'Add Label',
-            'assign_issue': 'Assign Issue',
-            'add_collaborator': 'Add Collaborator',
-            'create_webhook': 'Create Webhook',
-            'create_secret': 'Create Secret'
-        }
-
-        # Try exact match first
-        if tool_name in operation_mappings:
-            return operation_mappings[tool_name]
-
-        # Try to extract operation from tool name
-        parts = tool_name.split('_')
-        if len(parts) >= 2:
-            action = parts[0].title()
-            resource = ' '.join(parts[1:]).title()
-            return f"{action} {resource}"
-
-        # Fallback to title case
-        return tool_name.replace('_', ' ').title()
