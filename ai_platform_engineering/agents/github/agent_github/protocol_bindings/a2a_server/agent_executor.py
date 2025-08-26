@@ -23,6 +23,13 @@ class GitHubAgentExecutor(AgentExecutor):
 
     def __init__(self):
         self.agent = GitHubAgent()
+        self._initialized = False
+
+    async def _ensure_initialized(self):
+        """Ensure the agent is initialized before use."""
+        if not self._initialized:
+            await self.agent.initialize()
+            self._initialized = True
 
     @override
     async def execute(
@@ -30,6 +37,9 @@ class GitHubAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
+        # Ensure agent is initialized before use
+        await self._ensure_initialized()
+
         query = context.get_user_input()
         task = context.current_task
         context_id = context.message.contextId if context.message else None

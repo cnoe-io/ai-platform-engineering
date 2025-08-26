@@ -15,11 +15,16 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from cnoe_agent_utils import LLMFactory
-from cnoe_agent_utils.tracing import TracingManager
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 logger = logging.getLogger(__name__)
 
 memory = MemorySaver()
+
+# This flag enables or disables the MCP tool matching debug output.
+# It reads the environment variable "ENABLE_MCP_TOOL_MATCH" (case-insensitive).
+# If the variable is set to "true" (as a string), the flag is True; otherwise, it is False.
+ENABLE_MCP_TOOL_MATCH = os.getenv("ENABLE_MCP_TOOL_MATCH", "false").lower() == "true"
 
 class ResponseFormat(BaseModel):
     """Respond to the user in this format."""
@@ -67,10 +72,15 @@ class GitHubAgent:
         self.conversation_map = {}  # Map A2A contextId to stable conversation ID
         self.conversation_counter = 0  # Counter for generating stable conversation IDs
 
-        # Initialize the agent
-        #asyncio.run(self._initialize_agent())
+        # Initialize the agent - will be done in initialize() method
         self._initialized = False
 
+
+    async def initialize(self):
+        """Initialize the agent with tools and configuration."""
+        if self._initialized:
+            return
+        await self._initialize_agent()
 
     async def _initialize_agent(self):
         """Initialize the agent with tools and configuration."""
@@ -85,9 +95,9 @@ class GitHubAgent:
         logger.info("Launching GitHub MCP server")
 
         # Add print statement for agent initialization
-        print("=" * 80)
+        print("=" * 50)
         print("🔧 INITIALIZING GITHUB AGENT")
-        print("=" * 80)
+        print("=" * 50)
         print("📡 Launching GitHub MCP server...")
 
         try:
@@ -237,9 +247,9 @@ class GitHubAgent:
                         break
 
                 # Print the agent's capabilities
-                print("=" * 80)
+                print("=" * 50)
                 print(f"Agent GitHub Capabilities: {ai_content}")
-                print("=" * 80)
+                print("=" * 50)
             except Exception as e:
                 logger.error(f"Error testing agent: {e}")
             self._initialized = True
@@ -278,7 +288,7 @@ class GitHubAgent:
             del self.conversation_map[context_id]
             print(f"🧹 Cleaned up conversation mapping for {context_id} -> {stable_id}")
 
-    # @trace_agent_stream("github")
+    @trace_agent_stream("github")
     async def stream(self, *args, **kwargs) -> AsyncIterable[dict[str, Any]]:
         """
         Stream responses from the agent.
@@ -303,6 +313,7 @@ class GitHubAgent:
         context_id = args[1] if len(args) > 1 else kwargs.get('context_id')
         trace_id = args[2] if len(args) > 2 else kwargs.get('trace_id')
         task_id = args[3] if len(args) > 3 else kwargs.get('task_id')
+
 
         logger.info(f"Starting stream with query: {query} and sessionId: {context_id}")
 
@@ -333,14 +344,14 @@ class GitHubAgent:
         stable_conversation_id = self.get_stable_conversation_id(context_id, task_id)
 
         # Add print statement for new query processing
-        print("=" * 80)
+        print("=" * 50)
         print("🔄 PROCESSING NEW QUERY")
-        print("=" * 80)
+        print("=" * 50)
         print(f"📝 Query: {query}")
         print(f"🆔 A2A Context ID: {context_id}")
         print(f"🔗 Stable Conversation ID: {stable_conversation_id}")
         print(f"🔍 Trace ID: {trace_id}")
-        print("=" * 80)
+        print("=" * 50)
 
         if not self.graph:
             logger.error("Agent graph not initialized")
@@ -351,204 +362,209 @@ class GitHubAgent:
             }
             return
 
-        # Enhanced parameter handling with better state management
-        # FIRST: Check if this query is actually GitHub-related before any processing
-        query_lower = query.lower()
-        github_related_keywords = [
-            # Core GitHub concepts
-            'repository', 'repo', 'issue', 'pull request', 'pr', 'github', 'git',
-            'branch', 'commit', 'tag', 'milestone', 'label', 'assign', 'comment',
-            'fork', 'star', 'watch', 'clone', 'push', 'pull', 'merge', 'rebase',
+        inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
+        if ENABLE_MCP_TOOL_MATCH:
+          # Enhanced parameter handling with better state management
+          # FIRST: Check if this query is actually GitHub-related before any processing
+          query_lower = query.lower()
+          github_related_keywords = [
+              # Core GitHub concepts
+              'repository', 'repo', 'issue', 'pull request', 'pr', 'github', 'git',
+              'branch', 'commit', 'tag', 'milestone', 'label', 'assign', 'comment',
+              'fork', 'star', 'watch', 'clone', 'push', 'pull', 'merge', 'rebase',
 
-            # Actions/verbs
-            'create', 'list', 'update', 'delete', 'close', 'open', 'edit', 'modify',
-            'add', 'remove', 'set', 'change', 'switch', 'checkout', 'reset', 'revert',
-            'approve', 'reject', 'request', 'submit', 'publish', 'release',
+              # Actions/verbs
+              'create', 'list', 'update', 'delete', 'close', 'open', 'edit', 'modify',
+              'add', 'remove', 'set', 'change', 'switch', 'checkout', 'reset', 'revert',
+              'approve', 'reject', 'request', 'submit', 'publish', 'release',
 
-            # Common parameter names and variations
-            'name', 'description', 'private', 'public', 'autoinit', 'auto-init', 'auto init',
-            'owner', 'user', 'username', 'state', 'status', 'title', 'body', 'content',
-            'head', 'base', 'sort', 'direction', 'per_page', 'page', 'limit',
+              # Common parameter names and variations
+              'name', 'description', 'private', 'public', 'autoinit', 'auto-init', 'auto init',
+              'owner', 'user', 'username', 'state', 'status', 'title', 'body', 'content',
+              'head', 'base', 'sort', 'direction', 'per_page', 'page', 'limit',
 
-            # GitHub-specific terms
-            'readme', 'gitignore', 'license', 'template', 'collaborator', 'webhook',
-            'secret', 'environment', 'deployment', 'workflow', 'action', 'runner',
+              # GitHub-specific terms
+              'readme', 'gitignore', 'license', 'template', 'collaborator', 'webhook',
+              'secret', 'environment', 'deployment', 'workflow', 'action', 'runner',
 
-            # Common phrases and patterns
-            'make it', 'should be', 'set to', 'enable', 'disable', 'turn on', 'turn off',
-            'initialize', 'init', 'configure', 'setup', 'arrange', 'organize'
-        ]
+              # Common phrases and patterns
+              'make it', 'should be', 'set to', 'enable', 'disable', 'turn on', 'turn off',
+              'initialize', 'init', 'configure', 'setup', 'arrange', 'organize'
+          ]
 
-        is_github_related = any(keyword in query_lower for keyword in github_related_keywords)
+          is_github_related = any(keyword in query_lower for keyword in github_related_keywords)
 
-        if not is_github_related:
-            # This is not a GitHub-related query, inform the user about limitations
-            print(f"🔍 Query '{query}' is not GitHub-related, informing user of limitations...")
+          if not is_github_related:
+              # This is not a GitHub-related query, inform the user about limitations
+              print(f"🔍 Query '{query}' is not GitHub-related, informing user of limitations...")
 
-            # Check if this is a follow-up response to our GitHub help offer
-            query_lower = query.lower().strip()
-            if query_lower in ['yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'absolutely', 'definitely']:
-                # User responded positively to our GitHub help offer
-                yield {
-                    'is_task_complete': True,
-                    'require_user_input': False,
-                    'content': (
-                        "Great! I'm excited to help you with GitHub! 🎉\n\n"
-                        "Here are some things I can help you with:\n"
-                        "• Create and manage repositories\n"
-                        "• Work with issues and pull requests\n"
-                        "• Handle branches, commits, and tags\n"
-                        "• Manage collaborators and permissions\n"
-                        "• Set up webhooks and workflows\n\n"
-                        "What would you like to do? You can say something like:\n"
-                        "• \"Create a new repository\"\n"
-                        "• \"List open issues in my repo\"\n"
-                        "• \"Create a pull request\"\n"
-                        "• \"Add a collaborator\""
-                    )
-                }
-                return
-            else:
-                # First time showing the limitation message
-                yield {
-                    'is_task_complete': True,
-                    'require_user_input': False,
-                    'content': (
-                        "I'm a GitHub operations specialist and can only help you with GitHub-related tasks like creating repositories, "
-                        "managing issues and pull requests, working with branches, and other GitHub operations. "
-                        "I can't help with general questions like weather, math, or other non-GitHub topics. "
-                        "Is there something GitHub-related I can help you with?"
-                    )
-                }
-                return
+              # Check if this is a follow-up response to our GitHub help offer
+              query_lower = query.lower().strip()
+              if query_lower in ['yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'absolutely', 'definitely']:
+                  # User responded positively to our GitHub help offer
+                  yield {
+                      'is_task_complete': True,
+                      'require_user_input': False,
+                      'content': (
+                          "Great! I'm excited to help you with GitHub! 🎉\n\n"
+                          "Here are some things I can help you with:\n"
+                          "• Create and manage repositories\n"
+                          "• Work with issues and pull requests\n"
+                          "• Handle branches, commits, and tags\n"
+                          "• Manage collaborators and permissions\n"
+                          "• Set up webhooks and workflows\n\n"
+                          "What would you like to do? You can say something like:\n"
+                          "• \"Create a new repository\"\n"
+                          "• \"List open issues in my repo\"\n"
+                          "• \"Create a pull request\"\n"
+                          "• \"Add a collaborator\""
+                      )
+                  }
+                  return
+              else:
+                  # First time showing the limitation message
+                  yield {
+                      'is_task_complete': True,
+                      'require_user_input': False,
+                      'content': (
+                          "I'm a GitHub operations specialist and can only help you with GitHub-related tasks like creating repositories, "
+                          "managing issues and pull requests, working with branches, and other GitHub operations. "
+                          "I can't help with general questions like weather, math, or other non-GitHub topics. "
+                          "Is there something GitHub-related I can help you with?"
+                      )
+                  }
+                  return
 
-        # Check if we have a previous analysis for this context
-        previous_analysis = self.analysis_states.get(stable_conversation_id)
-        accumulated_params = self.parameter_states.get(stable_conversation_id, {})
+          # Check if we have a previous analysis for this context
+          previous_analysis = self.analysis_states.get(stable_conversation_id)
+          accumulated_params = self.parameter_states.get(stable_conversation_id, {})
 
-        print(f"🔍 Context check for {stable_conversation_id}:")
-        print(f"   • Has previous analysis: {previous_analysis is not None}")
-        print(f"   • Has accumulated params: {bool(accumulated_params)}")
-        print(f"   • Accumulated params: {accumulated_params}")
+          print(f"🔍 Context check for {stable_conversation_id}:")
+          print(f"   • Has previous analysis: {previous_analysis is not None}")
+          print(f"   • Has accumulated params: {bool(accumulated_params)}")
+          print(f"   • Accumulated params: {accumulated_params}")
 
-        if previous_analysis:
-            # This is a follow-up message, update the analysis with accumulated parameters
-            print("🔄 Processing follow-up message with accumulated parameters...")
-            print(f"📊 Previously accumulated parameters: {accumulated_params}")
-            print(f"📊 Previous analysis tool: {previous_analysis.get('tool_name', 'Unknown')}")
-            print(f"📊 Previous missing params: {[p['name'] for p in previous_analysis.get('missing_params', [])]}")
+          if previous_analysis:
+              # This is a follow-up message, update the analysis with accumulated parameters
+              print("🔄 Processing follow-up message with accumulated parameters...")
+              print(f"📊 Previously accumulated parameters: {accumulated_params}")
+              print(f"📊 Previous analysis tool: {previous_analysis.get('tool_name', 'Unknown')}")
+              print(f"📊 Previous missing params: {[p['name'] for p in previous_analysis.get('missing_params', [])]}")
 
-            # Extract new parameters from the followup query
-            new_params = self.extract_parameters_from_query(query, previous_analysis['all_params'])
-            print(f"🆕 New parameters extracted: {new_params}")
+              # Extract new parameters from the followup query
+              new_params = self.extract_parameters_from_query(query, previous_analysis['all_params'])
+              print(f"🆕 New parameters extracted: {new_params}")
 
-            # Merge with accumulated parameters
-            updated_params = accumulated_params.copy()
-            updated_params.update(new_params)
-            print(f"🔄 Merged parameters: {updated_params}")
+              # Merge with accumulated parameters
+              updated_params = accumulated_params.copy()
+              updated_params.update(new_params)
+              print(f"🔄 Merged parameters: {updated_params}")
 
-            # Update the analysis with the merged parameters
-            analysis_result = self.update_analysis_with_parameters(previous_analysis, updated_params)
+              # Update the analysis with the merged parameters
+              analysis_result = self.update_analysis_with_parameters(previous_analysis, updated_params)
 
-            # Update stored parameters
-            self.parameter_states[stable_conversation_id] = updated_params
+              # Update stored parameters
+              self.parameter_states[stable_conversation_id] = updated_params
 
-            # Check if we now have all required parameters
-            if not analysis_result['missing_params']:
-                print("✅ All required parameters now available. Proceeding with execution...")
-                # Clear the stored states since we're proceeding
-                if stable_conversation_id in self.analysis_states:
-                    del self.analysis_states[stable_conversation_id]
-                if stable_conversation_id in self.parameter_states:
-                    del self.parameter_states[stable_conversation_id]
-                if stable_conversation_id in self.conversation_contexts:
-                    del self.conversation_contexts[stable_conversation_id]
-            else:
-                # Still missing parameters, ask for them
-                print(f"❌ Still missing parameters: {[p['name'] for p in analysis_result['missing_params']]}")
+              # Check if we now have all required parameters
+              if not analysis_result['missing_params']:
+                  print("✅ All required parameters now available. Proceeding with execution...")
+                  # Clear the stored states since we're proceeding
+                  if stable_conversation_id in self.analysis_states:
+                      del self.analysis_states[stable_conversation_id]
+                  if stable_conversation_id in self.parameter_states:
+                      del self.parameter_states[stable_conversation_id]
+                  if stable_conversation_id in self.conversation_contexts:
+                      del self.conversation_contexts[stable_conversation_id]
+              else:
+                  # Still missing parameters, ask for them
+                  print(f"❌ Still missing parameters: {[p['name'] for p in analysis_result['missing_params']]}")
+          else:
+              # This is a new request, perform fresh analysis
+              print("🆕 New request detected. Performing fresh analysis...")
+              analysis_result = self.analyze_request_and_discover_tool(query)
+
+              # Store the analysis for potential follow-up messages
+              self.analysis_states[stable_conversation_id] = analysis_result
+
+              # Initialize parameter state
+              extracted_params = analysis_result.get('extracted_params', {})
+              self.parameter_states[stable_conversation_id] = extracted_params
+
+              # Store conversation context
+              self.conversation_contexts[stable_conversation_id] = {
+                  'original_query': query,
+                  'tool_name': analysis_result.get('tool_name', ''),
+                  'timestamp': asyncio.get_event_loop().time(),
+                  'a2a_context_id': context_id,
+                  'stable_conversation_id': stable_conversation_id
+              }
+
+              print(f"📊 Stored analysis for {stable_conversation_id}:")
+              print(f"   • Tool: {analysis_result.get('tool_name', 'Unknown')}")
+              print(f"   • Extracted params: {extracted_params}")
+              print(f"   • Missing params: {[p['name'] for p in analysis_result.get('missing_params', [])]}")
+
+          # If no tool found or missing required parameters, ask for clarification
+          # Now we know the query is GitHub-related, so we can proceed with parameter handling
+          if not analysis_result['tool_found'] or analysis_result['missing_params']:
+              message = self.generate_missing_variables_message(analysis_result)
+
+              # Create input_fields metadata for dynamic form generation
+              input_fields = self.create_input_fields_metadata(analysis_result)
+
+              # Generate meaningful explanation for why the form is needed using LLM
+              form_explanation = self.generate_form_explanation_with_llm(analysis_result)
+
+              # Create comprehensive metadata with conversation context
+              metadata = {
+                  'input_fields': input_fields,
+                  'form_explanation': form_explanation,
+                  'tool_info': {
+                      'name': analysis_result.get('tool_name', ''),
+                      'description': analysis_result.get('tool_description', ''),
+                      'operation': self.extract_operation_from_tool_name(analysis_result.get('tool_name', ''))
+                  },
+                  'context': {
+                      'missing_required_count': len(analysis_result.get('missing_params', [])),
+                      'total_fields_count': len(input_fields.get('fields', [])),
+                      'extracted_count': len(analysis_result.get('extracted_params', {})),
+                      'conversation_context': self.conversation_contexts.get(stable_conversation_id, {}),
+                      'is_followup': previous_analysis is not None,
+                      'stable_conversation_id': stable_conversation_id
+                  }
+              }
+
+              yield {
+                  'is_task_complete': False,
+                  'require_user_input': True,
+                  'content': message,
+                  'metadata': metadata
+              }
+              return
+
+          # If we have all required parameters, proceed with the normal agent flow
+          print("✅ All required parameters found. Proceeding with tool execution...")
+
+          # Clear the analysis state since we're proceeding with execution
+          if stable_conversation_id in self.analysis_states:
+              del self.analysis_states[stable_conversation_id]
+          if stable_conversation_id in self.parameter_states:
+              del self.parameter_states[stable_conversation_id]
+          if stable_conversation_id in self.conversation_contexts:
+              del self.conversation_contexts[stable_conversation_id]
+
+          # Clean up the conversation mapping
+          self.cleanup_conversation_mapping(context_id)
+
+          # Enhance the query with extracted parameters for better tool selection
+          enhanced_query = self.enhance_query_with_parameters(query, analysis_result['extracted_params'])
+
+          inputs: dict[str, Any] = {'messages': [HumanMessage(content=enhanced_query)]}
+
+          config: RunnableConfig = self.tracing.create_config(stable_conversation_id)
         else:
-            # This is a new request, perform fresh analysis
-            print("🆕 New request detected. Performing fresh analysis...")
-            analysis_result = self.analyze_request_and_discover_tool(query)
-
-            # Store the analysis for potential follow-up messages
-            self.analysis_states[stable_conversation_id] = analysis_result
-
-            # Initialize parameter state
-            extracted_params = analysis_result.get('extracted_params', {})
-            self.parameter_states[stable_conversation_id] = extracted_params
-
-            # Store conversation context
-            self.conversation_contexts[stable_conversation_id] = {
-                'original_query': query,
-                'tool_name': analysis_result.get('tool_name', ''),
-                'timestamp': asyncio.get_event_loop().time(),
-                'a2a_context_id': context_id,
-                'stable_conversation_id': stable_conversation_id
-            }
-
-            print(f"📊 Stored analysis for {stable_conversation_id}:")
-            print(f"   • Tool: {analysis_result.get('tool_name', 'Unknown')}")
-            print(f"   • Extracted params: {extracted_params}")
-            print(f"   • Missing params: {[p['name'] for p in analysis_result.get('missing_params', [])]}")
-
-        # If no tool found or missing required parameters, ask for clarification
-        # Now we know the query is GitHub-related, so we can proceed with parameter handling
-        if not analysis_result['tool_found'] or analysis_result['missing_params']:
-            message = self.generate_missing_variables_message(analysis_result)
-
-            # Create input_fields metadata for dynamic form generation
-            input_fields = self.create_input_fields_metadata(analysis_result)
-
-            # Generate meaningful explanation for why the form is needed using LLM
-            form_explanation = self.generate_form_explanation_with_llm(analysis_result)
-
-            # Create comprehensive metadata with conversation context
-            metadata = {
-                'input_fields': input_fields,
-                'form_explanation': form_explanation,
-                'tool_info': {
-                    'name': analysis_result.get('tool_name', ''),
-                    'description': analysis_result.get('tool_description', ''),
-                    'operation': self.extract_operation_from_tool_name(analysis_result.get('tool_name', ''))
-                },
-                'context': {
-                    'missing_required_count': len(analysis_result.get('missing_params', [])),
-                    'total_fields_count': len(input_fields.get('fields', [])),
-                    'extracted_count': len(analysis_result.get('extracted_params', {})),
-                    'conversation_context': self.conversation_contexts.get(stable_conversation_id, {}),
-                    'is_followup': previous_analysis is not None,
-                    'stable_conversation_id': stable_conversation_id
-                }
-            }
-
-            yield {
-                'is_task_complete': False,
-                'require_user_input': True,
-                'content': message,
-                'metadata': metadata
-            }
-            return
-
-        # If we have all required parameters, proceed with the normal agent flow
-        print("✅ All required parameters found. Proceeding with tool execution...")
-
-        # Clear the analysis state since we're proceeding with execution
-        if stable_conversation_id in self.analysis_states:
-            del self.analysis_states[stable_conversation_id]
-        if stable_conversation_id in self.parameter_states:
-            del self.parameter_states[stable_conversation_id]
-        if stable_conversation_id in self.conversation_contexts:
-            del self.conversation_contexts[stable_conversation_id]
-
-        # Clean up the conversation mapping
-        self.cleanup_conversation_mapping(context_id)
-
-        # Enhance the query with extracted parameters for better tool selection
-        enhanced_query = self.enhance_query_with_parameters(query, analysis_result['extracted_params'])
-
-        inputs: dict[str, Any] = {'messages': [HumanMessage(content=enhanced_query)]}
-        config: RunnableConfig = self.tracing.create_config(stable_conversation_id)
+          config: RunnableConfig = self.tracing.create_config(context_id)
 
         try:
             async for item in self.graph.astream(inputs, config, stream_mode='values'):
@@ -566,9 +582,9 @@ class GitHubAgent:
                     and len(message.tool_calls) > 0
                 ):
                     # Add detailed print statements for tool calls
-                    print("=" * 80)
+                    print("=" * 50)
                     print("🔧 TOOL CALL DETECTED")
-                    print("=" * 80)
+                    print("=" * 50)
                     for i, tool_call in enumerate(message.tool_calls):
                         tool_name = tool_call.get('name', 'Unknown')
                         tool_id = tool_call.get('id', 'Unknown')
@@ -633,7 +649,7 @@ class GitHubAgent:
                                 print("     - No arguments provided")
 
                         print()
-                    print("=" * 80)
+                    print("=" * 50)
 
                     yield {
                         'is_task_complete': False,
@@ -642,9 +658,9 @@ class GitHubAgent:
                     }
                 elif isinstance(message, ToolMessage):
                     # Add detailed print statements for tool results
-                    print("=" * 80)
+                    print("=" * 50)
                     print("📤 TOOL RESULT RECEIVED")
-                    print("=" * 80)
+                    print("=" * 50)
                     print(f"📋 Tool Name: {getattr(message, 'name', 'Unknown')}")
                     print(f"📋 Tool Call ID: {getattr(message, 'tool_call_id', 'Unknown')}")
                     print("📥 Tool Result Content:")
@@ -657,7 +673,7 @@ class GitHubAgent:
                             print(f"   {content}")
                     else:
                         print("   No content")
-                    print("=" * 80)
+                    print("=" * 50)
 
                     yield {
                         'is_task_complete': False,
@@ -727,7 +743,7 @@ class GitHubAgent:
         return {
             'is_task_complete': False,
             'require_user_input': True,
-            'content': 'We are unable to process your GitHub request at the moment. Pls try again.',
+            'content': 'We are unable to process your GitHub request at the moment. Try again.',
         }
 
     def analyze_request_and_discover_tool(self, query: str) -> dict:
@@ -735,9 +751,9 @@ class GitHubAgent:
         Analyze the user's request to discover the appropriate tool and identify missing variables.
         Returns a dictionary with tool information and missing variables.
         """
-        print("=" * 80)
+        print("=" * 50)
         print("🔍 ANALYZING REQUEST FOR TOOL DISCOVERY")
-        print("=" * 80)
+        print("=" * 50)
         print(f"📝 User Query: {query}")
 
         if not hasattr(self, 'tools_info') or not self.tools_info:
@@ -884,7 +900,7 @@ class GitHubAgent:
 
         if not matched_tools:
             print("❌ No matching tools found for this request")
-            print("=" * 80)
+            print("=" * 50)
             return {
                 'tool_found': False,
                 'message': 'No GitHub tools match your request. Please try rephrasing or ask for available operations.'
@@ -953,7 +969,7 @@ class GitHubAgent:
                     print("     Default: None")
                 print()
 
-        print("=" * 80)
+        print("=" * 50)
 
         return {
             'tool_found': True,
@@ -1855,9 +1871,9 @@ Response:"""
         """
         Show the current state of all conversations for debugging.
         """
-        print("=" * 80)
+        print("=" * 50)
         print("🔍 CURRENT CONVERSATION STATE")
-        print("=" * 80)
+        print("=" * 50)
 
         print(f"📊 Conversation Map ({len(self.conversation_map)} mappings):")
         for a2a_id, stable_id in self.conversation_map.items():
@@ -1882,7 +1898,7 @@ Response:"""
             timestamp = context.get('timestamp', 0)
             print(f"   • {conv_id}: {tool_name} at {timestamp}")
 
-        print("=" * 80)
+        print("=" * 50)
 
     def reset_session(self, context_id: str):
         """
