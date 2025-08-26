@@ -76,12 +76,6 @@ class GitHubAgent:
         self._initialized = False
 
 
-    async def initialize(self):
-        """Initialize the agent with tools and configuration."""
-        if self._initialized:
-            return
-        await self._initialize_agent()
-
     async def _initialize_agent(self):
         """Initialize the agent with tools and configuration."""
 
@@ -166,7 +160,7 @@ class GitHubAgent:
 
             print('*' * 50)
             print("🔧 AVAILABLE GITHUB TOOLS AND PARAMETERS")
-            print('*' * 50)
+            print('*' * 80)
             for tool in client_tools:
                 print(f"📋 Tool: {tool.name}")
                 print(f"📝 Description: {tool.description.strip()}")
