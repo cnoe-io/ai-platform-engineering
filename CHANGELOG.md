@@ -1,3 +1,11 @@
+## Unreleased
+
+### Fix
+
+- **github**: add ENABLE_MCP_TOOL_MATCH feature flag (#229)
+- ruff lint
+- rag ingestion crash; workshop docker file
+
 ## 0.1.8 (2025-08-25)
 
 ### Feat
