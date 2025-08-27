@@ -22,6 +22,8 @@ services:
       - WEATHER_AGENT_HOST=agent-weather-p2p
       - GITHUB_AGENT_HOST=agent-github-p2p
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - ENABLE_WEATHER_AGENT=true
+      - LANGFUSE_TRACING_ENABLED=${LANGFUSE_TRACING_ENABLED:-True}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-https://langfuse.dev.outshift.io}
