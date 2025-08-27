@@ -42,7 +42,7 @@ services:
       - ../.env.mission4:/app/.env
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "8020:8000"
+      - "8004:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -64,7 +64,7 @@ services:
     environment:
       - VSTORE_COLLECTION=rag_default
     ports:
-      - "8009:8000"
+      - "8020:8000"
   kb-rag-server:
     image: ghcr.io/cnoe-io/kb-rag-server:latest
     pull_policy: always
