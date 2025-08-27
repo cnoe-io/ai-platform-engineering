@@ -5,6 +5,7 @@ import logging
 import asyncio
 import os
 from typing import Any, Literal, AsyncIterable
+from dotenv import load_dotenv
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
@@ -18,6 +19,9 @@ from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
 logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file
+load_dotenv()
 
 memory = MemorySaver()
 
