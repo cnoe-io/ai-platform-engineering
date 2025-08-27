@@ -33,7 +33,7 @@ services:
   #                                      AGENT GITHUB A2A P2P                                        #
   ####################################################################################################
   agent-github-p2p:
-    image: ghcr.io/cnoe-io/agent-github:a2a-latest
+    image: ghcr.io/cnoe-io/agent-github:main
     pull_policy: always
     container_name: agent-github-p2p
     restart: unless-stopped
@@ -46,8 +46,6 @@ services:
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=9000
-      - MCP_HOST=localhost
       - ENABLE_TRACING=false
 
   ####################################################################################################
@@ -66,7 +64,7 @@ services:
     environment:
       - VSTORE_COLLECTION=rag_default
     ports:
-      - "8009:8000"
+      - "8020:8000"
   kb-rag-server:
     image: ghcr.io/cnoe-io/kb-rag-server:latest
     pull_policy: always
