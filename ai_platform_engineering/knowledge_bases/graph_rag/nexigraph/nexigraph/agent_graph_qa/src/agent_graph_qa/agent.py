@@ -27,6 +27,7 @@ from core import utils
 from core.graph_db.neo4j.graph_db import Neo4jDB
 
 from langgraph.checkpoint.memory import MemorySaver
+from cnoe_agent_utils import LLMFactory
 
 from agent_graph_qa.prompts import SYSTEM_PROMPT
 
@@ -56,12 +57,7 @@ class QnAAgent:
     def __init__(self):
         self.graphdb = Neo4jDB(readonly=True)
 
-        # convert our llm provider to a langchain provider
-        provider, model = convert_llm_provider_to_langchain_provider()
-
-        # Create the agent
-        self.llm = langchain.chat_models.base.init_chat_model(model, model_provider=provider, temperature=0.3)
-        logger.info(f"Using model {model} with provider {provider}")
+        self.llm = LLMFactory().get_llm()
         logger.info(f"Number of tools: {len(GRAPH_DB_READ_TOOLS)}")
         self.graph = create_react_agent(
             model=self.llm,
