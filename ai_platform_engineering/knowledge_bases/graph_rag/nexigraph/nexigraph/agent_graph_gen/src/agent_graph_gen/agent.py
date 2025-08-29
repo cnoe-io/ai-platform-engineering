@@ -17,6 +17,7 @@ from langgraph.graph.graph import CompiledGraph
 from core.utils import runforever
 import core.utils as utils
 import agent_graph_gen.helpers as helpers
+from cnoe_agent_utils import LLMFactory
 
 AGENT_NAME = "ForeignKeyRelationAgent"
 
@@ -251,8 +252,7 @@ class ForeignKeyRelationAgent:
 
     def create_agent(self) -> CompiledGraph:
         # Create the agent
-        provider, model = convert_llm_provider_to_langchain_provider()
-        llm = langchain.chat_models.base.init_chat_model(model, model_provider=provider, temperature=0)
+        llm = LLMFactory().get_llm()
 
         heuristic_schema = ""
         for prop, details in RelationCandidate.model_json_schema()["properties"].items():
