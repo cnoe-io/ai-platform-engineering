@@ -20,6 +20,7 @@ dependencies = [
     "pydantic>=2.11.7",
     "python-dotenv>=1.1.0",
     "uvicorn>=0.34.3",
+    "cnoe-agent-utils==0.3.0",
 ]
 
 [project.scripts]
