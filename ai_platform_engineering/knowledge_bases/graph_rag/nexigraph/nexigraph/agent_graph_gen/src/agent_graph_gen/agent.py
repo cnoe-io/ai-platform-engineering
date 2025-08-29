@@ -2,7 +2,7 @@ import asyncio
 
 from langgraph.prebuilt import create_react_agent
 
-from core.agent.tools import fetch_entity, convert_llm_provider_to_langchain_provider
+from core.agent.tools import fetch_entity
 from core.graph_db.neo4j.graph_db import Neo4jDB
 import langchain.chat_models.base
 from core.constants import FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC
