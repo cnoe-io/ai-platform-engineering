@@ -22,7 +22,6 @@ from langchain_core.messages.utils import (
     trim_messages
 )
 import dotenv
-import os
 
 from core import utils
 from core.graph_db.neo4j.graph_db import Neo4jDB
