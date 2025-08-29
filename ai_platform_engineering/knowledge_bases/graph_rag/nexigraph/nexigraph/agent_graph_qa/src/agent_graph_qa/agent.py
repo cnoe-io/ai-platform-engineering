@@ -3,7 +3,6 @@
 Works with a chat model with tool calling support.
 """
 from core.agent.tools import (
-    convert_llm_provider_to_langchain_provider,
     fetch_entity_details,
     fuzzy_search,
     get_entity_types,
