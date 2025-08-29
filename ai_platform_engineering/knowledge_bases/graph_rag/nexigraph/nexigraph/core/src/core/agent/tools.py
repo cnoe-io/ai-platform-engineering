@@ -1,4 +1,5 @@
 import logging
+import os
 
 from core import utils
 from core.graph_db.neo4j.graph_db import Neo4jDB
@@ -11,6 +12,31 @@ dotenv.load_dotenv(verbose=True)
 graphdb = Neo4jDB(readonly=True)
 
 MAX_RESULTS=100
+
+# langchain provides models for all the major providers. This is a subset of the providers that we currently support.
+# See https://github.com/langchain-ai/langchain/blob/master/libs/langchain/langchain/chat_models/base.py#L462C1-L483
+LANGCHAIN_PROVIDER_MAP = {
+    "azure-openai": "azure_openai",
+    "aws-bedrock": "bedrock",
+    "openai": "openai",
+}
+
+PROVIDER_MODEL_MAP = {
+    "azure-openai": "AZURE_OPENAI_DEPLOYMENT",
+    "aws-bedrock": "AWS_BEDROCK_MODEL_ID",
+    "openai": "OPENAI_MODEL_NAME",
+}
+
+@tool
+async def convert_llm_provider_to_langchain_provider() -> tuple[str, str]:
+    """
+    Convert the LLM provider to a langchain provider.
+    """
+    llm_provider = os.getenv("LLM_PROVIDER")
+    provider = LANGCHAIN_PROVIDER_MAP[llm_provider]
+    model = os.getenv(PROVIDER_MODEL_MAP[llm_provider])
+
+    return provider, model
 
 @tool
 async def get_entity_types(thought: str) -> str:
@@ -89,7 +115,7 @@ async def fetch_entity_details(entity_type: str, primary_key_id: str, thought: s
 @tool
 async def get_relation_path_between_entity_types(entity_type_1: str, entity_type_2: str, thought: str) -> str:
     """
-    Find relationship paths (indirect or direct) (if any) between any two entity types. 
+    Find relationship paths (indirect or direct) (if any) between any two entity types.
     Args:
         entity_type_1 (str): The first entity type
         entity_type_2 (str): The second entity type

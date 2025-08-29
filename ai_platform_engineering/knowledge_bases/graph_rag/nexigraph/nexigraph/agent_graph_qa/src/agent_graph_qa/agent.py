@@ -2,7 +2,14 @@
 
 Works with a chat model with tool calling support.
 """
-from core.agent.tools import fetch_entity_details, fuzzy_search, get_entity_types, get_relation_path_between_entity_types, raw_query
+from core.agent.tools import (
+    convert_llm_provider_to_langchain_provider,
+    fetch_entity_details,
+    fuzzy_search,
+    get_entity_types,
+    get_relation_path_between_entity_types,
+    raw_query,
+)
 import langchain.chat_models.base
 from datetime import datetime, timezone
 from langchain_core.prompts import PromptTemplate
@@ -15,6 +22,7 @@ from langchain_core.messages.utils import (
     trim_messages
 )
 import dotenv
+import os
 
 from core import utils
 from core.graph_db.neo4j.graph_db import Neo4jDB
@@ -48,13 +56,11 @@ class QnAAgent:
     SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
     def __init__(self):
         self.graphdb = Neo4jDB(readonly=True)
+
+        # convert our llm provider to a langchain provider
+        provider, model = convert_llm_provider_to_langchain_provider()
+
         # Create the agent
-        provider = "azure_openai"
-        model = "gpt-4o"
-        # provider = "ollama"
-        # model = "llama3.2"
-        # provider="bedrock"
-        # model = "anthropic.claude-3-sonnet-20240229-v1:0"
         self.llm = langchain.chat_models.base.init_chat_model(model, model_provider=provider, temperature=0.3)
         logger.info(f"Using model {model} with provider {provider}")
         logger.info(f"Number of tools: {len(GRAPH_DB_READ_TOOLS)}")
@@ -79,7 +85,7 @@ class QnAAgent:
             entities=utils.json_encode(entity_types, indent=2)
         )
         return [{"role": "system", "content": system_prompt}] + state["messages"]
-    
+
     async def invoke(self, query, context_id) -> str:
         config = {'configurable': {'thread_id': context_id}}
         await self.graph.ainvoke({'messages': [('user', query)]}, config) # type: ignore
@@ -145,7 +151,7 @@ class QnAAgent:
                 'Please try again.'
             ),
         }
-    
+
 # For langgraph studio
 # agent = QnAAgent()
 # graph = agent.graph
