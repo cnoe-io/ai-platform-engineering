@@ -779,12 +779,12 @@ services:
       - webex
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/webex:/app
+      - ./ai_platform_engineering/agents/webex/agent_webex:/app/agent_webex
     ports:
       - "8009:8000"
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=http
+      - MCP_MODE=sse
       - MCP_PORT=8000
       - MCP_HOST=mcp-webex
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -800,7 +800,7 @@ services:
       dockerfile: build/Dockerfile.a2a
     container_name: agent-webex-slim
     profiles:
-      - webex
+      - webex-slim
     volumes:
       - ./.env:/app/.env
     depends_on:
@@ -808,10 +808,35 @@ services:
     ports:
       - "8009:8000"
     environment:
+      - MCP_MODE=sse
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-webex
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      MCP WEBEX                                                   #
+  ####################################################################################################
+  mcp-webex:
+    build:
+      context: ai_platform_engineering/agents/webex
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-webex
+    profiles:
+      - webex
+      - webex-slim
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/webex/mcp/mcp_webex:/app/mcp_webex
+    ports:
+      - "18009:8000"
+    environment:
+      - MCP_MODE=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
 
   ####################################################################################################
   #                                      AGENT WEATHER A2A over SLIM                                 #

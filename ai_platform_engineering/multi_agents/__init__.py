@@ -99,6 +99,14 @@ class AgentRegistry:
         # Initial startup delay before starting connectivity checks
         self._startup_delay = float(os.getenv("AGENT_CONNECTIVITY_STARTUP_DELAY", "0.0"))
 
+        if os.getenv("ENABLE_WEBEX_AGENT", "").lower() == "true":
+            if "webex" not in self.AGENT_IMPORT_MAP:
+                logger.debug("Adding Webex to AGENT_IMPORT_MAP")
+                self.AGENT_IMPORT_MAP["webex"] = {
+                    "slim": "ai_platform_engineering.agents.webex.clients.slim.agent",
+                    "a2a": "ai_platform_engineering.agents.webex.clients.a2a.agent"
+                }
+
         self._agents: Dict[str, Any] = {}  # Will be populated by _load_agents
         self._tools: Dict[str, Any] = {}  # Will be populated by _load_agents
         self._loaded_modules: Dict[str, Any] = {}  # Cache of loaded modules for refresh
@@ -384,6 +392,7 @@ class AgentRegistry:
 
         # Step 1: Load all agent modules first
         loaded_modules = {}
+        logger.debug(f"Configured agents: {self.AGENT_NAMES}")
         for agent_name in self.AGENT_NAMES:
             if agent_name not in self.AGENT_IMPORT_MAP:
                 logger.warning(f"Unknown agent: {agent_name}")
