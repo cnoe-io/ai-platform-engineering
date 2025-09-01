@@ -20,15 +20,17 @@ from .__about__ import __version__
   required=True,
   help="Webex bot token",
 )
-@click.option("--port", default=8000, help="Port to listen on for SSE")
+@click.option("--port", default=8000, help="Port to listen on for SSE", envvar="MCP_PORT")
 @click.option(
   "--transport",
-  type=click.Choice(["stdio", "sse"]),
+  type=click.Choice(["stdio", "sse", "http"]),
   default="stdio",
+  envvar="MCP_MODE",
   help="Transport type",
 )
 @click.option("-v", "--verbose", count=True)
-def main(auth_token: str, verbose: bool, transport: str, port: int) -> None:
+@click.option("--host", default="127.0.0.1", help="Host to listen on", envvar="MCP_HOST")
+def main(auth_token: str, verbose: bool, transport: str, port: int, host: str) -> None:
   logging_level = logging.WARN
   if verbose == 1:
     logging_level = logging.INFO
@@ -37,7 +39,7 @@ def main(auth_token: str, verbose: bool, transport: str, port: int) -> None:
 
   logging.basicConfig(level=logging_level, stream=sys.stderr)
 
-  if transport == "sse":
+  if transport == "sse" or transport == "http":
     from mcp.server.sse import SseServerTransport
     from starlette.applications import Starlette
     from starlette.responses import Response
@@ -65,7 +67,7 @@ def main(auth_token: str, verbose: bool, transport: str, port: int) -> None:
 
     import uvicorn
 
-    uvicorn.run(starlette_app, host="127.0.0.1", port=port)
+    uvicorn.run(starlette_app, host=host, port=port)
   else:
 
     async def _run():

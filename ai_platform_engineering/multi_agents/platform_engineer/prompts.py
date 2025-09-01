@@ -25,6 +25,7 @@ agent_description = config.get("agent_description", (
   "This platform engineering system integrates with multiple tools to manage operations efficiently. "
   "It includes PagerDuty for incident management, GitHub for version control and collaboration, "
   "Jira for project management and ticket tracking, Slack for team communication and notifications, " ) +
+  ("Webex for messaging and notifications, " if platform_registry.agent_exists("webex") else "") +
   ("Komodor for Kubernetes cluster and workload management, " if platform_registry.agent_exists("komodor") else "") + (
   "ArgoCD for application deployment and synchronization, and Backstage for catalog and service metadata management. "
   "Each tool is handled by a specialized agent to ensure seamless task execution, "
