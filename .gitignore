@@ -207,6 +207,7 @@ deploy/data/*
 # Milvus
 volumes
 volumes_old
+volumes_rag_default
 
 ai_platform_engineering/knowledge_bases/rag/web/node_modules
 
