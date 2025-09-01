@@ -12,7 +12,7 @@ from langchain.prompts import PromptTemplate
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.documents import Document
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
-from typing import List, Optional
+from typing import List
 from sentence_transformers import CrossEncoder
 import numpy as np
 
