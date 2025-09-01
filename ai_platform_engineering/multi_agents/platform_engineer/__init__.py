@@ -35,6 +35,9 @@ logger.info("Petstore agent enabled: %s", PETSTORE_AGENT_ENABLED)
 KB_RAG_ENABLED = os.getenv("ENABLE_KB_RAG", "false").lower() == "true"
 logger.info("KB-RAG enabled: %s", KB_RAG_ENABLED)
 
+WEBEX_AGENT_ENABLED = os.getenv("ENABLE_WEBEX_AGENT", "false").lower() == "true"
+logger.info(f"Webex agent enabled: {WEBEX_AGENT_ENABLED}")
+
 logger.info("Local Build Running......")
 
 AGENT_NAMES = [
@@ -58,6 +61,9 @@ if PETSTORE_AGENT_ENABLED:
 
 if KB_RAG_ENABLED:
     AGENT_NAMES.append("kb-rag")
+
+if WEBEX_AGENT_ENABLED:
+    AGENT_NAMES.append("webex")
 
 class PlatformRegistry(AgentRegistry):
     """Registry for platform engineer multi-agent system."""
