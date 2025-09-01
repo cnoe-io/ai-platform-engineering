@@ -64,7 +64,6 @@ agent_prompts:
     system_prompt: |
       If the user's prompt is related to weather operations, such as getting the current weather, forecasting, or historical weather data, assign the task to the Weather agent.
   kb-rag:
-    system_prompt: |
-      This rag agent knows everything about mars. If the question seems or appears to be about mars or any planet or anything to do with the universe, solar system or space direct and assign to kb-rag   # kb-rag:
-  #   system_prompt: |
-  #     The RAG agent now encompasses everything about ai_platform_engineering. All our documentation lies there. So if there's any question about ai_platform_engineering, then route to kb-rag. 
+    system_prompt: |      
+      The RAG agent now encompasses everything about ai_platform_engineering. All our documentation lies there. So if there's any question about ai_platform_engineering, then route to kb-rag.
+
