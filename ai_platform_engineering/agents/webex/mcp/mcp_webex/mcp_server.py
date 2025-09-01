@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, model_validator
 try:
     from .__about__ import __version__
 except ImportError:
-    from mcp_server_webex.__about__ import __version__
+    from mcp_webex.__about__ import __version__
 
 WEBEX_API_BASE = "https://webexapis.com/v1"
 

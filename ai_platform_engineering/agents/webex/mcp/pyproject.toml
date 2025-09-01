@@ -9,12 +9,11 @@ dynamic = [
 ]
 readme = "README.md"
 keywords = ["webex", "mcp", "llm", "automation"]
-license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi>=2.11.1",
+    "fastapi",
     "click>=8.1.7",
-    "mcp>=1.12.3",
+    "mcp>=1.13.1",
     "pydantic>=2.0.0",
     "httpx>=0.28.1"
 ]
@@ -28,10 +27,10 @@ dev-dependencies = [
     "hatch>=1.0.0",]
 
 [tool.hatch.version]
-path = "src/mcp_server_webex/__about__.py"
+path = "mcp_webex/__about__.py"
 
 [project.scripts]
-mcp-server-webex = "mcp_server_webex:main"
+mcp-server-webex = "mcp_webex:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -44,4 +43,4 @@ python_classes = "Test*"
 python_functions = "test_*"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mcp_server_webex"]
+packages = ["mcp_webex"]
