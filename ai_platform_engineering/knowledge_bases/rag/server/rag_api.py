@@ -5,7 +5,6 @@ from typing import Optional, Dict, Any, List
 import logging
 import os
 import json
-from urllib.parse import unquote
 from langchain_milvus import Milvus
 from langchain_core.vectorstores import VectorStore
 from loader.loader import Loader
