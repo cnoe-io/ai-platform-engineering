@@ -215,6 +215,31 @@ class Neo4jDB(GraphDB):
         entity_types.discard(DEFAULT_LABEL)
         return list(entity_types)
 
+    async def get_entity_type_properties(self, entity_type: str, max_results=1000) -> List[str]:
+        """
+        Get all properties for a given entity type in the graph database.
+        
+        Args:
+            entity_type (str): The type of entity to get properties for
+            max_results (int): Maximum number of results to return
+            
+        Returns:
+            List[str]: A list of all properties for the specified entity type
+        """
+        query = f"MATCH (n:{entity_type}) UNWIND keys(n) AS property RETURN DISTINCT property"
+        logging.info(query)
+        async with self.driver.session(default_access_mode=neo4j.READ_ACCESS) as session:
+            res = await session.run(query)
+            records: list[Record] = await res.fetch(max_results)
+            properties = set()
+            for record in records:
+                if record.get('property'):
+                    prop_name = record['property']
+                    # Filter out internal properties that start with underscore
+                    if not prop_name.startswith('_'):
+                        properties.add(prop_name)
+        return list(properties)
+
     async def find_entity(self, entity_type: str, properties: dict, max_results=10000) -> List[Entity]:
         if entity_type == "":
             labels = []
@@ -704,7 +729,9 @@ SET e = {{{', '.join([f"`{str(k)}`: '{v}'" if isinstance(v, str) else f"`{str(k)
             await session.run(query) # type: ignore
 
 # if __name__ == "__main__":
-    # db = Neo4jDB()
-    # async def run():
-
-    # asyncio.run(run())
+#     db = Neo4jDB()
+#     async def run():
+#         props = await db.get_entity_type_properties("AwsAccount")
+#         print(props)
+#     import asyncio
+#     asyncio.run(run())
