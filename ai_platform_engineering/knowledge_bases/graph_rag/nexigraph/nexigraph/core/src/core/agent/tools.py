@@ -29,6 +29,22 @@ async def get_entity_types(thought: str) -> str:
     return utils.json_encode(entity_types)
 
 @tool
+async def get_entity_properties(entity_type: str, thought: str) -> str:
+    """
+    Get all properties for a given entity type in the graph database.
+
+    Args:
+        entity_type (str): The type of entity to get properties for
+        thought (str): Your thoughts for choosing this tool
+
+    Returns:
+        str: A list of all properties for the specified entity type
+    """
+    logging.debug(thought)
+    properties = await graphdb.get_entity_type_properties(entity_type)
+    return utils.json_encode({"entity_type": entity_type, "properties": properties})
+
+@tool
 async def fetch_entity(entity_type: str, primary_key_id: str, thought: str) -> str:
     """
     Fetches a single entity and returns all its properties.
