@@ -26,6 +26,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kb-rag-web.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount | default false }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
