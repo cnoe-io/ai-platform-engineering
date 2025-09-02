@@ -152,3 +152,8 @@
 .clean-btn:hover {
   opacity: 0.8;
 }
+
+.img-quarter-width img {
+  width: var(--img-width, 400px);
+  /* Use variable with 400px as fallback */
+}

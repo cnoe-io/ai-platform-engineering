@@ -15,7 +15,7 @@ from core.models import Entity, Relation
 from fastapi.encoders import jsonable_encoder
 import dotenv
 
-from agent_fkey.relation_manager import RelationCandidateManager
+from agent_graph_gen.relation_manager import RelationCandidateManager
 
 # Load environment variables from .env file
 dotenv.load_dotenv()
@@ -147,33 +147,52 @@ async def update_entity_type_knowledge(entity_type: str):
 # Relation agent (foreign key) admin endpoints
 # Only accessible from localhost
 #####
-@app.post("/admin/agent/fkey/relation/{relation_id}/accept", dependencies=[Depends(check_localhost)])
+@app.post("/admin/agent/fkey/relation/accept/{relation_id:path}", dependencies=[Depends(check_localhost)])
 async def fkey_agent_accept(relation_id: str):
     """
     Accepts a foreign key relation
     """
-    logging.info("Accepting foreign key relation %s", relation_id)
+    logging.warning("Accepting foreign key relation %s", relation_id)
     await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "accept:" + relation_id)
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Foreign key relation accepted"})
 
 
-@app.post("/admin/agent/fkey/relation/{relation_id}/reject", dependencies=[Depends(check_localhost)])
+@app.post("/admin/agent/fkey/relation/reject/{relation_id:path}", dependencies=[Depends(check_localhost)])
 async def fkey_agent_reject(relation_id: str):
     """
     Reject a foreign key relation
     """
-    logging.info("Rejecting foreign key relation %s", relation_id)
+    logging.warning("Rejecting foreign key relation %s", relation_id)
     await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "reject:" + relation_id)
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Foreign key relation rejected"})
 
-@app.post("/admin/agent/fkey/relation/{relation_id}/un_reject", dependencies=[Depends(check_localhost)])
+@app.post("/admin/agent/fkey/relation/un_reject/{relation_id:path}", dependencies=[Depends(check_localhost)])
 async def fkey_agent_unreject(relation_id: str):
     """
     Undo an accepted or rejected foreign key relation
     """
-    logging.info("Un-rejecting foreign key relation %s", relation_id)
+    logging.warning("Un-rejecting foreign key relation %s", relation_id)
     await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "unreject:" + relation_id)
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Foreign key relation un-rejected"})
+
+@app.post("/admin/agent/fkey/relation/evaluate/{relation_id:path}", dependencies=[Depends(check_localhost)])
+async def fkey_agent_evaluate(relation_id: str):
+    """
+    Asks the agent to reevaluate a foreign key relation
+    """
+    logging.warning("Re-evaluating foreign key relation %s", relation_id)
+    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, f"evaluate:{relation_id}")
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted"})
+
+
+@app.post("/admin/agent/fkey/relation/process",  dependencies=[Depends(check_localhost)])
+async def fkey_agent_process_entity(entity_type: str, primary_key_value: str):
+    """
+    Asks the agent to process a specific entity for foreign key relations
+    """
+    logging.warning("Processing entity %s:%s for foreign key relations", entity_type, primary_key_value)
+    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, f"process:{entity_type},{primary_key_value}")
+    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted for processing"})
 
 
 @app.post("/admin/agent/fkey/relation/process_evaluate_all", dependencies=[Depends(check_localhost)])
@@ -203,25 +222,6 @@ async def fkey_agent_process_all():
     await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "process_all")
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted"})
 
-@app.post("/admin/agent/fkey/relation/{relation_id}/evaluate", dependencies=[Depends(check_localhost)])
-async def fkey_agent_evaluate(relation_id: str):
-    """
-    Asks the agent to reevaluate a foreign key relation
-    """
-    logging.info("Re-evaluating foreign key relation %s", relation_id)
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, f"evaluate:{relation_id}")
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted"})
-
-
-@app.post("/admin/agent/fkey/relation/process",  dependencies=[Depends(check_localhost)])
-async def fkey_agent_process_entity(entity_type: str, primary_key_value: str):
-    """
-    Asks the agent to process a specific entity for foreign key relations
-    """
-    logging.info("Processing entity %s:%s for foreign key relations", entity_type, primary_key_value)
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, f"process:{entity_type},{primary_key_value}")
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted for processing"})
-
 
 #####
 # Health, status and UI endpoints
@@ -236,10 +236,10 @@ async def admin_panel(request: Request):
     rc_manager = RelationCandidateManager(graph_db, ACCEPTANCE_THRESHOLD, REJECTION_THRESHOLD)
     return templates.TemplateResponse(
         request=request, name="admin_panel.jinja2", context={
-            "reject_endpoint": "/agent/fkey/relation/{relation_id}/reject",
-            "un_reject_endpoint": "/agent/fkey/relation/{relation_id}/un_reject",
-            "accept_endpoint": "/agent/fkey/relation/{relation_id}/accept",
-            "evaluate_endpoint": "/agent/fkey/relation/{relation_id}/evaluate",
+            "reject_endpoint": "/agent/fkey/relation/reject/{relation_id}",
+            "un_reject_endpoint": "/agent/fkey/relation/un_reject/{relation_id}",
+            "accept_endpoint": "/agent/fkey/relation/accept/{relation_id}",
+            "evaluate_endpoint": "/agent/fkey/relation/evaluate/{relation_id}",
             "process_evaluate_all_endpoint": "/agent/fkey/relation/process_evaluate_all",
             "evaluate_all_endpoint": "/agent/fkey/relation/evaluate_all",
             "process_all_endpoint": "/agent/fkey/heuristics/process_all",

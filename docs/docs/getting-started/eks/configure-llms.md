@@ -2,9 +2,9 @@
 sidebar_position: 3
 ---
 
-# Deploy AI Platform Engineering on EKS
+# Deploy CAIPE on EKS
 
-This guide shows how to deploy the ai-platform-engineering helm chart to your EKS cluster using ArgoCD. 
+This guide shows how to deploy the ai-platform-engineering helm chart to your EKS cluster using ArgoCD.
 
 **Prerequisites**: Ensure you have completed the previous sections:
 - ArgoCD is deployed on your cluster
@@ -44,9 +44,59 @@ agent-pagerduty:
 
 agent-github:
    enabled: false  # Only enable what you need
-   
+
 # ... configure other agents as needed
 ```
+
+### Configure Agent Communication Transport
+
+:::note
+This section is optional and the chart is configured to use peer-to-peer communication by default. Skip if you do not want to use SLIM.
+:::
+
+Choose between peer-to-peer (default) or centralized communication via [AGNTCY Secure Low-Latency Interactive Messaging (SLIM)](https://docs.agntcy.org/messaging/slim-core/). This configuration affects how agents communicate with each other during multi-agent workflows.
+
+#### Option 1: Peer-to-Peer Communication (Default)
+
+Direct agent-to-agent communication using the a2a (agent-to-agent) protocol:
+
+```yaml
+# Default configuration in helm/values.yaml
+global:
+  slim:
+    enabled: false  # Peer-to-peer is default
+
+ai-platform-engineering:
+  multiAgentConfig:
+    protocol: "a2a"
+```
+
+**Characteristics:**
+- **Latency**: Lower latency for direct agent interactions
+- **Architecture**: Distributed, no central coordination point
+- **Network**: Requires mesh connectivity between agents
+
+#### Option 2: Centralized Communication via Agntcy Slim
+
+Centralized communication through the agntcy slim transport layer:
+
+```yaml
+# Enable slim transport in helm/values.yaml
+global:
+  slim:
+    enabled: true
+    endpoint: "http://ai-platform-engineering-slim:46357"
+    transport: "slim"
+
+ai-platform-engineering:
+  multiAgentConfig:
+    protocol: "a2a"  # Still uses a2a but routes through slim
+```
+
+**Characteristics:**
+- **Coordination**: Centralized message routing and coordination
+- **Network**: Simplified network topology (hub-and-spoke)
+- **Overhead**: Additional hop introduces minimal latency
 
 ## Step 3: Configure Secret Management
 
@@ -71,7 +121,7 @@ agent-argocd:
 
 agent-pagerduty:
   secrets:
--    secretName: "" 
+-    secretName: ""
 +    secretName: "pagerduty-secret"
 
 # ... configure other agent secrets as needed

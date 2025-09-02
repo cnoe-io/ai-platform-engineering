@@ -84,6 +84,16 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
+          label: 'IDP Builder',
+          items: [
+            {
+              type: 'doc',
+              id: 'getting-started/idpbuilder/setup',
+            },
+          ],
+        },
+        {
+          type: 'category',
           label: 'EKS',
           items: [
             {
@@ -109,15 +119,7 @@ const sidebars: SidebarsConfig = {
         {
           type: 'doc',
           id: 'architecture/index',
-        },
-        {
-          type: 'doc',
-          id: 'architecture/multi-agent-system',
-        },
-        {
-          type: 'doc',
-          id: 'architecture/sub-agents',
-        },
+        }
       ],
     },
     {
@@ -187,6 +189,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'knowledge_bases/ragingestion',
+          label: 'RAG Ingestion',
+        },
+        {
+          type: 'doc',
           id: 'knowledge_bases/rag',
           label: 'RAG',
         },
@@ -222,9 +229,25 @@ const sidebars: SidebarsConfig = {
       label: 'Prompt Library',
     },
     {
-      type: 'doc',
-      id: 'evaluations/index',
-      label: 'Evaluations',
+      type: 'category',
+      label: 'Tracing & Evaluations',
+      items: [
+        {
+          type: 'doc',
+          id: 'evaluations/index',
+          label: 'Overview',
+        },
+        {
+          type: 'doc',
+          id: 'evaluations/distributed-tracing-info',
+          label: 'Distributed Tracing Architecture',
+        },
+        {
+          type: 'doc',
+          id: 'evaluations/tracing-implementation-guide',
+          label: 'Tracing Implementation Guide',
+        },
+      ],
     },
     {
       type: 'category',
@@ -246,6 +269,10 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'tools-utils/agent-forge-backstage-plugin',
         },
+        {
+          type: 'doc',
+          id: 'tools-utils/jira-mcp-implementations-comparison',
+        }
       ],
     },
     {

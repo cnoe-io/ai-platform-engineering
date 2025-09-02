@@ -51,6 +51,25 @@ class PetStoreAgent:
         self.model = LLMFactory().get_llm()
         self.graph = None
         logger.debug("Agent initialized with model")
+        self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+
+        # Support both PETSTORE_MCP_API_KEY and PETSTORE_API_KEY for backward compatibility
+        self.mcp_api_key = (
+            os.getenv("PETSTORE_MCP_API_KEY")
+            or os.getenv("PETSTORE_API_KEY")
+        )
+        if not self.mcp_api_key and self.mcp_mode != "stdio":
+            raise ValueError(
+                "PETSTORE_MCP_API_KEY or PETSTORE_API_KEY must be set as an environment variable for HTTP transport."
+            )
+
+        self.mcp_api_url = os.getenv("PETSTORE_MCP_API_URL")
+        # Defaults for each transport mode
+        if not self.mcp_api_url:
+            if self.mcp_mode == "stdio":
+                self.mcp_api_url = "https://petstore.swagger.io/v2"
+            else:
+                self.mcp_api_url = "https://petstore.outshift.io/mcp"
 
     async def initialize(self):
         """Initialize the agent with MCP tools."""
@@ -59,47 +78,42 @@ class PetStoreAgent:
             logger.debug("Graph already initialized, skipping")
             return
 
-        server_path = "./agent_petstore/protocol_bindings/mcp_server/mcp_petstore/server.py"
-        print(f"Launching MCP server at: {server_path}")
+        if self.mcp_mode == "http" or self.mcp_mode == "streamable_http":
 
-        mcp_api_key = os.getenv("MCP_API_KEY", "special-key")
-        mcp_api_url = os.getenv("MCP_API_URL", "https://petstore.swagger.io/v2")
+            logger.info(f"Using HTTP transport for MCP client: {self.mcp_api_url}")
 
-        client = MultiServerMCPClient(
-            {
-                "petstore": {
-                    "command": "uv",
-                    "args": ["run", server_path],
-                    "env": {
-                        "MCP_API_KEY": mcp_api_key,
-                        "MCP_API_URL": mcp_api_url
-                    },
-                    "transport": "stdio",
+            client = MultiServerMCPClient(
+                {
+                    "petstore": {
+                        "transport": "streamable_http",
+                        "url": self.mcp_api_url,
+                        "headers": {
+                            "Authorization": f"Bearer {self.mcp_api_key}",
+                        },
+                    }
                 }
-            }
-        )
+            )
+
+        else:
+            logger.info(f"Using STDIO transport for MCP client: {self.mcp_api_url}")
+            server_path = "./agent_petstore/protocol_bindings/mcp_server/mcp_petstore/server.py"
+            logger.info(f"Launching MCP server at: {server_path}")
+
+            client = MultiServerMCPClient(
+                {
+                    "petstore": {
+                        "command": "uv",
+                        "args": ["run", server_path],
+                        "env": {
+                            "MCP_API_KEY": self.mcp_api_key,
+                            "MCP_API_URL": self.mcp_api_url
+                        },
+                        "transport": "stdio",
+                    }
+                }
+            )
+
         tools = await client.get_tools()
-        print('*'*80)
-        print("Available Tools and Parameters:")
-        for tool in tools:
-            print(f"Tool: {tool.name}")
-            print(f"  Description: {tool.description.strip().splitlines()[0]}")
-            params = tool.args_schema.get('properties', {})
-            if params:
-                print("  Parameters:")
-                for param, meta in params.items():
-                    param_type = meta.get('type', 'unknown')
-                    param_title = meta.get('title', param)
-                    default = meta.get('default', None)
-                    print(f"    - {param} ({param_type}): {param_title}", end='')
-                    if default is not None:
-                        print(f" [default: {default}]")
-                    else:
-                        print()
-            else:
-                print("  Parameters: None")
-            print()
-        print('*'*80)
 
         logger.debug("Creating React agent with LangGraph")
         self.graph = create_react_agent(
@@ -124,10 +138,10 @@ class PetStoreAgent:
         thread_id = context_id or uuid.uuid4().hex
         logger.info(f"Stream started - Query: {query}, Thread ID: {thread_id}, Context ID: {context_id}")
         debug_print(f"Starting stream with query: {query} using thread ID: {thread_id}")
-        
+
         # Initialize agent if needed
         await self.initialize()
-        
+
         inputs: dict[str, Any] = {'messages': [('user', query)]}
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}}
         logger.debug(f"Stream config: {config}")
@@ -198,4 +212,4 @@ class PetStoreAgent:
             'content': 'We are unable to process your request at the moment. Please try again.',
         }
 
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain'] 
+    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']

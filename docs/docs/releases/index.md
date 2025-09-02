@@ -1,3 +1,3 @@
 # Use Cases
 
-This is AI Platform Engineering Use Cases
+This is CAIPE Use Cases

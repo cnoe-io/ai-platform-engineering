@@ -4,7 +4,8 @@
 import logging
 import uuid
 import os
-from langchain_core.messages import AIMessage
+import threading
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph_supervisor import create_supervisor
 from langgraph_supervisor.handoff import create_forward_message_tool
@@ -12,113 +13,186 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
 
-# Conditional langfuse import based on ENABLE_TRACING
-if os.getenv("ENABLE_TRACING", "false").lower() == "true":
-    from langfuse import observe
-else:
-    # No-op decorator when tracing is disabled
-    def observe(**kwargs):
-        def decorator(func):
-            return func
-        return decorator
+from langchain_core.runnables import RunnableLambda
+import json
 
-from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
-  system_prompt,
-  response_format_instruction
-)
-from ai_platform_engineering.agents.argocd.a2a_agent_client.agent import argocd_a2a_remote_agent
-from ai_platform_engineering.agents.backstage.a2a_agent_client.agent import backstage_a2a_remote_agent
-from ai_platform_engineering.agents.confluence.a2a_agent_client.agent import confluence_a2a_remote_agent
-from ai_platform_engineering.agents.github.a2a_agent_client.agent import github_a2a_remote_agent
-from ai_platform_engineering.agents.jira.a2a_agent_client.agent import jira_a2a_remote_agent
-from ai_platform_engineering.agents.pagerduty.a2a_agent_client.agent import pagerduty_a2a_remote_agent
-from ai_platform_engineering.agents.slack.a2a_agent_client.agent import slack_a2a_remote_agent
+from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 
-from ai_platform_engineering.utils.models.generic_agent import (
-  ResponseFormat
-)
-import os
-
-# Only import komodor_agent if KOMODOR_AGENT_HOST is set in the environment
-KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
-if KOMODOR_ENABLED:
-    from ai_platform_engineering.agents.komodor.a2a_agent_client.agent import komodor_a2a_remote_agent
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class AIPlatformEngineerMAS:
   def __init__(self):
-    self.graph = self.build_graph()
+    # Use existing platform_registry and enable dynamic monitoring
+    platform_registry.enable_dynamic_monitoring(on_change_callback=self._on_agents_changed)
+
+    # Thread safety for graph access
+    self._graph_lock = threading.RLock()
+    self._graph = None
+    self._graph_generation = 0  # Track graph version for debugging
+
+    # Build initial graph
+    self._build_graph()
+
+    logger.info(f"AIPlatformEngineerMAS initialized with {len(platform_registry.agents)} agents")
 
   def get_graph(self) -> CompiledStateGraph:
     """
-    Returns the compiled LangGraph instance for the AI Platform Engineer MAS.
-
-    This method initializes the graph if it has not been created yet and returns
-    the compiled graph instance.
+    Returns the current compiled LangGraph instance.
+    Thread-safe access to the graph.
 
     Returns:
-        CompiledStateGraph: The compiled LangGraph instance.
+        CompiledStateGraph: The current compiled LangGraph instance.
     """
-    if not hasattr(self, 'graph'):
-      self.graph = self.build_graph()
-    return self.graph
+    with self._graph_lock:
+      return self._graph
 
-  def build_graph(self) -> CompiledStateGraph:
+  def _on_agents_changed(self):
+    """Callback triggered when agent registry detects changes."""
+    logger.info("Agent registry change detected, rebuilding graph...")
+    self._rebuild_graph()
+
+  def _rebuild_graph(self) -> bool:
     """
-    Constructs and compiles a LangGraph instance.
-
-    This function initializes a `SupervisorAgent` to create the base graph structure
-    and uses an `InMemorySaver` as the checkpointer for the compilation process.
-
-    The resulting compiled graph can be used to execute Supervisor workflow in LangGraph Studio.
+    Rebuild the graph with current agents from registry.
 
     Returns:
-    CompiledGraph: A fully compiled LangGraph instance ready for execution.
+        bool: True if graph was rebuilt successfully
     """
-    model = LLMFactory().get_llm()
+    try:
+      with self._graph_lock:
+        old_generation = self._graph_generation
+        self._build_graph()
+        logger.info(f"Graph successfully rebuilt (generation {old_generation} → {self._graph_generation})")
+        return True
+    except Exception as e:
+      logger.error(f"Failed to rebuild graph: {e}")
+      return False
+
+  def force_refresh_agents(self) -> bool:
+    """
+    Force immediate refresh of agent connectivity and rebuild graph if needed.
+
+    Returns:
+        bool: True if changes were detected and graph was rebuilt
+    """
+    logger.info("Force refresh requested")
+    return platform_registry.force_refresh()
+
+  def get_status(self) -> dict:
+    """Get current status for monitoring/debugging."""
+    with self._graph_lock:
+      return {
+        "graph_generation": self._graph_generation,
+        "registry_status": platform_registry.get_registry_status()
+      }
+
+  def _build_graph(self) -> None:
+    """
+    Internal method to construct and compile a LangGraph instance with current agents.
+    Updates self._graph and increments generation counter.
+    """
+    logger.debug(f"Building graph (generation {self._graph_generation + 1})...")
+
+    base_model = LLMFactory().get_llm()
 
     # Check if LANGGRAPH_DEV is defined in the environment
-    # if os.getenv("LANGGRAPH_DEV"):
-    #   checkpointer = None
-    #   store = None
-    # else:
-    checkpointer = InMemorySaver()
-    store = InMemoryStore()
+    if os.getenv("LANGGRAPH_DEV"):
+      checkpointer = None
+      store = None
+    else:
+      checkpointer = InMemorySaver()
+      store = InMemoryStore()
 
-    agent_tools = [
-      argocd_a2a_remote_agent,
-      backstage_a2a_remote_agent,
-      confluence_a2a_remote_agent,
-      github_a2a_remote_agent,
-      jira_a2a_remote_agent,
-      pagerduty_a2a_remote_agent,
-      slack_a2a_remote_agent,
-    ]
-    if KOMODOR_ENABLED:
-      agent_tools.append(komodor_a2a_remote_agent)
+    # Get current agents from platform registry
+    agent_tools = platform_registry.get_all_agents()
 
-     # The argument is the name to assign to the resulting forwarded message
+    # The argument is the name to assign to the resulting forwarded message
     forwarding_tool = create_forward_message_tool("platform_engineer_supervisor")
 
-    graph = create_supervisor(
+    # Get schema and fix for OpenAI strict validation requirements
+    schema = PlatformEngineerResponse.model_json_schema()
+    def fix_schema_for_openai(obj):
+        if isinstance(obj, dict):
+            if obj.get('type') == 'object':
+                obj['additionalProperties'] = False
+                # OpenAI strict mode requires ALL properties to be in required array
+                if 'properties' in obj:
+                    obj['required'] = list(obj['properties'].keys())
+            for value in obj.values():
+                fix_schema_for_openai(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                fix_schema_for_openai(item)
+
+    fix_schema_for_openai(schema)
+
+    # Create a base model with tools (for tool calling)
+    model_with_tools = base_model.bind_tools([forwarding_tool] + agent_tools)
+
+    # Create a conditional output processor that handles both tool calls and structured responses
+    def process_model_output(message):
+        # If the message has tool calls, return it as-is (don't apply structured output)
+        if hasattr(message, 'tool_calls') and message.tool_calls:
+            return message
+
+        # If it's a final response without tool calls, apply structured output
+        try:
+            # Try to parse the content as structured output
+            if hasattr(message, 'content') and message.content:
+                # Use the base model with structured output for final responses
+                structured_model = base_model.with_structured_output(
+                    schema=schema,
+                    method="json_schema",
+                    strict=True,
+                )
+                # Re-invoke with structured output, preserving context that this is a tool response
+                context_prompt = f"""TOOL RESPONSE - Format this according to structured output requirements. PRESERVE EXACT CONTENT:
+
+Tool/Agent Response: {message.content}
+
+Instructions:
+- If the tool asks for information, use the exact message in 'content' field
+- Set require_user_input=true if the tool is asking for user input
+- Set is_task_complete=false if the tool needs more information
+- Extract specific field requirements from the tool's actual request for input_fields
+- DO NOT rewrite or generalize the tool's specific request"""
+                structured_response = structured_model.invoke([HumanMessage(content=context_prompt)])
+                return AIMessage(
+                    content=json.dumps(structured_response.model_dump() if hasattr(structured_response, 'model_dump') else structured_response)
+                )
+        except Exception as e:
+            logger.warning(f"Failed to apply structured output formatting: {e}")
+
+        # Fallback: return original message
+        return message
+
+    model = model_with_tools | RunnableLambda(process_model_output)
+
+    new_graph = create_supervisor(
       model=model,
       agents=[],
       prompt=system_prompt,
-      add_handoff_back_messages=False,
+      add_handoff_back_messages=True,
+      parallel_tool_calls=True,
       tools=[forwarding_tool] + agent_tools,
       output_mode="last_message",
       supervisor_name="platform_engineer_supervisor",
-      response_format=(response_format_instruction, ResponseFormat),
     ).compile(
       checkpointer=checkpointer,
       store=store,
     )
-    logger.debug("LangGraph supervisor created and compiled successfully.")
-    return graph
 
-  @observe(name="Supervisor Agent - Process Request")
+    # Atomically update graph and increment generation
+    self._graph = new_graph
+    self._graph_generation += 1
+
+    logger.debug(f"LangGraph supervisor created and compiled successfully (generation {self._graph_generation})")
+    logger.info(f"Graph updated with {len(agent_tools)} agent tools")
+
   async def serve(self, prompt: str):
     """
     Processes the input prompt and returns a response from the graph.
@@ -157,3 +231,4 @@ class AIPlatformEngineerMAS:
     except Exception as e:
       logger.error(f"Error in serve method: {e}")
       raise Exception(str(e))
+

@@ -4,9 +4,9 @@ sidebar_position: 10
 
 # ➡️ Next Steps
 
-You have just learned the **basics of AI Platform Engineering** and made some changes to the **initial template**.
+You have just learned the **basics of CAIPE (Community AI Platform Engineering)** and made some changes to the **initial template**.
 
-AI Platform Engineering has **much more to offer**!
+CAIPE has **much more to offer**!
 
 Anything **unclear** or **buggy** in this tutorial? [Please report it!](https://github.com/cnoe-io/ai-platform-engineering/issues)
 
@@ -14,7 +14,7 @@ Anything **unclear** or **buggy** in this tutorial? [Please report it!](https://
 
 - Explore the [Architecture Overview](../architecture/index.md) to understand the platform's design.
 **Local Development:**
-- Install AI Platform Engineering using [Docker Compose](docker-compose/setup.md).
-- Set up AI Platform Engineering on [Kubernetes with Kind](kind/setup.md).
+- Install CAIPE using [Docker Compose](docker-compose/setup.md).
+- Set up CAIPE on [Kubernetes with Kind](kind/setup.md).
 **SaaS hosting:**
-- Deploy AI Platform Engineering on [AWS EKS](eks/setup.md) for scalable hosting.
+- Deploy CAIPE on [AWS EKS](eks/setup.md) for scalable hosting.

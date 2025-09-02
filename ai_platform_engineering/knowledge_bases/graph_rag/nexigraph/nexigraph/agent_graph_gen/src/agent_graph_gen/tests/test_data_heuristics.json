@@ -1,0 +1,2687 @@
+{
+    "BackstageSystem.spec.domain -> BackstageDomain [a116e2a155373328419726d22b90ca37]": {
+        "relation_id": "BackstageSystem.spec.domain -> BackstageDomain [a116e2a155373328419726d22b90ca37]",
+        "heuristic": {
+            "entity_a_type": "BackstageSystem",
+            "entity_b_type": "BackstageDomain",
+            "entity_a_property": "spec.domain",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "6734df09-4ee8-4e29-9514-21c7a70d9fcb",
+                    "entity_b_id": "7d985a43-bf3c-4a82-8988-d411e2b5e571"
+                },
+                {
+                    "entity_a_id": "6734df09-aa56-4e29-9514-ca7a70d9fcb",
+                    "entity_b_id": "eca10c54-dab7-4a9c-b801-e236032209e3"
+                },
+                {
+                    "entity_a_id": "6caa1d02-2550-4646-802d-62af0a237c05",
+                    "entity_b_id": "9b8b30b2-b3e4-4c08-b7e6-19785eb1540c"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.domain",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sService.cluster_name -> K8sDeployment [a2d1df31d88819e4d683ef92378f1347]": {
+        "relation_id": "K8sService.cluster_name -> K8sDeployment [a2d1df31d88819e4d683ef92378f1347]",
+        "heuristic": {
+            "entity_a_type": "K8sService",
+            "entity_b_type": "K8sDeployment",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.namespace",
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.namespace"
+                },
+                {
+                    "entity_a_property": "spec.selector.app.kubernetes.io/name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sDeployment.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9]": {
+        "relation_id": "K8sDeployment.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "K8sNamespace",
+            "entity_a_property": "metadata.namespace",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "AWSEksCluster.name -> K8sCluster [866f527d5d274a30df697baeb1748f45]": {
+        "relation_id": "AWSEksCluster.name -> K8sCluster [866f527d5d274a30df697baeb1748f45]",
+        "heuristic": {
+            "entity_a_type": "AWSEksCluster",
+            "entity_b_type": "K8sCluster",
+            "entity_a_property": "name",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1",
+                    "entity_b_id": "demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1",
+                    "entity_b_id": "demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "arn:aws:eks:us-east-2:123456789014:cluster/demo-prod-use2-1",
+                    "entity_b_id": "demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.cluster_name -> K8sClusterIssuer [ffe49f5b4d02e5e2597fb2b64184aff8]": {
+        "relation_id": "K8sIngress.cluster_name -> K8sClusterIssuer [ffe49f5b4d02e5e2597fb2b64184aff8]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sClusterIssuer",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| letsencrypt"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| letsencrypt"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| letsencrypt"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.annotations.cert-manager.io/cluster-issuer",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0
+        }
+    },
+    "K8sIngress.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9]": {
+        "relation_id": "K8sIngress.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sNamespace",
+            "entity_a_property": "metadata.namespace",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sIngress.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sDeployment.spec.template.spec.serviceAccount -> BackstageComponent [45d05d116a816fc98c70927b93992fcf]": {
+        "relation_id": "K8sDeployment.spec.template.spec.serviceAccount -> BackstageComponent [45d05d116a816fc98c70927b93992fcf]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.template.spec.serviceAccount",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.template.spec.serviceAccount",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "AWSEc2Instance.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]": {
+        "relation_id": "AWSEc2Instance.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]",
+        "heuristic": {
+            "entity_a_type": "AWSEc2Instance",
+            "entity_b_type": "AwsAccount",
+            "entity_a_property": "account_id",
+            "count": 9,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:ec2:us-east-2:123456789012:instance/i-dummy01instance1235",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:ec2:us-east-2:123456789012:instance/i-dummy01instance1236",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:ec2:us-east-2:123456789012:instance/i-dummy01instance1237",
+                    "entity_b_id": "123456789012"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "account_id"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "account_id",
+                    "entity_b_idkey_property": "account_id"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.spec.tls.[*].secretName -> K8sCertificate [372931173c72d53765e8a7ad9a66ab5c]": {
+        "relation_id": "K8sIngress.spec.tls.[*].secretName -> K8sCertificate [372931173c72d53765e8a7ad9a66ab5c]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sCertificate",
+            "entity_a_property": "spec.tls.[*].secretName",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-tls"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-tls"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-tls"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.namespace",
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.namespace"
+                },
+                {
+                    "entity_a_property": "spec.tls.[*].secretName",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "AWSElasticloadbalancingLoadbalancer.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]": {
+        "relation_id": "AWSElasticloadbalancingLoadbalancer.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]",
+        "heuristic": {
+            "entity_a_type": "AWSElasticloadbalancingLoadbalancer",
+            "entity_b_type": "AwsAccount",
+            "entity_a_property": "account_id",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/platform-common-dev/abcdefdev12345",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:elasticloadbalancing:us-east-2:123456789013:loadbalancer/net/platform-common-staging/abcdefstaging12345",
+                    "entity_b_id": "123456789013"
+                },
+                {
+                    "entity_a_id": "arn:aws:elasticloadbalancing:us-east-2:123456789014:loadbalancer/net/platform-common-prod/abcdefprod12345",
+                    "entity_b_id": "123456789014"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "account_id"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "account_id",
+                    "entity_b_idkey_property": "account_id"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sCertificate.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9]": {
+        "relation_id": "K8sCertificate.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9]",
+        "heuristic": {
+            "entity_a_type": "K8sCertificate",
+            "entity_b_type": "K8sNamespace",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev"
+                },
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| charlie-dev ||| charlie-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1 ||| charlie-dev"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-tls",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sDeployment.spec.selector.matchLabels.app.kubernetes.io/name -> BackstageComponent [b30cbdc29fa59f71fbff863f2e7d0d8d]": {
+        "relation_id": "K8sDeployment.spec.selector.matchLabels.app.kubernetes.io/name -> BackstageComponent [b30cbdc29fa59f71fbff863f2e7d0d8d]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.selector.matchLabels.app.kubernetes.io/name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.title"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.selector.matchLabels.app.kubernetes.io/name",
+                    "entity_b_idkey_property": "metadata.title"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sService.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9]": {
+        "relation_id": "K8sService.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9]",
+        "heuristic": {
+            "entity_a_type": "K8sService",
+            "entity_b_type": "K8sNamespace",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sDeployment.spec.template.spec.nodeSelector.applications -> BackstageComponent [4b1764a45a1745ca6761ea77281df274]": {
+        "relation_id": "K8sDeployment.spec.template.spec.nodeSelector.applications -> BackstageComponent [4b1764a45a1745ca6761ea77281df274]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.template.spec.nodeSelector.applications",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.template.spec.nodeSelector.applications",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sService.spec.selector.app.kubernetes.io/name -> K8sDeployment [a2d1df31d88819e4d683ef92378f1347]": {
+        "relation_id": "K8sService.spec.selector.app.kubernetes.io/name -> K8sDeployment [a2d1df31d88819e4d683ef92378f1347]",
+        "heuristic": {
+            "entity_a_type": "K8sService",
+            "entity_b_type": "K8sDeployment",
+            "entity_a_property": "spec.selector.app.kubernetes.io/name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.namespace",
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.namespace"
+                },
+                {
+                    "entity_a_property": "spec.selector.app.kubernetes.io/name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "AWSS3Bucket.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]": {
+        "relation_id": "AWSS3Bucket.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]",
+        "heuristic": {
+            "entity_a_type": "AWSS3Bucket",
+            "entity_b_type": "AwsAccount",
+            "entity_a_property": "account_id",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:s3:::project-alpha-poc-bucket",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:s3:::project-bravo-poc-bucket",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:s3:::project-charlie-poc-bucket",
+                    "entity_b_id": "123456789012"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "account_id"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "account_id",
+                    "entity_b_idkey_property": "account_id"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sClusterIssuer.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sClusterIssuer.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sClusterIssuer",
+            "entity_b_type": "K8sCluster",
+            "entity_a_property": "cluster_name",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| letsencrypt",
+                    "entity_b_id": "demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| letsencrypt",
+                    "entity_b_id": "demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| letsencrypt",
+                    "entity_b_id": "demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sDeployment.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9]": {
+        "relation_id": "K8sDeployment.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "K8sNamespace",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sDeployment.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sDeployment.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "K8sCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "AWSS3Bucket.Tagging.[*].Value -> BackstageSystem [dae2cb05f57aa88861de7ed1dd0b5e89]": {
+        "relation_id": "AWSS3Bucket.Tagging.[*].Value -> BackstageSystem [dae2cb05f57aa88861de7ed1dd0b5e89]",
+        "heuristic": {
+            "entity_a_type": "AWSS3Bucket",
+            "entity_b_type": "BackstageSystem",
+            "entity_a_property": "Tagging.[*].Value",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:s3:::project-alpha-poc-bucket",
+                    "entity_b_id": "6734df09-4ee8-4e29-9514-21c7a70d9fcb"
+                },
+                {
+                    "entity_a_id": "arn:aws:s3:::project-bravo-poc-bucket",
+                    "entity_b_id": "6734df09-aa56-4e29-9514-ca7a70d9fcb"
+                },
+                {
+                    "entity_a_id": "arn:aws:s3:::project-charlie-poc-bucket",
+                    "entity_b_id": "6caa1d02-2550-4646-802d-62af0a237c05"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "Tagging.[*].Value",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sService.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sService.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sService",
+            "entity_b_type": "AWSEksCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789014:cluster/demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sNamespace.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sNamespace.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sNamespace",
+            "entity_b_type": "K8sCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev",
+                    "entity_b_id": "demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| charlie-dev",
+                    "entity_b_id": "demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging",
+                    "entity_b_id": "demo-staging-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sCertificate.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9]": {
+        "relation_id": "K8sCertificate.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9]",
+        "heuristic": {
+            "entity_a_type": "K8sCertificate",
+            "entity_b_type": "K8sNamespace",
+            "entity_a_property": "metadata.namespace",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev"
+                },
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| charlie-dev ||| charlie-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1 ||| charlie-dev"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-tls",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sDeployment.spec.template.metadata.labels.app.kubernetes.io/name -> BackstageComponent [e6fe4c8edee2965e246601963601f121]": {
+        "relation_id": "K8sDeployment.spec.template.metadata.labels.app.kubernetes.io/name -> BackstageComponent [e6fe4c8edee2965e246601963601f121]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.template.metadata.labels.app.kubernetes.io/name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.template.metadata.labels.app.kubernetes.io/name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sService.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9]": {
+        "relation_id": "K8sService.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9]",
+        "heuristic": {
+            "entity_a_type": "K8sService",
+            "entity_b_type": "K8sNamespace",
+            "entity_a_property": "metadata.namespace",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sDeployment.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sDeployment.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "AWSEksCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789014:cluster/demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.metadata.namespace -> K8sCertificate [372931173c72d53765e8a7ad9a66ab5c]": {
+        "relation_id": "K8sIngress.metadata.namespace -> K8sCertificate [372931173c72d53765e8a7ad9a66ab5c]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sCertificate",
+            "entity_a_property": "metadata.namespace",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-tls"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-tls"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-tls"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.namespace",
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.namespace"
+                },
+                {
+                    "entity_a_property": "spec.tls.[*].secretName",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sDeployment.spec.template.spec.serviceAccount -> BackstageComponent [125eb3c84c69707c10dcbdb05e2b4c0c]": {
+        "relation_id": "K8sDeployment.spec.template.spec.serviceAccount -> BackstageComponent [125eb3c84c69707c10dcbdb05e2b4c0c]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.template.spec.serviceAccount",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.title"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.template.spec.serviceAccount",
+                    "entity_b_idkey_property": "metadata.title"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "AWSEc2Instance.Tags.[*].Value -> BackstageSystem [32382baf66b2f55a60ff994cf59225db]": {
+        "relation_id": "AWSEc2Instance.Tags.[*].Value -> BackstageSystem [32382baf66b2f55a60ff994cf59225db]",
+        "heuristic": {
+            "entity_a_type": "AWSEc2Instance",
+            "entity_b_type": "BackstageSystem",
+            "entity_a_property": "Tags.[*].Value",
+            "count": 9,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:ec2:us-east-2:123456789012:instance/i-dummy01instance1235",
+                    "entity_b_id": "6734df09-4ee8-4e29-9514-21c7a70d9fcb"
+                },
+                {
+                    "entity_a_id": "arn:aws:ec2:us-east-2:123456789012:instance/i-dummy01instance1236",
+                    "entity_b_id": "6734df09-aa56-4e29-9514-ca7a70d9fcb"
+                },
+                {
+                    "entity_a_id": "arn:aws:ec2:us-east-2:123456789012:instance/i-dummy01instance1237",
+                    "entity_b_id": "6caa1d02-2550-4646-802d-62af0a237c05"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "Tags.[*].Value",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sDeployment.spec.template.metadata.labels.app.kubernetes.io/name -> BackstageComponent [45a2b54791b7fd07916017913d6c1e10]": {
+        "relation_id": "K8sDeployment.spec.template.metadata.labels.app.kubernetes.io/name -> BackstageComponent [45a2b54791b7fd07916017913d6c1e10]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.template.metadata.labels.app.kubernetes.io/name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.title"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.template.metadata.labels.app.kubernetes.io/name",
+                    "entity_b_idkey_property": "metadata.title"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "AWSEc2Instance.NetworkInterfaces.[*].OwnerId -> AwsAccount [31b774eb8564805fa89f98eb578324c0]": {
+        "relation_id": "AWSEc2Instance.NetworkInterfaces.[*].OwnerId -> AwsAccount [31b774eb8564805fa89f98eb578324c0]",
+        "heuristic": {
+            "entity_a_type": "AWSEc2Instance",
+            "entity_b_type": "AwsAccount",
+            "entity_a_property": "NetworkInterfaces.[*].OwnerId",
+            "count": 9,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:ec2:us-east-2:123456789012:instance/i-dummy01instance1235",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:ec2:us-east-2:123456789012:instance/i-dummy01instance1236",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:ec2:us-east-2:123456789012:instance/i-dummy01instance1237",
+                    "entity_b_id": "123456789012"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "account_id"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "NetworkInterfaces.[*].OwnerId",
+                    "entity_b_idkey_property": "account_id"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sService.spec.selector.app.kubernetes.io/name -> BackstageComponent [712055349aaffb0ea2f18e6d47ded582]": {
+        "relation_id": "K8sService.spec.selector.app.kubernetes.io/name -> BackstageComponent [712055349aaffb0ea2f18e6d47ded582]",
+        "heuristic": {
+            "entity_a_type": "K8sService",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.selector.app.kubernetes.io/name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.title"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.selector.app.kubernetes.io/name",
+                    "entity_b_idkey_property": "metadata.title"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sClusterIssuer.spec.acme.solvers.[*].dns01.route53.hostedZoneID -> AWSRoute53Hostedzone [2c467ecb865483c5ef63f54fef0a2576]": {
+        "relation_id": "K8sClusterIssuer.spec.acme.solvers.[*].dns01.route53.hostedZoneID -> AWSRoute53Hostedzone [2c467ecb865483c5ef63f54fef0a2576]",
+        "heuristic": {
+            "entity_a_type": "K8sClusterIssuer",
+            "entity_b_type": "AWSRoute53Hostedzone",
+            "entity_a_property": "spec.acme.solvers.[*].dns01.route53.hostedZoneID",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| letsencrypt",
+                    "entity_b_id": "arn:aws:route53:::hostedzone/AB3DEVHSZNE123"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| letsencrypt",
+                    "entity_b_id": "arn:aws:route53:::hostedzone/AB3STGHSZNE345"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| letsencrypt",
+                    "entity_b_id": "arn:aws:route53:::hostedzone/AB3PRDHSZNE678"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "ZoneId"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.acme.solvers.[*].dns01.route53.hostedZoneID",
+                    "entity_b_idkey_property": "ZoneId"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sCertificate.cluster_name -> K8sClusterIssuer [9b7d85373c009417a346d135574b876d]": {
+        "relation_id": "K8sCertificate.cluster_name -> K8sClusterIssuer [9b7d85373c009417a346d135574b876d]",
+        "heuristic": {
+            "entity_a_type": "K8sCertificate",
+            "entity_b_type": "K8sClusterIssuer",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1 ||| letsencrypt"
+                },
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| charlie-dev ||| charlie-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1 ||| letsencrypt"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-tls",
+                    "entity_b_id": "demo-staging-use2-1 ||| letsencrypt"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "spec.issuerRef.name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sIngress.cluster_name -> K8sService [d56578864d76f3c638c01cdba054a1c7]": {
+        "relation_id": "K8sIngress.cluster_name -> K8sService [d56578864d76f3c638c01cdba054a1c7]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sService",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.namespace",
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.namespace"
+                },
+                {
+                    "entity_a_property": "spec.rules.[*].http.paths.[*].backend.service.name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sNamespace.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sNamespace.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sNamespace",
+            "entity_b_type": "AWSEksCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| charlie-dev",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sDeployment.spec.template.spec.serviceAccountName -> BackstageComponent [c32b2c9c121ab1bbc28ea241639b641d]": {
+        "relation_id": "K8sDeployment.spec.template.spec.serviceAccountName -> BackstageComponent [c32b2c9c121ab1bbc28ea241639b641d]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.template.spec.serviceAccountName",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.template.spec.serviceAccountName",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sClusterIssuer.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sClusterIssuer.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sClusterIssuer",
+            "entity_b_type": "AWSEksCluster",
+            "entity_a_property": "cluster_name",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| letsencrypt",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| letsencrypt",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| letsencrypt",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789014:cluster/demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sDeployment.metadata.name -> BackstageComponent [83ea232492532d6b817a547d49283cc6]": {
+        "relation_id": "K8sDeployment.metadata.name -> BackstageComponent [83ea232492532d6b817a547d49283cc6]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "metadata.name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "metadata.name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1
+        }
+    },
+    "K8sIngress.status.loadBalancer.ingress.[*].hostname -> AWSElasticloadbalancingLoadbalancer [0ea49f8bb6298436273899984d2a76e4]": {
+        "relation_id": "K8sIngress.status.loadBalancer.ingress.[*].hostname -> AWSElasticloadbalancingLoadbalancer [0ea49f8bb6298436273899984d2a76e4]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "AWSElasticloadbalancingLoadbalancer",
+            "entity_a_property": "status.loadBalancer.ingress.[*].hostname",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/platform-common-dev/abcdefdev12345"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "arn:aws:elasticloadbalancing:us-east-2:123456789013:loadbalancer/net/platform-common-staging/abcdefstaging12345"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "arn:aws:elasticloadbalancing:us-east-2:123456789014:loadbalancer/net/platform-common-prod/abcdefprod12345"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "DNSName"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "status.loadBalancer.ingress.[*].hostname",
+                    "entity_b_idkey_property": "DNSName"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sDeployment.spec.template.spec.nodeSelector.applications -> BackstageComponent [f14965be61c8b9226357e16a5d2bd5f2]": {
+        "relation_id": "K8sDeployment.spec.template.spec.nodeSelector.applications -> BackstageComponent [f14965be61c8b9226357e16a5d2bd5f2]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.template.spec.nodeSelector.applications",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.title"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.template.spec.nodeSelector.applications",
+                    "entity_b_idkey_property": "metadata.title"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sDeployment.metadata.name -> BackstageComponent [23a1f8daddb0f46a3a7b14cd7603d0ec]": {
+        "relation_id": "K8sDeployment.metadata.name -> BackstageComponent [23a1f8daddb0f46a3a7b14cd7603d0ec]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "metadata.name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.title"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "metadata.name",
+                    "entity_b_idkey_property": "metadata.title"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sCertificate.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sCertificate.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sCertificate",
+            "entity_b_type": "K8sCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| charlie-dev ||| charlie-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-tls",
+                    "entity_b_id": "demo-staging-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sService.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sService.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sService",
+            "entity_b_type": "K8sCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc",
+                    "entity_b_id": "demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc",
+                    "entity_b_id": "demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc",
+                    "entity_b_id": "demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "AWSIamUser.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]": {
+        "relation_id": "AWSIamUser.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]",
+        "heuristic": {
+            "entity_a_type": "AWSIamUser",
+            "entity_b_type": "AwsAccount",
+            "entity_a_property": "account_id",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:iam::123456789012:user/route53-dev",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:iam::123456789013:user/route53-staging",
+                    "entity_b_id": "123456789013"
+                },
+                {
+                    "entity_a_id": "arn:aws:iam::123456789014:user/route53-prod",
+                    "entity_b_id": "123456789014"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "account_id"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "account_id",
+                    "entity_b_idkey_property": "account_id"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9]": {
+        "relation_id": "K8sIngress.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sNamespace",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sCluster.name -> AWSEksCluster [866f527d5d274a30df697baeb1748f45]": {
+        "relation_id": "K8sCluster.name -> AWSEksCluster [866f527d5d274a30df697baeb1748f45]",
+        "heuristic": {
+            "entity_a_type": "K8sCluster",
+            "entity_b_type": "AWSEksCluster",
+            "entity_a_property": "name",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789014:cluster/demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sDeployment.spec.template.spec.serviceAccountName -> BackstageComponent [77965278fca24a255e3d5f2220188d45]": {
+        "relation_id": "K8sDeployment.spec.template.spec.serviceAccountName -> BackstageComponent [77965278fca24a255e3d5f2220188d45]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.template.spec.serviceAccountName",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.title"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.template.spec.serviceAccountName",
+                    "entity_b_idkey_property": "metadata.title"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "AWSElasticloadbalancingLoadbalancer.CanonicalHostedZoneId -> AWSRoute53Hostedzone [ac50efaade8daba3584c473b122a17b8]": {
+        "relation_id": "AWSElasticloadbalancingLoadbalancer.CanonicalHostedZoneId -> AWSRoute53Hostedzone [ac50efaade8daba3584c473b122a17b8]",
+        "heuristic": {
+            "entity_a_type": "AWSElasticloadbalancingLoadbalancer",
+            "entity_b_type": "AWSRoute53Hostedzone",
+            "entity_a_property": "CanonicalHostedZoneId",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:elasticloadbalancing:us-east-2:123456789012:loadbalancer/net/platform-common-dev/abcdefdev12345",
+                    "entity_b_id": "arn:aws:route53:::hostedzone/AB3DEVHSZNE123"
+                },
+                {
+                    "entity_a_id": "arn:aws:elasticloadbalancing:us-east-2:123456789013:loadbalancer/net/platform-common-staging/abcdefstaging12345",
+                    "entity_b_id": "arn:aws:route53:::hostedzone/AB3STGHSZNE345"
+                },
+                {
+                    "entity_a_id": "arn:aws:elasticloadbalancing:us-east-2:123456789014:loadbalancer/net/platform-common-prod/abcdefprod12345",
+                    "entity_b_id": "arn:aws:route53:::hostedzone/AB3PRDHSZNE678"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "ZoneId"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "CanonicalHostedZoneId",
+                    "entity_b_idkey_property": "ZoneId"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "AWSEksCluster.tags.ResourceOwner -> BackstageGroup [d60da749cd15dd8df22bcd3ad6d26709]": {
+        "relation_id": "AWSEksCluster.tags.ResourceOwner -> BackstageGroup [d60da749cd15dd8df22bcd3ad6d26709]",
+        "heuristic": {
+            "entity_a_type": "AWSEksCluster",
+            "entity_b_type": "BackstageGroup",
+            "entity_a_property": "tags.ResourceOwner",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1",
+                    "entity_b_id": "5d3a1002-498a-4e40-9b4c-2689dc73996a"
+                },
+                {
+                    "entity_a_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1",
+                    "entity_b_id": "5d3a1002-498a-4e40-9b4c-2689dc73996a"
+                },
+                {
+                    "entity_a_id": "arn:aws:eks:us-east-2:123456789014:cluster/demo-prod-use2-1",
+                    "entity_b_id": "5d3a1002-498a-4e40-9b4c-2689dc73996a"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "tags.ResourceOwner",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sIngress.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "AWSEksCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789014:cluster/demo-prod-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "AWSRoute53Hostedzone.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]": {
+        "relation_id": "AWSRoute53Hostedzone.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]",
+        "heuristic": {
+            "entity_a_type": "AWSRoute53Hostedzone",
+            "entity_b_type": "AwsAccount",
+            "entity_a_property": "account_id",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:route53:::hostedzone/AB3DEVHSZNE123",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:route53:::hostedzone/AB3STGHSZNE345",
+                    "entity_b_id": "123456789013"
+                },
+                {
+                    "entity_a_id": "arn:aws:route53:::hostedzone/AB3PRDHSZNE678",
+                    "entity_b_id": "123456789014"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "account_id"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "account_id",
+                    "entity_b_idkey_property": "account_id"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.cluster_name -> K8sCertificate [372931173c72d53765e8a7ad9a66ab5c]": {
+        "relation_id": "K8sIngress.cluster_name -> K8sCertificate [372931173c72d53765e8a7ad9a66ab5c]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sCertificate",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-tls"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-tls"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-tls"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.namespace",
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.namespace"
+                },
+                {
+                    "entity_a_property": "spec.tls.[*].secretName",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sClusterIssuer.spec.acme.solvers.[*].dns01.route53.accessKeyID -> AWSIamUser [18e484ebcc13328086e641d82a8d21b7]": {
+        "relation_id": "K8sClusterIssuer.spec.acme.solvers.[*].dns01.route53.accessKeyID -> AWSIamUser [18e484ebcc13328086e641d82a8d21b7]",
+        "heuristic": {
+            "entity_a_type": "K8sClusterIssuer",
+            "entity_b_type": "AWSIamUser",
+            "entity_a_property": "spec.acme.solvers.[*].dns01.route53.accessKeyID",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| letsencrypt",
+                    "entity_b_id": "arn:aws:iam::123456789012:user/route53-dev"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| letsencrypt",
+                    "entity_b_id": "arn:aws:iam::123456789013:user/route53-staging"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| letsencrypt",
+                    "entity_b_id": "arn:aws:iam::123456789014:user/route53-prod"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "UserId"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.acme.solvers.[*].dns01.route53.accessKeyID",
+                    "entity_b_idkey_property": "UserId"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.metadata.namespace -> K8sService [d56578864d76f3c638c01cdba054a1c7]": {
+        "relation_id": "K8sIngress.metadata.namespace -> K8sService [d56578864d76f3c638c01cdba054a1c7]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sService",
+            "entity_a_property": "metadata.namespace",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.namespace",
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.namespace"
+                },
+                {
+                    "entity_a_property": "spec.rules.[*].http.paths.[*].backend.service.name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sCertificate.spec.issuerRef.name -> K8sClusterIssuer [9b7d85373c009417a346d135574b876d]": {
+        "relation_id": "K8sCertificate.spec.issuerRef.name -> K8sClusterIssuer [9b7d85373c009417a346d135574b876d]",
+        "heuristic": {
+            "entity_a_type": "K8sCertificate",
+            "entity_b_type": "K8sClusterIssuer",
+            "entity_a_property": "spec.issuerRef.name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1 ||| letsencrypt"
+                },
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| charlie-dev ||| charlie-backend-tls",
+                    "entity_b_id": "demo-dev-use2-1 ||| letsencrypt"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-tls",
+                    "entity_b_id": "demo-staging-use2-1 ||| letsencrypt"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "spec.issuerRef.name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sService.spec.selector.app.kubernetes.io/name -> BackstageComponent [e728d6387839d4af6f3986bc82033c3b]": {
+        "relation_id": "K8sService.spec.selector.app.kubernetes.io/name -> BackstageComponent [e728d6387839d4af6f3986bc82033c3b]",
+        "heuristic": {
+            "entity_a_type": "K8sService",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.selector.app.kubernetes.io/name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.selector.app.kubernetes.io/name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "AWSEksCluster.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]": {
+        "relation_id": "AWSEksCluster.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9]",
+        "heuristic": {
+            "entity_a_type": "AWSEksCluster",
+            "entity_b_type": "AwsAccount",
+            "entity_a_property": "account_id",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1",
+                    "entity_b_id": "123456789012"
+                },
+                {
+                    "entity_a_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1",
+                    "entity_b_id": "123456789013"
+                },
+                {
+                    "entity_a_id": "arn:aws:eks:us-east-2:123456789014:cluster/demo-prod-use2-1",
+                    "entity_b_id": "123456789014"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "account_id"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "account_id",
+                    "entity_b_idkey_property": "account_id"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.spec.rules.[*].http.paths.[*].backend.service.name -> K8sService [d56578864d76f3c638c01cdba054a1c7]": {
+        "relation_id": "K8sIngress.spec.rules.[*].http.paths.[*].backend.service.name -> K8sService [d56578864d76f3c638c01cdba054a1c7]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sService",
+            "entity_a_property": "spec.rules.[*].http.paths.[*].backend.service.name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.namespace",
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.namespace"
+                },
+                {
+                    "entity_a_property": "spec.rules.[*].http.paths.[*].backend.service.name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sIngress.metadata.annotations.cert-manager.io/cluster-issuer -> K8sClusterIssuer [ffe49f5b4d02e5e2597fb2b64184aff8]": {
+        "relation_id": "K8sIngress.metadata.annotations.cert-manager.io/cluster-issuer -> K8sClusterIssuer [ffe49f5b4d02e5e2597fb2b64184aff8]",
+        "heuristic": {
+            "entity_a_type": "K8sIngress",
+            "entity_b_type": "K8sClusterIssuer",
+            "entity_a_property": "metadata.annotations.cert-manager.io/cluster-issuer",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-dev-use2-1 ||| letsencrypt"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-staging-use2-1 ||| letsencrypt"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-ingress",
+                    "entity_b_id": "demo-prod-use2-1 ||| letsencrypt"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.annotations.cert-manager.io/cluster-issuer",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sCertificate.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]": {
+        "relation_id": "K8sCertificate.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5]",
+        "heuristic": {
+            "entity_a_type": "K8sCertificate",
+            "entity_b_type": "AWSEksCluster",
+            "entity_a_property": "cluster_name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-tls",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| charlie-dev ||| charlie-backend-tls",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789012:cluster/demo-dev-use2-1"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-tls",
+                    "entity_b_id": "arn:aws:eks:us-east-2:123456789013:cluster/demo-staging-use2-1"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 1.0
+        }
+    },
+    "K8sService.metadata.namespace -> K8sDeployment [a2d1df31d88819e4d683ef92378f1347]": {
+        "relation_id": "K8sService.metadata.namespace -> K8sDeployment [a2d1df31d88819e4d683ef92378f1347]",
+        "heuristic": {
+            "entity_a_type": "K8sService",
+            "entity_b_type": "K8sDeployment",
+            "entity_a_property": "metadata.namespace",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend-svc",
+                    "entity_b_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend-svc",
+                    "entity_b_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend-svc",
+                    "entity_b_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.namespace",
+                "metadata.name",
+                "cluster_name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "cluster_name",
+                    "entity_b_idkey_property": "cluster_name"
+                },
+                {
+                    "entity_a_property": "metadata.namespace",
+                    "entity_b_idkey_property": "metadata.namespace"
+                },
+                {
+                    "entity_a_property": "spec.selector.app.kubernetes.io/name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "K8sDeployment.spec.selector.matchLabels.app.kubernetes.io/name -> BackstageComponent [098fcfccd65a997cd8ee3cafd82b23eb]": {
+        "relation_id": "K8sDeployment.spec.selector.matchLabels.app.kubernetes.io/name -> BackstageComponent [098fcfccd65a997cd8ee3cafd82b23eb]",
+        "heuristic": {
+            "entity_a_type": "K8sDeployment",
+            "entity_b_type": "BackstageComponent",
+            "entity_a_property": "spec.selector.matchLabels.app.kubernetes.io/name",
+            "count": 4,
+            "example_matches": [
+                {
+                    "entity_a_id": "demo-dev-use2-1 ||| alpha-dev ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-staging-use2-1 ||| alpha-staging ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                },
+                {
+                    "entity_a_id": "demo-prod-use2-1 ||| alpha-prod ||| alpha-backend",
+                    "entity_b_id": "7092dbc2-d6df-46fc-8541-11865c955359"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.selector.matchLabels.app.kubernetes.io/name",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+        "evaluation": {
+            "relation_confidence": 0.0
+        }
+    },
+    "BackstageComponent.spec.system -> BackstageSystem [38c6d563122e6564d761a7e19a27110a]": {
+        "relation_id": "BackstageComponent.spec.system -> BackstageSystem [38c6d563122e6564d761a7e19a27110a]",
+        "heuristic": {
+            "entity_a_type": "BackstageComponent",
+            "entity_b_type": "BackstageSystem",
+            "entity_a_property": "spec.system",
+            "count": 3,
+            "example_matches": [
+                {
+                    "entity_a_id": "7092dbc2-d6df-46fc-8541-11865c955359",
+                    "entity_b_id": "6734df09-4ee8-4e29-9514-21c7a70d9fcb"
+                },
+                {
+                    "entity_a_id": "b9d18d23-c31d-4ce9-a173-d8dbf1eb8b00",
+                    "entity_b_id": "6734df09-aa56-4e29-9514-ca7a70d9fcb"
+                },
+                {
+                    "entity_a_id": "f67a3a3f-c725-407d-84e0-7d112e2bd845",
+                    "entity_b_id": "6caa1d02-2550-4646-802d-62af0a237c05"
+                }
+            ],
+            "properties_in_composite_idkey": [
+                "metadata.name"
+            ],
+            "property_mappings": [
+                {
+                    "entity_a_property": "spec.system",
+                    "entity_b_idkey_property": "metadata.name"
+                }
+            ],
+            "last_processed": 0
+        },
+        "is_applied": false,
+        "manually_intervened": "none",
+        "evaluation_error_message": "",
+       "evaluation": {
+            "relation_confidence": 1.0
+        }
+    }
+}

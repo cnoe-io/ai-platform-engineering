@@ -1,196 +1,195 @@
-# Common Makefile for CNOE Agent Projects
-# --------------------------------------------------
-# This Makefile provides common targets for building, testing, and running CNOE agents.
-# Usage:
-#   make <target>
-# --------------------------------------------------
+# Petstore Agent Standalone Makefile
 
 # Variables
-AGENT_NAME ?= petstore
-AGENT_DIR_NAME = agent-$(shell echo $(AGENT_NAME))
-AGENT_PKG_NAME ?= agent_$(shell echo $(AGENT_NAME))
-MCP_SERVER_DIR ?= mcp_$(AGENT_NAME)
+AGENT_NAME := petstore-agent-standalone
+CONTAINER_NAME := $(AGENT_NAME)
+IMAGE_NAME := $(AGENT_NAME):latest
+HOST_PORT := 8000
+CONTAINER_PORT := 8000
+ENV_FILE := ../../../.env
 
-## -------------------------------------------------
-.PHONY: \
-	build setup-venv activate-venv install run \
-	langgraph-dev help clean clean-pyc clean-venv clean-build-artifacts \
-	install-uv verify-a2a-sdk evals \
-	run-a2a run-a2a-client run-curl-client \
-	run-mcp run-mcp-client test registry-agntcy-directory \
-	build-docker-a2a build-docker-a2a-tag build-docker-a2a-push build-docker-a2a-tag-and-push \
-	run-docker-a2a \
-	check-env lint ruff-fix \
-	help add-copyright-license-headers
+# Docker build and run settings
+DOCKERFILE := build/Dockerfile.a2a
+VOLUMES := -v $(PWD)/agent_petstore:/app/agent_petstore \
+           -v $(PWD)/clients:/app/clients \
+           -v $(PWD)/$(ENV_FILE):/app/.env \
+           -v /var/run/docker.sock:/var/run/docker.sock
 
-## ========== Setup & Clean ==========
+ENVIRONMENT := -e A2A_TRANSPORT=p2p \
+               -e MCP_MODE=http \
+               -e MCP_PORT=$(CONTAINER_PORT) \
+               -e MCP_HOST=mcp-petstore \
+               -e ENABLE_TRACING=false
 
-setup-venv:        ## Create the Python virtual environment
-	@echo "Setting up virtual environment..."
-	@if [ ! -d ".venv" ]; then \
-		python3 -m venv .venv && echo "Virtual environment created."; \
+# Default target
+.PHONY: help
+help:
+	@echo "Petstore Agent Standalone Commands:"
+	@echo "  build         - Build the petstore agent Docker image"
+	@echo "  run           - Run attached (smart: uses cache, builds only if needed)"
+	@echo "  run-rebuild   - Force rebuild and run (like old behavior)"
+	@echo "  run-detached  - Run in background on port $(HOST_PORT)"
+	@echo "  stop          - Stop the running petstore agent container"
+	@echo "  restart       - Stop and restart the petstore agent"
+	@echo "  logs          - Show logs from the running container (detached mode only)"
+	@echo "  shell         - Open a shell in the running container"
+	@echo "  clean         - Stop container and remove image"
+	@echo "  status        - Show container status"
+	@echo "  rebuild       - Clean build (remove image and rebuild)"
+
+# Build the Docker image
+.PHONY: build
+build:
+	@echo "Building petstore agent image..."
+	docker build -t $(IMAGE_NAME) -f $(DOCKERFILE) .
+
+# Run the container (attached mode - like docker compose up)
+.PHONY: run
+run: _ensure_image
+	@echo "Starting petstore agent on port $(HOST_PORT)..."
+	@docker stop $(CONTAINER_NAME) 2>/dev/null || true
+	@docker rm $(CONTAINER_NAME) 2>/dev/null || true
+	@echo "Petstore agent running at http://localhost:$(HOST_PORT)"
+	@echo "Press Ctrl+C to stop"
+	docker run --rm \
+		--name $(CONTAINER_NAME) \
+		-p $(HOST_PORT):$(CONTAINER_PORT) \
+		$(VOLUMES) \
+		$(ENVIRONMENT) \
+		$(IMAGE_NAME)
+
+# Run the container in detached mode (background)
+.PHONY: run-detached
+run-detached: _ensure_image
+	@echo "Starting petstore agent on port $(HOST_PORT) in background..."
+	@docker stop $(CONTAINER_NAME) 2>/dev/null || true
+	@docker rm $(CONTAINER_NAME) 2>/dev/null || true
+	docker run -d \
+		--name $(CONTAINER_NAME) \
+		-p $(HOST_PORT):$(CONTAINER_PORT) \
+		$(VOLUMES) \
+		$(ENVIRONMENT) \
+		$(IMAGE_NAME)
+	@echo "Petstore agent started at http://localhost:$(HOST_PORT)"
+	@echo "Use 'make logs' to see output or 'make stop' to stop"
+
+# Force rebuild and run (like old behavior)
+.PHONY: run-rebuild
+run-rebuild: build run-no-build
+
+# Internal: Run without building (for use after build)
+.PHONY: run-no-build
+run-no-build:
+	@echo "Starting petstore agent on port $(HOST_PORT)..."
+	@docker stop $(CONTAINER_NAME) 2>/dev/null || true
+	@docker rm $(CONTAINER_NAME) 2>/dev/null || true
+	@echo "Petstore agent running at http://localhost:$(HOST_PORT)"
+	@echo "Press Ctrl+C to stop"
+	docker run --rm \
+		--name $(CONTAINER_NAME) \
+		-p $(HOST_PORT):$(CONTAINER_PORT) \
+		$(VOLUMES) \
+		$(ENVIRONMENT) \
+		$(IMAGE_NAME)
+
+# Internal: Ensure image exists, build only if needed
+.PHONY: _ensure_image
+_ensure_image:
+	@if ! docker image inspect $(IMAGE_NAME) >/dev/null 2>&1; then \
+		echo "Image $(IMAGE_NAME) not found, building..."; \
+		$(MAKE) build; \
 	else \
-		echo "Virtual environment already exists."; \
-	fi
-	@echo "To activate manually, run: source .venv/bin/activate"
-	@. .venv/bin/activate
-
-clean-pyc:         ## Remove Python bytecode and __pycache__
-	@find . -type d -name "__pycache__" -exec rm -rf {} + || echo "No __pycache__ directories found."
-
-clean-venv:        ## Remove the virtual environment
-	@rm -rf .venv && echo "Virtual environment removed." || echo "No virtual environment found."
-
-clean-build-artifacts: ## Remove dist/, build/, egg-info/
-	@rm -rf dist $(AGENT_PKG_NAME).egg-info || echo "No build artifacts found."
-
-clean:             ## Clean all build artifacts and cache
-	@$(MAKE) clean-pyc
-	@$(MAKE) clean-venv
-	@$(MAKE) clean-build-artifacts
-	@find . -type d -name ".pytest_cache" -exec rm -rf {} + || echo "No .pytest_cache directories found."
-
-## ========== Environment Helpers ==========
-
-check-env:         ## Check if .env file exists
-	@if [ ! -f ".env" ]; then \
-		echo "Warning: .env file not found. Creating default one..."; \
-		echo "PETSTORE_DEBUG=true" > .env; \
-		echo "PETSTORE_API_KEY=special-key" >> .env; \
-		echo "PETSTORE_API_URL=https://petstore.swagger.io/v2" >> .env; \
-		echo "MCP_MODE=STDIO" >> .env; \
-		echo "MCP_HOST=localhost" >> .env; \
-		echo "MCP_PORT=8000" >> .env; \
-		echo "AGENT_NAME=Pet Store" >> .env; \
-		echo "A2A_AGENT_HOST=localhost" >> .env; \
-		echo "A2A_AGENT_PORT=8000" >> .env; \
-		echo "Created default .env file"; \
+		echo "Using existing image $(IMAGE_NAME) (use 'make run-rebuild' to force rebuild)"; \
 	fi
 
-fix-wsl-env:      ## Fix .env file for WSL (convert DOS to Unix line endings)
-	@echo "Fixing .env file for WSL environment..."
-	@if grep -q Microsoft /proc/version 2>/dev/null || grep -q WSL /proc/version 2>/dev/null; then \
-		echo "WSL environment detected"; \
-		$(venv-activate) && python wsl_env_fix.py; \
-		if [ $$? -eq 0 ]; then \
-			echo "Successfully fixed .env line endings for WSL"; \
-		else \
-			echo "Error fixing .env line endings"; \
-		fi; \
-	else \
-		echo "Not running in WSL, skipping .env fix"; \
+# Stop the container
+.PHONY: stop
+stop:
+	@echo "Stopping petstore agent..."
+	@docker stop $(CONTAINER_NAME) 2>/dev/null || echo "Container not running"
+	@docker rm $(CONTAINER_NAME) 2>/dev/null || echo "Container not found"
+
+# Restart the container (smart - uses existing image)
+.PHONY: restart
+restart: stop run
+
+# Restart with rebuild (force fresh image)
+.PHONY: restart-rebuild
+restart-rebuild: stop run-rebuild
+
+# Show logs
+.PHONY: logs
+logs:
+	@echo "Showing logs for $(CONTAINER_NAME)..."
+	docker logs -f $(CONTAINER_NAME)
+
+# Open shell in container
+.PHONY: shell
+shell:
+	@echo "Opening shell in $(CONTAINER_NAME)..."
+	docker exec -it $(CONTAINER_NAME) /bin/bash
+
+# Show container status
+.PHONY: status
+status:
+	@echo "Container status:"
+	@docker ps -a --filter name=$(CONTAINER_NAME) --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.Image}}"
+
+# Clean up
+.PHONY: clean
+clean: stop
+	@echo "Removing petstore agent image..."
+	@docker rmi $(IMAGE_NAME) 2>/dev/null || echo "Image not found"
+
+# Rebuild from scratch
+.PHONY: rebuild
+rebuild: clean build
+
+# Quick development cycle (smart cache, attached mode)
+.PHONY: dev
+dev: stop run
+
+# Development cycle with forced rebuild
+.PHONY: dev-rebuild
+dev-rebuild: stop run-rebuild
+
+# Check if .env file exists
+.PHONY: check-env
+check-env:
+	@if [ ! -f $(ENV_FILE) ]; then \
+		echo "Error: .env file not found at $(ENV_FILE)"; \
+		echo "Please create the .env file with required environment variables:"; \
+		echo "  MCP_API_URL=https://petstore.swagger.io/v2"; \
+		echo "  MCP_API_KEY=your_api_key_here"; \
+		exit 1; \
 	fi
 
-test-mcp-connection: setup-venv ## Test the MCP connection
-	@$(MAKE) check-env
-	@$(venv-run) python test_mcp_connection.py
+# Health check
+.PHONY: health
+health:
+	@echo "Checking petstore agent health..."
+	@curl -s http://localhost:$(HOST_PORT)/.well-known/agent.json | jq . || echo "Agent not responding"
 
-venv-activate = . .venv/bin/activate
-load-env = set -a && . .env && set +a
-venv-run = $(venv-activate) && $(load-env) &&
+# Run with environment check
+run-safe: check-env run
 
-## ========== Install ==========
-
-install: setup-venv ## Install Python dependencies using Poetry
-	@echo "Installing dependencies..."
-	@$(venv-activate) && poetry install --no-interaction
-	@echo "Dependencies installed successfully."
-
-install-uv:        ## Install uv package manager
-	@$(venv-run) pip install uv
-
-## ========== Build & Lint ==========
-
-build: setup-venv  ## Build the package using Poetry
-	@$(venv-activate) && poetry build
-
-lint: setup-venv   ## Lint code with ruff
-	@$(venv-activate) && poetry install && ruff check $(AGENT_PKG_NAME) tests
-
-ruff-fix: setup-venv ## Auto-fix lint issues with ruff
-	@$(venv-activate) && ruff check $(AGENT_PKG_NAME) tests --fix
-
-## ========== Run ==========
-
-run-a2a: setup-venv ## Run A2A agent with uvicorn
-	@$(MAKE) check-env
-	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
-	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
-
-
-
-run-mcp: setup-venv ## Run MCP server in SSE mode
-	@$(MAKE) check-env
-	@$(venv-run) MCP_MODE=SSE uv run $(AGENT_PKG_NAME)/protocol_bindings/mcp_server/$(MCP_SERVER_DIR)/server.py
-
-
-## ========== Clients ==========
-
-run-a2a-client: setup-venv ## Run A2A client script
-	@$(MAKE) check-env
-	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
-
-run-mcp-client: setup-venv ## Run MCP client script
-	@$(MAKE) check-env
-	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git mcp
-
-## ========== LangGraph Development ==========
-langgraph-dev: setup-venv ## Run LangGraph dev mode
-	@$(venv-run) langgraph dev
-
-## ========== Evals ==========
-evals: setup-venv ## Run agentevals with test cases
-	@$(venv-run) uv add agentevals tabulate pytest
-	@$(venv-run) uv run evals/strict_match/test_strict_match.py
-
-## ========== Docker ==========
-
-build-docker-a2a:            ## Build A2A Docker image
-	docker build -t $(AGENT_DIR_NAME):a2a-latest -f build/Dockerfile.a2a .
-
-build-docker-a2a-tag:        ## Tag A2A Docker image
-	docker tag $(AGENT_DIR_NAME):a2a-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest
-
-build-docker-a2a-push:       ## Push A2A Docker image
-	docker push ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest
-
-build-docker-a2a-tag-and-push: ## Tag and push A2A Docker image
-	@$(MAKE) build-docker-a2a build-docker-a2a-tag build-docker-a2a-push
-
-run-docker-a2a: ## Run the A2A agent in Docker
-	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
-	A2A_AGENT_IMAGE=$$(grep A2A_AGENT_IMAGE .env | cut -d '=' -f2 || echo ""); \
-	LOCAL_A2A_AGENT_IMAGE=$${A2A_AGENT_IMAGE:-ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest}; \
-	LOCAL_A2A_PORT=$${A2A_PORT:-8000}; \
-	echo "==================================================================="; \
-	echo "                      A2A AGENT DOCKER RUN                         "; \
-	echo "==================================================================="; \
-	echo "Using Agent Image: $$LOCAL_A2A_AGENT_IMAGE"; \
-	echo "Using Agent Port: $$LOCAL_A2A_PORT"; \
-	echo "==================================================================="; \
-	docker run -p 0.0.0.0:$$LOCAL_A2A_PORT:8000 -it \
-		-v $(PWD)/.env:/app/.env \
-		$$LOCAL_A2A_AGENT_IMAGEq
-
-## ========== Tests ==========
-
-test: setup-venv build ## Run tests using pytest and coverage
-	@$(venv-activate) && poetry install
-	@$(venv-activate) && poetry add pytest-asyncio pytest-cov --dev
-	@$(venv-activate) && pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
-
-## ========== AGNTCY Directory ==========
-
-registry-agntcy-directory:  ## Push agent.json to AGNTCY registry
-	@dirctl hub push outshift_platform_engineering/$(AGENT_DIR_NAME) ./$(AGENT_PKG_NAME)/protocol_bindings/agntcy_directory/agent.json
-
-## ========== Licensing & Help ==========
-
-add-copyright-license-headers: ## Add license headers
-	docker run --rm -v $(shell pwd)/$(AGENT_PKG_NAME):/workspace ghcr.io/google/addlicense:latest -c "CNOE" -l apache -s=only -v /workspace
-
-help: ## Show this help message
-	@echo "Available targets:"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-30s\033[0m %s\n", $$1, $$2}' | sort
-
+# Show environment variables that will be used
+.PHONY: show-env
+show-env:
+	@echo "Environment variables that will be set:"
+	@echo "  A2A_TRANSPORT=p2p"
+	@echo "  MCP_MODE=http"
+	@echo "  MCP_PORT=$(CONTAINER_PORT)"
+	@echo "  MCP_HOST=mcp-petstore"
+	@echo "  ENABLE_TRACING=false"
+	@echo ""
+	@echo "Volumes that will be mounted (live code changes):"
+	@echo "  $(PWD)/agent_petstore -> /app/agent_petstore"
+	@echo "  $(PWD)/clients -> /app/clients"
+	@echo "  $(PWD)/$(ENV_FILE) -> /app/.env"
+	@echo "  /var/run/docker.sock -> /var/run/docker.sock"
+	@echo ""
+	@echo "Port mapping: $(HOST_PORT):$(CONTAINER_PORT)"
+	@echo ""
+	@echo "📝 Note: Code changes are reflected immediately via volume mounts"
+	@echo "   Use 'make run' for smart caching or 'make run-rebuild' to force rebuild"

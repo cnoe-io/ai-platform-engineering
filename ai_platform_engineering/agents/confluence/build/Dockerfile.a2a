@@ -1,18 +1,46 @@
-FROM python:3.13-slim
+# ---------- Stage 1: Build dependencies ----------
+FROM python:3.13-slim AS builder
+
+# Install system dependencies and uv in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && pip install uv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY . /app/
+# Copy the entire project structure first since uv sync needs it to build
+COPY --chown=root:root . /app/
 
-# Install uv and use it to install the package
-RUN pip install uv poetry
+# Install dependencies into venv (no dev deps)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
 
-RUN poetry config virtualenvs.create false
-RUN poetry config virtualenvs.in-project false
-RUN poetry config cache-dir /app/.cache
+# ---------- Stage 2: Final runtime image ----------
+FROM python:3.13-slim
 
-RUN poetry install --no-interaction --no-root
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create appuser in final image
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
+
+WORKDIR /app
+
+# Set env vars for uv & PATH
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Copy venv & code from builder
+COPY --from=builder --chown=appuser:appuser /app /app
+
+USER appuser
 
 EXPOSE 8000
 
-CMD ["poetry", "--quiet", "run", "python", "-m", "agent_confluence", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "agent_confluence", "--host", "0.0.0.0", "--port", "8000"]

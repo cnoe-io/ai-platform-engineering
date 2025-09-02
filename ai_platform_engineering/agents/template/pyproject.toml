@@ -2,48 +2,52 @@
 name = "agent_petstore"
 version = "0.1.0"
 license = "Apache-2.0"
-description = "An Petstore natural language agent using LangChain, LangGraph, and MCP."
+description = "A PetStore natural language agent using LangChain, LangGraph, and MCP."
 readme = "README.md"
 authors = [
-    { name = "Rehan Agrawal", email = "rehagraw@cisco.com" },
+    { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
 ]
 maintainers = [
-    { name = "Rehan Agrawal", email = "rehagraw@cisco.com" },
+    { name = "Sri Aradhyula", email = "sraradhy@cisco.com" },
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "a2a-python>=0.0.1",
-    "a2a-sdk>=0.2.1",
+    "a2a-sdk==0.2.16",
     "agentevals>=0.0.7",
+    "agntcy-app-sdk==0.1.4",
     "click>=8.2.0",
     "langchain-anthropic>=0.3.13",
     "langchain-core>=0.3.60",
     "langchain-google-genai>=2.1.4",
     "langchain-mcp-adapters>=0.1.0",
     "langchain-openai>=0.3.17",
-    "langgraph>=0.4.5",
+    "langgraph==0.5.3",
     "pytest>=8.3.5",
     "tabulate>=0.9.0",
     "uv",
+    "fastapi>=0.115.11",
+    "uvicorn>=0.34.2",
+    "httpx>=0.27.0",
+    "httpx-sse>=0.3.0",
+    "python-dotenv>=1.0.1",
+    "langchain>=0.1.0",
+    "pydantic>=2.0.0",
     "rich (>=14.0.0,<15.0.0)",
     "sseclient (>=0.0.27,<0.0.28)",
-    "cnoe-agent-utils (>=0.1.3,<0.2.0)",
+    "cnoe-agent-utils==0.3.0",
 ]
+
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 
-[tool.poetry.scripts]
-agent_argocd_a2a = "agent_argocd.protocol_bindings.a2a_server:main"
+[tool.hatch.metadata]
+allow-direct-references = true
 
-[tool.poetry.dependencies]
-uv = "^0.7.5"
-dos2unix = "^1.0.2"  # For converting Windows CRLF to Unix LF line endings
-python-dotenv = "^1.0.0"  # For better environment variable handling
-httpx = "^0.27.0"  # For HTTP requests in test scripts
+[tool.poetry.scripts]
+agent_petstore_a2a = "agent_petstore.protocol_bindings.a2a_server:main"
 
 [tool.poetry.group.dev.dependencies]
-ruff = "^0.11.11"
-pytest-asyncio = "^0.26.0"
+pytest-asyncio = "^1.0.0"
 pytest-cov = "^6.1.1"
 
 [build-system]
@@ -52,7 +56,7 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 # Allow lines to be as long as 140.
-line-length = 500
+line-length = 140
 # Number of spaces per indentation level
 indent-width = 2
 
@@ -64,3 +68,10 @@ select = [
     "F",
 ]
 ignore = ["F403"]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: marks tests as unit tests",
+    "integration: marks tests as integration tests",
+    "parsers: marks tests as parser tests"
+]

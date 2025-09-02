@@ -10,7 +10,9 @@ APP_NAME ?= ai-platform-engineering
 
 ## -------------------------------------------------
 .PHONY: \
-	build install run test lint help
+	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
+	build install build-docker run run-ai-platform-engineer langgraph-dev \
+	lint lint-fix test validate lock-all help
 
 .DEFAULT_GOAL := run
 
@@ -45,17 +47,9 @@ clean:             ## Clean all build artifacts and cache
 	@$(MAKE) clean-build-artifacts
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} + || echo "No .pytest_cache directories found."
 
-## ========== Build & Install ==========
-
-build: setup-venv ## Build the package using Poetry
-	@echo "Building the package..."
-	@poetry build
-
-install: setup-venv ## Install the package using Poetry
-	@echo "Installing the package..."
-	@poetry install
-
 ## ========== Docker Build ==========
+
+build: build-docker
 
 build-docker:  ## Build the Docker image
 	@echo "Building the Docker image..."
@@ -63,40 +57,58 @@ build-docker:  ## Build the Docker image
 
 ## ========== Run ==========
 
-run: run-ai-platform-engineer ## Run the application with Poetry
+run: run-ai-platform-engineer ## Run the application with uv
 	@echo "Running the AI Platform Engineer persona..."
 
-run-ai-platform-engineer: setup-venv build install ## Run the AI Platform Engineering Multi-Agent System
+run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Agent System
 	@echo "Running the AI Platform Engineering Multi-Agent System..."
-	@poetry run ai-platform-engineering platform-engineer $(ARGS)
+	@uv sync --no-dev
+	@uv run python -m ai_platform_engineering.multi_agents platform-engineer $(ARGS)
 
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
-	@poetry install
-	@poetry run pip install langgraph-cli[inmem]
-	@cd ai_platform_engineering/multi_agents/platform_engineer && export LANGGRAPH_DEV=true && langgraph dev
+	@. .venv/bin/activate && uv add langgraph-cli[inmem] --dev && uv sync --dev && cd ai_platform_engineering/multi_agents/platform_engineer && LANGGRAPH_DEV=true langgraph dev
 
 ## ========== Lint ==========
 
 lint: setup-venv ## Lint the code using Ruff
 	@echo "Linting the code..."
-	@poetry run ruff check . --select E,F --ignore F403 --line-length 320
+	@uv add ruff --dev
+	@uv run python -m ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320
 
 lint-fix: setup-venv ## Automatically fix linting issues using Ruff
 	@echo "Fixing linting issues..."
-	@poetry run ruff check . --select E,F --ignore F403 --line-length 320 --fix
+	@uv add ruff --dev
+	@uv run python -m ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320 --fix
 
 ## ========== Test ==========
 
-test: setup-venv install ## Install dependencies and run tests using pytest
+test: setup-venv ## Install dependencies and run tests using pytest
 	@echo "Installing ai_platform_engineering, agents, and argocd..."
-	@poetry add ./ai_platform_engineering/agents/argocd --no-interaction --group unittest
-	@poetry add ./ai_platform_engineering/agents/komodor --no-interaction --group unittest
-	@poetry add pytest-asyncio --group unittest --no-interaction
+	@. .venv/bin/activate && uv add pytest-asyncio --group unittest
+	@. .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
+	@. .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
 
 	@echo "Running tests..."
-	@poetry run pytest
+	@. .venv/bin/activate && uv run pytest --ignore=integration
 
+## ========== Integration Tests ==========
+
+quick-sanity: setup-venv  ## Run all integration tests
+	@echo "Running AI Platform Engineering integration tests..."
+	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
+	cd integration && A2A_PROMPTS_FILE=test_prompts_quick_sanity.yaml uv run pytest -o log_cli=true -o log_cli_level=INFO
+
+argocd-sanity: setup-venv  ## Run argocd agent integration tests
+	@echo "Running argocd agent integration tests..."
+	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
+	cd integration && A2A_PROMPTS_FILE=test_prompts_argocd_sanity.yaml uv run pytest -o log_cli=true -o log_cli_level=INFO
+
+detailed-sanity: detailed-test ## Run tests with verbose output and detailed logs
+detailed-test: setup-venv ## Run tests with verbose output and detailed logs
+	@echo "Running integration tests with verbose output..."
+	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
+	cd integration && A2A_PROMPTS_FILE=test_prompts_detailed.yaml uv run pytest -o log_cli=true -o log_cli_level=INFO
 
 validate:
 	@echo "Validating code..."
@@ -110,6 +122,30 @@ validate:
 	@echo "========================================"
 	@$(MAKE) test
 	@echo "Validation complete."
+
+lock-all:
+	@echo "🔁 Recursively locking all Python projects with uv..."
+	@find . -name "pyproject.toml" | while read -r pyproject; do \
+		dir=$$(dirname $$pyproject); \
+		echo "📂 Entering $$dir"; \
+		( \
+			cd $$dir || exit 1; \
+			echo "🔒 Running uv lock in $$dir"; \
+			uv pip compile pyproject.toml --all-extras --prerelease; \
+		); \
+	done
+
+## ========== Release & Versioning ==========
+release: setup-venv  ## Bump version and create a release
+	@uv tool install commitizen
+	@git tag -d stable || echo "No stable tag found."
+	@cz changelog
+	@git add CHANGELOG.md
+	@git commit -m "docs: update changelog"
+	@cz bump --increment $${INCREMENT:-PATCH}
+	@git tag -f stable
+	@echo "Version bumped and stable tag updated successfully."
+
 ## ========== Help ==========
 
 help: ## Show this help message

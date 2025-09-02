@@ -1,0 +1,58 @@
+{{- if and .Values.dummyClient.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "graphrag.fullname" . }}-dummy-client
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dummy-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "graphrag.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dummy-client
+  template:
+    metadata:
+      labels:
+        {{- include "graphrag.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: dummy-client
+    spec:
+      serviceAccountName: {{ include "graphrag.serviceAccountName" . }}
+      {{- with .Values.dummyClient.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.dummyClient.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.dummyClient.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: dummy-client
+          image: "{{ .Values.dummyClient.image.repository }}:{{ .Values.dummyClient.image.tag }}"
+          imagePullPolicy: {{ .Values.dummyClient.image.pullPolicy }}
+          env:
+            - name: API_KEY
+              value: "{{ .Values.dummyClient.env.apiKey }}"
+            - name: DUMMY_ENTITIES_FILE
+              value: "/data/{{ .Values.dummyClient.env.dummyEntitiesFile }}"
+            - name: SERVER_ADDR
+              value: "http://{{ include "graphrag.fullname" . }}-nexigraph-server:{{ .Values.nexigraphServer.service.port }}"
+          volumeMounts:
+            - name: dummy-data
+              mountPath: /data
+              readOnly: true
+          {{- with .Values.dummyClient.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: dummy-data
+          configMap:
+            name: {{ include "graphrag.fullname" . }}-dummy-client-data
+      restartPolicy: Always
+{{- end }}
