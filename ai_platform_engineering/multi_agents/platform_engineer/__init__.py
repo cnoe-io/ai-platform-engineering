@@ -27,83 +27,49 @@ from ai_platform_engineering.multi_agents import AgentRegistry  # noqa: E402
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+AGENT_NAMES = []
+
 # Default agents
-ARGOCD_ENABLED = os.getenv("ENABLE_ARGOCD", "true").lower() == "true"
-logger.info("ArgoCD enabled: %s", ARGOCD_ENABLED)
+if os.getenv("ENABLE_ARGOCD", "true").lower() == "true":
+    AGENT_NAMES.append("argocd")
 
-BACKSTAGE_ENABLED = os.getenv("ENABLE_BACKSTAGE", "true").lower() == "true"
-logger.info("Backstage enabled: %s", BACKSTAGE_ENABLED)
+if os.getenv("ENABLE_BACKSTAGE", "true").lower() == "true":
+    AGENT_NAMES.append("backstage")
 
-CONFLUENCE_ENABLED = os.getenv("ENABLE_CONFLUENCE", "true").lower() == "true"
-logger.info("Confluence enabled: %s", CONFLUENCE_ENABLED)
+if os.getenv("ENABLE_CONFLUENCE", "true").lower() == "true":
+    AGENT_NAMES.append("confluence")
 
-GITHUB_ENABLED = os.getenv("ENABLE_GITHUB", "true").lower() == "true"
-logger.info("GitHub enabled: %s", GITHUB_ENABLED)
+if os.getenv("ENABLE_GITHUB", "true").lower() == "true":
+    AGENT_NAMES.append("github")
 
-JIRA_ENABLED = os.getenv("ENABLE_JIRA", "true").lower() == "true"
-logger.info("Jira enabled: %s", JIRA_ENABLED)
+if os.getenv("ENABLE_JIRA", "true").lower() == "true":
+    AGENT_NAMES.append("jira")
 
-PAGERDUTY_ENABLED = os.getenv("ENABLE_PAGERDUTY", "true").lower() == "true"
-logger.info("PagerDuty enabled: %s", PAGERDUTY_ENABLED)
+if os.getenv("ENABLE_PAGERDUTY", "true").lower() == "true":
+    AGENT_NAMES.append("pagerduty")
 
-SLACK_ENABLED = os.getenv("ENABLE_SLACK", "true").lower() == "true"
-logger.info("Slack enabled: %s", SLACK_ENABLED)
+if os.getenv("ENABLE_SLACK", "true").lower() == "true":
+    AGENT_NAMES.append("slack")
 
 
 # Optional agents
-KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
-logger.info("Komodor enabled: %s", KOMODOR_ENABLED)
-
-WEATHER_AGENT_ENABLED = os.getenv("ENABLE_WEATHER_AGENT", "false").lower() == "true"
-logger.info("Weather agent enabled: %s", WEATHER_AGENT_ENABLED)
-
-PETSTORE_AGENT_ENABLED = os.getenv("ENABLE_PETSTORE_AGENT", "false").lower() == "true"
-logger.info("Petstore agent enabled: %s", PETSTORE_AGENT_ENABLED)
-
-KB_RAG_ENABLED = os.getenv("ENABLE_KB_RAG", "false").lower() == "true"
-logger.info("KB-RAG enabled: %s", KB_RAG_ENABLED)
-
-GRAPH_RAG_ENABLED = os.getenv("ENABLE_GRAPH_RAG", "false").lower() == "true"
-logger.info("Graph-RAG enabled: %s", GRAPH_RAG_ENABLED)
-
-
-AGENT_NAMES = []
-
-if ARGOCD_ENABLED:
-    AGENT_NAMES.append("argocd")
-
-if BACKSTAGE_ENABLED:
-    AGENT_NAMES.append("backstage")
-
-if CONFLUENCE_ENABLED:
-    AGENT_NAMES.append("confluence")
-
-if GITHUB_ENABLED:
-    AGENT_NAMES.append("github")
-
-if JIRA_ENABLED:
-    AGENT_NAMES.append("jira")
-
-if PAGERDUTY_ENABLED:
-    AGENT_NAMES.append("pagerduty")
-
-if SLACK_ENABLED:
-    AGENT_NAMES.append("slack")
-
-if KOMODOR_ENABLED:
+if os.getenv("ENABLE_KOMODOR", "false").lower() == "true":
     AGENT_NAMES.append("komodor")
 
-if WEATHER_AGENT_ENABLED:
+if os.getenv("ENABLE_WEATHER_AGENT", "false").lower() == "true":
     AGENT_NAMES.append("weather")
 
-if PETSTORE_AGENT_ENABLED:
+if os.getenv("ENABLE_PETSTORE_AGENT", "false").lower() == "true":
     AGENT_NAMES.append("petstore")
 
-if KB_RAG_ENABLED:
+if os.getenv("ENABLE_KB_RAG", "false").lower() == "true":
     AGENT_NAMES.append("kb-rag")
 
-if GRAPH_RAG_ENABLED:
+if os.getenv("ENABLE_GRAPH_RAG", "false").lower() == "true":
     AGENT_NAMES.append("graph-rag")
+
+for agent_name in AGENT_NAMES:
+    logger.info("🤖 Agent enabled: %s", agent_name)
 
 class PlatformRegistry(AgentRegistry):
     """Registry for platform engineer multi-agent system."""
