@@ -857,6 +857,7 @@ services:
      - knowledge_base
      - graph_rag
      - nexigraph
+     - p2p
     volumes:
         - ./.neo4j/logs:/logs
         - ./.neo4j/config:/config
@@ -879,6 +880,7 @@ services:
      - knowledge_base
      - graph_rag
      - nexigraph
+     - p2p
     command:
       - /bin/sh
       - -c
@@ -895,6 +897,10 @@ services:
      - knowledge_base
      - graph_rag
      - nexigraph
+     - p2p
+    depends_on:
+      - neo4j
+      - nexigraph_redis
     environment:
         LOG_LEVEL: DEBUG
         REDIS_HOST: nexigraph_redis
@@ -911,6 +917,9 @@ services:
      - knowledge_base
      - graph_rag
      - nexigraph
+     - p2p
+    depends_on:
+      - nexigraph_server
     environment:
         LOG_LEVEL: DEBUG
         REDIS_HOST: nexigraph_redis
@@ -937,6 +946,10 @@ services:
      - p2p
     ports:
       - "8096:8096"
+    depends_on:
+      - nexigraph_server
+      - nexigraph_redis
+      - neo4j
     environment:
         LOG_LEVEL: DEBUG
         REDIS_HOST: nexigraph_redis
@@ -954,6 +967,9 @@ services:
      - knowledge_base
      - graph_rag
      - nexigraph
+     - p2p
+    depends_on:
+      - nexigraph_server
     environment:
        SERVER_ADDR: http://nexigraph_server:8095
        API_KEY: dummy_key
