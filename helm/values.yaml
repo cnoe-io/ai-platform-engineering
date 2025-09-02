@@ -94,6 +94,10 @@ agent-confluence:
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+  externalSecrets:
+    secretNames:
+      - agent-jira-secret
+      - llm-secret
 
 agent-github:
   enabled: true
