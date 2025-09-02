@@ -36,6 +36,34 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: Free disk space
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h
+          
+          # Remove unnecessary packages and files
+          sudo apt-get remove -y '^ghc-*' || true
+          sudo apt-get remove -y '^dotnet-*' || true
+          sudo apt-get remove -y '^llvm-*' || true
+          sudo apt-get remove -y 'php*' || true
+          sudo apt-get remove -y azure-cli google-cloud-cli hhvm google-chrome-stable firefox powershell mono-devel || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          
+          # Remove large directories
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          
+          # Clean Docker system
+          docker system prune -af --volumes || true
+          
+          echo "Disk usage after cleanup:"
+          df -h
+
       - name: Checkout repository
         uses: actions/checkout@v5
 
@@ -63,6 +91,13 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
+      - name: Clean up before build
+        run: |
+          echo "Cleaning up Docker system before build..."
+          docker system prune -f --volumes || true
+          echo "Current disk usage:"
+          df -h
+
       - name: Build and Push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -74,3 +109,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+          provenance: false
+          sbom: false
