@@ -9,6 +9,10 @@ import logging
 # =====================================================
 from cnoe_agent_utils.tracing import disable_a2a_tracing
 
+# =====================================================
+# Module initialization - must happen before AgentRegistry import
+# =====================================================
+
 # Disable A2A framework tracing to prevent interference with custom tracing
 disable_a2a_tracing()
 logging.info("A2A tracing disabled for Platform Engineer")
@@ -17,12 +21,36 @@ logging.info("A2A tracing disabled for Platform Engineer")
 # Now safe to import AgentRegistry and create platform_registry
 # =====================================================
 
-from ai_platform_engineering.multi_agents import AgentRegistry
-
+# Import after tracing is properly configured
+from ai_platform_engineering.multi_agents import AgentRegistry  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Default agents
+ARGOCD_ENABLED = os.getenv("ENABLE_ARGOCD", "true").lower() == "true"
+logger.info("ArgoCD enabled: %s", ARGOCD_ENABLED)
+
+BACKSTAGE_ENABLED = os.getenv("ENABLE_BACKSTAGE", "true").lower() == "true"
+logger.info("Backstage enabled: %s", BACKSTAGE_ENABLED)
+
+CONFLUENCE_ENABLED = os.getenv("ENABLE_CONFLUENCE", "true").lower() == "true"
+logger.info("Confluence enabled: %s", CONFLUENCE_ENABLED)
+
+GITHUB_ENABLED = os.getenv("ENABLE_GITHUB", "true").lower() == "true"
+logger.info("GitHub enabled: %s", GITHUB_ENABLED)
+
+JIRA_ENABLED = os.getenv("ENABLE_JIRA", "true").lower() == "true"
+logger.info("Jira enabled: %s", JIRA_ENABLED)
+
+PAGERDUTY_ENABLED = os.getenv("ENABLE_PAGERDUTY", "true").lower() == "true"
+logger.info("PagerDuty enabled: %s", PAGERDUTY_ENABLED)
+
+SLACK_ENABLED = os.getenv("ENABLE_SLACK", "true").lower() == "true"
+logger.info("Slack enabled: %s", SLACK_ENABLED)
+
+
+# Optional agents
 KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
 logger.info("Komodor enabled: %s", KOMODOR_ENABLED)
 
@@ -35,17 +63,32 @@ logger.info("Petstore agent enabled: %s", PETSTORE_AGENT_ENABLED)
 KB_RAG_ENABLED = os.getenv("ENABLE_KB_RAG", "false").lower() == "true"
 logger.info("KB-RAG enabled: %s", KB_RAG_ENABLED)
 
-logger.info("Local Build Running......")
+GRAPH_RAG_ENABLED = os.getenv("ENABLE_GRAPH_RAG", "false").lower() == "true"
+logger.info("Graph-RAG enabled: %s", GRAPH_RAG_ENABLED)
 
-AGENT_NAMES = [
-    "argocd",
-    "backstage",
-    "confluence",
-    "github",
-    "jira",
-    "pagerduty",
-    "slack"
-]
+
+AGENT_NAMES = []
+
+if ARGOCD_ENABLED:
+    AGENT_NAMES.append("argocd")
+
+if BACKSTAGE_ENABLED:
+    AGENT_NAMES.append("backstage")
+
+if CONFLUENCE_ENABLED:
+    AGENT_NAMES.append("confluence")
+
+if GITHUB_ENABLED:
+    AGENT_NAMES.append("github")
+
+if JIRA_ENABLED:
+    AGENT_NAMES.append("jira")
+
+if PAGERDUTY_ENABLED:
+    AGENT_NAMES.append("pagerduty")
+
+if SLACK_ENABLED:
+    AGENT_NAMES.append("slack")
 
 if KOMODOR_ENABLED:
     AGENT_NAMES.append("komodor")
@@ -59,9 +102,11 @@ if PETSTORE_AGENT_ENABLED:
 if KB_RAG_ENABLED:
     AGENT_NAMES.append("kb-rag")
 
+if GRAPH_RAG_ENABLED:
+    AGENT_NAMES.append("graph-rag")
+
 class PlatformRegistry(AgentRegistry):
     """Registry for platform engineer multi-agent system."""
-
     AGENT_NAMES = AGENT_NAMES
 
 # Create the platform registry instance

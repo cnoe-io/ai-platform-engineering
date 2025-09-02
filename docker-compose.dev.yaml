@@ -72,6 +72,7 @@ services:
       - p2p-tracing
       - argocd
       - weather
+      - graph_rag
     depends_on:
         - agent-argocd-p2p
         - agent-backstage-p2p
@@ -81,6 +82,7 @@ services:
         - agent-komodor-p2p
         - agent-pagerduty-p2p
         - agent-slack-p2p
+        - agent_graph_qa
     env_file:
       - .env
     ports:
@@ -96,6 +98,8 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - SLACK_AGENT_HOST=agent-slack-p2p
       - WEBEX_AGENT_HOST=agent-webex-p2p
+      - ENABLE_GRAPH_RAG=true
+      - GRAPH_RAG_AGENT_URL=http://agent_graph_qa:8096
       - ENABLE_KOMODOR=true
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
