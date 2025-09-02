@@ -185,3 +185,10 @@ neo4j:
       mode: "dynamic"
       dynamic:
         storageClassName: gp2
+
+kb-rag-web:
+  enabled: false
+  image:
+    repository: "ghcr.io/cnoe-io/kb-rag-web"
+    tag: "latest"
+    pullPolicy: "Always"

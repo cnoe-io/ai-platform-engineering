@@ -1,0 +1,36 @@
+# Default values for kb-rag-web.
+
+nameOverride: "kb-rag-web"
+fullnameOverride: ""
+
+image:
+  repository: "ghcr.io/cnoe-io/kb-rag-web"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
+
+imagePullSecrets: []
+
+secrets:
+  secretName: ""
+
+livenessProbe: {}
+readinessProbe: {}
+
+
