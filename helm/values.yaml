@@ -1,3 +1,10 @@
+# Global configuration shared across all subcharts
+global:
+  slim:
+    enabled: false
+    endpoint: "http://ai-platform-engineering-slim:46357"
+    transport: "slim"
+
 # AI Platform Engineer Multi-Agent
 ai-platform-engineering:
   enabled: true
@@ -22,6 +29,8 @@ ai-platform-engineering:
       - jira
       - pagerduty
       - slack
+  mcp: #TODO
+    mode: "stdio"
 
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
@@ -40,6 +49,8 @@ backstage-plugin-agent-forge:
       - name: backend
         port: 7007
         protocol: TCP
+  mcp: #TODO
+    mode: "stdio"
 
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
@@ -48,6 +59,13 @@ agent-argocd:
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-argocd"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-backstage:
   enabled: true
@@ -55,6 +73,13 @@ agent-backstage:
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-backstage"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-confluence:
   enabled: false
@@ -62,6 +87,13 @@ agent-confluence:
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-confluence"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-github:
   enabled: true
@@ -69,6 +101,8 @@ agent-github:
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
     pullPolicy: "Always"
+  mcp:
+    useRemoteMcpServer: true
 
 agent-jira:
   enabled: true
@@ -76,6 +110,13 @@ agent-jira:
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-jira"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-pagerduty:
   enabled: true
@@ -83,12 +124,27 @@ agent-pagerduty:
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
     pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-pagerduty"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 agent-slack:
   enabled: true
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-slack"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
     pullPolicy: "Always"
 
 agent-reflection:
@@ -97,3 +153,35 @@ agent-reflection:
   image:
     repository: "ghcr.io/cnoe-io/agent-reflection"
     pullPolicy: "Always"
+
+graphrag:
+  enabled: false
+  neo4jNameOverride: "graphrag-neo4j" # This needs to match the value in neo4j.fullnameOverride
+
+# neo4j is used by graphrag to store the graph data. If graphrag.enabled is false, neo4j is not deployed.
+neo4j:
+  fullnameOverride: "graphrag-neo4j"
+  config:
+    server.directories.plugins: "/var/lib/neo4j/labs"
+    dbms.security.procedures.unrestricted: "apoc.*"
+    dbms.security.procedures.allowlist: "apoc.*"
+    server.config.strict_validation.enabled: "false"
+  apoc_config:
+    apoc.trigger.enabled: "true"
+    apoc.import.file.enabled: "true"
+  disableLookups: true
+  services:
+    neo4j:
+      enabled: false
+  neo4j:
+    name: graphrag-neo4j
+    password: "dummy_password" # This dummy password needs to match the value in graphrag.neo4j.auth.password
+    resources:
+      cpu: "1"
+      memory: "2Gi"
+
+  volumes:
+    data:
+      mode: "dynamic"
+      dynamic:
+        storageClassName: gp2

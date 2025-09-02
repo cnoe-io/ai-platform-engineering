@@ -12,7 +12,6 @@ helm/*/values-secrets.yaml
 
 # Distribution / packaging
 .Python
-build/
 develop-eggs/
 dist/
 downloads/

@@ -22,7 +22,7 @@ Your AWS user/role needs permissions for:
 
 1. Create an EKS Cluster
 2. Deploy local ArgoCD
-3. Deploy AI Platform Engineering Agents
+3. Deploy CAIPE Agents
 
 ## Create an EKS Cluster
 ### Step 1: Configure AWS Credentials

@@ -18,10 +18,8 @@ from pydantic import BaseModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent  # type: ignore
 from cnoe_agent_utils import LLMFactory
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 
-
-
-import asyncio
 import os
 
 from agent_confluence.protocol_bindings.a2a_server.state import (
@@ -54,13 +52,16 @@ class ConfluenceAgent:
     Set response status to error if the input indicates an error."""
 
     def __init__(self):
-      # Setup the math agent and load MCP tools
+      # Setup the agent and load MCP tools
       self.model = LLMFactory().get_llm()
+      self.tracing = TracingManager()
       self.graph = None
+      self._initialized = False
+
       async def _async_confluence_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
           args = config.get("configurable", {})
 
-          server_path = args.get("server_path", "./agent_confluence/protocol_bindings/mcp_server/mcp_confluence/server.py")
+          server_path = args.get("server_path", "./mcp/mcp_confluence/server.py")
           logger.info(f"Launching MCP server at: {server_path}")
 
           confluence_token = os.getenv("ATLASSIAN_TOKEN")
@@ -70,40 +71,69 @@ class ConfluenceAgent:
           confluence_api_url = os.getenv("CONFLUENCE_API_URL")
           if not confluence_api_url:
             raise ValueError("CONFLUENCE_API_URL must be set as an environment variable.")
-          client = MultiServerMCPClient(
+          client = None
+          mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+          if mcp_mode == "http" or mcp_mode == "streamable_http":
+            logging.info("Using HTTP transport for MCP client")
+            # For HTTP transport, we need to connect to the MCP server
+            # This is useful for production or when the MCP server is running separately
+            # Ensure MCP_HOST and MCP_PORT are set in the environment
+            mcp_host = os.getenv("MCP_HOST", "localhost")
+            mcp_port = os.getenv("MCP_PORT", "3000")
+            logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
+            # TBD: Handle user authentication
+            user_jwt = "TBD_USER_JWT"
+
+            client = MultiServerMCPClient(
               {
-                  "math": {
-                      "command": "uv",
-                      "args": ["run", server_path],
-                      "env": {
-                          "ATLASSIAN_TOKEN": os.getenv("ATLASSIAN_TOKEN"),
-                          "CONFLUENCE_API_URL": os.getenv("CONFLUENCE_API_URL"),
-                          "ATLASSIAN_VERIFY_SSL": "false"
-                      },
-                      "transport": "stdio",
-                  }
+                "confluence": {
+                  "transport": "streamable_http",
+                  "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+                  "headers": {
+                    "Authorization": f"Bearer {user_jwt}",
+                  },
+                }
               }
-          )
+            )
+          else:
+            logging.info("Using STDIO transport for MCP client")
+            # For STDIO transport, we can use a simple client without URL
+            # This is useful for local development or testing
+            client = MultiServerMCPClient(
+                {
+                    "confluence": {
+                        "command": "uv",
+                        "args": ["run", server_path],
+                        "env": {
+                            "ATLASSIAN_TOKEN": os.getenv("ATLASSIAN_TOKEN"),
+                            "CONFLUENCE_API_URL": os.getenv("CONFLUENCE_API_URL"),
+                            "ATLASSIAN_VERIFY_SSL": "false"
+                        },
+                        "transport": "stdio",
+                    }
+                }
+            )
+
           tools = await client.get_tools()
-          logger.debug('*'*80)
-          logger.debug("Available Tools and Parameters:")
-          for tool in tools:
-            logger.debug(f"Tool: {tool.name}")
-            logger.debug(f"  Description: {tool.description.strip().splitlines()[0]}")
-            params = tool.args_schema.get('properties', {})
-            if params:
-              logger.debug("  Parameters:")
-              for param, meta in params.items():
-                param_type = meta.get('type', 'unknown')
-                param_title = meta.get('title', param)
-                default = meta.get('default', None)
-                if default is not None:
-                  logger.debug(f"    - {param} ({param_type}): {param_title} [default: {default}]")
-                else:
-                  logger.debug(f"    - {param} ({param_type}): {param_title}")
-            else:
-              logger.debug("  Parameters: None")
-          logger.debug('*'*80)
+          # logger.debug('*'*80)
+          # logger.debug("Available Tools and Parameters:")
+          # for tool in tools:
+          #   logger.debug(f"Tool: {tool.name}")
+          #   logger.debug(f"  Description: {tool.description.strip().splitlines()[0]}")
+          #   params = tool.args_schema.get('properties', {})
+          #   if params:
+          #     logger.debug("  Parameters:")
+          #     for param, meta in params.items():
+          #       param_type = meta.get('type', 'unknown')
+          #       param_title = meta.get('title', param)
+          #       default = meta.get('default', None)
+          #       if default is not None:
+          #         logger.debug(f"    - {param} ({param_type}): {param_title} [default: {default}]")
+          #       else:
+          #         logger.debug(f"    - {param} ({param_type}): {param_title}")
+          #   else:
+          #     logger.debug("  Parameters: None")
+          # logger.debug('*'*80)
           self.graph = create_react_agent(
             self.model,
             tools,
@@ -149,8 +179,14 @@ class ConfluenceAgent:
               logger.info("Agent MCP Capabilities response generated")
               logger.debug(f"Agent MCP Capabilities: {output_messages[-1].content}")  # Only in debug mode
 
-      def _create_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-          return asyncio.run(_async_confluence_agent(state, config))
+      # Store the async function for later use
+      self._async_confluence_agent = _async_confluence_agent
+
+    async def _initialize_agent(self) -> None:
+      """Initialize the agent asynchronously when first needed."""
+      if self._initialized:
+          return
+
       messages = []
       state_input = InputState(messages=messages)
       agent_input = AgentState(confluence_input=state_input).model_dump(mode="json")
@@ -158,16 +194,23 @@ class ConfluenceAgent:
       # Add a HumanMessage to the input messages if not already present
       if not any(isinstance(m, HumanMessage) for m in messages):
           messages.append(HumanMessage(content="Show available Confluence tools"))
-      _create_agent(agent_input, config=runnable_config)
 
+      await self._async_confluence_agent(agent_input, config=runnable_config)
+      self._initialized = True
+
+    @trace_agent_stream("confluence")
     async def stream(
-      self, query: str, context_id: str | None = None
+      self, query: str, context_id: str | None = None, trace_id: str = None
     ) -> AsyncIterable[dict[str, Any]]:
       logger.debug(f"Starting stream with query: {query} and context_id: {context_id}")
+
+      # Initialize the agent if not already done
+      await self._initialize_agent()
+
       # Use the context_id as the thread_id, or generate a new one if none provided
       thread_id = context_id or uuid.uuid4().hex
       inputs: dict[str, Any] = {'messages': [('user', query)]}
-      config: RunnableConfig = {'configurable': {'thread_id': thread_id}}
+      config: RunnableConfig = self.tracing.create_config(thread_id)
 
       async for item in self.graph.astream(inputs, config, stream_mode='values'):
           message = item['messages'][-1]
@@ -228,5 +271,3 @@ class ConfluenceAgent:
         'require_user_input': True,
         'content': 'We are unable to process your request at the moment. Please try again.',
       }
-
-    SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']

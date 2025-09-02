@@ -12,6 +12,11 @@ from a2a.types import (
 )
 
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+from cnoe_agent_utils.tracing import extract_trace_id_from_context
+import uuid
+
+import logging
+logger = logging.getLogger(__name__)
 
 from ai_platform_engineering.multi_agents.incident_engineer.protocol_bindings.a2a.agent import (
   AIIncidentEngineerA2ABinding
@@ -40,8 +45,18 @@ class AIIncidentEngineerA2AExecutor(AgentExecutor):
         if not task:
           task = new_task(context.message)
           await event_queue.enqueue_event(task)
+        # Extract trace_id from A2A context (or generate if root)
+        trace_id = extract_trace_id_from_context(context)
+        if not trace_id:
+            # Incident engineer is the ROOT supervisor - generate trace_id
+            # Langfuse requires 32 lowercase hex chars (no dashes)
+            trace_id = str(uuid.uuid4()).replace('-', '').lower()
+            logger.info(f"🔍 Incident Engineer Executor: Generated ROOT trace_id: {trace_id}")
+        else:
+            logger.info(f"🔍 Incident Engineer Executor: Using trace_id from context: {trace_id}")
+        
         # invoke the underlying agent, using streaming results
-        async for event in self.agent.stream(query, context_id):
+        async for event in self.agent.stream(query, context_id, trace_id):
             if event['is_task_complete']:
                 await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(

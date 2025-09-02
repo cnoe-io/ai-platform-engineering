@@ -2,64 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-
-import sys
-import types
-import logging
-
-# =====================================================
-# CRITICAL: Disable a2a tracing BEFORE any a2a imports
-# =====================================================
-try:
-    # Create no-op decorators to replace a2a's trace decorators
-    def noop_trace_function(func=None, **_kwargs):
-        """No-op replacement for trace_function decorator."""
-        if func is None:
-            return lambda f: f  # Return decorator that does nothing
-        return func  # Return function unchanged
-
-    def noop_trace_class(cls=None, **_kwargs):
-        """No-op replacement for trace_class decorator."""
-        if cls is None:
-            return lambda c: c  # Return decorator that does nothing
-        return cls  # Return class unchanged
-
-    # Create a dummy SpanKind class with required attributes
-    class DummySpanKind:
-        INTERNAL = 'INTERNAL'
-        SERVER = 'SERVER'
-        CLIENT = 'CLIENT'
-        PRODUCER = 'PRODUCER'
-        CONSUMER = 'CONSUMER'
-
-    # Monkey patch the a2a telemetry module before it's imported anywhere
-    telemetry_module = types.ModuleType('a2a.utils.telemetry')
-    telemetry_module.trace_function = noop_trace_function
-    telemetry_module.trace_class = noop_trace_class
-    telemetry_module.SpanKind = DummySpanKind
-
-    # Insert into sys.modules to intercept imports
-    sys.modules['a2a.utils.telemetry'] = telemetry_module
-
-    logging.debug("A2A tracing disabled via monkey patching in main.py")
-
-except Exception as e:
-    logging.debug(f"A2A tracing monkey patch failed in main.py: {e}")
-
-# =====================================================
-# Now safe to import a2a modules
-# =====================================================
-
 import httpx
 
 from starlette.middleware.cors import CORSMiddleware
 
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import AIPlatformEngineerA2AExecutor # type: ignore[import-untyped]
-from dotenv import load_dotenv
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
+from a2a.server.tasks import (
+    BasePushNotificationSender,
+    InMemoryPushNotificationConfigStore,
+    InMemoryTaskStore,
+)
 from a2a.types import (
   AgentCapabilities,
   AgentCard,
@@ -72,8 +27,6 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   agent_description,
   agent_skill_examples
 )
-
-load_dotenv()
 
 def get_agent_card(host: str, port: int, external_url: str = None):
   capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -121,12 +74,20 @@ if env_port and env_port.strip():
 else:
   port = 8000
 
-client = httpx.AsyncClient()
+httpx_client = httpx.AsyncClient()
+
+push_config_store = InMemoryPushNotificationConfigStore()
+push_sender = BasePushNotificationSender(httpx_client=httpx_client,
+                config_store=push_config_store)
+
+push_config_store = InMemoryPushNotificationConfigStore()
+push_sender = BasePushNotificationSender(httpx_client=httpx_client, config_store=push_config_store)
 
 request_handler = DefaultRequestHandler(
   agent_executor=AIPlatformEngineerA2AExecutor(),
   task_store=InMemoryTaskStore(),
-  push_notifier=InMemoryPushNotifier(client),
+  push_config_store=push_config_store,
+  push_sender= push_sender
 )
 
 a2a_server = A2AStarletteApplication(

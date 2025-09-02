@@ -1,0 +1,206 @@
+prompts:
+  # Account Management
+  - id: "argocd_account_details"
+    messages:
+      - role: "user"
+        content: "Get the details of the current account."
+    expected_keywords: ["argocd", "account", "details", "current"]
+    category: "account_management"
+
+  - id: "argocd_list_accounts"
+    messages:
+      - role: "user"
+        content: "List all accounts."
+    expected_keywords: ["argocd", "account", "list", "all"]
+    category: "account_management"
+
+  # RBAC and Permissions
+  - id: "argocd_rbac_check_delete"
+    messages:
+      - role: "user"
+        content: "Check if the current account has permission to delete the 'ai-platform-app' from ArgoCD."
+    expected_keywords: ["argocd", "rbac", "permission", "delete", "ai-platform-app"]
+    category: "rbac_permissions"
+
+  # Application Management
+  - id: "argocd_create_app"
+    messages:
+      - role: "user"
+        content: "Create a new ArgoCD application named 'ai-platform-app'."
+    expected_keywords: ["argocd", "create", "application", "ai-platform-app"]
+    category: "application_management"
+
+  - id: "argocd_get_app_status"
+    messages:
+      - role: "user"
+        content: "Get the status of the 'ai-platform-app' ArgoCD application."
+    expected_keywords: ["argocd", "status", "application", "ai-platform-app"]
+    category: "application_management"
+
+  - id: "argocd_update_repo_url"
+    messages:
+      - role: "user"
+        content: "Update the repo url for 'ai-platform-app' app"
+    expected_keywords: ["argocd", "update", "repo", "url", "ai-platform-app"]
+    category: "application_management"
+
+  - id: "argocd_sync_app"
+    messages:
+      - role: "user"
+        content: "Sync the 'ai-platform-app' ArgoCD application"
+    expected_keywords: ["argocd", "sync", "application", "ai-platform-app"]
+    category: "application_management"
+
+  - id: "argocd_delete_app"
+    messages:
+      - role: "user"
+        content: "Delete the 'ai-platform-app' from ArgoCD."
+    expected_keywords: ["argocd", "delete", "application", "ai-platform-app"]
+    category: "application_management"
+
+  # Resource Events
+  - id: "argocd_list_app_events"
+    messages:
+      - role: "user"
+        content: "List the events for the 'ai-platform-app' ArgoCD application."
+    expected_keywords: ["argocd", "events", "application", "ai-platform-app"]
+    category: "resource_events"
+
+  # Pod Logs
+  - id: "argocd_get_app_logs"
+    messages:
+      - role: "user"
+        content: "Get the logs for the 'ai-platform-app' ArgoCD application."
+    expected_keywords: ["argocd", "logs", "application", "ai-platform-app"]
+    category: "pod_logs"
+
+  # Project Management
+  - id: "argocd_list_projects"
+    messages:
+      - role: "user"
+        content: "List all projects in ArgoCD."
+    expected_keywords: ["argocd", "project", "list", "all"]
+    category: "project_management"
+
+  - id: "argocd_create_project"
+    messages:
+      - role: "user"
+        content: "Create a new project named 'ai-platform-project' in ArgoCD."
+    expected_keywords: ["argocd", "create", "project", "ai-platform-project"]
+    category: "project_management"
+
+  - id: "argocd_get_project_details"
+    messages:
+      - role: "user"
+        content: "Get the details of the 'ai-platform-project' project from ArgoCD."
+    expected_keywords: ["argocd", "project", "details", "ai-platform-project"]
+    category: "project_management"
+
+  - id: "argocd_update_project"
+    messages:
+      - role: "user"
+        content: "Update the 'ai-platform-project' project in ArgoCD to have a description of 'This is a test project'."
+    expected_keywords: ["argocd", "update", "project", "ai-platform-project", "description"]
+    category: "project_management"
+
+  - id: "argocd_delete_project"
+    messages:
+      - role: "user"
+        content: "Delete the 'ai-platform-project' project from ArgoCD."
+    expected_keywords: ["argocd", "delete", "project", "ai-platform-project"]
+    category: "project_management"
+
+  # ApplicationSet Management
+  - id: "argocd_generate_appset_basic"
+    messages:
+      - role: "user"
+        content: "Generate an application set with a single in-cluster generator and a basic template."
+    expected_keywords: ["argocd", "generate", "application", "set", "in-cluster", "generator", "template"]
+    category: "applicationset_management"
+
+  - id: "argocd_generate_appset_metadata"
+    messages:
+      - role: "user"
+        content: "Generate an application set with extra metadata labels."
+    expected_keywords: ["argocd", "generate", "application", "set", "metadata", "labels"]
+    category: "applicationset_management"
+
+  - id: "argocd_create_appset"
+    messages:
+      - role: "user"
+        content: "Create an applicationset 'guestbook' with a single in-cluster generator and a basic template."
+    expected_keywords: ["argocd", "create", "applicationset", "guestbook", "in-cluster", "generator", "template"]
+    category: "applicationset_management"
+
+  - id: "argocd_list_applicationsets"
+    messages:
+      - role: "user"
+        content: "List all applicationsets in ArgoCD."
+    expected_keywords: ["argocd", "applicationset", "list", "all"]
+    category: "applicationset_management"
+
+  - id: "argocd_get_appset_details"
+    messages:
+      - role: "user"
+        content: "Get the details of the 'guestbook' applicationset from ArgoCD."
+    expected_keywords: ["argocd", "applicationset", "details", "guestbook"]
+    category: "applicationset_management"
+
+  - id: "argocd_delete_appset"
+    messages:
+      - role: "user"
+        content: "Delete the 'guestbook' applicationset from ArgoCD."
+    expected_keywords: ["argocd", "delete", "applicationset", "guestbook"]
+    category: "applicationset_management"
+
+  # Certificate Management
+  - id: "argocd_list_certificates"
+    messages:
+      - role: "user"
+        content: "List all certificates in ArgoCD."
+    expected_keywords: ["argocd", "certificate", "list", "all"]
+    category: "certificate_management"
+
+  # Cluster Management
+  - id: "argocd_list_clusters"
+    messages:
+      - role: "user"
+        content: "List all clusters in ArgoCD."
+    expected_keywords: ["argocd", "cluster", "list", "all"]
+    category: "cluster_management"
+
+  - id: "argocd_get_cluster_details"
+    messages:
+      - role: "user"
+        content: "Get the details of the 'in-cluster' cluster from ArgoCD."
+    expected_keywords: ["argocd", "cluster", "details", "in-cluster"]
+    category: "cluster_management"
+
+  # GPG Key Management
+  - id: "argocd_create_gpg_key"
+    messages:
+      - role: "user"
+        content: "Create a new GPG key with a fingerprint of '1234567890'."
+    expected_keywords: ["argocd", "create", "gpg", "key", "fingerprint", "1234567890"]
+    category: "gpg_key_management"
+
+  - id: "argocd_list_gpg_keys"
+    messages:
+      - role: "user"
+        content: "List all GPG keys in ArgoCD."
+    expected_keywords: ["argocd", "gpg", "key", "list", "all"]
+    category: "gpg_key_management"
+
+  - id: "argocd_get_gpg_key_details"
+    messages:
+      - role: "user"
+        content: "Get the details of the '1234567890' GPG key from ArgoCD."
+    expected_keywords: ["argocd", "gpg", "key", "details", "1234567890"]
+    category: "gpg_key_management"
+
+  - id: "argocd_delete_gpg_key"
+    messages:
+      - role: "user"
+        content: "Delete the GPG key with a fingerprint of '1234567890'."
+    expected_keywords: ["argocd", "delete", "gpg", "key", "fingerprint", "1234567890"]
+    category: "gpg_key_management"

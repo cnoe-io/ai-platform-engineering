@@ -1,0 +1,34 @@
+[project]
+name = "agent-graph-qa"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { email = "subbaksh@cisco.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "a2a-sdk>=0.2.8",
+    "click>=8.2.1",
+    "core",
+    "httpx>=0.28.1",
+    "langchain>=0.3.25",
+    "langchain-aws>=0.2.26",
+    "langchain-openai>=0.3.23",
+    "langgraph>=0.4.8",
+    "langmem>=0.0.27",
+    "pydantic>=2.11.7",
+    "python-dotenv>=1.1.0",
+    "uvicorn>=0.34.3",
+    "cnoe-agent-utils==0.3.0",
+]
+
+[project.scripts]
+agent-graph-qa = "agent_graph_qa:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+core = { path = "../core" }

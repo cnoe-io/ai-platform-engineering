@@ -1,4 +1,5 @@
 import logging
+import os
 
 from core import utils
 from core.graph_db.neo4j.graph_db import Neo4jDB
@@ -89,7 +90,7 @@ async def fetch_entity_details(entity_type: str, primary_key_id: str, thought: s
 @tool
 async def get_relation_path_between_entity_types(entity_type_1: str, entity_type_2: str, thought: str) -> str:
     """
-    Find relationship paths (indirect or direct) (if any) between any two entity types. 
+    Find relationship paths (indirect or direct) (if any) between any two entity types.
     Args:
         entity_type_1 (str): The first entity type
         entity_type_2 (str): The second entity type

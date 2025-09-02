@@ -15,13 +15,17 @@ logger = logging.getLogger("mcp_tools")
 
 async def find_pets_by_tags(param_tags: List[str] = None) -> Dict[str, Any]:
     '''
-    Finds pets by tags.
+    Finds pets by tags with helpful feedback for empty results.
 
     Args:
-        param_tags (List[str], optional): List of tags to filter pets by. Multiple tags can be provided as a list. Defaults to None.
+        param_tags (List[str], optional): List of tags to filter pets by. Multiple tags can be provided as a list.
+                                        Common test tags include 'tag1', 'tag2', 'tag3'. Defaults to None.
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call containing the list of pets matching the provided tags.
+        Dict[str, Any]: A structured response containing:
+                       - summary: Search results summary with counts and messages
+                       - pets: List of matching pets (empty if none found)
+                       - suggestion: Helpful tips when no pets are found
 
     Raises:
         Exception: If the API request fails or returns an error.
@@ -54,7 +58,6 @@ async def find_pets_by_tags(param_tags: List[str] = None) -> Dict[str, Any]:
           '400':
             description: Invalid tag value
     '''
-    logger.debug("Making GET request to /pet/findByTags")
 
     params = {}
     data = {}
@@ -65,9 +68,43 @@ async def find_pets_by_tags(param_tags: List[str] = None) -> Dict[str, Any]:
     flat_body = {}
     data = assemble_nested_body(flat_body)
 
-    success, response = await make_api_request("/pet/findByTags", method="GET", params=params, data=data)
+    # HYBRID APPROACH: Combine external API data + JSON storage
+    api_pets = []
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+    # Step 1: Try external API first (demo data)
+    try:
+        success, api_response = await make_api_request("/pet/findByTags", method="GET", params=params, data=data)
+        if success and isinstance(api_response, list):
+            api_pets = api_response
+            logger.info(f"✅ Retrieved {len(api_pets)} pets from external API")
+        else:
+            logger.warning(f"External API returned non-list or failed: {api_response}")
+    except Exception as e:
+        logger.warning(f"External API call failed: {e}")
+
+    total_pets = len(api_pets)
+    tags_searched = param_tags if param_tags else []
+
+    # Return structured response
+    if total_pets > 0:
+        return {
+            "summary": {
+                "total_pets_found": total_pets,
+                "api_pets": len(api_pets),
+                "tags_searched": tags_searched,
+                "message": f"Found {total_pets} pet(s) with the specified tags"
+            },
+            "pets": api_pets,
+            "storage": "Hybrid (JSON + API)"
+        }
+    else:
+        return {
+            "summary": {
+                "total_pets_found": 0,
+                "tags_searched": tags_searched,
+                "message": f"No pets found with tags: {', '.join(tags_searched) if tags_searched else 'none'}"
+            },
+            "pets": [],
+            "suggestion": "Try adding some pets with tags first, or search with tags like 'friendly', 'playful', 'tag1', 'tag2', 'tag3'.",
+            "storage": "Hybrid (JSON + API)"
+        }

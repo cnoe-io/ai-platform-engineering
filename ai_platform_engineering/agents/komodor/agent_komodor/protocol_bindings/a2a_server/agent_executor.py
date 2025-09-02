@@ -12,10 +12,14 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+from cnoe_agent_utils.tracing import extract_trace_id_from_context
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class KomodorAgentExecutor(AgentExecutor):
-    """Currency AgentExecutor Example."""
+    """Komodor AgentExecutor implementation."""
 
     def __init__(self):
         self.agent = KomodorAgent()
@@ -34,11 +38,20 @@ class KomodorAgentExecutor(AgentExecutor):
 
         if not task:
             task = new_task(context.message)
-            event_queue.enqueue_event(task)
+            await event_queue.enqueue_event(task)
+
+        # Extract trace_id from A2A context - THIS IS A SUB-AGENT, should NEVER generate trace_id
+        trace_id = extract_trace_id_from_context(context)
+        if not trace_id:
+            logger.warning("Komodor Agent: No trace_id from supervisor")
+            trace_id = None
+        else:
+            logger.info(f"Komodor Agent: Using trace_id from supervisor: {trace_id}")
+
         # invoke the underlying agent, using streaming results
-        async for event in self.agent.stream(query, task.contextId):
+        async for event in self.agent.stream(query, task.contextId, trace_id):
             if event['is_task_complete']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
                         contextId=task.contextId,
@@ -51,7 +64,7 @@ class KomodorAgentExecutor(AgentExecutor):
                         ),
                     )
                 )
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
                         final=True,
@@ -60,7 +73,7 @@ class KomodorAgentExecutor(AgentExecutor):
                     )
                 )
             elif event['require_user_input']:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.input_required,
@@ -76,7 +89,7 @@ class KomodorAgentExecutor(AgentExecutor):
                     )
                 )
             else:
-                event_queue.enqueue_event(
+                await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
                             state=TaskState.working,

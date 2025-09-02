@@ -1,0 +1,25 @@
+[project]
+name = "mcp-jira"
+version = "0.1.0"
+description = "Generated MCP server for jira from OpenAPI specification"
+authors = [
+  { name = "Sri Aradhyula", email = "sraradhy@cisco.com" }
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "httpx>=0.24.0",
+  "python-dotenv>=1.0.0",
+  "pydantic>=2.0.0",
+  "mcp>=1.12.3",
+  "fastmcp>=2.11.1",
+  "python-dateutil>=2.9.0.post0",
+  "keyring>=25.6.0",
+]
+
+[project.scripts]
+mcp-argocd = "mcp_argocd.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

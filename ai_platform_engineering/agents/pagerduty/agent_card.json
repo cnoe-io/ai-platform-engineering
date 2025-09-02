@@ -1,0 +1,70 @@
+{
+    "attributes": [
+      {
+        "data": {
+          "type": "json_t",
+          "description": "Data supported by the agent for A2A card.",
+          "reference": "a2a_card_data",
+          "references": [
+            {
+              "description": "A2A Card Data Schema",
+              "url": "https://github.com/google-a2a/A2A/blob/main/docs/specification.md#55-agentcard-object-structure"
+            }
+          ],
+          "requirement": "required",
+          "_source": "a2a",
+          "caption": "Data",
+          "type_name": "JSON"
+        }
+      },
+      {
+        "name": {
+          "type": "string_t",
+          "enum": {
+            "cnoe-io/agent-pagerduty": {
+              "description": "Pagerduty Agent built on 1st party PagerDuty MCP Server and exposed via A2A Protocol",
+              "caption": "A2A Card"
+            }
+          },
+          "description": "Pagerduty Agent built on 1st party PagerDuty MCP Server and exposed via A2A Protocol",
+          "requirement": "required",
+          "_source": "a2a",
+          "caption": "Name",
+          "type_name": "String"
+        }
+      },
+      {
+        "version": {
+          "type": "string_t",
+          "description": "Uses PagerDuty MCP OpenAPI Codegenerator. Exposed on A2A. Uses PagerDuty service token",
+          "requirement": "optional",
+          "_source": "base_feature",
+          "caption": "Version",
+          "type_name": "String",
+          "value": "0.1.0"
+        }
+      },
+      {
+        "annotations": {
+          "type": "string_map_t",
+          "description": "Additional metadata associated with the agent extension.",
+          "requirement": "optional",
+          "_source": "base_feature",
+          "caption": "Annotations",
+          "type_name": "String Map",
+          "value": {
+            "type": "incident_management",
+            "category": "devops"
+          }
+        }
+      }
+    ],
+    "name": "cnoe-io/agent-pagerduty",
+    "family": "feature",
+    "description": "Pagerduty Agent built on 1st party PagerDuty MCP Server and exposed via A2A Protocol",
+    "uid": 305,
+    "extends": "runtime",
+    "category": "runtime",
+    "caption": "A2A Card",
+    "category_name": "Runtime"
+  }

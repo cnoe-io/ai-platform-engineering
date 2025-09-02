@@ -18,9 +18,9 @@ from mcp.server.fastmcp import FastMCP
 
 from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import pet
 
-from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import pet_findbystatus
+from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import pet_findByStatus as pet_findbystatus
 
-from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import pet_findbytags
+from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import pet_findByTags as pet_findbytags
 
 from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import pet_petid
 
@@ -34,7 +34,7 @@ from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import store
 
 from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import user
 
-from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import user_createwithlist
+from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import user_createWithList as user_createwithlist
 
 from agent_petstore.protocol_bindings.mcp_server.mcp_petstore.tools import user_login
 
@@ -78,6 +78,12 @@ def main():
     # Register pet_findbystatus tools
 
     mcp.tool()(pet_findbystatus.find_pets_by_status)
+
+    mcp.tool()(pet_findbystatus.find_all_pets)
+
+    mcp.tool()(pet_findbystatus.find_pets_summary)
+
+    mcp.tool()(pet_findbystatus.find_pets_by_status_and_category)
 
     # Register pet_findbytags tools
 

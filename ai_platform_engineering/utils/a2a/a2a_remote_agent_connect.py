@@ -18,10 +18,18 @@ from a2a.types import (
 
 from langchain_core.tools import BaseTool
 
-from ai_platform_engineering.utils.models.generic_agent import Input, Output
+from ai_platform_engineering.utils.models.generic_agent import Output
+from cnoe_agent_utils.tracing import TracingManager
+from pydantic import BaseModel, Field
 
 
 logger = logging.getLogger("a2a.client.tool")
+
+
+class A2AToolInput(BaseModel):
+  """Input schema for A2A remote agent tool."""
+  prompt: str = Field(description="The prompt to send to the agent")
+  trace_id: Optional[str] = Field(default=None, description="Optional trace ID for distributed tracing")
 
 
 class A2ARemoteAgentConnectTool(BaseTool):
@@ -30,6 +38,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
   """
   name: str
   description: str
+  args_schema: type[BaseModel] = A2AToolInput
 
   _client = PrivateAttr()
   _agent_card = PrivateAttr()
@@ -111,35 +120,45 @@ class A2ARemoteAgentConnectTool(BaseTool):
     logger.info("A2AClient initialized.")
     logger.info("*" * 80)
 
-  def _run(self, input: Input) -> Any:
+  def _run(self, prompt: str, trace_id: Optional[str] = None) -> Any:
     raise NotImplementedError("Use _arun for async execution.")
 
-  async def _arun(self, input: Input) -> Any:
+  async def _arun(self, prompt: str, trace_id: Optional[str] = None) -> Any:
     """
     Asynchronously sends a prompt to the A2A agent and returns the response.
 
     Args:
-      input (Input): The input containing the prompt to send to the agent.
+      prompt (str): The prompt to send to the agent.
+      trace_id (Optional[str]): Optional trace ID for distributed tracing.
 
     Returns:
       Output: The response from the agent.
     """
     try:
-      # logger.info("\n" + "="*50 + "\nInput Received:\n" + f"{str(input)}" + "\n" + "="*50)
-      print(type(input))  # Ensure input is validated by Pydantic
-      prompt = input['prompt'] if isinstance(input, dict) else input.prompt
-      logger.info(f"Received prompt: {prompt}")
+      logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
       if not prompt:
         logger.error("Invalid input: Prompt must be a non-empty string.")
         raise ValueError("Invalid input: Prompt must be a non-empty string.")
-      response = await self.send_message(prompt)
+      
+      # Use provided trace_id or try to get from TracingManager context
+      if trace_id:
+          logger.info(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
+      else:
+          # Get from TracingManager context - this is set by the trace decorator
+          tracing = TracingManager()
+          trace_id = tracing.get_trace_id() if tracing.is_enabled else None
+          if trace_id:
+              logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
+          else:
+              logger.warning("A2ARemoteAgentConnectTool: No trace_id available from any source")
+      
+      response = await self.send_message(prompt, trace_id)
       return Output(response=response)
     except Exception as e:
-      print(input)
       logger.error(f"Failed to execute A2A client tool: {str(e)}")
       raise RuntimeError(f"Failed to execute A2A client tool: {str(e)}")
 
-  async def send_message(self, prompt: str) -> str:
+  async def send_message(self, prompt: str, trace_id: str = None) -> str:
     """
     Sends a message to the A2A agent and invokes the specified skill.
 
@@ -153,15 +172,21 @@ class A2ARemoteAgentConnectTool(BaseTool):
       logger.info("A2AClient not initialized. Connecting now...")
       await self._connect()
 
-    send_message_payload = {
-        'message': {
-            'role': 'user',
-            'parts': [
-                {'kind': 'text', 'text': prompt}
-            ],
-            'messageId': uuid4().hex,
-        },
+    # Build message payload with optional trace_id in metadata
+    message_payload = {
+        'role': 'user',
+        'parts': [
+            {'kind': 'text', 'text': prompt}
+        ],
+        'messageId': uuid4().hex,
     }
+    
+    # Add trace_id to metadata if provided
+    if trace_id:
+        message_payload['metadata'] = {'trace_id': trace_id}
+        logger.info(f"Adding trace_id to A2A message: {trace_id}")
+    
+    send_message_payload = {'message': message_payload}
     # logger.info("Sending message to A2A agent with payload:\n" + json.dumps({**send_message_payload, 'message': send_message_payload['message'].dict()}, indent=4))
     request = SendMessageRequest(
         id=str(uuid4()),

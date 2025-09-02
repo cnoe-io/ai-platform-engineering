@@ -1,7 +1,0 @@
-{
-  "dependencies": ["."],
-  "graphs": {
-    "qna_agent": "./src/agent_qa/agent.py:graph"
-  },
-  "env": ".env"
-}
