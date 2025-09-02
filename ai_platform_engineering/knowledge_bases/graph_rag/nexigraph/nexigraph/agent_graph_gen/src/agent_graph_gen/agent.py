@@ -4,7 +4,6 @@ from langgraph.prebuilt import create_react_agent
 
 from core.agent.tools import fetch_entity
 from core.graph_db.neo4j.graph_db import Neo4jDB
-import langchain.chat_models.base
 from core.constants import FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC
 from agent_graph_gen.evaluate import FkeyEvaluator
 from agent_graph_gen.heuristics import HeuristicsProcessor
