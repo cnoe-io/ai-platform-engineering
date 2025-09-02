@@ -118,3 +118,6 @@ graphrag:
 
 kb-rag-web:
   enabled: true
+
+kb-rag-server:
+  enabled: true
