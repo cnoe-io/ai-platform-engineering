@@ -188,4 +188,4 @@ neo4j:
     data:
       mode: "dynamic"
       dynamic:
-        storageClassName: gp2
+        storageClassName: local-path
