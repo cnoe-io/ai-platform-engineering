@@ -9,6 +9,8 @@ from core.agent.tools import (
     get_relation_path_between_entity_types,
     raw_query,
 )
+
+import langchain.chat_models.base
 from datetime import datetime, timezone
 from langchain_core.prompts import PromptTemplate
 from langgraph.prebuilt import create_react_agent
