@@ -934,6 +934,7 @@ services:
      - knowledge_base
      - graph_rag
      - nexigraph
+     - p2p
     ports:
       - "8096:8096"
     environment:
