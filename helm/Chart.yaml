@@ -76,3 +76,6 @@ dependencies:
     # KB-RAG services
     version: 0.1.0
     condition: kb-rag-web.enabled
+  - name: kb-rag-server
+    version: 0.1.0
+    condition: kb-rag-server.enabled

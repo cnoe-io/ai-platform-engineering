@@ -1,0 +1,8 @@
+apiVersion: v2
+name: kb-rag-server
+description: KB-RAG FastAPI server
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+

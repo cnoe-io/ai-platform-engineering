@@ -192,3 +192,10 @@ kb-rag-web:
     repository: "ghcr.io/cnoe-io/kb-rag-web"
     tag: "latest"
     pullPolicy: "Always"
+
+kb-rag-server:
+  enabled: false
+  image:
+    repository: "ghcr.io/cnoe-io/kb-rag-server"
+    tag: "latest"
+    pullPolicy: "Always"
