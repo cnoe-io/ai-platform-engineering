@@ -5,7 +5,6 @@ import click
 import httpx
 from dotenv import load_dotenv
 
-from agent_aws.protocol_bindings.a2a_server.agent import AWSEKSAgent as A2AAWSEKSAgent
 from agent_aws.protocol_bindings.a2a_server.agent_executor import AWSEKSAgentExecutor
 
 from a2a.server.apps import A2AStarletteApplication

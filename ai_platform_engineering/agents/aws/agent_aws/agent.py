@@ -40,7 +40,8 @@ class AWSEKSAgent:
         # Set up logging
         log_level = self.config.log_level
         logging.getLogger("strands").setLevel(getattr(logging, log_level, logging.INFO))
-        logger.info(f"Initialized AWS EKS Agent with config: model_provider={self.config.model_provider}, model_name={self.config.model_name}")
+        config_str = f"model_provider={self.config.model_provider}, model_name={self.config.model_name}"
+        logger.info(f"Initialized AWS EKS Agent with config: {config_str}")
         
         # Initialize MCP client and agent on first use
         self._initialize_mcp_and_agent()

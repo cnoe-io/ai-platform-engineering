@@ -1,9 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 import logging
-from typing import Dict, Any, AsyncGenerator
 from typing_extensions import override
 
 from agent_aws.protocol_bindings.a2a_server.agent import AWSEKSAgent
@@ -15,7 +13,7 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+from a2a.utils import new_task, new_text_artifact
 
 
 logger = logging.getLogger(__name__)
@@ -45,7 +43,6 @@ class AWSEKSAgentExecutor(AgentExecutor):
         """
         query = context.get_user_input()
         task = context.current_task
-        context_id = context.message.contextId if context.message else None
 
         if not context.message:
             raise Exception('No message provided')
