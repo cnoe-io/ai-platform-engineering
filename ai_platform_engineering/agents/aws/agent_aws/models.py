@@ -3,7 +3,7 @@
 
 import os
 from enum import Enum
-from typing import Optional, List, Any, Union
+from typing import Optional, List, Union
 from pydantic import BaseModel, Field
 
 
