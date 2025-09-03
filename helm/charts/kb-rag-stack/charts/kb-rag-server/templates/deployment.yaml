@@ -36,6 +36,20 @@ spec:
               containerPort: 9446
               protocol: TCP
           {{- with .Values.env }}
+          envFrom:
+            {{- if include "agent.externalSecrets.enabled" . | eq "true" }}
+            {{- range include "agent.externalSecrets.secretNames" . | splitList "," }}
+            {{- if . }}
+            - secretRef:
+                name: {{ . | trim }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            # Traditional secret handling when external secrets are disabled
+            {{- if .Values.global.secrets.secretName }}
+            - secretRef:
+                name: {{ .Values.global.secrets.secretName }}
+            {{- end }}
           env:
             {{- range $key, $value := . }}
             - name: {{ $key }}
