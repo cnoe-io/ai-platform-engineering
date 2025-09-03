@@ -1,0 +1,374 @@
+name: Helm Chart Test
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'helm/**'
+      - '.github/workflows/helm-chart-test.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'helm/**'
+      - '.github/workflows/helm-chart-test.yml'
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  helm-chart-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      matrix:
+        helm-version: ['v3.18.2', 'v3.17.3']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: ${{ matrix.helm-version }}
+
+    - name: Add required Helm repositories
+      run: |
+        helm repo add milvus https://milvus-io.github.io/milvus-helm/
+        helm repo add neo4j https://helm.neo4j.com/neo4j
+        helm repo add external-secrets https://charts.external-secrets.io
+        helm repo update
+
+    - name: Install Helm dependencies
+      run: |
+        cd helm
+        helm dependency update
+
+    - name: Make test script executable
+      run: |
+        chmod +x helm/tests/helm-test.sh
+
+    - name: Run comprehensive Helm chart tests
+      run: |
+        helm/tests/helm-test.sh
+
+    - name: Run KB-RAG Stack specific tests
+      run: |
+        helm/tests/helm-test.sh kb-rag
+
+    - name: Run quick validation tests
+      run: |
+        helm/tests/helm-test.sh quick
+
+    - name: Test chart installation (dry-run) - All services
+      run: |
+        cd helm
+        helm install test-all-services . \
+          --dry-run \
+          --debug \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=true \
+          --set kb-rag-stack.enabled=true \
+          --set graphrag.enabled=true \
+          --set kb-rag-stack.milvus.cluster.enabled=false \
+          --set kb-rag-stack.milvus.etcd.replicaCount=1 \
+          --set kb-rag-stack.milvus.pulsar.enabled=false \
+          --set kb-rag-stack.milvus.minio.mode=standalone
+
+    - name: Test chart installation (dry-run) - Minimal configuration
+      run: |
+        cd helm
+        helm install test-minimal . \
+          --dry-run \
+          --debug \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=false
+
+    - name: Test KB-RAG Stack installation (dry-run)
+      run: |
+        cd helm/charts/kb-rag-stack
+        helm install test-kb-rag . \
+          --dry-run \
+          --debug \
+          --set milvus.cluster.enabled=false \
+          --set milvus.etcd.replicaCount=1 \
+          --set milvus.pulsar.enabled=false \
+          --set milvus.minio.mode=standalone \
+          --set kb-rag-web.ingress.enabled=true \
+          --set kb-rag-web.ingress.hosts[0].host=example.com
+
+    - name: Test chart upgrade (dry-run)
+      run: |
+        cd helm
+        helm upgrade test-upgrade . \
+          --dry-run \
+          --debug \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=true \
+          --set graphrag.enabled=false \
+          --set kb-rag-stack.milvus.cluster.enabled=false \
+          --set kb-rag-stack.milvus.etcd.replicaCount=1 \
+          --set kb-rag-stack.milvus.pulsar.enabled=false \
+          --set kb-rag-stack.milvus.minio.mode=standalone
+
+    - name: Validate chart packages
+      run: |
+        cd helm
+        helm package .
+        helm lint ai-platform-engineering-*.tgz
+
+        # Test individual chart packages
+        cd charts
+        for chart in */; do
+          if [ -f "$chart/Chart.yaml" ]; then
+            echo "Packaging $chart"
+            helm package "$chart"
+            helm lint "$(basename "$chart")"-*.tgz
+          fi
+        done
+
+    - name: Test with different resource configurations
+      run: |
+        cd helm
+
+        # Test with custom resource limits
+        helm template test-resources . \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=true \
+          --set graphrag.enabled=false \
+          --set kb-rag-stack.milvus.cluster.enabled=false \
+          --set kb-rag-stack.milvus.etcd.replicaCount=1 \
+          --set kb-rag-stack.milvus.pulsar.enabled=false \
+          --set kb-rag-stack.milvus.minio.mode=standalone \
+          --set kb-rag-stack.kb-rag-web.resources.limits.cpu=1000m \
+          --set kb-rag-stack.kb-rag-web.resources.limits.memory=1Gi \
+          --set kb-rag-stack.kb-rag-server.resources.limits.cpu=1000m \
+          --set kb-rag-stack.kb-rag-server.resources.limits.memory=1Gi \
+          --set ai-platform-engineering.resources.limits.cpu=2000m \
+          --set ai-platform-engineering.resources.limits.memory=2Gi
+
+        # Test with custom node selectors
+        helm template test-node-selector . \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=false \
+          --set ai-platform-engineering.nodeSelector."kubernetes\.io/os"=linux \
+          --set ai-platform-engineering.nodeSelector."node-role\.kubernetes\.io/worker"=true
+
+    - name: Test ingress configurations
+      run: |
+        cd helm
+
+        # Test with ingress enabled
+        helm template test-ingress . \
+          --set ai-platform-engineering.enabled=false \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=true \
+          --set graphrag.enabled=false \
+          --set kb-rag-stack.milvus.cluster.enabled=false \
+          --set kb-rag-stack.milvus.etcd.replicaCount=1 \
+          --set kb-rag-stack.milvus.pulsar.enabled=false \
+          --set kb-rag-stack.milvus.minio.mode=standalone \
+          --set kb-rag-stack.kb-rag-web.ingress.enabled=true \
+          --set kb-rag-stack.kb-rag-web.ingress.className=nginx \
+          --set kb-rag-stack.kb-rag-web.ingress.annotations."kubernetes\.io/tls-acme"=true \
+          --set kb-rag-stack.kb-rag-web.ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt-prod \
+          --set kb-rag-stack.kb-rag-web.ingress.hosts[0].host=kb-rag.example.com \
+          --set kb-rag-stack.kb-rag-web.ingress.tls[0].secretName=kb-rag-tls \
+          --set kb-rag-stack.kb-rag-web.ingress.tls[0].hosts[0]=kb-rag.example.com
+
+        # Test KB-RAG Stack with custom ingress configuration
+        cd charts/kb-rag-stack
+        helm template test-kb-rag-ingress . \
+          --set milvus.cluster.enabled=false \
+          --set milvus.etcd.replicaCount=1 \
+          --set milvus.pulsar.enabled=false \
+          --set milvus.minio.mode=standalone \
+          --set kb-rag-web.ingress.enabled=true \
+          --set kb-rag-web.ingress.className=nginx \
+          --set kb-rag-web.ingress.annotations."kubernetes\.io/tls-acme"=true \
+          --set kb-rag-web.ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt-prod \
+          --set kb-rag-web.ingress.hosts[0].host=kb-rag.example.com \
+          --set kb-rag-web.ingress.tls[0].secretName=kb-rag-tls \
+          --set kb-rag-web.ingress.tls[0].hosts[0]=kb-rag.example.com
+
+    - name: Test security configurations
+      run: |
+        cd helm
+
+        # Test with security contexts
+        helm template test-security . \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=false \
+          --set ai-platform-engineering.securityContext.runAsNonRoot=true \
+          --set ai-platform-engineering.securityContext.runAsUser=1000 \
+          --set ai-platform-engineering.securityContext.fsGroup=2000 \
+          --set ai-platform-engineering.podSecurityContext.runAsNonRoot=true \
+          --set ai-platform-engineering.podSecurityContext.runAsUser=1000
+
+    - name: Test with different storage classes
+      run: |
+        cd helm
+
+        # Test with custom storage class
+        helm template test-storage . \
+          --set ai-platform-engineering.enabled=false \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=true \
+          --set graphrag.enabled=false \
+          --set kb-rag-stack.milvus.cluster.enabled=false \
+          --set kb-rag-stack.milvus.etcd.replicaCount=1 \
+          --set kb-rag-stack.milvus.pulsar.enabled=false \
+          --set kb-rag-stack.milvus.minio.mode=standalone \
+          --set kb-rag-stack.kb-rag-redis.persistence.storageClass=fast-ssd \
+          --set kb-rag-stack.kb-rag-redis.persistence.size=5Gi
+
+    - name: Test with different image registries
+      run: |
+        cd helm
+
+        # Test with custom image registry
+        helm template test-registry . \
+          --set global.imageRegistry=my-registry.com \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=false \
+          --set ai-platform-engineering.image.repository=my-registry.com/ai-platform-engineering
+
+    - name: Test with different namespaces
+      run: |
+        cd helm
+
+        # Test with custom namespace
+        helm template test-namespace . \
+          --namespace=ai-platform-test \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=false
+
+    - name: Test chart rollback simulation
+      run: |
+        cd helm
+
+        # Simulate rollback by testing different versions
+        helm template test-rollback . \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=false \
+          --set ai-platform-engineering.image.tag=previous-version
+
+    - name: Test with external secrets
+      run: |
+        cd helm
+
+        # Test with external secrets enabled
+        helm template test-external-secrets . \
+          --set ai-platform-engineering.enabled=false \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=false \
+          --set external-secrets-configuration.enabled=true
+
+    - name: Test with SLIM integration
+      run: |
+        cd helm
+
+        # Test with SLIM enabled
+        helm template test-slim . \
+          --set global.slim.enabled=true \
+          --set global.slim.endpoint=http://slim-service:46357 \
+          --set global.slim.transport=slim \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=false
+
+    - name: Test with different agent configurations
+      run: |
+        cd helm
+
+        # Test with specific agents enabled
+        helm template test-agents . \
+          --set ai-platform-engineering.enabled=true \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=false \
+          --set agent-argocd.enabled=true \
+          --set agent-github.enabled=true \
+          --set agent-slack.enabled=true \
+          --set agent-jira.enabled=true
+
+    - name: Test with different GraphRAG configurations
+      run: |
+        cd helm
+
+        # Test with GraphRAG enabled
+        helm template test-graphrag . \
+          --set ai-platform-engineering.enabled=false \
+          --set backstage-plugin-agent-forge.enabled=false \
+          --set kb-rag-stack.enabled=false \
+          --set graphrag.enabled=true \
+          --set neo4j.fullnameOverride=graphrag-neo4j \
+          --set neo4j.neo4j.password=test-password
+
+    - name: Test KB-RAG Stack with different configurations
+      run: |
+        cd helm/charts/kb-rag-stack
+
+        # Test with all services disabled except web
+        helm template test-minimal . \
+          --set milvus.enabled=false \
+          --set kb-rag-server.enabled=false \
+          --set kb-rag-agent.enabled=false \
+          --set kb-rag-redis.enabled=false \
+          --set kb-rag-web.enabled=true
+
+        # Test with custom resource limits
+        helm template test-resources . \
+          --set milvus.cluster.enabled=false \
+          --set milvus.etcd.replicaCount=1 \
+          --set milvus.pulsar.enabled=false \
+          --set milvus.minio.mode=standalone \
+          --set kb-rag-web.resources.limits.cpu=1000m \
+          --set kb-rag-web.resources.limits.memory=1Gi \
+          --set kb-rag-server.resources.limits.cpu=1000m \
+          --set kb-rag-server.resources.limits.memory=1Gi
+
+    - name: Clean up
+      if: always()
+      run: |
+        cd helm
+        rm -f *.tgz
+        rm -f charts/*.tgz
+        rm -rf charts/*/charts/
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: helm-test-results-${{ matrix.helm-version }}
+        path: |
+          helm/*.tgz
+          helm/charts/*.tgz
+        retention-days: 7
+
+    - name: Upload test logs
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: helm-test-logs-${{ matrix.helm-version }}
+        path: |
+          /tmp/helm-*.yaml
+          /tmp/helm-*.log
+        retention-days: 3

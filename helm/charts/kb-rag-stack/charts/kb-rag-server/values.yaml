@@ -32,7 +32,10 @@ podLabels: {}
 
 imagePullSecrets: []
 
-env: {}
+env:
+  REDIS_URL: "redis://kb-rag-redis:6379/0"
+  MILVUS_HOST: "milvus-standalone"
+  MILVUS_PORT: "19530"
 
 livenessProbe: {}
 readinessProbe: {}

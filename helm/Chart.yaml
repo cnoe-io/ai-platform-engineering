@@ -72,10 +72,7 @@ dependencies:
     version: "2025.07.1"
     repository: "https://helm.neo4j.com/neo4j"
     condition: graphrag.enabled
-  - name: kb-rag-web
-    # KB-RAG services
+  # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
+  - name: kb-rag-stack
     version: 0.1.0
-    condition: kb-rag-web.enabled
-  - name: kb-rag-server
-    version: 0.1.0
-    condition: kb-rag-server.enabled
+    condition: kb-rag-stack.enabled
