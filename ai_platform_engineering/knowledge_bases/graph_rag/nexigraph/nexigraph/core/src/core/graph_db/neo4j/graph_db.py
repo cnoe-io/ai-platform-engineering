@@ -731,7 +731,6 @@ SET e = {{{', '.join([f"`{str(k)}`: '{v}'" if isinstance(v, str) else f"`{str(k)
 # if __name__ == "__main__":
 #     db = Neo4jDB()
 #     async def run():
-#         props = await db.get_entity_type_properties("AwsAccount")
-#         print(props)
+#         pass
 #     import asyncio
 #     asyncio.run(run())
