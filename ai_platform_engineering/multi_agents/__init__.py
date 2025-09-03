@@ -456,18 +456,22 @@ class AgentRegistry:
                 logger.warning(f"Agent {agent_name} is unreachable, skipping registration...")
                 continue
             
-            logger.debug(f"Registering agent {agent_name}...")
-            if isinstance(module, str) and module == GENERIC_CLIENT:
-                agent_client = self._create_generic_a2a_client(agent_name, self.transport)
-                # Connect to the agent
-                run_coroutine_sync(agent_client.connect())
-                # Add the agent to the registry
-                agents[agent_name] = agent_client
-            else:
-                # Connect to the agent
-                run_coroutine_sync(module.a2a_remote_agent.connect())
-                # Add the agent to the registry
-                agents[agent_name] = module.a2a_remote_agent
+            try:
+                logger.debug(f"Registering agent {agent_name}...")
+                if isinstance(module, str) and module == GENERIC_CLIENT:
+                    agent_client = self._create_generic_a2a_client(agent_name, self.transport)
+                    # Connect to the agent
+                    run_coroutine_sync(agent_client.connect())
+                    # Add the agent to the registry
+                    agents[agent_name] = agent_client
+                else:
+                    # Connect to the agent
+                    run_coroutine_sync(module.a2a_remote_agent.connect())
+                    # Add the agent to the registry
+                    agents[agent_name] = module.a2a_remote_agent
+            except Exception as e:
+                logger.error(f"Failed to register agent {agent_name}: {e}, skipping...")
+                continue
 
         return agents
 
