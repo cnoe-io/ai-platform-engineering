@@ -2,7 +2,14 @@
 
 Works with a chat model with tool calling support.
 """
-from core.agent.tools import fetch_entity_details, fuzzy_search, get_entity_types, get_relation_path_between_entity_types, raw_query, get_entity_properties
+from core.agent.tools import (
+    fetch_entity_details,
+    fuzzy_search,
+    get_entity_properties,
+    get_entity_types,
+    get_relation_path_between_entity_types,
+    raw_query,
+)
 from datetime import datetime, timezone
 from langchain_core.prompts import PromptTemplate
 from langgraph.prebuilt import create_react_agent

@@ -29,6 +29,8 @@ dependencies = [
     "langchain-community",
     "uvicorn>=0.35.0",
     "fastapi[standard]>=0.116.1",
+    "redis>=5.0.0",
+    "sentence-transformers>=3.0.0",
 ]
 
 [project.optional-dependencies]
