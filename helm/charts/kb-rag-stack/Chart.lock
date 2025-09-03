@@ -1,0 +1,18 @@
+dependencies:
+- name: milvus
+  repository: https://milvus-io.github.io/milvus-helm/
+  version: 4.0.0
+- name: kb-rag-web
+  repository: file://./charts/kb-rag-web
+  version: 0.1.0
+- name: kb-rag-server
+  repository: file://./charts/kb-rag-server
+  version: 0.1.0
+- name: kb-rag-agent
+  repository: file://./charts/kb-rag-agent
+  version: 0.1.0
+- name: kb-rag-redis
+  repository: file://./charts/kb-rag-redis
+  version: 0.1.0
+digest: sha256:0b22e4170d4975b479c713e739d0e2acd0ab5bfbc4bb2ea94ee4437aedd744eb
+generated: "2025-09-02T21:48:24.736751-05:00"

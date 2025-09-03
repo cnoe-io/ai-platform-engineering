@@ -213,3 +213,6 @@ ai_platform_engineering/knowledge_bases/rag/web/node_modules
 
 # VS Code
 .vscode/
+
+# Helm
+*.tgz
