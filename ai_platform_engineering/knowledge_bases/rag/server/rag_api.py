@@ -53,8 +53,8 @@ class CollectionConfig(BaseModel):
     url: Optional[str] = Field(None, description="Source URL for the collection")
     chunk_size: int = Field(10000, description="Size of text chunks", ge=100, le=50000)
     chunk_overlap: int = Field(2000, description="Overlap between chunks", ge=0, le=5000)
-    created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
-    last_updated: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+    created_at: datetime.datetime = Field(..., description="When the configuration was first created")
+    last_updated: datetime.datetime = Field(..., description="When the configuration was last updated")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
 
 class ConfigRequest(BaseModel):
@@ -204,12 +204,23 @@ class IngestResponse(BaseModel):
 async def set_collection_config(config_request: ConfigRequest):
     """Set configuration for a collection"""
     try:
+        # Check if configuration already exists to preserve created_at timestamp
+        existing_config = None
+        if config_request.url:
+            existing_config = await get_collection_config(config_request.url, by_url=True)
+        if not existing_config:
+            existing_config = await get_collection_config(config_request.collection_name, by_url=False)
+        
+        # Create new config, preserving created_at if it exists
+        current_time = datetime.datetime.now(datetime.timezone.utc)
         config = CollectionConfig(
             collection_name=config_request.collection_name,
             url=config_request.url,
             chunk_size=config_request.chunk_size,
             chunk_overlap=config_request.chunk_overlap,
-            metadata=config_request.metadata
+            metadata=config_request.metadata,
+            created_at=existing_config.created_at if existing_config else current_time,
+            last_updated=current_time
         )
         await store_collection_config(config)
         logger.info(f"Stored configuration for collection: {config.collection_name}")
@@ -302,11 +313,14 @@ async def debug_redis_keys():
 async def test_config_save(url: str):
     """Debug endpoint to manually save a test configuration"""
     try:
+        current_time = datetime.datetime.now(datetime.timezone.utc)
         config = CollectionConfig(
             collection_name="debug-test",
             url=url,
             chunk_size=10000,
-            chunk_overlap=2000
+            chunk_overlap=2000,
+            created_at=current_time,
+            last_updated=current_time
         )
         await store_collection_config(config)
         
