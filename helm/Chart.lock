@@ -44,8 +44,11 @@ dependencies:
 - name: neo4j
   repository: https://helm.neo4j.com/neo4j
   version: 2025.7.1
+- name: milvus
+  repository: https://zilliztech.github.io/milvus-helm/
+  version: 5.0.2
 - name: kb-rag-stack
   repository: ""
   version: 0.1.0
-digest: sha256:8620fc38d5cae782bb53f348c973a72257f4bd5c265c88ded673fc741079c20e
-generated: "2025-09-02T21:44:29.930316-05:00"
+digest: sha256:34e39da509948a25a890f3b4087d54a6d89af82423c905dd580f876a34294460
+generated: "2025-09-03T06:36:07.207703-05:00"

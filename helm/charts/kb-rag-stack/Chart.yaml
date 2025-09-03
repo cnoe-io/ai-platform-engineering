@@ -8,8 +8,8 @@ appVersion: "0.1.0"
 
 dependencies:
   - name: milvus
-    version: "4.0.0"
-    repository: "https://milvus-io.github.io/milvus-helm/"
+    version: "5.0.2"
+    repository: "https://zilliztech.github.io/milvus-helm/"
   - name: kb-rag-web
     version: "0.1.0"
     repository: "file://./charts/kb-rag-web"

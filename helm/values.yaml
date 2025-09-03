@@ -211,7 +211,7 @@ kb-rag-stack:
           memory: 128Mi
         limits:
           cpu: 500m
-          memory: 512Mi
+          memory: 2Gi
 
   # KB-RAG Web configuration
   kb-rag-web:
