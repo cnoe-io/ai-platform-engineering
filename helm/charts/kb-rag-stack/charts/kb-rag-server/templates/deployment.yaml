@@ -37,8 +37,8 @@ spec:
               protocol: TCP
           {{- with .Values.env }}
           envFrom:
-            {{- if include "agent.externalSecrets.enabled" . | eq "true" }}
-            {{- range include "agent.externalSecrets.secretNames" . | splitList "," }}
+            {{- if include .Values.externalSecrets.enabled . | eq "true" }}
+            {{- range include .Values.externalSecrets.secretNames . | splitList "," }}
             {{- if . }}
             - secretRef:
                 name: {{ . | trim }}
