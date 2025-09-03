@@ -9,6 +9,10 @@ import logging
 # =====================================================
 from cnoe_agent_utils.tracing import disable_a2a_tracing
 
+# =====================================================
+# Module initialization - must happen before AgentRegistry import
+# =====================================================
+
 # Disable A2A framework tracing to prevent interference with custom tracing
 disable_a2a_tracing()
 logging.info("A2A tracing disabled for Platform Engineer")
@@ -17,51 +21,58 @@ logging.info("A2A tracing disabled for Platform Engineer")
 # Now safe to import AgentRegistry and create platform_registry
 # =====================================================
 
-from ai_platform_engineering.multi_agents import AgentRegistry
-
+# Import after tracing is properly configured
+from ai_platform_engineering.multi_agents import AgentRegistry  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-KOMODOR_ENABLED = os.getenv("ENABLE_KOMODOR", "false").lower() == "true"
-logger.info("Komodor enabled: %s", KOMODOR_ENABLED)
+AGENT_NAMES = []
 
-WEATHER_AGENT_ENABLED = os.getenv("ENABLE_WEATHER_AGENT", "false").lower() == "true"
-logger.info("Weather agent enabled: %s", WEATHER_AGENT_ENABLED)
+# Default agents
+if os.getenv("ENABLE_ARGOCD", "true").lower() == "true":
+    AGENT_NAMES.append("argocd")
 
-PETSTORE_AGENT_ENABLED = os.getenv("ENABLE_PETSTORE_AGENT", "false").lower() == "true"
-logger.info("Petstore agent enabled: %s", PETSTORE_AGENT_ENABLED)
+if os.getenv("ENABLE_BACKSTAGE", "true").lower() == "true":
+    AGENT_NAMES.append("backstage")
 
-KB_RAG_ENABLED = os.getenv("ENABLE_KB_RAG", "false").lower() == "true"
-logger.info("KB-RAG enabled: %s", KB_RAG_ENABLED)
+if os.getenv("ENABLE_CONFLUENCE", "true").lower() == "true":
+    AGENT_NAMES.append("confluence")
 
-logger.info("Local Build Running......")
+if os.getenv("ENABLE_GITHUB", "true").lower() == "true":
+    AGENT_NAMES.append("github")
 
-AGENT_NAMES = [
-    "argocd",
-    "backstage",
-    "confluence",
-    "github",
-    "jira",
-    "pagerduty",
-    "slack"
-]
+if os.getenv("ENABLE_JIRA", "true").lower() == "true":
+    AGENT_NAMES.append("jira")
 
-if KOMODOR_ENABLED:
+if os.getenv("ENABLE_PAGERDUTY", "true").lower() == "true":
+    AGENT_NAMES.append("pagerduty")
+
+if os.getenv("ENABLE_SLACK", "true").lower() == "true":
+    AGENT_NAMES.append("slack")
+
+
+# Optional agents
+if os.getenv("ENABLE_KOMODOR", "false").lower() == "true":
     AGENT_NAMES.append("komodor")
 
-if WEATHER_AGENT_ENABLED:
+if os.getenv("ENABLE_WEATHER_AGENT", "false").lower() == "true":
     AGENT_NAMES.append("weather")
 
-if PETSTORE_AGENT_ENABLED:
+if os.getenv("ENABLE_PETSTORE_AGENT", "false").lower() == "true":
     AGENT_NAMES.append("petstore")
 
-if KB_RAG_ENABLED:
+if os.getenv("ENABLE_KB_RAG", "false").lower() == "true":
     AGENT_NAMES.append("kb-rag")
+
+if os.getenv("ENABLE_GRAPH_RAG", "false").lower() == "true":
+    AGENT_NAMES.append("graph-rag")
+
+for agent_name in AGENT_NAMES:
+    logger.info("🤖 Agent enabled: %s", agent_name)
 
 class PlatformRegistry(AgentRegistry):
     """Registry for platform engineer multi-agent system."""
-
     AGENT_NAMES = AGENT_NAMES
 
 # Create the platform registry instance

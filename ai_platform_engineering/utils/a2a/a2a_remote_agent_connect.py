@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, List
 from uuid import uuid4
 from pydantic import PrivateAttr
 import pprint
@@ -35,6 +35,8 @@ class A2AToolInput(BaseModel):
 class A2ARemoteAgentConnectTool(BaseTool):
   """
   This tool sends a prompt to the A2A agent and returns the response.
+  Currently only supports single skill agents.
+  TODO: Support multi-skill agents.
   """
   name: str
   description: str
@@ -68,32 +70,35 @@ class A2ARemoteAgentConnectTool(BaseTool):
     self._httpx_client = None
     self._access_token = access_token
 
-  async def _connect(self):
+  async def connect(self):
     """
     Establishes a connection to the remote A2A agent.
     Fetches AgentCard if not already provided.
     """
     logger.info("*" * 80)
     logger.info(
-        f"Connecting to remote agent: {
-            getattr(
-                self._remote_agent_card,
-                'name',
-                self._remote_agent_card)}")
-    self._httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
+        f"Connecting to remote agent: {getattr(self._remote_agent_card, 'name', self._remote_agent_card)}")
+    self._httpx_client = httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(retries=10), timeout=httpx.Timeout(300.0))
 
     # If self._remote_agent_card is already an AgentCard, just use it
     if isinstance(self._remote_agent_card, AgentCard):
+      logger.info(f"Using provided agent card for {self._remote_agent_card.name}")
       self._agent_card = self._remote_agent_card
+      logger.info(f"Agent card: {self._agent_card}")
     else:
       base_url = self._remote_agent_card  # e.g. http://localhost:10000
+      logger.info(f"Fetching agent card from {base_url}")
       resolver = A2ACardResolver(
           httpx_client=self._httpx_client,
           base_url=base_url)
       try:
         _public_card = await resolver.get_agent_card()
         self._agent_card = _public_card
-        logger.info("Successfully fetched public agent card.")
+        self.description = self._agent_card.description
+        if not self._skill_id: # If skill_id is not provided, use the first skill
+          self._skill_id = self._agent_card.skills[0].id
+
+        logger.info(f"Successfully fetched public agent card for {self._remote_agent_card}.")
         if _public_card.supportsAuthenticatedExtendedCard and self._access_token:
           try:
             _extended_card = await resolver.get_agent_card(
@@ -119,6 +124,22 @@ class A2ARemoteAgentConnectTool(BaseTool):
     )
     logger.info("A2AClient initialized.")
     logger.info("*" * 80)
+
+  def agent_card(self) -> AgentCard:
+    return self._agent_card
+
+  def get_skill_examples(self) -> List[str]:
+    """
+    Returns the examples for the skill that is invoked on the remote agent.
+    """
+    for skill in self._agent_card.skills:
+      if skill.id == self._skill_id:
+        return skill.examples
+    return []
+
+  def skill_id(self) -> str:
+    """Returns the skill ID thats invoked on the remote agent."""
+    return self._skill_id
 
   def _run(self, prompt: str, trace_id: Optional[str] = None) -> Any:
     raise NotImplementedError("Use _arun for async execution.")
@@ -170,7 +191,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
     """
     if self._client is None:
       logger.info("A2AClient not initialized. Connecting now...")
-      await self._connect()
+      await self.connect()
 
     # Build message payload with optional trace_id in metadata
     message_payload = {
