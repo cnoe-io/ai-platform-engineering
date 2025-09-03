@@ -269,9 +269,10 @@ kb-rag-stack:
         cpu: 500m
         memory: 512Mi
 
-  # KB-RAG Agent configuration
-  kb-rag-agent:
+  # Agent configuration (standard agent chart)
+  agent:
     enabled: true
+    nameOverride: "agent-kb-rag"
     image:
       repository: "ghcr.io/cnoe-io/kb-rag-agent-a2a"
       tag: "latest"
@@ -291,7 +292,7 @@ kb-rag-stack:
         memory: 128Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 2Gi
 
   # KB-RAG Redis configuration
   kb-rag-redis:

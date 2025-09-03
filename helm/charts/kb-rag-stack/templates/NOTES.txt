@@ -6,7 +6,7 @@
   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-kb-rag-server 9446:9446
 
 3. KB-RAG Agent is available at:
-  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-kb-rag-agent 8000:8000
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-agent 8000:8000
 
 4. Redis is available at:
   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-kb-rag-redis 6379:6379

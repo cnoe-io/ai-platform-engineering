@@ -7,6 +7,10 @@ global:
   imageRegistry: ""
   imagePullSecrets: []
   storageClass: ""
+  secrets:
+    secretName: "llm-secret"
+  slim:
+    enabled: false
 
 # Milvus configuration
 milvus:
@@ -85,13 +89,14 @@ kb-rag-server:
       cpu: 500m
       memory: 512Mi
 
-# KB-RAG Agent configuration
-kb-rag-agent:
+# Agent configuration (standard agent chart)
+agent:
   enabled: true
+  nameOverride: "agent-kb-rag"
   image:
     repository: "ghcr.io/cnoe-io/kb-rag-agent-a2a"
     tag: "latest"
-    pullPolicy: IfNotPresent
+    pullPolicy: "Always"
 
   service:
     type: ClusterIP
@@ -107,8 +112,23 @@ kb-rag-agent:
       memory: 128Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 2Gi
 
+  # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+  livenessProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
 # KB-RAG Redis configuration
 kb-rag-redis:
   enabled: true
@@ -150,7 +170,7 @@ dependencies:
     dependsOn:
       - kb-rag-redis
       - milvus
-  kb-rag-agent:
+  agent:
     dependsOn:
       - milvus
   kb-rag-redis:
