@@ -37,7 +37,10 @@ spec:
               protocol: TCP
           {{- with .Values.env }}
           env:
-            {{- toYaml . | nindent 12 }}
+            {{- range $key, $value := . }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
           {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
