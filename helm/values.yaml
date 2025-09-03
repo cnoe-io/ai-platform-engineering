@@ -116,8 +116,5 @@ agent-reflection:
 graphrag:
   enabled: true
 
-kb-rag-web:
-  enabled: true
-
-kb-rag-server:
+kb-rag-stack:
   enabled: true
