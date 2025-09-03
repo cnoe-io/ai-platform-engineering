@@ -19,6 +19,7 @@ dependencies:
   - name: agent
     version: "0.1.10"
     repository: "file://../agent"
+    condition: agent.enabled
   - name: kb-rag-redis
     version: "0.1.0"
     repository: "file://./charts/kb-rag-redis"
