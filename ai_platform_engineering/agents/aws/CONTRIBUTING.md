@@ -15,8 +15,8 @@ We welcome contributions to the AWS EKS Agent project! This document provides gu
 
 ```bash
 # Clone the repository
-git clone https://github.com/cnoe-io/agent-aws.git
-cd agent-aws
+git clone https://github.com/cnoe-io/ai-platform-engineering.git
+cd ai-platform-engineering/ai_platform_engineering/agents/aws
 
 # Create virtual environment
 make setup-venv
