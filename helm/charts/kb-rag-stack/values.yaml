@@ -92,6 +92,7 @@ kb-rag-server:
 # Agent configuration (standard agent chart)
 agent:
   enabled: true
+  createMcpHttpServer: false
   nameOverride: "agent-kb-rag"
   image:
     repository: "ghcr.io/cnoe-io/kb-rag-agent-a2a"
