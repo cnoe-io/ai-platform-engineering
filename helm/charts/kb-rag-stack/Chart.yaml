@@ -16,9 +16,9 @@ dependencies:
   - name: kb-rag-server
     version: "0.1.0"
     repository: "file://./charts/kb-rag-server"
-  - name: kb-rag-agent
-    version: "0.1.0"
-    repository: "file://./charts/kb-rag-agent"
+  - name: agent
+    version: "0.1.10"
+    repository: "file://../agent"
   - name: kb-rag-redis
     version: "0.1.0"
     repository: "file://./charts/kb-rag-redis"
