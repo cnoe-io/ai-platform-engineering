@@ -71,7 +71,7 @@ def list_available_workflows() -> list:
     return [{'id': k, 'name': v.get('name', ''), 'description': v.get('description', '')}
             for k, v in workflows.items()]
 
-tools = incident_registry.get_tools()
+tools = incident_registry.get_examples()
 
 agent_skill_examples = [example for examples in tools.values() for example in examples]
 
