@@ -270,9 +270,9 @@ kb-rag-stack:
         memory: 512Mi
 
   # Agent configuration (standard agent chart)
-  agent:
+  kb-rag-agent:
     enabled: true
-    nameOverride: "agent-kb-rag"
+    nameOverride: "kb-rag-agent"
     image:
       repository: "ghcr.io/cnoe-io/kb-rag-agent-a2a"
       tag: "latest"
