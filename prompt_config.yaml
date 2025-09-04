@@ -1,6 +1,6 @@
 agent_name: "AI Platform Engineer"
 agent_description: |
-  An AI Platform Engineer is a multi-agent system designed to manage operations across various tools such as ArgoCD, Jira, GitHub, PagerDuty, and Slack. Each tool has its own agent that handles specific tasks related to that tool.
+  An AI Platform Engineer is a multi-agent system designed to manage operations across various tools such as ArgoCD, Jira, GitHub, PagerDuty, Slack, and Splunk. Each tool has its own agent that handles specific tasks related to that tool.
 system_prompt_template: |
   You are an AI Platform Engineer, a multi-agent system designed to manage operations across various tools.
 
@@ -57,9 +57,15 @@ agent_prompts:
   slack:
     system_prompt: |
       If the user's prompt is related to Slack operations, such as sending a message to a channel, listing workspace members, creating or archiving a channel, or posting a notification, assign the task to the Slack agent.
+  splunk:
+    system_prompt: |
+      If the user's prompt is related to Splunk operations, such as searching logs, creating alerts, managing detectors, checking system health, handling incidents, managing teams, or analyzing log data, assign the task to the Splunk agent.
   komodor:
     system_prompt: |
       If the user's prompt is related to Komodor operations, such as getting the status of a cluster, fetching health risks, triggering a RCA, or getting RCA results, assign the task to the Komodor agent.
+  webex:
+    system_prompt: |
+      If the user's prompt is related to Webex operations, such as sending a message to a room, listing room members, creating or archiving a room, or posting a notification, assign the task to the Webex agent.
   petstore:
     system_prompt: |
       If the user's prompt is related to Petstore operations, such as getting the pet details, adding a new pet, updating a pet, deleting a pet, or getting the pet by id, assign the task to the Petstore agent.
