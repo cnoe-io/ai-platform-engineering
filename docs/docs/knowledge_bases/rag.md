@@ -14,27 +14,7 @@ sidebar_position: 10
 
 ## Architecture
 
-```mermaid
-flowchart TD
-  subgraph Client Layer
-    A[User Client A2A]
-  end
-  subgraph Agent Transport Layer
-    B[Google A2A]
-  end
-  subgraph Agent Graph Layer
-    C[LangGraph ReAct Agent]
-  end
-  subgraph Tools Layer
-    D[LangChain Toolkit]
-    E[Vector Database]
-    F[External APIs]
-  end
-
-  A --> B --> C --> D --> E
-  D --> F
-  F --> D --> C --> B --> A
-```
+![RAG Agent Architecture](images/rag-agent-arch.svg)
 
 ---
 
@@ -103,11 +83,12 @@ kb-rag:
 Run the following command from the main repository root to start the KB-RAG services:
 
 ```bash
-docker compose --profile kb-rag --profile p2p up
+docker compose --profile kb-rag --profile p2p up --pull always
 ```
 
 This command will start:
-- **kb-rag-agent**: The main RAG agent service (accessible on port 8009)
+- **kb-rag-agent**: The main RAG agent service (accessible on port 8010)
+- **kb-rag-web**: Web UI for ingestion and querying (accessible on port 9447)
 - **milvus-standalone**: Vector database for storing embeddings (port 19530)
 - **etcd**: Coordination service for Milvus
 - **milvus-minio**: Object storage for Milvus (port 9000)
@@ -119,8 +100,9 @@ Once the services are running, you can verify the setup by:
 
 1. **Check service health**: All containers should be running and healthy
 2. **Access the main platform engineer**: Available at `http://localhost:8000`
-3. **Access the RAG agent directly**: Available at `http://localhost:8009`
-4. **Milvus Admin UI**: Available at `http://localhost:9091`
+3. **Access the RAG agent directly**: Available at `http://localhost:8010`
+4. **Access the RAG Web UI**: Available at `http://localhost:9447` for document ingestion and querying
+5. **Milvus Admin UI**: Available at `http://localhost:9091/webui`
 
 ### 5️⃣ Configuration Details
 
@@ -141,7 +123,29 @@ ENABLE_KB_RAG=true
 VSTORE_COLLECTION=rag_default
 ```
 
-### 6️⃣ Using the RAG Agent
+### 6️⃣ Web UI for Document Management
+
+The KB-RAG system includes a user-friendly web interface for managing your knowledge base:
+
+![RAG Web UI](images/image.svg)
+
+**Access the Web UI**: Navigate to `http://localhost:9447` in your browser
+
+**Key Features**:
+- **Document Ingestion**: Add content from web URLs to your knowledge base
+- **Interactive Querying**: Test search functionality with real-time results
+- **Parameter Tuning**: Adjust search limits and similarity thresholds
+- **Status Monitoring**: Track ingestion progress and health
+
+**Quick Start**:
+1. Enter a documentation URL (e.g., `https://docs.example.com`) in the "Ingest URL" field
+2. Click "Ingest" to add the content to your knowledge base
+3. Use the "Query" section to search your ingested content
+4. Adjust "Limit" and "Similarity" parameters to fine-tune results
+
+For detailed usage instructions, API documentation, and advanced configuration options, see the [RAG Ingestion Service Guide](./ragingestion.md).
+
+### 7️⃣ Using the RAG Agent
 
 Once configured and running, the RAG agent can:
 - Answer questions based on ingested documentation

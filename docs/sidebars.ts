@@ -189,6 +189,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'knowledge_bases/ragingestion',
+          label: 'RAG Ingestion',
+        },
+        {
+          type: 'doc',
           id: 'knowledge_bases/rag',
           label: 'RAG',
         },

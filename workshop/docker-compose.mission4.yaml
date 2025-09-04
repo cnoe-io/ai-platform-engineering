@@ -8,67 +8,45 @@ services:
     container_name: platform-engineer-p2p
     restart: unless-stopped
     volumes:
-      - ../.env:/app/.env
+      - ../.env.mission4:/app/.env
       - ../prompt_config.yaml:/app/prompt_config.yaml
       - ../ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
       - ../ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     depends_on:
-      - agent-weather-p2p
       - agent-github-p2p
       - kb-rag-agent
     env_file:
-      - ../.env
+      - ../.env.mission4
     ports:
       - "8000:8000"
     environment:
       - A2A_TRANSPORT=p2p
-      - WEATHER_AGENT_HOST=agent-weather-p2p
       - GITHUB_AGENT_HOST=agent-github-p2p
       - KB_RAG_AGENT_HOST=kb-rag-agent
+      - ENABLE_KB_RAG=true
+      - SKIP_AGENT_CONNECTIVITY_CHECK=false
+      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=false
+      - ENABLE_TRACING=false
     command: platform-engineer
 
-  ####################################################################################################
-  #                                      AGENT WEATHER A2A P2P                                       #
-  ####################################################################################################
-  agent-weather-p2p:
-    image: ghcr.io/cnoe-io/agent-weather:latest
-    pull_policy: always
-    container_name: agent-weather-p2p
-    restart: unless-stopped
-    volumes:
-      - ../.env:/app/.env
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ../ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
-      - ../ai_platform_engineering/agents/weather/clients:/app/clients
-    ports:
-      - "8010:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-weather
-  
   ####################################################################################################
   #                                      AGENT GITHUB A2A P2P                                        #
   ####################################################################################################
   agent-github-p2p:
-    image: ghcr.io/cnoe-io/agent-github:a2a-latest
+    image: ghcr.io/cnoe-io/agent-github:main
     pull_policy: always
     container_name: agent-github-p2p
+    restart: unless-stopped
     user: root
     volumes:
-      - ../.env:/app/.env
+      - ../.env.mission4:/app/.env
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8004:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-github
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - ENABLE_TRACING=false
 
   ####################################################################################################
   #                                          KB-RAG SERVICES                                         #
@@ -77,27 +55,34 @@ services:
     image: ghcr.io/cnoe-io/kb-rag-agent-a2a:latest
     pull_policy: always
     container_name: kb-rag-agent
+    restart: unless-stopped
     depends_on:
       - milvus-standalone
       - kb-rag-server
     volumes:
-      - ../.env:/app/.env
+      - ../.env.mission4:/app/.env
+    environment:
+      - VSTORE_COLLECTION=rag_default
     ports:
-      - "8009:8000"
+      - "8020:8000"
   kb-rag-server:
     image: ghcr.io/cnoe-io/kb-rag-server:latest
-    # pull_policy: always
+    pull_policy: always
     container_name: kb-rag-server
+    restart: unless-stopped
     depends_on:
       - milvus-standalone
     volumes:
-      - ../.env:/app/.env
+      - ../.env.mission4:/app/.env
+    environment:
+      - VSTORE_COLLECTION=rag_default
     ports:
       - "9446:9446"
   kb-rag-web:
     image: ghcr.io/cnoe-io/kb-rag-web:latest
-    # pull_policy: always
+    pull_policy: always
     container_name: kb-rag-web
+    restart: unless-stopped
     depends_on:
       - kb-rag-server
     ports:

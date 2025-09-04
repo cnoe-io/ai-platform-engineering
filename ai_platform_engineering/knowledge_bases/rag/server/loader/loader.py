@@ -15,13 +15,14 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import Dict, Any, Optional
 import uuid
 import datetime
+import json
 
 class Loader:
-    def __init__(self, vstore: VectorStore, logger: logging.Logger):
+    def __init__(self, vstore: VectorStore, logger: logging.Logger, redis_client=None):
         self.session = None
         self.vstore = vstore
         self.logger = logger
-        self.jobs_store = None  # Will be set by the API
+        self.redis_client = redis_client
         self.chunk_size = 10000
         self.chunk_overlap = 2000
         
@@ -33,23 +34,58 @@ class Loader:
             separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""]
         )
     
-    def set_jobs_store(self, jobs_store: Dict[str, Any]):
-        """Set the jobs store reference"""
-        self.jobs_store = jobs_store
+    def set_chunking_config(self, chunk_size: int, chunk_overlap: int):
+        """Update chunking configuration and recreate text splitter"""
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            length_function=len,
+            separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""]
+        )
+        self.logger.info(f"Updated chunking config: size={chunk_size}, overlap={chunk_overlap}")
     
-    def update_job_progress(self, job_id: Optional[str], **updates):
-        """Update job progress if job_id is provided and jobs_store exists"""
-        if job_id and self.jobs_store and job_id in self.jobs_store:
-            job_info = self.jobs_store[job_id]
-            self.logger.info(f"Updating job {job_id} with: {updates}")
-            for key, value in updates.items():
-                if key == "progress":
-                    job_info.progress.update(value)
+    async def update_job_progress(self, job_id: Optional[str], **updates):
+        """Update job progress using Redis if job_id is provided and Redis client exists"""
+        if job_id and self.redis_client:
+            try:
+                # Get current job info
+                job_data = await self.redis_client.get(f"job:{job_id}")
+                if job_data:
+                    job_info = json.loads(job_data)
+                    
+                    # Update job info
+                    for key, value in updates.items():
+                        if key == "progress":
+                            job_info["progress"].update(value)
+                        elif key in ["created_at", "completed_at"]:
+                            # Convert datetime to string if it's a datetime object
+                            if isinstance(value, datetime.datetime):
+                                # Ensure UTC timezone if not already set
+                                if value.tzinfo is None:
+                                    value = value.replace(tzinfo=datetime.timezone.utc)
+                                job_info[key] = value.isoformat()
+                            else:
+                                job_info[key] = value
+                        else:
+                            job_info[key] = value
+                    
+                    # Store back to Redis with expiry
+                    await self.redis_client.setex(
+                        f"job:{job_id}",
+                        3600,  # 1 hour expiry
+                        json.dumps(job_info)
+                    )
+                    
+                    self.logger.info(f"Updated job {job_id} with: {updates}")
                 else:
-                    setattr(job_info, key, value)
-            self.logger.info(f"Job {job_id} updated. Status: {job_info.status}, Progress: {job_info.progress}")
+                    self.logger.warning(f"Job {job_id} not found in Redis")
+            except Exception as e:
+                self.logger.error(f"Error updating job progress for {job_id}: {e}")
         else:
-            self.logger.warning(f"Cannot update job {job_id}: job_id={job_id}, jobs_store exists={bool(self.jobs_store)}, job_id in store={job_id in self.jobs_store if self.jobs_store else False}")
+            self.logger.warning(f"Cannot update job {job_id}: job_id={job_id}, redis_client exists={bool(self.redis_client)}")
     
     async def get_sitemaps(self, url: str) -> List[str]:
         """Return a list of sitemap URLs for the given site.
@@ -205,7 +241,7 @@ class Loader:
 
             self.logger.info(f"Length of chunk_docs: {len(chunk_docs)}")
 
-            self.update_job_progress(job_id, 
+            await self.update_job_progress(job_id, 
                 status="in_progress", 
                 progress={"message": f"Splitting page into {len(chunk_docs)} chunks..."}
             )
@@ -219,7 +255,7 @@ class Loader:
                 if not hasattr(chunk_doc, 'id') or not chunk_doc.id:
                     chunk_doc.id = f"{doc.id}_chunk_{i}" if doc.id else uuid.uuid4().hex
             
-            self.update_job_progress(job_id, 
+            await self.update_job_progress(job_id, 
                 status="in_progress", 
                 progress={"message": f"Adding {len(chunk_docs)} document chunks to vector store..."}
             )
@@ -229,6 +265,11 @@ class Loader:
         else:
             # Process as single document
             self.logger.info(f"Embedding & adding document: {source}")
+
+            # Add these to maintian consistency with chunked documents
+            doc.metadata["chunk_index"] = 0
+            doc.metadata["total_chunks"] = 1
+            doc.metadata["chunk_id"] = f"{doc.id}_chunk_0" if doc.id else f"{uuid.uuid4().hex}_chunk_0"
             doc_ids = await self.vstore.aadd_documents([doc])
             self.logger.info(f"Document added to vector store: {doc_ids}")
         
@@ -308,7 +349,7 @@ class Loader:
         Returns: List of document_ids (filenames for now)
         """
         try:
-            self.update_job_progress(job_id, 
+            await self.update_job_progress(job_id, 
                 status="in_progress", 
                 progress={"message": "Checking for sitemaps...", "processed": 0, "total": 0}
             )
@@ -319,7 +360,7 @@ class Loader:
             
             if not sitemaps:
                 self.logger.info(f"No sitemaps found at: {url}")
-                self.update_job_progress(job_id, 
+                await self.update_job_progress(job_id, 
                     progress={"message": "No sitemaps found, processing single URL...", "processed": 0, "total": 1}
                 )
                 
@@ -334,7 +375,7 @@ class Loader:
                     doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata) 
                     await self.process_document(doc, job_id)
                 
-                self.update_job_progress(job_id, 
+                await self.update_job_progress(job_id, 
                     status="completed", 
                     completed_at=datetime.datetime.now(),
                     progress={"message": "Successfully processed 1 URL", "processed": 1, "total": 1}
@@ -344,14 +385,14 @@ class Loader:
             # Load documents from URLs
             for sitemap_url in sitemaps:
                 self.logger.info(f"Loading sitemap: {sitemap_url}")
-                self.update_job_progress(job_id, 
+                await self.update_job_progress(job_id, 
                     progress={"message": f"Getting URLs from sitemap: {sitemap_url}...", "processed": 0, "total": 0}
                 )
                 
                 urls = await self.get_urls_from_sitemap(sitemap_url)
                 total_urls = len(urls)
                 
-                self.update_job_progress(job_id, 
+                await self.update_job_progress(job_id, 
                     progress={"message": f"Found {total_urls} URLs to process", "processed": 0, "total": total_urls}
                 )
                 
@@ -363,7 +404,7 @@ class Loader:
                     current_url = urls[i] if i < len(urls) else "unknown"
                     self.logger.info(f"[{i+1}/{len(pages)}] Loading page: {current_url}")
                     
-                    self.update_job_progress(job_id, 
+                    await self.update_job_progress(job_id, 
                         progress={"message": f"Processing page {i+1}/{total_urls}: {current_url}", "processed": i, "total": total_urls}
                     )
                     
@@ -371,7 +412,7 @@ class Loader:
                     doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
                     await self.process_document(doc, job_id)
                 
-                self.update_job_progress(job_id, 
+                await self.update_job_progress(job_id, 
                     status="completed", 
                     completed_at=datetime.datetime.now(),
                     progress={"message": f"Successfully processed {total_urls} URLs", "processed": total_urls, "total": total_urls}
@@ -380,7 +421,7 @@ class Loader:
             
         except Exception as e:
             self.logger.error(f"Error during URL ingestion: {e}")
-            self.update_job_progress(job_id, 
+            await self.update_job_progress(job_id, 
                 status="failed", 
                 completed_at=datetime.datetime.now(),
                 error=str(e),

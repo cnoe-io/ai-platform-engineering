@@ -1,4 +1,28 @@
 ## Unreleased
+=======
+## 0.1.11 (2025-08-26)
+
+### Fix
+
+- **weather**: add self.mcp_api_key
+
+## 0.1.10 (2025-08-26)
+
+### Fix
+
+- **petstore**: add PETSTORE_API_KEY support
+- correct petstore mcp env var name
+- Update README.md (#230)
+
+## 0.1.9 (2025-08-26)
+
+### Fix
+
+- **github**: add ENABLE_MCP_TOOL_MATCH feature flag (#229)
+- ruff lint
+- rag ingestion crash; workshop docker file
+
+## 0.1.8 (2025-08-25)
 
 ### Feat
 
