@@ -65,6 +65,10 @@ class AgentRegistry:
             "slim": "ai_platform_engineering.agents.weather.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.weather.clients.a2a.agent"
         },
+        "splunk": {
+            "slim": "ai_platform_engineering.agents.splunk.clients.slim.agent",
+            "a2a": "ai_platform_engineering.agents.splunk.clients.a2a.agent"
+        },
         "petstore": {
             "slim": "ai_platform_engineering.agents.template.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.template.clients.a2a.agent"
