@@ -5,6 +5,7 @@ Works with a chat model with tool calling support.
 from core.agent.tools import (
     fetch_entity_details,
     fuzzy_search,
+    get_entity_properties,
     get_entity_types,
     get_relation_path_between_entity_types,
     raw_query,
@@ -36,7 +37,7 @@ memory = MemorySaver()
 
 logger = utils.get_logger(__name__)
 
-GRAPH_DB_READ_TOOLS = [get_entity_types, fetch_entity_details, get_relation_path_between_entity_types, fuzzy_search, raw_query]
+GRAPH_DB_READ_TOOLS = [get_entity_types, get_entity_properties, fetch_entity_details, get_relation_path_between_entity_types, fuzzy_search, raw_query]
 
 def pre_model_hook(state):
     trimmed_messages = trim_messages(
