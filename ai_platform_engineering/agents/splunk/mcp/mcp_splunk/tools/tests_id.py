@@ -9,23 +9,35 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def delete_test(path_id: str) -> Any:
-    '''
-    Deletes a test specified by the given test ID.
+    """
+        Deletes a test specified in the {id} path parameter.
 
-    Args:
-        path_id (str): The unique identifier of the test to delete.
+        OpenAPI Description:
+            Deletes a Test.
 
-    Returns:
-        Any: The JSON response from the API call indicating the result of the delete operation.
+    ## Requirements
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
+    * You must have an organization access token with the API permission or a session token to use the API.
+    * You need the Splunk Observability Cloud admin or power role.
+
+
+        Args:
+
+            path_id (str): ID of the test to delete.
+
+
+
+        Returns:
+            Any: The JSON response from the API call.
+
+        Raises:
+            Exception: If the API request fails or returns an error.
+    """
     logger.debug("Making DELETE request to /tests/{id}")
 
     params = {}

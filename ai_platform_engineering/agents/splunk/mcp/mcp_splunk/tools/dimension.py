@@ -9,28 +9,41 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__dimensions__query(
     param_query: str = None, param_order_by: str = None, param_offset: int = None, param_limit: int = None
 ) -> Any:
-    '''
-    Retrieves dimensions based on query parameters.
+    """
+    Retrieves dimensions based on a query
+
+    OpenAPI Description:
+        Retrieves dimensions based on query parameters
+
 
     Args:
-        param_query (str, optional): Dimension name or name and value to search for. Defaults to None.
-        param_order_by (str, optional): Property on which the API should sort the query results. Defaults to None.
-        param_offset (int, optional): Index in the result set at which the API should start returning results. Defaults to None.
-        param_limit (int, optional): Number of results to return from the result set. Defaults to None.
+
+        param_query (str): Dimension name or name and value to search for
+
+
+        param_order_by (str): Property on which the API should sort the query results
+
+
+        param_offset (int): Index in the result set at which the API should start returning results
+
+
+        param_limit (int): Number of results to return from the result set
+
+
 
     Returns:
-        Any: The JSON response from the API call containing the list of dimensions matching the query parameters.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /dimension")
 
     params = {}

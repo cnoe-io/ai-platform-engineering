@@ -9,23 +9,30 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve_mts__metadata__using_id(path_id: str) -> Any:
-    '''
-    Retrieves metadata for a metric timeseries (MTS) specified by its ID.
+    """
+    Retrieves the MTS metadata for a metric timeseries
+
+    OpenAPI Description:
+        Retrieves metadata for the MTS specified by the ID query parameter
+
 
     Args:
-        path_id (str): ID of the metric timeseries (MTS) for which metadata is to be retrieved.
+
+        path_id (str): ID of the MTS for which you want metadata
+
+
 
     Returns:
-        Any: The JSON response containing the metadata for the specified MTS.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /metrictimeseries/{id}")
 
     params = {}

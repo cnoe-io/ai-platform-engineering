@@ -88,7 +88,7 @@ def main():
     load_dotenv()
 
     # Configure logging
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     # Get MCP configuration from environment variables
     MCP_MODE = os.getenv("MCP_MODE", "stdio").lower()
@@ -100,14 +100,14 @@ def main():
     logging.info(f"Starting MCP server in {MCP_MODE} mode on {MCP_HOST}:{MCP_PORT}")
 
     # Get agent name from environment variables
-    AGENT_NAME = os.getenv("AGENT_NAME", "SPLUNK Agent")
-    logging.info(f"Agent name: {AGENT_NAME}")
+    SERVER_NAME = os.getenv("SERVER_NAME") or os.getenv("AGENT_NAME") or "SPLUNK"
+    logging.info(f"MCP Server name: {SERVER_NAME}")
 
     # Create server instance
     if MCP_MODE.lower() in ["sse", "http"]:
-        mcp = FastMCP(f"{AGENT_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
+        mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
     else:
-        mcp = FastMCP("SPLUNK MCP Server")
+        mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
     # Register incident tools
 
@@ -270,7 +270,7 @@ def main():
     mcp.tool()(tests_pause.pause_multiple_tests)
 
     # Run the MCP server
-    mcp.run(transport=MCP_MODE)
+    mcp.run(transport=MCP_MODE.lower())
 
 
 if __name__ == "__main__":

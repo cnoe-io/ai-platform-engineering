@@ -9,24 +9,34 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def update__team__membership__user__id(path_tid: str, path_uid: str) -> Any:
-    '''
-    Updates a team by adding a user by ID.
+    """
+    Updates the team specified by {tid} by adding the user specified by {uid}
+
+
+    OpenAPI Description:
+        Updates a team by adding a user by ID
+
 
     Args:
-        path_tid (str): The unique identifier of the team to update.
-        path_uid (str): The unique identifier of the user to add to the team.
+
+        path_tid (str): Team ID
+
+
+        path_uid (str): User ID
+
+
 
     Returns:
-        Any: The JSON response from the API call indicating the result of the operation.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making PUT request to /team/{tid}/member/{uid}")
 
     params = {}
@@ -44,19 +54,29 @@ async def update__team__membership__user__id(path_tid: str, path_uid: str) -> An
 
 
 async def delete__team__user__user__id(path_tid: str, path_uid: str) -> Any:
-    '''
-    Deletes a user from a team.
+    """
+    Deletes the user specified by {uid} from the team specified by {tid}
+
+
+    OpenAPI Description:
+        Deletes a user from a team
+
 
     Args:
-        path_tid (str): The unique identifier of the team from which the user will be removed.
-        path_uid (str): The unique identifier of the user to be deleted from the team.
+
+        path_tid (str): Team ID
+
+
+        path_uid (str): User ID
+
+
 
     Returns:
-        Any: The JSON response from the API call indicating the result of the delete operation.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making DELETE request to /team/{tid}/member/{uid}")
 
     params = {}

@@ -9,23 +9,30 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__metadata__metric__name(path_name: str) -> Any:
-    '''
-    Retrieves metadata for the specified metric.
+    """
+    Retrieves the metadata for a metric name
+
+    OpenAPI Description:
+        Retrieves metadata for the specified metric
+
 
     Args:
-        path_name (str): The name of the metric for which metadata is to be retrieved.
+
+        path_name (str): Metric name
+
+
 
     Returns:
-        Any: The JSON response containing the metadata for the specified metric.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /metric/{name}")
 
     params = {}

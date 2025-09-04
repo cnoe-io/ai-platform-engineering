@@ -9,23 +9,30 @@ from typing import Dict, Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__tag__metadata__using__name(path_name: str) -> Any:
-    '''
-    Retrieves metadata for a specified tag by name.
+    """
+    Retrieves metadata for a tag
+
+    OpenAPI Description:
+        Retrieves metadata for the tag specified by the query parameter
+
 
     Args:
-        path_name (str): The name of the tag for which metadata should be retrieved.
+
+        path_name (str): Tag you want to retrieve
+
+
 
     Returns:
-        Any: The JSON response containing metadata for the specified tag.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /tag/{name}")
 
     params = {}
@@ -45,21 +52,34 @@ async def retrieve__tag__metadata__using__name(path_name: str) -> Any:
 async def create__update__tag(
     path_name: str, body_customProperties: Dict[str, Any] = None, body_description: str = None, body_name: str = None
 ) -> Any:
-    '''
-    Creates or updates a tag with the specified properties.
+    """
+    Creates or updates a tag
+
+    OpenAPI Description:
+        Creates or updates the tag specified in the path parameter
+
 
     Args:
-        path_name (str): The name of the tag to create or update.
-        body_customProperties (Dict[str, Any], optional): Custom properties to associate with the tag. Defaults to None.
-        body_description (str, optional): Description of the tag. Defaults to None.
-        body_name (str, optional): The name to assign to the tag. Defaults to None.
+
+        path_name (str): Tag name
+
+
+        body_customProperties (Dict[str, Any]): Custom properties for the tag
+
+
+        body_description (str): Tag description
+
+
+        body_name (str): Tag name
+
+
 
     Returns:
-        Any: The JSON response from the API call containing the created or updated tag details.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making PUT request to /tag/{name}")
 
     params = {}
@@ -83,18 +103,25 @@ async def create__update__tag(
 
 
 async def delete__single__tag(path_name: str) -> Any:
-    '''
-    Deletes the specified tag.
+    """
+    Deletes a tag
+
+    OpenAPI Description:
+        Deletes the specified tag
+
 
     Args:
-        path_name (str): The name of the tag to delete.
+
+        path_name (str): Tag you want to delete
+
+
 
     Returns:
-        Any: The JSON response from the API call indicating the result of the delete operation.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making DELETE request to /tag/{name}")
 
     params = {}

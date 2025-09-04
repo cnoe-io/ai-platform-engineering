@@ -9,23 +9,30 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def clear__single__incident(path_id: str) -> Any:
-    '''
-    Clears a specific incident identified by the provided incident ID.
+    """
+    Clears an incident specified by the `{id}`path parameter
+
+    OpenAPI Description:
+        Clears an incident
+
 
     Args:
-        path_id (str): The unique identifier of the incident to be cleared.
+
+        path_id (str): ID of the incident you want to clear
+
+
 
     Returns:
-        Any: The JSON response from the API call indicating the result of the clear operation.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making PUT request to /incident/{id}/clear")
 
     params = {}

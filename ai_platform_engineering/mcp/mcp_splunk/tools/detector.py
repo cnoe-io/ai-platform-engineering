@@ -5,23 +5,23 @@
 """Tools for /detector operations"""
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Literal
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def create__single__detector(
     body_name: str,
     body_programText: str,
-    body_rules: List[str],
-    body_authorizedWriters_teams: List[str] = None,
-    body_authorizedWriters_users: List[str] = None,
+    body_rules: List[Dict[str, Any]],
+    body_authorizedWriters__teams: List[str] = None,
+    body_authorizedWriters__users: List[str] = None,
     body_customProperties: Dict[str, Any] = None,
     body_description: str = None,
-    body_detectorOrigin: str = None,
+    body_detectorOrigin: Literal["Standard", "AutoDetect", "AutoDetectCustomization"] = None,
     body_maxDelay: int = None,
     body_minDelay: int = None,
     body_packageSpecifications: str = None,
@@ -29,49 +29,100 @@ async def create__single__detector(
     body_tags: List[str] = None,
     body_teams: List[str] = None,
     body_timezone: str = None,
-    body_visualizationOptions_disableSampling: bool = None,
-    body_visualizationOptions_publishLabelOptions: List[str] = None,
-    body_visualizationOptions_showDataMarkers: bool = None,
-    body_visualizationOptions_showEventLines: bool = None,
-    body_visualizationOptions_time_end: int = None,
-    body_visualizationOptions_time_range: int = None,
-    body_visualizationOptions_time_start: int = None,
-    body_visualizationOptions_time_type: str = None,
+    body_visualizationOptions__disableSampling: bool = None,
+    body_visualizationOptions__publishLabelOptions: List[Dict[str, Any]] = None,
+    body_visualizationOptions__showDataMarkers: bool = None,
+    body_visualizationOptions__showEventLines: bool = None,
+    body_visualizationOptions__time__end: int = None,
+    body_visualizationOptions__time__range: int = None,
+    body_visualizationOptions__time__start: int = None,
+    body_visualizationOptions__time__type: Literal["absolute", "relative"] = None,
 ) -> Any:
-    '''
-    Creates a detector.
+    """
+    Creates a detector
+
+    OpenAPI Description:
+        Creates a detector
+
 
     Args:
-        body_name (str): Detector name.
-        body_programText (str): The detector's SignalFlow program.
-        body_rules (List[str]): List of alert rules for the detector.
-        body_authorizedWriters_teams (List[str], optional): List of team IDs authorized to write. Defaults to None.
-        body_authorizedWriters_users (List[str], optional): List of user IDs authorized to write. Defaults to None.
-        body_customProperties (Dict[str, Any], optional): Detector metadata as key-value pairs. Defaults to None.
-        body_description (str, optional): Detector description. Defaults to None.
-        body_detectorOrigin (str, optional): Indicates how the detector was created. Defaults to None.
-        body_maxDelay (int, optional): Upper limit (in milliseconds) for how long SignalFlow waits for delayed data before continuing. Defaults to None.
-        body_minDelay (int, optional): Lower limit (in milliseconds) for how long SignalFlow waits before continuing. Defaults to None.
-        body_packageSpecifications (str, optional): For internal use only. Defaults to None.
-        body_parentDetectorId (str, optional): ID of the parent detector. Defaults to None.
-        body_tags (List[str], optional): List of tags for the detector. Defaults to None.
-        body_teams (List[str], optional): IDs of teams associated with this detector. Defaults to None.
-        body_timezone (str, optional): Time zone for SignalFlow calendar window transformations. Defaults to None.
-        body_visualizationOptions_disableSampling (bool, optional): Controls display of all data points instead of sampled data points. Defaults to None.
-        body_visualizationOptions_publishLabelOptions (List[str], optional): List of display options for the detector's chart. Defaults to None.
-        body_visualizationOptions_showDataMarkers (bool, optional): Controls the display of markers for data points. Defaults to None.
-        body_visualizationOptions_showEventLines (bool, optional): Controls displaying vertical lines for event times. Defaults to None.
-        body_visualizationOptions_time_end (int, optional): Timestamp of the last time to display. Defaults to None.
-        body_visualizationOptions_time_range (int, optional): Number of milliseconds to display for the detector. Defaults to None.
-        body_visualizationOptions_time_start (int, optional): Timestamp of the first time to display. Defaults to None.
-        body_visualizationOptions_time_type (str, optional): Enumeration of time range choices. Defaults to None.
+
+        body_authorizedWriters__teams (List[str]): List of team IDs
+
+
+        body_authorizedWriters__users (List[str]): List of user IDs
+
+
+        body_customProperties (Dict[str, Any]): Detector metadata
+
+
+        body_description (str): Detector description
+
+
+        body_detectorOrigin (Literal['Standard', 'AutoDetect', 'AutoDetectCustomization']): Indicates how a detector was created.
+
+
+        body_maxDelay (int): Upper limit of how long the SignalFlow computation waits for delayed data before continuing, in milliseconds. The default is 0, which tells SignalFlow to set the limit dynamically.
+
+
+        body_minDelay (int): Lower limit of how long the SignalFlow computation for the detector waits before continuing, in milliseconds.
+
+
+        body_name (str): Detector name
+
+
+        body_packageSpecifications (str): For internal use only
+
+
+        body_parentDetectorId (str): ID of the parent detector
+
+
+        body_programText (str): The detector's SignalFlow program
+
+
+        body_rules (List[Dict[str, Any]]): List of alert rules for a detector
+
+
+        body_tags (List[str]): List of tags for the detector
+
+
+        body_teams (List[str]): IDs of teams associated with this detector
+
+
+        body_timezone (str): Time zone for SignalFlow calendar window transformations
+
+
+        body_visualizationOptions__disableSampling (bool): Controls display of all data points instead of sampled data points
+
+
+        body_visualizationOptions__publishLabelOptions (List[Dict[str, Any]]): List of display options for the detector's chart
+
+
+        body_visualizationOptions__showDataMarkers (bool): Controls the display of markers for data points
+
+
+        body_visualizationOptions__showEventLines (bool): Controls displaying vertical lines for event times
+
+
+        body_visualizationOptions__time__end (int): Timestamp of the last time to display
+
+
+        body_visualizationOptions__time__range (int): Number of milliseconds to display for the detector
+
+
+        body_visualizationOptions__time__start (int): Timestamp of the first time to display
+
+
+        body_visualizationOptions__time__type (Literal['absolute', 'relative']): Enumeration of time range choices
+
+
 
     Returns:
         Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making POST request to /detector")
 
     params = {}
@@ -84,10 +135,10 @@ async def create__single__detector(
         flat_body["programText"] = body_programText
     if body_rules is not None:
         flat_body["rules"] = body_rules
-    if body_authorizedWriters_teams is not None:
-        flat_body["authorizedWriters_teams"] = body_authorizedWriters_teams
-    if body_authorizedWriters_users is not None:
-        flat_body["authorizedWriters_users"] = body_authorizedWriters_users
+    if body_authorizedWriters__teams is not None:
+        flat_body["authorizedWriters__teams"] = body_authorizedWriters__teams
+    if body_authorizedWriters__users is not None:
+        flat_body["authorizedWriters__users"] = body_authorizedWriters__users
     if body_customProperties is not None:
         flat_body["customProperties"] = body_customProperties
     if body_description is not None:
@@ -108,22 +159,22 @@ async def create__single__detector(
         flat_body["teams"] = body_teams
     if body_timezone is not None:
         flat_body["timezone"] = body_timezone
-    if body_visualizationOptions_disableSampling is not None:
-        flat_body["visualizationOptions_disableSampling"] = body_visualizationOptions_disableSampling
-    if body_visualizationOptions_publishLabelOptions is not None:
-        flat_body["visualizationOptions_publishLabelOptions"] = body_visualizationOptions_publishLabelOptions
-    if body_visualizationOptions_showDataMarkers is not None:
-        flat_body["visualizationOptions_showDataMarkers"] = body_visualizationOptions_showDataMarkers
-    if body_visualizationOptions_showEventLines is not None:
-        flat_body["visualizationOptions_showEventLines"] = body_visualizationOptions_showEventLines
-    if body_visualizationOptions_time_end is not None:
-        flat_body["visualizationOptions_time_end"] = body_visualizationOptions_time_end
-    if body_visualizationOptions_time_range is not None:
-        flat_body["visualizationOptions_time_range"] = body_visualizationOptions_time_range
-    if body_visualizationOptions_time_start is not None:
-        flat_body["visualizationOptions_time_start"] = body_visualizationOptions_time_start
-    if body_visualizationOptions_time_type is not None:
-        flat_body["visualizationOptions_time_type"] = body_visualizationOptions_time_type
+    if body_visualizationOptions__disableSampling is not None:
+        flat_body["visualizationOptions__disableSampling"] = body_visualizationOptions__disableSampling
+    if body_visualizationOptions__publishLabelOptions is not None:
+        flat_body["visualizationOptions__publishLabelOptions"] = body_visualizationOptions__publishLabelOptions
+    if body_visualizationOptions__showDataMarkers is not None:
+        flat_body["visualizationOptions__showDataMarkers"] = body_visualizationOptions__showDataMarkers
+    if body_visualizationOptions__showEventLines is not None:
+        flat_body["visualizationOptions__showEventLines"] = body_visualizationOptions__showEventLines
+    if body_visualizationOptions__time__end is not None:
+        flat_body["visualizationOptions__time__end"] = body_visualizationOptions__time__end
+    if body_visualizationOptions__time__range is not None:
+        flat_body["visualizationOptions__time__range"] = body_visualizationOptions__time__range
+    if body_visualizationOptions__time__start is not None:
+        flat_body["visualizationOptions__time__start"] = body_visualizationOptions__time__start
+    if body_visualizationOptions__time__type is not None:
+        flat_body["visualizationOptions__time__type"] = body_visualizationOptions__time__type
     data = assemble_nested_body(flat_body)
 
     success, response = await make_api_request("/detector", method="POST", params=params, data=data)
@@ -138,29 +189,51 @@ async def retrieve__detectors__query(
     param_limit: int = None,
     param_name: str = None,
     param_offset: int = None,
-    param_orderBy: str = None,
+    param_orderBy: Literal["creator", "created", "description", "lastUpdated", "lastUpdatedBy", "name", "tags"] = None,
     param_tags: str = None,
     param_prefixTags: List[str] = None,
     param_prefixTagExclusions: List[str] = None,
 ) -> Any:
-    '''
-    Retrieves detectors based on search criteria.
+    """
+        Retrieves detectors based on search criteria
 
-    Args:
-        param_limit (int, optional): Number of results to return from the result set. Defaults to None.
-        param_name (str, optional): Search criteria for existing detector name. Defaults to None.
-        param_offset (int, optional): Index in result set at which request should start returning detectors. Defaults to None.
-        param_orderBy (str, optional): The field on which the API should sort the query results. Only fields specified in the enum are supported. Defaults to None.
-        param_tags (str, optional): Detector tags search criteria. Defaults to None.
-        param_prefixTags (List[str], optional): Search filter to return only detectors with at least one tag starting with any of the provided prefixes. Defaults to None.
-        param_prefixTagExclusions (List[str], optional): Search filter to exclude detectors with at least one tag starting with any of the provided prefixes. Defaults to None.
+        OpenAPI Description:
+            Retrieves detector properties based on the query parameters
 
-    Returns:
-        Any: The JSON response from the API call containing detector properties matching the query parameters.
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
+        Args:
+
+            param_limit (int): Number of results to return from the result set
+
+
+            param_name (str): Search criteria for existing detector name
+
+
+            param_offset (int): Index in result set at which request should start returning detector
+
+
+            param_orderBy (Literal['creator', 'created', 'description', 'lastUpdated', 'lastUpdatedBy', 'name', 'tags']): The field on which the API should sort the query results. The API only supports fields specified in the enum.
+
+
+            param_tags (str): Detector tags search criteria
+
+
+            param_prefixTags (List[str]): Search filter that the API applies to find and return only detectors
+    which have at least one tag starting with the provided prefix,
+    for each prefix provided.
+
+
+            param_prefixTagExclusions (List[str]): Search filter that the API applies to exclude detectors which have at least one
+    tag starting with any of the provided prefixes from the query result.
+
+
+
+        Returns:
+            Any: The JSON response from the API call.
+
+        Raises:
+            Exception: If the API request fails or returns an error.
+    """
     logger.debug("Making GET request to /detector")
 
     params = {}

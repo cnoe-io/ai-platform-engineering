@@ -5,27 +5,34 @@
 """Tools for /alertmuting/{id} operations"""
 
 import logging
-from typing import Any, List
+from typing import Dict, Any, List, Literal
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__muting__rule_id(path_id: str) -> Any:
-    '''
-    Retrieves the muting rule specified by the given muting rule ID.
+    """
+    Retrieves the muting rule specified in the {id} path parameter
+
+    OpenAPI Description:
+        Retrieves a muting rule
+
 
     Args:
-        path_id (str): The ID of the muting rule to retrieve.
+
+        path_id (str): ID of the muting rule you want
+
+
 
     Returns:
-        Any: The JSON response containing the details of the specified muting rule.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /alertmuting/{id}")
 
     params = {}
@@ -48,43 +55,77 @@ async def update__single__muting__rule(
     body_created: int = None,
     body_creator: str = None,
     body_description: str = None,
-    body_filters: List[str] = None,
+    body_filters: List[Dict[str, Any]] = None,
     body_id: str = None,
     body_lastUpdated: int = None,
     body_lastUpdatedBy: str = None,
-    body_recurrence_unit: str = None,
-    body_recurrence_value: int = None,
+    body_recurrence__unit: Literal["d", "w"] = None,
+    body_recurrence__value: int = None,
     body_linkedTeams: List[str] = None,
     body_sendAlertsOnceMutingPeriodHasEnded: bool = None,
     body_startTime: int = None,
     body_stopTime: int = None,
 ) -> Any:
-    '''
-    Updates a muting rule in Splunk Observability Cloud.
+    """
+    Updates a muting rule
+
+    OpenAPI Description:
+        Updates a muting rule
+
 
     Args:
-        path_id (str): ID of the muting rule you want to modify.
-        param_resolveMatchingActiveAlerts (bool, optional): Indicates whether to resolve matching active alerts for the rule. Defaults to False.
-        body_created (int, optional): Detector creation timestamp in Unix time (milliseconds). Set by system. Defaults to None.
-        body_creator (str, optional): ID of the user who created the detector. Set by system. Defaults to None.
-        body_description (str, optional): Description of the muting rule. Defaults to None.
-        body_filters (List[str], optional): List of muting filters for this rule. Defaults to None.
-        body_id (str, optional): Detector ID. Set by system. Defaults to None.
-        body_lastUpdated (int, optional): Detector last updated timestamp in Unix time (milliseconds). Set by system. Defaults to None.
-        body_lastUpdatedBy (str, optional): ID of the user who last updated the detector. Defaults to None.
-        body_recurrence_unit (str, optional): Unit of the recurrence period. Can be days ('d') or weeks ('w'). Defaults to None.
-        body_recurrence_value (int, optional): Amount of time, expressed as an integer applicable to the unit. Defaults to None.
-        body_linkedTeams (List[str], optional): IDs of teams linked to the detector that created the incident. This property is read-only and always set by the system. Defaults to None.
-        body_sendAlertsOnceMutingPeriodHasEnded (bool, optional): Controls notifications after the muting period ends. Defaults to None.
-        body_startTime (int, optional): Starting timestamp of the muting rule in Unix time (milliseconds). Defaults to None.
-        body_stopTime (int, optional): Ending timestamp of the muting rule in Unix time (milliseconds). Defaults to None.
+
+        path_id (str): ID of the muting rule you want to modify
+
+
+        param_resolveMatchingActiveAlerts (bool): Indicates that you want Splunk Observability Cloud to resolve alerts for the rule
+
+
+        body_created (int): Detector creation timestamp, in *nix time in milliseconds. Set by system.
+
+
+        body_creator (str): ID of user who created the detector. Set by system.
+
+
+        body_description (str): Description of the muting rule
+
+
+        body_filters (List[Dict[str, Any]]): List of muting filters for this rule
+
+
+        body_id (str): Detector ID. Set by system.
+
+
+        body_lastUpdated (int): Detector last updated timestamp, in *nix time in milliseconds. Set by system.
+
+
+        body_lastUpdatedBy (str): ID of user who last updated the detector
+
+
+        body_recurrence__unit (Literal['d', 'w']): Unit of the period. Can be days (`d`) or weeks (`w`)
+
+        body_recurrence__value (int): Amount of time, expressed as an integer applicable to the unit
+
+
+        body_linkedTeams (List[str]): IDs of teams linked to the detector that created the incident. If the incident is created by a detector that is not linked to a team, the value is `null`. This is a JSON array of strings, where each string is a team ID. This property is read-only; it's always set by the system. For information about how to link detectors to teams, see [Detectors linked to teams](https://quickdraw.splunk.com/redirect/?product=Observability&location=devdocs.getincidents.byteamid&version=current).
+
+
+        body_sendAlertsOnceMutingPeriodHasEnded (bool): Controls notifications after the muting period ends
+
+
+        body_startTime (int): Starting timestamp of a muting rule, in *nix time in milliseconds
+
+
+        body_stopTime (int): Ending timestamp of a muting rule, in *nix time in milliseconds
+
+
 
     Returns:
         Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making PUT request to /alertmuting/{id}")
 
     params = {}
@@ -112,10 +153,10 @@ async def update__single__muting__rule(
         flat_body["lastUpdated"] = body_lastUpdated
     if body_lastUpdatedBy is not None:
         flat_body["lastUpdatedBy"] = body_lastUpdatedBy
-    if body_recurrence_unit is not None:
-        flat_body["recurrence_unit"] = body_recurrence_unit
-    if body_recurrence_value is not None:
-        flat_body["recurrence_value"] = body_recurrence_value
+    if body_recurrence__unit is not None:
+        flat_body["recurrence__unit"] = body_recurrence__unit
+    if body_recurrence__value is not None:
+        flat_body["recurrence__value"] = body_recurrence__value
     if body_linkedTeams is not None:
         flat_body["linkedTeams"] = body_linkedTeams
     if body_sendAlertsOnceMutingPeriodHasEnded is not None:
@@ -135,18 +176,25 @@ async def update__single__muting__rule(
 
 
 async def delete__single__muting__rule(path_id: str) -> Any:
-    '''
-    Deletes a muting rule specified by the given ID.
+    """
+    Deletes a muting rule specified in the {id} path parameter
+
+    OpenAPI Description:
+        Deletes a muting rule
+
 
     Args:
-        path_id (str): The ID of the muting rule to delete.
+
+        path_id (str): ID of the muting rule you want to delete
+
+
 
     Returns:
-        Any: The JSON response from the API call indicating the result of the delete operation.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making DELETE request to /alertmuting/{id}")
 
     params = {}

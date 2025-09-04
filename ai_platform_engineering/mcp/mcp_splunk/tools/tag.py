@@ -9,28 +9,41 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__tag__metadata__using__query(
     param_query: str = None, param_order_by: str = None, param_offset: int = None, param_limit: int = None
 ) -> Any:
-    '''
-    Retrieves metadata for tags based on the specified query parameters.
+    """
+    Retrieves metadata for tags
+
+    OpenAPI Description:
+        Retrieves metadata for the tag specified by the query parameter
+
 
     Args:
-        param_query (str, optional): Search criteria to filter tags. Defaults to None.
-        param_order_by (str, optional): Property name to sort the query results by. Defaults to None.
-        param_offset (int, optional): Index in the result set at which to start returning results. Defaults to None.
-        param_limit (int, optional): Maximum number of results to return from the result set. Defaults to None.
+
+        param_query (str): Search criteria
+
+
+        param_order_by (str): Property on which the API should sort the query results
+
+
+        param_offset (int): Index in the result set at which the API should start returning results
+
+
+        param_limit (int): Number of results to return from the result set
+
+
 
     Returns:
-        Any: The JSON response containing tag metadata matching the query parameters.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /tag")
 
     params = {}

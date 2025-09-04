@@ -9,24 +9,33 @@ from typing import Dict, Any, List
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__dimension__metadata__name__value(path_key: str, path_value: str) -> Any:
-    '''
-    Retrieves metadata for the specified dimension and value.
+    """
+    Retrieves metadata for a dimension and value
+
+    OpenAPI Description:
+        Retrieves metadata for the specified dimension and value
+
 
     Args:
-        path_key (str): The name of the dimension for which metadata is to be retrieved.
-        path_value (str): The value of the specified dimension.
+
+        path_key (str): Dimension name
+
+
+        path_value (str): Dimension value
+
+
 
     Returns:
-        Any: The JSON response containing metadata for the given dimension and value.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /dimension/{key}/{value}")
 
     params = {}
@@ -52,24 +61,43 @@ async def update__dimension__metadata(
     body_value: str = None,
     body_tags: List[str] = None,
 ) -> Any:
-    '''
-    Overwrites metadata for the specified dimension.
+    """
+    Overwrites metadata for the specified dimension
+
+    OpenAPI Description:
+        Updates the metadata for the specified dimension
+
 
     Args:
-        path_key (str): Name of the dimension you want to update.
-        path_value (str): Value of the dimension you want to update.
-        body_customProperties (Dict[str, Any], optional): Custom property updates to apply to the dimension. Defaults to None.
-        body_description (str, optional): Updated description of the dimension. Defaults to None.
-        body_key (str, optional): Name of the dimension for which you want to update metadata. Defaults to None.
-        body_value (str, optional): Value of the dimension for which you want to update metadata. Defaults to None.
-        body_tags (List[str], optional): List of tags you want to add to the dimension. Defaults to None.
+
+        path_key (str): Name of the dimension you want to update
+
+
+        path_value (str): Value of the dimension you want to update
+
+
+        body_customProperties (Dict[str, Any]): Custom property updates
+
+
+        body_description (str): Updated description of the dimension
+
+
+        body_key (str): Name of dimension for which you want to update metadata
+
+
+        body_value (str): Value of dimension for which you want to update metadata
+
+
+        body_tags (List[str]): List of tags you want to add
+
+
 
     Returns:
-        Any: The JSON response from the API call containing the updated dimension metadata or error details.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making PUT request to /dimension/{key}/{value}")
 
     params = {}
