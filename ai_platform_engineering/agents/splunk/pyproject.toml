@@ -8,7 +8,7 @@ description = "Splunk AI Agent for log search, monitoring, and alert management"
 license = { text = "Apache-2.0" }
 readme = "README.md"
 authors = [
-    { name = "CNOE Contributors", email = "info@cnoe.io" },
+    { name = "Rehan Agrawal", email = "rehagraw@cisco.com" },
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
