@@ -2,8 +2,14 @@
 
 Works with a chat model with tool calling support.
 """
-from core.agent.tools import fetch_entity_details, fuzzy_search, get_entity_types, get_relation_path_between_entity_types, raw_query
-import langchain.chat_models.base
+from core.agent.tools import (
+    fetch_entity_details,
+    fuzzy_search,
+    get_entity_properties,
+    get_entity_types,
+    get_relation_path_between_entity_types,
+    raw_query,
+)
 from datetime import datetime, timezone
 from langchain_core.prompts import PromptTemplate
 from langgraph.prebuilt import create_react_agent
@@ -20,6 +26,7 @@ from core import utils
 from core.graph_db.neo4j.graph_db import Neo4jDB
 
 from langgraph.checkpoint.memory import MemorySaver
+from cnoe_agent_utils import LLMFactory
 
 from agent_graph_qa.prompts import SYSTEM_PROMPT
 
@@ -30,7 +37,7 @@ memory = MemorySaver()
 
 logger = utils.get_logger(__name__)
 
-GRAPH_DB_READ_TOOLS = [get_entity_types, fetch_entity_details, get_relation_path_between_entity_types, fuzzy_search, raw_query]
+GRAPH_DB_READ_TOOLS = [get_entity_types, get_entity_properties, fetch_entity_details, get_relation_path_between_entity_types, fuzzy_search, raw_query]
 
 def pre_model_hook(state):
     trimmed_messages = trim_messages(
@@ -48,15 +55,8 @@ class QnAAgent:
     SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
     def __init__(self):
         self.graphdb = Neo4jDB(readonly=True)
-        # Create the agent
-        provider = "azure_openai"
-        model = "gpt-4o"
-        # provider = "ollama"
-        # model = "llama3.2"
-        # provider="bedrock"
-        # model = "anthropic.claude-3-sonnet-20240229-v1:0"
-        self.llm = langchain.chat_models.base.init_chat_model(model, model_provider=provider, temperature=0.3)
-        logger.info(f"Using model {model} with provider {provider}")
+
+        self.llm = LLMFactory().get_llm()
         logger.info(f"Number of tools: {len(GRAPH_DB_READ_TOOLS)}")
         self.graph = create_react_agent(
             model=self.llm,
@@ -79,7 +79,7 @@ class QnAAgent:
             entities=utils.json_encode(entity_types, indent=2)
         )
         return [{"role": "system", "content": system_prompt}] + state["messages"]
-    
+
     async def invoke(self, query, context_id) -> str:
         config = {'configurable': {'thread_id': context_id}}
         await self.graph.ainvoke({'messages': [('user', query)]}, config) # type: ignore
@@ -145,7 +145,7 @@ class QnAAgent:
                 'Please try again.'
             ),
         }
-    
+
 # For langgraph studio
 # agent = QnAAgent()
 # graph = agent.graph

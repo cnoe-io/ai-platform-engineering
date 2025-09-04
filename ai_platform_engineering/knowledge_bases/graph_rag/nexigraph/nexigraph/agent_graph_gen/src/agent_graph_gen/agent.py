@@ -4,7 +4,6 @@ from langgraph.prebuilt import create_react_agent
 
 from core.agent.tools import fetch_entity
 from core.graph_db.neo4j.graph_db import Neo4jDB
-import langchain.chat_models.base
 from core.constants import FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC
 from agent_graph_gen.evaluate import FkeyEvaluator
 from agent_graph_gen.heuristics import HeuristicsProcessor
@@ -17,6 +16,7 @@ from langgraph.graph.graph import CompiledGraph
 from core.utils import runforever
 import core.utils as utils
 import agent_graph_gen.helpers as helpers
+from cnoe_agent_utils import LLMFactory
 
 AGENT_NAME = "ForeignKeyRelationAgent"
 
@@ -59,7 +59,7 @@ class ForeignKeyRelationAgent:
             self.logger.debug("Sleeping for %s seconds...", self.sync_interval)
             await asyncio.sleep(self.sync_interval)
             await self.process_and_evaluate_all()
-    
+
     async def sync_all_relations(self, rc_manager: RelationCandidateManager):
         """
         Syncs all accepted relations with the graph database.
@@ -69,7 +69,7 @@ class ForeignKeyRelationAgent:
         for _, candidate in candidates.items():
             await rc_manager.sync_relation(AGENT_NAME, candidate.relation_id)
             # TODO: Gather relations that are no longer candidates, but still exist in the graph database, and remove them
-                    
+
     async def process_and_evaluate_all(self):
         rc_manager = RelationCandidateManager(self.graph_db, self.acceptance_threshold, self.rejection_threshold, new_candidates=True)
 
@@ -175,7 +175,7 @@ class ForeignKeyRelationAgent:
                 # Process a specific entity
                 logger.info(f"Processing entity {request} [THIS IS MEANT FOR DEBUGGING PURPOSES ONLY, DO NOT USE FOR ANYTHING ELSE]")
                 (entity_type, entity_id) = request.removeprefix("process:").split(",")
-                entity = await self.graph_db.get_entity(entity_type=entity_type, primary_key_value=entity_id)  
+                entity = await self.graph_db.get_entity(entity_type=entity_type, primary_key_value=entity_id)
                 if not entity:
                     logger.error(f"Entity {entity_id} not found")
                     continue
@@ -221,7 +221,7 @@ class ForeignKeyRelationAgent:
                     return
                 if candidate.evaluation.last_evaluation_count is None:
                     candidate.evaluation.last_evaluation_count = 0
-                
+
                 # If the heuristic count changed less than 20% than previous count, we ignore it
                 if candidate.evaluation.last_evaluation_count > 0:
                     count_distance = abs( - candidate.heuristic.count) / abs(candidate.heuristic.count)
@@ -235,7 +235,7 @@ class ForeignKeyRelationAgent:
                 await rc_manager.sync_relation(AGENT_NAME, relation_id)
         except Exception as e:
             logger.error(f"Error evaluating relation {relation_id}: {e}")
-      
+
 
     async def gather(self, n: int, *coros: asyncio.Future):
         """
@@ -247,21 +247,17 @@ class ForeignKeyRelationAgent:
             async with semaphore:
                 return await coro
         return await asyncio.gather(*(sem_coro(c) for c in coros))
-    
+
 
     def create_agent(self) -> CompiledGraph:
         # Create the agent
-        provider = "azure_openai"
-        model = "gpt-4o"
-        # provider = "ollama"
-        # model = "llama3.2"
-        llm = langchain.chat_models.base.init_chat_model(model, model_provider=provider, temperature=0)
+        llm = LLMFactory().get_llm()
 
         heuristic_schema = ""
         for prop, details in RelationCandidate.model_json_schema()["properties"].items():
             if details.get("prompt_exposed", False):
                 heuristic_schema += f"{prop}: {details.get('description', '')}\n"
-        
+
         self.logger.debug(heuristic_schema)
 
         system_prompt = PromptTemplate.from_template(SYSTEM_PROMPT_1).format(
@@ -269,9 +265,9 @@ class ForeignKeyRelationAgent:
             database_type=self.graph_db.database_type,
             query_language=self.graph_db.query_language
         )
-        agent = create_react_agent(llm, tools=AGENT_TOOLS, prompt=system_prompt, 
+        agent = create_react_agent(llm, tools=AGENT_TOOLS, prompt=system_prompt,
                                    response_format=("The last message is the evaluation of a relation candidate, using only the evaluation text, generate a structured response. "
-                                   "DO NOT use your own knowledge, only use the evaluation text to generate the response.", 
+                                   "DO NOT use your own knowledge, only use the evaluation text to generate the response.",
                                     AgentOutputFKeyRelation))
         agent.name = AGENT_NAME
         return agent

@@ -76,7 +76,7 @@ def get_agent_card(host: str, port: int):
         ],
     )
     return AgentCard(
-        name='RAG Documentation Agent',
+        name='kb-rag',
         description='A RAG agent that answers questions about documentation using Retrieval-Augmented Generation (RAG) with Milvus.',
         url=f'http://{host}:{port}/',
         version='1.0.0',

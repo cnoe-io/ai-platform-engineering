@@ -10,8 +10,6 @@ services:
     volumes:
       - ../.env:/app/.env
       - ../prompt_config.yaml:/app/prompt_config.yaml
-      - ../ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
-      - ../ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     depends_on:
       - agent-weather-p2p
       - agent-github-p2p
@@ -24,11 +22,14 @@ services:
       - WEATHER_AGENT_HOST=agent-weather-p2p
       - GITHUB_AGENT_HOST=agent-github-p2p
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - ENABLE_WEATHER_AGENT=true
+      - LANGFUSE_TRACING_ENABLED=${LANGFUSE_TRACING_ENABLED:-True}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://langfuse.dev.outshift.io}
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-platform-engineer}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+
     command: platform-engineer
 
   ####################################################################################################
@@ -41,23 +42,19 @@ services:
     restart: unless-stopped
     volumes:
       - ../.env:/app/.env
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ../ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
-      - ../ai_platform_engineering/agents/weather/clients:/app/clients
     ports:
       - "8010:8000"
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-weather
+      - MCP_MODE=http
+      - MCP_HOST=https://weather.outshift.io/mcp
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://langfuse.dev.outshift.io}
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-platform-engineer}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
-  
+
   ####################################################################################################
   #                                      AGENT GITHUB A2A P2P                                        #
   ####################################################################################################
@@ -68,17 +65,15 @@ services:
     user: root
     volumes:
       - ../.env:/app/.env
-      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8004:8000"
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-github
+      - MCP_MODE=http
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://langfuse.dev.outshift.io}
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-platform-engineer}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
