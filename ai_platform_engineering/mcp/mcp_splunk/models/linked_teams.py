@@ -10,7 +10,9 @@ from .base import APIResponse, PaginationInfo
 
 
 class Linkedteams(BaseModel):
-    """IDs of teams linked to the detector that created the incident. If the incident is created by a detector that is not linked to a team, the value is `null`. This is a JSON array of strings, where each string is a team ID. This property is read-only; it's always set by the system. For information about how to link detectors to teams, see [Detectors linked to teams](https://quickdraw.splunk.com/redirect/?product=Observability&location=devdocs.getincidents.byteamid&version=current)."""
+    """IDs of teams linked to the detector that created the incident. If the incident is created by a detector that is not linked to a team, the value is `null`. 
+    This is a JSON array of strings, where each string is a team ID. This property is read-only; it's always set by the system. 
+    For information about how to link detectors to teams, see [Detectors linked to teams](https://quickdraw.splunk.com/redirect/?product=Observability&location=devdocs.getincidents.byteamid&version=current)."""
 
 
 class LinkedteamsResponse(APIResponse):

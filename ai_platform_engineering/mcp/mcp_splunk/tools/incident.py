@@ -36,7 +36,8 @@ async def retrieve__incidents(
 
             param_query (str): Controls which latest incidents to retrieve, based on descriptions and other filters. For example, to retrieve the latest incidents created by detectors linked to a team with the ID `FO1Vq3ABXYZ`, specify `teamId:FO1Vq3ABXYZ`.
 
-    To search for latest incidents by specific values of a dimension or custom property, use `query=<name>:<value>`. If `<value>` contains non-alphanumeric characters, encode the non-alphanumeric characters and surround the value with double quotes. For example, the region custom property value `US East` must be passed in the parameter as `region:"US%20East"`.
+    To search for latest incidents by specific values of a dimension or custom property, use `query=<name>:<value>`. If `<value>` contains non-alphanumeric characters, encode the non-alphanumeric characters and surround the value with double quotes. 
+    For example, the region custom property value `US East` must be passed in the parameter as `region:"US%20East"`.
 
     Here are examples of the `query` parameter used alone and with other available query parameters:
 

@@ -3,7 +3,6 @@
 
 """Splunk Agent implementation using LangGraph and MCP tools."""
 
-import asyncio
 import logging
 import os
 import importlib.util
