@@ -14,7 +14,7 @@ In this mission, you'll deploy and interact with specialized agents for **knowle
 
 The following diagram shows the architecture of the RAG system:
 
-![RAG Architecture](images/rag-overview-arch.png)
+![RAG Architecture](images/rag-overview-arch.svg)
 
 
 ---
@@ -118,7 +118,7 @@ Once the RAG Web UI is open:
 - The status in the RAG Web UI should show as `✅ Successfully processed 1 URL(s)`.
 - Switch over to the terminal showing your `docker compose logs` and observe the `kb_rag` ingestion logs for details about the document processing.
 
-![RAG UI](images/rag-ui-screenshot.png)
+![RAG UI](images/rag-ui-screenshot.svg)
 
 ### Explanation:
 
@@ -131,7 +131,7 @@ Here's what happens:
  - The embeddings are stored in a vector store (Milvus), along with metadata (source, title, description etc).
 
 
-![RAG ingestion](images/rag-ingestion.png)
+![RAG ingestion](images/rag-ingestion.svg)
 
 ---
 
@@ -158,7 +158,7 @@ docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
 
 In production, your system will use a JWT or Bearer token for authentication here.
 
-![chatcli token](images/chat-cli-token.png)
+![chatcli token](images/chat-cli-token.svg)
 
 This should open a CLI chat client. You can now interact with the supervisor agent.
 
@@ -179,7 +179,7 @@ Here's what happens:
  - The agent uses the retrieved document chunks to answer the question.
 
 
-![RAG Agent Architecture](images/rag-agent-arch.png)
+![RAG Agent Architecture](images/rag-agent-arch.svg)
 
 ---
 

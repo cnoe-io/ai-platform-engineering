@@ -160,7 +160,7 @@ docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
 
 In production, your system will use a JWT or Bearer token for authentication here.
 
-![chatcli token](images/chat-cli-token.png)
+![chatcli token](images/chat-cli-token.svg)
 
 The chat client will connect to the petstore agent on port 8000 and download the agent card from Step 4. It will then use the agent card to discover the agent's capabilities.
 
