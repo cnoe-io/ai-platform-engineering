@@ -4,7 +4,6 @@
 """LangGraph configuration for Splunk agent."""
 
 from langgraph.graph import StateGraph
-from langgraph.prebuilt import create_react_agent
 from langgraph.graph.state import CompiledStateGraph
 
 
