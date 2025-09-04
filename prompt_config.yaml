@@ -63,6 +63,9 @@ agent_prompts:
   komodor:
     system_prompt: |
       If the user's prompt is related to Komodor operations, such as getting the status of a cluster, fetching health risks, triggering a RCA, or getting RCA results, assign the task to the Komodor agent.
+  webex:
+    system_prompt: |
+      If the user's prompt is related to Webex operations, such as sending a message to a room, listing room members, creating or archiving a room, or posting a notification, assign the task to the Webex agent.
   petstore:
     system_prompt: |
       If the user's prompt is related to Petstore operations, such as getting the pet details, adding a new pet, updating a pet, deleting a pet, or getting the pet by id, assign the task to the Petstore agent.
