@@ -51,6 +51,9 @@ if os.getenv("ENABLE_PAGERDUTY", "true").lower() == "true":
 if os.getenv("ENABLE_SLACK", "true").lower() == "true":
     AGENT_NAMES.append("slack")
 
+if os.getenv("ENABLE_SPLUNK", "true").lower() == "true":
+    AGENT_NAMES.append("splunk")
+
 
 # Optional agents
 if os.getenv("ENABLE_KOMODOR", "false").lower() == "true":
