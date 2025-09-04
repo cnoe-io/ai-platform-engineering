@@ -9,23 +9,30 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__incident_id(path_id: str) -> Any:
-    '''
-    Retrieves an incident by its unique identifier.
+    """
+    Retrieves the incident specified in the {id} path parameter
+
+    OpenAPI Description:
+        Retrieves an incident based on its ID
+
 
     Args:
-        path_id (str): The unique identifier of the incident to retrieve.
+
+        path_id (str): ID of incident to retrieve
+
+
 
     Returns:
-        Any: The JSON response containing the incident details if the request is successful.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /incident/{id}")
 
     params = {}

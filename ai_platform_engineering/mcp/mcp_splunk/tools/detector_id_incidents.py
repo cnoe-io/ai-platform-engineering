@@ -9,25 +9,37 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__incidents__single__detector(path_id: str, param_offset: int = None, param_limit: int = None) -> Any:
-    '''
-    Retrieves the active incidents for a specific detector.
+    """
+    Gets active incidents for a detector
+
+
+    OpenAPI Description:
+        Retrieves the active incidents for a detector
+
 
     Args:
-        path_id (str): ID of the detector that generated the incidents.
-        param_offset (int, optional): Index in the result set at which to start receiving results. Defaults to None.
-        param_limit (int, optional): Number of results to return. Defaults to None.
+
+        path_id (str): ID of the detector that generated the incidents
+
+
+        param_offset (int): Index in result set at which you want to start receiving results
+
+
+        param_limit (int): Number of results to return
+
+
 
     Returns:
-        Any: The JSON response from the API call containing the list of active incidents for the specified detector.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /detector/{id}/incidents")
 
     params = {}

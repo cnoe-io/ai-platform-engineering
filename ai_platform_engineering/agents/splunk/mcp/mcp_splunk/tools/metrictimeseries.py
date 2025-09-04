@@ -9,27 +9,37 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__metric__timeseries__metadata(
     param_query: str = None, param_limit: int = None, param_searchInactive: bool = False
 ) -> Any:
-    '''
-    Retrieves metric timeseries (MTS) metadata based on a query.
+    """
+    Retrieves metric timeseries (MTS) metadata based on a query
+
+    OpenAPI Description:
+        Retrieves metadata for the MTS specified in the query parameter
+
 
     Args:
-        param_query (str, optional): Search criteria used to filter the metric timeseries metadata. Defaults to None.
-        param_limit (int, optional): Number of results to return from the result set. Defaults to None.
-        param_searchInactive (bool, optional): Controls how Splunk Observability Cloud searches for metadata for inactive MTS. Set to True to search for both active and inactive MTS. Defaults to False.
+
+        param_query (str): Search criteria
+
+
+        param_limit (int): Number of results to return from the result set
+
+
+        param_searchInactive (bool): Controls how Splunk Observability Cloud searches for metadata for inactive MTS. Set this parameter to `true` to search for active and inactive MTS. The default is `false`.
+
 
     Returns:
-        Any: The JSON response from the API call containing the requested metric timeseries metadata.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /metrictimeseries")
 
     params = {}

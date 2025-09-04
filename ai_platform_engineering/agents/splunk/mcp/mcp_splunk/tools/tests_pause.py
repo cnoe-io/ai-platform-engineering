@@ -9,23 +9,34 @@ from typing import Any, List
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def pause_multiple_tests(body_testIds: List[int] = None) -> Any:
-    '''
-    Deactivates the specified tests by their IDs. A maximum of 500 test IDs can be processed in a single request.
+    """
+        Dectivates the tests specified in `requestBody`. Maximum of 500 test IDs in one request.
 
-    Args:
-        body_testIds (List[int], optional): A list of test IDs to deactivate. Maximum of 500 IDs per request. Defaults to None.
+        OpenAPI Description:
+            Dectivates the tests specified in `requestBody`. Maximum of 500 test IDs in one request.
 
-    Returns:
-        Any: The JSON response from the API call indicating the result of the deactivation operation.
+    ### Requirements
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
+    * You must have an organization access token with the API permission or a session token to use the API.
+    * You need the Splunk Observability Cloud admin or power role.
+
+
+        Args:
+
+            body_testIds (List[int]): OpenAPI parameter corresponding to 'body_testIds'
+
+
+        Returns:
+            Any: The JSON response from the API call.
+
+        Raises:
+            Exception: If the API request fails or returns an error.
+    """
     logger.debug("Making PUT request to /tests/pause")
 
     params = {}

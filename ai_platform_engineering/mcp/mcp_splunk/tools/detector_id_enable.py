@@ -9,24 +9,32 @@ from typing import Any, List
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def enable__detect__blocks(path_id: str, body: List[str]) -> Any:
-    '''
-    Enables detect blocks for a specified detector.
+    """
+    Enables detect blocks for a detector
+
+    OpenAPI Description:
+        Enable the detect objects in a detector
+
 
     Args:
-        path_id (str): The ID of the detector that contains the detect blocks to enable.
-        body (List[str]): A list of detect block identifiers to be enabled within the detector.
+
+        path_id (str): ID of the detector that contains the detect blocks you want to enable
+
+
+        body (List[str]): OpenAPI parameter corresponding to 'body'
+
 
     Returns:
-        Any: The JSON response from the API call indicating the result of the enable operation.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making PUT request to /detector/{id}/enable")
 
     params = {}

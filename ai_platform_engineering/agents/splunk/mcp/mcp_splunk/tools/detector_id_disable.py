@@ -9,24 +9,32 @@ from typing import Any, List
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
 async def disable__detect__blocks(path_id: str, body: List[str]) -> Any:
-    '''
-    Disables detect blocks for a specified detector.
+    """
+    Disables detect blocks for a detector
+
+    OpenAPI Description:
+        Disables detect objects in a detector
+
 
     Args:
-        path_id (str): The ID of the detector containing the detect blocks to disable.
-        body (List[str]): A list of detect block identifiers to be disabled within the detector.
+
+        path_id (str): ID of the detector that contains the objects you want to disable
+
+
+        body (List[str]): OpenAPI parameter corresponding to 'body'
+
 
     Returns:
-        Any: The JSON response from the API call indicating the result of the disable operation.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making PUT request to /detector/{id}/disable")
 
     params = {}

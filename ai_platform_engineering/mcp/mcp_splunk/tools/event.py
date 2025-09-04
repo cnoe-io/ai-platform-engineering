@@ -9,7 +9,7 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -21,25 +21,40 @@ async def retrieve__custom__events__using__query(
     param_offset: int = None,
     param_limit: int = None,
 ) -> Any:
-    '''
-    Retrieves custom events specified by search criteria.
+    """
+    Retrieves custom events specified by search criteria
 
-    This API is deprecated. Use the Event Retrieval API `/v2/event` instead.
+    OpenAPI Description:
+        **This API is deprecated**. Use the Event Retrieval API `/v2/event` instead.
+
 
     Args:
-        param_query (str, optional): Custom event search criteria. Defaults to None.
-        param_from (int, optional): Starting timestamp for search, in Unix time in milliseconds. Defaults to None.
-        param_to (int, optional): Ending timestamp for search, in Unix time in milliseconds. Defaults to None.
-        param_order_by (str, optional): Property on which the API should sort the results. Defaults to None.
-        param_offset (int, optional): Index in the result set at which the API should start returning results. Defaults to None.
-        param_limit (int, optional): Number of results to return. Defaults to None.
+
+        param_query (str): Custom event search criteria
+
+
+        param_from (int): Starting timestamp for search, in *nix time in milliseconds
+
+
+        param_to (int): Ending timestamp for search, in *nix time in milliseconds
+
+
+        param_order_by (str): Property on which the API should sort the results
+
+
+        param_offset (int): Index in the result set at which the API should start returning results
+
+
+        param_limit (int): Number of results to return
+
+
 
     Returns:
-        Any: The JSON response from the API call containing the list of custom events matching the search criteria.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /event")
 
     params = {}

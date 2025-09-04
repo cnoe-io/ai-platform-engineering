@@ -9,7 +9,7 @@ from typing import Any, List
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -28,30 +28,53 @@ async def get_tests(
     param_schedulingStragety: str = None,
     param_active: bool = False,
 ) -> Any:
-    '''
-    Retrieves a list of all tests with optional filtering and pagination.
+    """
+        Gets a list of all tests.
 
-    Args:
-        param_page (int, optional): The page number of tests to return. Defaults to None.
-        param_perPage (int, optional): The number of tests to return per page. Defaults to None.
-        param_testType (str, optional): The type of test to return. Defaults to None.
-        param_orderby (str, optional): The field by which to sort the tests. Defaults to None.
-        param_search (str, optional): Search term to filter tests by name or type. Defaults to None.
-        param_locationId (str, optional): Filter tests by a specific location ID. Defaults to None.
-        param_customProperties (List[str], optional): Filter tests by custom properties. Defaults to None.
-        param_testTypes (List[str], optional): List of test types to return. Defaults to None.
-        param_frequencies (List[int], optional): Filter tests by specified frequencies. Defaults to None.
-        param_locationIds (List[str], optional): Filter tests by a list of location IDs. Defaults to None.
-        param_lastRunStatus (List[str], optional): Filter tests by their last run status. Defaults to None.
-        param_schedulingStragety (str, optional): Filter tests by scheduling strategy. Defaults to None.
-        param_active (bool, optional): Filter tests by active (True) or paused (False) status. Defaults to False.
+        OpenAPI Description:
+            Returns a list of all tests.
 
-    Returns:
-        Any: The JSON response containing the list of tests and associated metadata.
+    ## Requirements
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
+    * You must have an organization access token with the API permission or a session token to use the API.
+    * You need the Splunk Observability Cloud admin, power, or read_only role.
+
+
+        Args:
+
+            param_page (int): Page of tests to return.
+
+            param_perPage (int): Number of tests to return.
+
+            param_testType (str): Test type to return.
+
+            param_orderby (str): Sort tests by the specified value.
+
+            param_search (str): Search for tests based on Name or Type.
+
+            param_locationId (str): Filter for tests by the given locationId.
+
+            param_customProperties (List[str]): Filter for tests by the given customProperties.
+
+            param_testTypes (List[str]): Test types to return.
+
+            param_frequencies (List[int]): Filter for tests by the given frequencies.
+
+            param_locationIds (List[str]): Filter for tests by the given locationIds.
+
+            param_lastRunStatus (List[str]): Filter for tests by the given lastRunStatus.
+
+            param_schedulingStragety (str): Filter for tests by the given schedulingStrategy
+
+            param_active (bool): Filter tests by active or paused status.
+
+
+        Returns:
+            Any: The JSON response from the API call.
+
+        Raises:
+            Exception: If the API request fails or returns an error.
+    """
     logger.debug("Making GET request to /tests")
 
     params = {}

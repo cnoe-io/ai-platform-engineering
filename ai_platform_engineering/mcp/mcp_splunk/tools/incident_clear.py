@@ -5,27 +5,34 @@
 """Tools for /incident/clear operations"""
 
 import logging
-from typing import Any, List
+from typing import Dict, Any, List
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def clear__incidents(body_filters: List[str] = None) -> Any:
-    '''
-    Clears specified incidents based on provided filters.
+async def clear__incidents(body_filters: List[Dict[str, Any]] = None) -> Any:
+    """
+    Clears specified incidents
+
+    OpenAPI Description:
+        Clears alerts specified in the request body
+
 
     Args:
-        body_filters (List[str], optional): List of rules that identify incidents to be cleared. Defaults to None.
+
+        body_filters (List[Dict[str, Any]]): List of rules that identify incidents
+
+
 
     Returns:
-        Any: The JSON response from the API call indicating the result of the clear operation.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making PUT request to /incident/clear")
 
     params = {}

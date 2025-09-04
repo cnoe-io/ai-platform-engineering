@@ -9,7 +9,7 @@ from typing import Any
 from mcp_splunk.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -22,24 +22,43 @@ async def retrieve__events__using__query(
     param_order_by: str = None,
     param_end_time: int = None,
 ) -> Any:
-    '''
-    Retrieves events from Splunk Observability Cloud based on specified search criteria.
+    """
+    Retrieves events specified by search criteria
+
+    OpenAPI Description:
+        Retrieves events from Splunk Observability Cloud
+
 
     Args:
-        param_query (str): Event search criteria to filter the events.
-        param_fields (str, optional): Custom fields of the event to return values for upon a successful request. Defaults to None.
-        param_start_time (int, optional): Starting timestamp for search, in Unix time in milliseconds. Defaults to None.
-        param_limit (int, optional): Number of results to return. Defaults to None.
-        param_offset (int, optional): Index in the result set at which the API should start returning results. Defaults to None.
-        param_order_by (str, optional): Property on which the API should sort the results. Defaults to None.
-        param_end_time (int, optional): Ending timestamp for search, in Unix time in milliseconds. Defaults to None.
+
+        param_query (str): Event search criteria
+
+
+        param_fields (str): Custom fields of the event to return values for upon a successful request.
+
+
+        param_start_time (int): Starting timestamp for search, in *nix time in milliseconds
+
+
+        param_limit (int): Number of results to return
+
+
+        param_offset (int): Index in the result set at which the API should start returning results
+
+
+        param_order_by (str): Property on which the API should sort the results
+
+
+        param_end_time (int): Ending timestamp for search, in *nix time in milliseconds
+
+
 
     Returns:
-        Any: The JSON response from the API call containing the list of events matching the search criteria.
+        Any: The JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
-    '''
+    """
     logger.debug("Making GET request to /event/find")
 
     params = {}
