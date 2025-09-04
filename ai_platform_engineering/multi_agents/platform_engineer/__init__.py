@@ -33,6 +33,9 @@ AGENT_NAMES = []
 if os.getenv("ENABLE_ARGOCD", "true").lower() == "true":
     AGENT_NAMES.append("argocd")
 
+if os.getenv("ENABLE_AWS", "true").lower() == "true":
+    AGENT_NAMES.append("aws")
+
 if os.getenv("ENABLE_BACKSTAGE", "true").lower() == "true":
     AGENT_NAMES.append("backstage")
 
