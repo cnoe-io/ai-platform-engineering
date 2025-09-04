@@ -53,6 +53,10 @@ class AgentRegistry:
             "slim": "ai_platform_engineering.agents.argocd.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.argocd.clients.a2a.agent"
         },
+        "aws": {
+            "slim": "ai_platform_engineering.agents.aws.clients.slim.agent",
+            "a2a": "ai_platform_engineering.agents.aws.clients.a2a.agent"
+        },
         "slack": {
             "slim": "ai_platform_engineering.agents.slack.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.slack.clients.a2a.agent"
