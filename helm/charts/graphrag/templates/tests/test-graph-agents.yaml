@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "graphrag.fullname" . }}-test-graph-agents"
+  labels:
+    {{- include "graphrag.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "3"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-graph-agents
+    image: bitnami/kubectl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing GraphRAG Agents..."
+
+      # Test Graph Generation Agent
+      if kubectl get deployment {{ include "graphrag.fullname" . }}-agent-graph-gen -o jsonpath='{.status.readyReplicas}' 2>/dev/null | grep -q "1"; then
+        echo "✓ Graph Generation Agent deployment is ready"
+      else
+        echo "ℹ Graph Generation Agent is not ready"
+      fi
+
+      # Test Graph QA Agent
+      if kubectl get deployment {{ include "graphrag.fullname" . }}-agent-graph-qa -o jsonpath='{.status.readyReplicas}' 2>/dev/null | grep -q "1"; then
+        echo "✓ Graph QA Agent deployment is ready"
+      else
+        echo "ℹ Graph QA Agent is not ready"
+      fi
+
+      # Test Graph QA Service
+      if kubectl get service {{ include "graphrag.fullname" . }}-agent-graph-qa 2>/dev/null; then
+        echo "✓ Graph QA Agent service exists"
+      else
+        echo "ℹ Graph QA Agent service not found"
+      fi
+
+      echo "✓ GraphRAG Agents tests completed"

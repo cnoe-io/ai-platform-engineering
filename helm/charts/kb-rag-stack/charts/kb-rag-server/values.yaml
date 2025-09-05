@@ -1,0 +1,41 @@
+nameOverride: "kb-rag-server"
+fullnameOverride: ""
+
+image:
+  # Prefer the prebuilt image; if building in-cluster is needed, adjust CI
+  repository: "ghcr.io/cnoe-io/kb-rag-server"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+serviceAccount:
+  create: false
+  name: ""
+  automount: false
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 9446
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
+
+imagePullSecrets: []
+
+env:
+  REDIS_URL: "redis://kb-rag-redis:6379/0"
+  MILVUS_HOST: "milvus-standalone"
+  MILVUS_PORT: "19530"
+
+livenessProbe: {}
+readinessProbe: {}
