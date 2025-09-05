@@ -337,37 +337,11 @@ The Agent2Agent (A2A) Protocol is an open standard designed to enable seamless c
 
 ![A2A Protocol](images/a2a-ref.svg)
 
-## AGNTCY Collective
-
-The AGNTCY project provides the complete infrastructure stack for agent collaboration—discovery, identity, messaging, and observability that works across any vendor or framework. It is the foundational layer that lets specialized agents find each other, verify capabilities, and work together on complex problems.
-
-![Mission Control](images/agntcy-arch.svg)
-
-* [Agent Directory](https://docs.agntcy.org/dir/overview/)
-  * [OASF Record](https://docs.agntcy.org/oasf/open-agentic-schema-framework/)
-* [SLIM](https://docs.agntcy.org/messaging/slim-core/)
-* [Agent Identity](https://identity-docs.outshift.com/docs/intro/)
-* [Agntcy App SDK](https://github.com/agntcy/app-sdk)
-* [coffeeAgntcy](https://github.com/agntcy/coffeeAgntcy/tree/main)
-
-**Outshift Hosted services:**
-
-- **Agent Directory** [https://agent-directory.outshift.com/explore](https://agent-directory.outshift.com/explore)
-- **Agent Identity** [https://agent-identity.outshift.com/dashboard](https://agent-identity.outshift.com/dashboard)
-
-**_Note: SLIM will be demo'ed in one of the missions. Additional bonus AGNTCY mission is available to try offline for a deeper dive into AGNTCY._**
-
-**Reference:**
-
-* [https://agntcy.org/](https://agntcy.org/)
-
-
 ---
+
 ### 🚀 Mission 1 Checklist
 
 - [ ] ⭐ Starred the [CAIPE GitHub repository](https://github.com/cnoe-io/ai-platform-engineering)
 - [ ] 📖 Checked out the [CAIPE documentation](https://cnoe-io.github.io/ai-platform-engineering/)
 - [ ] 🤖 Tried the Simple ReAct Agent example in your environment
 - [ ] 🔗 Tried the Simple ReAct Agent with MCP Server integration (see docs/examples)
-- [ ] 🌐 Visited the [AGNTCY website](https://agntcy.org/) and explored [Coffee Agntcy](https://github.com/agntcy/coffeeAgntcy)
----
