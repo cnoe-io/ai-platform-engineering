@@ -11,7 +11,6 @@ readme = "README.md"
 keywords = ["webex", "mcp", "llm", "automation"]
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi",
     "click>=8.1.7",
     "mcp>=1.13.1",
     "pydantic>=2.0.0",
