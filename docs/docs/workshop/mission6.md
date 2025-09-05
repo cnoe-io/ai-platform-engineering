@@ -231,7 +231,7 @@ vault kv get secret/ai-platform-engineering/global
 
 ### 4.6: Configure Agent-Specific Secrets
 
-As you saw in [Step 4.4](#step-4-4), we have several sub-agents configured to work in this platform. For this workshop, we will only use a subset of the agents, but if you have personal credentials for other agents, feel free to populate the secrets for those agents as well.
+As you saw in [Step 4.4](#step-4-configure-vault-secrets-for-colony-operations), we have several sub-agents configured to work in this platform. For this workshop, we will only use a subset of the agents, but if you have personal credentials for other agents, feel free to populate the secrets for those agents as well.
 
 **4.5.1: GitHub Agent**
 

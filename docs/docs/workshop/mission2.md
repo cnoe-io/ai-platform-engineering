@@ -36,7 +36,7 @@ The following diagrams illustrate how the chat client connects to the petstore a
 |----------------|---------------|
 | ![STDIO Mode](images/mission2-stdio.svg) | ![HTTP Mode](images/mission2-http.svg) |
 
-> **📝 NOTE:** If you prefer to build and run the agent locally, refer to the step at the bottom of this page: [Optional Step 3: Build and run the petstore agent locally](#optional-step-3-build-and-run-the-petstore-agent-locally).
+> **📝 NOTE:** If you prefer to build and run the agent locally, refer to the step at the bottom of this page: [Optional Step 3: Build and run the petstore agent locally](#build-and-run-the-petstore-agent-locally).
 
 ## Step 1: Navigate to AI Platform Engineering Repository
 
