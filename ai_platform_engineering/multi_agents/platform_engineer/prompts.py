@@ -1,6 +1,7 @@
 from langchain.prompts import PromptTemplate
 import yaml
 import os
+from typing import Dict, Any
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 
@@ -36,13 +37,9 @@ agent_description = config.get("agent_description", (
 # Load agent prompts from YAML
 agent_prompts = config.get("agent_prompts", {})
 
-def get_agent_system_prompt(agent_key: str) -> str:
-    """Get the system prompt for a given agent (e.g., 'argocd', 'jira', etc.)"""
-    return agent_prompts.get(agent_key, {}).get("system_prompt", None)
+agents = platform_registry.agents
 
-tools = platform_registry.get_tools()
-
-agent_skill_examples = [example for examples in tools.values() for example in examples]
+agent_skill_examples = [skill for agent in agents.values() for skill in agent.get_skill_examples()]
 
 skills_prompt = PromptTemplate(
     input_variables=["user_prompt"],
@@ -53,10 +50,21 @@ skills_prompt = PromptTemplate(
 )
 
 # Generate system prompt dynamically based on tools and their tasks
-def generate_system_prompt(tools):
+def generate_system_prompt(agents: Dict[str, Any]):
   tool_instructions = []
-  for agent_key, tasks in tools.items():
-    agent_system_prompt = get_agent_system_prompt(agent_key.lower()) if get_agent_system_prompt(agent_key.lower()) else ", ".join(tasks)
+  for agent_key, agent in agents.items():
+
+    logger.info(f"Generating tool instruction for agent_key: {agent_key}")
+    description = agent.agent_card().description
+
+    # Check if there is a system_prompt override provided in the prompt config
+    system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt", None)
+    if system_prompt_override:
+      agent_system_prompt = system_prompt_override
+    else:
+      # Use the agent description as the system prompt
+      agent_system_prompt = description
+
     instruction = f"""
 {agent_key}:
   {agent_system_prompt}
@@ -89,7 +97,7 @@ LLM Instructions:
 """
 
 # Generate the system prompt
-system_prompt = generate_system_prompt(tools)
+system_prompt = generate_system_prompt(agents)
 
 logger.info("="*50)
 logger.info(f"System Prompt Generated:\n{system_prompt}")

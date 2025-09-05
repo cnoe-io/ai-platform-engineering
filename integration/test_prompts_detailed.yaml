@@ -31,7 +31,7 @@ prompts:
     messages:
       - role: "user"
         content: "What can you help me with?"
-    expected_keywords: ["ArgoCD", "Backstage", "Confluence", "GitHub", "Jira", "PagerDuty", "Slack", "Komodor", "platform", "engineering", "help", "assist", "can", "service", "repositories", "applications", "incidents", "channels", "tickets"]
+    expected_keywords: ["ArgoCD", "Backstage", "Confluence", "GitHub", "Jira", "PagerDuty", "Slack", "Splunk", "Komodor", "platform", "engineering", "help", "assist", "can", "service", "repositories", "applications", "incidents", "channels", "tickets"]
     category: "general"
 
   - id: "list_repositories"
@@ -68,3 +68,10 @@ prompts:
         content: "show open jira issues assigned to me"
     expected_keywords: ["jira", "issue", "assigned", "open"]
     category: "jira"
+
+  - id: "splunk_log_search"
+    messages:
+      - role: "user"
+        content: "Search for error logs in the last 24 hours"
+    expected_keywords: ["splunk", "search", "error", "logs", "24", "hours"]
+    category: "splunk"

@@ -9,12 +9,20 @@ import threading
 from typing import Dict, Any, Optional, Callable
 import importlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
+    A2ARemoteAgentConnectTool,
+)
+from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import AgntcySlimRemoteAgentConnectTool
+from ai_platform_engineering.utils.misc.misc import run_coroutine_sync
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+GENERIC_CLIENT = "generic_client"
+
 class AgentRegistry:
     """Centralized registry for transport-aware agent management."""
+
 
     # Default agent names - to be overridden by subclasses
     AGENT_NAMES = []
@@ -45,6 +53,10 @@ class AgentRegistry:
             "slim": "ai_platform_engineering.agents.argocd.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.argocd.clients.a2a.agent"
         },
+        "aws": {
+            "slim": "ai_platform_engineering.agents.aws.clients.slim.agent",
+            "a2a": "ai_platform_engineering.agents.aws.clients.a2a.agent"
+        },
         "slack": {
             "slim": "ai_platform_engineering.agents.slack.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.slack.clients.a2a.agent"
@@ -57,6 +69,10 @@ class AgentRegistry:
             "slim": "ai_platform_engineering.agents.weather.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.weather.clients.a2a.agent"
         },
+        "splunk": {
+            "slim": "ai_platform_engineering.agents.splunk.clients.slim.agent",
+            "a2a": "ai_platform_engineering.agents.splunk.clients.a2a.agent"
+        },
         "petstore": {
             "slim": "ai_platform_engineering.agents.template.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.template.clients.a2a.agent"
@@ -64,7 +80,11 @@ class AgentRegistry:
         "kb-rag": {
             "slim": "ai_platform_engineering.knowledge_bases.rag.clients.slim.agent",
             "a2a": "ai_platform_engineering.knowledge_bases.rag.clients.a2a.agent"
-        }
+        },
+        "graph-rag": {
+            "slim": GENERIC_CLIENT,
+            "a2a": GENERIC_CLIENT
+        },
     }
 
     def __init__(self):
@@ -122,8 +142,41 @@ class AgentRegistry:
     def get_all_agents(self):
         return list(self.agents.values())
 
-    def get_tools(self):
-        return self._tools
+    def get_examples(self):
+        """
+        Handy method to get all examples from all agents.
+        """
+        examples = []
+        for agent in self.agents.values():
+            examples.extend(agent.get_examples())
+        return examples
+
+    def _create_generic_a2a_client(self, name: str, transport: str):
+        """
+        Creates a generic A2A client for a remote agent. Infers the agent card URL from environment variables.
+
+        Args:
+            name: Name of the remote agent
+            transport: Transport mode ("p2p" or "slim")
+
+        Returns:
+            A2ARemoteAgentConnectTool: The created A2A client
+        """
+        if transport == "p2p":
+            agent_url = self._infer_agent_url_from_env_var(name)
+            return A2ARemoteAgentConnectTool(
+                name=name,
+                remote_agent_card=agent_url,
+                skill_id="",
+                description=""
+            )            
+        elif transport == "slim":
+            return AgntcySlimRemoteAgentConnectTool(
+                name=name,
+                remote_agent_card=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
+            )
+        else:
+            raise ValueError(f"Unknown transport mode: {transport}")
 
     def _check_agent_connectivity(self, agent_name: str, agent_url: str) -> bool:
         """
@@ -253,6 +306,9 @@ class AgentRegistry:
 
         return False
 
+    def _infer_agent_url_from_env_var(self, agent_name: str) -> str:
+        return os.getenv(f"{agent_name.replace('-', '_').upper()}_AGENT_URL", "http://localhost:8000")
+
     def _get_agent_url_from_module(self, agent_name: str, module) -> str:
         """
         Extract agent URL from the agent module.
@@ -280,11 +336,9 @@ class AgentRegistry:
                 return slim_url
 
             # Fallback to environment variables based on agent name
-            agent_host = os.getenv(f"{agent_name.upper()}_AGENT_HOST", "localhost")
-            agent_port = os.getenv(f"{agent_name.upper()}_AGENT_PORT", "8000")
-            fallback_url = f"http://{agent_host}:{agent_port}"
-            logger.debug(f"🔍 Using env vars for {agent_name}: {fallback_url}")
-            return fallback_url
+            agent_url = self._infer_agent_url_from_env_var(agent_name)
+            logger.debug(f"🔍 Using env vars for {agent_name}: {agent_url}")
+            return agent_url
 
         except Exception as e:
             logger.debug(f"Could not extract URL for {agent_name}: {e}")
@@ -347,10 +401,17 @@ class AgentRegistry:
             try:
                 transport_key = "slim" if self.transport == "slim" else "a2a"
                 module_path = self.AGENT_IMPORT_MAP[agent_name][transport_key]
-                logger.debug(f"🔧 Loading {agent_name} module: {module_path}")
-                module = importlib.import_module(module_path)
-                loaded_modules[agent_name] = module
-                logger.debug(f"✅ Successfully loaded module for {agent_name}")
+
+                # Load the module if it's not the generic client
+                if module_path != GENERIC_CLIENT:
+                    logger.debug(f"🔧 Loading {agent_name} module: {module_path}")
+                    module = importlib.import_module(module_path)
+                    loaded_modules[agent_name] = module
+                    logger.debug(f"✅ Successfully loaded module for {agent_name}")
+                else:
+                    logger.debug(f"🔧 Loading {agent_name} with generic client")
+                    loaded_modules[agent_name] = GENERIC_CLIENT
+
             except ModuleNotFoundError as e:
                 logger.warning(f"⚠️ Agent {agent_name} does not have {transport_key.upper()} client implementation: {e}")
                 continue
@@ -365,7 +426,7 @@ class AgentRegistry:
 
         # Step 3: Check connectivity and build registry using extracted methods
         connectivity_results = self._check_connectivity_for_modules(loaded_modules)
-        agents, tools = self._build_registry_from_modules(loaded_modules, connectivity_results)
+        agents = self._build_registry_from_modules(loaded_modules, connectivity_results)
 
         # Compute stats for logging
         reachable_count = len(agents)
@@ -384,7 +445,6 @@ class AgentRegistry:
             logger.info("To skip connectivity checks, set SKIP_AGENT_CONNECTIVITY_CHECK=true")
 
         self._agents = agents
-        self._tools = tools
         self._loaded_modules = loaded_modules  # Cache modules for efficient refresh
 
     def _check_connectivity_for_modules(self, loaded_modules: Dict[str, Any]) -> Dict[str, bool]:
@@ -403,19 +463,34 @@ class AgentRegistry:
             logger.debug(f"Skipping connectivity checks for {len(loaded_modules)} agents (SLIM transport or disabled)")
             return {name: True for name in loaded_modules.keys()}
 
-    def _build_registry_from_modules(self, loaded_modules: Dict[str, Any], connectivity_results: Dict[str, bool]) -> tuple:
+    def _build_registry_from_modules(self, loaded_modules: Dict[str, Any], connectivity_results: Dict[str, bool]) -> Dict[str, Any]:
         """Build agents and tools registry from loaded modules and connectivity results."""
         agents = {}
-        tools = {}
 
         for agent_name, module in loaded_modules.items():
-            is_reachable = connectivity_results.get(agent_name, True)
+            reachable = connectivity_results.get(agent_name, True)
+            if not reachable:
+                logger.warning(f"Agent {agent_name} is unreachable, skipping registration...")
+                continue
+            
+            try:
+                logger.debug(f"Registering agent {agent_name}...")
+                if isinstance(module, str) and module == GENERIC_CLIENT:
+                    agent_client = self._create_generic_a2a_client(agent_name, self.transport)
+                    # Connect to the agent
+                    run_coroutine_sync(agent_client.connect())
+                    # Add the agent to the registry
+                    agents[agent_name] = agent_client
+                else:
+                    # Connect to the agent
+                    run_coroutine_sync(module.a2a_remote_agent.connect())
+                    # Add the agent to the registry
+                    agents[agent_name] = module.a2a_remote_agent
+            except Exception as e:
+                logger.error(f"Failed to register agent {agent_name}: {e}, skipping...")
+                continue
 
-            if is_reachable:
-                agents[agent_name] = module.a2a_remote_agent
-                tools.update(module.tool_map)
-
-        return agents, tools
+        return agents
 
     def _refresh_connectivity_only(self) -> bool:
         """Efficiently refresh agent connectivity without reloading modules."""
@@ -427,26 +502,30 @@ class AgentRegistry:
         logger.debug(f"Refreshing connectivity for {len(self._loaded_modules)} cached modules...")
 
         # Store current state
-        old_agents = set(self._agents.keys())
-        old_tools_count = len(self._tools)
+        old_agent_versions = ""
+        for agent_name, agent in self._agents.items():
+            old_agent_versions += f"{agent_name}={agent.version}\n"
 
         # Check connectivity and rebuild registry
         connectivity_results = self._check_connectivity_for_modules(self._loaded_modules)
-        agents, tools = self._build_registry_from_modules(self._loaded_modules, connectivity_results)
+        agents = self._build_registry_from_modules(self._loaded_modules, connectivity_results)
 
         # Update registry
         self._agents = agents
-        self._tools = tools
 
         # Check for changes
-        new_agents = set(self._agents.keys())
-        new_tools_count = len(self._tools)
-        has_changes = old_agents != new_agents or old_tools_count != new_tools_count
+        new_agent_versions = ""
+        for agent_name, agent in self._agents.items():
+            new_agent_versions += f"{agent_name}={agent.version}\n"
+
+        has_changes = old_agent_versions != new_agent_versions
+        logger.debug(f"Old agent versions: {old_agent_versions}")
+        logger.debug(f"New agent versions: {new_agent_versions}")
 
         if has_changes:
-            logger.debug(f"Connectivity refresh: {len(old_agents)} → {len(new_agents)} agents, {old_tools_count} → {new_tools_count} tools")
+            logger.debug("Connectivity refresh: Changes detected")
         else:
-            logger.debug("No connectivity changes detected")
+            logger.debug("Connectivity refresh: No changes detected")
 
         return has_changes
 

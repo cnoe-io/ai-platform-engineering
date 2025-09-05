@@ -3,20 +3,25 @@ services:
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
+    # image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
+    build:
+      context: .
+      dockerfile: build/Dockerfile
     container_name: platform-engineer-p2p
     volumes:
       - .env:/app/.env
       - ./prompt_config.yaml:/app/prompt_config.yaml
-      # - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     depends_on:
       - agent-argocd-p2p
+      - agent-aws-p2p
       - agent-backstage-p2p
       - agent-confluence-p2p
       - agent-github-p2p
       - agent-jira-p2p
       - agent-pagerduty-p2p
       - agent-slack-p2p
+      - agent-splunk-p2p
       - agent-weather-p2p
     profiles:
       - p2p
@@ -29,12 +34,14 @@ services:
     environment:
       - A2A_TRANSPORT=p2p
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
+      - AWS_AGENT_HOST=agent-aws-p2p
       - BACKSTAGE_AGENT_HOST=agent-backstage-p2p
       - CONFLUENCE_AGENT_HOST=agent-confluence-p2p
       - JIRA_AGENT_HOST=agent-jira-p2p
       - GITHUB_AGENT_HOST=agent-github-p2p
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - SLACK_AGENT_HOST=agent-slack-p2p
+      - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
       - KB_RAG_AGENT_HOST=kb-rag
@@ -70,6 +77,7 @@ services:
       - agent-komodor-slim
       - agent-pagerduty-slim
       - agent-slack-slim
+      - agent-splunk-slim
       - agent-weather-slim
     env_file:
       - .env
@@ -86,6 +94,7 @@ services:
       - KOMODOR_AGENT_HOST=agent-komodor-slim
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-slim
       - SLACK_AGENT_HOST=agent-slack-slim
+      - SPLUNK_AGENT_HOST=agent-splunk-slim
       - WEBEX_AGENT_HOST=agent-webex-slim
       - WEATHER_AGENT_HOST=agent-weather-slim
       # Enable Komodor
@@ -201,6 +210,37 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT AWS A2A P2P                                           #
+  ####################################################################################################
+  agent-aws-p2p:
+    image: ghcr.io/cnoe-io/agent-aws:${AWS_IMAGE_TAG:-24297ef}
+    container_name: agent-aws-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8010:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # AWS Configuration
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
+      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
 
   ####################################################################################################
   #                                      AGENT BACKSTAGE A2A over SLIM                               #
@@ -667,6 +707,80 @@ services:
       - MCP_PORT=8000
 
   ####################################################################################################
+  #                                      MCP SPLUNK                                                  #
+  ####################################################################################################
+  mcp-splunk:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-splunk
+    profiles:
+      - slim
+      - p2p
+      - p2p-tracing
+      - slim-tracing
+    env_file:
+      - .env
+    ports:
+      - "18007:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT SPLUNK A2A over SLIM                                  #
+  ####################################################################################################
+  agent-splunk-slim:
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-stable}
+    container_name: agent-splunk-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8011:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-splunk
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT SPLUNK A2A P2P                                        #
+  ####################################################################################################
+  agent-splunk-p2p:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-splunk-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    depends_on:
+      - mcp-splunk
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8011:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-splunk
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
   #                                      AGENT WEATHER A2A over SLIM                                 #
   ####################################################################################################
   agent-weather-slim:
@@ -750,10 +864,13 @@ services:
       - kb-rag
     depends_on:
       - milvus-standalone
+      - kb-rag-redis
     volumes:
       - ./.env:/app/.env
     ports:
       - "9446:9446"
+    environment:
+      - REDIS_URL=redis://kb-rag-redis:6379/0
   kb-rag-web:
     build:
       context: ai_platform_engineering/knowledge_bases/rag
@@ -830,6 +947,28 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+
+  kb-rag-redis:
+    image: redis:7.2-alpine
+    container_name: kb-rag-redis
+    profiles:
+      - kb-rag
+    ports:
+      - "6379:6379"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/kb-rag-redis:/data
+    command: >
+      redis-server 
+      --appendonly yes 
+      --save 60 1 
+      --maxmemory 256mb 
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
 
 
 
