@@ -16,7 +16,6 @@ This jam-style session is all about exploration, learning, and hands-on deployme
 
 - 🚀 **Explore and run** the full-stack AI agentic platform on your own laptop or environment
 - 🧪 **Play with real-world use cases**, experiment with tools, and customize agents by modifying prompts
-- 🔌 **Integrate with AGNTCY components** for agent collaboration and discovery
 - 🔍 **Learn distributed tracing**, continuous evaluation, and best practices for agent evaluation
 - 🤝 **Collaborate with the creators** of JARVIS and the open-source community to shape the AI Platform Engineering Agentic future
 - ☸️ **Deploy the Full-Stack AI Platform Engineering** on Kubernetes and take it to Production for enterprise use cases
@@ -56,7 +55,6 @@ The workshop is organized into a series of hands-on missions. Click a mission be
 - [Mission 4 & 5: Reconnaissance & Reporting back (RAG + Git agent)](workshop-mars-colony/201-mission4.md)
 - [Mission 6: Deploy CAIPE with IDPBuilder](workshop-mars-colony/301-mission6.md)
 - [Mission 7: Tracing and Evaluation](workshop-mars-colony/401-mission7.md)
-- [AGNTCY Demo](workshop-mars-colony/501-agntcy.md)
 
 > 💡 **Tip:** You can jump between missions or revisit any mission at any time. Each is designed to be independently runnable.
 
@@ -67,7 +65,6 @@ Happy exploring and good luck 🚀
 ## 📚 Documentation & Resources
 
 - **📖 CAIPE Documentation:** [https://cnoe-io.github.io/ai-platform-engineering/](https://cnoe-io.github.io/ai-platform-engineering/)
-- **🌐 AGNTCY Documentation:** [https://docs.agntcy.org/](https://docs.agntcy.org/)
 - **💬 Community:** [CAIPE Community](https://cnoe-io.github.io/ai-platform-engineering/community/)
 
 ---
