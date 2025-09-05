@@ -1,97 +1,98 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
-
-import click
 import logging
 import sys
-from .mcp_server import serve
-from mcp.server import NotificationOptions
-from mcp.server.models import InitializationOptions
-from mcp.server.stdio import stdio_server
+from typing import Literal
+
+import click
+from mcp.server.fastmcp.server import FastMCP
+
 from .__about__ import __version__
+from .mcp_server import register_tools
+
+# Type aliases for clarity
+authToken = str  # Simple semantic alias
+InputTransport = Literal[
+    "stdio", "sse", "http", "streamable-http"
+]  # Accepted via CLI (legacy includes 'http')
+RuntimeTransport = Literal[
+    "stdio", "sse", "streamable-http"
+]  # Actual transports supported by FastMCP
+LogLevel = Literal["WARNING", "INFO", "DEBUG"]
 
 
 @click.command()
 @click.option(
-  "--auth-token",
-  envvar="WEBEX_TOKEN",
-  required=True,
-  help="Webex bot token",
+    "--auth-token",
+    envvar="WEBEX_TOKEN",
+    required=True,
+    help="Webex bot token",
 )
-@click.option("--port", default=8000, help="Port to listen on for SSE", envvar="MCP_PORT")
 @click.option(
-  "--transport",
-  type=click.Choice(["stdio", "sse", "http"]),
-  default="stdio",
-  envvar="MCP_MODE",
-  help="Transport type",
+    "--port", default=8000, help="Port to listen on for SSE/HTTP", envvar="MCP_PORT"
+)
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "sse", "http", "streamable-http"]),
+    default="stdio",
+    envvar="MCP_MODE",
+    help="Transport type",
 )
 @click.option("-v", "--verbose", count=True)
-@click.option("--host", default="127.0.0.1", help="Host to listen on", envvar="MCP_HOST")
-def main(auth_token: str, verbose: bool, transport: str, port: int, host: str) -> None:
-  logging_level = logging.WARN
-  if verbose == 1:
-    logging_level = logging.INFO
-  elif verbose >= 2:
-    logging_level = logging.DEBUG
+@click.option(
+    "--host", default="127.0.0.1", help="Host to listen on", envvar="MCP_HOST"
+)
+def main(
+    auth_token: authToken, verbose: int, transport: InputTransport, port: int, host: str
+) -> None:
+    """Entry point for the Webex MCP server.
 
-  logging.basicConfig(level=logging_level, stream=sys.stderr)
+    Parameters:
+      auth_token: Webex bot token (from env/CLI).
+      verbose: Verbosity flag count (-v / -vv) mapping to log level.
+      transport: CLI selected transport (may include legacy 'http').
+      port: Port to bind for SSE/HTTP transports.
+      host: Host interface to bind.
+    """
+    logging_level = logging.WARN
+    if verbose == 1:
+        logging_level = logging.INFO
+    elif verbose >= 2:
+        logging_level = logging.DEBUG
+    logging.basicConfig(level=logging_level, stream=sys.stderr)
 
-  if transport == "sse" or transport == "http":
-    from mcp.server.sse import SseServerTransport
-    from starlette.applications import Starlette
-    from starlette.responses import Response
-    from starlette.routing import Mount, Route
+    # Map 'http' to FastMCP 'streamable-http' without mutating input param
+    if transport == "http":
+        selected_transport: RuntimeTransport = "streamable-http"
+    else:
+        selected_transport = transport  # type: ignore[assignment]
 
-    sse = SseServerTransport("/messages/")
+    allowed_transports: tuple[RuntimeTransport, ...] = (
+        "stdio",
+        "sse",
+        "streamable-http",
+    )
+    if selected_transport not in allowed_transports:
+        raise ValueError(f"Invalid transport: {selected_transport}")
 
-    async def handle_sse(request):
-      async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
-        server = await serve(auth_token)
-        await server.run(
-          streams[0],
-          streams[1],
-          make_initialization_options(server),
-        )
-      return Response()
+    log_levels: dict[int, LogLevel] = {0: "WARNING", 1: "INFO", 2: "DEBUG"}
+    log_level: LogLevel = log_levels.get(verbose, "WARNING")
 
-    starlette_app = Starlette(
-      debug=True,
-      routes=[
-        Route("/sse", endpoint=handle_sse, methods=["GET"]),
-        Mount("/messages/", app=sse.handle_post_message),
-      ],
+    # Instantiate FastMCP server
+    server = FastMCP(
+        name="mcp-webex",
+        host=host,
+        port=port,
+        debug=logging_level == logging.DEBUG,
+        log_level=log_level,
     )
 
-    import uvicorn
+    register_tools(server, auth_token=auth_token)
 
-    uvicorn.run(starlette_app, host=host, port=port)
-  else:
-
-    async def _run():
-      async with stdio_server() as (read_stream, write_stream):
-        server = await serve(auth_token)
-        await server.run(
-          read_stream,
-          write_stream,
-          make_initialization_options(server),
-        )
-
-    asyncio.run(_run())
-
-
-def make_initialization_options(server):
-  return InitializationOptions(
-    server_name="webex",
-    server_version=__version__,
-    capabilities=server.get_capabilities(
-      notification_options=NotificationOptions(),
-      experimental_capabilities={},
-    ),
-  )
+    # Run server with selected transport
+    server.run(transport=selected_transport)
 
 
 if __name__ == "__main__":
-  main()
+    main()
