@@ -71,3 +71,77 @@ Create the name of the service account to use
         {{- default "default" .Values.serviceAccount.name }}
     {{- end }}
 {{- end }}
+
+{{/*
+Determine if external secrets are enabled for llmSecrets - prioritize global
+*/}}
+{{- define "graphrag.llmSecrets.externalSecrets.enabled" -}}
+    {{- $enabled := (default false .Values.llmSecrets.externalSecrets.enabled) -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if and (hasKey . "enabled") .enabled -}}
+                {{- $enabled = true -}}
+            {{- end -}}
+        {{- end -}}
+        {{- with .llmSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "enabled" -}}
+                    {{- $enabled = .enabled -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $enabled -}}
+{{- end }}
+
+{{/*
+Get llmSecrets.secretName with global fallback
+*/}}
+{{- define "graphrag.llmSecrets.secretName" -}}
+    {{- $name := .Values.llmSecrets.secretName -}}
+    {{- with .Values.global -}}
+        {{- with .llmSecrets -}}
+            {{- if hasKey . "secretName" -}}
+                {{- $name = .secretName -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $name -}}
+{{- end -}}
+
+{{/*
+Get llmSecrets.create with global fallback
+*/}}
+{{- define "graphrag.llmSecrets.create" -}}
+    {{- $create := .Values.llmSecrets.create -}}
+    {{- with .Values.global -}}
+        {{- with .llmSecrets -}}
+            {{- if hasKey . "create" -}}
+                {{- $create = .create -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $create -}}
+{{- end -}}
+
+{{/*
+Get llmSecrets.externalSecrets.secretStoreRef with global fallback
+*/}}
+{{- define "graphrag.llmSecrets.externalSecrets.secretStoreRef" -}}
+    {{- $ref := .Values.llmSecrets.externalSecrets.secretStoreRef -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if hasKey . "secretStoreRef" -}}
+                {{- $ref = .secretStoreRef -}}
+            {{- end -}}
+        {{- end -}}
+        {{- with .llmSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "secretStoreRef" -}}
+                    {{- $ref = .secretStoreRef -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $ref -}}
+{{- end -}}

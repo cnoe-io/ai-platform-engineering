@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "agent.fullname" . }}
+  name: {{ include "supervisorAgent.fullname" . }}
   labels:
-    {{- include "agent.labels" . | nindent 4 }}
+    {{- include "supervisorAgent.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "agent.selectorLabels" . | nindent 6 }}
+      {{- include "supervisorAgent.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -18,7 +18,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "agent.labels" . | nindent 8 }}
+        {{- include "supervisorAgent.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -27,7 +27,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "agent.serviceAccountName" . }}
+      serviceAccountName: {{ include "supervisorAgent.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -65,40 +65,35 @@ spec:
               protocol: TCP
             {{- end }}
           envFrom:
-            {{- $llmSecretName := include "agent.llmSecrets.secretName" . | trim -}}
+            {{- $llmSecretName := include "supervisorAgent.llmSecrets.secretName" . | trim -}}
             {{- if $llmSecretName }}
             - secretRef:
                 name: {{ $llmSecretName }}
             {{- end }}
-            {{- $agentSecretName := include "agent.agentSecrets.secretName" . | trim -}}
-            {{- if $agentSecretName }}
-            - secretRef:
-                name: {{ $agentSecretName }}
-            {{- end }}
-          {{- if or .Values.env .Values.isMultiAgent (eq (include "agent.slim.enabled" .) "true") (eq .Values.mcp.mode "http") }}
           env:
+            - name: AGENT_PROTOCOL
+              value: {{ .Values.multiAgentConfig.protocol | quote }}
+            {{- include "supervisorAgent.multiAgentConfig.agents" . -}}
+            {{- range $a := .agents -}}
+            {{- $envPrefix := upper $a }}
+            - name: {{ $envPrefix }}_AGENT_HOST
+              value: {{ printf "%s-agent-%s" $.Release.Name $a | quote }}
+            - name: {{ $envPrefix }}_AGENT_PORT
+              value: {{ $.Values.multiAgentConfig.port | quote }}
+            {{- end }}
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
-            {{- if eq (include "agent.slim.enabled" .) "true" }}
+            {{- if eq (include "supervisorAgent.slim.enabled" .) "true" }}
             - name: A2A_TRANSPORT
-              value: {{ include "agent.slim.transport" . | quote }}
+              value: {{ include "supervisorAgent.slim.transport" . | quote }}
             - name: SLIM_ENDPOINT
-              value: {{ include "agent.slim.endpoint" . | quote }}
+              value: {{ include "supervisorAgent.slim.endpoint" . | quote }}
             {{- end }}
-            {{- if eq .Values.mcp.mode "http" }}
-            - name: MCP_MODE
-              value: http
-            - name: MCP_PORT
-              value: {{ .Values.mcp.service.port | quote }}
-            - name: MCP_HOST
-              value: {{ include "agent.fullname" . }}-mcp
-            {{- end }}
-          {{- end }}
-          {{- if not (eq (include "agent.slim.enabled" .) "true") }}
+          {{- if not (eq (include "supervisorAgent.slim.enabled" .) "true") }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -113,12 +108,10 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            {{- if .Values.isMultiAgent }}
             - name: prompt-config
               mountPath: /app/prompt_config.yaml
               subPath: prompt_config.yaml
               readOnly: true
-            {{- end }}
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

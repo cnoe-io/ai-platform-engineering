@@ -1,4 +1,4 @@
-{{- if and .Values.nexigraphServer.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+{{- if and .Values.nexigraphServer.enabled }}
 apiVersion: v1
 kind: Service
 metadata:

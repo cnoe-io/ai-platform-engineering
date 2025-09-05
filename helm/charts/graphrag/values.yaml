@@ -1,14 +1,19 @@
 # GraphRAG Services Configuration
 # This chart deploys Neo4j, Redis, and Nexigraph components for Graph-based RAG
 
-# Global settings
-global:
-  profiles:
-    knowledgeBase: true
-    graphRag: true
-    nexigraph: true
-  secrets:
-    secretName: llm-secret
+# Secrets configuration for LLM providers
+# When used as a subchart, global values can override these values
+# When used as a standalone agent, this will be the secret for the LLM provider
+llmSecrets:
+  create: true # if false, it'll assume that the secret already exists
+  secretName: "llm-secret"
+  data: {}
+  externalSecrets:
+    enabled: false
+    secretStoreRef:
+      name: "" # Use your secret store
+      kind: ClusterSecretStore # Use your secret store kind
+    data: []
 
 # Redis Configuration
 redis:

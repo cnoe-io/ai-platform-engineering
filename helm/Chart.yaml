@@ -6,52 +6,46 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.1.15
+version: 0.2.0
 dependencies:
   # AI Platform Engineer Multi-Agent
-  - name: agent
+  - name: supervisor-agent
     # Chart version for agent subchart
-    version: 0.1.10
-    alias: ai-platform-engineering
-    condition: ai-platform-engineering.enabled
+    version: 0.1.0
+    condition: supervisor-agent.enabled
   # Backstage plugin agent forge
-  - name: agent
-    version: 0.1.10
-    alias: backstage-plugin-agent-forge
+  - name: backstage-plugin-agent-forge
+    version: 0.1.0
     condition: backstage-plugin-agent-forge.enabled
   # Single agent chart used multiple times with different aliases
   - name: agent
-    version: 0.1.10
+    version: 0.2.0
     alias: agent-argocd
-    condition: agent-argocd.enabled
+    condition: global.enabledSubAgents.argocd
   - name: agent
-    version: 0.1.10
+    version: 0.2.0
     alias: agent-backstage
-    condition: agent-backstage.enabled
+    condition: global.enabledSubAgents.backstage
   - name: agent
-    version: 0.1.10
+    version: 0.2.0
     alias: agent-confluence
-    condition: agent-confluence.enabled
+    condition: global.enabledSubAgents.confluence
   - name: agent
-    version: 0.1.10
+    version: 0.2.0
     alias: agent-github
-    condition: agent-github.enabled
+    condition: global.enabledSubAgents.github
   - name: agent
-    version: 0.1.10
+    version: 0.2.0
     alias: agent-jira
-    condition: agent-jira.enabled
+    condition: global.enabledSubAgents.jira
   - name: agent
-    version: 0.1.10
+    version: 0.2.0
     alias: agent-pagerduty
-    condition: agent-pagerduty.enabled
+    condition: global.enabledSubAgents.pagerduty
   - name: agent
-    version: 0.1.10
+    version: 0.2.0
     alias: agent-slack
-    condition: agent-slack.enabled
-  - name: agent
-    version: 0.1.10
-    alias: agent-reflection
-    condition: agent-reflection.enabled
+    condition: global.enabledSubAgents.slack
   # AGNTCY Slim dataplane service
   - name: slim
     version: v0.1.8
@@ -61,12 +55,9 @@ dependencies:
     version: v0.1.3
     repository: oci://ghcr.io/agntcy/slim/helm
     condition: global.slim.enabled
-  # Separate chart for external secrets
-  - name: external-secrets-configuration
-    version: 0.0.3
   # GraphRAG services
   - name: graphrag
-    version: 0.1.0
+    version: 0.1.1
     condition: graphrag.enabled
   - name: neo4j
     version: "2025.07.1"
