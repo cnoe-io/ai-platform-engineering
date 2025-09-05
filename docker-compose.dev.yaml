@@ -784,7 +784,7 @@ services:
       - "8009:8000"
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=sse
+      - MCP_MODE=http
       - MCP_PORT=8000
       - MCP_HOST=mcp-webex
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -808,7 +808,7 @@ services:
     ports:
       - "8009:8000"
     environment:
-      - MCP_MODE=sse
+      - MCP_MODE=http
       - MCP_PORT=8000
       - MCP_HOST=mcp-webex
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -834,7 +834,7 @@ services:
     ports:
       - "18009:8000"
     environment:
-      - MCP_MODE=sse
+      - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
 

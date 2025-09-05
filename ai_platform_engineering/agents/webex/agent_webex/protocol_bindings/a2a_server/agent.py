@@ -81,7 +81,7 @@ class WebexAgent:
 
       if self.mcp_mode == "sse":
           logger.info(
-              f"Using HTTP transport for MCP client: {self.mcp_host}")
+              f"Using SSE HTTP transport for MCP client: {self.mcp_host}")
 
           client = MultiServerMCPClient(
               {
@@ -96,7 +96,6 @@ class WebexAgent:
               }
           )
       elif self.mcp_mode == "http":
-            # TODO make MCP streamable
             logger.info(
                 f"Using Streamable HTTP transport for MCP client: {self.mcp_host}")
             client = MultiServerMCPClient(
