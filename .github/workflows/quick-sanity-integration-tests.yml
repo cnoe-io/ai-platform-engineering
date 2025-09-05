@@ -67,6 +67,9 @@ jobs:
           PAGERDUTY_API_KEY=${{ secrets.PAGERDUTY_API_KEY }}
           PAGERDUTY_API_URL=https://api.pagerduty.com
 
+          SPLUNK_TOKEN=${{ secrets.SPLUNK_TOKEN }}
+          SPLUNK_API_URL=${{ secrets.SPLUNK_API_URL }}
+
           KOMODOR_TOKEN=${{ secrets.KOMODOR_TOKEN }}
           KOMODOR_API_URL=${{ secrets.KOMODOR_API_URL }}
 

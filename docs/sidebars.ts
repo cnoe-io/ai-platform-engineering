@@ -285,6 +285,53 @@ const sidebars: SidebarsConfig = {
       id: 'contributing/index',
       label: 'Contributing',
     },
+    {
+      type: 'category',
+      label: 'Workshop - Mars Colony',
+      items: [
+        {
+          type: 'doc',
+          id: 'workshop/README',
+          label: 'Workshop Overview',
+        },
+        {
+          type: 'doc',
+          id: 'workshop/overview',
+          label: 'Mission Overview',
+        },
+        {
+          type: 'doc',
+          id: 'workshop/mission1',
+          label: 'Mission 1: Start Ignition',
+        },
+        {
+          type: 'doc',
+          id: 'workshop/mission2',
+          label: 'Mission 2: Run Standalone Petstore Agent',
+        },
+        {
+          type: 'doc',
+          id: 'workshop/mission3',
+          label: 'Mission 3: Multi-Agent System',
+        },
+        {
+          type: 'doc',
+          id: 'workshop/mission4',
+          label: 'Mission 4: Reconnaissance & Reporting',
+        },
+        {
+          type: 'doc',
+          id: 'workshop/mission6',
+          label: 'Mission 6: Deploy CAIPE with IDPBuilder',
+        },
+        {
+          type: 'doc',
+          id: 'workshop/mission7',
+          label: 'Mission 7: Tracing and Evaluation',
+        }
+      ],
+    },
+
   ],
   communitySidebar: [
     {
