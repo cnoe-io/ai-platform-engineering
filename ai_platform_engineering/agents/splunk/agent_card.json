@@ -1,0 +1,78 @@
+{
+  "name": "Splunk Agent",
+  "description": "An AI agent that provides capabilities to perform Splunk operations including log searches, alert management, and system monitoring.",
+  "version": "1.0.0",
+  "url": "http://localhost:8000",
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true
+  },
+  "skills": [
+    {
+      "id": "splunk_agent_skill",
+      "name": "Splunk Agent Skill",
+      "description": "Handles tasks related to Splunk log searches, alerts, detectors, and system monitoring.",
+      "tags": [
+        "splunk",
+        "logging",
+        "monitoring",
+        "alerts",
+        "search",
+        "detectors",
+        "incidents"
+      ],
+      "examples": [
+        "Search for error logs in the last 24 hours",
+        "Create an alert for high CPU usage",
+        "List all active detectors",
+        "Get system status and health metrics",
+        "Search for specific application logs",
+        "Manage alert muting rules",
+        "Check incident status",
+        "Query team information and members"
+      ]
+    }
+  ],
+  "author": {
+    "name": "CNOE Contributors",
+    "email": "info@cnoe.io"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cnoe-io/ai-platform-engineering"
+  },
+  "documentation": {
+    "url": "https://cnoe.io/docs/agents/splunk",
+    "examples": [
+      {
+        "title": "Search Application Logs",
+        "description": "Search for application-specific logs with error level",
+        "query": "Search for all error logs from the web application in the last hour"
+      },
+      {
+        "title": "Create Performance Alert",
+        "description": "Set up monitoring for system performance metrics",
+        "query": "Create an alert for when CPU usage exceeds 80% for more than 5 minutes"
+      },
+      {
+        "title": "System Health Check",
+        "description": "Get overall system status and health metrics",
+        "query": "Show me the current system health and any active alerts"
+      }
+    ]
+  },
+  "configuration": {
+    "requiredEnvironmentVariables": [
+      "SPLUNK_TOKEN",
+      "SPLUNK_API_URL"
+    ],
+    "optionalEnvironmentVariables": [
+      "MCP_MODE",
+      "MCP_HOST",
+      "MCP_PORT"
+    ]
+  }
+} 
