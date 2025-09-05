@@ -48,13 +48,13 @@ capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
 def create_agent_card(base_url: str) -> AgentCard:
     """Create agent card for AWS EKS agent."""
-    
+
     print("===================================")
     print("       AWS AGENT CONFIG      ")
     print("===================================")
     print(f"AGENT_URL: {base_url}")
     print("===================================")
-    
+
     return AgentCard(
         name="aws",
         id="aws-eks-tools-agent",
@@ -112,14 +112,3 @@ a2a_remote_agent = A2ARemoteAgentConnectTool(
     skill_id=agent_skill.id,
 )
 
-def get_examples() -> List[str]:
-    """Get example prompts for the AWS EKS agent."""
-    return agent_skill.examples
-
-def get_skill_examples() -> List[str]:
-    """Get skill examples for the AWS EKS agent."""
-    return agent_skill.examples
-
-def agent_card_func():
-    """Return the agent card."""
-    return agent_card
