@@ -8,7 +8,6 @@ from typing import Literal
 import click
 from mcp.server.fastmcp.server import FastMCP
 
-from .__about__ import __version__
 from .mcp_server import register_tools
 
 # Type aliases for clarity
