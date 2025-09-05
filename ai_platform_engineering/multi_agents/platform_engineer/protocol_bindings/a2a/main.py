@@ -31,11 +31,15 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 def get_agent_card(host: str, port: int, external_url: str = None):
   capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
+  tags = ['argocd', 'pagerduty', 'github', 'jira', 'slack', 'devops']
+  if os.getenv('ENABLE_WEBEX_AGENT', '').lower() == 'true':
+    tags.append('webex')
+
   skill = AgentSkill(
     id='ai_platform_engineer',
     name=agent_name,
     description=agent_description,
-    tags=['argocd', 'pagerduty', 'github', 'jira', 'slack', 'devops'],
+    tags=tags,
     examples=agent_skill_examples,
   )
 

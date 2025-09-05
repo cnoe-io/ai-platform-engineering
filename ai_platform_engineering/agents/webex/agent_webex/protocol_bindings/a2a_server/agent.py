@@ -63,6 +63,9 @@ class WebexAgent:
     self.model = LLMFactory().get_llm()
     self.tracing = TracingManager()
     self.graph = None
+    self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
+    self.mcp_host = os.getenv("MCP_HOST")
+    self.mcp_port = os.getenv("MCP_PORT")
     # Async initialization must be called explicitly
 
   async def initialize(self):
@@ -70,43 +73,57 @@ class WebexAgent:
 
     async def _async_webex_agent(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
       args = config.get("configurable", {})
-      server_path = args.get("server_path", "./agent_webex/protocol_bindings/mcp_server_webex/")
+      server_path = args.get("server_path", "./mcp/mcp_server_webex/")
       print(f"Launching MCP server at: {server_path}")
       webex_token = os.getenv("WEBEX_TOKEN")
       if not webex_token:
         raise ValueError("WEBEX_TOKEN must be set as an environment variable.")
-      client = MultiServerMCPClient(
-        {
-          "webex": {
-            "command": "uv",
-            "args": ["run", "--directory", server_path, "mcp-server-webex"],
-            "env": {"WEBEX_TOKEN": os.getenv("WEBEX_TOKEN")},
-            "transport": "stdio",
-          }
-        }
-      )
+
+      if self.mcp_mode == "sse":
+          logger.info(
+              f"Using SSE HTTP transport for MCP client: {self.mcp_host}")
+
+          client = MultiServerMCPClient(
+              {
+                  "webex": {
+                      "transport": "sse",
+                      "url": f"http://{self.mcp_host}:{self.mcp_port}/sse",
+                      # TODO auth
+                      # "headers": {
+                      #     "Authorization": f"Bearer {jwt_token}",
+                      # },
+                  }
+              }
+          )
+      elif self.mcp_mode == "http":
+            logger.info(
+                f"Using Streamable HTTP transport for MCP client: {self.mcp_host}")
+            client = MultiServerMCPClient(
+                {
+                    "webex": {
+                        "transport": "streamable_http",
+                        "url": f"http://{self.mcp_host}:{self.mcp_port}/mcp",
+                        # TODO auth
+                        # "headers": {
+                        #     "Authorization": f"Bearer {jwt_token}",
+                        # },
+                    }
+                }
+            )
+      else:
+          client = MultiServerMCPClient(
+            {
+              "webex": {
+                "command": "uv",
+                "args": ["run", "--directory", server_path, "mcp-server-webex"],
+                "env": {"WEBEX_TOKEN": os.getenv("WEBEX_TOKEN")},
+                "transport": "stdio",
+              }
+            }
+          )
+
       tools = await client.get_tools()
-      # print("*" * 80)
-      # print("Available Tools and Parameters:")
-      # for tool in tools:
-      #   print(f"Tool: {tool.name}")
-      #   print(f"  Description: {tool.description.strip().splitlines()[0]}")
-      #   params = tool.args_schema.get("properties", {})
-      #   if params:
-      #     print("  Parameters:")
-      #     for param, meta in params.items():
-      #       param_type = meta.get("type", "unknown")
-      #       param_title = meta.get("title", param)
-      #       default = meta.get("default", None)
-      #       print(f"    - {param} ({param_type}): {param_title}", end="")
-      #       if default is not None:
-      #         print(f" [default: {default}]")
-      #       else:
-      #         print()
-      #   else:
-      #     print("  Parameters: None")
-      #   print()
-      # print("*" * 80)
+
       self.graph = create_react_agent(
         self.model,
         tools,
