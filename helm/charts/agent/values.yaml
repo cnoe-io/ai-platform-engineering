@@ -1,20 +1,10 @@
-# Default values for agent-argocd.
+# Default values for agent.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-# Global configuration (used when chart is tested individually)
-global:
-  externalSecrets:
-    enabled: false
-  secrets:
-    secretName: "llm-secret"
-  slim:
-    enabled: false
-    endpoint: "http://ai-platform-engineering-slim:46357"
-    transport: "slim"
-
-# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
-replicaCount: 1
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: ""
 
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
@@ -28,9 +18,6 @@ image:
 
 # This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []
-# This is to override the chart name.
-nameOverride: ""
-fullnameOverride: ""
 
 # This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
 serviceAccount:
@@ -85,6 +72,9 @@ ingress:
   #  - secretName: chart-example-tls
   #    hosts:
   #      - agent.local
+
+# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+replicaCount: 1
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
@@ -141,21 +131,44 @@ tolerations: []
 
 affinity: {}
 
-# Secrets configuration for LLM providers
-secrets:
-  # if set, use this secret for the LLM provider API keys; if not set, the keys will be provided directly below
-  secretName: "llm-secret"
-  # Additional secret data
-  data: {}
-
 # Environment variables (non-sensitive and sensitive from secrets)
 env: {}
 
-# External Secrets configuration - this will be populated by the parent chart
-externalSecrets:
+# Secrets configuration for LLM providers
+# When used as a subchart, global values can override these values
+# When used as a standalone agent, this will be the secret for the LLM provider
+llmSecrets:
+  create: false # if false, it'll assume that the secret already exists
+  secretName: "llm-secret"
+  data: {}
+  externalSecrets:
+    enabled: false
+    secretStoreRef:
+      name: "" # Use your secret store
+      kind: ClusterSecretStore # Use your secret store kind
+    data: []
+
+# Secrets configuration for agent specific secrets
+agentSecrets:
+  requiresSecret: true # if false, no agent secret is required e.g. api keys
+  create: false # if false, it'll assume that the secret already exists
+  secretName: "" # defaults to agent.name-secret if empty
+  data: {}
+  externalSecrets:
+    enabled: false
+    name: "" # defaults to agent.name-secret if empty
+    secretStoreRef: # this can be overriden by global.externalSecrets.secretStoreRef
+      name: "" # Use your secret store
+      kind: ClusterSecretStore # Use your secret store kind
+    target: {}
+    data: []
+
+# Slim transport configuration - fallback values for standalone testing
+# In production, these are provided by the parent chart's global.slim section
+slim:
   enabled: false
-  # List of external secret names this agent should reference
-  secretNames: []
+  endpoint: "http://ai-platform-engineering-slim:46357"
+  transport: "slim"
 
 # MCP (Model Context Protocol) container configuration
 # Only deployed when env.MCP_MODE is set to "http"

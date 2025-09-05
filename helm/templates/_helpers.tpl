@@ -48,36 +48,53 @@ Create chart name and version as used by the chart label.
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{/*
-Determine if we should create traditional secrets (when external secrets are not available or disabled)
-*/}}
-{{- define "ai-platform-engineering.createTraditionalSecrets" -}}
-{{- if not (hasKey .Values "global") -}}
-true
-{{- else if not (hasKey .Values.global "externalSecrets") -}}
-true
-{{- else if not .Values.global.externalSecrets.enabled -}}
-true
-{{- else -}}
-false
-{{- end -}}
-{{- end -}}
+{{- define "ai-platform-engineering.externalSecrets.enabled" -}}
+    {{- if and (hasKey .Values "global") (hasKey .Values.global "externalSecrets") (hasKey .Values.global.externalSecrets "enabled") }}
+        {{- .Values.global.externalSecrets.enabled }}
+    {{- else if and (hasKey .Values "global") (hasKey .Values.global "llmSecrets") (hasKey .Values.global.llmSecrets "externalSecrets") (hasKey .Values.global.llmSecrets.externalSecrets "enabled") }}
+        {{- .Values.global.llmSecrets.externalSecrets.enabled }}
+    {{- else }}
+        {{- false }}
+    {{- end }}
+{{- end }}
 
 {{/*
-Determine if we should use a custom secret name
+Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 */}}
-{{- define "ai-platform-engineering.useCustomSecretName" -}}
-{{- $hasCustomSecret := false -}}
-{{- if hasKey .Values "global" -}}
-  {{- if hasKey .Values.global "secrets" -}}
-    {{- if kindIs "map" .Values.global.secrets -}}
-      {{- if hasKey .Values.global.secrets "secretName" -}}
-        {{- if .Values.global.secrets.secretName -}}
-          {{- $hasCustomSecret = true -}}
+{{- define "ai-platform-engineering.externalSecrets.secretStoreRef" -}}
+    {{- $ref := dict -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if hasKey . "secretStoreRef" -}}
+                {{- $ref = .secretStoreRef -}}
+            {{- end -}}
         {{- end -}}
-      {{- end -}}
+        {{- with .llmSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "secretStoreRef" -}}
+                    {{- $ref = .secretStoreRef -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
     {{- end -}}
-  {{- end -}}
+    {{- toYaml $ref -}}
 {{- end -}}
-{{- $hasCustomSecret -}}
-{{- end -}}
+
+{{- define "ai-platform-engineering.llmSecrets.secretName" -}}
+    {{- if and (hasKey .Values "global") (hasKey .Values.global "llmSecrets") (hasKey .Values.global.llmSecrets "secretName") }}
+        {{- .Values.global.llmSecrets.secretName }}
+    {{- else }}
+        {{- "llm-secret" }}
+    {{- end }}
+{{- end }}
+
+{{- define "ai-platform-engineering.llmSecrets.externalSecrets.name" -}}
+    {{- if and (hasKey .Values "global") (hasKey .Values.global "llmSecrets") (hasKey .Values.global.llmSecrets "externalSecrets") (hasKey .Values.global.llmSecrets.externalSecrets "name") }}
+        {{- .Values.global.llmSecrets.externalSecrets.name }}
+    {{- else if include "ai-platform-engineering.llmSecrets.secretName" .  }}
+        {{- include "ai-platform-engineering.llmSecrets.secretName" . }}
+    {{- else }}
+        {{- "llm-secret" }}
+    {{- end }}
+{{- end }}
+

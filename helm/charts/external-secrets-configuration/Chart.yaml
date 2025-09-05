@@ -1,4 +1,0 @@
-apiVersion: v2
-name: external-secrets-configuration
-description: Helm Chart for adding external secrets to any chart.
-version: 0.0.3

@@ -1,4 +1,3 @@
-{{- if index .Values "ai-platform-engineering" "enabled" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,4 +11,3 @@ metadata:
 data:
   prompt_config.yaml: |
 {{ .Files.Get "data/prompt_config.yaml" | nindent 4 }}
-{{- end }}
