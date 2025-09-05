@@ -1,16 +1,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "agent.fullname" . }}
+  name: {{ include "backstage-plugin-agent-forge.fullname" . }}
   labels:
-    {{- include "agent.labels" . | nindent 4 }}
+    {{- include "backstage-plugin-agent-forge.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "agent.selectorLabels" . | nindent 6 }}
+      {{- include "backstage-plugin-agent-forge.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -18,7 +18,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "agent.labels" . | nindent 8 }}
+        {{- include "backstage-plugin-agent-forge.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -27,7 +27,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "agent.serviceAccountName" . }}
+      serviceAccountName: {{ include "backstage-plugin-agent-forge.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -64,41 +64,6 @@ spec:
               containerPort: {{ .Values.service.port }}
               protocol: TCP
             {{- end }}
-          envFrom:
-            {{- $llmSecretName := include "agent.llmSecrets.secretName" . | trim -}}
-            {{- if $llmSecretName }}
-            - secretRef:
-                name: {{ $llmSecretName }}
-            {{- end }}
-            {{- $agentSecretName := include "agent.agentSecrets.secretName" . | trim -}}
-            {{- if $agentSecretName }}
-            - secretRef:
-                name: {{ $agentSecretName }}
-            {{- end }}
-          {{- if or .Values.env .Values.isMultiAgent (eq (include "agent.slim.enabled" .) "true") (eq .Values.mcp.mode "http") }}
-          env:
-            {{- if .Values.env }}
-            {{- range $key, $value := .Values.env }}
-            - name: {{ $key }}
-              value: {{ $value | quote }}
-            {{- end }}
-            {{- end }}
-            {{- if eq (include "agent.slim.enabled" .) "true" }}
-            - name: A2A_TRANSPORT
-              value: {{ include "agent.slim.transport" . | quote }}
-            - name: SLIM_ENDPOINT
-              value: {{ include "agent.slim.endpoint" . | quote }}
-            {{- end }}
-            {{- if eq .Values.mcp.mode "http" }}
-            - name: MCP_MODE
-              value: http
-            - name: MCP_PORT
-              value: {{ .Values.mcp.service.port | quote }}
-            - name: MCP_HOST
-              value: {{ include "agent.fullname" . }}-mcp
-            {{- end }}
-          {{- end }}
-          {{- if not (eq (include "agent.slim.enabled" .) "true") }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -107,27 +72,15 @@ spec:
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            {{- if .Values.isMultiAgent }}
-            - name: prompt-config
-              mountPath: /app/prompt_config.yaml
-              subPath: prompt_config.yaml
-              readOnly: true
-            {{- end }}
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
-        {{- if .Values.isMultiAgent }}
-        - name: prompt-config
-          configMap:
-            name: prompt-config
-        {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

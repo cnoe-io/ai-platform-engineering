@@ -1,17 +1,27 @@
 # Global configuration shared across all subcharts
 global:
-  slim:
+  enabledSubAgents:
+    argocd: false
+    backstage: false
+    confluence: false
+    github: true
+    jira: false
+    pagerduty: true
+    slack: true
+  createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
+  llmSecrets:
+    create: false # do not create llm secret in subcharts (use global or existing llm secret)
+    secretName: "llm-secret"
+  externalSecrets:
     enabled: false
+  slim:
+    enabled: true
     endpoint: "http://ai-platform-engineering-slim:46357"
     transport: "slim"
-  secrets:
-    secretName: "llm-secret"
 
 # AI Platform Engineer Multi-Agent
-ai-platform-engineering:
-  enabled: true
-  nameOverride: "ai-platform-engineering"
-  isMultiAgent: true
+supervisor-agent:
+  nameOverride: "supervisor-agent"
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
     tag: "stable"
@@ -22,41 +32,9 @@ ai-platform-engineering:
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
-    releasePrefix: "ai-platform-engineering"
-    agents:
-      - argocd
-      - backstage
-      - confluence
-      - github
-      - jira
-      - pagerduty
-      - slack
-  mcp: #TODO
-    mode: "stdio"
-
-# Backstage plugin agent forge
-backstage-plugin-agent-forge:
-  enabled: true
-  nameOverride: "backstage-plugin-agent-forge"
-  image:
-    repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
-    tag: "latest"
-    pullPolicy: "Always"
-  isBackstagePlugin: true
-  service:
-    ports:
-      - name: http
-        port: 3000
-        protocol: TCP
-      - name: backend
-        port: 7007
-        protocol: TCP
-  mcp: #TODO
-    mode: "stdio"
 
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
-  enabled: false
   nameOverride: "agent-argocd"
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
@@ -70,7 +48,6 @@ agent-argocd:
     port: 8000
 
 agent-backstage:
-  enabled: false
   nameOverride: "agent-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
@@ -84,7 +61,6 @@ agent-backstage:
     port: 8000
 
 agent-confluence:
-  enabled: false
   nameOverride: "agent-confluence"
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
@@ -98,7 +74,6 @@ agent-confluence:
     port: 8000
 
 agent-github:
-  enabled: false
   nameOverride: "agent-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
@@ -107,7 +82,6 @@ agent-github:
     useRemoteMcpServer: true
 
 agent-jira:
-  enabled: false
   nameOverride: "agent-jira"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
@@ -121,7 +95,6 @@ agent-jira:
     port: 8000
 
 agent-pagerduty:
-  enabled: false
   nameOverride: "agent-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
@@ -135,7 +108,6 @@ agent-pagerduty:
     port: 8000
 
 agent-slack:
-  enabled: false
   nameOverride: "agent-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
@@ -149,15 +121,25 @@ agent-slack:
     port: 8000
     pullPolicy: "Always"
 
-agent-reflection:
-  enabled: false
-  nameOverride: "agent-reflection"
+# Backstage plugin agent forge
+backstage-plugin-agent-forge:
+  enabled: true
+  nameOverride: "backstage-plugin-agent-forge"
   image:
-    repository: "ghcr.io/cnoe-io/agent-reflection"
+    repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
+    tag: "latest"
     pullPolicy: "Always"
+  service:
+    ports:
+      - name: http
+        port: 3000
+        protocol: TCP
+      - name: backend
+        port: 7007
+        protocol: TCP
 
 graphrag:
-  enabled: false
+  enabled: true
   neo4jNameOverride: "graphrag-neo4j" # This needs to match the value in neo4j.fullnameOverride
 
 # neo4j is used by graphrag to store the graph data. If graphrag.enabled is false, neo4j is not deployed.

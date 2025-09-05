@@ -1,4 +1,4 @@
-{{- if and .Values.agentGraphGen.enabled (or .Values.global.profiles.knowledgeBase .Values.global.profiles.graphRag .Values.global.profiles.nexigraph) }}
+{{- if and .Values.agentGraphGen.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -36,8 +36,11 @@ spec:
           image: "{{ .Values.agentGraphGen.image.repository }}:{{ .Values.agentGraphGen.image.tag }}"
           imagePullPolicy: {{ .Values.agentGraphGen.image.pullPolicy }}
           envFrom:
+            {{- $llmSecretName := include "graphrag.llmSecrets.secretName" . | trim -}}
+            {{- if $llmSecretName }}
             - secretRef:
-                name: {{ .Values.global.secrets.secretName }}
+                name: {{ $llmSecretName }}
+            {{- end }}
           env:
             - name: LOG_LEVEL
               value: "{{ .Values.agentGraphGen.env.logLevel }}"

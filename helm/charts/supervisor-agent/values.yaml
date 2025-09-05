@@ -1,4 +1,4 @@
-# Default values for agent.
+# Default values for supervisor-agent.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
@@ -9,12 +9,10 @@ fullnameOverride: ""
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
   # This sets the image repository for the corresponding agent.
-  # For example, for the ArgoCD agent, this would be ghcr.io/cnoe-io/agent-argocd
-  repository: ""
-  # This sets the pull policy for images.
-  pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: "a2a-stable"
+  repository: "ghcr.io/cnoe-io/ai-platform-engineering"
+  pullPolicy: "Always"
+  tag: "stable"
+  args: ["platform-engineer"]
 
 # This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []
@@ -64,14 +62,14 @@ ingress:
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
-    - host: agent.local
+    - host: supervisor-agent.local
       paths:
         - path: /
           pathType: Prefix
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:
-  #      - agent.local
+  #      - supervisor-agent.local
 
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1
@@ -131,14 +129,11 @@ tolerations: []
 
 affinity: {}
 
-# Environment variables (non-sensitive and sensitive from secrets)
-env: {}
-
 # Secrets configuration for LLM providers
 # When used as a subchart, global values can override these values
 # When used as a standalone agent, this will be the secret for the LLM provider
 llmSecrets:
-  create: false # if false, it'll assume that the secret already exists
+  create: true # if false, it'll assume that the secret already exists
   secretName: "llm-secret"
   data: {}
   externalSecrets:
@@ -148,20 +143,20 @@ llmSecrets:
       kind: ClusterSecretStore # Use your secret store kind
     data: []
 
-# Secrets configuration for agent specific secrets
-agentSecrets:
-  requiresSecret: true # if false, no agent secret is required e.g. api keys
-  create: false # if false, it'll assume that the secret already exists
-  secretName: "" # defaults to agent.name-secret if empty
-  data: {}
-  externalSecrets:
-    enabled: false
-    name: "" # defaults to agent.name-secret if empty
-    secretStoreRef: # this can be overriden by global.externalSecrets.secretStoreRef
-      name: "" # Use your secret store
-      kind: ClusterSecretStore # Use your secret store kind
-    target: {}
-    data: []
+# External Secrets configuration - this will be populated by the parent chart
+externalSecrets:
+  enabled: false
+  # List of external secret names this agent should reference
+  secretNames: []
+
+# Environment variables (non-sensitive and sensitive from secrets)
+env:
+  EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
+
+multiAgentConfig:
+  protocol: "a2a"
+  port: "8000"
+  agents: []
 
 # Slim transport configuration - fallback values for standalone testing
 # In production, these are provided by the parent chart's global.slim section
@@ -169,51 +164,3 @@ slim:
   enabled: false
   endpoint: "http://ai-platform-engineering-slim:46357"
   transport: "slim"
-
-# MCP (Model Context Protocol) container configuration
-# Only deployed when env.MCP_MODE is set to "http"
-mcp:
-  mode: "http"
-  # MCP container image configuration
-  image:
-    repository:
-    tag:
-
-  # MCP service configuration
-  service:
-    # Service type (ClusterIP, NodePort, LoadBalancer)
-    type: ClusterIP
-    # Service port (defaults to 8000)
-    port: 8000
-    # NodePort when service.type is NodePort
-    # nodePort: 30080
-
-  # Resource limits and requests for MCP container
-  resources: {}
-    # limits:
-    #   cpu: 500m
-    #   memory: 512Mi
-    # requests:
-    #   cpu: 250m
-    #   memory: 256Mi
-
-  # Health check probes for MCP container
-  livenessProbe: {}
-    # httpGet:
-    #   path: /health
-    #   port: 8000
-    # initialDelaySeconds: 30
-    # periodSeconds: 10
-
-  readinessProbe: {}
-    # httpGet:
-    #   path: /ready
-    #   port: 8000
-    # initialDelaySeconds: 5
-    # periodSeconds: 5
-
-  # Volume mounts for MCP container
-  volumeMounts: []
-
-  # Volumes for MCP container
-  volumes: []
