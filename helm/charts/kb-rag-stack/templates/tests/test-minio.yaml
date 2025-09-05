@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "kb-rag-stack.fullname" . }}-test-minio"
+  labels:
+    {{- include "kb-rag-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "6"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-minio
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing MinIO connectivity..."
+
+      # Wait for MinIO to be ready
+      echo "Waiting for MinIO to be ready..."
+      timeout 60 sh -c 'until curl -f http://{{ include "kb-rag-stack.fullname" . }}-minio:9000/minio/health/live 2>/dev/null; do sleep 2; done'
+
+      # Test MinIO health endpoint
+      curl -f http://{{ include "kb-rag-stack.fullname" . }}-minio:9000/minio/health/live
+      echo "✓ MinIO health check passed"
+
+      # Test MinIO API
+      curl -f http://{{ include "kb-rag-stack.fullname" . }}-minio:9000/minio/health/ready
+      echo "✓ MinIO ready check passed"
+
+      echo "✓ MinIO tests passed"

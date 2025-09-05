@@ -1,30 +1,17 @@
-# Default values for agent-argocd.
+# Default values for kb-rag-redis.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
-
-# Global configuration (used when chart is tested individually)
-global:
-  externalSecrets:
-    enabled: false
-  secrets:
-    secretName: "llm-secret"
-  slim:
-    enabled: false
-    endpoint: "http://ai-platform-engineering-slim:46357"
-    transport: "slim"
 
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1
 
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
-  # This sets the image repository for the corresponding agent.
-  # For example, for the ArgoCD agent, this would be ghcr.io/cnoe-io/agent-argocd
-  repository: ""
+  repository: redis
   # This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "a2a-stable"
+  tag: "7.2-alpine"
 
 # This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []
@@ -67,24 +54,24 @@ service:
   # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
   type: ClusterIP
   # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
-  port: 8000
+  port: 6379
 
 # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingress:
   enabled: false
-  className: "nginx"
+  className: ""
   annotations: {}
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
   hosts:
-    - host: agent.local
+    - host: chart-example.local
       paths:
         - path: /
-          pathType: Prefix
+          pathType: ImplementationSpecific
   tls: []
   #  - secretName: chart-example-tls
   #    hosts:
-  #      - agent.local
+  #      - chart-example.local
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
@@ -100,15 +87,19 @@ resources: {}
 
 # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 livenessProbe:
-  tcpSocket:
-    port: http
+  exec:
+    command:
+      - redis-cli
+      - ping
   initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
 readinessProbe:
-  tcpSocket:
-    port: http
+  exec:
+    command:
+      - redis-cli
+      - ping
   initialDelaySeconds: 5
   periodSeconds: 5
   timeoutSeconds: 3
@@ -140,67 +131,3 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
-
-# Secrets configuration for LLM providers
-secrets:
-  # if set, use this secret for the LLM provider API keys; if not set, the keys will be provided directly below
-  secretName: "llm-secret"
-  # Additional secret data
-  data: {}
-
-# Environment variables (non-sensitive and sensitive from secrets)
-env: {}
-
-# External Secrets configuration - this will be populated by the parent chart
-externalSecrets:
-  enabled: false
-  # List of external secret names this agent should reference
-  secretNames: []
-
-# MCP (Model Context Protocol) container configuration
-# Only deployed when env.MCP_MODE is set to "http"
-mcp:
-  mode: "http"
-  # MCP container image configuration
-  image:
-    repository:
-    tag:
-
-  # MCP service configuration
-  service:
-    # Service type (ClusterIP, NodePort, LoadBalancer)
-    type: ClusterIP
-    # Service port (defaults to 8000)
-    port: 8000
-    # NodePort when service.type is NodePort
-    # nodePort: 30080
-
-  # Resource limits and requests for MCP container
-  resources: {}
-    # limits:
-    #   cpu: 500m
-    #   memory: 512Mi
-    # requests:
-    #   cpu: 250m
-    #   memory: 256Mi
-
-  # Health check probes for MCP container
-  livenessProbe: {}
-    # httpGet:
-    #   path: /health
-    #   port: 8000
-    # initialDelaySeconds: 30
-    # periodSeconds: 10
-
-  readinessProbe: {}
-    # httpGet:
-    #   path: /ready
-    #   port: 8000
-    # initialDelaySeconds: 5
-    # periodSeconds: 5
-
-  # Volume mounts for MCP container
-  volumeMounts: []
-
-  # Volumes for MCP container
-  volumes: []
