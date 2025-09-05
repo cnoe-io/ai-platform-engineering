@@ -77,50 +77,76 @@ Determine if ingress is enabled - global takes precedence
 {{- end }}
 
 {{/*
-Determine if external secrets are enabled - global takes precedence
+Determine if external secrets are enabled for llmSecrets - prioritize global
 */}}
-{{- define "agent.externalSecrets.enabled" -}}
-    {{- if hasKey .Values.global "externalSecrets" }}
-        {{- if hasKey .Values.global.externalSecrets "enabled" }}
-            {{- .Values.global.externalSecrets.enabled }}
-        {{- else }}
-            {{- .Values.externalSecrets.enabled | default false }}
-        {{- end }}
-    {{- else }}
-        {{- .Values.externalSecrets.enabled | default false }}
-    {{- end }}
-{{- end }}
-
-{{/*
-Determine external secret names - global takes precedence
-*/}}
-{{- define "agent.externalSecrets.secretNames" -}}
-    {{- if eq (include "agent.externalSecrets.enabled" .) "true" -}}
-        {{- if .Values.externalSecrets.secretNames -}}
-            {{- .Values.externalSecrets.secretNames | join "," -}}
-        {{- else -}}
-            {{- if .Values.isMultiAgent -}}
-                {{- printf "llm-secret" -}}
-            {{- else if .Values.isBackstagePlugin -}}
-                {{- "" -}}
-            {{- else -}}
-                {{- printf "llm-secret,%s-secret" (include "agent.name" .) -}}
+{{- define "agent.llmSecrets.externalSecrets.enabled" -}}
+    {{- $enabled := (default false .Values.llmSecrets.externalSecrets.enabled) -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if and (hasKey . "enabled") .enabled -}}
+                {{- $enabled = true -}}
+            {{- end -}}
+        {{- end -}}
+        {{- with .llmSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "enabled" -}}
+                    {{- $enabled = .enabled -}}
+                {{- end -}}
             {{- end -}}
         {{- end -}}
     {{- end -}}
+    {{- $enabled -}}
+{{- end }}
+
+{{/*
+Get llmSecrets.secretName with global fallback
+*/}}
+{{- define "agent.llmSecrets.secretName" -}}
+    {{- $name := .Values.llmSecrets.secretName -}}
+    {{- with .Values.global -}}
+        {{- with .llmSecrets -}}
+            {{- if hasKey . "secretName" -}}
+                {{- $name = .secretName -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $name -}}
 {{- end -}}
 
 {{/*
-Determine MCP mode
+Get llmSecrets.create with global fallback
 */}}
-{{- define "agent.createMcpHttpServer" -}}
-    {{- if and (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) }}
-        {{- if and (eq .Values.mcp.mode "http") (not .Values.mcp.useRemoteMcpServer) }}
-            {{- true -}}
-        {{- else -}}
-            {{- false -}}
+{{- define "agent.llmSecrets.create" -}}
+    {{- $create := .Values.llmSecrets.create -}}
+    {{- with .Values.global -}}
+        {{- with .llmSecrets -}}
+            {{- if hasKey . "create" -}}
+                {{- $create = .create -}}
+            {{- end -}}
         {{- end -}}
-    {{- else -}}
-        {{- false -}}
     {{- end -}}
+    {{- $create -}}
 {{- end -}}
+
+{{/*
+Get llmSecrets.externalSecrets.secretStoreRef with global fallback
+*/}}
+{{- define "agent.llmSecrets.externalSecrets.secretStoreRef" -}}
+    {{- $ref := .Values.llmSecrets.externalSecrets.secretStoreRef -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if hasKey . "secretStoreRef" -}}
+                {{- $ref = .secretStoreRef -}}
+            {{- end -}}
+        {{- end -}}
+        {{- with .llmSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "secretStoreRef" -}}
+                    {{- $ref = .secretStoreRef -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $ref -}}
+{{- end -}}
+

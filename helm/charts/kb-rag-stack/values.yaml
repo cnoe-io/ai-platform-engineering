@@ -2,16 +2,6 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-# Global configuration
-global:
-  imageRegistry: ""
-  imagePullSecrets: []
-  storageClass: ""
-  secrets:
-    secretName: "llm-secret"
-  slim:
-    enabled: false
-
 # Milvus configuration
 milvus:
   enabled: true
@@ -92,7 +82,6 @@ kb-rag-server:
 # Agent configuration (standard agent chart)
 kb-rag-agent:
   enabled: true
-  createMcpHttpServer: false
   nameOverride: "kb-rag-agent"
   image:
     repository: "ghcr.io/cnoe-io/kb-rag-agent-a2a"

@@ -4,10 +4,10 @@ global:
     argocd: false
     backstage: false
     confluence: false
-    github: true
+    github: false
     jira: false
-    pagerduty: true
-    slack: true
+    pagerduty: false
+    slack: false
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
