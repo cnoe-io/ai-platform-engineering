@@ -48,13 +48,13 @@ Just as a 🦸‍♂️ cape empowers a superhero, CAIPE empowers platform engin
 
 The workshop is organized into a series of hands-on missions. Click a mission below to get started:
 
-- [Mission Overview](00-overview.md)
-- [Mission 1: Start Ignition — Download Mission and Learn the Controls](workshop-mars-colony/101-mission1.md)
-- [Mission 2: Run Standalone Petstore Agent](workshop-mars-colony/102-mission2.md)
-- [Mission 3: Multi-Agent System — Petstore + Weather + Supervisor](workshop-mars-colony/103-mission3.md)
-- [Mission 4 & 5: Reconnaissance & Reporting back (RAG + Git agent)](workshop-mars-colony/201-mission4.md)
-- [Mission 6: Deploy CAIPE with IDPBuilder](workshop-mars-colony/301-mission6.md)
-- [Mission 7: Tracing and Evaluation](workshop-mars-colony/401-mission7.md)
+- [Mission Overview](overview.md)
+- [Mission 1: Start Ignition — Download Mission and Learn the Controls](mission1.md)
+- [Mission 2: Run Standalone Petstore Agent](mission2.md)
+- [Mission 3: Multi-Agent System — Petstore + Weather + Supervisor](mission3.md)
+- [Mission 4 & 5: Reconnaissance & Reporting back (RAG + Git agent)](mission4.md)
+- [Mission 6: Deploy CAIPE with IDPBuilder](mission6.md)
+- [Mission 7: Tracing and Evaluation](mission7.md)
 
 > 💡 **Tip:** You can jump between missions or revisit any mission at any time. Each is designed to be independently runnable.
 
