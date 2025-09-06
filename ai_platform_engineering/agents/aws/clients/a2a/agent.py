@@ -155,4 +155,3 @@ def get_skill_examples() -> List[str]:
 def agent_card_func():
     """Return the agent card."""
     return agent_card
-
