@@ -6,7 +6,7 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.1.15
+version: 0.1.16
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: agent
@@ -78,5 +78,5 @@ dependencies:
     repository: "https://zilliztech.github.io/milvus-helm/"
     condition: kb-rag-stack.enabled
   - name: kb-rag-stack
-    version: 0.1.0
+    version: 0.1.1
     condition: kb-rag-stack.enabled
