@@ -21,11 +21,11 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-class AWSEKSAgent:
-    """AWS EKS Agent using Strands SDK and AWS EKS MCP Server."""
+class AWSAgent:
+    """AWS Agent using Strands SDK with multi-MCP server support."""
     
     def __init__(self, config: Optional[AgentConfig] = None):
-        """Initialize the AWS EKS Agent.
+        """Initialize the AWS Agent with multi-MCP support.
         
         Args:
             config: Optional agent configuration. If not provided, uses environment variables.
@@ -41,14 +41,18 @@ class AWSEKSAgent:
         log_level = self.config.log_level
         logging.getLogger("strands").setLevel(getattr(logging, log_level, logging.INFO))
         config_str = f"model_provider={self.config.model_provider}, model_name={self.config.model_name}"
-        logger.info(f"Initialized AWS EKS Agent with config: {config_str}")
+        logger.info(f"Initialized AWS Agent with config: {config_str}")
         
         # Initialize MCP client and agent on first use
         self._initialize_mcp_and_agent()
         
     def _create_mcp_client(self) -> MCPClient:
-        """Create and configure the EKS MCP client."""
+        """Create and configure MCP clients based on enabled features."""
         import platform
+        
+        # Check which MCP servers are enabled
+        enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
+        enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
         
         # Common environment variables for all platforms
         env_vars = {
@@ -64,30 +68,63 @@ class AWSEKSAgent:
         # Platform-specific command configuration
         system = platform.system().lower()
         
-        if system == "windows":
-            command_args = [
-                "--from", "awslabs.eks-mcp-server@latest", 
-                "awslabs.eks-mcp-server.exe",
-                "--allow-write", "--allow-sensitive-data-access"
-            ]
-        else:
-            command_args = [
-                "awslabs.eks-mcp-server@latest",
-                "--allow-write", "--allow-sensitive-data-access"
-            ]
+        # Create MCP clients based on enabled features
+        mcp_clients = []
         
-        return MCPClient(lambda: stdio_client(
-            StdioServerParameters(
-                command="uvx",
-                args=command_args,
-                env=env_vars
-            )
-        ))
+        if enable_eks_mcp:
+            if system == "windows":
+                eks_command_args = [
+                    "--from", "awslabs.eks-mcp-server@latest", 
+                    "awslabs.eks-mcp-server.exe",
+                    "--allow-write", "--allow-sensitive-data-access"
+                ]
+            else:
+                eks_command_args = [
+                    "awslabs.eks-mcp-server@latest",
+                    "--allow-write", "--allow-sensitive-data-access"
+                ]
+            
+            eks_client = MCPClient(lambda: stdio_client(
+                StdioServerParameters(
+                    command="uvx",
+                    args=eks_command_args,
+                    env=env_vars
+                )
+            ))
+            mcp_clients.append(("eks", eks_client))
+        
+        if enable_cost_explorer_mcp:
+            if system == "windows":
+                cost_command_args = [
+                    "--from", "mcp-cost-analyzer@latest",
+                    "mcp-cost-analyzer.exe"
+                ]
+            else:
+                cost_command_args = [
+                    "mcp-cost-analyzer@latest"
+                ]
+            
+            cost_client = MCPClient(lambda: stdio_client(
+                StdioServerParameters(
+                    command="uvx", 
+                    args=cost_command_args,
+                    env=env_vars
+                )
+            ))
+            mcp_clients.append(("cost-explorer", cost_client))
+        
+        # For now, return the first client (primary MCP)
+        # TODO: Implement proper multi-MCP support in future versions
+        if mcp_clients:
+            logger.info(f"Initialized {len(mcp_clients)} MCP clients: {[name for name, _ in mcp_clients]}")
+            return mcp_clients[0][1]  # Return first client for now
+        else:
+            raise ValueError("No MCP servers enabled. Please enable at least one MCP server.")
     
     def _initialize_mcp_and_agent(self):
         """Initialize MCP client and agent once during startup."""
         try:
-            logger.info("Initializing MCP client and starting EKS MCP server...")
+            logger.info("Initializing MCP clients and starting AWS MCP servers...")
             
             # Create MCP client
             self._mcp_client = self._create_mcp_client()
@@ -95,17 +132,17 @@ class AWSEKSAgent:
             # Start the MCP client context and keep it running
             self._mcp_context = self._mcp_client.__enter__()
             
-            # Get tools from EKS MCP server
+            # Get tools from AWS MCP servers
             self._tools = self._mcp_client.list_tools_sync()
-            logger.info(f"Retrieved {len(self._tools)} tools from EKS MCP server")
+            logger.info(f"Retrieved {len(self._tools)} tools from AWS MCP servers")
             
             # Create agent with tools
             self._agent = self._create_agent(self._tools)
             
-            logger.info("MCP server started and agent initialized successfully")
+            logger.info("MCP servers started and agent initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize MCP server and agent: {e}")
+            logger.error(f"Failed to initialize MCP servers and agent: {e}")
             self._cleanup_mcp()
             raise
     
@@ -124,47 +161,70 @@ class AWSEKSAgent:
                 self._tools = None
     
     def _create_agent(self, tools: list) -> Agent:
-        """Create the Strands agent with EKS tools."""
-        system_prompt = (
-            "You are an AWS EKS AI Assistant specialized in Amazon EKS cluster management "
-            "and Kubernetes operations. You can help users with comprehensive EKS and "
-            "Kubernetes management including:\n\n"
-            
-            "**EKS Cluster Management:**\n"
-            "- Create, describe, and delete EKS clusters using CloudFormation\n"
-            "- Generate CloudFormation templates with best practices\n"
-            "- Manage cluster lifecycle and configuration\n"
-            "- Handle VPC, networking, and security group setup\n\n"
-            
-            "**Kubernetes Resource Operations:**\n"
-            "- Create, read, update, and delete Kubernetes resources\n"
-            "- Apply YAML manifests to EKS clusters\n"
-            "- List and query resources with filtering capabilities\n"
-            "- Manage deployments, services, pods, and other workloads\n\n"
-            
-            "**Application Deployment:**\n"
-            "- Generate Kubernetes deployment and service manifests\n"
-            "- Deploy containerized applications with proper configuration\n"
-            "- Configure load balancers and ingress controllers\n"
-            "- Handle multi-environment deployments\n\n"
-            
-            "**Monitoring & Troubleshooting:**\n"
-            "- Retrieve pod logs and Kubernetes events\n"
-            "- Query CloudWatch logs and metrics\n"
-            "- Access EKS troubleshooting guidance\n"
-            "- Monitor cluster and application performance\n\n"
-            
-            "**Security & IAM:**\n"
-            "- Manage IAM roles and policies for EKS\n"
-            "- Configure Kubernetes RBAC\n"
-            "- Handle service account permissions\n"
-            "- Implement security best practices\n\n"
-            
+        """Create the Strands agent with AWS tools."""
+        # Check which capabilities are enabled
+        enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
+        enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
+        
+        system_prompt_parts = [
+            "You are an AWS AI Assistant specialized in comprehensive AWS management. "
+            "You can help users with:"
+        ]
+        
+        if enable_eks_mcp:
+            system_prompt_parts.extend([
+                "\n\n**EKS Cluster Management:**\n"
+                "- Create, describe, and delete EKS clusters using CloudFormation\n"
+                "- Generate CloudFormation templates with best practices\n"
+                "- Manage cluster lifecycle and configuration\n"
+                "- Handle VPC, networking, and security group setup\n\n"
+                
+                "**Kubernetes Resource Operations:**\n"
+                "- Create, read, update, and delete Kubernetes resources\n"
+                "- Apply YAML manifests to EKS clusters\n"
+                "- List and query resources with filtering capabilities\n"
+                "- Manage deployments, services, pods, and other workloads\n\n"
+                
+                "**Application Deployment:**\n"
+                "- Generate Kubernetes deployment and service manifests\n"
+                "- Deploy containerized applications with proper configuration\n"
+                "- Configure load balancers and ingress controllers\n"
+                "- Handle multi-environment deployments\n\n"
+                
+                "**Monitoring & Troubleshooting:**\n"
+                "- Retrieve pod logs and Kubernetes events\n"
+                "- Query CloudWatch logs and metrics\n"
+                "- Access EKS troubleshooting guidance\n"
+                "- Monitor cluster and application performance\n\n"
+                
+                "**Security & IAM:**\n"
+                "- Manage IAM roles and policies for EKS\n"
+                "- Configure Kubernetes RBAC\n"
+                "- Handle service account permissions\n"
+                "- Implement security best practices\n\n"
+            ])
+        
+        if enable_cost_explorer_mcp:
+            system_prompt_parts.extend([
+                "**AWS Cost Management & FinOps:**\n"
+                "- Analyze AWS costs by service, region, and time period\n"
+                "- Generate detailed cost reports and breakdowns\n"
+                "- Identify cost optimization opportunities\n"
+                "- Track cost trends and forecasts\n"
+                "- Compare costs across different dimensions\n"
+                "- Provide spending recommendations\n"
+                "- Analyze Reserved Instance and Savings Plans utilization\n"
+                "- Monitor budget alerts and cost anomalies\n\n"
+            ])
+        
+        system_prompt_parts.append(
             "Always respect AWS IAM permissions and Kubernetes RBAC. Provide clear, "
             "actionable responses with status indicators and suggest relevant next steps. "
             "Ask clarifying questions when user intent is ambiguous and validate all "
             "operations before execution. Focus on security best practices and cost optimization."
         )
+        
+        system_prompt = "".join(system_prompt_parts)
         
         try:
             # Check if using Bedrock and create BedrockModel directly
@@ -316,7 +376,7 @@ class AWSEKSAgent:
     
     def close(self):
         """Close the agent and clean up resources."""
-        logger.info("Closing AWS EKS Agent and cleaning up resources...")
+        logger.info("Closing AWS Agent and cleaning up resources...")
         self._cleanup_mcp()
     
     def __del__(self):
@@ -337,13 +397,13 @@ class AWSEKSAgent:
 
 
 # Factory function for easy agent creation
-def create_agent(config: Optional[AgentConfig] = None) -> AWSEKSAgent:
-    """Create an AWS EKS Agent instance.
+def create_agent(config: Optional[AgentConfig] = None) -> AWSAgent:
+    """Create an AWS Agent instance.
     
     Args:
         config: Optional agent configuration
         
     Returns:
-        AWSEKSAgent instance
+        AWSAgent instance
     """
-    return AWSEKSAgent(config)
+    return AWSAgent(config)

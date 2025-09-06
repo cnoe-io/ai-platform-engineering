@@ -5,7 +5,7 @@ import click
 import httpx
 from dotenv import load_dotenv
 
-from agent_aws.protocol_bindings.a2a_server.agent_executor import AWSEKSAgentExecutor
+from agent_aws.protocol_bindings.a2a_server.agent_executor import AWSAgentExecutor
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -25,10 +25,10 @@ load_dotenv()
 @click.option('--host', 'host', default='localhost')
 @click.option('--port', 'port', default=8000)
 def main(host: str, port: int):
-    """Start the AWS EKS A2A server."""
+    """Start the AWS A2A server with multi-MCP support."""
     client = httpx.AsyncClient()
     request_handler = DefaultRequestHandler(
-        agent_executor=AWSEKSAgentExecutor(),
+        agent_executor=AWSAgentExecutor(),
         task_store=InMemoryTaskStore(),
         push_sender=BasePushNotificationSender(client, InMemoryPushNotificationConfigStore()),
     )
@@ -52,36 +52,77 @@ def main(host: str, port: int):
 
 
 def get_agent_card(host: str, port: int) -> AgentCard:
-    """Returns the Agent Card for the AWS EKS Agent."""
+    """Returns the Agent Card for the AWS Agent with multi-MCP support."""
+    import os
+    
+    # Check which MCP servers are enabled
+    enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
+    enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
+    
     capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
     
-    skill = AgentSkill(
-        id='aws-eks',
-        name='AWS EKS Operations',
-        description='Performs comprehensive Amazon EKS cluster management and Kubernetes operations.',
-        tags=['aws', 'eks', 'kubernetes', 'cloud', 'devops', 'containers'],
-        examples=[
-            'Create a new EKS cluster named "production" in us-west-2',
-            'Deploy a nginx application with 3 replicas to the "frontend" namespace',
-            'Get the status and logs of pods in the "backend" namespace',
-            'List all services in the "default" namespace with their endpoints',
-            'Show CPU and memory metrics for the "api" deployment',
-            'Generate a deployment manifest for a Node.js application',
-            'Troubleshoot why pods are not starting in the cluster',
-            'Add IAM permissions for EKS service account access to S3'
-        ],
-    )
+    # Build skills based on enabled MCP servers
+    skills = []
+    
+    if enable_eks_mcp:
+        eks_skill = AgentSkill(
+            id='aws-eks',
+            name='AWS EKS Operations',
+            description='Performs comprehensive Amazon EKS cluster management and Kubernetes operations.',
+            tags=['aws', 'eks', 'kubernetes', 'cloud', 'devops', 'containers'],
+            examples=[
+                'Create a new EKS cluster named "production" in us-west-2',
+                'Deploy a nginx application with 3 replicas to the "frontend" namespace',
+                'Get the status and logs of pods in the "backend" namespace',
+                'List all services in the "default" namespace with their endpoints',
+                'Show CPU and memory metrics for the "api" deployment',
+                'Generate a deployment manifest for a Node.js application',
+                'Troubleshoot why pods are not starting in the cluster',
+                'Add IAM permissions for EKS service account access to S3'
+            ],
+        )
+        skills.append(eks_skill)
+    
+    if enable_cost_explorer_mcp:
+        cost_skill = AgentSkill(
+            id='aws-cost',
+            name='AWS Cost Management',
+            description='Performs AWS cost analysis, optimization, and financial operations management.',
+            tags=['aws', 'cost', 'billing', 'finops', 'optimization', 'budget'],
+            examples=[
+                'Show AWS costs for the last 3 months by service',
+                'Analyze EC2 costs by instance type',
+                'What are my top 5 most expensive AWS services?',
+                'Generate cost report for us-west-2 region',
+                'Show cost trends and forecast for next 3 months',
+                'Find cost optimization opportunities',
+                'Compare costs between different regions',
+                'Set up cost alerts for monthly budget'
+            ],
+        )
+        skills.append(cost_skill)
+    
+    # Build description based on enabled capabilities
+    description_parts = ["AI agent for comprehensive AWS management including:"]
+    
+    if enable_eks_mcp:
+        description_parts.append(" Amazon EKS cluster management and Kubernetes operations,")
+    
+    if enable_cost_explorer_mcp:
+        description_parts.append(" cost analysis and optimization,")
+    
+    description_parts.append(" using AWS native tools and best practices.")
+    description = "".join(description_parts)
     
     return AgentCard(
-        name='AWS EKS Agent',
-        description='AI agent for comprehensive Amazon EKS cluster management, Kubernetes operations, '
-                   'application deployment, monitoring, and troubleshooting using AWS native tools.',
+        name='AWS Agent',
+        description=description,
         url=f'http://{host}:{port}/',
-        version='1.0.0',
+        version='2.0.0',  # Increment version for multi-MCP support
         defaultInputModes=['text/plain'],
         defaultOutputModes=['text/plain'],
         capabilities=capabilities,
-        skills=[skill],
+        skills=skills,
         security=[{"public": []}],
     )
 

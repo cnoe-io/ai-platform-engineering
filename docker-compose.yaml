@@ -215,7 +215,9 @@ services:
   #                                      AGENT AWS A2A P2P                                           #
   ####################################################################################################
   agent-aws-p2p:
-    image: ghcr.io/cnoe-io/agent-aws:${AWS_IMAGE_TAG:-24297ef}
+    build:
+      context: ../agent-aws
+      dockerfile: build/Dockerfile.a2a
     container_name: agent-aws-p2p
     profiles:
       - p2p
@@ -234,6 +236,9 @@ services:
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      # MCP Configuration
+      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
+      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
       - LLM_PROVIDER=${LLM_PROVIDER}

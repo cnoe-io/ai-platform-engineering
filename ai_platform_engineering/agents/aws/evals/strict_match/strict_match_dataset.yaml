@@ -43,3 +43,30 @@ tests:
     metadata:
       comments: |
         Displays CPU utilization metrics for all nodes in the EKS cluster.
+
+  aws_cost_agent_1:
+    input: |
+      show my AWS costs for the last 30 days
+    reference_trajectory:
+      solution_1: __start__;agent_aws
+    metadata:
+      comments: |
+        Retrieves AWS cost information for the past 30 days.
+
+  aws_cost_agent_2:
+    input: |
+      analyze EC2 costs by service for this month
+    reference_trajectory:
+      solution_1: __start__;agent_aws
+    metadata:
+      comments: |
+        Analyzes EC2 costs broken down by service for the current month.
+
+  aws_cost_agent_3:
+    input: |
+      what are my top 5 most expensive AWS services
+    reference_trajectory:
+      solution_1: __start__;agent_aws
+    metadata:
+      comments: |
+        Identifies the top 5 AWS services with the highest costs.
