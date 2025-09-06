@@ -8,8 +8,8 @@ spec:
   type: {{ .Values.service.type }}
   ports:
     - port: {{ .Values.service.port }}
-      targetPort: http
+      targetPort: redis
       protocol: TCP
-      name: http
+      name: redis
   selector:
     {{- include "kb-rag-redis.selectorLabels" . | nindent 4 }}
