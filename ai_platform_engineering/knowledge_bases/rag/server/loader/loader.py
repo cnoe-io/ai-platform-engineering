@@ -1,5 +1,5 @@
-from loader.url.docsaurus_scraper import scrape_docsaurus
-from loader.url.mkdocs_scraper import scrape_mkdocs
+from server.loader.url.docsaurus_scraper import scrape_docsaurus
+from server.loader.url.mkdocs_scraper import scrape_mkdocs
 import aiohttp
 from bs4 import BeautifulSoup
 import gzip
