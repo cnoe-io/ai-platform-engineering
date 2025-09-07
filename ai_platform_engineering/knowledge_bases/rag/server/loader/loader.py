@@ -382,7 +382,7 @@ class Loader:
                 )
                 return
 
-            # Load documents from URLs
+            # Load documents from URLs with streaming processing
             for sitemap_url in sitemaps:
                 self.logger.info(f"Loading sitemap: {sitemap_url}")
                 await self.update_job_progress(job_id, 
@@ -399,18 +399,29 @@ class Loader:
                 loader = WebBaseLoader(
                     requests_per_second=1
                 )
-                pages = await loader.ascrape_all(urls)
-                for i, soup in enumerate(pages):
-                    current_url = urls[i] if i < len(urls) else "unknown"
-                    self.logger.info(f"[{i+1}/{len(pages)}] Loading page: {current_url}")
+                
+                # Stream processing: Process one page at a time to avoid OOM
+                for i, page_url in enumerate(urls):
+                    self.logger.info(f"[{i+1}/{total_urls}] Loading page: {page_url}")
                     
                     await self.update_job_progress(job_id, 
-                        progress={"message": f"Processing page {i+1}/{total_urls}: {current_url}", "processed": i, "total": total_urls}
+                        progress={"message": f"Processing page {i+1}/{total_urls}: {page_url}", "processed": i, "total": total_urls}
                     )
                     
-                    content, metadata = await self.custom_parser(soup, urls[i])
-                    doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
-                    await self.process_document(doc, job_id)
+                    try:
+                        # Process ONE page at a time instead of loading all into memory
+                        soup = await loader.ascrape(page_url)
+                        content, metadata = await self.custom_parser(soup, page_url)
+                        doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
+                        await self.process_document(doc, job_id)
+                        
+                        # Force garbage collection after each page to free memory
+                        import gc
+                        gc.collect()
+                        
+                    except Exception as e:
+                        self.logger.warning(f"Failed to process {page_url}: {e}")
+                        continue
                 
                 await self.update_job_progress(job_id, 
                     status="completed", 
