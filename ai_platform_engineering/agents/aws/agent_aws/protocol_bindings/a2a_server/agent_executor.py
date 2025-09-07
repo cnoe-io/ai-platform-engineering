@@ -4,7 +4,7 @@
 import logging
 from typing_extensions import override
 
-from agent_aws.protocol_bindings.a2a_server.agent import AWSEKSAgent
+from agent_aws.protocol_bindings.a2a_server.agent import AWSAgent
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
@@ -19,15 +19,15 @@ from a2a.utils import new_task, new_text_artifact
 logger = logging.getLogger(__name__)
 
 
-class AWSEKSAgentExecutor(AgentExecutor):
-    """A2A Agent Executor for AWS EKS Agent."""
+class AWSAgentExecutor(AgentExecutor):
+    """A2A Agent Executor for AWS Agent."""
     
     SUPPORTED_CONTENT_TYPES = ["text/plain"]
     
     def __init__(self):
-        """Initialize the AWS EKS Agent Executor."""
-        self.agent = AWSEKSAgent()
-        logger.info("AWS EKS Agent Executor initialized")
+        """Initialize the AWS Agent Executor."""
+        self.agent = AWSAgent()
+        logger.info("AWS Agent Executor initialized")
     
     @override
     async def execute(
