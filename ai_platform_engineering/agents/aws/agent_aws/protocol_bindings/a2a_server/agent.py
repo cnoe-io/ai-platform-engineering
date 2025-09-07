@@ -5,22 +5,22 @@ import asyncio
 import logging
 from typing import Dict, Any, AsyncIterator
 
-from agent_aws.agent import AWSEKSAgent as BaseAWSEKSAgent
+from agent_aws.agent import AWSAgent as BaseAWSAgent
 
 logger = logging.getLogger(__name__)
 
 
-class AWSEKSAgent:
-    """A2A wrapper for AWS EKS Agent that provides HTTP API access."""
+class AWSAgent:
+    """A2A wrapper for AWS Agent that provides HTTP API access."""
 
     def __init__(self):
-        """Initialize the A2A AWS EKS Agent."""
+        """Initialize the A2A AWS Agent."""
         self._agent = None
 
-    async def _get_agent(self) -> BaseAWSEKSAgent:
+    async def _get_agent(self) -> BaseAWSAgent:
         """Get or create the agent instance."""
         if self._agent is None:
-            self._agent = BaseAWSEKSAgent()
+            self._agent = BaseAWSAgent()
         return self._agent
 
     async def stream(self, query: str, context_id: str = None) -> AsyncIterator[Dict[str, Any]]:
@@ -61,6 +61,6 @@ class AWSEKSAgent:
     def run_sync(self, query: str) -> str:
         """Run the agent synchronously."""
         if self._agent is None:
-            self._agent = BaseAWSEKSAgent()
+            self._agent = BaseAWSAgent()
         result = self._agent.chat(query)
         return result.get("answer", "No response generated")
