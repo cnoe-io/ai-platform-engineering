@@ -61,9 +61,6 @@ Create the name of the service account to use
 
 {{/*
 Get llmSecrets.secretName with global fallback
-For now, we rely on the secret to be created by kb-rag-agent subchart.
-Thus, we only need the name of the secret here.
-TODO: move to kb-rag-stack parent chart.
 */}}
 {{- define "agent.llmSecrets.secretName" -}}
     {{- $name := .Values.llmSecrets.secretName -}}
