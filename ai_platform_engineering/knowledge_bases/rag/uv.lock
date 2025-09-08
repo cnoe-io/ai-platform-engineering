@@ -1229,6 +1229,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "aiofile" },
     { name = "memory-profiler" },
     { name = "psutil" },
     { name = "pytest" },
@@ -1271,6 +1272,7 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "aiofile", specifier = ">=3.9.0" },
     { name = "memory-profiler", specifier = ">=0.61.0" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pytest", specifier = ">=8.0.0" },
