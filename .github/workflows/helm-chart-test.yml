@@ -35,10 +35,21 @@ jobs:
 
     - name: Add required Helm repositories
       run: |
-        helm repo add milvus https://milvus-io.github.io/milvus-helm/
+        helm repo add milvus https://zilliztech.github.io/milvus-helm/
         helm repo add neo4j https://helm.neo4j.com/neo4j
         helm repo add external-secrets https://charts.external-secrets.io
         helm repo update
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure Helm for OCI authentication
+      run: |
+        echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
     - name: Install Helm dependencies
       run: |
@@ -64,8 +75,7 @@ jobs:
     - name: Test chart installation (dry-run) - All services
       run: |
         cd helm
-        helm install test-all-services . \
-          --dry-run \
+        helm template test-all-services . \
           --debug \
           --set ai-platform-engineering.enabled=true \
           --set backstage-plugin-agent-forge.enabled=true \
@@ -79,8 +89,7 @@ jobs:
     - name: Test chart installation (dry-run) - Minimal configuration
       run: |
         cd helm
-        helm install test-minimal . \
-          --dry-run \
+        helm template test-minimal . \
           --debug \
           --set ai-platform-engineering.enabled=true \
           --set backstage-plugin-agent-forge.enabled=false \
@@ -90,21 +99,20 @@ jobs:
     - name: Test KB-RAG Stack installation (dry-run)
       run: |
         cd helm/charts/kb-rag-stack
-        helm install test-kb-rag . \
-          --dry-run \
+        helm dependency build
+        helm template test-kb-rag . \
           --debug \
           --set milvus.cluster.enabled=false \
           --set milvus.etcd.replicaCount=1 \
           --set milvus.pulsar.enabled=false \
           --set milvus.minio.mode=standalone \
-          --set kb-rag-web.ingress.enabled=true \
-          --set kb-rag-web.ingress.hosts[0].host=example.com
+          --set "kb-rag-web.ingress.enabled=true" \
+          --set "kb-rag-web.ingress.hosts[0].host=example.com"
 
     - name: Test chart upgrade (dry-run)
       run: |
         cd helm
-        helm upgrade test-upgrade . \
-          --dry-run \
+        helm template test-upgrade . \
           --debug \
           --set ai-platform-engineering.enabled=true \
           --set backstage-plugin-agent-forge.enabled=false \
@@ -185,18 +193,19 @@ jobs:
 
         # Test KB-RAG Stack with custom ingress configuration
         cd charts/kb-rag-stack
+        helm dependency build
         helm template test-kb-rag-ingress . \
           --set milvus.cluster.enabled=false \
           --set milvus.etcd.replicaCount=1 \
           --set milvus.pulsar.enabled=false \
           --set milvus.minio.mode=standalone \
-          --set kb-rag-web.ingress.enabled=true \
-          --set kb-rag-web.ingress.className=nginx \
-          --set kb-rag-web.ingress.annotations."kubernetes\.io/tls-acme"=true \
-          --set kb-rag-web.ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt-prod \
-          --set kb-rag-web.ingress.hosts[0].host=kb-rag.example.com \
-          --set kb-rag-web.ingress.tls[0].secretName=kb-rag-tls \
-          --set kb-rag-web.ingress.tls[0].hosts[0]=kb-rag.example.com
+          --set "kb-rag-web.ingress.enabled=true" \
+          --set "kb-rag-web.ingress.className=nginx" \
+          --set "kb-rag-web.ingress.annotations.kubernetes\.io/tls-acme=true" \
+          --set "kb-rag-web.ingress.annotations.cert-manager\.io/cluster-issuer=letsencrypt-prod" \
+          --set "kb-rag-web.ingress.hosts[0].host=kb-rag.example.com" \
+          --set "kb-rag-web.ingress.tls[0].secretName=kb-rag-tls" \
+          --set "kb-rag-web.ingress.tls[0].hosts[0]=kb-rag.example.com"
 
     - name: Test security configurations
       run: |
@@ -325,6 +334,7 @@ jobs:
     - name: Test KB-RAG Stack with different configurations
       run: |
         cd helm/charts/kb-rag-stack
+        helm dependency build
 
         # Test with all services disabled except web
         helm template test-minimal . \

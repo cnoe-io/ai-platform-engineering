@@ -22,7 +22,6 @@ The CAIPE (Community AI Platform Engineering) project provides a comprehensive s
 | [PagerDuty](pagerduty.md) | Incident management and on-call scheduling | ✅ Production Ready | A2A |
 | [Slack](slack.md) | Team communication and collaboration | ✅ Production Ready | A2A |
 | [Weather](weather.md) | Weather information and forecasting | ✅ Production Ready | A2A |
-| [Petstore](petstore.md) | Pet store API with mock server | 🛠️ Development | A2A |
 
 ### 🏗️ Architecture Overview
 
@@ -129,4 +128,4 @@ Use the [Petstore/Template Agent](template.md) as a starting point for creating 
 
 #### Contributing
 
-We welcome contributions! Please see our [Contributing Guide](../../contributing/README.md) for details on how to get started.
+We welcome contributions! Please see our [Contributing Guide](../contributing/index.md) for details on how to get started.
