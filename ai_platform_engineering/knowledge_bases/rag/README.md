@@ -1,7 +1,7 @@
 # 🚀 RAG AI Agent
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue?logo=python)](https://www.python.org/)
-[![Poetry](https://img.shields.io/badge/poetry-2.1.1%2B-blueviolet?logo=python)](https://python-poetry.org/)
+[![UV](https://img.shields.io/badge/uv-0.1%2B-blue?logo=python)](https://github.com/astral-sh/uv)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
 ---
@@ -72,4 +72,4 @@ make run-a2a
 
 ## License
 
-Apache 2.0 
+Apache 2.0
