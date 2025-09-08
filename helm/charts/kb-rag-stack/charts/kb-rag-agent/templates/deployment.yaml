@@ -90,21 +90,10 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            {{- if .Values.isMultiAgent }}
-            - name: prompt-config
-              mountPath: /app/prompt_config.yaml
-              subPath: prompt_config.yaml
-              readOnly: true
-            {{- end }}
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
-        {{- if .Values.isMultiAgent }}
-        - name: prompt-config
-          configMap:
-            name: prompt-config
-        {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
