@@ -69,7 +69,7 @@ kb-rag-agent:
 
   service:
     type: ClusterIP
-    port: 8000
+    port: 9446
 
   env:
     MILVUS_HOST: "milvus-standalone"
@@ -86,14 +86,14 @@ kb-rag-agent:
   # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
   livenessProbe:
     tcpSocket:
-      port: http
+      port: 9446
     initialDelaySeconds: 30
     periodSeconds: 10
     timeoutSeconds: 5
     failureThreshold: 3
   readinessProbe:
     tcpSocket:
-      port: http
+      port: 9446
     initialDelaySeconds: 5
     periodSeconds: 5
     timeoutSeconds: 3
