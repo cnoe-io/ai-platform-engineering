@@ -65,13 +65,15 @@ Create the name of the service account to use
 Determine if ingress is enabled - global takes precedence
 */}}
 {{- define "backstage-plugin-agent-forge.ingress.enabled" -}}
-{{- if hasKey .Values.global "ingress" }}
-{{- if hasKey .Values.global.ingress "enabled" }}
-{{- .Values.global.ingress.enabled }}
-{{- else }}
-{{- .Values.ingress.enabled | default false }}
-{{- end }}
-{{- else }}
-{{- .Values.ingress.enabled | default false }}
-{{- end }}
+    {{- $global := (default dict .Values.global) -}}
+    {{- if hasKey $global "ingress" -}}
+        {{- $globalIngress := (default dict $global.ingress) -}}
+        {{- if hasKey $globalIngress "enabled" -}}
+            {{- $globalIngress.enabled -}}
+        {{- else -}}
+            {{- .Values.ingress.enabled | default false -}}
+        {{- end -}}
+    {{- else -}}
+        {{- .Values.ingress.enabled | default false -}}
+    {{- end -}}
 {{- end }}
