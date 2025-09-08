@@ -849,6 +849,140 @@ services:
       - "13000:3000"
 
   ####################################################################################################
+  #                                          KB-RAG SERVICES                                         #
+  ####################################################################################################
+  kb-rag-agent:
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: build/Dockerfile.agent-a2a
+      cache_from: []
+    container_name: kb-rag
+    profiles:
+      - kb-rag
+    depends_on:
+      - milvus-standalone
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8010:8000"
+  kb-rag-server:
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: build/Dockerfile.server
+      cache_from: []
+    container_name: kb-rag-server
+    profiles:
+      - kb-rag
+    depends_on:
+      - milvus-standalone
+      - kb-rag-redis
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "9446:9446"
+    environment:
+      - REDIS_URL=redis://kb-rag-redis:6379/0
+  kb-rag-web:
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: build/Dockerfile.web
+      cache_from: []
+    container_name: kb-rag-web
+    profiles:
+      - kb-rag
+    depends_on:
+      - kb-rag-server
+    ports:
+      - "9447:80"
+  milvus-standalone:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.6.0
+    command: ["milvus", "run", "standalone"]
+    profiles:
+      - kb-rag
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      MINIO_REGION: us-east-1
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: milvus-minio:9000
+      LOG_LEVEL: error
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - etcd
+      - milvus-minio
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.18
+    profiles:
+      - kb-rag
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  milvus-minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    profiles:
+      - kb-rag
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  kb-rag-redis:
+    image: redis:7.2-alpine
+    container_name: kb-rag-redis
+    profiles:
+      - kb-rag
+    ports:
+      - "6379:6379"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/kb-rag-redis:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --save 60 1
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  ####################################################################################################
   #                                    NEXIGRAPH SERVICES (GRAPHRAG/GEN)                             #
   ####################################################################################################
   neo4j:
