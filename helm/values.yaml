@@ -174,27 +174,6 @@ neo4j:
 kb-rag-stack:
   enabled: false
 
-  # Milvus configuration
-  milvus:
-    enabled: true
-    cluster:
-      enabled: false
-    etcd:
-      replicaCount: 1
-    pulsar:
-      enabled: false
-    minio:
-      mode: standalone
-    standalone:
-      replicas: 1
-      resources:
-        requests:
-          cpu: 100m
-          memory: 128Mi
-        limits:
-          cpu: 500m
-          memory: 2Gi
-
   # KB-RAG Web configuration
   kb-rag-web:
     enabled: true
@@ -308,23 +287,95 @@ kb-rag-stack:
       save: "60 1"
       appendonly: "yes"
 
-# Milvus configuration
+# Optimize Milvus configuration for minimal memory usage
 milvus:
-  enabled: true
+  # Use standalone mode with RocksDB instead of Pulsar
   cluster:
     enabled: false
-  etcd:
-    replicaCount: 1
-  pulsar:
-    enabled: false
-  minio:
-    mode: standalone
+
   standalone:
     replicas: 1
+    messageQueue: rocksmq  # Use RocksDB instead of Pulsar (saves ~12GB memory)
     resources:
       requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        cpu: 500m
         memory: 512Mi
+        cpu: 200m
+      limits:
+        memory: 1Gi
+        cpu: 500m
+    persistence:
+      enabled: true
+      size: 50Gi  # Reduced from default 500Gi
+      storageClass: ""
+      accessMode: ReadWriteOnce
+
+  # Disable cluster components when using standalone
+  proxy:
+    enabled: false
+  rootCoordinator:
+    enabled: false
+  queryCoordinator:
+    enabled: false
+  queryNode:
+    enabled: false
+  indexCoordinator:
+    enabled: false
+  indexNode:
+    enabled: false
+  dataCoordinator:
+    enabled: false
+  dataNode:
+    enabled: false
+  mixCoordinator:
+    enabled: false
+
+  # Optimize MinIO for minimal memory usage
+  minio:
+    enabled: true
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 200m
+    persistence:
+      enabled: true
+      size: 50Gi  # Match requested storage size
+      storageClass: ""
+      accessMode: ReadWriteOnce
+
+  # Disable Pulsar to save memory
+  pulsar:
+    enabled: false
+
+  # Disable Pulsar v3 to save memory
+  pulsarv3:
+    enabled: false
+
+  # Disable Kafka
+  kafka:
+    enabled: false
+
+  # Minimal etcd configuration
+  etcd:
+    enabled: true
+    replicaCount: 1
+    service:
+      ports:
+        client:
+          port: 2379
+          protocol: TCP
+        peer:
+          port: 2380
+          protocol: TCP
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 256Mi
+        cpu: 200m
+    persistence:
+      enabled: true
+      size: 10Gi
