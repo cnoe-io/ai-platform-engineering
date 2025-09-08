@@ -47,6 +47,7 @@ jobs:
           path: |
             coverage.xml
             htmlcov/
+        continue-on-error: true
 
   run-rag-tests:
     runs-on: ubuntu-latest
@@ -234,9 +235,12 @@ jobs:
             if (!mainCoverage && !ragCoverage) {
               coverageSummary += '❌ No coverage data available\n\n';
               coverageSummary += '**Debug Information:**\n';
-              coverageSummary += '- Check if coverage XML files were generated during test runs\n';
-              coverageSummary += '- Verify that pytest-cov is properly configured\n';
+              coverageSummary += '- Main tests: Excluded RAG module from coverage (by design)\n';
+              coverageSummary += '- RAG tests: Check if coverage XML was generated and uploaded correctly\n';
+              coverageSummary += '- Verify that pytest-cov is properly configured in RAG module\n';
               coverageSummary += '- Look at the workflow logs for detailed error messages\n\n';
+            } else if (!mainCoverage && ragCoverage) {
+              coverageSummary += 'ℹ️ **Note**: Main tests coverage not available (RAG module excluded by design)\n\n';
             }
 
             // Add coverage artifacts info
