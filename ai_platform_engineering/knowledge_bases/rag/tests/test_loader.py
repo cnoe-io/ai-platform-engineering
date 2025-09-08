@@ -247,7 +247,7 @@ class TestLoader:
             async def async_iter():
                 return
                 yield  # This makes it an async generator
-            
+
             # Mock alazy_load as a method that returns an async generator
             mock_loader.alazy_load = MagicMock(return_value=async_iter())
             mock_loader_class.return_value = mock_loader

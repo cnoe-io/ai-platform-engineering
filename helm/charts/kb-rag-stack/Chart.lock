@@ -13,6 +13,6 @@ dependencies:
   version: 0.1.0
 - name: kb-rag-redis
   repository: file://./charts/kb-rag-redis
-  version: 0.1.0
-digest: sha256:4b0336a812bdfabe4e2602ce2c2804a53029617661c1d9768a7b53600d29e341
-generated: "2025-09-03T06:32:17.422497-05:00"
+  version: 0.1.1
+digest: sha256:71a63685eb91692f829493426084a2310e3ed48aeac9902e359c8216a8424d45
+generated: "2025-09-08T02:42:14.787050062-05:00"
