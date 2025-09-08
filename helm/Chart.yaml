@@ -65,5 +65,9 @@ dependencies:
     condition: graphrag.enabled
   # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
   - name: kb-rag-stack
-    version: 0.1.1
+    version: 0.1.2
+    condition: kb-rag-stack.enabled
+  - name: milvus
+    version: "5.0.2"
+    repository: "https://zilliztech.github.io/milvus-helm/"
     condition: kb-rag-stack.enabled

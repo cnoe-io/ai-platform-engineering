@@ -307,3 +307,24 @@ kb-rag-stack:
       maxmemoryPolicy: "allkeys-lru"
       save: "60 1"
       appendonly: "yes"
+
+# Milvus configuration
+milvus:
+  enabled: true
+  cluster:
+    enabled: false
+  etcd:
+    replicaCount: 1
+  pulsar:
+    enabled: false
+  minio:
+    mode: standalone
+  standalone:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
