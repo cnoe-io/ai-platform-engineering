@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/*"
+norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/* ai_platform_engineering/knowledge_bases/rag/*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
