@@ -1,5 +1,5 @@
-from server.loader.url.docsaurus_scraper import scrape_docsaurus
-from server.loader.url.mkdocs_scraper import scrape_mkdocs
+from .url.docsaurus_scraper import scrape_docsaurus
+from .url.mkdocs_scraper import scrape_mkdocs
 import aiohttp
 from bs4 import BeautifulSoup
 import gzip
@@ -372,10 +372,11 @@ class Loader:
                     progress={"message": "No sitemaps found, processing single URL...", "processed": 0, "total": 1}
                 )
 
-                # Use asynchronous loading for single URL
-                import asyncio
-                loader = WebBaseLoader([url], requests_per_second=5)
-                docs = await asyncio.to_thread(loader.load)
+                # Use synchronous loading to avoid event loop conflicts
+                loader = WebBaseLoader(
+                    requests_per_second=1
+                )
+                docs = await loader.ascrape_all([url])
                 for doc in docs:
                     self.logger.info(f"Processing single URL: {url}")
                     # WebBaseLoader already parsed the HTML and extracted content
@@ -426,11 +427,11 @@ class Loader:
                         docs = await asyncio.to_thread(loader.load)
 
                         for doc in docs:
+                            # Extract source URL from document metadata if available, otherwise use the first URL in batch
+                            source_url = doc.metadata.get("source", batch_urls[0])
                             # WebBaseLoader already parsed the HTML and extracted content
                             # Just update the document ID and source metadata
                             doc.id = uuid.uuid4().hex
-                            # Extract source URL from document metadata if available, otherwise use the first URL in batch
-                            source_url = doc.metadata.get("source", batch_urls[0])
                             doc.metadata["source"] = source_url
                             await self.process_document(doc, job_id)
                             processed_count += 1

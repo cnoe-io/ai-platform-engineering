@@ -6,10 +6,13 @@ This script tests the memory-efficient processing of URLs using the Outshift pla
 
 import asyncio
 import logging
+import time
 import sys
 import os
-import time
-from typing import List
+
+# Add the current directory to Python path for relative imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
 from server.loader.loader import Loader
 
 class MockVectorStore:
@@ -40,7 +43,7 @@ class MockVectorStore:
             if source not in self.document_sources:
                 self.document_sources.append(source)
 
-        # print(f"📄 Added {len(documents)} documents to vector store (total: {self.documents_added})")
+        print(f"📄 Added {len(documents)} documents to vector store (total: {self.documents_added})")
 
         return [f"doc_id_{self.documents_added - len(documents) + i}" for i in range(len(documents))]
 
@@ -111,7 +114,7 @@ async def test_outshift_platform_docs():
             print("💾 Memory monitoring: Initial state")
 
             # Test URL loading
-            print(f"🌐 Starting URL loading process...")
+            print("🌐 Starting URL loading process...")
             await loader.load_url(test_url)
 
             # Log final memory usage (simulated)
@@ -126,11 +129,11 @@ async def test_outshift_platform_docs():
             print(f"   • Chunks created: {mock_vstore.chunks_added}")
             if mock_vstore.processing_times:
                 print(f"   • Average processing time per document: {sum(mock_vstore.processing_times)/len(mock_vstore.processing_times):.3f}s")
-            print(f"   • Memory monitoring: Simulated memory tracking")
+            print("   • Memory monitoring: Simulated memory tracking")
 
             # Show sample sources
             if mock_vstore.document_sources:
-                print(f"   • Sample sources processed:")
+                print("   • Sample sources processed:")
                 for source in mock_vstore.document_sources[:5]:  # Show first 5
                     print(f"     - {source}")
                 if len(mock_vstore.document_sources) > 5:
@@ -180,7 +183,7 @@ async def test_sitemap_discovery():
 
         # Test URL extraction from sitemaps
         if sitemaps:
-            print(f"\n📋 Extracting URLs from sitemaps...")
+            print("\n📋 Extracting URLs from sitemaps...")
             total_urls = 0
             for sitemap in sitemaps:
                 urls = await loader.get_urls_from_sitemap(sitemap)
@@ -191,7 +194,7 @@ async def test_sitemap_discovery():
 
             # Show sample URLs
             if total_urls > 0:
-                print(f"\n📄 Sample URLs to be processed:")
+                print("\n📄 Sample URLs to be processed:")
                 sample_urls = urls[:5] if 'urls' in locals() else []
                 for i, url in enumerate(sample_urls, 1):
                     print(f"   {i}. {url}")
