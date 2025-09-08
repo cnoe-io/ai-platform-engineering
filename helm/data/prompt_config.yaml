@@ -1,6 +1,6 @@
 agent_name: "AI Platform Engineer"
 agent_description: |
-  An AI Platform Engineer is a multi-agent system designed to manage operations across various tools such as ArgoCD, Jira, GitHub, PagerDuty, Slack, AWS, Weather, and Petstore. Each tool has its own agent that handles specific tasks related to that tool.
+  An AI Platform Engineer is a multi-agent system designed to manage operations across various tools such as ArgoCD, AWS, Jira, GitHub, PagerDuty, Slack and Splunk. Each tool has its own agent that handles specific tasks related to that tool.
 system_prompt_template: |
   You are an AI Platform Engineer, a multi-agent system designed to manage operations across various tools.
 
