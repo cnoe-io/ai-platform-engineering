@@ -60,9 +60,9 @@ venv-run = $(venv-activate) && $(load-env) &&
 
 ## ========== Install ==========
 
-install: setup-venv ## Install Python dependencies using Poetry
+install: setup-venv ## Install Python dependencies using UV
 	@echo "Installing dependencies..."
-	@$(venv-activate) && poetry install --no-interaction
+	@$(venv-activate) && uv sync --no-dev
 	@echo "Dependencies installed successfully."
 
 install-uv:        ## Install uv package manager
@@ -70,11 +70,11 @@ install-uv:        ## Install uv package manager
 
 ## ========== Build & Lint ==========
 
-build: setup-venv  ## Build the package using Poetry
-	@$(venv-activate) && poetry build
+build: setup-venv  ## Build the package using UV
+	@$(venv-activate) && uv build
 
 lint: setup-venv   ## Lint code with ruff (ignoring F401)
-	@$(venv-activate) && poetry install && ruff check --ignore F401 $(AGENT_PKG_NAME) tests
+	@$(venv-activate) && uv sync && ruff check --ignore F401 $(AGENT_PKG_NAME) tests
 
 ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 	@$(venv-activate) && ruff check $(AGENT_PKG_NAME) tests --fix
@@ -120,38 +120,38 @@ run-docker-a2a: ## Run the A2A agent in Docker
 ## ========== Tests ==========
 
 test-unit: setup-venv build ## Run unit tests using pytest and coverage
-	@$(venv-activate) && poetry install
-	@$(venv-activate) && poetry add pytest-asyncio pytest-cov --dev
+	@$(venv-activate) && uv sync --dev
+	@$(venv-activate) && uv add pytest-asyncio pytest-cov --dev
 	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings --maxfail=1 --cov=server --cov-report=term --cov-report=xml
 
 test: test-all ## Run all tests (unit, scale, memory, coverage) - DEFAULT TARGET
 
 test-coverage: setup-venv ## Run tests with detailed coverage report
-	@$(venv-activate) && poetry install
-	@$(venv-activate) && poetry add pytest-asyncio pytest-cov --dev
+	@$(venv-activate) && uv sync --dev
+	@$(venv-activate) && uv add pytest-asyncio pytest-cov --dev
 	@echo "Running tests with detailed coverage analysis..."
 	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings \
 		--cov=server --cov-report=term --cov-report=html --cov-report=xml \
 		--cov-branch
 
 test-memory: setup-venv ## Run tests with memory profiling
-	@$(venv-activate) && poetry install
-	@$(venv-activate) && poetry add pytest-asyncio pytest-cov memory-profiler psutil --dev
+	@$(venv-activate) && uv sync --dev
+	@$(venv-activate) && uv add pytest-asyncio pytest-cov memory-profiler psutil --dev
 	@echo "Running tests with memory profiling..."
 	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings \
 		--cov=server --cov-report=term --cov-report=xml \
 		--durations=10 --maxfail=1
 
 test-scale: setup-venv ## Run scale tests with memory monitoring
-	@$(venv-activate) && poetry install
-	@$(venv-activate) && poetry add pytest-asyncio pytest-cov psutil --dev
+	@$(venv-activate) && uv sync --dev
+	@$(venv-activate) && uv add pytest-asyncio pytest-cov psutil --dev
 	@echo "Running scale tests with memory monitoring..."
 	@$(venv-activate) && pytest tests/test_scale_ingestion.py -v --tb=short \
 		--durations=10 --maxfail=1 -s
 
 test-all: setup-venv ## Run all tests with coverage, memory profiling, and scale tests
-	@$(venv-activate) && poetry install
-	@$(venv-activate) && poetry add pytest-asyncio pytest-cov memory-profiler psutil --dev
+	@$(venv-activate) && uv sync --dev
+	@$(venv-activate) && uv add pytest-asyncio pytest-cov memory-profiler psutil --dev
 	@echo "Running comprehensive test suite..."
 	@echo "==================================================================="
 	@echo "                      COMPREHENSIVE TEST SUITE                      "
