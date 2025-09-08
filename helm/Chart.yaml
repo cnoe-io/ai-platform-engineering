@@ -1,12 +1,12 @@
 apiVersion: v2
 # pyproject.toml version
-appVersion: 0.1.5
+appVersion: 0.1.17
 name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.1.16
+version: 0.1.17
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: agent

@@ -133,12 +133,16 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'doc',
-          id: 'agents/index',
+          id: 'agents/README',
           label: 'Overview',
         },
         {
           type: 'doc',
           id: 'agents/argocd',
+        },
+        {
+          type: 'doc',
+          id: 'agents/aws',
         },
         {
           type: 'doc',
@@ -162,10 +166,6 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
-          id: 'agents/kubernetes',
-        },
-        {
-          type: 'doc',
           id: 'agents/pagerduty',
         },
         {
@@ -175,6 +175,10 @@ const sidebars: SidebarsConfig = {
         {
           type: 'doc',
           id: 'agents/template',
+        },
+        {
+          type: 'doc',
+          id: 'agents/weather',
         },
       ],
     },

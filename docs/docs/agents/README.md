@@ -18,10 +18,11 @@ The CAIPE (Community AI Platform Engineering) project provides a comprehensive s
 | [GitHub](github.md) | Source code management and collaboration | ✅ Production Ready | A2A |
 | [Jira](jira.md) | Project management and issue tracking | ✅ Production Ready | A2A |
 | [Komodor](komodor.md) | Kubernetes troubleshooting and monitoring | ✅ Production Ready | A2A |
-| [Kubernetes](kubernetes.md) | Container orchestration and management | ✅ Production Ready | A2A |
+| [AWS](aws.md) | Cloud infrastructure and EKS management | ✅ Production Ready | A2A |
 | [PagerDuty](pagerduty.md) | Incident management and on-call scheduling | ✅ Production Ready | A2A |
 | [Slack](slack.md) | Team communication and collaboration | ✅ Production Ready | A2A |
-| [Template](template.md) | Template for creating new agents | 🛠️ Development | A2A |
+| [Weather](weather.md) | Weather information and forecasting | ✅ Production Ready | A2A |
+| [Petstore](petstore.md) | Pet store API with mock server | 🛠️ Development | A2A |
 
 ### 🏗️ Architecture Overview
 
@@ -48,6 +49,30 @@ flowchart TD
   F --> E --> D --> C --> B --> A
 ```
 
+### Common Documentation Structure
+
+All agent documentation follows a consistent structure with these common elements:
+
+#### 🏗️ Architecture Section
+- **System Diagram**: Mermaid flowchart showing the overall system architecture
+- **Sequence Diagram**: Mermaid sequence diagram showing the interaction flow
+
+#### ⚙️ Local Development Setup
+- Environment configuration
+- API token setup
+- Local testing instructions
+- Sanity test commands
+
+#### ✨ Features
+- Agent-specific capabilities
+- API integration details
+- Use case examples
+
+#### 🎯 Example Use Cases
+- Natural language query examples
+- Common operations
+- Agent-specific workflows
+
 ### ✨ Key Features
 
 - **🤖 LangGraph Integration**: Built on the powerful LangGraph ReAct Agent framework
@@ -61,7 +86,7 @@ flowchart TD
 ### 🎯 Use Cases
 
 #### Platform Engineering
-- **Infrastructure Management**: Deploy, scale, and manage Kubernetes clusters
+- **Cloud Infrastructure**: Deploy, scale, and manage AWS EKS clusters
 - **GitOps Operations**: Automate continuous delivery with ArgoCD
 - **Service Discovery**: Manage service catalogs with Backstage
 - **Monitoring & Alerting**: Set up comprehensive monitoring with Komodor
@@ -79,6 +104,10 @@ flowchart TD
 - **Monitoring Setup**: Configure monitoring and alerting
 - **Team Collaboration**: Enhance team communication and coordination
 
+#### Utility Services
+- **Weather Information**: Get weather forecasts and current conditions
+- **API Testing**: Test APIs with mock servers and sample data
+
 ### 🚀 Getting Started
 
 1. **Choose an Agent**: Select the agent that matches your use case
@@ -90,7 +119,7 @@ flowchart TD
 
 #### Creating New Agents
 
-Use the [Template Agent](template.md) as a starting point for creating new agents:
+Use the [Petstore/Template Agent](template.md) as a starting point for creating new agents:
 
 1. Clone the template repository
 2. Configure your API integration
@@ -101,25 +130,3 @@ Use the [Template Agent](template.md) as a starting point for creating new agent
 #### Contributing
 
 We welcome contributions! Please see our [Contributing Guide](../../contributing/README.md) for details on how to get started.
-
-### 📚 Documentation
-
-- [Agent Development Guide](../development/agent-development.md)
-- [MCP Server Creation](../tools-utils/mcp-server-creation.md)
-- [A2A Protocol Documentation](../architecture/a2a-protocol.md)
-- [Testing and Evaluation](../evaluations/agent-evaluation.md)
-
-### 🤝 Community
-
-Join our community to get help, share ideas, and contribute to the project:
-
-- [GitHub Discussions](https://github.com/cnoe-io/ai-platform-engineering/discussions)
-- [Discord Server](https://discord.gg/cnoe)
-- [Documentation](https://docs.cnoe.io)
-
-### Agentic Workflow Optimization
-
-- **Reflection**: Self-improvement and learning capabilities
-- **Multi-Agent Coordination**: Agents can work together on complex tasks
-- **Context Awareness**: Maintain context across interactions
-- **Adaptive Behavior**: Learn and adapt to user preferences
