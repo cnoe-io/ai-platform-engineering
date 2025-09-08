@@ -18,7 +18,7 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project --no-dev
+    uv sync --locked --no-dev
 
 # Then, use a final image without uv
 FROM python:3.13-slim-bookworm
@@ -35,4 +35,4 @@ WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Run the FastAPI application by default
-CMD ["python3", "server/__main__.py"]
+CMD ["python3", "kb_rag/server/__main__.py"]
