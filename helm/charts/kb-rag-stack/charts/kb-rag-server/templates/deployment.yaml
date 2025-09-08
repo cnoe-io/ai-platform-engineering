@@ -35,16 +35,13 @@ spec:
             - name: http
               containerPort: 9446
               protocol: TCP
-          {{- with .Values.env }}
-          {{- if and $.Values.externalSecrets $.Values.externalSecrets.enabled }}
           envFrom:
-            {{- range $.Values.externalSecrets.secretNames }}
-            {{- if . }}
+            {{- $llmSecretName := include "agent.llmSecrets.secretName" . | trim -}}
+            {{- if $llmSecretName }}
             - secretRef:
-                name: {{ . | trim }}
+                name: {{ $llmSecretName }}
             {{- end }}
-            {{- end }}
-          {{- end }}
+          {{- with .Values.env }}
           env:
             {{- range $key, $value := . }}
             - name: {{ $key }}
