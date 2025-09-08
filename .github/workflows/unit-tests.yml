@@ -126,40 +126,88 @@ jobs:
             echo "❌ No coverage data available" >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Install coverage parsing dependencies
+        run: |
+          npm install xml2js
+
       - name: Comment PR with coverage
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
+            const xml2js = require('xml2js');
+
+            // Function to parse coverage XML and extract coverage data
+            async function parseCoverageXML(filePath, testSuite) {
+              try {
+                if (!fs.existsSync(filePath)) {
+                  return null;
+                }
+
+                const xmlContent = fs.readFileSync(filePath, 'utf8');
+                const parser = new xml2js.Parser();
+                const result = await parser.parseStringPromise(xmlContent);
+                
+                const coverage = result.coverage;
+                if (!coverage || !coverage.$) {
+                  return null;
+                }
+
+                const lineRate = parseFloat(coverage.$.line_rate) * 100;
+                const branchRate = parseFloat(coverage.$.branch_rate) * 100;
+                const linesCovered = parseInt(coverage.$.lines_covered);
+                const linesValid = parseInt(coverage.$.lines_valid);
+                const branchesCovered = parseInt(coverage.$.branches_covered);
+                const branchesValid = parseInt(coverage.$.branches_valid);
+
+                return {
+                  testSuite,
+                  lineRate: lineRate.toFixed(1),
+                  branchRate: branchRate.toFixed(1),
+                  linesCovered,
+                  linesValid,
+                  branchesCovered,
+                  branchesValid
+                };
+              } catch (error) {
+                console.log(`Error parsing ${filePath}:`, error.message);
+                return null;
+              }
+            }
 
             // Generate coverage summary
             let coverageSummary = '## 📊 Test Coverage Report\n\n';
 
-            // Check for main coverage
-            if (fs.existsSync('./main-coverage/coverage.xml')) {
-              coverageSummary += '### Main Tests Coverage\n';
-              coverageSummary += '```\n';
-              coverageSummary += 'Main test suite coverage data available\n';
-              coverageSummary += '```\n\n';
+            // Parse main coverage
+            const mainCoverage = await parseCoverageXML('./main-coverage/coverage.xml', 'Main Tests');
+            if (mainCoverage) {
+              coverageSummary += `### ${mainCoverage.testSuite} Coverage\n`;
+              coverageSummary += `| Metric | Coverage | Details |\n`;
+              coverageSummary += `|--------|----------|----------|\n`;
+              coverageSummary += `| **Lines** | ${mainCoverage.lineRate}% | ${mainCoverage.linesCovered}/${mainCoverage.linesValid} lines |\n`;
+              coverageSummary += `| **Branches** | ${mainCoverage.branchRate}% | ${mainCoverage.branchesCovered}/${mainCoverage.branchesValid} branches |\n\n`;
             }
 
-            // Check for RAG coverage
-            if (fs.existsSync('./rag-coverage/coverage.xml')) {
-              coverageSummary += '### RAG Tests Coverage\n';
-              coverageSummary += '```\n';
-              coverageSummary += 'RAG test suite coverage data available\n';
-              coverageSummary += '```\n\n';
+            // Parse RAG coverage
+            const ragCoverage = await parseCoverageXML('./rag-coverage/coverage.xml', 'RAG Tests');
+            if (ragCoverage) {
+              coverageSummary += `### ${ragCoverage.testSuite} Coverage\n`;
+              coverageSummary += `| Metric | Coverage | Details |\n`;
+              coverageSummary += `|--------|----------|----------|\n`;
+              coverageSummary += `| **Lines** | ${ragCoverage.lineRate}% | ${ragCoverage.linesCovered}/${ragCoverage.linesValid} lines |\n`;
+              coverageSummary += `| **Branches** | ${ragCoverage.branchRate}% | ${ragCoverage.branchesCovered}/${ragCoverage.branchesValid} branches |\n\n`;
             }
 
-            if (!fs.existsSync('./main-coverage/coverage.xml') && !fs.existsSync('./rag-coverage/coverage.xml')) {
-              coverageSummary += '❌ No coverage data available\n';
+            if (!mainCoverage && !ragCoverage) {
+              coverageSummary += '❌ No coverage data available\n\n';
             }
 
             // Add coverage artifacts info
-            coverageSummary += '### Coverage Artifacts\n';
-            coverageSummary += '- Main tests: `coverage-reports-main` artifact\n';
-            coverageSummary += '- RAG tests: `coverage-reports-rag` artifact\n';
-            coverageSummary += '- Download artifacts to view detailed HTML coverage reports\n';
+            coverageSummary += '### 📁 Coverage Artifacts\n';
+            coverageSummary += '- **Main tests**: `coverage-reports-main` artifact\n';
+            coverageSummary += '- **RAG tests**: `coverage-reports-rag` artifact\n';
+            coverageSummary += '- **Download artifacts** to view detailed HTML coverage reports\n';
 
             // Post comment to PR
             github.rest.issues.createComment({
