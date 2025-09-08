@@ -149,4 +149,3 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
     {{- end -}}
     {{- $ref -}}
 {{- end -}}
-
