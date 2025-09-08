@@ -179,7 +179,6 @@ Ask the agent natural language questions like:
 
 For more detailed information about creating agents, please refer to:
 
-- [Agent Development Guide](../development/agent-development.md)
-- [MCP Server Creation](../tools-utils/mcp-server-creation.md)
-- [A2A Protocol Documentation](../architecture/a2a-protocol.md)
-- [Testing and Evaluation](../evaluations/agent-evaluation.md)
+- [MCP Server Creation](../tools-utils/openapi-mcp-codegen.md)
+- [Architecture Documentation](../architecture/index.md)
+- [Testing and Evaluation](../evaluations/index.md)
