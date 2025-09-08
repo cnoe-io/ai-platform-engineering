@@ -1,24 +1,29 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.13"
 
 [[package]]
 name = "a2a-sdk"
-version = "0.2.16"
+version = "0.2.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
+    { name = "google-api-core" },
+    { name = "grpcio" },
+    { name = "grpcio-reflection" },
+    { name = "grpcio-tools" },
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
+    { name = "protobuf" },
     { name = "pydantic" },
     { name = "sse-starlette" },
     { name = "starlette" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/3b/8fd1e3fe28606712c203b968a6fe2c8e7944b6df9e65c28976c66c19286c/a2a_sdk-0.2.16.tar.gz", hash = "sha256:d9638c71674183f32fe12f8865015e91a563a90a3aa9ed43020f1b23164862b3", size = 179006, upload-time = "2025-07-21T19:51:14.107Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/23/35/e4a88dca2513321a7f96749c333606484832b7cfa4a1fc1478f294914ab1/a2a_sdk-0.2.8.tar.gz", hash = "sha256:ce2cde5fbf4a6193aa6d5042680fa0cc943c7f124a27155aecf96aa67d03a5d9", size = 133222, upload-time = "2025-06-13T16:04:36.456Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/92/16bfbc2ef0ef037c5860ef3b13e482aeb1860b9643bf833ed522c995f639/a2a_sdk-0.2.16-py3-none-any.whl", hash = "sha256:54782eab3d0ad0d5842bfa07ff78d338ea836f1259ece51a825c53193c67c7d0", size = 103090, upload-time = "2025-07-21T19:51:12.613Z" },
+    { url = "https://files.pythonhosted.org/packages/10/fe/218881b6a6576d835a3cb1f65011534b1a860036cfcf2930819d1b423655/a2a_sdk-0.2.8-py3-none-any.whl", hash = "sha256:b49c9f8901b71729cd88a988b5921bcdb5d2bcdf85d29442b0221e4262989fcf", size = 86568, upload-time = "2025-06-13T16:04:35.306Z" },
 ]
 
 [[package]]
