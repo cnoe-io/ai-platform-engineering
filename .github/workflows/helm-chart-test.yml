@@ -99,14 +99,15 @@ jobs:
     - name: Test KB-RAG Stack installation (dry-run)
       run: |
         cd helm/charts/kb-rag-stack
+        helm dependency build
         helm template test-kb-rag . \
           --debug \
           --set milvus.cluster.enabled=false \
           --set milvus.etcd.replicaCount=1 \
           --set milvus.pulsar.enabled=false \
           --set milvus.minio.mode=standalone \
-          --set kb-rag-web.ingress.enabled=true \
-          --set kb-rag-web.ingress.hosts[0].host=example.com
+          --set "kb-rag-web.ingress.enabled=true" \
+          --set "kb-rag-web.ingress.hosts[0].host=example.com"
 
     - name: Test chart upgrade (dry-run)
       run: |
@@ -192,18 +193,19 @@ jobs:
 
         # Test KB-RAG Stack with custom ingress configuration
         cd charts/kb-rag-stack
+        helm dependency build
         helm template test-kb-rag-ingress . \
           --set milvus.cluster.enabled=false \
           --set milvus.etcd.replicaCount=1 \
           --set milvus.pulsar.enabled=false \
           --set milvus.minio.mode=standalone \
-          --set kb-rag-web.ingress.enabled=true \
-          --set kb-rag-web.ingress.className=nginx \
-          --set kb-rag-web.ingress.annotations."kubernetes\.io/tls-acme"=true \
-          --set kb-rag-web.ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt-prod \
-          --set kb-rag-web.ingress.hosts[0].host=kb-rag.example.com \
-          --set kb-rag-web.ingress.tls[0].secretName=kb-rag-tls \
-          --set kb-rag-web.ingress.tls[0].hosts[0]=kb-rag.example.com
+          --set "kb-rag-web.ingress.enabled=true" \
+          --set "kb-rag-web.ingress.className=nginx" \
+          --set "kb-rag-web.ingress.annotations.kubernetes\.io/tls-acme=true" \
+          --set "kb-rag-web.ingress.annotations.cert-manager\.io/cluster-issuer=letsencrypt-prod" \
+          --set "kb-rag-web.ingress.hosts[0].host=kb-rag.example.com" \
+          --set "kb-rag-web.ingress.tls[0].secretName=kb-rag-tls" \
+          --set "kb-rag-web.ingress.tls[0].hosts[0]=kb-rag.example.com"
 
     - name: Test security configurations
       run: |
@@ -332,6 +334,7 @@ jobs:
     - name: Test KB-RAG Stack with different configurations
       run: |
         cd helm/charts/kb-rag-stack
+        helm dependency build
 
         # Test with all services disabled except web
         helm template test-minimal . \
