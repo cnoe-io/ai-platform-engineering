@@ -142,29 +142,45 @@ jobs:
             async function parseCoverageXML(filePath, testSuite) {
               try {
                 if (!fs.existsSync(filePath)) {
+                  console.log(`Coverage file not found: ${filePath}`);
                   return null;
                 }
 
                 const xmlContent = fs.readFileSync(filePath, 'utf8');
+                console.log(`Parsing coverage file: ${filePath}`);
+                console.log(`File size: ${xmlContent.length} bytes`);
+                
                 const parser = new xml2js.Parser();
                 const result = await parser.parseStringPromise(xmlContent);
 
                 const coverage = result.coverage;
                 if (!coverage || !coverage.$) {
+                  console.log(`Invalid coverage XML structure in ${filePath}`);
+                  console.log(`Coverage object:`, JSON.stringify(coverage, null, 2));
                   return null;
                 }
 
-                const lineRate = parseFloat(coverage.$.line_rate) * 100;
-                const branchRate = parseFloat(coverage.$.branch_rate) * 100;
+                console.log(`Coverage attributes:`, coverage.$);
+
+                const lineRate = parseFloat(coverage.$.line_rate);
+                const branchRate = parseFloat(coverage.$.branch_rate);
                 const linesCovered = parseInt(coverage.$.lines_covered);
                 const linesValid = parseInt(coverage.$.lines_valid);
                 const branchesCovered = parseInt(coverage.$.branches_covered);
                 const branchesValid = parseInt(coverage.$.branches_valid);
 
+                // Check for NaN values
+                if (isNaN(lineRate) || isNaN(branchRate) || isNaN(linesCovered) || isNaN(linesValid) || isNaN(branchesCovered) || isNaN(branchesValid)) {
+                  console.log(`NaN values detected in ${filePath}:`, {
+                    lineRate, branchRate, linesCovered, linesValid, branchesCovered, branchesValid
+                  });
+                  return null;
+                }
+
                 return {
                   testSuite,
-                  lineRate: lineRate.toFixed(1),
-                  branchRate: branchRate.toFixed(1),
+                  lineRate: (lineRate * 100).toFixed(1),
+                  branchRate: (branchRate * 100).toFixed(1),
                   linesCovered,
                   linesValid,
                   branchesCovered,
@@ -201,6 +217,10 @@ jobs:
 
             if (!mainCoverage && !ragCoverage) {
               coverageSummary += '❌ No coverage data available\n\n';
+              coverageSummary += '**Debug Information:**\n';
+              coverageSummary += '- Check if coverage XML files were generated during test runs\n';
+              coverageSummary += '- Verify that pytest-cov is properly configured\n';
+              coverageSummary += '- Look at the workflow logs for detailed error messages\n\n';
             }
 
             // Add coverage artifacts info
