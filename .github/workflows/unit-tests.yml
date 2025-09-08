@@ -163,12 +163,12 @@ jobs:
 
                 console.log(`Coverage attributes:`, coverage.$);
 
-                const lineRate = parseFloat(coverage.$.line_rate);
-                const branchRate = parseFloat(coverage.$.branch_rate);
-                const linesCovered = parseInt(coverage.$.lines_covered);
-                const linesValid = parseInt(coverage.$.lines_valid);
-                const branchesCovered = parseInt(coverage.$.branches_covered);
-                const branchesValid = parseInt(coverage.$.branches_valid);
+                const lineRate = parseFloat(coverage.$['line-rate']);
+                const branchRate = parseFloat(coverage.$['branch-rate']);
+                const linesCovered = parseInt(coverage.$['lines-covered']);
+                const linesValid = parseInt(coverage.$['lines-valid']);
+                const branchesCovered = parseInt(coverage.$['branches-covered']);
+                const branchesValid = parseInt(coverage.$['branches-valid']);
 
                 // Check for NaN values
                 if (isNaN(lineRate) || isNaN(branchRate) || isNaN(linesCovered) || isNaN(linesValid) || isNaN(branchesCovered) || isNaN(branchesValid)) {
