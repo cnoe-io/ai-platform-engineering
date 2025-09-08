@@ -140,11 +140,19 @@ secrets:
 # Environment variables (non-sensitive and sensitive from secrets)
 env: {}
 
-# External Secrets configuration - this will be populated by the parent chart
-externalSecrets:
-  enabled: false
-  # List of external secret names this agent should reference
-  secretNames: []
+# Secrets configuration for LLM providers
+# When used as a subchart, global values can override these values
+# When used as a standalone agent, this will be the secret for the LLM provider
+llmSecrets:
+  create: false # if false, it'll assume that the secret already exists
+  secretName: "llm-secret"
+  data: {}
+  externalSecrets:
+    enabled: false
+    secretStoreRef:
+      name: "" # Use your secret store
+      kind: ClusterSecretStore # Use your secret store kind
+    data: []
 
 # MCP (Model Context Protocol) container configuration
 # Only deployed when env.MCP_MODE is set to "http"
