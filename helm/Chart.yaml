@@ -64,10 +64,6 @@ dependencies:
     repository: "https://helm.neo4j.com/neo4j"
     condition: graphrag.enabled
   # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
-  - name: milvus
-    version: "5.0.2"
-    repository: "https://zilliztech.github.io/milvus-helm/"
-    condition: kb-rag-stack.enabled
   - name: kb-rag-stack
     version: 0.1.1
     condition: kb-rag-stack.enabled
