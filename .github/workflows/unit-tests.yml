@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   run-tests:
@@ -31,9 +32,135 @@ jobs:
 
           echo "Installing ai_platform_engineering, agents, and argocd..."
 
-          source .venv/bin/activate && uv add pytest-asyncio --group unittest
+          source .venv/bin/activate && uv add pytest-asyncio pytest-cov --group unittest
           source .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
           source .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
 
-          echo "Running tests..."
-          source .venv/bin/activate && uv run pytest --ignore=integration
+          echo "Running tests with coverage..."
+          source .venv/bin/activate && uv run pytest --ignore=integration --cov=ai_platform_engineering --cov-report=xml --cov-report=html
+
+      - name: Upload coverage reports
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports-main
+          path: |
+            coverage.xml
+            htmlcov/
+
+  run-rag-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install UV
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Run RAG tests
+        run: |
+          /home/runner/.local/bin/uv venv
+          source .venv/bin/activate && make test-rag-all
+
+      - name: Upload RAG coverage reports
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports-rag
+          path: |
+            ai_platform_engineering/knowledge_bases/rag/coverage.xml
+            ai_platform_engineering/knowledge_bases/rag/htmlcov/
+
+  coverage-report:
+    runs-on: ubuntu-latest
+    needs: [run-tests, run-rag-tests]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download main coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports-main
+          path: ./main-coverage/
+
+      - name: Download RAG coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports-rag
+          path: ./rag-coverage/
+
+      - name: Generate coverage summary
+        run: |
+          echo "## 📊 Test Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check for main coverage
+          if [ -f "./main-coverage/coverage.xml" ]; then
+            echo "### Main Tests Coverage" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "Main test suite coverage data available" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check for RAG coverage
+          if [ -f "./rag-coverage/coverage.xml" ]; then
+            echo "### RAG Tests Coverage" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "RAG test suite coverage data available" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ ! -f "./main-coverage/coverage.xml" ] && [ ! -f "./rag-coverage/coverage.xml" ]; then
+            echo "❌ No coverage data available" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment PR with coverage
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Generate coverage summary
+            let coverageSummary = '## 📊 Test Coverage Report\n\n';
+
+            // Check for main coverage
+            if (fs.existsSync('./main-coverage/coverage.xml')) {
+              coverageSummary += '### Main Tests Coverage\n';
+              coverageSummary += '```\n';
+              coverageSummary += 'Main test suite coverage data available\n';
+              coverageSummary += '```\n\n';
+            }
+
+            // Check for RAG coverage
+            if (fs.existsSync('./rag-coverage/coverage.xml')) {
+              coverageSummary += '### RAG Tests Coverage\n';
+              coverageSummary += '```\n';
+              coverageSummary += 'RAG test suite coverage data available\n';
+              coverageSummary += '```\n\n';
+            }
+
+            if (!fs.existsSync('./main-coverage/coverage.xml') && !fs.existsSync('./rag-coverage/coverage.xml')) {
+              coverageSummary += '❌ No coverage data available\n';
+            }
+
+            // Add coverage artifacts info
+            coverageSummary += '### Coverage Artifacts\n';
+            coverageSummary += '- Main tests: `coverage-reports-main` artifact\n';
+            coverageSummary += '- RAG tests: `coverage-reports-rag` artifact\n';
+            coverageSummary += '- Download artifacts to view detailed HTML coverage reports\n';
+
+            // Post comment to PR
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: coverageSummary
+            });

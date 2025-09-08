@@ -379,13 +379,13 @@ class TestSpecificAgentCapabilities:
                         logger.debug(f"Connecting to agent at {AGENT_URL}")
                         client = await A2AClient.get_client_from_agent_card_url(httpx_client, AGENT_URL)
                         client.url = AGENT_URL
-                        
+
                         payload = create_send_message_payload(example_query)
                         request = SendMessageRequest(
                             id=uuid4().hex,
                             params=MessageSendParams(**payload)
                         )
-                        
+
                         response: SendMessageResponse = await client.send_message(request)
                         if isinstance(response.root, SendMessageSuccessResponse):
                             response_text = extract_response_text(response)

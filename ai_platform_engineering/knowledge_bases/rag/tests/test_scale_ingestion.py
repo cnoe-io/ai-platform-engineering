@@ -8,13 +8,10 @@ import psutil
 import time
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import List, Dict, Any
-import json
+from typing import List
 import uuid
-from datetime import datetime, timezone
 
 from server.loader.loader import Loader
-from server.rag_api import JobInfo, JobStatus
 
 
 class MemoryMonitor:
@@ -219,7 +216,7 @@ async def test_scale_ingestion_1000_pages(scale_loader, memory_monitor):
     memory_monitor.start()
 
     # Mock the WebBaseLoader to simulate single URL processing
-    with patch('server.loader.loader.WebBaseLoader', MockWebBaseLoader) as mock_loader_class:
+    with patch('server.loader.loader.WebBaseLoader', MockWebBaseLoader):
         # Mock sitemap methods to return our test URLs
         with patch.object(scale_loader, 'get_sitemaps', return_value=[]), \
              patch.object(scale_loader, 'get_urls_from_sitemap', return_value=test_urls), \
@@ -253,7 +250,7 @@ async def test_scale_ingestion_1000_pages(scale_loader, memory_monitor):
             # Peak memory should be reasonable
             assert peak_memory < 500, f"Peak memory too high: {peak_memory:.2f}MB"
 
-            print(f"\nScale Test Results:")
+            print("\nScale Test Results:")
             print(f"  URLs processed: {len(test_urls)}")
             print(f"  Processing time: {processing_time:.2f}s")
             print(f"  Memory growth: {memory_growth:.2f}MB")
@@ -346,7 +343,7 @@ async def test_memory_efficiency_single_url_processing(scale_loader, memory_moni
     # Variance should be small, indicating consistent memory usage
     assert memory_variance < 100, f"Memory variance too high: {memory_variance:.2f}MB"
 
-    print(f"\nMemory Efficiency Test Results:")
+    print("\nMemory Efficiency Test Results:")
     print(f"  URLs processed: {len(test_urls)}")
     print(f"  Memory variance: {memory_variance:.2f}MB")
     print(f"  Min memory: {min_memory:.2f}MB")
@@ -393,7 +390,7 @@ async def test_concurrent_ingestion_memory_limits(scale_loader, memory_monitor):
     # Verify processing time is reasonable
     assert processing_time < 30.0, f"Concurrent processing took too long: {processing_time:.2f}s"
 
-    print(f"\nConcurrent Processing Test Results:")
+    print("\nConcurrent Processing Test Results:")
     print(f"  Jobs processed: {len(job_ids)}")
     print(f"  URLs per job: {len(test_urls)}")
     print(f"  Total URLs: {len(job_ids) * len(test_urls)}")
@@ -464,7 +461,7 @@ async def test_large_document_processing(scale_loader, memory_monitor):
     # due to single URL processing
     assert memory_growth < 150, f"Large document memory growth too high: {memory_growth:.2f}MB"
 
-    print(f"\nLarge Document Test Results:")
+    print("\nLarge Document Test Results:")
     print(f"  Large documents processed: {len(large_urls)}")
     print(f"  Memory growth: {memory_growth:.2f}MB")
     print(f"  Peak memory: {peak_memory:.2f}MB")
@@ -578,7 +575,7 @@ async def test_scale_ingestion_outshift_platform_docs(scale_loader, memory_monit
             assert memory_growth < 200, f"Outshift platform docs memory growth too high: {memory_growth:.2f}MB"
             assert peak_memory < 1000, f"Outshift platform docs peak memory too high: {peak_memory:.2f}MB"
 
-            print(f"\nOutshift Platform Docs Scale Test Results:")
+            print("\nOutshift Platform Docs Scale Test Results:")
             print(f"  URLs processed: {len(outshift_urls)}")
             print(f"  Processing time: {processing_time:.2f}s")
             print(f"  Memory growth: {memory_growth:.2f}MB")
@@ -660,7 +657,7 @@ async def test_real_caipe_sitemap_ingestion(scale_loader, memory_monitor):
             assert processing_time < 5.0, f"Real CAIPE ingestion took too long: {processing_time:.2f}s"
             assert memory_growth < 50, f"Real CAIPE ingestion memory growth too high: {memory_growth:.2f}MB"
 
-            print(f"\nReal CAIPE Sitemap Test Results:")
+            print("\nReal CAIPE Sitemap Test Results:")
             print(f"  URLs processed: {len(real_caipe_urls)}")
             print(f"  Processing time: {processing_time:.2f}s")
             print(f"  Memory growth: {memory_growth:.2f}MB")
