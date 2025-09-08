@@ -148,7 +148,7 @@ jobs:
                 const xmlContent = fs.readFileSync(filePath, 'utf8');
                 const parser = new xml2js.Parser();
                 const result = await parser.parseStringPromise(xmlContent);
-                
+
                 const coverage = result.coverage;
                 if (!coverage || !coverage.$) {
                   return null;
