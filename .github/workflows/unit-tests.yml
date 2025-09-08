@@ -66,6 +66,7 @@ jobs:
       - name: Run RAG tests
         run: |
           /home/runner/.local/bin/uv venv
+          source .venv/bin/activate && uv add --index-url https://download.pytorch.org/whl/cpu torch
           source .venv/bin/activate && make test-rag-all
 
       - name: Upload RAG coverage reports
@@ -129,7 +130,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            
+
             // Generate coverage summary
             let coverageSummary = '## 📊 Test Coverage Report\n\n';
 
