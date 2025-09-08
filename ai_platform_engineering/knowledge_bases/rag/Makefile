@@ -122,7 +122,7 @@ run-docker-a2a: ## Run the A2A agent in Docker
 test-unit: setup-venv build ## Run unit tests using pytest and coverage
 	@$(venv-activate) && uv sync --dev
 	@$(venv-activate) && uv add pytest-asyncio pytest-cov --dev
-	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings --maxfail=1 --cov=kb_rag --cov-report=term --cov-report=xml
+	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings --maxfail=1 --cov=server --cov-report=term --cov-report=xml
 
 test: test-all ## Run all tests (unit, scale, memory, coverage) - DEFAULT TARGET
 
@@ -131,7 +131,7 @@ test-coverage: setup-venv ## Run tests with detailed coverage report
 	@$(venv-activate) && uv add pytest-asyncio pytest-cov --dev
 	@echo "Running tests with detailed coverage analysis..."
 	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings \
-		--cov=kb_rag --cov-report=term --cov-report=html --cov-report=xml \
+		--cov=server --cov-report=term --cov-report=html --cov-report=xml \
 		--cov-branch
 
 test-memory: setup-venv ## Run tests with memory profiling
@@ -139,7 +139,7 @@ test-memory: setup-venv ## Run tests with memory profiling
 	@$(venv-activate) && uv add pytest-asyncio pytest-cov memory-profiler psutil --dev
 	@echo "Running tests with memory profiling..."
 	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings \
-		--cov=kb_rag --cov-report=term --cov-report=xml \
+		--cov=server --cov-report=term --cov-report=xml \
 		--durations=10 --maxfail=1
 
 test-scale: setup-venv ## Run scale tests with memory monitoring
@@ -158,14 +158,14 @@ test-all: setup-venv ## Run all tests with coverage, memory profiling, and scale
 	@echo "==================================================================="
 	@echo "1. Running unit tests with coverage..."
 	@$(venv-activate) && pytest tests/test_loader.py tests/test_rag_api.py tests/test_scrapers.py \
-		-v --tb=short --disable-warnings --cov=kb_rag --cov-report=term --cov-report=xml
+		-v --tb=short --disable-warnings --cov=server --cov-report=term --cov-report=xml
 	@echo ""
 	@echo "2. Running scale tests with memory monitoring..."
 	@$(venv-activate) && pytest tests/test_scale_ingestion.py -v --tb=short --durations=10 -s
 	@echo ""
 	@echo "3. Generating final coverage report..."
 	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings \
-		--cov=kb_rag --cov-report=term --cov-report=html --cov-report=xml \
+		--cov=server --cov-report=term --cov-report=html --cov-report=xml \
 		--cov-branch
 	@echo "==================================================================="
 	@echo "                      TEST SUITE COMPLETED                          "
