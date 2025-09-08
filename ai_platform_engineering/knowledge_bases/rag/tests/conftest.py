@@ -16,8 +16,8 @@ os.environ.setdefault("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com/")
 os.environ.setdefault("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
 os.environ.setdefault("EMBEDDINGS_MODEL", "text-embedding-3-large")
 
-from kb_rag.server.rag_api import app
-from kb_rag.server.loader.loader import Loader
+from server.rag_api import app
+from server.loader.loader import Loader
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ def mock_vector_db():
 @pytest.fixture
 def mock_loader(mock_vector_db, mock_redis):
     """Mock loader for testing."""
-    with patch('kb_rag.server.rag_api.loader') as mock_loader_class:
+    with patch('server.rag_api.loader') as mock_loader_class:
         mock_loader = MagicMock(spec=Loader)
         mock_loader.vstore = mock_vector_db
         mock_loader.load_url = AsyncMock()
@@ -65,8 +65,8 @@ def mock_loader(mock_vector_db, mock_redis):
 @pytest.fixture
 def test_client(mock_redis, mock_loader):
     """Test client for FastAPI app."""
-    with patch('kb_rag.server.rag_api.redis_client', mock_redis), \
-         patch('kb_rag.server.rag_api.loader', mock_loader):
+    with patch('server.rag_api.redis_client', mock_redis), \
+         patch('server.rag_api.loader', mock_loader):
         with TestClient(app) as client:
             yield client
 

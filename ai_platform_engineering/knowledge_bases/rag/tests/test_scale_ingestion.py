@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from typing import List
 import uuid
 
-from kb_rag.server.loader.loader import Loader
+from server.loader.loader import Loader
 
 
 class MemoryMonitor:
@@ -216,7 +216,7 @@ async def test_scale_ingestion_1000_pages(scale_loader, memory_monitor):
     memory_monitor.start()
 
     # Mock the WebBaseLoader to simulate single URL processing
-    with patch('kb_rag.server.loader.loader.WebBaseLoader', MockWebBaseLoader):
+    with patch('server.loader.loader.WebBaseLoader', MockWebBaseLoader):
         # Mock sitemap methods to return our test URLs
         with patch.object(scale_loader, 'get_sitemaps', return_value=[]), \
              patch.object(scale_loader, 'get_urls_from_sitemap', return_value=test_urls), \
@@ -320,7 +320,7 @@ async def test_memory_efficiency_single_url_processing(scale_loader, memory_moni
 
                 yield doc
 
-    with patch('kb_rag.server.loader.loader.WebBaseLoader', TrackingWebBaseLoader):
+    with patch('server.loader.loader.WebBaseLoader', TrackingWebBaseLoader):
         with patch.object(scale_loader, 'get_sitemaps', return_value=["https://cnoe-io.github.io/ai-platform-engineering/sitemap.xml"]), \
              patch.object(scale_loader, 'get_urls_from_sitemap', return_value=test_urls), \
              patch.object(scale_loader, 'custom_parser', return_value=("Test content", {"source": "test"})):
@@ -365,7 +365,7 @@ async def test_concurrent_ingestion_memory_limits(scale_loader, memory_monitor):
 
     async def process_job(job_id: str):
         """Process a single job."""
-        with patch('kb_rag.server.loader.loader.WebBaseLoader', MockWebBaseLoader):
+        with patch('server.loader.loader.WebBaseLoader', MockWebBaseLoader):
             with patch.object(scale_loader, 'get_sitemaps', return_value=[f"https://cnoe-io.github.io/ai-platform-engineering-{job_id[:8]}/sitemap.xml"]), \
                  patch.object(scale_loader, 'get_urls_from_sitemap', return_value=test_urls), \
                  patch.object(scale_loader, 'custom_parser', return_value=("Test content", {"source": "test"})):
@@ -447,7 +447,7 @@ async def test_large_document_processing(scale_loader, memory_monitor):
 
     memory_monitor.start()
 
-    with patch('kb_rag.server.loader.loader.WebBaseLoader', LargeDocumentLoader):
+    with patch('server.loader.loader.WebBaseLoader', LargeDocumentLoader):
         with patch.object(scale_loader, 'get_sitemaps', return_value=["https://cnoe-io.github.io/ai-platform-engineering/sitemap.xml"]), \
              patch.object(scale_loader, 'get_urls_from_sitemap', return_value=large_urls), \
              patch.object(scale_loader, 'custom_parser', return_value=("Test content", {"source": "test"})):
@@ -552,7 +552,7 @@ async def test_scale_ingestion_outshift_platform_docs(scale_loader, memory_monit
         page_num = len(outshift_urls) - len(specific_pages) - 20 + 1
         outshift_urls.append(f"{outshift_base_url}/page-{page_num:04d}")
 
-    with patch('kb_rag.server.loader.loader.WebBaseLoader', MockWebBaseLoader):
+    with patch('server.loader.loader.WebBaseLoader', MockWebBaseLoader):
         with patch.object(scale_loader, 'get_sitemaps', return_value=[f"{outshift_base_url}/sitemap.xml"]), \
              patch.object(scale_loader, 'get_urls_from_sitemap', return_value=outshift_urls), \
              patch.object(scale_loader, 'custom_parser', return_value=("Test content", {"source": "test"})):
@@ -636,7 +636,7 @@ async def test_real_caipe_sitemap_ingestion(scale_loader, memory_monitor):
         f"{caipe_base_url}/workshop/mission7",
     ]
 
-    with patch('kb_rag.server.loader.loader.WebBaseLoader', MockWebBaseLoader):
+    with patch('server.loader.loader.WebBaseLoader', MockWebBaseLoader):
         with patch.object(scale_loader, 'get_sitemaps', return_value=[f"{caipe_base_url}/sitemap.xml"]), \
              patch.object(scale_loader, 'get_urls_from_sitemap', return_value=real_caipe_urls):
 
