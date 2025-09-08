@@ -180,5 +180,5 @@ Ask the agent natural language questions like:
 For more detailed information about creating agents, please refer to:
 
 - [MCP Server Creation](../tools-utils/openapi-mcp-codegen.md)
-- [Architecture Documentation](../architecture/index.md)
+https://github.com/cnoe-io/ai-platform-engineering/actions/runs/17541146553/job/4981293289 o- [Architecture Documentation](../architecture/index.md)
 - [Testing and Evaluation](../evaluations/index.md)

@@ -7,7 +7,7 @@ import os
 import json
 from langchain_milvus import Milvus
 from langchain_core.vectorstores import VectorStore
-from server.loader.loader import Loader
+from kb_rag.server.loader.loader import Loader
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_core.documents import Document
 import dotenv

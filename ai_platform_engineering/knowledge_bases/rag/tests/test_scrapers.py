@@ -3,8 +3,8 @@ Unit tests for URL scrapers.
 """
 from bs4 import BeautifulSoup
 
-from server.loader.url.docsaurus_scraper import scrape_docsaurus
-from server.loader.url.mkdocs_scraper import scrape_mkdocs
+from kb_rag.server.loader.url.docsaurus_scraper import scrape_docsaurus
+from kb_rag.server.loader.url.mkdocs_scraper import scrape_mkdocs
 
 
 class TestDocusaurusScraper:
