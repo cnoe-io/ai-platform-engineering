@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
+  actions: read
 
 jobs:
   run-tests:
@@ -31,9 +33,255 @@ jobs:
 
           echo "Installing ai_platform_engineering, agents, and argocd..."
 
-          source .venv/bin/activate && uv add pytest-asyncio --group unittest
+          source .venv/bin/activate && uv add pytest-asyncio pytest-cov --group unittest
           source .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
           source .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
 
-          echo "Running tests..."
-          source .venv/bin/activate && uv run pytest --ignore=integration
+          echo "Running tests with coverage..."
+          source .venv/bin/activate && uv run pytest --ignore=integration --cov=ai_platform_engineering --cov-report=xml --cov-report=html
+
+      - name: Upload coverage reports
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports-main
+          path: |
+            coverage.xml
+            htmlcov/
+        continue-on-error: true
+
+  run-rag-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install UV
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Run RAG tests
+        run: |
+          /home/runner/.local/bin/uv venv
+          source .venv/bin/activate && uv sync --no-dev
+          source .venv/bin/activate && uv add --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match torch --force-reinstall
+          source .venv/bin/activate && make test-rag-all
+
+      - name: Upload RAG coverage reports
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports-rag
+          path: |
+            ai_platform_engineering/knowledge_bases/rag/coverage.xml
+            ai_platform_engineering/knowledge_bases/rag/htmlcov/
+
+  coverage-report:
+    runs-on: ubuntu-latest
+    needs: [run-tests, run-rag-tests]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download main coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports-main
+          path: ./main-coverage/
+
+      - name: Download RAG coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports-rag
+          path: ./rag-coverage/
+
+      - name: Generate coverage summary
+        run: |
+          echo "## 📊 Test Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check for main coverage
+          if [ -f "./main-coverage/coverage.xml" ]; then
+            echo "### Main Tests Coverage" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "Main test suite coverage data available" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check for RAG coverage
+          if [ -f "./rag-coverage/coverage.xml" ]; then
+            echo "### RAG Tests Coverage" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "RAG test suite coverage data available" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ ! -f "./main-coverage/coverage.xml" ] && [ ! -f "./rag-coverage/coverage.xml" ]; then
+            echo "❌ No coverage data available" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Install coverage parsing dependencies
+        run: |
+          npm install xml2js
+
+      - name: Comment PR with coverage
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const xml2js = require('xml2js');
+
+            // Function to parse coverage XML and extract coverage data
+            async function parseCoverageXML(filePath, testSuite) {
+              try {
+                if (!fs.existsSync(filePath)) {
+                  console.log(`Coverage file not found: ${filePath}`);
+                  return null;
+                }
+
+                const xmlContent = fs.readFileSync(filePath, 'utf8');
+                console.log(`Parsing coverage file: ${filePath}`);
+                console.log(`File size: ${xmlContent.length} bytes`);
+
+                const parser = new xml2js.Parser();
+                const result = await parser.parseStringPromise(xmlContent);
+
+                const coverage = result.coverage;
+                if (!coverage || !coverage.$) {
+                  console.log(`Invalid coverage XML structure in ${filePath}`);
+                  console.log(`Coverage object:`, JSON.stringify(coverage, null, 2));
+                  return null;
+                }
+
+                console.log(`Coverage attributes:`, coverage.$);
+
+                const lineRate = parseFloat(coverage.$['line-rate']);
+                const branchRate = parseFloat(coverage.$['branch-rate']);
+                const linesCovered = parseInt(coverage.$['lines-covered']);
+                const linesValid = parseInt(coverage.$['lines-valid']);
+                const branchesCovered = parseInt(coverage.$['branches-covered']);
+                const branchesValid = parseInt(coverage.$['branches-valid']);
+
+                // Check for NaN values
+                if (isNaN(lineRate) || isNaN(branchRate) || isNaN(linesCovered) || isNaN(linesValid) || isNaN(branchesCovered) || isNaN(branchesValid)) {
+                  console.log(`NaN values detected in ${filePath}:`, {
+                    lineRate, branchRate, linesCovered, linesValid, branchesCovered, branchesValid
+                  });
+                  return null;
+                }
+
+                return {
+                  testSuite,
+                  lineRate: (lineRate * 100).toFixed(1),
+                  branchRate: (branchRate * 100).toFixed(1),
+                  linesCovered,
+                  linesValid,
+                  branchesCovered,
+                  branchesValid
+                };
+              } catch (error) {
+                console.log(`Error parsing ${filePath}:`, error.message);
+                return null;
+              }
+            }
+
+            // Generate coverage summary
+            let coverageSummary = '## 📊 Test Coverage Report\n\n';
+
+            // Debug: List available files
+            console.log('=== Debug: Available files ===');
+            try {
+              const mainDir = fs.readdirSync('./main-coverage/');
+              console.log('Main coverage directory contents:', mainDir);
+            } catch (e) {
+              console.log('Main coverage directory not found or empty');
+            }
+
+            try {
+              const ragDir = fs.readdirSync('./rag-coverage/');
+              console.log('RAG coverage directory contents:', ragDir);
+            } catch (e) {
+              console.log('RAG coverage directory not found or empty');
+            }
+
+            // Parse main coverage
+            const mainCoverage = await parseCoverageXML('./main-coverage/coverage.xml', 'Main Tests');
+            if (mainCoverage) {
+              coverageSummary += `### ${mainCoverage.testSuite} Coverage\n`;
+              coverageSummary += `| Metric | Coverage | Details |\n`;
+              coverageSummary += `|--------|----------|----------|\n`;
+              coverageSummary += `| **Lines** | ${mainCoverage.lineRate}% | ${mainCoverage.linesCovered}/${mainCoverage.linesValid} lines |\n`;
+              coverageSummary += `| **Branches** | ${mainCoverage.branchRate}% | ${mainCoverage.branchesCovered}/${mainCoverage.branchesValid} branches |\n\n`;
+            }
+
+            // Parse RAG coverage
+            const ragCoverage = await parseCoverageXML('./rag-coverage/coverage.xml', 'RAG Tests');
+            if (ragCoverage) {
+              coverageSummary += `### ${ragCoverage.testSuite} Coverage\n`;
+              coverageSummary += `| Metric | Coverage | Details |\n`;
+              coverageSummary += `|--------|----------|----------|\n`;
+              coverageSummary += `| **Lines** | ${ragCoverage.lineRate}% | ${ragCoverage.linesCovered}/${ragCoverage.linesValid} lines |\n`;
+              coverageSummary += `| **Branches** | ${ragCoverage.branchRate}% | ${ragCoverage.branchesCovered}/${ragCoverage.branchesValid} branches |\n\n`;
+            }
+
+            if (!mainCoverage && !ragCoverage) {
+              coverageSummary += '❌ No coverage data available\n\n';
+              coverageSummary += '**Debug Information:**\n';
+              coverageSummary += '- Main tests: Excluded RAG module from coverage (by design)\n';
+              coverageSummary += '- RAG tests: Check if coverage XML was generated and uploaded correctly\n';
+              coverageSummary += '- Verify that pytest-cov is properly configured in RAG module\n';
+              coverageSummary += '- Look at the workflow logs for detailed error messages\n\n';
+            } else if (!mainCoverage && ragCoverage) {
+              coverageSummary += 'ℹ️ **Note**: Main tests coverage not available (RAG module excluded by design)\n\n';
+            }
+
+            // Add coverage artifacts info with download links
+            coverageSummary += '### 📁 Coverage Artifacts\n';
+
+            // Get artifacts for this workflow run
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
+
+            // Find coverage artifacts
+            const mainArtifact = artifacts.data.artifacts.find(artifact => artifact.name === 'coverage-reports-main');
+            const ragArtifact = artifacts.data.artifacts.find(artifact => artifact.name === 'coverage-reports-rag');
+
+            if (mainArtifact) {
+              // Use the archive_download_url if available, otherwise construct the URL
+              const mainUrl = mainArtifact.archive_download_url ||
+                `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/artifacts/${mainArtifact.id}`;
+              coverageSummary += `- **Main tests**: [coverage-reports-main](${mainUrl}) artifact\n`;
+            } else {
+              coverageSummary += '- **Main tests**: `coverage-reports-main` artifact (not available)\n';
+            }
+
+            if (ragArtifact) {
+              // Use the archive_download_url if available, otherwise construct the URL
+              const ragUrl = ragArtifact.archive_download_url ||
+                `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/artifacts/${ragArtifact.id}`;
+              coverageSummary += `- **RAG tests**: [coverage-reports-rag](${ragUrl}) artifact\n`;
+            } else {
+              coverageSummary += '- **RAG tests**: `coverage-reports-rag` artifact (not available)\n';
+            }
+
+            coverageSummary += '- **Download artifacts** to view detailed HTML coverage reports\n';
+
+            // Post comment to PR
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: coverageSummary
+            });

@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13, <4.0"
 resolution-markers = [
     "platform_python_implementation != 'PyPy'",
@@ -69,7 +69,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-python", specifier = ">=0.0.1" },
-    { name = "a2a-sdk", specifier = ">=0.2.1" },
+    { name = "a2a-sdk", specifier = "==0.2.16" },
     { name = "agentevals", specifier = ">=0.0.7" },
     { name = "agntcy-acp", specifier = ">=1.3.2" },
     { name = "agntcy-app-sdk", specifier = "==0.1.4" },
