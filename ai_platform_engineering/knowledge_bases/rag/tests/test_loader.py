@@ -5,7 +5,7 @@ import pytest
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from server.loader.loader import Loader
+from kb_rag.server.loader.loader import Loader
 
 
 class TestLoader:
@@ -105,7 +105,7 @@ class TestLoader:
         """Test sitemap discovery when no sitemaps exist."""
         url = "https://example.com"
 
-        with patch('server.loader.loader.aiohttp.ClientSession') as mock_session:
+        with patch('kb_rag.server.loader.loader.aiohttp.ClientSession') as mock_session:
             mock_response = AsyncMock()
             mock_response.status = 404
             mock_response.text = AsyncMock(return_value="Not Found")
@@ -131,7 +131,7 @@ class TestLoader:
         </urlset>
         """
 
-        with patch('server.loader.loader.aiohttp.ClientSession') as mock_session:
+        with patch('kb_rag.server.loader.loader.aiohttp.ClientSession') as mock_session:
             mock_response = AsyncMock()
             mock_response.status = 200
             mock_response.text = AsyncMock(return_value=sitemap_content)
@@ -163,7 +163,7 @@ class TestLoader:
         """Test URL extraction from sitemap with error."""
         sitemap_url = "https://example.com/sitemap.xml"
 
-        with patch('server.loader.loader.aiohttp.ClientSession') as mock_session:
+        with patch('kb_rag.server.loader.loader.aiohttp.ClientSession') as mock_session:
             mock_session.return_value.__aenter__.return_value.get.side_effect = Exception("Network error")
 
             urls = await loader.get_urls_from_sitemap(sitemap_url)
@@ -218,7 +218,7 @@ class TestLoader:
         job_id = "test-job-id"
 
         with patch.object(loader, 'get_sitemaps', return_value=[]), \
-             patch('server.loader.loader.WebBaseLoader') as mock_loader_class:
+             patch('kb_rag.server.loader.loader.WebBaseLoader') as mock_loader_class:
 
             mock_loader = MagicMock()
             mock_loader.aload = AsyncMock(return_value=[])
@@ -240,14 +240,14 @@ class TestLoader:
 
         with patch.object(loader, 'get_sitemaps', return_value=sitemap_urls), \
              patch.object(loader, 'get_urls_from_sitemap', return_value=page_urls), \
-             patch('server.loader.loader.WebBaseLoader') as mock_loader_class:
+             patch('kb_rag.server.loader.loader.WebBaseLoader') as mock_loader_class:
 
             mock_loader = MagicMock()
             # Create a proper async iterator
             async def async_iter():
                 return
                 yield  # This makes it an async generator
-            
+
             # Mock alazy_load as a method that returns an async generator
             mock_loader.alazy_load = MagicMock(return_value=async_iter())
             mock_loader_class.return_value = mock_loader

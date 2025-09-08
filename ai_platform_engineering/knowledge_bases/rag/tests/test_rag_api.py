@@ -211,7 +211,7 @@ class TestDatasourceEndpoints:
 
     def test_clear_all_datasources_default(self, test_client, mock_vector_db):
         """Test clearing all datasources from default collection."""
-        with patch('server.rag_api.get_vector_db', return_value=mock_vector_db):
+        with patch('kb_rag.server.rag_api.get_vector_db', return_value=mock_vector_db):
             response = test_client.post("/v1/datasource/clear_all")
 
             assert response.status_code == 200
@@ -219,7 +219,7 @@ class TestDatasourceEndpoints:
 
     def test_clear_all_datasources_specific_collection(self, test_client, mock_vector_db):
         """Test clearing all datasources from specific collection."""
-        with patch('server.rag_api.get_vector_db', return_value=mock_vector_db):
+        with patch('kb_rag.server.rag_api.get_vector_db', return_value=mock_vector_db):
             response = test_client.post("/v1/datasource/clear_all?collection_name=test_collection")
 
             assert response.status_code == 200
@@ -233,7 +233,7 @@ class TestQueryEndpoints:
         """Test successful document query."""
         mock_vector_db.asimilarity_search.return_value = [sample_document]
 
-        with patch('server.rag_api.get_vector_db', return_value=mock_vector_db):
+        with patch('kb_rag.server.rag_api.get_vector_db', return_value=mock_vector_db):
             query_data = {
                 "query": "test query",
                 "limit": 5,
@@ -252,7 +252,7 @@ class TestQueryEndpoints:
         """Test query with specific collection name."""
         mock_vector_db.asimilarity_search.return_value = []
 
-        with patch('server.rag_api.get_vector_db', return_value=mock_vector_db):
+        with patch('kb_rag.server.rag_api.get_vector_db', return_value=mock_vector_db):
             query_data = {
                 "query": "test query",
                 "collection_name": "test_collection"
@@ -262,7 +262,7 @@ class TestQueryEndpoints:
 
             assert response.status_code == 200
             # Verify get_vector_db was called with correct collection name
-            with patch('server.rag_api.get_vector_db') as mock_get_vdb:
+            with patch('kb_rag.server.rag_api.get_vector_db') as mock_get_vdb:
                 mock_get_vdb.return_value = mock_vector_db
                 test_client.post("/v1/query", json=query_data)
                 mock_get_vdb.assert_called_with("test_collection")
@@ -271,7 +271,7 @@ class TestQueryEndpoints:
         """Test query with default parameters."""
         mock_vector_db.asimilarity_search.return_value = []
 
-        with patch('server.rag_api.get_vector_db', return_value=mock_vector_db):
+        with patch('kb_rag.server.rag_api.get_vector_db', return_value=mock_vector_db):
             query_data = {"query": "test query"}
 
             response = test_client.post("/v1/query", json=query_data)
