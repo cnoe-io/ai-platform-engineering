@@ -49,6 +49,6 @@ dependencies:
   version: 5.0.2
 - name: kb-rag-stack
   repository: ""
-  version: 0.1.0
-digest: sha256:34e39da509948a25a890f3b4087d54a6d89af82423c905dd580f876a34294460
-generated: "2025-09-03T06:36:07.207703-05:00"
+  version: 0.1.1
+digest: sha256:ad27f59d7fec58a4cf6918fd19f303253f641f36e1a24b9341c5a62799ddb017
+generated: "2025-09-08T01:05:42.208251773-05:00"
