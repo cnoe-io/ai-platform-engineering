@@ -1,13 +1,13 @@
 # Global configuration shared across all subcharts
 global:
   enabledSubAgents:
-    argocd: false
-    backstage: false
-    confluence: false
-    github: false
-    jira: false
-    pagerduty: false
-    slack: false
+    argocd: true
+    backstage: true
+    confluence: true
+    github: true
+    jira: true
+    pagerduty: true
+    slack: true
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
@@ -24,7 +24,7 @@ supervisor-agent:
   nameOverride: "supervisor-agent"
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
-    tag: "stable"
+    tag: "latest"
     pullPolicy: "Always"
     args: ["platform-engineer"]
   env:
@@ -42,7 +42,7 @@ agent-argocd:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-argocd"
-      tag: "stable"
+      tag: "latest"
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -55,7 +55,7 @@ agent-backstage:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-backstage"
-      tag: "stable"
+      tag: "latest"
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -68,7 +68,7 @@ agent-confluence:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-confluence"
-      tag: "stable"
+      tag: "latest"
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -89,7 +89,7 @@ agent-jira:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-jira"
-      tag: "stable"
+      tag: "latest"
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -102,7 +102,7 @@ agent-pagerduty:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-pagerduty"
-      tag: "stable"
+      tag: "latest"
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -115,7 +115,7 @@ agent-slack:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-slack"
-      tag: "stable"
+      tag: "latest"
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -172,7 +172,7 @@ neo4j:
 
 # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
 kb-rag-stack:
-  enabled: false
+  enabled: true
 
   # Milvus configuration
   milvus:
