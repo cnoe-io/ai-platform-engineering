@@ -1,13 +1,9 @@
 """
 Unit tests for RAG API endpoints.
 """
-import pytest
 import json
-from unittest.mock import AsyncMock, patch, MagicMock
-from datetime import datetime, timezone
-from fastapi.testclient import TestClient
+from unittest.mock import patch
 
-from server.rag_api import app, JobStatus, CollectionConfig
 
 
 class TestHealthCheck:

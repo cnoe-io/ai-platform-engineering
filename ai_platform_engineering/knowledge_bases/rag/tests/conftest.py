@@ -1,6 +1,7 @@
 """
 Test configuration and fixtures for RAG server tests.
 """
+import os
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,6 +9,12 @@ from fastapi.testclient import TestClient
 import redis.asyncio as redis
 from langchain_core.vectorstores import VectorStore
 from langchain_core.documents import Document
+
+# Mock Azure OpenAI environment variables before importing the app
+os.environ.setdefault("AZURE_OPENAI_API_KEY", "mock-test-key")
+os.environ.setdefault("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com/")
+os.environ.setdefault("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+os.environ.setdefault("EMBEDDINGS_MODEL", "text-embedding-3-large")
 
 from server.rag_api import app
 from server.loader.loader import Loader

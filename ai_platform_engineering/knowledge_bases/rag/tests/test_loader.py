@@ -4,8 +4,6 @@ Unit tests for the Loader class.
 import pytest
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
-import uuid
 
 from server.loader.loader import Loader
 
@@ -175,7 +173,6 @@ class TestLoader:
     @pytest.mark.asyncio
     async def test_custom_parser(self, loader):
         """Test custom document parser."""
-        from langchain_core.documents import Document
         from bs4 import BeautifulSoup
 
         # Create a BeautifulSoup object instead of Document

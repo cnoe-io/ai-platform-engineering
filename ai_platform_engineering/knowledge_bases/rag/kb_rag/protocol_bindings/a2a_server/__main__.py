@@ -1,19 +1,13 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
+import os
+
 import click
 import httpx
 import uvicorn
 from dotenv import load_dotenv
-import os
-
-import logging
-
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
-from kb_rag.protocol_bindings.a2a_server.agent import RAGAgent  # type: ignore[import-untyped]
-from kb_rag.protocol_bindings.a2a_server.agent_executor import RAGAgentExecutor  # type: ignore[import-untyped]
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -23,6 +17,12 @@ from a2a.types import (
     AgentCard,
     AgentSkill,
 )
+
+from kb_rag.protocol_bindings.a2a_server.agent import RAGAgent  # type: ignore[import-untyped]
+from kb_rag.protocol_bindings.a2a_server.agent_executor import RAGAgentExecutor  # type: ignore[import-untyped]
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -82,4 +82,4 @@ def get_agent_card(host: str, port: int):
 
 
 if __name__ == '__main__':
-    main() 
+    main()

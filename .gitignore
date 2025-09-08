@@ -216,3 +216,6 @@ ai_platform_engineering/knowledge_bases/rag/web/node_modules
 
 # Helm
 *.tgz
+
+# Neo4j
+.neo4j/

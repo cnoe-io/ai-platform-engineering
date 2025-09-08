@@ -11,7 +11,6 @@ def main():
     """Run the test suite."""
     # Get the directory containing this script
     script_dir = Path(__file__).parent
-    tests_dir = script_dir / "tests"
 
     # Change to the RAG directory
     os.chdir(script_dir)
@@ -35,7 +34,7 @@ def main():
     print("-" * 50)
 
     try:
-        result = subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True)
         print("\n✅ All tests passed!")
         return 0
     except subprocess.CalledProcessError as e:

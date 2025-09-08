@@ -1,8 +1,6 @@
 """
 Unit tests for URL scrapers.
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from bs4 import BeautifulSoup
 
 from server.loader.url.docsaurus_scraper import scrape_docsaurus
