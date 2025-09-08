@@ -66,7 +66,8 @@ jobs:
       - name: Run RAG tests
         run: |
           /home/runner/.local/bin/uv venv
-          source .venv/bin/activate && uv add --index-url https://download.pytorch.org/whl/cpu torch
+          source .venv/bin/activate && uv sync --no-dev
+          source .venv/bin/activate && uv add --index-url https://download.pytorch.org/whl/cpu torch --force-reinstall
           source .venv/bin/activate && make test-rag-all
 
       - name: Upload RAG coverage reports
