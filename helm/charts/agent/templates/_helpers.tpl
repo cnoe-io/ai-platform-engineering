@@ -236,12 +236,8 @@ Get agentSecrets.externalSecrets.name - if empty assume no secret, if not append
 Determine MCP mode
 */}}
 {{- define "agent.createMcpHttpServer" -}}
-    {{- if and (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) }}
-        {{- if and (eq .Values.mcp.mode "http") (not .Values.mcp.useRemoteMcpServer) }}
-            {{- true -}}
-        {{- else -}}
-            {{- false -}}
-        {{- end -}}
+    {{- if and (eq .Values.mcp.mode "http") (not .Values.mcp.useRemoteMcpServer) }}
+        {{- true -}}
     {{- else -}}
         {{- false -}}
     {{- end -}}
