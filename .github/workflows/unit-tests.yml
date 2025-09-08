@@ -149,7 +149,7 @@ jobs:
                 const xmlContent = fs.readFileSync(filePath, 'utf8');
                 console.log(`Parsing coverage file: ${filePath}`);
                 console.log(`File size: ${xmlContent.length} bytes`);
-                
+
                 const parser = new xml2js.Parser();
                 const result = await parser.parseStringPromise(xmlContent);
 
@@ -194,6 +194,22 @@ jobs:
 
             // Generate coverage summary
             let coverageSummary = '## 📊 Test Coverage Report\n\n';
+
+            // Debug: List available files
+            console.log('=== Debug: Available files ===');
+            try {
+              const mainDir = fs.readdirSync('./main-coverage/');
+              console.log('Main coverage directory contents:', mainDir);
+            } catch (e) {
+              console.log('Main coverage directory not found or empty');
+            }
+            
+            try {
+              const ragDir = fs.readdirSync('./rag-coverage/');
+              console.log('RAG coverage directory contents:', ragDir);
+            } catch (e) {
+              console.log('RAG coverage directory not found or empty');
+            }
 
             // Parse main coverage
             const mainCoverage = await parseCoverageXML('./main-coverage/coverage.xml', 'Main Tests');
