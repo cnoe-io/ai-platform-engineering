@@ -203,7 +203,7 @@ jobs:
             } catch (e) {
               console.log('Main coverage directory not found or empty');
             }
-            
+
             try {
               const ragDir = fs.readdirSync('./rag-coverage/');
               console.log('RAG coverage directory contents:', ragDir);
