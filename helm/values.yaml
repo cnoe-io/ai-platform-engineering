@@ -239,8 +239,8 @@ kb-rag-stack:
       port: 9446
 
     env:
-      REDIS_URL: "redis://kb-rag-redis:6379/0"
-      MILVUS_HOST: "milvus-standalone"
+      REDIS_URL: "redis://ai-platform-engineering-kb-rag-redis:6379/0"
+      MILVUS_URI: "http://ai-platform-engineering-milvus:19530"
       MILVUS_PORT: "19530"
 
     resources:
@@ -255,6 +255,8 @@ kb-rag-stack:
   kb-rag-agent:
     enabled: true
     nameOverride: "kb-rag-agent"
+    env:
+      MILVUS_URI: "http://ai-platform-engineering-milvus:19530"
     image:
       repository: "ghcr.io/cnoe-io/kb-rag-agent-a2a"
       tag: "latest"
