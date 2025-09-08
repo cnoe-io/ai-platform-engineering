@@ -1,0 +1,18 @@
+1. Get the application URLs by running these commands:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-kb-rag-web 8080:80
+
+2. KB-RAG Server is available at:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-kb-rag-server 9446:9446
+
+3. KB-RAG Agent is available at:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-agent 8000:8000
+
+4. Redis is available at:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-kb-rag-redis 6379:6379
+
+5. Milvus is available at:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-milvus-standalone 19530:19530
+
+6. Milvus Web UI:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kb-rag-stack.fullname" . }}-milvus-standalone 9091:9091

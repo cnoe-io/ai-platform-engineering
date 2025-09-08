@@ -12,7 +12,8 @@ APP_NAME ?= ai-platform-engineering
 .PHONY: \
 	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
 	build install build-docker run run-ai-platform-engineer langgraph-dev \
-	lint lint-fix test validate lock-all help
+	lint lint-fix test \
+	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale test-rag-all validate lock-all help
 
 .DEFAULT_GOAL := run
 
@@ -83,14 +84,41 @@ lint-fix: setup-venv ## Automatically fix linting issues using Ruff
 
 ## ========== Test ==========
 
+
 test: setup-venv ## Install dependencies and run tests using pytest
 	@echo "Installing ai_platform_engineering, agents, and argocd..."
 	@. .venv/bin/activate && uv add pytest-asyncio --group unittest
 	@. .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
 	@. .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
 
-	@echo "Running tests..."
-	@. .venv/bin/activate && uv run pytest --ignore=integration
+	@echo "Running general project tests..."
+	@. .venv/bin/activate && uv run pytest --ignore=integration --ignore=ai_platform_engineering/knowledge_bases/rag/tests
+	
+	@echo ""
+	@echo "Running RAG module tests..."
+	@$(MAKE) test-rag-all
+
+## ========== RAG Module Tests ==========
+
+test-rag-unit: setup-venv ## Run RAG module unit tests
+	@echo "Running RAG module unit tests..."
+	@cd ai_platform_engineering/knowledge_bases/rag && make test-unit
+
+test-rag-coverage: setup-venv ## Run RAG module tests with detailed coverage report
+	@echo "Running RAG module tests with coverage analysis..."
+	@cd ai_platform_engineering/knowledge_bases/rag && make test-coverage
+
+test-rag-memory: setup-venv ## Run RAG module tests with memory profiling
+	@echo "Running RAG module tests with memory profiling..."
+	@cd ai_platform_engineering/knowledge_bases/rag && make test-memory
+
+test-rag-scale: setup-venv ## Run RAG module scale tests with memory monitoring
+	@echo "Running RAG module scale tests with memory monitoring..."
+	@cd ai_platform_engineering/knowledge_bases/rag && make test-scale
+
+test-rag-all: setup-venv ## Run all RAG module tests (unit, scale, memory, coverage)
+	@echo "Running comprehensive RAG module test suite..."
+	@cd ai_platform_engineering/knowledge_bases/rag && make test-all
 
 ## ========== Integration Tests ==========
 

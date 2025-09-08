@@ -14,12 +14,14 @@ ai_platform_engineering/agents/webex/a2a_agent_client/**
 !ai_platform_engineering/agents/webex/a2a_agent_client/agent.py
 
 # Exclude heavy directories
-ai_platform_engineering/agents/*/mcp/**
+# Allow MCP directories for workspace members
+# ai_platform_engineering/agents/*/mcp/**
 ai_platform_engineering/agents/*/build/**
 ai_platform_engineering/agents/*/tests/**
 ai_platform_engineering/agents/*/evals/**
 ai_platform_engineering/agents/*/langgraph.json
-ai_platform_engineering/agents/*/pyproject.toml
+# Allow pyproject.toml for workspace members
+# ai_platform_engineering/agents/*/pyproject.toml
 ai_platform_engineering/agents/*/uv.lock
 ai_platform_engineering/agents/*/README.md
 ai_platform_engineering/agents/*/CHANGELOG.md
