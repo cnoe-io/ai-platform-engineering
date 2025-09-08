@@ -128,6 +128,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+            
             // Generate coverage summary
             let coverageSummary = '## 📊 Test Coverage Report\n\n';
 
