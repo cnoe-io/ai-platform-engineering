@@ -1,6 +1,6 @@
 apiVersion: v2
 # pyproject.toml version
-appVersion: 0.1.5
+appVersion: 0.1.17
 name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:
@@ -69,5 +69,5 @@ dependencies:
     repository: "https://zilliztech.github.io/milvus-helm/"
     condition: kb-rag-stack.enabled
   - name: kb-rag-stack
-    version: 0.1.0
+    version: 0.1.1
     condition: kb-rag-stack.enabled

@@ -30,12 +30,15 @@ dependencies = [
     "uvicorn>=0.35.0",
     "fastapi[standard]>=0.116.1",
     "redis>=5.0.0",
-    "sentence-transformers>=3.0.0",
+    "sentence-transformers>=3.0.0"
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
     "ruff>=0.4.0",
 ]
 
@@ -46,5 +49,12 @@ build-backend = "hatchling.build"
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
     "ruff>=0.4.0",
-] 
+    "psutil>=7.0.0",
+    "memory-profiler>=0.61.0",
+]
+
+

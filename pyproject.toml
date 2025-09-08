@@ -16,7 +16,7 @@ dependencies = [
     "langchain-core (>=0.3.65,<0.4.0)",
     "langgraph (==0.5.3)",
     "langgraph-supervisor (==0.0.28)",
-    "a2a-sdk (==0.2.16)",
+    "a2a-sdk==0.2.16",
     "cnoe-agent-utils==0.3.0",
     "langchain (>=0.3.25)",
     "langfuse (>=3.0.8,<4.0.0)",
@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/*"
+norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/* ai_platform_engineering/knowledge_bases/rag/*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
@@ -55,8 +55,15 @@ version_scheme = "semver"
 version_provider = "uv"
 update_changelog_on_bump = true
 major_version_zero = true
+
+[tool.uv.sources]
+agent-argocd = { path = "ai_platform_engineering/agents/argocd" }
+agent-komodor = { path = "ai_platform_engineering/agents/komodor" }
+
 [dependency-groups]
 dev = [
+    "agent-argocd",
+    "agent-komodor",
     "httpx>=0.28.1",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
