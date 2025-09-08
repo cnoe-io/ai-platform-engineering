@@ -6,13 +6,6 @@ resolution-markers = [
     "platform_python_implementation == 'PyPy'",
 ]
 
-[manifest]
-members = [
-    "agent-argocd",
-    "agent-komodor",
-    "ai-platform-engineering",
-]
-
 [[package]]
 name = "a2a-sdk"
 version = "0.2.16"
@@ -35,7 +28,7 @@ wheels = [
 [[package]]
 name = "agent-argocd"
 version = "0.1.0"
-source = { editable = "ai_platform_engineering/agents/argocd" }
+source = { directory = "ai_platform_engineering/agents/argocd" }
 dependencies = [
     { name = "a2a-sdk" },
     { name = "agentevals" },
@@ -80,7 +73,7 @@ requires-dist = [
 [[package]]
 name = "agent-komodor"
 version = "0.1.0"
-source = { editable = "ai_platform_engineering/agents/komodor" }
+source = { directory = "ai_platform_engineering/agents/komodor" }
 dependencies = [
     { name = "a2a-sdk" },
     { name = "agentevals" },
@@ -234,8 +227,8 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "agent-argocd", editable = "ai_platform_engineering/agents/argocd" },
-    { name = "agent-komodor", editable = "ai_platform_engineering/agents/komodor" },
+    { name = "agent-argocd", directory = "ai_platform_engineering/agents/argocd" },
+    { name = "agent-komodor", directory = "ai_platform_engineering/agents/komodor" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
