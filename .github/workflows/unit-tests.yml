@@ -12,6 +12,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  actions: read
 
 jobs:
   run-tests:
@@ -243,10 +244,38 @@ jobs:
               coverageSummary += 'ℹ️ **Note**: Main tests coverage not available (RAG module excluded by design)\n\n';
             }
 
-            // Add coverage artifacts info
+            // Add coverage artifacts info with download links
             coverageSummary += '### 📁 Coverage Artifacts\n';
-            coverageSummary += '- **Main tests**: `coverage-reports-main` artifact\n';
-            coverageSummary += '- **RAG tests**: `coverage-reports-rag` artifact\n';
+
+            // Get artifacts for this workflow run
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
+
+            // Find coverage artifacts
+            const mainArtifact = artifacts.data.artifacts.find(artifact => artifact.name === 'coverage-reports-main');
+            const ragArtifact = artifacts.data.artifacts.find(artifact => artifact.name === 'coverage-reports-rag');
+
+            if (mainArtifact) {
+              // Use the archive_download_url if available, otherwise construct the URL
+              const mainUrl = mainArtifact.archive_download_url ||
+                `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/artifacts/${mainArtifact.id}`;
+              coverageSummary += `- **Main tests**: [coverage-reports-main](${mainUrl}) artifact\n`;
+            } else {
+              coverageSummary += '- **Main tests**: `coverage-reports-main` artifact (not available)\n';
+            }
+
+            if (ragArtifact) {
+              // Use the archive_download_url if available, otherwise construct the URL
+              const ragUrl = ragArtifact.archive_download_url ||
+                `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/artifacts/${ragArtifact.id}`;
+              coverageSummary += `- **RAG tests**: [coverage-reports-rag](${ragUrl}) artifact\n`;
+            } else {
+              coverageSummary += '- **RAG tests**: `coverage-reports-rag` artifact (not available)\n';
+            }
+
             coverageSummary += '- **Download artifacts** to view detailed HTML coverage reports\n';
 
             // Post comment to PR
