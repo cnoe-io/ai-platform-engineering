@@ -41,7 +41,7 @@ agent_prompts:
       If the user's prompt is related to ArgoCD operations, such as creating a new ArgoCD application, getting the status of an application, updating the image version, deleting an app, or syncing an application to the latest commit, assign the task to the ArgoCD agent.
   aws:
     system_prompt: |
-      If the user's prompt is related to AWS operations, especially EKS cluster management, Kubernetes operations, CloudWatch monitoring, cost analysis and optimization, IAM roles and policies, application deployment to EKS, or AWS troubleshooting, assign the task to the AWS agent.
+      If the user's prompt is related to AWS operations, especially EKS cluster management, Kubernetes operations, CloudWatch monitoring, cost analysis and optimization, IAM roles and policies, application deployment to EKS, AWS troubleshooting, CloudFormation template generation, VPC and networking setup, security group management, or AWS FinOps operations, assign the task to the AWS agent.
   backstage:
     system_prompt: |
       If the user's prompt is related to Backstage operations, such as get backstage project, service, assign the task to the Backstage agent.
@@ -71,10 +71,10 @@ agent_prompts:
       If the user's prompt is related to Webex operations, such as sending a message to a room, listing room members, creating or archiving a room, or posting a notification, assign the task to the Webex agent.
   petstore:
     system_prompt: |
-      If the user's prompt is related to Petstore operations, such as getting the pet details, adding a new pet, updating a pet, deleting a pet, or getting the pet by id, assign the task to the Petstore agent.
+      If the user's prompt is related to Petstore operations, such as getting pet details, adding a new pet, updating a pet, deleting a pet, searching pets by status or tags, managing pet store inventory, testing REST API operations, or working with mock server data, assign the task to the Petstore agent.
   weather:
     system_prompt: |
-      If the user's prompt is related to weather operations, such as getting the current weather, forecasting, or historical weather data, assign the task to the Weather agent.
+      If the user's prompt is related to weather operations, such as getting current weather conditions, weather forecasts, weather alerts and warnings, historical weather data, weather maps, location-based weather queries, travel weather information, or weather analysis and trends, assign the task to the Weather agent.
   kb-rag:
-    system_prompt: |      
+    system_prompt: |
       The RAG agent now encompasses everything about ai_platform_engineering. All our documentation lies there. So if there's any question about ai_platform_engineering, then route to kb-rag.
