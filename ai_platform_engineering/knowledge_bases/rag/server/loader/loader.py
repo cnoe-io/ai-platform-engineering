@@ -26,6 +26,9 @@ class Loader:
         self.chunk_size = 10000
         self.chunk_overlap = 2000
 
+        # Batch size for URL processing (configurable via environment variable)
+        self.batch_size = int(os.getenv("URL_BATCH_SIZE", "5"))
+
         # Initialize text splitter for chunking large documents
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
@@ -46,6 +49,11 @@ class Loader:
             separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""]
         )
         self.logger.info(f"Updated chunking config: size={chunk_size}, overlap={chunk_overlap}")
+
+    def set_batch_size(self, batch_size: int):
+        """Update batch size for URL processing"""
+        self.batch_size = batch_size
+        self.logger.info(f"Updated batch size: {batch_size}")
 
     async def update_job_progress(self, job_id: Optional[str], **updates):
         """Update job progress using Redis if job_id is provided and Redis client exists"""
@@ -365,12 +373,15 @@ class Loader:
                 )
 
                 # Use asynchronous loading for single URL
-                loader = WebBaseLoader([url], requests_per_second=1)
-                docs = await loader.aload()
+                import asyncio
+                loader = WebBaseLoader([url], requests_per_second=5)
+                docs = await asyncio.to_thread(loader.load)
                 for doc in docs:
                     self.logger.info(f"Processing single URL: {url}")
-                    content, metadata = await self.custom_parser(doc, url)
-                    doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
+                    # WebBaseLoader already parsed the HTML and extracted content
+                    # Just update the document ID and source metadata
+                    doc.id = uuid.uuid4().hex
+                    doc.metadata["source"] = url
                     await self.process_document(doc, job_id)
 
                 await self.update_job_progress(job_id,
@@ -395,33 +406,43 @@ class Loader:
                 )
 
 
-                # Use lazy loading for memory-efficient processing of multiple URLs
-                loader = WebBaseLoader(urls, requests_per_second=1)
-
-                # Stream processing: Process one page at a time to avoid OOM
+                # Process URLs in batches to balance memory usage and efficiency
                 processed_count = 0
-                async for doc in loader.alazy_load():
-                    processed_count += 1
-                    page_url = doc.metadata.get('source', 'unknown')
-
-                    self.logger.info(f"[{processed_count}/{total_urls}] Loading page: {page_url}")
+                for i in range(0, len(urls), self.batch_size):
+                    batch_urls = urls[i:i + self.batch_size]
+                    batch_num = (i // self.batch_size) + 1
+                    total_batches = (len(urls) + self.batch_size - 1) // self.batch_size
+                    self.logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch_urls)} URLs)")
 
                     await self.update_job_progress(job_id,
-                        progress={"message": f"Processing page {processed_count}/{total_urls}: {page_url}", "processed": processed_count, "total": total_urls}
+                        progress={"message": f"Processing batch {batch_num}/{total_batches} ({len(batch_urls)} URLs)", "processed": processed_count, "total": total_urls}
                     )
 
                     try:
-                        # Process the document
-                        content, metadata = await self.custom_parser(doc, page_url)
-                        doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
-                        await self.process_document(doc, job_id)
+                        # Load batch of URLs to balance memory usage and efficiency
+                        # Use asyncio.to_thread to run the synchronous load() method in a thread pool
+                        import asyncio
+                        loader = WebBaseLoader(batch_urls, requests_per_second=1)
+                        docs = await asyncio.to_thread(loader.load)
 
-                        # Force garbage collection after each page to free memory
+                        for doc in docs:
+                            # WebBaseLoader already parsed the HTML and extracted content
+                            # Just update the document ID and source metadata
+                            doc.id = uuid.uuid4().hex
+                            # Extract source URL from document metadata if available, otherwise use the first URL in batch
+                            source_url = doc.metadata.get("source", batch_urls[0])
+                            doc.metadata["source"] = source_url
+                            await self.process_document(doc, job_id)
+                            processed_count += 1
+
+                        # Force garbage collection after each batch to free memory
                         import gc
                         gc.collect()
 
                     except Exception as e:
-                        self.logger.warning(f"Failed to process {page_url}: {e}")
+                        self.logger.warning(f"Failed to process batch {batch_num}: {e}")
+                        # Mark all URLs in this batch as failed
+                        processed_count += len(batch_urls)
                         continue
 
                 await self.update_job_progress(job_id,
