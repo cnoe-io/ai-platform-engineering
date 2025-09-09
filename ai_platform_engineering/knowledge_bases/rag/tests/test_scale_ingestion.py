@@ -482,7 +482,7 @@ async def test_scale_ingestion_outshift_platform_docs(scale_loader, memory_monit
     This test uses actual URLs from the Outshift platform docs.
     """
     # Use the real Outshift platform docs URL
-    outshift_base_url = "https://platform-docs.outshift.io"
+    outshift_base_url = "chan"
     job_id = str(uuid.uuid4())
 
     memory_monitor.start()

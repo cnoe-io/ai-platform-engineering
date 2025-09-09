@@ -1,14 +1,14 @@
-# Memory Optimization Test for Outshift Platform Documentation
+# Memory Optimization Test for Material for MkDocs Documentation
 
-This test suite validates the memory-optimized URL loading functionality using the Outshift platform documentation as a real-world example.
+This test suite validates the memory-optimized URL loading functionality using the Material for MkDocs documentation as a real-world example.
 
 ## Overview
 
-The test demonstrates how the improved `Loader` class processes URLs from `https://platform-docs.outshift.io/` without loading all documents into memory at once, preventing out-of-memory (OOM) issues.
+The test demonstrates how the improved `Loader` class processes URLs from `https://squidfunk.github.io/mkdocs-material/` without loading all documents into memory at once, preventing out-of-memory (OOM) issues.
 
 ## Key Features Tested
 
-1. **Sitemap Discovery**: Tests the ability to find and parse sitemaps from the Outshift documentation site
+1. **Sitemap Discovery**: Tests the ability to find and parse sitemaps from the Material for MkDocs documentation site
 2. **Memory-Efficient Processing**: Validates that URLs are processed individually rather than in bulk
 3. **Batch Processing**: Tests different batch sizes to demonstrate memory control
 4. **Memory Monitoring**: Tracks memory usage throughout the process
@@ -76,7 +76,7 @@ The test requires:
 ## Troubleshooting
 
 If the test fails:
-1. Check network connectivity to `https://platform-docs.outshift.io/`
+1. Check network connectivity to `https://squidfunk.github.io/mkdocs-material/`
 2. Ensure all dependencies are installed
 3. Verify the import paths are correct for your environment
 4. Check that the `Loader` class is properly updated with memory optimizations

@@ -515,7 +515,7 @@ class Loader:
                                     continue
                         else:
                             # Use WebBaseLoader approach for batch processing
-                            self.logger.info(f"Using WebBaseLoader for batch processing")
+                            self.logger.info("Using WebBaseLoader for batch processing")
                             # Load batch of URLs to balance memory usage and efficiency
                             # Use asyncio.to_thread to run the synchronous load() method in a thread pool
                             import asyncio

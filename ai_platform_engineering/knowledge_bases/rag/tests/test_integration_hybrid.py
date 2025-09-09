@@ -3,7 +3,6 @@ import os
 import logging
 import sys
 import pytest
-from unittest.mock import Mock, AsyncMock
 
 # Add the parent directory to the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -39,9 +38,9 @@ async def test_hybrid_loader_integration():
     # Test URLs
     test_cases = [
         {
-            "name": "Docusaurus (CAIPE)",
-            "url": "https://cnoe-io.github.io/ai-platform-engineering/",
-            "expected_generator": "docusaurus",
+            "name": "MkDocs (Material for MkDocs)",
+            "url": "https://squidfunk.github.io/mkdocs-material/",
+            "expected_generator": "mkdocs",
             "expected_parser": "custom"
         },
         {
@@ -73,7 +72,7 @@ async def test_hybrid_loader_integration():
 
             # Verify generator detection
             if generator == test_case['expected_generator']:
-                print(f"   ✅ Generator detection correct")
+                print("   ✅ Generator detection correct")
             else:
                 print(f"   ❌ Generator detection incorrect. Expected: {test_case['expected_generator']}, Got: {generator}")
 
@@ -83,7 +82,7 @@ async def test_hybrid_loader_integration():
             print(f"   Parser type: {parser_type}")
 
             if parser_type == test_case['expected_parser']:
-                print(f"   ✅ Parser selection correct")
+                print("   ✅ Parser selection correct")
             else:
                 print(f"   ❌ Parser selection incorrect. Expected: {test_case['expected_parser']}, Got: {parser_type}")
 
@@ -91,7 +90,7 @@ async def test_hybrid_loader_integration():
             print("   Testing single URL loading...")
             try:
                 await loader.load_url(test_case['url'], f"test_job_{test_case['name'].lower().replace(' ', '_')}")
-                print(f"   ✅ Single URL loading successful")
+                print("   ✅ Single URL loading successful")
             except Exception as e:
                 print(f"   ❌ Single URL loading failed: {str(e)}")
 
@@ -100,9 +99,9 @@ async def test_hybrid_loader_integration():
 
         print("-" * 30)
 
-    print(f"\n📊 Final Results:")
+    print("\n📊 Final Results:")
     print(f"Total documents processed: {mock_vstore.documents_added}")
-    print(f"Documents by source:")
+    print("Documents by source:")
     for doc in mock_vstore.documents:
         source = doc.metadata.get("source", "unknown")
         title = doc.metadata.get("title", "No title")
@@ -114,7 +113,7 @@ async def test_hybrid_vs_webloader_comparison():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger(__name__)
 
-    test_url = "https://cnoe-io.github.io/ai-platform-engineering/"
+    test_url = "https://squidfunk.github.io/mkdocs-material/"
 
     print("\n🔄 Comparing Hybrid vs WebBaseLoader Approaches")
     print("=" * 60)
@@ -157,7 +156,7 @@ async def test_hybrid_vs_webloader_comparison():
         await loader_webloader.cleanup()
 
     # Compare results
-    print(f"\n📈 Comparison Results:")
+    print("\n📈 Comparison Results:")
     if hybrid_time > 0 and webloader_time > 0:
         speed_improvement = ((webloader_time - hybrid_time) / webloader_time) * 100
         print(f"   Speed improvement: {speed_improvement:.1f}%")

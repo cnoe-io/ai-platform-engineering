@@ -1,4 +1,3 @@
-import asyncio
 import os
 import pytest
 import logging
@@ -64,36 +63,36 @@ class TestHybridLoader:
     def test_should_use_custom_parser_docusaurus(self, loader):
         """Test custom parser decision for Docusaurus."""
         loader.use_hybrid_approach = True
-        assert loader.should_use_custom_parser("docusaurus") == True
+        assert loader.should_use_custom_parser("docusaurus")
 
     def test_should_use_custom_parser_mkdocs(self, loader):
         """Test custom parser decision for MkDocs."""
         loader.use_hybrid_approach = True
-        assert loader.should_use_custom_parser("mkdocs") == True
+        assert loader.should_use_custom_parser("mkdocs")
 
     def test_should_use_custom_parser_generic(self, loader):
         """Test custom parser decision for generic sites."""
         loader.use_hybrid_approach = True
-        assert loader.should_use_custom_parser("generic") == False
+        assert not loader.should_use_custom_parser("generic")
 
     def test_should_use_custom_parser_other_generators(self, loader):
         """Test custom parser decision for other generators."""
         loader.use_hybrid_approach = True
-        assert loader.should_use_custom_parser("gatsby") == False
-        assert loader.should_use_custom_parser("nextjs") == False
-        assert loader.should_use_custom_parser("jekyll") == False
+        assert not loader.should_use_custom_parser("gatsby")
+        assert not loader.should_use_custom_parser("nextjs")
+        assert not loader.should_use_custom_parser("jekyll")
 
     def test_should_use_custom_parser_force_custom(self, loader):
         """Test custom parser decision when forced via environment variable."""
         loader.use_hybrid_approach = False
         loader.use_custom_parser = True
-        assert loader.should_use_custom_parser("generic") == True
+        assert loader.should_use_custom_parser("generic")
 
     def test_should_use_custom_parser_force_webloader(self, loader):
         """Test custom parser decision when forced to use WebBaseLoader."""
         loader.use_hybrid_approach = False
         loader.use_custom_parser = False
-        assert loader.should_use_custom_parser("docusaurus") == False
+        assert not loader.should_use_custom_parser("docusaurus")
 
     @pytest.mark.asyncio
     async def test_load_url_docusaurus_custom_parser(self, loader):
@@ -208,14 +207,14 @@ class TestHybridLoader:
     def test_environment_variables(self, loader):
         """Test environment variable configuration."""
         # Test default values
-        assert loader.use_hybrid_approach == True  # Default from environment
-        assert loader.use_custom_parser == False  # Default from environment
+        assert loader.use_hybrid_approach  # Default from environment
+        assert not loader.use_custom_parser  # Default from environment
 
         # Test with environment variables set
         with patch.dict(os.environ, {'USE_HYBRID_APPROACH': 'false', 'USE_CUSTOM_PARSER': 'true'}):
             loader2 = Loader(vstore=Mock(), logger=logging.getLogger())
-            assert loader2.use_hybrid_approach == False
-            assert loader2.use_custom_parser == True
+            assert not loader2.use_hybrid_approach
+            assert loader2.use_custom_parser
 
 if __name__ == "__main__":
     # Run the tests
