@@ -17,6 +17,7 @@ import uuid
 
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
   AIPlatformEngineerA2ABinding
