@@ -310,7 +310,7 @@ milvus:
   minio:
     replicas: 1
   etcd:
-    replicaCount: 1
+    replicaCount: 4
   # Only override what differs from chart defaults
   pulsarv3:
     enabled: false  # Default is true, we need false
