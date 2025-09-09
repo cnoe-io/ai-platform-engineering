@@ -308,9 +308,9 @@ kb-rag-stack:
 # Minimal Milvus cluster configuration using Zilliz Helm chart defaults
 milvus:
   minio:
-    replicas: 1
+    replicas: 4
   etcd:
-    replicaCount: 4
+    replicaCount: 1
   # Only override what differs from chart defaults
   pulsarv3:
     enabled: false  # Default is true, we need false
