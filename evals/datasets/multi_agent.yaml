@@ -1,0 +1,147 @@
+name: multi_agent_workflows
+description: Multi-agent integration tests for cross-platform workflows
+prompts:
+  # GitHub + Jira Integration
+  - id: "github_and_jira_integration"
+    messages:
+      - role: "user"
+        content: "Create a Jira issue for the latest GitHub issue in cnoe-io/ai-platform-engineering repo"
+    expected_agents: ["github", "jira"]
+    expected_behavior: "Should first use GitHub agent to fetch the latest issue, then use Jira agent to create a new issue with the relevant details"
+
+  - id: "github_issues_to_jira_backlog"
+    messages:
+      - role: "user"
+        content: "Create Jira tickets for all open GitHub issues labeled 'bug'"
+    expected_agents: ["github", "jira"]
+    expected_behavior: "Should use GitHub agent to find issues with 'bug' label, then use Jira agent to create corresponding tickets for each bug"
+
+  # GitHub + ArgoCD Deployment
+  - id: "cross_service_deployment"
+    messages:
+      - role: "user"
+        content: "Create a new GitHub repository, set up ArgoCD application, and deploy to production"
+    expected_agents: ["github", "argocd"]
+    expected_behavior: |
+      1. GitHub agent creates a new repository
+      2. ArgoCD agent creates application configuration for the new repository
+      3. ArgoCD agent triggers deployment to production environment
+
+  - id: "github_release_argocd_deploy"
+    messages:
+      - role: "user"
+        content: "Create GitHub release and update ArgoCD application"
+    expected_agents: ["github", "argocd"]
+    expected_behavior: |
+      1. GitHub agent creates a new release with version tag
+      2. ArgoCD agent updates application configuration to use the new release
+      3. ArgoCD agent syncs the application to deploy the new version
+
+  # PagerDuty + Slack + Jira Incident Management
+  - id: "incident_management_workflow"
+    messages:
+      - role: "user"
+        content: "Create a PagerDuty incident for server downtime, notify Slack, and create a Jira ticket for tracking"
+    expected_agents: ["pagerduty", "slack", "jira"]
+    expected_behavior: |
+      1. PagerDuty agent creates incident for server downtime
+      2. Slack agent sends notification to team channel about the incident
+      3. Jira agent creates tracking ticket with incident details and references
+
+  - id: "alert_to_tracking_workflow"
+    messages:
+      - role: "user"
+        content: "When a high priority PagerDuty alert fires, post to Slack and create Jira issue"
+    expected_agents: ["pagerduty", "slack", "jira"]
+    expected_behavior: |
+      1. PagerDuty agent retrieves high priority alert details
+      2. Slack agent posts alert information to designated channel
+      3. Jira agent creates issue for tracking resolution
+
+  # Confluence + Backstage Documentation
+  - id: "documentation_workflow"
+    messages:
+      - role: "user"
+        content: "Create a Confluence page documenting the deployment process and link it to the Backstage service catalog"
+    expected_agents: ["confluence", "backstage"]
+    expected_behavior: |
+      1. Confluence agent creates documentation page for deployment process
+      2. Backstage agent updates service catalog entry to reference the documentation
+      3. Establishes link between service definition and its documentation
+
+  - id: "service_docs_creation"
+    messages:
+      - role: "user"
+        content: "Document all services from Backstage catalog in Confluence"
+    expected_agents: ["backstage", "confluence"]
+    expected_behavior: |
+      1. Backstage agent retrieves list of all services in catalog
+      2. Confluence agent creates documentation pages for each service
+      3. Links between Backstage entities and Confluence pages are established
+
+  # Komodor + PagerDuty + Slack Monitoring
+  - id: "monitoring_and_alerting"
+    messages:
+      - role: "user"
+        content: "Check Komodor for service health, create PagerDuty incident if needed, and notify the team via Slack"
+    expected_agents: ["komodor", "pagerduty", "slack"]
+    expected_behavior: |
+      1. Komodor agent checks service health across all clusters
+      2. If unhealthy services found, PagerDuty agent creates appropriate incidents
+      3. Slack agent notifies team channels about service health status
+
+  - id: "k8s_issue_escalation"
+    messages:
+      - role: "user"
+        content: "Monitor Kubernetes issues in Komodor and escalate critical ones through PagerDuty and Slack"
+    expected_agents: ["komodor", "pagerduty", "slack"]
+    expected_behavior: |
+      1. Komodor agent monitors Kubernetes cluster issues
+      2. For critical issues, PagerDuty agent creates high-priority incidents
+      3. Slack agent posts detailed alerts to operations channel
+
+  # GitHub + ArgoCD + Confluence Release Process
+  - id: "release_process"
+    messages:
+      - role: "user"
+        content: "Create GitHub release, update ArgoCD application, and post release notes to Confluence"
+    expected_agents: ["github", "argocd", "confluence"]
+    expected_behavior: |
+      1. GitHub agent creates release with version tag and release notes
+      2. ArgoCD agent updates application to deploy the new release
+      3. Confluence agent creates or updates release documentation page
+
+  - id: "deployment_documentation"
+    messages:
+      - role: "user"
+        content: "Deploy new version via ArgoCD, document in Confluence, and create GitHub release"
+    expected_agents: ["argocd", "confluence", "github"]
+    expected_behavior: |
+      1. ArgoCD agent deploys new application version
+      2. Confluence agent documents deployment details and process
+      3. GitHub agent creates release tag and notes for the deployment
+
+  # Full Stack Integration
+  - id: "end_to_end_workflow"
+    messages:
+      - role: "user"
+        content: "New feature request: create GitHub issue, track in Jira, deploy via ArgoCD, document in Confluence, and set up monitoring alerts"
+    expected_agents: ["github", "jira", "argocd", "confluence", "pagerduty"]
+    expected_behavior: |
+      1. GitHub agent creates feature request issue
+      2. Jira agent creates epic/story for tracking the feature development
+      3. ArgoCD agent sets up deployment configuration for the new feature
+      4. Confluence agent creates documentation for the feature
+      5. PagerDuty agent configures monitoring and alerting for the feature
+
+  # Slack Integration Workflows
+  - id: "slack_notification_hub"
+    messages:
+      - role: "user"
+        content: "Set up notifications: GitHub PR updates to #dev, Jira status changes to #project, PagerDuty alerts to #ops"
+    expected_agents: ["slack", "github", "jira", "pagerduty"]
+    expected_behavior: |
+      1. GitHub agent configures PR webhook notifications
+      2. Jira agent sets up status change notifications
+      3. PagerDuty agent configures alert routing
+      4. Slack agent creates appropriate channel notifications for each service
