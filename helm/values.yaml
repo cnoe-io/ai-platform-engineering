@@ -1,23 +1,128 @@
 # Global configuration shared across all subcharts
 global:
+
   enabledSubAgents:
-    argocd: false
-    backstage: false
-    confluence: false
-    github: false
-    jira: false
-    pagerduty: false
-    slack: false
-  createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
-  llmSecrets:
-    create: false # do not create llm secret in subcharts (use global or existing llm secret)
-    secretName: "llm-secret"
-  externalSecrets:
-    enabled: false
+    argocd: true
+    backstage: true
+    confluence: true
+    github: true
+    jira: true
+    pagerduty: true
+    slack: true
+
   slim:
     enabled: true
     endpoint: "http://ai-platform-engineering-slim:46357"
     transport: "slim"
+
+  externalSecrets:
+    enabled: true
+    secretStoreRef:
+      name: "vault-secret-store"
+      kind: ClusterSecretStore
+
+  agentSecrets:
+    create: true
+
+  llmSecrets:
+    create: true # do not create llm secret in subcharts (use global or existing llm secret)
+    secretName: "llm-secret"
+    externalSecrets:
+      data:
+      - secretKey: LLM_PROVIDER
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: LLM_PROVIDER
+
+      # Azure OpenAI configuration
+      - secretKey: AZURE_OPENAI_API_KEY
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: AZURE_OPENAI_API_KEY
+          optional: true
+      - secretKey: AZURE_OPENAI_ENDPOINT
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: AZURE_OPENAI_ENDPOINT
+          optional: true
+      - secretKey: AZURE_OPENAI_API_VERSION
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: AZURE_OPENAI_API_VERSION
+          optional: true
+      - secretKey: AZURE_OPENAI_DEPLOYMENT
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: AZURE_OPENAI_DEPLOYMENT
+          optional: true
+      # OpenAI configuration
+      - secretKey: OPENAI_API_KEY
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: OPENAI_API_KEY
+          optional: true
+      - secretKey: OPENAI_ENDPOINT
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: OPENAI_ENDPOINT
+          optional: true
+      - secretKey: OPENAI_MODEL_NAME
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: OPENAI_MODEL_NAME
+          optional: true
+      # AWS Bedrock configuration
+      - secretKey: AWS_ACCESS_KEY_ID
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: AWS_ACCESS_KEY_ID
+          optional: true
+      - secretKey: AWS_SECRET_ACCESS_KEY
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: AWS_SECRET_ACCESS_KEY
+          optional: true
+      - secretKey: AWS_REGION
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: AWS_REGION
+          optional: true
+      - secretKey: AWS_BEDROCK_MODEL_ID
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: AWS_BEDROCK_MODEL_ID
+          optional: true
+      - secretKey: AWS_BEDROCK_PROVIDER
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/global
+          property: AWS_BEDROCK_PROVIDER
+          optional: true
 
 # AI Platform Engineer Multi-Agent
 supervisor-agent:
@@ -46,6 +151,28 @@ agent-argocd:
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+  agentSecrets:
+    secretName: "agent-argocd-secret"
+    externalSecrets:
+      data:
+      - secretKey: ARGOCD_TOKEN
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/argocd-secret
+          property: ARGOCD_TOKEN
+      - secretKey: ARGOCD_API_URL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/argocd-secret
+          property: ARGOCD_API_URL
+      - secretKey: ARGOCD_VERIFY_SSL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/argocd-secret
+          property: ARGOCD_VERIFY_SSL
 
 agent-backstage:
   nameOverride: "agent-backstage"
@@ -59,6 +186,22 @@ agent-backstage:
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+  agentSecrets:
+    secretName: "agent-backstage-secret"
+    externalSecrets:
+      data:
+      - secretKey: BACKSTAGE_API_TOKEN
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/backstage-secret
+          property: BACKSTAGE_API_TOKEN
+      - secretKey: BACKSTAGE_URL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/backstage-secret
+          property: BACKSTAGE_URL
 
 agent-confluence:
   nameOverride: "agent-confluence"
@@ -72,6 +215,34 @@ agent-confluence:
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+  agentSecrets:
+    secretName: "agent-confluence-secret"
+    externalSecrets:
+      data:
+      - secretKey: ATLASSIAN_TOKEN
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/jira-secret
+          property: ATLASSIAN_TOKEN
+      - secretKey: ATLASSIAN_EMAIL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/jira-secret
+          property: ATLASSIAN_EMAIL
+      - secretKey: ATLASSIAN_API_URL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/jira-secret
+          property: ATLASSIAN_API_URL
+      - secretKey: ATLASSIAN_VERIFY_SSL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/jira-secret
+          property: ATLASSIAN_VERIFY_SSL
 
 agent-github:
   nameOverride: "agent-github"
@@ -80,6 +251,16 @@ agent-github:
     pullPolicy: "Always"
   mcp:
     useRemoteMcpServer: true
+  agentSecrets:
+    secretName: "agent-github-secret"
+    externalSecrets:
+      data:
+      - secretKey: GITHUB_PERSONAL_ACCESS_TOKEN
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/github-secret
+          property: GITHUB_PERSONAL_ACCESS_TOKEN
 
 agent-jira:
   nameOverride: "agent-jira"
@@ -93,6 +274,34 @@ agent-jira:
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+  agentSecrets:
+    secretName: "agent-jira-secret"
+    externalSecrets:
+      data:
+      - secretKey: ATLASSIAN_TOKEN
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/jira-secret
+          property: ATLASSIAN_TOKEN
+      - secretKey: ATLASSIAN_EMAIL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/jira-secret
+          property: ATLASSIAN_EMAIL
+      - secretKey: ATLASSIAN_API_URL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/jira-secret
+          property: ATLASSIAN_API_URL
+      - secretKey: ATLASSIAN_VERIFY_SSL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/jira-secret
+          property: ATLASSIAN_VERIFY_SSL
 
 agent-pagerduty:
   nameOverride: "agent-pagerduty"
@@ -106,6 +315,22 @@ agent-pagerduty:
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+  agentSecrets:
+    secretName: "agent-pagerduty-secret"
+    externalSecrets:
+      data:
+      - secretKey: PAGERDUTY_API_KEY
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/pagerduty-secret
+          property: PAGERDUTY_API_KEY
+      - secretKey: PAGERDUTY_API_URL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/pagerduty-secret
+          property: PAGERDUTY_API_URL
 
 agent-slack:
   nameOverride: "agent-slack"
@@ -120,6 +345,40 @@ agent-slack:
     mode: "http" # Options: stdio, http
     port: 8000
     pullPolicy: "Always"
+  agentSecrets:
+    secretName: "agent-slack-secret"
+    externalSecrets:
+      data:
+      - secretKey: SLACK_BOT_TOKEN
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/slack-secret
+          property: SLACK_BOT_TOKEN
+      - secretKey: SLACK_APP_TOKEN
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/slack-secret
+          property: SLACK_APP_TOKEN
+      - secretKey: SLACK_SIGNING_SECRET
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/slack-secret
+          property: SLACK_SIGNING_SECRET
+      - secretKey: SLACK_CLIENT_SECRET
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/slack-secret
+          property: SLACK_CLIENT_SECRET
+      - secretKey: SLACK_TEAM_ID
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: ai-platform-engineering/slack-secret
+          property: SLACK_TEAM_ID
 
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
@@ -172,7 +431,7 @@ neo4j:
 
 # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
 kb-rag-stack:
-  enabled: false
+  enabled: true
 
   # KB-RAG Web configuration
   kb-rag-web:
