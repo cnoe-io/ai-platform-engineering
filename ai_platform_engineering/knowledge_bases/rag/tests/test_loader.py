@@ -227,7 +227,10 @@ class TestLoader:
             await loader.load_url(url, job_id)
 
             # Verify WebBaseLoader was called with correct parameters
-            mock_loader_class.assert_called_once_with(requests_per_second=1)
+            mock_loader_class.assert_called_once_with(
+                requests_per_second=1,
+                header_template={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            )
             mock_loader.ascrape_all.assert_called_once_with([url])
 
     @pytest.mark.asyncio
@@ -251,7 +254,11 @@ class TestLoader:
             await loader.load_url(url, job_id)
 
             # Verify WebBaseLoader was called with URLs
-            mock_loader_class.assert_called_once_with(page_urls, requests_per_second=1)
+            mock_loader_class.assert_called_once_with(
+                page_urls,
+                requests_per_second=1,
+                header_template={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            )
             mock_to_thread.assert_called_once()
 
     @pytest.mark.asyncio
