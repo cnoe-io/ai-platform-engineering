@@ -161,3 +161,85 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
     {{- end -}}
     {{- $ref -}}
 {{- end -}}
+
+{{/*
+Get agentSecrets.create with global fallback
+*/}}
+{{- define "agent.agentSecrets.create" -}}
+    {{- $create := .Values.agentSecrets.create -}}
+    {{- with .Values.global -}}
+        {{- with .agentSecrets -}}
+            {{- if hasKey . "create" -}}
+                {{- $create = .create -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $create -}}
+{{- end -}}
+
+{{/*
+Determine if external secrets are enabled for agentSecrets - prioritize global
+*/}}
+{{- define "agent.agentSecrets.externalSecrets.enabled" -}}
+    {{- $enabled := (default false .Values.agentSecrets.externalSecrets.enabled) -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if and (hasKey . "enabled") .enabled -}}
+                {{- $enabled = true -}}
+            {{- end -}}
+        {{- end -}}
+        {{- with .agentSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "enabled" -}}
+                    {{- $enabled = .enabled -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $enabled -}}
+{{- end }}
+
+{{/*
+Get agentSecrets.externalSecrets.secretStoreRef with global fallback
+*/}}
+{{- define "agent.agentSecrets.externalSecrets.secretStoreRef" -}}
+    {{- $ref := .Values.agentSecrets.externalSecrets.secretStoreRef -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if hasKey . "secretStoreRef" -}}
+                {{- $ref = .secretStoreRef -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- toYaml $ref -}}
+{{- end -}}
+
+{{/*
+Get agentSecrets.secretName - if empty assume no secret, if not append agent.name as prefix
+*/}}
+{{- define "agent.agentSecrets.secretName" -}}
+    {{- if .Values.agentSecrets.requiresSecret -}}
+        {{- if .Values.agentSecrets.secretName -}}
+            {{- .Values.agentSecrets.secretName -}}
+        {{- else -}}
+            {{- printf "%s-secret" (include "agent.name" .) -}}
+        {{- end -}}
+    {{- else -}}
+        {{- "" -}}
+    {{- end -}}
+{{- end -}}
+
+{{/*
+Get agentSecrets.externalSecrets.name - if empty assume no secret, if not append agent.name as prefix
+*/}}
+{{- define "agent.agentSecrets.externalSecrets.name" -}}
+    {{- if .Values.agentSecrets.requiresSecret -}}
+        {{- if .Values.agentSecrets.externalSecrets.name -}}
+            {{- .Values.agentSecrets.externalSecrets.name -}}
+        {{- else -}}
+            {{- printf "%s-secret" (include "agent.name" .) -}}
+        {{- end -}}
+    {{- else -}}
+        {{- "" -}}
+    {{- end -}}
+{{- end -}}
