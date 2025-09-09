@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "supervisorAgent.fullname" . }}
+  labels:
+    {{- include "supervisorAgent.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "supervisorAgent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "supervisorAgent.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "supervisorAgent.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.image.command }}
+          command:
+            {{- range .Values.image.command }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.image.args }}
+          args:
+            {{- range .Values.image.args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          ports:
+            {{- if .Values.service.ports }}
+            {{- range .Values.service.ports }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol | default "TCP" }}
+            {{- end }}
+            {{- else }}
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            {{- end }}
+          envFrom:
+            {{- $llmSecretName := include "supervisorAgent.llmSecrets.secretName" . | trim -}}
+            {{- if $llmSecretName }}
+            - secretRef:
+                name: {{ $llmSecretName }}
+            {{- end }}
+          env:
+            - name: AGENT_PROTOCOL
+              value: {{ .Values.multiAgentConfig.protocol | quote }}
+            {{- include "supervisorAgent.multiAgentConfig.agents" . -}}
+            {{- range $a := .agents -}}
+            {{- $envPrefix := upper $a }}
+            - name: {{ $envPrefix }}_AGENT_HOST
+              value: {{ printf "%s-agent-%s" $.Release.Name $a | quote }}
+            - name: {{ $envPrefix }}_AGENT_PORT
+              value: {{ $.Values.multiAgentConfig.port | quote }}
+            {{- end }}
+            {{- if .Values.env }}
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if eq (include "supervisorAgent.slim.enabled" .) "true" }}
+            - name: A2A_TRANSPORT
+              value: {{ include "supervisorAgent.slim.transport" . | quote }}
+            - name: SLIM_ENDPOINT
+              value: {{ include "supervisorAgent.slim.endpoint" . | quote }}
+            {{- end }}
+          {{- if not (eq (include "supervisorAgent.slim.enabled" .) "true") }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: prompt-config
+              mountPath: /app/prompt_config.yaml
+              subPath: prompt_config.yaml
+              readOnly: true
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: prompt-config
+          configMap:
+            name: prompt-config
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

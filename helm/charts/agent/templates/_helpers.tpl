@@ -65,82 +65,237 @@ Create the name of the service account to use
 Determine if ingress is enabled - global takes precedence
 */}}
 {{- define "agent.ingress.enabled" -}}
-{{- if hasKey .Values.global "ingress" }}
-{{- if hasKey .Values.global.ingress "enabled" }}
-{{- .Values.global.ingress.enabled }}
-{{- else }}
-{{- .Values.ingress.enabled | default false }}
-{{- end }}
-{{- else }}
-{{- .Values.ingress.enabled | default false }}
-{{- end }}
-{{- end }}
-
-{{/*
-Determine if external secrets are enabled - global takes precedence
-*/}}
-{{- define "agent.externalSecrets.enabled" -}}
-    {{- if hasKey .Values.global "externalSecrets" }}
-        {{- if hasKey .Values.global.externalSecrets "enabled" }}
-            {{- .Values.global.externalSecrets.enabled }}
-        {{- else }}
-            {{- .Values.externalSecrets.enabled | default false }}
-        {{- end }}
-    {{- else }}
-        {{- .Values.externalSecrets.enabled | default false }}
-    {{- end }}
-{{- end }}
-
-{{/*
-Determine external secret names - global takes precedence
-*/}}
-{{- define "agent.externalSecrets.secretNames" -}}
-    {{- if eq (include "agent.externalSecrets.enabled" .) "true" -}}
-        {{- if .Values.externalSecrets.secretNames -}}
-            {{- .Values.externalSecrets.secretNames | join "," -}}
-        {{- else -}}
-            {{- if .Values.isMultiAgent -}}
-                {{- printf "llm-secret" -}}
-            {{- else if .Values.isBackstagePlugin -}}
-                {{- "" -}}
-            {{- else -}}
-                {{- printf "llm-secret,%s-secret" (include "agent.name" .) -}}
+    {{- $enabled := (default false .Values.ingress.enabled) -}}
+    {{- with .Values.global -}}
+        {{- with .ingress -}}
+            {{- if hasKey . "enabled" -}}
+                {{- $enabled = .enabled -}}
             {{- end -}}
         {{- end -}}
+    {{- end -}}
+    {{- $enabled -}}
+{{- end }}
+
+{{/*
+Determine if external secrets are enabled for llmSecrets - prioritize global
+*/}}
+{{- define "agent.llmSecrets.externalSecrets.enabled" -}}
+    {{- $enabled := (default false .Values.llmSecrets.externalSecrets.enabled) -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if and (hasKey . "enabled") .enabled -}}
+                {{- $enabled = true -}}
+            {{- end -}}
+        {{- end -}}
+        {{- with .llmSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "enabled" -}}
+                    {{- $enabled = .enabled -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $enabled -}}
+{{- end }}
+
+{{/*
+Get llmSecrets.secretName with global fallback
+*/}}
+{{- define "agent.llmSecrets.secretName" -}}
+    {{- $name := .Values.llmSecrets.secretName -}}
+    {{- with .Values.global -}}
+        {{- with .llmSecrets -}}
+            {{- if hasKey . "secretName" -}}
+                {{- $name = .secretName -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $name -}}
+{{- end -}}
+
+{{/*
+Get llmSecrets.create with global fallback
+*/}}
+{{- define "agent.llmSecrets.create" -}}
+    {{- $create := .Values.llmSecrets.create -}}
+    {{- with .Values.global -}}
+        {{- with .llmSecrets -}}
+            {{- if hasKey . "create" -}}
+                {{- $create = .create -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $create -}}
+{{- end -}}
+
+{{/*
+Get llmSecrets.externalSecrets.secretStoreRef with global fallback
+*/}}
+{{- define "agent.llmSecrets.externalSecrets.secretStoreRef" -}}
+    {{- $ref := .Values.llmSecrets.externalSecrets.secretStoreRef -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if hasKey . "secretStoreRef" -}}
+                {{- $ref = .secretStoreRef -}}
+            {{- end -}}
+        {{- end -}}
+        {{- with .llmSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "secretStoreRef" -}}
+                    {{- $ref = .secretStoreRef -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $ref -}}
+{{- end -}}
+
+{{/*
+Get agentSecrets.create with global fallback
+*/}}
+{{- define "agent.agentSecrets.create" -}}
+    {{- $create := .Values.agentSecrets.create -}}
+    {{- with .Values.global -}}
+        {{- with .agentSecrets -}}
+            {{- if hasKey . "create" -}}
+                {{- $create = .create -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $create -}}
+{{- end -}}
+
+{{/*
+Determine if external secrets are enabled for agentSecrets - prioritize global
+*/}}
+{{- define "agent.agentSecrets.externalSecrets.enabled" -}}
+    {{- $enabled := (default false .Values.agentSecrets.externalSecrets.enabled) -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if and (hasKey . "enabled") .enabled -}}
+                {{- $enabled = true -}}
+            {{- end -}}
+        {{- end -}}
+        {{- with .agentSecrets -}}
+            {{- with .externalSecrets -}}
+                {{- if hasKey . "enabled" -}}
+                    {{- $enabled = .enabled -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $enabled -}}
+{{- end }}
+
+{{/*
+Get agentSecrets.externalSecrets.secretStoreRef with global fallback
+*/}}
+{{- define "agent.agentSecrets.externalSecrets.secretStoreRef" -}}
+    {{- $ref := .Values.agentSecrets.externalSecrets.secretStoreRef -}}
+    {{- with .Values.global -}}
+        {{- with .externalSecrets -}}
+            {{- if hasKey . "secretStoreRef" -}}
+                {{- $ref = .secretStoreRef -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- toYaml $ref -}}
+{{- end -}}
+
+{{/*
+Get agentSecrets.secretName - if empty assume no secret, if not append agent.name as prefix
+*/}}
+{{- define "agent.agentSecrets.secretName" -}}
+    {{- if .Values.agentSecrets.requiresSecret -}}
+        {{- if .Values.agentSecrets.secretName -}}
+            {{- .Values.agentSecrets.secretName -}}
+        {{- else -}}
+            {{- printf "%s-secret" (include "agent.name" .) -}}
+        {{- end -}}
+    {{- else -}}
+        {{- "" -}}
     {{- end -}}
 {{- end -}}
 
 {{/*
-Generate multi-agent environment variables
+Get agentSecrets.externalSecrets.name - if empty assume no secret, if not append agent.name as prefix
 */}}
-{{- define "agent.multiAgentEnvVars" -}}
-{{- if and .Values.isMultiAgent .Values.multiAgentConfig -}}
-{{- $port := .Values.multiAgentConfig.port | default "8000" -}}
-{{- $protocol := .Values.multiAgentConfig.protocol | default "a2a" -}}
-- name: AGENT_PROTOCOL
-  value: {{ $protocol | quote }}
-{{- range .Values.multiAgentConfig.agents }}
-{{- $agentName := . -}}
-{{- $envPrefix := upper (replace "-" "_" $agentName) }}
-- name: {{ $envPrefix }}_AGENT_HOST
-  value: {{ printf "%s-agent-%s" $.Release.Name $agentName | quote }}
-- name: {{ $envPrefix }}_AGENT_PORT
-  value: {{ $port | quote }}
-{{- end -}}
-{{- end -}}
+{{- define "agent.agentSecrets.externalSecrets.name" -}}
+    {{- if .Values.agentSecrets.requiresSecret -}}
+        {{- if .Values.agentSecrets.externalSecrets.name -}}
+            {{- .Values.agentSecrets.externalSecrets.name -}}
+        {{- else -}}
+            {{- printf "%s-secret" (include "agent.name" .) -}}
+        {{- end -}}
+    {{- else -}}
+        {{- "" -}}
+    {{- end -}}
 {{- end -}}
 
 {{/*
 Determine MCP mode
 */}}
 {{- define "agent.createMcpHttpServer" -}}
-    {{- if and (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) }}
-        {{- if and (eq .Values.mcp.mode "http") (not .Values.mcp.useRemoteMcpServer) }}
-            {{- true -}}
-        {{- else -}}
-            {{- false -}}
-        {{- end -}}
+    {{- if and (eq .Values.mcp.mode "http") (not .Values.mcp.useRemoteMcpServer) }}
+        {{- true -}}
     {{- else -}}
         {{- false -}}
     {{- end -}}
 {{- end -}}
+
+{{/*
+Determine if slim transport is enabled - global takes precedence
+*/}}
+{{- define "agent.slim.enabled" -}}
+    {{- if hasKey .Values "global" }}
+        {{- if hasKey .Values.global "slim" }}
+            {{- if hasKey .Values.global.slim "enabled" }}
+                {{- .Values.global.slim.enabled }}
+            {{- else }}
+                {{- .Values.slim.enabled | default false }}
+            {{- end }}
+        {{- else }}
+            {{- .Values.slim.enabled | default false }}
+        {{- end }}
+    {{- else }}
+        {{- .Values.slim.enabled | default false }}
+    {{- end }}
+{{- end }}
+
+{{/*
+Get slim endpoint - global takes precedence
+*/}}
+{{- define "agent.slim.endpoint" -}}
+    {{- if hasKey .Values "global" }}
+        {{- if hasKey .Values.global "slim" }}
+            {{- if hasKey .Values.global.slim "endpoint" }}
+                {{- .Values.global.slim.endpoint }}
+            {{- else }}
+                {{- .Values.slim.endpoint | default "http://ai-platform-engineering-slim:46357" }}
+            {{- end }}
+        {{- else }}
+            {{- .Values.slim.endpoint | default "http://ai-platform-engineering-slim:46357" }}
+        {{- end }}
+    {{- else }}
+        {{- .Values.slim.endpoint | default "http://ai-platform-engineering-slim:46357" }}
+    {{- end }}
+{{- end }}
+
+{{/*
+Get slim transport - global takes precedence
+*/}}
+{{- define "agent.slim.transport" -}}
+    {{- if hasKey .Values "global" }}
+        {{- if hasKey .Values.global "slim" }}
+            {{- if hasKey .Values.global.slim "transport" }}
+                {{- .Values.global.slim.transport }}
+            {{- else }}
+                {{- .Values.slim.transport | default "slim" }}
+            {{- end }}
+        {{- else }}
+            {{- .Values.slim.transport | default "slim" }}
+        {{- end }}
+    {{- else }}
+        {{- .Values.slim.transport | default "slim" }}
+    {{- end }}
+{{- end }}
