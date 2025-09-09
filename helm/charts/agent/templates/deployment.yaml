@@ -65,36 +65,17 @@ spec:
               protocol: TCP
             {{- end }}
           envFrom:
-            {{- if include "agent.externalSecrets.enabled" . | eq "true" }}
-            {{- range include "agent.externalSecrets.secretNames" . | splitList "," }}
-            {{- if . }}
+            {{- $llmSecretName := include "agent.llmSecrets.secretName" . | trim -}}
+            {{- if $llmSecretName }}
             - secretRef:
-                name: {{ . | trim }}
+                name: {{ $llmSecretName }}
             {{- end }}
-            {{- end }}
-            {{- else }}
-            # Traditional secret handling when external secrets are disabled
-            {{- if .Values.secrets.secretName }}
+            {{- $agentSecretName := include "agent.agentSecrets.secretName" . | trim -}}
+            {{- if $agentSecretName }}
             - secretRef:
-                name: {{ .Values.secrets.secretName }}
-            {{- if .Values.global.secrets.secretName }}
-            - secretRef:
-                name: {{ .Values.global.secrets.secretName }}
+                name: {{ $agentSecretName }}
             {{- end }}
-            {{- else if not .Values.isBackstagePlugin}}
-            - secretRef:
-            {{- if .Values.global.secrets.secretName }}
-                name: {{ .Values.global.secrets.secretName }}
-            {{- else }}
-                name: llm-secret
-            {{- end }}
-            {{- if not .Values.isMultiAgent }}
-            - secretRef:
-                name: {{ printf "%s-secret" (include "agent.name" .) }}
-            {{- end }}
-            {{- end }}
-            {{- end }}
-          {{- if or .Values.env .Values.isMultiAgent .Values.global.slim.enabled (eq .Values.mcp.mode "http") }}
+          {{- if or .Values.env (eq (include "agent.slim.enabled" .) "true") (eq .Values.mcp.mode "http") }}
           env:
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
@@ -102,14 +83,13 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
-            {{- if .Values.global.slim.enabled }}
+            {{- if eq (include "agent.slim.enabled" .) "true" }}
             - name: A2A_TRANSPORT
-              value: {{ .Values.global.slim.transport | quote }}
+              value: {{ include "agent.slim.transport" . | quote }}
             - name: SLIM_ENDPOINT
-              value: {{ .Values.global.slim.endpoint | quote }}
+              value: {{ include "agent.slim.endpoint" . | quote }}
             {{- end }}
             {{- if eq .Values.mcp.mode "http" }}
-            {{- if and (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) }}
             - name: MCP_MODE
               value: http
             - name: MCP_PORT
@@ -117,10 +97,8 @@ spec:
             - name: MCP_HOST
               value: {{ include "agent.fullname" . }}-mcp
             {{- end }}
-            {{- end }}
-            {{- include "agent.multiAgentEnvVars" . | nindent 12 }}
           {{- end }}
-          {{- if not .Values.global.slim.enabled }}
+          {{- if not (eq (include "agent.slim.enabled" .) "true") }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -135,21 +113,10 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            {{- if .Values.isMultiAgent }}
-            - name: prompt-config
-              mountPath: /app/prompt_config.yaml
-              subPath: prompt_config.yaml
-              readOnly: true
-            {{- end }}
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
-        {{- if .Values.isMultiAgent }}
-        - name: prompt-config
-          configMap:
-            name: prompt-config
-        {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

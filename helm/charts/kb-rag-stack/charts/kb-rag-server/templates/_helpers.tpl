@@ -59,4 +59,41 @@ Create the name of the service account to use
     {{- end }}
 {{- end }}
 
+{{/*
+Get llmSecrets.secretName with global fallback
+*/}}
+{{- define "agent.llmSecrets.secretName" -}}
+    {{- $name := .Values.llmSecrets.secretName -}}
+    {{- with .Values.global -}}
+        {{- with .llmSecrets -}}
+            {{- if hasKey . "secretName" -}}
+                {{- $name = .secretName -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $name -}}
+{{- end -}}
 
+{{/*
+Compute Redis URL with values override, fallback to redis://<release name>-kb-rag-redis:6379/0
+*/}}
+{{- define "kb-rag-server.redisUrl" -}}
+    {{- $val := (default "" .Values.redisUrl) | trim -}}
+    {{- if $val -}}
+        {{- $val -}}
+    {{- else -}}
+        {{- printf "redis://%s-kb-rag-redis:6379/0" .Release.Name -}}
+    {{- end -}}
+{{- end -}}
+
+{{/*
+Compute Milvus URI with values override, fallback to http://<release name>-milvus:19530
+*/}}
+{{- define "kb-rag-server.milvusUri" -}}
+    {{- $val := (default "" .Values.milvusUri) | trim -}}
+    {{- if $val -}}
+        {{- $val -}}
+    {{- else -}}
+        {{- printf "http://%s-milvus:19530" .Release.Name -}}
+    {{- end -}}
+{{- end -}}

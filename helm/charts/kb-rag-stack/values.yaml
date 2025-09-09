@@ -2,37 +2,6 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-# Global configuration
-global:
-  imageRegistry: ""
-  imagePullSecrets: []
-  storageClass: ""
-  secrets:
-    secretName: "llm-secret"
-  slim:
-    enabled: false
-
-# Milvus configuration
-milvus:
-  enabled: true
-  cluster:
-    enabled: false
-  etcd:
-    replicaCount: 1
-  pulsar:
-    enabled: false
-  minio:
-    mode: standalone
-  standalone:
-    replicas: 1
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-
 # KB-RAG Web configuration
 kb-rag-web:
   enabled: true
@@ -74,12 +43,7 @@ kb-rag-server:
 
   service:
     type: ClusterIP
-    port: 9446
-
-  env:
-    REDIS_URL: "redis://kb-rag-redis:6379/0"
-    MILVUS_HOST: "milvus-standalone"
-    MILVUS_PORT: "19530"
+    port: 8000
 
   resources:
     requests:
@@ -92,7 +56,6 @@ kb-rag-server:
 # Agent configuration (standard agent chart)
 kb-rag-agent:
   enabled: true
-  createMcpHttpServer: false
   nameOverride: "kb-rag-agent"
   image:
     repository: "ghcr.io/cnoe-io/kb-rag-agent-a2a"
@@ -101,11 +64,7 @@ kb-rag-agent:
 
   service:
     type: ClusterIP
-    port: 8000
-
-  env:
-    MILVUS_HOST: "milvus-standalone"
-    MILVUS_PORT: "19530"
+    port: 9446
 
   resources:
     requests:
@@ -119,17 +78,19 @@ kb-rag-agent:
   livenessProbe:
     tcpSocket:
       port: http
-    initialDelaySeconds: 30
+    initialDelaySeconds: 60
     periodSeconds: 10
     timeoutSeconds: 5
-    failureThreshold: 3
+    failureThreshold: 10
+
   readinessProbe:
     tcpSocket:
       port: http
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 3
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 10
+
 # KB-RAG Redis configuration
 kb-rag-redis:
   enabled: true
