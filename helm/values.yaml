@@ -316,16 +316,3 @@ milvus:
     enabled: false  # Default is true, we need false
   woodpecker:
     enabled: true   # Default is false, we need true
-
-  # Performance overrides only for compute nodes
-  queryNode:
-    resources:
-      limits:
-        cpu: 4000m
-        memory: 8Gi
-
-  dataNode:
-    resources:
-      limits:
-        cpu: 4000m
-        memory: 8Gi
