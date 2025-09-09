@@ -294,11 +294,11 @@ milvus:
   queryNode:
     resources:
       limits:
-        cpu: 400m
-        memory: 1Gi
+        cpu: 200m
+        memory: 256Mi
 
   dataNode:
     resources:
       limits:
-        cpu: 400m
-        memory: 1Gi
+        cpu: 200m
+        memory: 256Mi
