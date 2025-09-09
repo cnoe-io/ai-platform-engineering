@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Test script to verify memory optimization in the Loader class.
-This script tests the memory-efficient processing of URLs using the Outshift platform documentation.
+This script tests the memory-efficient processing of URLs using the Material for MkDocs documentation.
 """
 
 import asyncio
@@ -91,7 +91,7 @@ async def test_outshift_platform_docs():
     progress_tracker = TestProgressTracker()
 
     # Test URL - Outshift platform documentation
-    test_url = os.getenv("TEST_URL", "https://platform-docs.outshift.io/")
+    test_url = os.getenv("TEST_URL", "https://squidfunk.github.io/mkdocs-material/")
 
     print("🧪 Memory Optimization Test - Outshift Platform Documentation")
     print("=" * 70)
@@ -168,7 +168,7 @@ async def test_sitemap_discovery():
     mock_vstore = MockVectorStore()
     loader = Loader(vstore=mock_vstore, logger=logger)
 
-    test_url = os.getenv("TEST_URL", "https://platform-docs.outshift.io/")
+    test_url = os.getenv("TEST_URL", "https://squidfunk.github.io/mkdocs-material/")
 
     try:
         # Discovering sitemaps
@@ -217,7 +217,7 @@ async def test_memory_efficiency():
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger(__name__)
 
-    test_url = os.getenv("TEST_URL", "https://platform-docs.outshift.io/")
+    test_url = os.getenv("TEST_URL", "https://squidfunk.github.io/mkdocs-material/")
 
     # Test with memory conservative approach
     print("🔬 Testing with memory conservative approach...")

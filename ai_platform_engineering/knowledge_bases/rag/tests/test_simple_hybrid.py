@@ -62,7 +62,7 @@ async def test_generator_detection():
                 print(f"   Detected: {generator}")
 
                 if generator == test_case['expected']:
-                    print(f"   ✅ Correct detection")
+                    print("   ✅ Correct detection")
                 else:
                     print(f"   ❌ Expected: {test_case['expected']}, Got: {generator}")
 
@@ -104,7 +104,7 @@ async def test_hybrid_vs_webloader():
     print("\n🔄 Testing Hybrid vs WebBaseLoader Performance")
     print("=" * 50)
 
-    test_url = "https://cnoe-io.github.io/ai-platform-engineering/"
+    test_url = "https://squidfunk.github.io/mkdocs-material/"
 
     # Test Hybrid Approach
     print("\n1️⃣ Testing Hybrid Approach")
@@ -145,7 +145,7 @@ async def test_hybrid_vs_webloader():
         await loader_webloader.cleanup()
 
     # Compare results
-    print(f"\n📈 Performance Comparison:")
+    print("\n📈 Performance Comparison:")
     if hybrid_time > 0 and webloader_time > 0:
         speed_improvement = ((webloader_time - hybrid_time) / webloader_time) * 100
         print(f"   Speed improvement: {speed_improvement:.1f}%")
