@@ -25,7 +25,7 @@ global:
     create: true
 
   llmSecrets:
-    create: true # do not create llm secret in subcharts (use global or existing llm secret)
+    create: false # do not create llm secret in subcharts (use global or existing llm secret)
     secretName: "llm-secret"
     externalSecrets:
       data:
