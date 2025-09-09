@@ -174,27 +174,6 @@ neo4j:
 kb-rag-stack:
   enabled: true
 
-  # Milvus configuration
-  milvus:
-    enabled: true
-    cluster:
-      enabled: false
-    etcd:
-      replicaCount: 1
-    pulsar:
-      enabled: false
-    minio:
-      mode: standalone
-    standalone:
-      replicas: 1
-      resources:
-        requests:
-          cpu: 100m
-          memory: 128Mi
-        limits:
-          cpu: 500m
-          memory: 2Gi
-
   # KB-RAG Web configuration
   kb-rag-web:
     enabled: true
@@ -238,11 +217,6 @@ kb-rag-stack:
       type: ClusterIP
       port: 9446
 
-    env:
-      REDIS_URL: "redis://ai-platform-engineering-kb-rag-redis:6379/0"
-      MILVUS_URI: "http://ai-platform-engineering-milvus:19530"
-      MILVUS_PORT: "19530"
-
     resources:
       requests:
         cpu: 100m
@@ -264,9 +238,6 @@ kb-rag-stack:
     service:
       type: ClusterIP
       port: 8000
-
-    env:
-      MILVUS_URI: "http://ai-platform-engineering-milvus:19530"
 
     resources:
       requests:
@@ -307,3 +278,9 @@ kb-rag-stack:
       maxmemoryPolicy: "allkeys-lru"
       save: "60 1"
       appendonly: "yes"
+
+milvus:
+  minio:
+    replicas: 1
+  etcd:
+    replicaCount: 1
