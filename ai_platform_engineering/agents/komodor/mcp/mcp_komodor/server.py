@@ -114,7 +114,7 @@ def main():
     load_dotenv()
 
     # Configure logging
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     # Get MCP configuration from environment variables
     MCP_MODE = os.getenv("MCP_MODE", "STDIO")

@@ -16,6 +16,7 @@ from cnoe_agent_utils.tracing import extract_trace_id_from_context
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class KomodorAgentExecutor(AgentExecutor):
@@ -89,6 +90,7 @@ class KomodorAgentExecutor(AgentExecutor):
                     )
                 )
             else:
+                logger.info('Sending A2A status update')
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(

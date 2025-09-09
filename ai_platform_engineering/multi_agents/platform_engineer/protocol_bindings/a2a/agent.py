@@ -8,7 +8,7 @@ from typing import Any
 
 # A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage, AIMessageChunk
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 import json
 
@@ -60,9 +60,9 @@ class AIPlatformEngineerA2ABinding:
 
       logging.info(f"Created tracing config: {config}")
 
-      async for item in self.graph.astream(inputs, config, stream_mode='values'):
-          logging.debug(f"Received item from graph stream: {item}")
-          message = item['messages'][-1]
+      async for item in self.graph.astream(inputs, config, stream_mode='custom'):
+          logging.info(f"Received message from graph stream: {type(item)}: {item}")
+          message = item
           if (
               isinstance(message, AIMessage)
               and message.tool_calls
@@ -80,6 +80,13 @@ class AIPlatformEngineerA2ABinding:
                   'is_task_complete': False,
                   'require_user_input': False,
                   'content': 'Processing..',
+              }
+          else:
+              logging.info('Detected AI message Chunk, yielding')
+              yield {
+                "is_task_complete": False,
+                "require_user_input": False,
+                "content": message.content,
               }
 
       logging.debug("Stream processing complete, fetching final agent response")

@@ -15,7 +15,7 @@ if not API_TOKEN:
     raise ValueError("KOMODOR_API_TOKEN environment variable is not set.")
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_komodor")
 
 
