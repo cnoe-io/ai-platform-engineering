@@ -221,14 +221,17 @@ class TestLoader:
              patch('server.loader.loader.WebBaseLoader') as mock_loader_class:
 
             mock_loader = MagicMock()
-            mock_loader.aload = AsyncMock(return_value=[])
+            mock_loader.ascrape_all = AsyncMock(return_value=[])
             mock_loader_class.return_value = mock_loader
 
             await loader.load_url(url, job_id)
 
             # Verify WebBaseLoader was called with correct parameters
-            mock_loader_class.assert_called_once_with([url], requests_per_second=1)
-            mock_loader.aload.assert_called_once()
+            mock_loader_class.assert_called_once_with(
+                requests_per_second=1,
+                header_template={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            )
+            mock_loader.ascrape_all.assert_called_once_with([url])
 
     @pytest.mark.asyncio
     async def test_load_url_with_sitemap(self, loader):
@@ -240,23 +243,23 @@ class TestLoader:
 
         with patch.object(loader, 'get_sitemaps', return_value=sitemap_urls), \
              patch.object(loader, 'get_urls_from_sitemap', return_value=page_urls), \
-             patch('server.loader.loader.WebBaseLoader') as mock_loader_class:
+             patch('server.loader.loader.WebBaseLoader') as mock_loader_class, \
+             patch('asyncio.to_thread') as mock_to_thread:
 
             mock_loader = MagicMock()
-            # Create a proper async iterator
-            async def async_iter():
-                return
-                yield  # This makes it an async generator
-
-            # Mock alazy_load as a method that returns an async generator
-            mock_loader.alazy_load = MagicMock(return_value=async_iter())
+            mock_loader.load.return_value = []
             mock_loader_class.return_value = mock_loader
+            mock_to_thread.return_value = []
 
             await loader.load_url(url, job_id)
 
             # Verify WebBaseLoader was called with URLs
-            mock_loader_class.assert_called_once_with(page_urls, requests_per_second=1)
-            mock_loader.alazy_load.assert_called_once()
+            mock_loader_class.assert_called_once_with(
+                page_urls,
+                requests_per_second=1,
+                header_template={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            )
+            mock_to_thread.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_close(self, loader):
