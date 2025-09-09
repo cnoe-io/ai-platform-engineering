@@ -221,9 +221,11 @@ kb-rag-stack:
       requests:
         cpu: 100m
         memory: 128Mi
+        ephemeral-storage: 256Mi
       limits:
         cpu: 500m
         memory: 512Mi
+        ephemeral-storage: 1Gi
 
   # Agent configuration (standard agent chart)
   kb-rag-agent:
@@ -242,9 +244,11 @@ kb-rag-stack:
       requests:
         cpu: 100m
         memory: 128Mi
+        ephemeral-storage: 256Mi
       limits:
         cpu: 500m
         memory: 2Gi
+        ephemeral-storage: 1Gi
 
   # KB-RAG Redis configuration
   kb-rag-redis:
@@ -285,14 +289,6 @@ milvus:
     enabled: false  # Default is true, we need false
   woodpecker:
     enabled: true   # Default is false, we need true
-
-  # Jarvis node scheduling
-  nodeSelector:
-    applications: jarvis
-  tolerations:
-    - key: "applications/jarvis"
-      operator: "Equal"
-      effect: "NoSchedule"
 
   # Performance overrides only for compute nodes
   queryNode:
