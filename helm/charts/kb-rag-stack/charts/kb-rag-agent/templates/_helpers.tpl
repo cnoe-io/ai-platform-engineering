@@ -114,6 +114,18 @@ Get llmSecrets.secretName with global fallback
 {{- end -}}
 
 {{/*
+Compute Milvus URI with values override, fallback to http://<release name>-milvus:19530
+*/}}
+{{- define "agent.milvusUri" -}}
+    {{- $val := (default "" .Values.milvusUri) | trim -}}
+    {{- if $val -}}
+        {{- $val -}}
+    {{- else -}}
+        {{- printf "http://%s-milvus:19530" .Release.Name -}}
+    {{- end -}}
+{{- end -}}
+
+{{/*
 Get llmSecrets.create with global fallback
 */}}
 {{- define "agent.llmSecrets.create" -}}

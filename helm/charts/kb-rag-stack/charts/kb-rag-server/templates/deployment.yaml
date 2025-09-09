@@ -41,13 +41,17 @@ spec:
             - secretRef:
                 name: {{ $llmSecretName }}
             {{- end }}
-          {{- with .Values.env }}
           env:
-            {{- range $key, $value := . }}
+            - name: REDIS_URL
+              value: {{ include "kb-rag-server.redisUrl" . | quote }}
+            - name: MILVUS_URI
+              value: {{ include "kb-rag-server.milvusUri" . | quote }}
+            {{- if .Values.env }}
+            {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
-          {{- end }}
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

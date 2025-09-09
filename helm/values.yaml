@@ -217,11 +217,6 @@ kb-rag-stack:
       type: ClusterIP
       port: 9446
 
-    env:
-      REDIS_URL: "redis://kb-rag-redis:6379/0"
-      MILVUS_HOST: "milvus-standalone"
-      MILVUS_PORT: "19530"
-
     resources:
       requests:
         cpu: 100m
@@ -242,10 +237,6 @@ kb-rag-stack:
     service:
       type: ClusterIP
       port: 8000
-
-    env:
-      MILVUS_HOST: "milvus-standalone"
-      MILVUS_PORT: "19530"
 
     resources:
       requests:
@@ -287,95 +278,31 @@ kb-rag-stack:
       save: "60 1"
       appendonly: "yes"
 
-# Optimize Milvus configuration for minimal memory usage
+# Minimal Milvus cluster configuration using Zilliz Helm chart defaults
 milvus:
-  # Use standalone mode with RocksDB instead of Pulsar
-  cluster:
-    enabled: false
-
-  standalone:
-    replicas: 1
-    messageQueue: rocksmq  # Use RocksDB instead of Pulsar (saves ~12GB memory)
-    resources:
-      requests:
-        memory: 512Mi
-        cpu: 200m
-      limits:
-        memory: 1Gi
-        cpu: 500m
-    persistence:
-      enabled: true
-      size: 50Gi  # Reduced from default 500Gi
-      storageClass: ""
-      accessMode: ReadWriteOnce
-
-  # Disable cluster components when using standalone
-  proxy:
-    enabled: false
-  rootCoordinator:
-    enabled: false
-  queryCoordinator:
-    enabled: false
-  queryNode:
-    enabled: false
-  indexCoordinator:
-    enabled: false
-  indexNode:
-    enabled: false
-  dataCoordinator:
-    enabled: false
-  dataNode:
-    enabled: false
-  mixCoordinator:
-    enabled: false
-
-  # Optimize MinIO for minimal memory usage
-  minio:
-    enabled: true
-    resources:
-      requests:
-        memory: 256Mi
-        cpu: 100m
-      limits:
-        memory: 512Mi
-        cpu: 200m
-    persistence:
-      enabled: true
-      size: 50Gi  # Match requested storage size
-      storageClass: ""
-      accessMode: ReadWriteOnce
-
-  # Disable Pulsar to save memory
-  pulsar:
-    enabled: false
-
-  # Disable Pulsar v3 to save memory
+  # Only override what differs from chart defaults
   pulsarv3:
-    enabled: false
+    enabled: false  # Default is true, we need false
+  woodpecker:
+    enabled: true   # Default is false, we need true
 
-  # Disable Kafka
-  kafka:
-    enabled: false
+  # Jarvis node scheduling
+  nodeSelector:
+    applications: jarvis
+  tolerations:
+    - key: "applications/jarvis"
+      operator: "Equal"
+      effect: "NoSchedule"
 
-  # Minimal etcd configuration
-  etcd:
-    enabled: true
-    replicaCount: 1
-    service:
-      ports:
-        client:
-          port: 2379
-          protocol: TCP
-        peer:
-          port: 2380
-          protocol: TCP
+  # Performance overrides only for compute nodes
+  queryNode:
     resources:
-      requests:
-        memory: 128Mi
-        cpu: 100m
       limits:
-        memory: 256Mi
-        cpu: 200m
-    persistence:
-      enabled: true
-      size: 10Gi
+        cpu: 4000m
+        memory: 8Gi
+
+  dataNode:
+    resources:
+      limits:
+        cpu: 4000m
+        memory: 8Gi
