@@ -155,4 +155,18 @@ llmSecrets:
       kind: ClusterSecretStore # Use your secret store kind
     data: []
 
+agentSecrets:
+  requiresSecret: true # if false, no agent secret is required e.g. api keys
+  create: false # if false, it'll assume that the secret already exists
+  secretName: "" # defaults to agent.name-secret if empty
+  data: {}
+  externalSecrets:
+    enabled: false
+    name: "" # defaults to agent.name-secret if empty
+    secretStoreRef: # this can be overriden by global.externalSecrets.secretStoreRef
+      name: "" # Use your secret store
+      kind: ClusterSecretStore # Use your secret store kind
+    target: {}
+    data: []
+
 milvusUri: ""

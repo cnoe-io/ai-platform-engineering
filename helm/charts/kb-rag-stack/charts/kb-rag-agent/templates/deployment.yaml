@@ -70,6 +70,11 @@ spec:
             - secretRef:
                 name: {{ $llmSecretName }}
             {{- end }}
+            {{- $agentSecretName := include "agent.agentSecrets.secretName" . | trim -}}
+            {{- if $agentSecretName }}
+            - secretRef:
+                name: {{ $agentSecretName }}
+            {{- end }}
           env:
             - name: MILVUS_URI
               value: {{ include "agent.milvusUri" . | quote }}
