@@ -25,12 +25,6 @@ spec:
       curl -f http://{{ include "agent.fullname" . }}:{{ .Values.service.port }}/health || echo "Health endpoint not available, trying basic connectivity"
       curl -f http://{{ include "agent.fullname" . }}:{{ .Values.service.port }} || echo "Basic connectivity test"
 
-      # Test MCP service if enabled
-      {{- if .Values.mcp.enabled }}
-      echo "Testing MCP service..."
-      curl -f http://{{ include "agent.fullname" . }}-mcp:{{ .Values.mcp.service.port }}/health || echo "MCP health endpoint not available"
-      {{- end }}
-
       # Test environment variables
       echo "Checking environment configuration..."
       {{- if .Values.env }}

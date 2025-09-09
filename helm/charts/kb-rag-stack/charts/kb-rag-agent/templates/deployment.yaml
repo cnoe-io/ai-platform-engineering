@@ -71,6 +71,8 @@ spec:
                 name: {{ $llmSecretName }}
             {{- end }}
           env:
+            - name: MILVUS_URI
+              value: {{ include "agent.milvusUri" . | quote }}
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
