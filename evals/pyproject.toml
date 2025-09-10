@@ -1,26 +1,15 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["*"]
 
 [project]
 name = "platform-engineer-evals"
 version = "1.0.0"
 description = "Evaluation system for Platform Engineer multi-agent workflows"
-readme = "README.md"
-requires-python = ">=3.9"
-authors = [
-    { name = "Platform Engineering Team" }
-]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-]
-
+requires-python = ">=3.11"
 dependencies = [
     # Core evaluation dependencies
     "pydantic>=2.0.0",
@@ -29,13 +18,18 @@ dependencies = [
     "langfuse>=2.0.0",
     "httpx>=0.24.0",
     "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    # Platform Engineer integration
+    "a2a-sdk==0.2.16",
     # LangChain for LLM evaluation
     "langchain-core>=0.1.0",
     "langchain-openai>=0.0.5",
     "langchain-anthropic>=0.1.0",
-    # A2A protocol dependencies (assumed to be available)
-    # "a2a-client",  # Internal dependency
 ]
+
+[project.scripts]
+eval-webhook = "webhook.langfuse_webhook:main"
+upload-dataset = "upload_dataset:main"
 
 [project.optional-dependencies]
 dev = [
@@ -45,41 +39,11 @@ dev = [
     "mypy>=1.0.0",
     "ruff>=0.1.0",
 ]
-llm-extra = [
-    "langchain-community>=0.0.20",
-    "langchain-google-genai>=0.0.5",
-]
-
-[project.scripts]
-eval-webhook = "evals.webhook.langfuse_webhook:main"
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.black]
 line-length = 100
-target-version = ['py39']
+target-version = ['py311']
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
-select = [
-    "E",  # pycodestyle errors
-    "W",  # pycodestyle warnings
-    "F",  # pyflakes
-    "I",  # isort
-    "B",  # flake8-bugbear
-    "C4", # flake8-comprehensions
-    "UP", # pyupgrade
-]
-
-[tool.mypy]
-python_version = "3.9"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
+target-version = "py311"

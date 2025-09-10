@@ -15,6 +15,7 @@ class DatasetItem(BaseModel):
     """Individual item in an evaluation dataset."""
     id: str = Field(description="Unique identifier for the dataset item")
     messages: List[Message] = Field(description="Messages for this evaluation")
+    expected_output: Optional[str] = Field(default=None, description="Expected output/response from the agent")
     expected_agents: List[str] = Field(description="Agents expected to be used")
     expected_behavior: str = Field(description="Expected behavior description")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
@@ -34,9 +35,10 @@ class Dataset(BaseModel):
 
 
 class WebhookPayload(BaseModel):
-    """Payload received from Langfuse webhook."""
+    """Payload received from Langfuse webhook when triggering remote dataset run."""
+    dataset_id: str = Field(alias="datasetId", description="ID of the dataset to evaluate")
     dataset_name: str = Field(alias="datasetName", description="Name of the dataset to evaluate")
-    config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Evaluation configuration")
+    config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Custom evaluation configuration")
     
     class Config:
         populate_by_name = True

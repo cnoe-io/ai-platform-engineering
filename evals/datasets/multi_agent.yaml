@@ -6,6 +6,7 @@ prompts:
     messages:
       - role: "user"
         content: "Create a Jira issue for the latest GitHub issue in cnoe-io/ai-platform-engineering repo"
+    expected_output: "Created Jira issue PLAT-456 based on GitHub issue #123 'Fix Docker configuration' from ai-platform-engineering repo."
     expected_agents: ["github", "jira"]
     expected_behavior: "Should first use GitHub agent to fetch the latest issue, then use Jira agent to create a new issue with the relevant details"
 
@@ -13,6 +14,7 @@ prompts:
     messages:
       - role: "user"
         content: "Create Jira tickets for all open GitHub issues labeled 'bug'"
+    expected_output: "Created 5 Jira tickets from GitHub bug issues: PLAT-457, PLAT-458, PLAT-459, PLAT-460, PLAT-461."
     expected_agents: ["github", "jira"]
     expected_behavior: "Should use GitHub agent to find issues with 'bug' label, then use Jira agent to create corresponding tickets for each bug"
 
@@ -21,6 +23,7 @@ prompts:
     messages:
       - role: "user"
         content: "Create a new GitHub repository, set up ArgoCD application, and deploy to production"
+    expected_output: "Created GitHub repo 'new-service', configured ArgoCD application 'new-service-prod', deployed successfully to production."
     expected_agents: ["github", "argocd"]
     expected_behavior: |
       1. GitHub agent creates a new repository
@@ -31,6 +34,7 @@ prompts:
     messages:
       - role: "user"
         content: "Create GitHub release and update ArgoCD application"
+    expected_output: "Created GitHub release v1.2.3, updated ArgoCD application config, successfully synced and deployed new version."
     expected_agents: ["github", "argocd"]
     expected_behavior: |
       1. GitHub agent creates a new release with version tag
@@ -42,6 +46,7 @@ prompts:
     messages:
       - role: "user"
         content: "Create a PagerDuty incident for server downtime, notify Slack, and create a Jira ticket for tracking"
+    expected_output: "Created PagerDuty incident INC-789, posted alert to #incidents Slack channel, created Jira ticket PLAT-462 for tracking."
     expected_agents: ["pagerduty", "slack", "jira"]
     expected_behavior: |
       1. PagerDuty agent creates incident for server downtime
@@ -52,6 +57,7 @@ prompts:
     messages:
       - role: "user"
         content: "When a high priority PagerDuty alert fires, post to Slack and create Jira issue"
+    expected_output: "Processed high priority alert: Posted to #alerts Slack channel, created Jira issue PLAT-463 for resolution tracking."
     expected_agents: ["pagerduty", "slack", "jira"]
     expected_behavior: |
       1. PagerDuty agent retrieves high priority alert details
@@ -63,6 +69,7 @@ prompts:
     messages:
       - role: "user"
         content: "Create a Confluence page documenting the deployment process and link it to the Backstage service catalog"
+    expected_output: "Created Confluence page 'Deployment Process Guide', updated Backstage catalog with documentation links."
     expected_agents: ["confluence", "backstage"]
     expected_behavior: |
       1. Confluence agent creates documentation page for deployment process
@@ -73,6 +80,7 @@ prompts:
     messages:
       - role: "user"
         content: "Document all services from Backstage catalog in Confluence"
+    expected_output: "Created documentation for 23 services from Backstage catalog, established links between catalog entries and Confluence pages."
     expected_agents: ["backstage", "confluence"]
     expected_behavior: |
       1. Backstage agent retrieves list of all services in catalog
@@ -84,6 +92,7 @@ prompts:
     messages:
       - role: "user"
         content: "Check Komodor for service health, create PagerDuty incident if needed, and notify the team via Slack"
+    expected_output: "Checked service health: 2 unhealthy services found, created PagerDuty incident INC-790, notified #ops team via Slack."
     expected_agents: ["komodor", "pagerduty", "slack"]
     expected_behavior: |
       1. Komodor agent checks service health across all clusters
@@ -94,6 +103,7 @@ prompts:
     messages:
       - role: "user"
         content: "Monitor Kubernetes issues in Komodor and escalate critical ones through PagerDuty and Slack"
+    expected_output: "Monitored K8s clusters: Found 1 critical issue (pod crash loop), escalated via PagerDuty INC-791, alerted #ops channel."
     expected_agents: ["komodor", "pagerduty", "slack"]
     expected_behavior: |
       1. Komodor agent monitors Kubernetes cluster issues
