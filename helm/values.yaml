@@ -509,6 +509,17 @@ kb-rag-stack:
         memory: 2Gi
         ephemeral-storage: 1Gi
 
+    agentSecrets:
+      secretName: "kb-rag-agent-secret"
+      externalSecrets:
+        data:
+        - secretKey: MILVUS_SECRET
+          remoteRef:
+            conversionStrategy: Default
+            decodingStrategy: None
+            key: ai-platform-engineering/milvus-secret
+            property: MILVUS_SECRET
+
   # KB-RAG Redis configuration
   kb-rag-redis:
     enabled: true
