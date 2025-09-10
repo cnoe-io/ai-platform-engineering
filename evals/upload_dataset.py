@@ -120,6 +120,25 @@ def upload_dataset_to_langfuse(dataset: Dataset) -> Dict[str, Any]:
         }
 
 
+def get_langfuse_host():
+    """Get appropriate Langfuse host, auto-detecting local vs container environment."""
+    configured_host = os.getenv('LANGFUSE_HOST', 'https://cloud.langfuse.com')
+    
+    # If using container hostname but not in container, use localhost
+    if configured_host == 'http://langfuse-web:3000':
+        try:
+            import socket
+            socket.gethostbyname('langfuse-web')
+            # If we can resolve langfuse-web, we're in container network
+            return configured_host
+        except socket.gaierror:
+            # Can't resolve langfuse-web, assume local development
+            print("📍 Auto-detected local environment, using localhost:3000")
+            return 'http://localhost:3000'
+    
+    return configured_host
+
+
 def main():
     """Main entry point."""
     # Load environment variables from root .env file
@@ -129,6 +148,9 @@ def main():
         print(f"📁 Loaded environment from {root_env_path}")
     else:
         print("⚠️  No .env file found in root directory")
+    
+    # Override LANGFUSE_HOST for local development if needed
+    os.environ['LANGFUSE_HOST'] = get_langfuse_host()
     
     parser = argparse.ArgumentParser(
         description="Upload evaluation datasets to Langfuse",
