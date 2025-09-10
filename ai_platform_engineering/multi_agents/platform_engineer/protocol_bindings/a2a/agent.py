@@ -60,34 +60,43 @@ class AIPlatformEngineerA2ABinding:
 
       logging.info(f"Created tracing config: {config}")
 
-      async for item in self.graph.astream(inputs, config, stream_mode='values'):
-          logging.debug(f"Received item from graph stream: {item}")
-          message = item['messages'][-1]
-          if (
-              isinstance(message, AIMessage)
-              and message.tool_calls
-              and len(message.tool_calls) > 0
-          ):
-              logging.info("Detected AIMessage with tool calls, yielding 'Looking up...' response")
-              yield {
-                  'is_task_complete': False,
-                  'require_user_input': False,
-                  'content': 'Looking up...',
-              }
-          elif isinstance(message, ToolMessage):
-              logging.info("Detected ToolMessage, yielding 'Processing..' response")
-              yield {
-                  'is_task_complete': False,
-                  'require_user_input': False,
-                  'content': 'Processing..',
-              }
+      try:
+          async for item in self.graph.astream(inputs, config, stream_mode='values'):
+              logging.debug(f"Received item from graph stream: {item}")
+              message = item['messages'][-1]
+              if (
+                  isinstance(message, AIMessage)
+                  and message.tool_calls
+                  and len(message.tool_calls) > 0
+              ):
+                  logging.info("Detected AIMessage with tool calls, yielding 'Looking up...' response")
+                  yield {
+                      'is_task_complete': False,
+                      'require_user_input': False,
+                      'content': 'Looking up...',
+                  }
+              elif isinstance(message, ToolMessage):
+                  logging.info("Detected ToolMessage, yielding 'Processing..' response")
+                  yield {
+                      'is_task_complete': False,
+                      'require_user_input': False,
+                      'content': 'Processing..',
+                  }
 
-      logging.debug("Stream processing complete, fetching final agent response")
-      logging.debug(f"Finalizing response with config: {config}")
-      result = self.get_agent_response(config)
-      logging.info(f"Final agent response: {result}")
+          logging.debug("Stream processing complete, fetching final agent response")
+          logging.debug(f"Finalizing response with config: {config}")
+          result = self.get_agent_response(config)
+          logging.info(f"Final agent response: {result}")
 
-      yield result
+          yield result
+      except Exception as e:
+          logging.error(f"Error during agent stream processing: {e}")
+          # Yield an error response instead of letting the exception propagate
+          yield {
+              'is_task_complete': True,
+              'require_user_input': False,
+              'content': f'Agent processing failed: {str(e)}',
+          }
 
   def get_agent_response(self, config):
       logging.debug("Fetching current state from graph with provided config")
