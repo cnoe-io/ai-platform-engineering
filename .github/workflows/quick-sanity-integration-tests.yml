@@ -98,7 +98,7 @@ jobs:
           docker compose version || true
 
       - name: Setup Python for A2A client test
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
