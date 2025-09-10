@@ -13,10 +13,10 @@ from langfuse import Langfuse
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 
-from ..models.dataset import WebhookPayload, EvaluationStatus
-from ..trace_analysis import TraceExtractor
-from ..evaluators import SimpleTrajectoryEvaluator, LLMTrajectoryEvaluator
-from ..runner import EvaluationRunner
+from models.dataset import WebhookPayload, EvaluationStatus
+from trace_analysis import TraceExtractor
+from evaluators import SimpleTrajectoryEvaluator, LLMTrajectoryEvaluator
+from runner import EvaluationRunner
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +111,8 @@ class LangfuseWebhookService:
         return evaluators
     
     async def handle_webhook(self, payload: WebhookPayload) -> EvaluationStatus:
-        """Handle webhook trigger from Langfuse UI."""
-        logger.info(f"Received webhook for dataset: {payload.dataset_name}")
+        """Handle webhook trigger from Langfuse UI for remote dataset run."""
+        logger.info(f"Received webhook for dataset: {payload.dataset_name} (ID: {payload.dataset_id})")
         
         if not self.langfuse:
             raise HTTPException(
@@ -127,7 +127,7 @@ class LangfuseWebhookService:
             )
         
         try:
-            # Get dataset from Langfuse
+            # Get dataset from Langfuse (can use either ID or name)
             dataset = self.langfuse.get_dataset(payload.dataset_name)
             if not dataset:
                 raise HTTPException(
@@ -135,18 +135,20 @@ class LangfuseWebhookService:
                     detail=f"Dataset '{payload.dataset_name}' not found"
                 )
             
-            # Create evaluation run
+            # Create evaluation run with descriptive name
             evaluation_id = str(uuid.uuid4())
-            run_name = f"eval_{payload.dataset_name}_{int(time.time())}"
+            run_name = f"remote_eval_{payload.dataset_name}_{int(time.time())}"
             
             evaluation_info = {
                 "evaluation_id": evaluation_id,
                 "run_name": run_name,
+                "dataset_id": payload.dataset_id,
                 "dataset_name": payload.dataset_name,
                 "status": "started",
                 "total_items": len(dataset.items),
                 "completed_items": 0,
-                "start_time": time.time()
+                "start_time": time.time(),
+                "config": payload.config
             }
             
             self.running_evaluations[evaluation_id] = evaluation_info
@@ -256,6 +258,8 @@ class LangfuseWebhookService:
                 for eval_id, info in self.running_evaluations.items()
             ]
         }
+    
+    
 
 
 # FastAPI application
@@ -314,6 +318,10 @@ async def list_evaluations():
     Returns a summary of all evaluation runs tracked by this service instance.
     """
     return webhook_service.list_evaluations()
+
+
+
+
 
 
 def main():

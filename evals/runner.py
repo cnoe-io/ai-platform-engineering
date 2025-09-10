@@ -13,9 +13,9 @@ from langfuse import Langfuse
 from a2a.client import A2AClient, A2ACardResolver
 from a2a.types import SendMessageRequest, MessageSendParams
 
-from .models.dataset import Dataset, DatasetItem
-from .trace_analysis import TraceExtractor
-from .evaluators import BaseEvaluator
+from models.dataset import Dataset, DatasetItem
+from trace_analysis import TraceExtractor
+from evaluators import BaseEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -124,12 +124,22 @@ class EvaluationRunner:
         evaluation_info: Dict[str, Any],
         config: Dict[str, Any]
     ):
-        """Evaluate a single dataset item."""
+        """Evaluate a single dataset item using proper dataset run context."""
         run_name = evaluation_info["run_name"]
+        run_description = f"Platform Engineer evaluation run: {evaluation_info['dataset_name']}"
+        run_metadata = {
+            "model": "platform-engineer",
+            "evaluation_type": "agent_trajectory",
+            "config": config
+        }
         
-        # Create dataset run item for tracing
-        with item.run(run_name=run_name) as dataset_run:
-            trace_id = dataset_run.trace_id
+        # Use item.run() context manager for automatic trace linking
+        with item.run(
+            run_name=run_name,
+            run_description=run_description,
+            run_metadata=run_metadata
+        ) as root_span:
+            trace_id = root_span.trace_id
             
             # Extract data from item
             dataset_item = self._parse_dataset_item(item)
@@ -141,34 +151,35 @@ class EvaluationRunner:
                 # Send request to Platform Engineer
                 response_text = await self._send_to_platform_engineer(prompt, trace_id)
                 
-                # Update dataset run with output
-                dataset_run.output = response_text
-                dataset_run.metadata = {
-                    "dataset_item_id": dataset_item.id,
-                    "expected_agents": dataset_item.expected_agents,
-                    "expected_behavior": dataset_item.expected_behavior
-                }
+                # Update root span with input and output
+                root_span.update_trace(input=prompt, output=response_text)
                 
-                # Wait for trace to be fully created in Langfuse
-                await asyncio.sleep(3)
-                
-                # Extract trajectory from trace
+                # Extract trajectory from trace (give it a moment to be created)
+                await asyncio.sleep(2)
                 trajectory = await self.trace_extractor.extract_trajectory(trace_id)
                 
                 if trajectory:
-                    # Run evaluations
+                    # Run evaluations and add scores to root span
                     await self._run_evaluations(
-                        trajectory, dataset_item, trace_id
+                        trajectory, dataset_item, root_span
                     )
                 else:
                     logger.warning(f"Could not extract trajectory from trace {trace_id}")
+                    # Add a score indicating extraction failure
+                    root_span.score_trace(
+                        name="trajectory_extraction",
+                        value=0.0,
+                        comment="Failed to extract trajectory from trace"
+                    )
                 
             except Exception as e:
                 logger.error(f"Failed to evaluate item {dataset_item.id}: {e}")
-                dataset_run.metadata = {
-                    "error": str(e),
-                    "dataset_item_id": dataset_item.id
-                }
+                # Add error score
+                root_span.score_trace(
+                    name="evaluation_error",
+                    value=0.0,
+                    comment=f"Evaluation failed: {str(e)}"
+                )
     
     def _parse_dataset_item(self, item: Any) -> DatasetItem:
         """Parse Langfuse dataset item into our DatasetItem model."""
@@ -176,6 +187,7 @@ class EvaluationRunner:
         item_data = {
             "id": item.id,
             "messages": [],
+            "expected_output": None,
             "expected_agents": [],
             "expected_behavior": ""
         }
@@ -193,16 +205,23 @@ class EvaluationRunner:
             else:
                 item_data["messages"] = [{"role": "user", "content": str(item.input)}]
         
-        # Handle expected output (contains our evaluation data)
+        # Handle expected output - prioritize metadata for evaluation criteria
         if hasattr(item, 'expected_output') and item.expected_output:
             if isinstance(item.expected_output, dict):
+                # Legacy format: expected_output contains evaluation criteria
                 item_data["expected_agents"] = item.expected_output.get("expected_agents", [])
                 item_data["expected_behavior"] = item.expected_output.get("expected_behavior", "")
+            else:
+                # New format: expected_output is actual expected response
+                item_data["expected_output"] = item.expected_output
         
-        # Handle metadata
+        # Handle metadata (preferred location for evaluation criteria)
         if hasattr(item, 'metadata') and item.metadata:
             item_data["expected_agents"] = item.metadata.get("expected_agents", item_data["expected_agents"])
             item_data["expected_behavior"] = item.metadata.get("expected_behavior", item_data["expected_behavior"])
+            # Metadata can also contain expected_output if not already set
+            if not item_data["expected_output"]:
+                item_data["expected_output"] = item.metadata.get("expected_output")
         
         return DatasetItem(**item_data)
     
@@ -248,9 +267,9 @@ class EvaluationRunner:
         self,
         trajectory,
         dataset_item: DatasetItem,
-        trace_id: str
+        root_span
     ):
-        """Run all configured evaluators on the trajectory."""
+        """Run all configured evaluators on the trajectory and add scores to root span."""
         for evaluator_name, evaluator in self.evaluators.items():
             try:
                 logger.info(f"Running {evaluator_name} evaluator for item {dataset_item.id}")
@@ -262,43 +281,35 @@ class EvaluationRunner:
                     dataset_item_id=dataset_item.id
                 )
                 
-                # Submit scores to Langfuse
-                await self._submit_scores(trace_id, result, evaluator_name)
+                # Add scores directly to root span (preferred method for dataset runs)
+                root_span.score_trace(
+                    name=f"{evaluator_name}_trajectory_score",
+                    value=result.trajectory_match_score,
+                    comment=f"Trajectory match score from {evaluator_name} evaluator"
+                )
+                
+                root_span.score_trace(
+                    name=f"{evaluator_name}_behavior_score", 
+                    value=result.behavior_match_score,
+                    comment=f"Behavior match score from {evaluator_name} evaluator"
+                )
+                
+                root_span.score_trace(
+                    name=f"{evaluator_name}_overall_score",
+                    value=result.overall_score,
+                    comment=result.reasoning
+                )
+                
+                logger.info(f"Added {evaluator_name} scores to dataset run item {dataset_item.id}")
                 
             except Exception as e:
                 logger.error(f"Evaluation failed with {evaluator_name} evaluator: {e}")
-    
-    async def _submit_scores(self, trace_id: str, result, evaluator_name: str):
-        """Submit evaluation scores to Langfuse."""
-        try:
-            # Submit trajectory score
-            self.langfuse.create_score(
-                trace_id=trace_id,
-                name=f"{evaluator_name}_trajectory_score",
-                value=result.trajectory_match_score,
-                comment=f"Trajectory match score from {evaluator_name} evaluator"
-            )
-            
-            # Submit behavior score
-            self.langfuse.create_score(
-                trace_id=trace_id,
-                name=f"{evaluator_name}_behavior_score",
-                value=result.behavior_match_score,
-                comment=f"Behavior match score from {evaluator_name} evaluator"
-            )
-            
-            # Submit overall score
-            self.langfuse.create_score(
-                trace_id=trace_id,
-                name=f"{evaluator_name}_overall_score",
-                value=result.overall_score,
-                comment=result.reasoning
-            )
-            
-            logger.info(f"Submitted scores to Langfuse for trace {trace_id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to submit scores to Langfuse: {e}")
+                # Add error score for this evaluator
+                root_span.score_trace(
+                    name=f"{evaluator_name}_error",
+                    value=0.0,
+                    comment=f"Evaluator {evaluator_name} failed: {str(e)}"
+                )
 
 
 async def load_dataset_from_yaml(file_path: str) -> Dataset:
