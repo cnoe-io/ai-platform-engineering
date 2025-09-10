@@ -56,7 +56,7 @@ class LangfuseWebhookService:
             'langfuse_host': os.getenv("LANGFUSE_HOST", "http://langfuse-web:3000"),
             'langfuse_public_key': os.getenv("LANGFUSE_PUBLIC_KEY"),
             'langfuse_secret_key': os.getenv("LANGFUSE_SECRET_KEY"),
-            'openai_api_key': os.getenv("OPENAI_API_KEY"),
+            'azure_openai_api_key': os.getenv("AZURE_OPENAI_API_KEY"),
             'anthropic_api_key': os.getenv("ANTHROPIC_API_KEY")
         }
     
@@ -78,6 +78,20 @@ class LangfuseWebhookService:
     
     def _init_llm(self):
         """Initialize LLM for evaluation."""
+        if self.config['azure_openai_api_key']:
+            try:
+                return ChatOpenAI(
+                    api_key=self.config['azure_openai_api_key'],
+                    model="gpt-4",
+                    model_kwargs={
+                        "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT"),
+                        "azure_deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
+                        "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize Azure OpenAI: {e}")
+
         if self.config['anthropic_api_key']:
             try:
                 return ChatAnthropic(
@@ -86,16 +100,6 @@ class LangfuseWebhookService:
                 )
             except Exception as e:
                 logger.warning(f"Failed to initialize Anthropic: {e}")
-        
-        if self.config['openai_api_key']:
-            try:
-                return ChatOpenAI(
-                    openai_api_key=self.config['openai_api_key'],
-                    model="gpt-4o-mini"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to initialize OpenAI: {e}")
-        
         logger.warning("No LLM configured, will use simple evaluator only")
         return None
     

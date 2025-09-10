@@ -11,7 +11,7 @@ import yaml
 
 from langfuse import Langfuse
 from a2a.client import A2AClient, A2ACardResolver
-from a2a.types import SendMessageRequest, MessageSendParams
+from a2a.types import SendMessageRequest, MessageSendParams, Message, TextPart, Role
 
 from models.dataset import Dataset, DatasetItem
 from trace_analysis import TraceExtractor
@@ -29,13 +29,17 @@ class EvaluationRunner:
         trace_extractor: TraceExtractor,
         evaluators: Dict[str, BaseEvaluator],
         platform_engineer_url: str = "http://platform-engineering:8000",
-        timeout: float = 300.0
+        timeout: float = 300.0,
+        max_concurrent_requests: int = 3
     ):
         self.langfuse = langfuse_client
         self.trace_extractor = trace_extractor
         self.evaluators = evaluators
         self.platform_engineer_url = platform_engineer_url
         self.timeout = timeout
+        
+        # Rate limiting to prevent overwhelming the Platform Engineer
+        self._request_semaphore = asyncio.Semaphore(max_concurrent_requests)
         
         # A2A client components (initialized per evaluation)
         self.httpx_client = None
@@ -109,9 +113,11 @@ class EvaluationRunner:
             logger.info(f"Connected to Platform Engineer: {agent_card.name}")
             
             # Create A2A client
+            # Note: A2A client prioritizes agent_card.url over the url parameter
+            # So we provide only the url parameter to override the localhost URL
             self.a2a_client = A2AClient(
                 httpx_client=self.httpx_client,
-                agent_card=agent_card
+                url=self.platform_engineer_url  # Use correct URL for container communication
             )
             
         except Exception as e:
@@ -240,28 +246,42 @@ class EvaluationRunner:
     
     async def _send_to_platform_engineer(self, prompt: str, trace_id: str) -> str:
         """Send prompt to Platform Engineer and get response."""
-        try:
-            request = SendMessageRequest(
-                message=prompt,
-                params=MessageSendParams(
-                    context_id=str(uuid.uuid4()),
-                    trace_id=trace_id
+        # Rate limiting to prevent queue overload
+        async with self._request_semaphore:
+            try:
+                # Create a proper Message object with TextPart content
+                message = Message(
+                    message_id=str(uuid.uuid4()),
+                    role=Role.user,
+                    parts=[TextPart(text=prompt)],
+                    context_id=str(uuid.uuid4())
                 )
-            )
-            
-            # Send message and collect response
-            response_parts = []
-            async for response in self.a2a_client.send_message(request):
+                
+                # Create properly structured request
+                request = SendMessageRequest(
+                    id=str(uuid.uuid4()),
+                    params=MessageSendParams(
+                        message=message,
+                        metadata={"trace_id": trace_id} if trace_id else None
+                    )
+                )
+                
+                # Send message and get single response (not streaming)
+                response = await self.a2a_client.send_message(request)
+                
+                # Extract content from response
                 if hasattr(response, 'content'):
-                    response_parts.append(response.content)
-                elif isinstance(response, dict) and 'content' in response:
-                    response_parts.append(response['content'])
-            
-            return ''.join(response_parts)
-            
-        except Exception as e:
-            logger.error(f"Failed to send message to Platform Engineer: {e}")
-            return f"Error: {str(e)}"
+                    return response.content
+                elif hasattr(response, 'message') and hasattr(response.message, 'content'):
+                    return response.message.content
+                elif isinstance(response, dict):
+                    return response.get('content', str(response))
+                else:
+                    return str(response)
+                
+            except Exception as e:
+                logger.error(f"Failed to send message to Platform Engineer: {e}")
+                return f"Error: {str(e)}"
     
     async def _run_evaluations(
         self,
