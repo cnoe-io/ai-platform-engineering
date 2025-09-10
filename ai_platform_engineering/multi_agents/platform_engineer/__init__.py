@@ -45,6 +45,8 @@ if os.getenv("ENABLE_CONFLUENCE", "true").lower() == "true":
 if os.getenv("ENABLE_GITHUB", "true").lower() == "true":
     AGENT_NAMES.append("github")
 
+logger.info("Local Build Running......")
+
 if os.getenv("ENABLE_JIRA", "true").lower() == "true":
     AGENT_NAMES.append("jira")
 
@@ -76,6 +78,9 @@ if os.getenv("ENABLE_PETSTORE_AGENT", "false").lower() == "true":
 
 if os.getenv("ENABLE_KB_RAG", "false").lower() == "true":
     AGENT_NAMES.append("kb-rag")
+
+if os.getenv("ENABLE_WEBEX_AGENT", "false").lower() == "true":
+    AGENT_NAMES.append("webex")
 
 if os.getenv("ENABLE_GRAPH_RAG", "false").lower() == "true":
     AGENT_NAMES.append("graph-rag")
