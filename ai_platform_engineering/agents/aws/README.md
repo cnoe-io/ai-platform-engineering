@@ -44,6 +44,8 @@ ai-platform-engineering/
 - 🌐 **Protocol Support:** Compatible with [A2A](https://github.com/google/A2A) protocol for integration with external user clients.
 - 🛡️ **Secure by Design:** Enforces AWS IAM-based RBAC and supports external authentication for strong access control.
 - 🔌 **EKS Management:** Uses the official AWS EKS MCP server for comprehensive Amazon EKS cluster management and Kubernetes operations.
+- 💰 **Cost Management (Optional):** Integrate the AWS Cost Explorer MCP Server for FinOps insights, cost breakdowns, comparisons, forecasting, and optimization recommendations.
+- 🔐 **IAM Security (Optional):** Integrate the AWS IAM MCP Server for comprehensive Identity and Access Management operations with read-only mode for safety.
 - 🏭 **Production Ready:** Built with Strands Agents SDK for lightweight, production-ready AI agent deployment.
 
 ---
@@ -75,7 +77,29 @@ STRANDS_LOG_LEVEL=INFO
 
 # Optional: EKS MCP Server Configuration
 FASTMCP_LOG_LEVEL=ERROR
+# Enable/Disable individual MCP servers
+ENABLE_EKS_MCP=true
+ENABLE_COST_EXPLORER_MCP=false
+ENABLE_IAM_MCP=false
+# Run IAM MCP in read-only mode to block mutating operations (default: true)
+IAM_MCP_READONLY=true
 ```
+
+To enable AWS Cost Explorer capabilities, set:
+
+```
+ENABLE_COST_EXPLORER_MCP=true
+```
+
+To enable AWS IAM management capabilities, set:
+
+```
+ENABLE_IAM_MCP=true
+```
+
+**Important Notes:**
+- **Cost Explorer**: API calls incur cost ($0.01 per request)
+- **IAM**: By default runs in read-only mode for safety. Set `IAM_MCP_READONLY=false` to enable write operations
 
 ### 2️⃣ Prerequisites
 
@@ -160,6 +184,15 @@ flowchart TD
 - Load balancer and service configuration
 - Multi-environment support
 
+### **(Optional) AWS Cost Management & FinOps**
+- Analyze AWS costs by service, region, account, tag, or usage type
+- Compare costs between time periods (e.g., last month vs current month)
+- Identify top cost change drivers
+- Generate forecasts with confidence intervals
+- Retrieve cost & usage grouped by multiple dimensions
+- Explore tag values and dimension values interactively
+- Provide optimization and budgeting insights
+
 ## 🎯 Example Use Cases
 
 Ask the agent natural language questions like:
@@ -169,6 +202,10 @@ Ask the agent natural language questions like:
 - **Monitoring**: "Show me the CPU metrics for pods in the 'frontend' namespace"
 - **Troubleshooting**: "Get the logs for the failing pod in the 'backend' namespace"
 - **Resource Management**: "List all services in the 'default' namespace"
+- **Cost Analysis**: "Show my AWS costs for the last 3 months grouped by service"
+- **Cost Comparison**: "Compare my AWS costs between April and May 2025"
+- **Cost Forecast**: "Forecast my AWS spending for next month"
+- **Cost Drivers**: "Why did my AWS bill increase last month?"
 
 ## 📋 AWS Permissions
 
@@ -191,7 +228,27 @@ Ask the agent natural language questions like:
         "iam:ListAttachedRolePolicies",
         "iam:GetPolicy",
         "iam:GetPolicyVersion",
-        "eks-mcpserver:QueryKnowledgeBase"
+        "eks-mcpserver:QueryKnowledgeBase",
+        "ce:GetCostAndUsage",
+        "ce:GetDimensionValues",
+        "ce:GetTags",
+        "ce:GetCostForecast",
+        "ce:GetCostAndUsageComparisons",
+        "ce:GetCostComparisonDrivers",
+        "iam:ListUsers",
+        "iam:GetUser",
+        "iam:ListRoles",
+        "iam:ListGroups",
+        "iam:GetGroup",
+        "iam:ListPolicies",
+        "iam:ListAttachedUserPolicies",
+        "iam:ListUserPolicies",
+        "iam:GetUserPolicy",
+        "iam:ListAttachedGroupPolicies",
+        "iam:ListGroupPolicies",
+        "iam:GetGroupsForUser",
+        "iam:ListAccessKeys",
+        "iam:SimulatePrincipalPolicy"
       ],
       "Resource": "*"
     }
@@ -201,10 +258,12 @@ Ask the agent natural language questions like:
 
 ### Write Operations (with --allow-write)
 For write operations, the following managed policies are recommended:
-- **IAMFullAccess**: For creating and managing IAM roles and policies
+- **IAMFullAccess**: For creating and managing IAM roles and policies (when `IAM_MCP_READONLY=false`)
 - **AmazonVPCFullAccess**: For VPC resource creation and configuration
 - **AWSCloudFormationFullAccess**: For CloudFormation stack management
 - **EKS Full Access**: Custom policy for EKS cluster operations
+
+**Note**: IAM MCP server runs in read-only mode by default (`IAM_MCP_READONLY=true`) to prevent accidental modifications. Set to `false` to enable write operations.
 
 ## 🔒 Security Best Practices
 
@@ -213,6 +272,7 @@ For write operations, the following managed policies are recommended:
 - Use separate roles for read-only and write operations
 - Implement resource tagging for better access control
 - Never pass secrets directly to the agent - use AWS Secrets Manager or Parameter Store
+- For Cost Explorer usage, monitor API request volume to avoid unnecessary charges
 
 ## 🚀 Development
 
@@ -262,6 +322,7 @@ uv run python -m agent_aws.protocol_bindings.a2a_server
 
 - **strands-agents**: Lightweight AI agent framework
 - **awslabs.eks-mcp-server**: Official AWS EKS MCP Server
+- **awslabs.cost-explorer-mcp-server** (via `uvx` when enabled): AWS Cost Explorer MCP Server
 - **boto3**: AWS SDK for Python
 - **a2a-python**: Google A2A protocol implementation
 - **agntcy-acp**: Agent Control Protocol implementation
@@ -300,5 +361,6 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 - [Strands Agents SDK Documentation](https://strandsagents.com/0.1.x/documentation/docs/)
 - [AWS EKS MCP Server Documentation](https://awslabs.github.io/mcp/servers/eks-mcp-server)
+- [AWS Cost Explorer MCP Server Documentation](https://awslabs.github.io/mcp/servers/cost-explorer-mcp-server)
 - [Model Context Protocol](https://modelcontextprotocol.io/introduction)
 - [Amazon EKS User Guide](https://docs.aws.amazon.com/eks/latest/userguide/)

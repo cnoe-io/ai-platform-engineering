@@ -75,6 +75,7 @@ services:
       - graph_rag
     depends_on:
         - agent-argocd-p2p
+        - agent-aws-p2p
         - agent-backstage-p2p
         - agent-confluence-p2p
         - agent-github-p2p
@@ -90,6 +91,7 @@ services:
     environment:
       - A2A_TRANSPORT=p2p
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
+      - AWS_AGENT_HOST=agent-aws-p2p
       - BACKSTAGE_AGENT_HOST=agent-backstage-p2p
       - CONFLUENCE_AGENT_HOST=agent-confluence-p2p
       - GITHUB_AGENT_HOST=agent-github-p2p
@@ -225,6 +227,44 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT AWS A2A P2P                                           #
+  ####################################################################################################
+  agent-aws-p2p:
+    build:
+      context: ./ai_platform_engineering/agents/aws
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-aws-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8010:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # AWS Configuration
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      # MCP Configuration
+      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
+      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
+      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
+      - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+      - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
+      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
 
   ####################################################################################################
   #                                      AGENT BACKSTAGE A2A over SLIM                               #
