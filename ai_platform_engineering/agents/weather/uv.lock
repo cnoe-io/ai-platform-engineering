@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13, <4.0"
 resolution-markers = [
     "platform_python_implementation != 'PyPy'",
@@ -61,7 +61,7 @@ requires-dist = [
     { name = "agentevals", specifier = ">=0.0.7" },
     { name = "agntcy-app-sdk", specifier = "==0.1.4" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "cnoe-agent-utils", specifier = "==0.2.2" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.0" },
     { name = "fastapi", specifier = ">=0.115.11" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "httpx-sse", specifier = ">=0.3.0" },
@@ -396,21 +396,27 @@ wheels = [
 
 [[package]]
 name = "cnoe-agent-utils"
-version = "0.2.2"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "dotenv" },
+    { name = "boto3" },
+    { name = "botocore" },
     { name = "google-auth" },
+    { name = "google-cloud-aiplatform" },
     { name = "langchain-anthropic" },
     { name = "langchain-aws" },
     { name = "langchain-google-genai" },
     { name = "langchain-google-vertexai" },
     { name = "langchain-openai" },
     { name = "langfuse" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp" },
+    { name = "opentelemetry-sdk" },
+    { name = "python-dotenv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/22/41/544ba211446db6b683bf400af78a636bc5dc3d4598061c7c649772bf832f/cnoe_agent_utils-0.2.2.tar.gz", hash = "sha256:c5626d2501addbcc9dc75974a46ae70a694285e92fe2bb75ffe020b559436c55", size = 17103, upload-time = "2025-08-07T10:08:28.414Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/14/b8/9155bf6929a3e2846847c6c7f343f495881d85af38a8c670852701e18411/cnoe_agent_utils-0.3.0.tar.gz", hash = "sha256:f18a467eb8a919a4d7610906831d6ef6200589c4e930688339f6a4d7a68dc252", size = 126298, upload-time = "2025-08-18T03:14:51.42Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/77/45/d3f66f123e64d6eb7465c1385bfaa24ba0538fcdd8d50f11dc477cde7957/cnoe_agent_utils-0.2.2-py3-none-any.whl", hash = "sha256:6cef1486c05a46632403f35faa4159d7667ae134aa7627f378584361e2b2c118", size = 19601, upload-time = "2025-08-07T10:08:27.522Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/b6/5b8802b4159982ccf26ca774b621e9f0d8eb7e84b5887bb3c62b287d79ec/cnoe_agent_utils-0.3.0-py3-none-any.whl", hash = "sha256:39c75d16c3fff589f7714c78a1e55abf6b183edd9963f1556f6ee48f42d8153e", size = 23595, upload-time = "2025-08-18T03:14:50.581Z" },
 ]
 
 [[package]]
@@ -493,17 +499,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b2/9d/c3b43da9515bd270df0f80548d9944e389870713cc1fe2b8fb35fe2bcefd/docstring_parser-0.17.0.tar.gz", hash = "sha256:583de4a309722b3315439bb31d64ba3eebada841f2e2cee23b99df001434c912", size = 27442, upload-time = "2025-07-21T07:35:01.868Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/55/e2/2537ebcff11c1ee1ff17d8d0b6f4db75873e3b0fb32c2d4a2ee31ecb310a/docstring_parser-0.17.0-py3-none-any.whl", hash = "sha256:cf2569abd23dce8099b300f9b4fa8191e9582dda731fd533daf54c4551658708", size = 36896, upload-time = "2025-07-21T07:35:00.684Z" },
-]
-
-[[package]]
-name = "dotenv"
-version = "0.9.9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "python-dotenv" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/b7/545d2c10c1fc15e48653c91efde329a790f2eecfbbf2bd16003b5db2bab0/dotenv-0.9.9-py2.py3-none-any.whl", hash = "sha256:29cf74a087b31dafdb5a446b6d7e11cbce8ed2741540e2339c69fbef92c94ce9", size = 1892, upload-time = "2025-02-19T22:15:01.647Z" },
 ]
 
 [[package]]
