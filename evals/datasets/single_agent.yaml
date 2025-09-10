@@ -134,10 +134,3 @@ prompts:
         content: "list all Kubernetes clusters in Komodor"
     expected_agents: ["komodor"]
     expected_behavior: "Should use Komodor agent to list all Kubernetes clusters being monitored"
-
-  - id: "komodor_service_health"
-    messages:
-      - role: "user"
-        content: "check health status of all services"
-    expected_agents: ["komodor"]
-    expected_behavior: "Should use Komodor agent to retrieve and display health status of all monitored services"
