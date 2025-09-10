@@ -2,6 +2,6 @@
 Trace analysis module for extracting tool calls from Langfuse traces.
 """
 
-from .extractor import TraceExtractor
+from trace_analysis.extractor import TraceExtractor
 
 __all__ = ['TraceExtractor']

@@ -4,8 +4,8 @@ Simple trajectory evaluator that matches agents used vs expected.
 import logging
 from typing import List
 
-from .base import BaseEvaluator
-from ..models.trajectory import Trajectory, EvaluationResult
+from evaluators.base import BaseEvaluator
+from models.trajectory import Trajectory, EvaluationResult
 
 logger = logging.getLogger(__name__)
 

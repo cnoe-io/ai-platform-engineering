@@ -4,7 +4,7 @@ Base evaluator interface.
 from abc import ABC, abstractmethod
 from typing import List
 
-from ..models.trajectory import Trajectory, EvaluationResult
+from models.trajectory import Trajectory, EvaluationResult
 
 
 class BaseEvaluator(ABC):

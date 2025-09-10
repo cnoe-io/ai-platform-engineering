@@ -2,9 +2,9 @@
 Evaluator modules for trajectory and behavior analysis.
 """
 
-from .base import BaseEvaluator
-from .trajectory_evaluator import SimpleTrajectoryEvaluator
-from .llm_evaluator import LLMTrajectoryEvaluator
+from evaluators.base import BaseEvaluator
+from evaluators.trajectory_evaluator import SimpleTrajectoryEvaluator
+from evaluators.llm_evaluator import LLMTrajectoryEvaluator
 
 __all__ = [
     'BaseEvaluator',

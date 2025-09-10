@@ -105,7 +105,7 @@ class EvaluationRunner:
                 base_url=self.platform_engineer_url
             )
             
-            agent_card = await resolver.resolve()
+            agent_card = await resolver.get_agent_card()
             logger.info(f"Connected to Platform Engineer: {agent_card.name}")
             
             # Create A2A client
