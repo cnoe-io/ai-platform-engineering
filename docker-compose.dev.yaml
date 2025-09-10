@@ -1304,9 +1304,9 @@ services:
       platform-engineer-slim:
         condition: service_started
       langfuse-web:
-        condition: service_healthy
+        condition: service_started
     ports:
-      - "8001:8000"
+      - "8011:8000"
     env_file:
       - .env
     environment:
