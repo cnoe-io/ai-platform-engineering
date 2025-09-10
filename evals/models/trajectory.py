@@ -49,7 +49,7 @@ class EvaluationResult(BaseModel):
     dataset_item_id: str = Field(description="ID of the dataset item evaluated")
     trajectory_match_score: float = Field(description="Score for trajectory matching (0-1)")
     behavior_match_score: float = Field(description="Score for behavior matching (0-1)")
-    overall_score: float = Field(description="Overall evaluation score (0-1)")
+    overall_score: float = Field(default=0.0, description="Overall evaluation score (0-1)")
     reasoning: str = Field(description="Explanation of the evaluation")
     expected_agents: List[str] = Field(description="Agents that were expected")
     actual_agents: List[str] = Field(description="Agents that were actually used")

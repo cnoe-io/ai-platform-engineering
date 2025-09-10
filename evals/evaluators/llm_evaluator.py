@@ -8,8 +8,8 @@ from typing import List, Dict, Any, Optional
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.prompts import ChatPromptTemplate
 
-from .base import BaseEvaluator
-from ..models.trajectory import Trajectory, EvaluationResult
+from evaluators.base import BaseEvaluator
+from models.trajectory import Trajectory, EvaluationResult
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ from typing import List, Optional, Any, Dict
 from datetime import datetime
 from langfuse import Langfuse
 
-from ..models.trajectory import ToolCall, Trajectory
+from models.trajectory import ToolCall, Trajectory
 
 logger = logging.getLogger(__name__)
 
