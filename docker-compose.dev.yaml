@@ -63,9 +63,8 @@ services:
       dockerfile: build/Dockerfile
     volumes:
       - ./prompt_config.yaml:/app/prompt_config.yaml
-      # Mount only code that changes during development
-      - ./ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+      - .env:/app/.env
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     container_name: platform-engineering
     profiles:
       - p2p
