@@ -478,7 +478,7 @@ class AgentRegistry:
                         run_coroutine_sync(agent_client.connect(), timeout=connect_timeout)
                         logger.debug(f"Connected {agent_name} within {connect_timeout}s")
                     except (asyncio.TimeoutError, FuturesTimeoutError, TimeoutError) as te:
-                        logger.warning(f"Connect timeout for {agent_name} after {connect_timeout}s; proceeding with lazy connection")
+                        logger.warning(f"Connect timeout for {agent_name} after {connect_timeout}s; proceeding with lazy connection: {te}")
                     except Exception as e:
                         logger.error(f"Failed to register agent {agent_name}: {e}, skipping...")
                         continue
@@ -490,7 +490,7 @@ class AgentRegistry:
                         run_coroutine_sync(module.a2a_remote_agent.connect(), timeout=connect_timeout)
                         logger.debug(f"Connected {agent_name} within {connect_timeout}s")
                     except (asyncio.TimeoutError, FuturesTimeoutError, TimeoutError) as te:
-                        logger.warning(f"Connect timeout for {agent_name} after {connect_timeout}s; proceeding with lazy connection")
+                        logger.warning(f"Connect timeout for {agent_name} after {connect_timeout}s; proceeding with lazy connection: {te}")
                     except Exception as e:
                         logger.error(f"Failed to register agent {agent_name}: {e}, skipping...")
                         continue
