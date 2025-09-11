@@ -26,6 +26,7 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
+          predicate-quantifier: 'every'
           filters: |
             shared:
               - 'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py'
