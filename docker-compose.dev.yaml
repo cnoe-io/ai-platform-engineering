@@ -844,7 +844,7 @@ services:
   agent-weather-slim:
     build:
       context: ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile
+      dockerfile: build/Dockerfile.a2a
       cache_from: []
     container_name: agent-weather-slim
     profiles:
@@ -1017,6 +1017,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
+     - p2p-tracing
     volumes:
         - ./.neo4j/logs:/logs
         - ./.neo4j/config:/config
@@ -1040,12 +1041,13 @@ services:
      - graph_rag
      - nexigraph
      - p2p
+     - p2p-tracing
     command:
       - /bin/sh
       - -c
       - redis-server
     ports:
-      - "6379:6379"
+      - ":6379"
     restart: unless-stopped
 
   nexigraph_server:
@@ -1057,6 +1059,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
+     - p2p-tracing
     depends_on:
       - neo4j
       - nexigraph_redis
@@ -1077,6 +1080,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
+     - p2p-tracing
     depends_on:
       - nexigraph_server
     env_file:
@@ -1097,6 +1101,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
+     - p2p-tracing
     ports:
       - "8096:8096"
     depends_on:
@@ -1120,6 +1125,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
+     - p2p-tracing
     depends_on:
       - nexigraph_server
     environment:
