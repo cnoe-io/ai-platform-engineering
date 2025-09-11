@@ -5,7 +5,9 @@ import logging
 import uuid
 import os
 import threading
-from langchain_core.messages import AIMessage
+import json
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableLambda
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 from cnoe_agent_utils import LLMFactory
@@ -95,22 +97,26 @@ class AIPlatformEngineerMAS:
 
     base_model = LLMFactory().get_llm()
 
+    all_agents = platform_registry.get_all_agents()
+
+    subagents = generate_subagents()
+
+    logger.info(f'sub_agents: {subagents}')
+
+    # Create the Deep Agent
+    deep_agent = async_create_deep_agent(
+      tools=all_agents,
+      instructions=system_prompt,
+      subagents=subagents,
+      model=base_model
+      # response_format=PlatformEngineerResponse
+    )
+
     # Check if LANGGRAPH_DEV is defined in the environment
     if os.getenv("LANGGRAPH_DEV"):
       checkpointer = None
     else:
       checkpointer = InMemorySaver()
-
-    # Build subagents (without tools field)
-    subagents = generate_subagents()
-
-    # Create the Deep Agent
-    deep_agent = async_create_deep_agent(
-      tools=[],
-      instructions=system_prompt,
-      subagents=subagents,
-      model=base_model,
-    )
 
     # Attach checkpointer if desired
     if checkpointer is not None:

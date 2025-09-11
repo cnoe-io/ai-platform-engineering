@@ -196,7 +196,6 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
         # Prepare stream writer
         writer = get_stream_writer()
-        writer({"type": "progress", "data": "Connecting to A2A and starting stream..."})
         logger.info("Starting A2A streaming send_message.")
 
         accumulated_text: list[str] = []
@@ -219,28 +218,9 @@ class A2ARemoteAgentConnectTool(BaseTool):
                             text = getattr(root, "text", None) if root is not None else None
                             if text:
                                 accumulated_text.append(text)
-                elif isinstance(chunk, A2ATaskStatusUpdateEvent):
-                    status_msg = getattr(chunk.status, "message", None)
-                    if status_msg and getattr(status_msg, "parts", None):
-                        for part in status_msg.parts:
-                            root = getattr(part, "root", None)
-                            text = getattr(root, "text", None) if root is not None else None
-                            if text:
-                                writer({"type": "progress", "data": text})
-                elif isinstance(chunk, A2AMessage):
-                    parts = getattr(chunk, "parts", None)
-                    if parts:
-                        for part in parts:
-                            root = getattr(part, "root", None)
-                            text = getattr(root, "text", None) if root is not None else None
-                            if text:
-                                writer({"type": "progress", "data": text})
-                elif isinstance(chunk, A2ATask):
-                    writer({"type": "progress", "data": f"Task created: {getattr(chunk, 'id', '')}"})
             except Exception as e:
                 logger.warning(f"Non-fatal error while handling stream chunk: {e}")
 
-        writer({"type": "progress", "data": "A2A stream complete."})
         final_response = " ".join(accumulated_text).strip()
         if not final_response:
             logger.info("No accumulated artifact text; falling back to non-streaming send_message to get result.")
