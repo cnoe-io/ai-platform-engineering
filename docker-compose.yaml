@@ -225,7 +225,7 @@ services:
     volumes:
       - ./.env:/app/.env
     ports:
-      - "8010:8000"
+      - "8013:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
