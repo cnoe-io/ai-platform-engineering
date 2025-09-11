@@ -159,6 +159,8 @@ class WebexTools(str, Enum):
 # FastMCP tool registration
 def register_tools(server, auth_token):
     logger = logging.getLogger(__name__)
+    logger.info("🔧 Initializing Webex MCP tools registration")
+    logger.info(f"🌐 Webex API Base URL: {WEBEX_API_BASE}")
     http_client = httpx.AsyncClient(base_url=WEBEX_API_BASE)
 
     def handle_mcp_errors(func):
@@ -401,3 +403,6 @@ def register_tools(server, auth_token):
             ]
         )
         return [TextContent(type="text", text=formatted)]
+
+    logger.info("✅ Webex MCP tools registration completed successfully")
+    logger.info("🔧 Registered tools: post_message, create_room, add_person_to_room, list_people, remove_person_from_room, list_rooms, list_messages, list_messages_thread")
