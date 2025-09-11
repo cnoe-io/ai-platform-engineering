@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import asyncio
 import logging
 import httpx
 import time
 import threading
 from typing import Dict, Any, Optional, Callable
 import importlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
@@ -161,7 +162,7 @@ class AgentRegistry:
                 remote_agent_card=agent_url,
                 skill_id="",
                 description=""
-            )            
+            )
         elif transport == "slim":
             return AgntcySlimRemoteAgentConnectTool(
                 name=name,
@@ -463,22 +464,40 @@ class AgentRegistry:
             if not reachable:
                 logger.warning(f"Agent {agent_name} is unreachable, skipping registration...")
                 continue
-            
+
             try:
                 logger.debug(f"Registering agent {agent_name}...")
+                # Use a bounded timeout for the connect call to avoid startup hangs
+                connect_timeout_env = os.getenv("AGENT_CONNECT_TIMEOUT")
+                connect_timeout = float(connect_timeout_env) if connect_timeout_env else self._connectivity_timeout
+
                 if isinstance(module, str) and module == GENERIC_CLIENT:
                     agent_client = self._create_generic_a2a_client(agent_name, self.transport)
-                    # Connect to the agent
-                    run_coroutine_sync(agent_client.connect())
-                    # Add the agent to the registry
+                    try:
+                        # Attempt to connect but do not block startup indefinitely
+                        run_coroutine_sync(agent_client.connect(), timeout=connect_timeout)
+                        logger.debug(f"Connected {agent_name} within {connect_timeout}s")
+                    except (asyncio.TimeoutError, FuturesTimeoutError, TimeoutError) as te:
+                        logger.warning(f"Connect timeout for {agent_name} after {connect_timeout}s; proceeding with lazy connection: {te}")
+                    except Exception as e:
+                        logger.error(f"Failed to register agent {agent_name}: {e}, skipping...")
+                        continue
+                    # Add the agent to the registry regardless; it can lazy-connect on first use
                     agents[agent_name] = agent_client
                 else:
-                    # Connect to the agent
-                    run_coroutine_sync(module.a2a_remote_agent.connect())
-                    # Add the agent to the registry
+                    try:
+                        # Attempt to connect module client with bounded timeout
+                        run_coroutine_sync(module.a2a_remote_agent.connect(), timeout=connect_timeout)
+                        logger.debug(f"Connected {agent_name} within {connect_timeout}s")
+                    except (asyncio.TimeoutError, FuturesTimeoutError, TimeoutError) as te:
+                        logger.warning(f"Connect timeout for {agent_name} after {connect_timeout}s; proceeding with lazy connection: {te}")
+                    except Exception as e:
+                        logger.error(f"Failed to register agent {agent_name}: {e}, skipping...")
+                        continue
+                    # Add the agent to the registry regardless; it can lazy-connect on first use
                     agents[agent_name] = module.a2a_remote_agent
             except Exception as e:
-                logger.error(f"Failed to register agent {agent_name}: {e}, skipping...")
+                logger.error(f"Unexpected error while registering {agent_name}: {e}, skipping...")
                 continue
 
         return agents
