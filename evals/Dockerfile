@@ -14,7 +14,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 WORKDIR /app
 
 # Copy dependency files first for better Docker layer caching
-COPY pyproject.toml .python-version uv.lock ./
+COPY pyproject.toml uv.lock ./
 
 # Install dependencies only (no package installation needed)
 RUN uv sync --frozen --no-cache --no-dev
