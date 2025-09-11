@@ -60,10 +60,6 @@ if os.getenv("ENABLE_SPLUNK", "true").lower() == "true":
     AGENT_NAMES.append("splunk")
 
 if os.getenv("ENABLE_WEBEX_AGENT", "true").lower() == "true":
-    AGENT_NAMES.append("splunk")
-
-WEBEX_AGENT_ENABLED = os.getenv("c", "false").lower() == "true"
-logger.info(f"Webex agent enabled: {WEBEX_AGENT_ENABLED}")
     AGENT_NAMES.append("webex")
 
 # Optional agents
@@ -78,9 +74,6 @@ if os.getenv("ENABLE_PETSTORE_AGENT", "false").lower() == "true":
 
 if os.getenv("ENABLE_KB_RAG", "false").lower() == "true":
     AGENT_NAMES.append("kb-rag")
-
-if os.getenv("ENABLE_WEBEX_AGENT", "false").lower() == "true":
-    AGENT_NAMES.append("webex")
 
 if os.getenv("ENABLE_GRAPH_RAG", "false").lower() == "true":
     AGENT_NAMES.append("graph-rag")

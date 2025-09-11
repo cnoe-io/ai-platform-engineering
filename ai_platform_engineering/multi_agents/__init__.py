@@ -73,6 +73,10 @@ class AgentRegistry:
             "slim": "ai_platform_engineering.agents.splunk.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.splunk.clients.a2a.agent"
         },
+        "webex": {
+            "slim": "ai_platform_engineering.agents.webex.clients.slim.agent",
+            "a2a": "ai_platform_engineering.agents.webex.clients.a2a.agent"
+        },
         "petstore": {
             "slim": "ai_platform_engineering.agents.template.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.template.clients.a2a.agent"
