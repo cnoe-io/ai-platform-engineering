@@ -16,8 +16,8 @@ WORKDIR /app
 # Copy dependency files first for better Docker layer caching
 COPY pyproject.toml .python-version uv.lock ./
 
-# Install dependencies and package with entry points
-RUN uv sync --frozen --no-cache --no-dev && uv pip install -e .
+# Install dependencies only (no package installation needed)
+RUN uv sync --frozen --no-cache --no-dev
 
 # Copy source code
 COPY . .
@@ -40,4 +40,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Command to run the application
-CMD ["uv", "run", "eval-webhook"]
+CMD ["uv", "run", "python", "webhook/langfuse_webhook.py"]
