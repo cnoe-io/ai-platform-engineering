@@ -9,7 +9,7 @@ include = ["*"]
 name = "platform-engineer-evals"
 version = "1.0.0"
 description = "Evaluation system for Platform Engineer multi-agent workflows"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     # Core evaluation dependencies
     "pydantic>=2.0.0",
@@ -21,6 +21,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     # Platform Engineer integration
     "a2a-sdk==0.2.16",
+    "cnoe_agent_utils",
     # LangChain for LLM evaluation
     "langchain-core>=0.1.0",
     "langchain-openai>=0.0.5",
@@ -42,8 +43,8 @@ dev = [
 
 [tool.black]
 line-length = 100
-target-version = ['py311']
+target-version = ['py313']
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"

@@ -46,8 +46,36 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             if not task:
                 raise Exception("Failed to create a new task from the provided message.")
             await event_queue.enqueue_event(task)
+        # Debug logging to understand message structure
+        logger.info(f"🔍 Platform Engineer Executor: Debugging message structure")
+        logger.info(f"🔍 Platform Engineer Executor: context.message type: {type(context.message)}")
+        if context.message:
+            logger.info(f"🔍 Platform Engineer Executor: context.message.metadata: {getattr(context.message, 'metadata', 'NO_METADATA')}")
+            logger.info(f"🔍 Platform Engineer Executor: context.message attributes: {dir(context.message)}")
+        
         # Extract trace_id from A2A context (or generate if root)
         trace_id = extract_trace_id_from_context(context)
+        
+        # Enhanced trace_id extraction - check multiple locations
+        if not trace_id and context and context.message:
+            # Try additional extraction methods for evaluation requests
+            logger.info(f"🔍 Platform Engineer Executor: No trace_id from extract_trace_id_from_context, checking alternatives")
+            
+            # Check if there's metadata in the message
+            if hasattr(context.message, 'metadata') and context.message.metadata:
+                if isinstance(context.message.metadata, dict):
+                    trace_id = context.message.metadata.get('trace_id')
+                    if trace_id:
+                        logger.info(f"🔍 Platform Engineer Executor: Found trace_id in message.metadata: {trace_id}")
+            
+            # Check if there's a params object with metadata
+            if not trace_id and hasattr(context, 'params') and context.params:
+                if hasattr(context.params, 'metadata') and context.params.metadata:
+                    if isinstance(context.params.metadata, dict):
+                        trace_id = context.params.metadata.get('trace_id')
+                        if trace_id:
+                            logger.info(f"🔍 Platform Engineer Executor: Found trace_id in params.metadata: {trace_id}")
+        
         if not trace_id:
             # Platform engineer is the ROOT supervisor - generate trace_id
             # Langfuse requires 32 lowercase hex chars (no dashes)
