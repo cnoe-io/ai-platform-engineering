@@ -1,6 +1,25 @@
 """
 Webhook service for Langfuse dataset evaluation triggers.
 """
+
+# =====================================================
+# CRITICAL: Load environment variables FIRST
+# =====================================================
+from dotenv import load_dotenv
+load_dotenv()
+
+# =====================================================
+# CRITICAL: Disable a2a tracing BEFORE any a2a imports
+# =====================================================
+from cnoe_agent_utils.tracing import disable_a2a_tracing
+
+# Disable A2A framework tracing to prevent interference with custom tracing
+disable_a2a_tracing()
+
+# =====================================================
+# Now safe to import a2a modules and other dependencies
+# =====================================================
+
 import asyncio
 import logging
 import os
@@ -105,18 +124,21 @@ class LangfuseWebhookService:
     
     def _init_evaluators(self) -> Dict[str, Any]:
         """Initialize evaluators."""
-        evaluators = {
-            'simple': SimpleTrajectoryEvaluator()
-        }
+        evaluators = {}
         
+        # Only use LLM evaluator
         if self.llm:
             evaluators['llm'] = LLMTrajectoryEvaluator(self.llm)
+        else:
+            logger.warning("No LLM configured, falling back to simple evaluator")
+            evaluators['simple'] = SimpleTrajectoryEvaluator()
         
         return evaluators
     
     async def handle_webhook(self, payload: WebhookPayload) -> EvaluationStatus:
         """Handle webhook trigger from Langfuse UI for remote dataset run."""
-        logger.info(f"Received webhook for dataset: {payload.dataset_name} (ID: {payload.dataset_id})")
+        logger.info(f"🔍 Webhook: Received request for dataset: {payload.dataset_name} (ID: {payload.dataset_id})")
+        logger.info(f"🔍 Webhook: Dataset runs will create traces that include Platform Engineer execution")
         
         if not self.langfuse:
             raise HTTPException(

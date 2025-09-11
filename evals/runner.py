@@ -6,16 +6,14 @@ import logging
 import time
 import uuid
 from typing import Dict, Any, List
-import httpx
 import yaml
 
 from langfuse import Langfuse
-from a2a.client import A2AClient, A2ACardResolver
-from a2a.types import SendMessageRequest, MessageSendParams, Message, TextPart, Role
 
 from models.dataset import Dataset, DatasetItem
 from trace_analysis import TraceExtractor
 from evaluators import BaseEvaluator
+from clients.eval_client import EvalClient, EvaluationRequest
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +33,13 @@ class EvaluationRunner:
         self.langfuse = langfuse_client
         self.trace_extractor = trace_extractor
         self.evaluators = evaluators
-        self.platform_engineer_url = platform_engineer_url
-        self.timeout = timeout
         
-        # Rate limiting to prevent overwhelming the Platform Engineer
-        self._request_semaphore = asyncio.Semaphore(max_concurrent_requests)
-        
-        # A2A client components (initialized per evaluation)
-        self.httpx_client = None
-        self.a2a_client = None
+        # Initialize EvalClient for A2A communication
+        self.eval_client = EvalClient(
+            platform_engineer_url=platform_engineer_url,
+            timeout=timeout,
+            max_concurrent_requests=max_concurrent_requests
+        )
     
     async def run_dataset_evaluation(
         self,
@@ -66,8 +62,8 @@ class EvaluationRunner:
         try:
             logger.info(f"Starting evaluation run: {run_name}")
             
-            # Initialize A2A client
-            await self._initialize_a2a_client()
+            # Initialize EvalClient
+            await self.eval_client.initialize()
             
             # Process each dataset item
             for item in dataset.items:
@@ -92,37 +88,9 @@ class EvaluationRunner:
             logger.error(f"Evaluation run failed: {e}")
             raise
         finally:
-            # Clean up A2A client
-            if self.httpx_client:
-                await self.httpx_client.aclose()
+            # Clean up EvalClient
+            await self.eval_client.cleanup()
     
-    async def _initialize_a2a_client(self):
-        """Initialize A2A client for communicating with Platform Engineer."""
-        logger.info(f"Initializing A2A connection to Platform Engineer: {self.platform_engineer_url}")
-        
-        self.httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(self.timeout))
-        
-        try:
-            # Get Platform Engineer agent card
-            resolver = A2ACardResolver(
-                httpx_client=self.httpx_client,
-                base_url=self.platform_engineer_url
-            )
-            
-            agent_card = await resolver.get_agent_card()
-            logger.info(f"Connected to Platform Engineer: {agent_card.name}")
-            
-            # Create A2A client
-            # Note: A2A client prioritizes agent_card.url over the url parameter
-            # So we provide only the url parameter to override the localhost URL
-            self.a2a_client = A2AClient(
-                httpx_client=self.httpx_client,
-                url=self.platform_engineer_url  # Use correct URL for container communication
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize A2A client: {e}")
-            raise
     
     async def _evaluate_single_item(
         self,
@@ -130,7 +98,12 @@ class EvaluationRunner:
         evaluation_info: Dict[str, Any],
         config: Dict[str, Any]
     ):
-        """Evaluate a single dataset item using proper dataset run context."""
+        """
+        Evaluate a single dataset item using proper dataset run context.
+        
+        The dataset run trace_id is automatically propagated to the Platform Engineer,
+        creating a unified trace hierarchy: Dataset Run -> Platform Engineer -> Agents
+        """
         run_name = evaluation_info["run_name"]
         run_description = f"Platform Engineer evaluation run: {evaluation_info['dataset_name']}"
         run_metadata = {
@@ -151,11 +124,19 @@ class EvaluationRunner:
             dataset_item = self._parse_dataset_item(item)
             prompt = self._extract_prompt(dataset_item)
             
-            logger.info(f"Evaluating item {dataset_item.id}: trace_id={trace_id}")
+            logger.info(f"🔍 Dataset Run: Evaluating item {dataset_item.id} with trace_id={trace_id}")
+            logger.info(f"🔍 Dataset Run: This trace_id will be passed to Platform Engineer for hierarchical tracing")
             
             try:
-                # Send request to Platform Engineer
-                response_text = await self._send_to_platform_engineer(prompt, trace_id)
+                # Send request to Platform Engineer using EvalClient
+                # The trace_id is passed so Platform Engineer execution appears directly under dataset run
+                logger.info(f"🔍 Dataset Run: Sending request to Platform Engineer with trace_id={trace_id}")
+                
+                request = EvaluationRequest(prompt=prompt, trace_id=trace_id)
+                response = await self.eval_client.send_message(request)
+                response_text = response.response_text
+                
+                logger.info(f"🔍 Dataset Run: Platform Engineer execution completed under dataset run trace")
                 
                 # Update root span with input and output
                 root_span.update_trace(input=prompt, output=response_text)
@@ -171,21 +152,11 @@ class EvaluationRunner:
                     )
                 else:
                     logger.warning(f"Could not extract trajectory from trace {trace_id}")
-                    # Add a score indicating extraction failure
-                    root_span.score_trace(
-                        name="trajectory_extraction",
-                        value=0.0,
-                        comment="Failed to extract trajectory from trace"
-                    )
+                    # Skip scoring for extraction failures
                 
             except Exception as e:
                 logger.error(f"Failed to evaluate item {dataset_item.id}: {e}")
-                # Add error score
-                root_span.score_trace(
-                    name="evaluation_error",
-                    value=0.0,
-                    comment=f"Evaluation failed: {str(e)}"
-                )
+                # Skip scoring for evaluation failures
     
     def _parse_dataset_item(self, item: Any) -> DatasetItem:
         """Parse Langfuse dataset item into our DatasetItem model."""
@@ -244,44 +215,6 @@ class EvaluationRunner:
         # Fallback to first message
         return dataset_item.messages[0].content
     
-    async def _send_to_platform_engineer(self, prompt: str, trace_id: str) -> str:
-        """Send prompt to Platform Engineer and get response."""
-        # Rate limiting to prevent queue overload
-        async with self._request_semaphore:
-            try:
-                # Create a proper Message object with TextPart content
-                message = Message(
-                    message_id=str(uuid.uuid4()),
-                    role=Role.user,
-                    parts=[TextPart(text=prompt)],
-                    context_id=str(uuid.uuid4())
-                )
-                
-                # Create properly structured request
-                request = SendMessageRequest(
-                    id=str(uuid.uuid4()),
-                    params=MessageSendParams(
-                        message=message,
-                        metadata={"trace_id": trace_id} if trace_id else None
-                    )
-                )
-                
-                # Send message and get single response (not streaming)
-                response = await self.a2a_client.send_message(request)
-                
-                # Extract content from response
-                if hasattr(response, 'content'):
-                    return response.content
-                elif hasattr(response, 'message') and hasattr(response.message, 'content'):
-                    return response.message.content
-                elif isinstance(response, dict):
-                    return response.get('content', str(response))
-                else:
-                    return str(response)
-                
-            except Exception as e:
-                logger.error(f"Failed to send message to Platform Engineer: {e}")
-                return f"Error: {str(e)}"
     
     async def _run_evaluations(
         self,
@@ -301,21 +234,9 @@ class EvaluationRunner:
                     dataset_item_id=dataset_item.id
                 )
                 
-                # Add scores directly to root span (preferred method for dataset runs)
+                # Add only the overall score to root span
                 root_span.score_trace(
-                    name=f"{evaluator_name}_trajectory_score",
-                    value=result.trajectory_match_score,
-                    comment=f"Trajectory match score from {evaluator_name} evaluator"
-                )
-                
-                root_span.score_trace(
-                    name=f"{evaluator_name}_behavior_score", 
-                    value=result.behavior_match_score,
-                    comment=f"Behavior match score from {evaluator_name} evaluator"
-                )
-                
-                root_span.score_trace(
-                    name=f"{evaluator_name}_overall_score",
+                    name=f"{evaluator_name}_score",
                     value=result.overall_score,
                     comment=result.reasoning
                 )
@@ -324,12 +245,7 @@ class EvaluationRunner:
                 
             except Exception as e:
                 logger.error(f"Evaluation failed with {evaluator_name} evaluator: {e}")
-                # Add error score for this evaluator
-                root_span.score_trace(
-                    name=f"{evaluator_name}_error",
-                    value=0.0,
-                    comment=f"Evaluator {evaluator_name} failed: {str(e)}"
-                )
+                # Skip scoring for evaluator failures
 
 
 async def load_dataset_from_yaml(file_path: str) -> Dataset:
@@ -343,3 +259,4 @@ async def load_dataset_from_yaml(file_path: str) -> Dataset:
     except Exception as e:
         logger.error(f"Failed to load dataset from {file_path}: {e}")
         raise
+    
