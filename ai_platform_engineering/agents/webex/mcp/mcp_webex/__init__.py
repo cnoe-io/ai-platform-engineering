@@ -54,16 +54,24 @@ def main(
       port: Port to bind for SSE/HTTP transports.
       host: Host interface to bind.
     """
-    logging_level = logging.WARN
+    logging_level = logging.INFO  # Changed from WARN to INFO for better visibility
     if verbose == 1:
         logging_level = logging.INFO
     elif verbose >= 2:
         logging_level = logging.DEBUG
     logging.basicConfig(level=logging_level, stream=sys.stderr)
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"🚀 Starting Webex MCP Server")
+    logger.info(f"📡 Transport: {transport}")
+    logger.info(f"🌐 Host: {host}:{port}")
+    logger.info(f"🔑 Auth token configured: {'✅' if auth_token else '❌'}")
+    logger.info(f"📊 Log level: {logging.getLevelName(logging_level)}")
 
     # Map 'http' to FastMCP 'streamable-http' without mutating input param
     if transport == "http":
         selected_transport: RuntimeTransport = "streamable-http"
+        logger.info("🔄 Mapping 'http' transport to 'streamable-http'")
     else:
         selected_transport = transport  # type: ignore[assignment]
 
@@ -75,9 +83,11 @@ def main(
     if selected_transport not in allowed_transports:
         raise ValueError(f"Invalid transport: {selected_transport}")
 
-    log_levels: dict[int, LogLevel] = {0: "WARNING", 1: "INFO", 2: "DEBUG"}
-    log_level: LogLevel = log_levels.get(verbose, "WARNING")
+    log_levels: dict[int, LogLevel] = {0: "INFO", 1: "INFO", 2: "DEBUG"}  # Changed WARNING to INFO
+    log_level: LogLevel = log_levels.get(verbose, "INFO")
 
+    logger.info(f"🔧 Initializing FastMCP server with transport: {selected_transport}")
+    
     # Instantiate FastMCP server
     server = FastMCP(
         name="mcp-webex",
@@ -87,8 +97,11 @@ def main(
         log_level=log_level,
     )
 
+    logger.info("🛠️ Registering Webex tools...")
     register_tools(server, auth_token=auth_token)
+    logger.info("✅ Tools registered successfully")
 
+    logger.info(f"🎯 Starting server on {host}:{port} with transport {selected_transport}")
     # Run server with selected transport
     server.run(transport=selected_transport)
 
