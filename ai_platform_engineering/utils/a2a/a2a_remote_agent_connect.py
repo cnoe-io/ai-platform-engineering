@@ -13,10 +13,16 @@ from a2a.client import A2ACardResolver, A2AClient
 from a2a.types import (
     AgentCard,
     SendMessageRequest,
+    SendStreamingMessageRequest,
     MessageSendParams,
+    Message as A2AMessage,
+    Task as A2ATask,
+    TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
+    TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
 )
 
 from langchain_core.tools import BaseTool
+from langgraph.config import get_stream_writer
 
 from ai_platform_engineering.utils.models.generic_agent import Output
 from cnoe_agent_utils.tracing import TracingManager
@@ -146,38 +152,105 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
   async def _arun(self, prompt: str, trace_id: Optional[str] = None) -> Any:
     """
-    Asynchronously sends a prompt to the A2A agent and returns the response.
-
-    Args:
-      prompt (str): The prompt to send to the agent.
-      trace_id (Optional[str]): Optional trace ID for distributed tracing.
-
-    Returns:
-      Output: The response from the agent.
+    Asynchronously sends a prompt to the A2A agent and returns the response via streaming.
+    Streams A2A events (Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent) using get_stream_writer.
     """
     try:
-      logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
-      if not prompt:
-        logger.error("Invalid input: Prompt must be a non-empty string.")
-        raise ValueError("Invalid input: Prompt must be a non-empty string.")
-      
-      # Use provided trace_id or try to get from TracingManager context
-      if trace_id:
-          logger.info(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
-      else:
-          # Get from TracingManager context - this is set by the trace decorator
-          tracing = TracingManager()
-          trace_id = tracing.get_trace_id() if tracing.is_enabled else None
-          if trace_id:
-              logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
-          else:
-              logger.warning("A2ARemoteAgentConnectTool: No trace_id available from any source")
-      
-      response = await self.send_message(prompt, trace_id)
-      return Output(response=response)
+        logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
+        if not prompt:
+            logger.error("Invalid input: Prompt must be a non-empty string.")
+            raise ValueError("Invalid input: Prompt must be a non-empty string.")
+
+        # Use provided trace_id or try to get from TracingManager context
+        if trace_id:
+            logger.info(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
+        else:
+            tracing = TracingManager()
+            trace_id = tracing.get_trace_id() if tracing.is_enabled else None
+            if trace_id:
+                logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
+            else:
+                logger.warning("A2ARemoteAgentConnectTool: No trace_id available from any source")
+
+        if self._client is None:
+            logger.info("A2AClient not initialized. Connecting now...")
+            await self.connect()
+
+        # Build message payload with optional trace_id in metadata
+        message_payload: dict[str, Any] = {
+            "message": {
+                "role": "user",
+                "parts": [{"kind": "text", "text": prompt}],
+                "message_id": uuid4().hex,
+            }
+        }
+        if trace_id:
+            message_payload["message"]["metadata"] = {"trace_id": trace_id}
+            logger.info(f"Adding trace_id to A2A message: {trace_id}")
+
+        # Create streaming request
+        streaming_request = SendStreamingMessageRequest(
+            id=str(uuid4()),
+            params=MessageSendParams(**message_payload),
+        )
+
+        # Prepare stream writer
+        writer = get_stream_writer()
+        writer({"type": "progress", "data": "Connecting to A2A and starting stream..."})
+        logger.info("Starting A2A streaming send_message.")
+
+        accumulated_text: list[str] = []
+
+        async for chunk in self._client.send_message_streaming(streaming_request):
+            try:
+                chunk_dump = chunk.model_dump(mode="json", exclude_none=True)
+            except Exception:
+                chunk_dump = str(chunk)
+
+            logger.info(f"Received A2A stream chunk: {chunk_dump}")
+            writer({"type": "a2a_event", "data": chunk_dump})
+
+            try:
+                if isinstance(chunk, A2ATaskArtifactUpdateEvent):
+                    art = chunk.artifact
+                    if getattr(art, "parts", None):
+                        for part in art.parts:
+                            root = getattr(part, "root", None)
+                            text = getattr(root, "text", None) if root is not None else None
+                            if text:
+                                accumulated_text.append(text)
+                elif isinstance(chunk, A2ATaskStatusUpdateEvent):
+                    status_msg = getattr(chunk.status, "message", None)
+                    if status_msg and getattr(status_msg, "parts", None):
+                        for part in status_msg.parts:
+                            root = getattr(part, "root", None)
+                            text = getattr(root, "text", None) if root is not None else None
+                            if text:
+                                writer({"type": "progress", "data": text})
+                elif isinstance(chunk, A2AMessage):
+                    parts = getattr(chunk, "parts", None)
+                    if parts:
+                        for part in parts:
+                            root = getattr(part, "root", None)
+                            text = getattr(root, "text", None) if root is not None else None
+                            if text:
+                                writer({"type": "progress", "data": text})
+                elif isinstance(chunk, A2ATask):
+                    writer({"type": "progress", "data": f"Task created: {getattr(chunk, 'id', '')}"})
+            except Exception as e:
+                logger.warning(f"Non-fatal error while handling stream chunk: {e}")
+
+        writer({"type": "progress", "data": "A2A stream complete."})
+        final_response = " ".join(accumulated_text).strip()
+        if not final_response:
+            logger.info("No accumulated artifact text; falling back to non-streaming send_message to get result.")
+            final_response = await self.send_message(prompt, trace_id)
+
+        return Output(response=final_response)
+
     except Exception as e:
-      logger.error(f"Failed to execute A2A client tool: {str(e)}")
-      raise RuntimeError(f"Failed to execute A2A client tool: {str(e)}")
+        logger.error(f"Failed to execute A2A client tool via streaming: {str(e)}")
+        raise RuntimeError(f"Failed to execute A2A client tool: {str(e)}")
 
   async def send_message(self, prompt: str, trace_id: str = None) -> str:
     """
