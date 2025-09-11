@@ -34,7 +34,7 @@ from langchain_anthropic import ChatAnthropic
 
 from models.dataset import WebhookPayload, EvaluationStatus
 from trace_analysis import TraceExtractor
-from evaluators import SimpleTrajectoryEvaluator, LLMTrajectoryEvaluator
+from evaluators import TrajectoryLLMEvaluator
 from runner import EvaluationRunner
 
 logger = logging.getLogger(__name__)
@@ -101,12 +101,10 @@ class LangfuseWebhookService:
             try:
                 return ChatOpenAI(
                     api_key=self.config['azure_openai_api_key'],
-                    model="gpt-4",
-                    model_kwargs={
-                        "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT"),
-                        "azure_deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
-                        "api_version": os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
-                    }
+                    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
+                    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+                    model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4")
                 )
             except Exception as e:
                 logger.warning(f"Failed to initialize Azure OpenAI: {e}")
@@ -126,12 +124,8 @@ class LangfuseWebhookService:
         """Initialize evaluators."""
         evaluators = {}
         
-        # Only use LLM evaluator
-        if self.llm:
-            evaluators['llm'] = LLMTrajectoryEvaluator(self.llm)
-        else:
-            logger.warning("No LLM configured, falling back to simple evaluator")
-            evaluators['simple'] = SimpleTrajectoryEvaluator()
+        # Use trajectory LLM evaluator (handles both simple and LLM modes)
+        evaluators['trajectory_llm'] = TrajectoryLLMEvaluator(self.llm)
         
         return evaluators
     

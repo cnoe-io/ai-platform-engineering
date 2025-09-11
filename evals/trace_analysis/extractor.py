@@ -30,13 +30,31 @@ class TraceExtractor:
         try:
             logger.info(f"Extracting trajectory from trace: {trace_id}")
             
-            # Note: fetch_trace method doesn't exist in current Langfuse SDK
-            # For now, create a placeholder trajectory - this would need to be
-            # replaced with proper trace fetching when the SDK supports it
-            logger.warning(f"Trace fetching not implemented - creating placeholder trajectory for {trace_id}")
+            # Fetch trace using Langfuse API
+            trace = self.langfuse.api.trace.get(trace_id)
+            if not trace:
+                logger.warning(f"Trace {trace_id} not found")
+                return None
             
-            # Create empty trajectory as fallback
-            tool_calls = []
+            logger.info(f"Successfully fetched trace {trace_id}")
+            
+            # Extract tool calls from the trace
+            tool_calls = self._extract_tool_calls(trace)
+            
+            # Also fetch observations for this trace to get more detailed tool calls
+            try:
+                observations = self.langfuse.api.observations.get_many(trace_id=trace_id)
+                if observations and hasattr(observations, 'data'):
+                    for obs in observations.data:
+                        tool_call = self._extract_from_observation(obs)
+                        if tool_call:
+                            tool_calls.append(tool_call)
+            except Exception as e:
+                logger.warning(f"Failed to fetch observations for trace {trace_id}: {e}")
+            
+            # Remove duplicates and sort by timestamp
+            tool_calls = self._deduplicate_tool_calls(tool_calls)
+            tool_calls.sort(key=lambda x: x.timestamp or datetime.min)
             
             # Build trajectory
             trajectory = Trajectory(
@@ -44,7 +62,7 @@ class TraceExtractor:
                 tool_calls=tool_calls
             )
             
-            logger.info(f"Created placeholder trajectory with {len(tool_calls)} tool calls for trace {trace_id}")
+            logger.info(f"Extracted trajectory with {len(tool_calls)} tool calls for trace {trace_id}")
             return trajectory
             
         except Exception as e:
@@ -230,3 +248,23 @@ class TraceExtractor:
         
         # Default to tool name if no pattern matches
         return tool_name.lower().replace('_', '-')
+    
+    def _deduplicate_tool_calls(self, tool_calls: List[ToolCall]) -> List[ToolCall]:
+        """Remove duplicate tool calls based on agent, tool, and timestamp."""
+        seen = set()
+        unique_calls = []
+        
+        for call in tool_calls:
+            # Create a key based on agent, tool, timestamp, and parameters
+            key = (
+                call.agent_name,
+                call.tool_name,
+                call.timestamp,
+                str(call.parameters) if call.parameters else None
+            )
+            
+            if key not in seen:
+                seen.add(key)
+                unique_calls.append(call)
+        
+        return unique_calls
