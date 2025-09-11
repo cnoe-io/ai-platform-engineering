@@ -62,7 +62,7 @@ def main(
     logging.basicConfig(level=logging_level, stream=sys.stderr)
     
     logger = logging.getLogger(__name__)
-    logger.info(f"🚀 Starting Webex MCP Server")
+    logger.info("🚀 Starting Webex MCP Server")
     logger.info(f"📡 Transport: {transport}")
     logger.info(f"🌐 Host: {host}:{port}")
     logger.info(f"🔑 Auth token configured: {'✅' if auth_token else '❌'}")
