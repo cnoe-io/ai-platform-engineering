@@ -34,7 +34,7 @@ from langchain_anthropic import ChatAnthropic
 
 from models.dataset import WebhookPayload, EvaluationStatus
 from trace_analysis import TraceExtractor
-from evaluators import TrajectoryLLMEvaluator
+from evaluators import ToolCallEvaluator
 from runner import EvaluationRunner
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ class LangfuseWebhookService:
             'langfuse_host': os.getenv("LANGFUSE_HOST", "http://langfuse-web:3000"),
             'langfuse_public_key': os.getenv("LANGFUSE_PUBLIC_KEY"),
             'langfuse_secret_key': os.getenv("LANGFUSE_SECRET_KEY"),
-            'azure_openai_api_key': os.getenv("AZURE_OPENAI_API_KEY"),
+            'openai_api_key': os.getenv("OPENAI_API_KEY"),
             'anthropic_api_key': os.getenv("ANTHROPIC_API_KEY")
         }
     
@@ -97,17 +97,15 @@ class LangfuseWebhookService:
     
     def _init_llm(self):
         """Initialize LLM for evaluation."""
-        if self.config['azure_openai_api_key']:
+        if self.config['openai_api_key']:
             try:
                 return ChatOpenAI(
-                    api_key=self.config['azure_openai_api_key'],
-                    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-                    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4"),
-                    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
-                    model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4")
+                    api_key=self.config['openai_api_key'],
+                    model=os.getenv("OPENAI_MODEL_NAME", "gpt-4"),
+                    base_url=os.getenv("OPENAI_ENDPOINT", "https://api.openai.com/v1")
                 )
             except Exception as e:
-                logger.warning(f"Failed to initialize Azure OpenAI: {e}")
+                logger.warning(f"Failed to initialize OpenAI: {e}")
 
         if self.config['anthropic_api_key']:
             try:
@@ -124,8 +122,8 @@ class LangfuseWebhookService:
         """Initialize evaluators."""
         evaluators = {}
         
-        # Use trajectory LLM evaluator (handles both simple and LLM modes)
-        evaluators['trajectory_llm'] = TrajectoryLLMEvaluator(self.llm)
+        # Use tool call evaluator (provides both trajectory and behavior scores)
+        evaluators['tool_call'] = ToolCallEvaluator(self.llm)
         
         return evaluators
     

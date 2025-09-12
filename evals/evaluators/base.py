@@ -14,6 +14,7 @@ class BaseEvaluator(ABC):
     async def evaluate(
         self,
         trajectory: Trajectory,
+        prompt: str,
         expected_agents: List[str],
         expected_behavior: str,
         dataset_item_id: str
@@ -23,7 +24,8 @@ class BaseEvaluator(ABC):
         
         Args:
             trajectory: The actual trajectory to evaluate
-            expected_agents: List of expected agent names
+            prompt: The original task prompt/description from dataset
+            expected_agents: List of expected agent names (optional, can be inferred)
             expected_behavior: Description of expected behavior
             dataset_item_id: ID of the dataset item being evaluated
             
