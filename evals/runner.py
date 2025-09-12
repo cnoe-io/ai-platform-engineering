@@ -227,17 +227,27 @@ class EvaluationRunner:
             try:
                 logger.info(f"Running {evaluator_name} evaluator for item {dataset_item.id}")
                 
+                # Extract prompt from dataset item
+                prompt = self._extract_prompt(dataset_item)
+                
                 result = await evaluator.evaluate(
                     trajectory=trajectory,
+                    prompt=prompt,
                     expected_agents=dataset_item.expected_agents,
                     expected_behavior=dataset_item.expected_behavior,
                     dataset_item_id=dataset_item.id
                 )
                 
-                # Add only the overall score to root span
+                # Add both individual scores to root span
                 root_span.score_trace(
-                    name=f"{evaluator_name}_score",
-                    value=result.overall_score,
+                    name="agent_match_score",
+                    value=result.trajectory_match_score,
+                    comment=f"Agent matching score: {result.trajectory_match_score:.2f}"
+                )
+                
+                root_span.score_trace(
+                    name="tool_call_analysis_score", 
+                    value=result.behavior_match_score,
                     comment=result.reasoning
                 )
                 

@@ -1,5 +1,5 @@
 """
-Trajectory LLM evaluator that combines simple agent matching with optional LLM-based behavior analysis.
+Tool call evaluator that combines simple agent matching with optional LLM-based behavior analysis.
 """
 import json
 import logging
@@ -14,9 +14,9 @@ from models.trajectory import Trajectory, EvaluationResult
 logger = logging.getLogger(__name__)
 
 
-class TrajectoryLLMEvaluator(BaseEvaluator):
+class ToolCallEvaluator(BaseEvaluator):
     """
-    Trajectory LLM evaluator that always provides simple agent matching with optional LLM enhancement.
+    Tool call evaluator that provides agent matching with LLM-based behavior analysis.
     
     Features:
     - Always calculates trajectory score based on agent matching (fast, reliable baseline)
@@ -27,7 +27,7 @@ class TrajectoryLLMEvaluator(BaseEvaluator):
     
     def __init__(self, llm: Optional[BaseLanguageModel] = None):
         """
-        Initialize the trajectory LLM evaluator.
+        Initialize the tool call evaluator.
         
         Args:
             llm: Optional language model for enhanced behavior analysis.
@@ -37,14 +37,15 @@ class TrajectoryLLMEvaluator(BaseEvaluator):
         self.evaluation_prompt = self._create_evaluation_prompt() if llm else None
         
         if llm:
-            logger.info("Trajectory LLM evaluator initialized with LLM enhancement enabled")
+            logger.info("Tool call evaluator initialized with LLM enhancement enabled")
         else:
-            logger.info("Trajectory LLM evaluator initialized with simple agent matching only")
+            logger.info("Tool call evaluator initialized with simple agent matching only")
     
     async def evaluate(
         self,
         trajectory: Trajectory,
-    expected_agents: List[str],
+        prompt: str,
+        expected_agents: List[str],
         expected_behavior: str,
         dataset_item_id: str
     ) -> EvaluationResult:
@@ -60,7 +61,14 @@ class TrajectoryLLMEvaluator(BaseEvaluator):
         Gracefully falls back to simple evaluation if LLM fails.
         """
         try:
-            logger.info(f"Trajectory LLM evaluator processing item {dataset_item_id}")
+            logger.info(f"Tool call evaluator processing item {dataset_item_id}")
+            
+            # Infer expected agents if not provided
+            was_inferred = False
+            if not expected_agents:
+                expected_agents = self._infer_expected_agents(prompt)
+                was_inferred = True
+                logger.info(f"Inferred agents from prompt: {expected_agents}")
             
             # Always calculate trajectory score (agent matching) - this is our reliable baseline
             trajectory_score = self._calculate_agent_match_score(
@@ -77,11 +85,11 @@ class TrajectoryLLMEvaluator(BaseEvaluator):
             final_reasoning = base_reasoning
             
             # Try to enhance with LLM analysis if available
-            if self.llm and expected_behavior.strip():
+            if self.llm:
                 try:
-                    logger.info(f"Enhancing evaluation with LLM analysis for item {dataset_item_id}")
-                    llm_result = await self._perform_llm_analysis(
-                        trajectory, expected_agents, expected_behavior
+                    logger.info(f"Enhancing evaluation with LLM behavioral analysis for item {dataset_item_id}")
+                    llm_result = await self._perform_behavior_analysis(
+                        trajectory, prompt, expected_behavior
                     )
                     
                     behavior_score = llm_result["behavior_score"]
@@ -122,20 +130,27 @@ class TrajectoryLLMEvaluator(BaseEvaluator):
                 error_message=str(e)
             )
     
-    async def _perform_llm_analysis(
+    def _infer_expected_agents(self, prompt: str) -> List[str]:
+        """Infer expected agents from prompt text using pattern matching."""
+        # Import pattern from simple evaluator to maintain consistency
+        from evaluators.agent_match_evaluator import AgentMatchEvaluator
+        temp_evaluator = AgentMatchEvaluator()
+        return temp_evaluator._infer_expected_agents(prompt)
+    
+    async def _perform_behavior_analysis(
         self,
         trajectory: Trajectory,
-        expected_agents: List[str],
+        prompt: str,
         expected_behavior: str
     ) -> Dict[str, Any]:
         """Perform LLM-based behavior analysis."""
         # Format trajectory for LLM analysis
         trajectory_summary = self._format_trajectory(trajectory)
         
-        # Create evaluation prompt
+        # Create evaluation prompt focused on behavior
         prompt_input = {
-            "expected_behavior": expected_behavior,
-            "expected_agents": expected_agents,
+            "task_prompt": prompt,
+            "expected_behavior": expected_behavior or "No specific behavior expectations provided",
             "trajectory_summary": trajectory_summary,
             "actual_agents": trajectory.agents_used
         }
@@ -252,37 +267,42 @@ class TrajectoryLLMEvaluator(BaseEvaluator):
         return "\n".join(analysis_parts)
     
     def _create_evaluation_prompt(self) -> ChatPromptTemplate:
-        """Create the LLM evaluation prompt template."""
+        """Create the LLM evaluation prompt template focused on behavioral analysis."""
         
-        template = """You are evaluating whether an AI system's actual behavior matches the expected behavior for a multi-agent task.
+        template = """You are evaluating the execution behavior of a multi-agent system task.
 
-Expected Behavior:
+Original Task Request:
+{task_prompt}
+
+Expected Behavior (if specified):
 {expected_behavior}
-
-Expected Agents: {expected_agents}
 
 Actual Agents Used: {actual_agents}
 
-Actual Trajectory (what actually happened):
+Actual Execution Trace:
 {trajectory_summary}
 
-Please evaluate how well the actual trajectory matches the expected behavior. Consider:
-1. Were the expected agents used?
-2. Did the agents perform the expected actions?
-3. Was the sequence/order appropriate?
-4. Were any important steps missing?
-5. Were there any unexpected or unnecessary actions?
+Evaluate the behavioral aspects of this execution:
+
+1. **Task Completion**: Was the requested task fully completed?
+2. **Execution Logic**: Does the sequence of actions make logical sense?
+3. **Data Flow**: Was data properly passed between agents/steps?
+4. **Efficiency**: Could the task be completed more efficiently?
+5. **Error Handling**: Were any errors handled appropriately?
+6. **User Intent**: Did the execution align with what the user actually wanted?
 
 Provide your evaluation in this exact JSON format:
 {{
     "behavior_score": <float between 0.0 and 1.0>,
-    "reasoning": "<detailed explanation of your evaluation>",
-    "missing_steps": ["<list of missing expected steps>"],
-    "unexpected_actions": ["<list of unexpected actions taken>"],
-    "sequence_issues": "<any issues with the order of actions>"
+    "task_completion_score": <float between 0.0 and 1.0>,
+    "logic_score": <float between 0.0 and 1.0>,
+    "efficiency_score": <float between 0.0 and 1.0>,
+    "reasoning": "<detailed explanation focusing on behavioral aspects>",
+    "issues_found": ["<list of behavioral issues identified>"],
+    "improvements": ["<suggested behavioral improvements>"]
 }}
 
-Make sure your response is valid JSON."""
+Focus on behavior and execution quality, not just agent selection. Make sure your response is valid JSON."""
         
         return ChatPromptTemplate.from_template(template)
     
@@ -365,7 +385,20 @@ Make sure your response is valid JSON."""
                 
                 # Provide default reasoning if missing
                 if "reasoning" not in evaluation_data:
-                    evaluation_data["reasoning"] = "LLM evaluation completed"
+                    evaluation_data["reasoning"] = "LLM behavioral evaluation completed"
+                
+                # Extract overall behavior score or compute from components
+                if "behavior_score" not in evaluation_data:
+                    # Try to compute from component scores
+                    component_scores = []
+                    for score_key in ["task_completion_score", "logic_score", "efficiency_score"]:
+                        if score_key in evaluation_data:
+                            component_scores.append(evaluation_data[score_key])
+                    
+                    if component_scores:
+                        evaluation_data["behavior_score"] = sum(component_scores) / len(component_scores)
+                    else:
+                        evaluation_data["behavior_score"] = 0.5  # Default middle score
                 
                 return evaluation_data
             else:
