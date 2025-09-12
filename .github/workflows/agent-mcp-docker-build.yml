@@ -20,7 +20,7 @@ jobs:
 
     strategy:
       matrix:
-        agent: [argocd, backstage, confluence, jira, komodor, pagerduty, slack, splunk]
+        agent: [argocd, backstage, confluence, jira, komodor, pagerduty, slack, splunk, webex]
       fail-fast: false
 
     env:

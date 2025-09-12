@@ -12,6 +12,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
   actions: read
 
 jobs:
@@ -133,6 +134,7 @@ jobs:
           npm install xml2js
 
       - name: Comment PR with coverage
+        if: github.event_name == 'pull_request' && github.event.pull_request.number
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -278,9 +280,31 @@ jobs:
 
             coverageSummary += '- **Download artifacts** to view detailed HTML coverage reports\n';
 
+            // Debug context information
+            console.log('Event name:', context.eventName);
+            console.log('Issue number:', context.issue.number);
+            console.log('PR number:', context.payload.pull_request?.number);
+            console.log('Event type:', typeof context.payload);
+            
+            // Only proceed if this is actually a pull request
+            if (context.eventName !== 'pull_request' || !context.payload.pull_request) {
+              console.log('Not a pull request event, skipping comment');
+              return;
+            }
+            
+            // Use PR number from payload
+            const issueNumber = context.payload.pull_request.number;
+            
+            console.log('Using PR number:', issueNumber);
+            
+            if (!issueNumber) {
+              console.log('No PR number available, skipping comment');
+              return;
+            }
+
             // Post comment to PR
             github.rest.issues.createComment({
-              issue_number: context.issue.number,
+              issue_number: issueNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: coverageSummary
