@@ -151,7 +151,7 @@ class RAGAgent:
             connections.connect(alias="default", **self.milvus_conn)
             
             # Get collection name from environment (must be set)
-            self.collection_name = os.environ.get('VSTORE_COLLECTION', 'rag_default')
+            self.collection_name = os.environ.get('VSTORE_COLLECTION', 'rag_unified')
             logger.info(f"Using collection '{self.collection_name}'")
             
             # Reranking configuration
