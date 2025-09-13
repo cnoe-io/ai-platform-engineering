@@ -25,6 +25,9 @@ class Loader:
         self.redis_client = redis_client
         self.chunk_size = 10000
         self.chunk_overlap = 2000
+        
+        # ID tracking for unified collection
+        self.current_source_id = None
 
         # Batch size for URL processing (configurable via environment variable)
         self.batch_size = int(os.getenv("URL_BATCH_SIZE", "5"))
@@ -275,20 +278,41 @@ class Loader:
 
     async def process_document(self, doc: Document, job_id: Optional[str] = None):
         """
-        Process a document, splitting into chunks if necessary.
+        Process a document, splitting into chunks if necessary, with proper ID management.
         """
-        self.logger.info(f"Processing document: {doc}")
+        if not self.current_source_id:
+            self.logger.error("No current_source_id set for document processing")
+            return
+
         source = doc.metadata.get("source", None)
         content = doc.page_content
 
         self.logger.info(f"Processing document: {source} ({len(content)} characters)")
 
+        # Generate document ID
+        from server.rag_api import generate_document_id, generate_chunk_id, store_document_info, store_chunk_info, DocumentInfo, ChunkInfo
+        document_id = generate_document_id(self.current_source_id, source)
+        
+        # Store document info in Redis
+        current_time = datetime.datetime.now(datetime.timezone.utc)
+        document_info = DocumentInfo(
+            document_id=document_id,
+            source_id=self.current_source_id,
+            url=source,
+            title=doc.metadata.get("title", ""),
+            description=doc.metadata.get("description", ""),
+            content_length=len(content),
+            created_at=current_time,
+            metadata=doc.metadata
+        )
+
         # Check if document needs chunking
         if len(content) > self.chunk_size:
-            self.logger.info("Document exceeds 10,000 characters, splitting into chunks using RecursiveCharacterTextSplitter")
+            self.logger.info("Document exceeds chunk size, splitting into chunks using RecursiveCharacterTextSplitter")
 
             # Use LangChain's RecursiveCharacterTextSplitter
             chunk_docs = self.text_splitter.split_documents([doc])
+            document_info.chunk_count = len(chunk_docs)
 
             self.logger.info(f"Length of chunk_docs: {len(chunk_docs)}")
 
@@ -297,34 +321,87 @@ class Loader:
                 progress={"message": f"Splitting page into {len(chunk_docs)} chunks..."}
             )
 
-            # Add chunk metadata to each chunk
+            # Process each chunk with proper ID management
             for i, chunk_doc in enumerate(chunk_docs):
-                chunk_doc.metadata["chunk_index"] = i
-                chunk_doc.metadata["total_chunks"] = len(chunk_docs)
-                chunk_doc.metadata["chunk_id"] = f"{doc.id}_chunk_{i}" if doc.id else f"{uuid.uuid4().hex}_chunk_{i}"
-                # Ensure each chunk has a unique ID
-                if not hasattr(chunk_doc, 'id') or not chunk_doc.id:
-                    chunk_doc.id = f"{doc.id}_chunk_{i}" if doc.id else uuid.uuid4().hex
+                chunk_id = generate_chunk_id(document_id, i)
+                
+                # Add comprehensive metadata to each chunk
+                chunk_doc.metadata.update({
+                    "source_id": self.current_source_id,
+                    "document_id": document_id,
+                    "chunk_id": chunk_id,
+                    "chunk_index": i,
+                    "total_chunks": len(chunk_docs),
+                    "source": source
+                })
+                
+                # Set document ID for vector store
+                chunk_doc.id = chunk_id
 
             await self.update_job_progress(job_id,
                 status="in_progress",
                 progress={"message": f"Adding {len(chunk_docs)} document chunks to vector store..."}
             )
+            
+            # Add chunks to vector store
             self.logger.info(f"Split document into {len(chunk_docs)} chunks for: {source}")
-            doc_ids = await self.vstore.aadd_documents(chunk_docs)
-            self.logger.info(f"Added {len(doc_ids)} document chunks to vector store")
+            vector_ids = await self.vstore.aadd_documents(chunk_docs)
+            self.logger.info(f"Added {len(vector_ids)} document chunks to vector store")
+            
+            # Store chunk info in Redis
+            for i, (chunk_doc, vector_id) in enumerate(zip(chunk_docs, vector_ids)):
+                chunk_id = generate_chunk_id(document_id, i)
+                chunk_info = ChunkInfo(
+                    chunk_id=chunk_id,
+                    document_id=document_id,
+                    source_id=self.current_source_id,
+                    chunk_index=i,
+                    content_length=len(chunk_doc.page_content),
+                    vector_id=str(vector_id),
+                    created_at=current_time
+                )
+                if self.redis_client:
+                    await store_chunk_info(chunk_info)
+            
         else:
-            # Process as single document
+            # Process as single document (one chunk)
             self.logger.info(f"Embedding & adding document: {source}")
+            document_info.chunk_count = 1
+            
+            chunk_id = generate_chunk_id(document_id, 0)
+            
+            # Add metadata for single chunk
+            doc.metadata.update({
+                "source_id": self.current_source_id,
+                "document_id": document_id,
+                "chunk_id": chunk_id,
+                "chunk_index": 0,
+                "total_chunks": 1,
+                "source": source
+            })
+            
+            # Set document ID for vector store
+            doc.id = chunk_id
+            
+            vector_ids = await self.vstore.aadd_documents([doc])
+            self.logger.info(f"Document added to vector store: {vector_ids}")
+            
+            # Store chunk info in Redis
+            chunk_info = ChunkInfo(
+                chunk_id=chunk_id,
+                document_id=document_id,
+                source_id=self.current_source_id,
+                chunk_index=0,
+                content_length=len(content),
+                vector_id=str(vector_ids[0]) if vector_ids else None,
+                created_at=current_time
+            )
+            if self.redis_client:
+                await store_chunk_info(chunk_info)
 
-            # Add these to maintian consistency with chunked documents
-            doc.metadata["chunk_index"] = 0
-            doc.metadata["total_chunks"] = 1
-            doc.metadata["chunk_id"] = f"{doc.id}_chunk_0" if doc.id else f"{uuid.uuid4().hex}_chunk_0"
-            doc_ids = await self.vstore.aadd_documents([doc])
-            self.logger.info(f"Document added to vector store: {doc_ids}")
-
-        # TODO: Return document_id for tracking
+        # Store document info in Redis
+        if self.redis_client:
+            await store_document_info(document_info)
 
     async def get_urls_from_sitemap(self, sitemap_url: str) -> List[str]:
         """
