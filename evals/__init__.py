@@ -21,7 +21,7 @@ Usage:
 """
 
 from .models import Dataset, DatasetItem, Message, ToolCall, Trajectory, EvaluationResult
-from .evaluators import AgentMatchEvaluator, ToolCallEvaluator
+from .evaluators import RoutingEvaluator
 from .trace_analysis import TraceExtractor
 from .runner import EvaluationRunner, load_dataset_from_yaml
 
@@ -30,12 +30,11 @@ __version__ = "1.0.0"
 __all__ = [
     'Dataset',
     'DatasetItem',
-    'Message', 
+    'Message',
     'ToolCall',
     'Trajectory',
     'EvaluationResult',
-    'AgentMatchEvaluator',
-    'ToolCallEvaluator',
+    'RoutingEvaluator',
     'TraceExtractor',
     'EvaluationRunner',
     'load_dataset_from_yaml'

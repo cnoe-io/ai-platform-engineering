@@ -33,8 +33,9 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 
 from models.dataset import WebhookPayload, EvaluationStatus
+from models.evaluation import EvaluationResult
 from trace_analysis import TraceExtractor
-from evaluators import ToolCallEvaluator
+from evaluators import RoutingEvaluator
 from runner import EvaluationRunner
 
 logger = logging.getLogger(__name__)
@@ -121,10 +122,16 @@ class LangfuseWebhookService:
     def _init_evaluators(self) -> Dict[str, Any]:
         """Initialize evaluators."""
         evaluators = {}
-        
-        # Use tool call evaluator (provides both trajectory and behavior scores)
-        evaluators['tool_call'] = ToolCallEvaluator(self.llm)
-        
+
+        # Use routing evaluator (provides routing and tool match scores)
+        if self.trace_extractor:
+            evaluators['routing'] = RoutingEvaluator(
+                trace_extractor=self.trace_extractor,
+                openai_api_key=self.config.get('openai_api_key')
+            )
+        else:
+            logger.warning("TraceExtractor not available, routing evaluator not initialized")
+
         return evaluators
     
     async def handle_webhook(self, payload: WebhookPayload) -> EvaluationStatus:
@@ -298,7 +305,7 @@ async def trigger_evaluation(
 ):
     """
     Trigger dataset evaluation from Langfuse UI.
-    
+
     This endpoint receives webhook triggers from Langfuse when an evaluation
     is requested through the UI. It starts the evaluation process in the background.
     """
