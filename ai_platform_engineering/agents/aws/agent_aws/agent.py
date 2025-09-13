@@ -3,7 +3,7 @@
 
 import logging
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 
 from mcp import stdio_client, StdioServerParameters
 from strands import Agent
@@ -33,48 +33,53 @@ class AWSAgent:
         self.config = config or AgentConfig.from_env()
         self.state = ConversationState()
         self._agent = None
-        self._mcp_client = None
-        self._mcp_context = None
-        self._tools = None
-        
+        # Support multiple MCP servers
+        self._mcp_clients = []  # type: List[MCPClient]
+        self._mcp_contexts = []  # type: List[Any]
+        self._tools = []  # type: List[Any]
+
         # Set up logging
         log_level = self.config.log_level
         logging.getLogger("strands").setLevel(getattr(logging, log_level, logging.INFO))
         config_str = f"model_provider={self.config.model_provider}, model_name={self.config.model_name}"
         logger.info(f"Initialized AWS Agent with config: {config_str}")
-        
-        # Initialize MCP client and agent on first use
+
+        # Initialize MCP clients and agent on first use
         self._initialize_mcp_and_agent()
         
-    def _create_mcp_client(self) -> MCPClient:
-        """Create and configure MCP clients based on enabled features."""
+    def _create_mcp_clients(self) -> List[Tuple[str, MCPClient]]:
+        """Create and configure MCP clients based on enabled features.
+
+        Returns:
+            List of tuples containing (name, MCPClient)
+        """
         import platform
-        
-        # Check which MCP servers are enabled
+
         enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
-        enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
-        
-        # Common environment variables for all platforms
+        enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "true").lower() == "true"
+        enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "true").lower() == "true"
+
+        logger.info(f"MCP Configuration - EKS: {enable_eks_mcp}, Cost Explorer: {enable_cost_explorer_mcp}, IAM: {enable_iam_mcp}")
+        logger.info(f"Environment Variables - ENABLE_EKS_MCP: {os.getenv('ENABLE_EKS_MCP')}, ENABLE_COST_EXPLORER_MCP: {os.getenv('ENABLE_COST_EXPLORER_MCP')}, ENABLE_IAM_MCP: {os.getenv('ENABLE_IAM_MCP')}")
+
         env_vars = {
-            "AWS_REGION": os.getenv("AWS_REGION", "us-west-2"),
+            "AWS_REGION": os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-west-2")),
             "FASTMCP_LOG_LEVEL": os.getenv("FASTMCP_LOG_LEVEL", "ERROR"),
         }
-        
-        # Add AWS credentials if they exist
-        for env_var in ["AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]:
+
+        # Pass through relevant AWS auth env vars if set
+        for env_var in ["AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]:
             if os.getenv(env_var):
                 env_vars[env_var] = os.getenv(env_var)
-        
-        # Platform-specific command configuration
+
         system = platform.system().lower()
-        
-        # Create MCP clients based on enabled features
-        mcp_clients = []
-        
+        clients: List[Tuple[str, MCPClient]] = []
+
         if enable_eks_mcp:
+            logger.info("Creating EKS MCP client...")
             if system == "windows":
                 eks_command_args = [
-                    "--from", "awslabs.eks-mcp-server@latest", 
+                    "--from", "awslabs.eks-mcp-server@latest",
                     "awslabs.eks-mcp-server.exe",
                     "--allow-write", "--allow-sensitive-data-access"
                 ]
@@ -83,7 +88,6 @@ class AWSAgent:
                     "awslabs.eks-mcp-server@latest",
                     "--allow-write", "--allow-sensitive-data-access"
                 ]
-            
             eks_client = MCPClient(lambda: stdio_client(
                 StdioServerParameters(
                     command="uvx",
@@ -91,55 +95,96 @@ class AWSAgent:
                     env=env_vars
                 )
             ))
-            mcp_clients.append(("eks", eks_client))
-        
+            clients.append(("eks", eks_client))
+
         if enable_cost_explorer_mcp:
+            logger.info("Creating Cost Explorer MCP client...")
+            # Correct package/command name per official docs
             if system == "windows":
                 cost_command_args = [
-                    "--from", "mcp-cost-analyzer@latest",
-                    "mcp-cost-analyzer.exe"
+                    "--from", "awslabs.cost-explorer-mcp-server@latest",
+                    "awslabs.cost-explorer-mcp-server.exe"
                 ]
             else:
                 cost_command_args = [
-                    "mcp-cost-analyzer@latest"
+                    "awslabs.cost-explorer-mcp-server@latest"
                 ]
-            
             cost_client = MCPClient(lambda: stdio_client(
                 StdioServerParameters(
-                    command="uvx", 
+                    command="uvx",
                     args=cost_command_args,
                     env=env_vars
                 )
             ))
-            mcp_clients.append(("cost-explorer", cost_client))
-        
-        # For now, return the first client (primary MCP)
-        # TODO: Implement proper multi-MCP support in future versions
-        if mcp_clients:
-            logger.info(f"Initialized {len(mcp_clients)} MCP clients: {[name for name, _ in mcp_clients]}")
-            return mcp_clients[0][1]  # Return first client for now
-        else:
-            raise ValueError("No MCP servers enabled. Please enable at least one MCP server.")
+            clients.append(("cost-explorer", cost_client))
+
+        if enable_iam_mcp:
+            logger.info("Creating IAM MCP client...")
+            iam_readonly = os.getenv("IAM_MCP_READONLY", "true").lower() == "true"
+            
+            if system == "windows":
+                iam_command_args = [
+                    "--from", "awslabs.iam-mcp-server@latest",
+                    "awslabs.iam-mcp-server.exe"
+                ]
+                if iam_readonly:
+                    iam_command_args.append("--readonly")
+            else:
+                iam_command_args = [
+                    "awslabs.iam-mcp-server@latest"
+                ]
+                if iam_readonly:
+                    iam_command_args.append("--readonly")
+            
+            logger.info(f"IAM MCP readonly mode: {iam_readonly}")
+            iam_client = MCPClient(lambda: stdio_client(
+                StdioServerParameters(
+                    command="uvx",
+                    args=iam_command_args,
+                    env=env_vars
+                )
+            ))
+            clients.append(("iam", iam_client))
+
+        if not clients:
+            raise ValueError("No MCP servers enabled. Set ENABLE_EKS_MCP, ENABLE_COST_EXPLORER_MCP, and/or ENABLE_IAM_MCP to true.")
+
+        logger.info(f"Prepared {len(clients)} MCP client definitions: {[name for name, _ in clients]}")
+        return clients
     
     def _initialize_mcp_and_agent(self):
         """Initialize MCP client and agent once during startup."""
         try:
             logger.info("Initializing MCP clients and starting AWS MCP servers...")
             
-            # Create MCP client
-            self._mcp_client = self._create_mcp_client()
-            
-            # Start the MCP client context and keep it running
-            self._mcp_context = self._mcp_client.__enter__()
-            
-            # Get tools from AWS MCP servers
-            self._tools = self._mcp_client.list_tools_sync()
-            logger.info(f"Retrieved {len(self._tools)} tools from AWS MCP servers")
-            
-            # Create agent with tools
+            # Create MCP clients (possibly multiple)
+            mcp_clients_with_names = self._create_mcp_clients()
+            self._mcp_clients = [client for _, client in mcp_clients_with_names]
+
+            # Enter each MCP client context and aggregate tools
+            aggregated_tools = []
+            for name, client in mcp_clients_with_names:
+                ctx = client.__enter__()
+                self._mcp_contexts.append(ctx)
+                tools = client.list_tools_sync()
+                logger.info(f"Retrieved {len(tools)} tools from MCP server '{name}'")
+                aggregated_tools.extend(tools)
+
+            # Deduplicate tools by name (last wins if duplicate)
+            dedup = {}
+            for t in aggregated_tools:
+                tool_name = getattr(t, 'name', None) or getattr(t, 'tool_name', None)
+                if tool_name:
+                    dedup[tool_name] = t
+                else:
+                    # Fallback: append if name not resolvable
+                    dedup[id(t)] = t
+            self._tools = list(dedup.values())
+            logger.info(f"Total aggregated tools: {len(self._tools)} (from {len(self._mcp_clients)} MCP servers)")
+
+            # Create unified agent with all tools
             self._agent = self._create_agent(self._tools)
-            
-            logger.info("MCP servers started and agent initialized successfully")
+            logger.info("All MCP servers started and agent initialized successfully")
             
         except Exception as e:
             logger.error(f"Failed to initialize MCP servers and agent: {e}")
@@ -148,17 +193,17 @@ class AWSAgent:
     
     def _cleanup_mcp(self):
         """Clean up MCP client resources."""
-        if self._mcp_context is not None:
-            try:
-                self._mcp_client.__exit__(None, None, None)
-                logger.info("MCP client context cleaned up")
-            except Exception as e:
-                logger.warning(f"Error cleaning up MCP context: {e}")
-            finally:
-                self._mcp_context = None
-                self._mcp_client = None
-                self._agent = None
-                self._tools = None
+        if self._mcp_contexts:
+            for idx, client in enumerate(self._mcp_clients):
+                try:
+                    client.__exit__(None, None, None)
+                    logger.info(f"MCP client {idx+1}/{len(self._mcp_clients)} cleaned up")
+                except Exception as e:
+                    logger.warning(f"Error cleaning up MCP client {idx+1}: {e}")
+            self._mcp_contexts.clear()
+            self._mcp_clients.clear()
+            self._agent = None
+            self._tools = []
     
     def _create_agent(self, tools: list) -> Agent:
         """Create the Strands agent with AWS tools."""
@@ -272,24 +317,23 @@ class AWSAgent:
         try:
             # Add message to conversation state
             self.state.add_user_message(message)
-            
+
             # Ensure MCP client and agent are initialized
-            if self._agent is None or self._mcp_client is None:
+            if self._agent is None or not self._mcp_clients:
                 self._initialize_mcp_and_agent()
-            
+
             # Get agent response (MCP server is already running)
             logger.info(f"Processing user message: {message[:100]}...")
             response = self._agent(message)
-            
+
             # Extract response content from AgentResult
-            # The Strands agent returns an AgentResult object that can be directly converted to string
             response_text = str(response)
-            
+
             # Add response to conversation state
             self.state.add_assistant_message(response_text)
-            
+
             logger.info("Agent response generated successfully")
-            
+
             return {
                 "answer": response_text,
                 "metadata": ResponseMetadata(
@@ -299,11 +343,11 @@ class AWSAgent:
                     conversation_length=len(self.state.messages)
                 ).model_dump()
             }
-                
+
         except Exception as e:
             error_message = f"Error processing message: {str(e)}"
             logger.error(error_message)
-            
+
             return {
                 "answer": f"I encountered an error while processing your request: {str(e)}",
                 "metadata": ResponseMetadata(
@@ -338,24 +382,24 @@ class AWSAgent:
         try:
             # Add message to conversation state
             self.state.add_user_message(message)
-            
+
             # Ensure MCP client and agent are initialized
-            if self._agent is None or self._mcp_client is None:
+            if self._agent is None or not self._mcp_clients:
                 self._initialize_mcp_and_agent()
-            
+
             # Stream agent response (MCP server is already running)
             logger.info(f"Streaming response for message: {message[:100]}...")
-            
+
             full_response = ""
             for event in self._agent.stream_async(message):
                 if "data" in event:
                     full_response += event["data"]
                 yield event
-            
+
             # Add complete response to conversation state
             if full_response:
                 self.state.add_assistant_message(full_response)
-            
+
         except Exception as e:
             error_message = f"Error streaming message: {str(e)}"
             logger.error(error_message)

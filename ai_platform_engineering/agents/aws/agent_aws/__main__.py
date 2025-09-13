@@ -57,7 +57,8 @@ def get_agent_card(host: str, port: int) -> AgentCard:
     
     # Check which MCP servers are enabled
     enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
-    enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
+    enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "true").lower() == "true"
+    enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "true").lower() == "true"
     
     capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
     
@@ -102,6 +103,27 @@ def get_agent_card(host: str, port: int) -> AgentCard:
         )
         skills.append(cost_skill)
     
+    if enable_iam_mcp:
+        iam_skill = AgentSkill(
+            id='aws-iam',
+            name='AWS IAM Security Management',
+            description='Performs AWS Identity and Access Management operations for security and compliance.',
+            tags=['aws', 'iam', 'security', 'access', 'permissions', 'policy', 'compliance'],
+            examples=[
+                'List all IAM users and their attached policies',
+                'Create a new IAM user for the development team',
+                'Create an IAM role for EC2 instances to access S3',
+                'Attach the ReadOnlyAccess policy to a user',
+                'List all IAM groups and their members',
+                'Generate access keys for a service account',
+                'Test permissions for a user against specific AWS actions',
+                'Create an inline policy for S3 bucket access',
+                'Add a user to the Developers group',
+                'Delete an unused IAM role with all its policies'
+            ],
+        )
+        skills.append(iam_skill)
+    
     # Build description based on enabled capabilities
     description_parts = ["AI agent for comprehensive AWS management including:"]
     
@@ -110,6 +132,9 @@ def get_agent_card(host: str, port: int) -> AgentCard:
     
     if enable_cost_explorer_mcp:
         description_parts.append(" cost analysis and optimization,")
+    
+    if enable_iam_mcp:
+        description_parts.append(" IAM security and access management,")
     
     description_parts.append(" using AWS native tools and best practices.")
     description = "".join(description_parts)
