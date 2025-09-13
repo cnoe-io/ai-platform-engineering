@@ -24,7 +24,7 @@ def test_trace_tool_calls(trace_id: str):
     config = {
         'public_key': os.getenv('LANGFUSE_PUBLIC_KEY'),
         'secret_key': os.getenv('LANGFUSE_SECRET_KEY'),
-        'host': os.getenv('LANGFUSE_HOST', 'http://localhost:3000')
+        'host': 'http://localhost:3000'
     }
     
     print(f"🧪 TESTING TOOL CALL EXTRACTION")

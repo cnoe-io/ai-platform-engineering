@@ -256,42 +256,22 @@ class TraceExtractor:
                 except (IndexError, AttributeError):
                     pass
             
-            # Check metadata for agent information
+            # Check metadata for agent information (if needed)
             metadata = obs.get('metadata', {})
-            
-            # Check checkpoint namespace
             if 'checkpoint_ns' in metadata:
                 checkpoint_ns = metadata['checkpoint_ns']
+                # Extract agent name from checkpoint namespace path dynamically
+                import re
+                # First try to find platform_engineer_supervisor exactly
                 if 'platform_engineer_supervisor' in checkpoint_ns:
-                    logger.debug("Found platform_engineer_supervisor from checkpoint_ns")
+                    logger.debug(f"Found platform_engineer_supervisor from checkpoint_ns: {checkpoint_ns}")
                     return 'platform_engineer_supervisor'
-                elif 'github' in checkpoint_ns:
-                    logger.debug("Found github_agent from checkpoint_ns")
-                    return 'github_agent'
-                elif 'slack' in checkpoint_ns:
-                    return 'slack_agent'
-                elif 'argocd' in checkpoint_ns:
-                    return 'argocd_agent'
-                elif 'pagerduty' in checkpoint_ns:
-                    return 'pagerduty_agent'
-            
-            # Check agent_type in metadata
-            if 'agent_type' in metadata:
-                agent_type = metadata['agent_type']
-                logger.debug(f"Found agent_type in metadata: {agent_type}")
-                return f"{agent_type}_agent"
-            
-            # Check observation name patterns
-            if 'platform_engineer' in name.lower():
-                return 'platform_engineer_supervisor'
-            elif 'github' in name.lower():
-                return 'github_agent'
-            elif 'slack' in name.lower():
-                return 'slack_agent'
-            elif 'argocd' in name.lower():
-                return 'argocd_agent'
-            elif 'pagerduty' in name.lower():
-                return 'pagerduty_agent'
+                # Then try to extract other agent names
+                agent_match = re.search(r'/([^/]+)(?:_agent)?/', checkpoint_ns)
+                if agent_match:
+                    agent_name = agent_match.group(1)
+                    logger.debug(f"Found {agent_name} from checkpoint_ns: {checkpoint_ns}")
+                    return f"{agent_name}_agent"
             
             # Move to parent observation
             current_id = obs.get('parentObservationId')
