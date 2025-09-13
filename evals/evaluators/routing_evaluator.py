@@ -61,8 +61,8 @@ class RoutingEvaluator:
                     trace_id=trace_id,
                     routing_score=0.0,
                     tool_match_score=0.0,
-                    overall_score=0.0,
-                    reasoning="No tool calls found in trace",
+                    routing_reasoning="No tool calls found in trace",
+                    tool_match_reasoning="No tool calls found in trace",
                     user_prompt=user_prompt,
                     trajectory_summary="No actions taken",
                     success=False,
@@ -79,8 +79,8 @@ class RoutingEvaluator:
                 trace_id=trace_id,
                 routing_score=evaluation["routing_score"],
                 tool_match_score=evaluation["tool_match_score"],
-                overall_score=0.0,  # Will be calculated in __post_init__
-                reasoning=evaluation["reasoning"],
+                routing_reasoning=evaluation["routing_reasoning"],
+                tool_match_reasoning=evaluation["tool_match_reasoning"],
                 user_prompt=user_prompt,
                 trajectory_summary=trajectory_summary,
                 success=True
@@ -92,8 +92,8 @@ class RoutingEvaluator:
                 trace_id=trace_id,
                 routing_score=0.0,
                 tool_match_score=0.0,
-                overall_score=0.0,
-                reasoning=f"Evaluation failed: {str(e)}",
+                routing_reasoning=f"Evaluation failed: {str(e)}",
+                tool_match_reasoning=f"Evaluation failed: {str(e)}",
                 user_prompt=user_prompt,
                 trajectory_summary="",
                 success=False,
@@ -150,11 +150,12 @@ Evaluate ONLY these two aspects:
 Return your evaluation in this exact JSON format:
 {{
     "routing_score": <float between 0.0 and 1.0>,
+    "routing_reasoning": "<specific explanation of the routing score>",
     "tool_match_score": <float between 0.0 and 1.0>,
-    "reasoning": "<brief explanation of both scores in 1-2 sentences>"
+    "tool_match_reasoning": "<specific explanation of the tool match score>"
 }}
 
-Focus only on routing correctness and agent-tool alignment. Do not evaluate other aspects."""
+Focus only on routing correctness and agent-tool alignment. Provide separate, specific reasoning for each score."""
 
         try:
             response = self.client.chat.completions.create(
@@ -186,9 +187,11 @@ Focus only on routing correctness and agent-tool alignment. Do not evaluate othe
             result["routing_score"] = max(0.0, min(1.0, float(result.get("routing_score", 0.0))))
             result["tool_match_score"] = max(0.0, min(1.0, float(result.get("tool_match_score", 0.0))))
 
-            # Ensure reasoning exists
-            if not result.get("reasoning"):
-                result["reasoning"] = "LLM evaluation completed"
+            # Ensure reasoning exists for each score
+            if not result.get("routing_reasoning"):
+                result["routing_reasoning"] = f"Routing score: {result['routing_score']:.2f}"
+            if not result.get("tool_match_reasoning"):
+                result["tool_match_reasoning"] = f"Tool match score: {result['tool_match_score']:.2f}"
 
             logger.info(f"LLM evaluation completed: routing={result['routing_score']:.2f}, tools={result['tool_match_score']:.2f}")
             return result
@@ -197,6 +200,7 @@ Focus only on routing correctness and agent-tool alignment. Do not evaluate othe
             logger.error(f"LLM evaluation failed: {e}")
             return {
                 "routing_score": 0.0,
+                "routing_reasoning": f"LLM evaluation failed: {str(e)}",
                 "tool_match_score": 0.0,
-                "reasoning": f"LLM evaluation failed: {str(e)}"
+                "tool_match_reasoning": f"LLM evaluation failed: {str(e)}"
             }

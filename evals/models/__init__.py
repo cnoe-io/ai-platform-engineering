@@ -2,14 +2,14 @@
 Models for evaluation system.
 """
 
-from .dataset import Dataset, DatasetItem, Message
-from .trajectory import ToolCall, Trajectory, EvaluationResult
+from .evaluation import EvaluationResult
+from .dataset import Dataset, DatasetItem, WebhookPayload, EvaluationStatus, Message
 
 __all__ = [
+    'EvaluationResult',
+    'WebhookPayload',
+    'EvaluationStatus',
     'Dataset',
-    'DatasetItem', 
-    'Message',
-    'ToolCall',
-    'Trajectory',
-    'EvaluationResult'
+    'DatasetItem',
+    'Message'
 ]

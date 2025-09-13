@@ -12,7 +12,7 @@ from langfuse import Langfuse
 
 from models.dataset import Dataset, DatasetItem
 from trace_analysis import TraceExtractor
-from evaluators import BaseEvaluator
+# Removed BaseEvaluator import - working directly with evaluator instances
 from clients.eval_client import EvalClient, EvaluationRequest
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class EvaluationRunner:
         self,
         langfuse_client: Langfuse,
         trace_extractor: TraceExtractor,
-        evaluators: Dict[str, BaseEvaluator],
+        evaluators: Dict[str, Any],
         platform_engineer_url: str = "http://platform-engineering:8000",
         timeout: float = 300.0,
         max_concurrent_requests: int = 3
@@ -141,18 +141,13 @@ class EvaluationRunner:
                 # Update root span with input and output
                 root_span.update_trace(input=prompt, output=response_text)
                 
-                # Extract trajectory from trace (give it a moment to be created)
+                # Give trace time to be fully created before evaluation
                 await asyncio.sleep(2)
-                trajectory = await self.trace_extractor.extract_trajectory(trace_id)
-                
-                if trajectory:
-                    # Run evaluations and add scores to root span
-                    await self._run_evaluations(
-                        trajectory, dataset_item, root_span
-                    )
-                else:
-                    logger.warning(f"Could not extract trajectory from trace {trace_id}")
-                    # Skip scoring for extraction failures
+
+                # Run evaluations directly with trace_id and prompt
+                await self._run_evaluations(
+                    trace_id, prompt, dataset_item, root_span
+                )
                 
             except Exception as e:
                 logger.error(f"Failed to evaluate item {dataset_item.id}: {e}")
@@ -206,50 +201,50 @@ class EvaluationRunner:
         """Extract prompt from dataset item messages."""
         if not dataset_item.messages:
             return ""
-        
+
         # Get the user message content
         for message in dataset_item.messages:
             if message.role == "user":
                 return message.content
-        
+
         # Fallback to first message
         return dataset_item.messages[0].content
     
     
     async def _run_evaluations(
         self,
-        trajectory,
+        trace_id: str,
+        user_prompt: str,
         dataset_item: DatasetItem,
         root_span
     ):
-        """Run all configured evaluators on the trajectory and add scores to root span."""
+        """Run all configured evaluators on the trace and add scores to root span."""
         for evaluator_name, evaluator in self.evaluators.items():
             try:
                 logger.info(f"Running {evaluator_name} evaluator for item {dataset_item.id}")
-                
-                # Extract prompt from dataset item
-                prompt = self._extract_prompt(dataset_item)
-                
-                result = await evaluator.evaluate(
-                    trajectory=trajectory,
-                    prompt=prompt,
-                    expected_agents=dataset_item.expected_agents,
-                    expected_behavior=dataset_item.expected_behavior,
-                    dataset_item_id=dataset_item.id
-                )
-                
-                # Add both individual scores to root span
-                root_span.score_trace(
-                    name="agent_match_score",
-                    value=result.trajectory_match_score,
-                    comment=f"Agent matching score: {result.trajectory_match_score:.2f}"
-                )
-                
-                root_span.score_trace(
-                    name="tool_call_analysis_score", 
-                    value=result.behavior_match_score,
-                    comment=result.reasoning
-                )
+
+                # For RoutingEvaluator, call evaluate with trace_id and user_prompt
+                if hasattr(evaluator, 'evaluate') and evaluator_name == 'routing':
+                    result = evaluator.evaluate(trace_id=trace_id, user_prompt=user_prompt)
+
+                    # Add routing and tool match scores to root span
+                    root_span.score_trace(
+                        name="routing_score",
+                        value=result.routing_score,
+                        comment=result.routing_reasoning
+                    )
+
+                    root_span.score_trace(
+                        name="tool_match_score",
+                        value=result.tool_match_score,
+                        comment=result.tool_match_reasoning
+                    )
+
+                    logger.info(f"RoutingEvaluator scores - Routing: {result.routing_score:.2f}, "
+                               f"Tool Match: {result.tool_match_score:.2f}")
+                else:
+                    # Handle other evaluator types if needed in the future
+                    logger.warning(f"Evaluator {evaluator_name} not supported in updated runner")
                 
                 logger.info(f"Added {evaluator_name} scores to dataset run item {dataset_item.id}")
                 
@@ -263,7 +258,7 @@ async def load_dataset_from_yaml(file_path: str) -> Dataset:
     try:
         with open(file_path, 'r') as f:
             data = yaml.safe_load(f)
-        
+
         return Dataset(**data)
     
     except Exception as e:
