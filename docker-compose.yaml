@@ -215,9 +215,10 @@ services:
   #                                      AGENT AWS A2A P2P                                           #
   ####################################################################################################
   agent-aws-p2p:
-    build:
-      context: ../agent-aws
-      dockerfile: build/Dockerfile.a2a
+    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-latest}
+    # build:
+    #   context: ../agent-aws
+    #   dockerfile: build/Dockerfile.a2a
     container_name: agent-aws-p2p
     profiles:
       - p2p
@@ -225,7 +226,7 @@ services:
     volumes:
       - ./.env:/app/.env
     ports:
-      - "8010:8000"
+      - "8013:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
