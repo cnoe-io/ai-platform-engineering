@@ -112,7 +112,7 @@ Add these two variables to your `.env` file along with all your other existing e
 
 **ENABLE_KB_RAG**: Set to `true` to enable the KB-RAG functionality in the platform engineer. When enabled, the platform engineer will route documentation-related queries to the RAG agent for enhanced responses using the ingested knowledge base.
 
-**VSTORE_COLLECTION**: Specifies which collection in the Milvus vector database to use for document retrieval. By default, the ingestion API creates collections with the name `rag_default`, so you can use this default value unless you've customized the collection name in your ingestion API configuration. If you have changed the default collection name in the ingestion API config, then use whatever collection name you configured.
+**VSTORE_COLLECTION**: Specifies which collection in the Milvus vector database to use for document retrieval. By default, the ingestion API creates collections with the name `rag_unified`, so you can use this default value unless you've customized the collection name in your ingestion API configuration. If you have changed the default collection name in the ingestion API config, then use whatever collection name you configured.
 
 Example `.env` configuration:
 ```bash

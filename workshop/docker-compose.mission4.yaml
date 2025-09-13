@@ -62,7 +62,7 @@ services:
     volumes:
       - ../.env.mission4:/app/.env
     environment:
-      - VSTORE_COLLECTION=rag_default
+      - VSTORE_COLLECTION=rag_unified
     ports:
       - "8020:8000"
   kb-rag-server:
@@ -75,7 +75,7 @@ services:
     volumes:
       - ../.env.mission4:/app/.env
     environment:
-      - VSTORE_COLLECTION=rag_default
+      - VSTORE_COLLECTION=rag_unified
     ports:
       - "9446:9446"
   kb-rag-web:
