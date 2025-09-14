@@ -219,38 +219,86 @@ class EvaluationRunner:
         root_span
     ):
         """Run all configured evaluators on the trace and add scores to root span."""
+        routing_result = None
+        tool_match_result = None
+
+        # Get trajectory summary for debugging
+        if 'routing' in self.evaluators:
+            # Extract all tool calls for trajectory logging
+            try:
+                extractor = self.evaluators['routing'].extractor
+                all_tool_calls = extractor.extract_tool_calls(trace_id)
+
+                # Format full trajectory for debugging as requested
+                trajectory_lines = []
+                for i, call in enumerate(all_tool_calls, 1):
+                    agent = call.get('agent', 'unknown')
+                    tool = call.get('tool', 'unknown')
+                    call_type = call.get('type', 'unknown')
+                    trajectory_lines.append(f"{i}. [{call_type}] {agent} → {tool}")
+
+                full_trajectory = "\n".join(trajectory_lines) if trajectory_lines else "No actions taken"
+                logger.info(f"Full trajectory for {trace_id} (debugging):\n{full_trajectory}")
+
+            except Exception as e:
+                logger.warning(f"Failed to extract trajectory for debugging: {e}")
+                full_trajectory = "Unable to extract trajectory"
+
+        # Run individual evaluators
         for evaluator_name, evaluator in self.evaluators.items():
             try:
                 logger.info(f"Running {evaluator_name} evaluator for item {dataset_item.id}")
 
-                # For RoutingEvaluator, call evaluate with trace_id and user_prompt
-                if hasattr(evaluator, 'evaluate') and evaluator_name == 'routing':
-                    result = evaluator.evaluate(trace_id=trace_id, user_prompt=user_prompt)
+                if hasattr(evaluator, 'evaluate'):
+                    if evaluator_name == 'routing':
+                        # Run routing evaluator with expected_agents from dataset
+                        routing_result = evaluator.evaluate(
+                            trace_id=trace_id,
+                            user_prompt=user_prompt,
+                            expected_agents=dataset_item.expected_agents
+                        )
 
-                    # Add routing and tool match scores to root span
-                    root_span.score_trace(
-                        name="routing_score",
-                        value=result.routing_score,
-                        comment=result.routing_reasoning
-                    )
+                        # Add routing score to root span
+                        root_span.score_trace(
+                            name="routing_score",
+                            value=routing_result.routing_score,
+                            comment=routing_result.routing_reasoning
+                        )
 
-                    root_span.score_trace(
-                        name="tool_match_score",
-                        value=result.tool_match_score,
-                        comment=result.tool_match_reasoning
-                    )
+                        logger.info(f"RoutingEvaluator score: {routing_result.routing_score:.2f}")
 
-                    logger.info(f"RoutingEvaluator scores - Routing: {result.routing_score:.2f}, "
-                               f"Tool Match: {result.tool_match_score:.2f}")
+                    elif evaluator_name == 'tool_match':
+                        # Run tool match evaluator with expected_behavior from dataset
+                        tool_match_result = evaluator.evaluate(
+                            trace_id=trace_id,
+                            user_prompt=user_prompt,
+                            expected_behavior=dataset_item.expected_behavior
+                        )
+
+                        # Add tool match score to root span
+                        root_span.score_trace(
+                            name="tool_match_score",
+                            value=tool_match_result.tool_match_score,
+                            comment=tool_match_result.tool_match_reasoning
+                        )
+
+                        logger.info(f"ToolMatchEvaluator score: {tool_match_result.tool_match_score:.2f}")
+
+                    else:
+                        logger.warning(f"Evaluator {evaluator_name} not supported in updated runner")
                 else:
-                    # Handle other evaluator types if needed in the future
-                    logger.warning(f"Evaluator {evaluator_name} not supported in updated runner")
-                
+                    logger.warning(f"Evaluator {evaluator_name} does not have evaluate method")
+
                 logger.info(f"Added {evaluator_name} scores to dataset run item {dataset_item.id}")
-                
+
             except Exception as e:
                 logger.error(f"Evaluation failed with {evaluator_name} evaluator: {e}")
                 # Skip scoring for evaluator failures
+
+        # Log combined results if both evaluators ran successfully
+        if routing_result and tool_match_result:
+            logger.info(f"Combined evaluation scores - Routing: {routing_result.routing_score:.2f}, "
+                       f"Tool Match: {tool_match_result.tool_match_score:.2f}")
 
 
 async def load_dataset_from_yaml(file_path: str) -> Dataset:

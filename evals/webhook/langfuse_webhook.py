@@ -35,7 +35,8 @@ from langchain_anthropic import ChatAnthropic
 from models.dataset import WebhookPayload, EvaluationStatus
 from models.evaluation import EvaluationResult
 from trace_analysis import TraceExtractor
-from evaluators import RoutingEvaluator
+from evaluators.routing_evaluator import RoutingEvaluator
+from evaluators.tool_match_evaluator import ToolMatchEvaluator
 from runner import EvaluationRunner
 
 logger = logging.getLogger(__name__)
@@ -120,17 +121,28 @@ class LangfuseWebhookService:
         return None
     
     def _init_evaluators(self) -> Dict[str, Any]:
-        """Initialize evaluators."""
+        """Initialize both routing and tool match evaluators."""
         evaluators = {}
 
-        # Use routing evaluator (provides routing and tool match scores)
-        if self.trace_extractor:
+        if self.trace_extractor and self.config.get('openai_api_key'):
+            # Initialize routing evaluator (supervisor-to-agent routing)
             evaluators['routing'] = RoutingEvaluator(
                 trace_extractor=self.trace_extractor,
                 openai_api_key=self.config.get('openai_api_key')
             )
+            logger.info("Routing evaluator initialized")
+
+            # Initialize tool match evaluator (agent-to-tool alignment)
+            evaluators['tool_match'] = ToolMatchEvaluator(
+                trace_extractor=self.trace_extractor,
+                openai_api_key=self.config.get('openai_api_key')
+            )
+            logger.info("Tool match evaluator initialized")
         else:
-            logger.warning("TraceExtractor not available, routing evaluator not initialized")
+            if not self.trace_extractor:
+                logger.warning("TraceExtractor not available, evaluators not initialized")
+            if not self.config.get('openai_api_key'):
+                logger.warning("OpenAI API key not available, evaluators not initialized")
 
         return evaluators
     

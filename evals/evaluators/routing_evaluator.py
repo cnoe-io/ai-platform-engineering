@@ -1,5 +1,5 @@
 """
-Simple LLM-based evaluator for routing and tool match quality.
+Routing evaluator for assessing supervisor-to-agent routing decisions.
 """
 import json
 import logging
@@ -7,19 +7,26 @@ import os
 from typing import List, Dict, Any
 from openai import OpenAI
 
-from models.evaluation import EvaluationResult
 from trace_analysis.extractor import TraceExtractor
 
 logger = logging.getLogger(__name__)
 
 
+class RoutingResult:
+    """Result of routing evaluation."""
+
+    def __init__(self, routing_score: float, routing_reasoning: str):
+        self.routing_score = routing_score
+        self.routing_reasoning = routing_reasoning
+
+
 class RoutingEvaluator:
     """
-    Evaluates agent routing and tool selection quality using OpenAI GPT-4.
+    Evaluates supervisor-to-agent routing decisions using OpenAI GPT-4.
 
-    Focuses on two simple metrics:
-    1. Routing Score: Did the supervisor route to the correct agent?
-    2. Tool Match Score: Did agents use appropriate tools for their domain?
+    Focuses specifically on routing correctness:
+    - Did the supervisor route to the appropriate specialized agent for the task?
+    - Are routing decisions logical given the user's request?
     """
 
     def __init__(self, trace_extractor: TraceExtractor, openai_api_key: str = None):
@@ -39,123 +46,112 @@ class RoutingEvaluator:
         self.client = OpenAI(api_key=api_key)
         logger.info("RoutingEvaluator initialized with OpenAI client")
 
-    def evaluate(self, trace_id: str, user_prompt: str) -> EvaluationResult:
+    def evaluate(self, trace_id: str, user_prompt: str, expected_agents: list = None) -> RoutingResult:
         """
-        Evaluate routing and tool match quality for a trace.
+        Evaluate routing quality for a trace.
 
         Args:
             trace_id: Langfuse trace ID to evaluate
             user_prompt: Original user request
+            expected_agents: List of expected agents that should handle this request
 
         Returns:
-            EvaluationResult with routing and tool match scores
+            RoutingResult with routing score and reasoning
         """
         try:
-            logger.info(f"Evaluating trace {trace_id}")
+            logger.info(f"Evaluating routing for trace {trace_id}")
 
-            # Extract tool calls from the trace
-            tool_calls = self.extractor.extract_tool_calls(trace_id)
+            # Extract all tool calls from the trace
+            all_tool_calls = self.extractor.extract_tool_calls(trace_id)
 
-            if not tool_calls:
-                return EvaluationResult(
-                    trace_id=trace_id,
-                    routing_score=0.0,
-                    tool_match_score=0.0,
-                    routing_reasoning="No tool calls found in trace",
-                    tool_match_reasoning="No tool calls found in trace",
-                    user_prompt=user_prompt,
-                    trajectory_summary="No actions taken",
-                    success=False,
-                    error_message="No tool calls found"
+            # Filter to only routing calls (supervisor → agent)
+            routing_calls = [call for call in all_tool_calls if call.get('type') == 'routing']
+
+            if not routing_calls:
+                logger.info(f"No routing calls found in trace {trace_id}")
+                return RoutingResult(
+                    routing_score=1.0,  # No routing decisions, so no errors
+                    routing_reasoning="No routing calls found in trace - no routing decisions to evaluate"
                 )
 
             # Format trajectory for LLM evaluation
-            trajectory_summary = self.format_trajectory(tool_calls)
+            trajectory_summary = self.format_routing_trajectory(routing_calls)
+            logger.info(f"Routing trajectory for {trace_id}:\n{trajectory_summary}")
 
             # Get LLM evaluation
-            evaluation = self.get_llm_evaluation(user_prompt, trajectory_summary)
+            evaluation = self.get_llm_evaluation(user_prompt, trajectory_summary, expected_agents)
 
-            return EvaluationResult(
-                trace_id=trace_id,
+            return RoutingResult(
                 routing_score=evaluation["routing_score"],
-                tool_match_score=evaluation["tool_match_score"],
-                routing_reasoning=evaluation["routing_reasoning"],
-                tool_match_reasoning=evaluation["tool_match_reasoning"],
-                user_prompt=user_prompt,
-                trajectory_summary=trajectory_summary,
-                success=True
+                routing_reasoning=evaluation["routing_reasoning"]
             )
 
         except Exception as e:
-            logger.error(f"Failed to evaluate trace {trace_id}: {e}")
-            return EvaluationResult(
-                trace_id=trace_id,
+            logger.error(f"Failed to evaluate routing for trace {trace_id}: {e}")
+            return RoutingResult(
                 routing_score=0.0,
-                tool_match_score=0.0,
-                routing_reasoning=f"Evaluation failed: {str(e)}",
-                tool_match_reasoning=f"Evaluation failed: {str(e)}",
-                user_prompt=user_prompt,
-                trajectory_summary="",
-                success=False,
-                error_message=str(e)
+                routing_reasoning=f"Routing evaluation failed: {str(e)}"
             )
 
-    def format_trajectory(self, tool_calls: List[Dict[str, Any]]) -> str:
+    def format_routing_trajectory(self, routing_calls: List[Dict[str, Any]]) -> str:
         """
-        Format tool calls into a readable trajectory summary.
+        Format routing calls into a readable trajectory focusing on supervisor-to-agent routing.
 
         Args:
-            tool_calls: List of tool calls from TraceExtractor
+            routing_calls: List of routing calls (filtered to type='routing' only)
 
         Returns:
-            Human readable trajectory string
+            Human readable routing trajectory
         """
-        if not tool_calls:
-            return "No actions taken"
+        if not routing_calls:
+            return "No routing decisions made"
 
         lines = []
-        for i, call in enumerate(tool_calls, 1):
+        for i, call in enumerate(routing_calls, 1):
             agent = call.get('agent', 'unknown')
-            tool = call.get('tool', 'unknown')
+            tool = call.get('tool', 'unknown')  # This is actually the target agent for routing calls
             lines.append(f"{i}. {agent} → {tool}")
 
         return "\n".join(lines)
 
-    def get_llm_evaluation(self, user_prompt: str, trajectory_summary: str) -> Dict[str, Any]:
+    def get_llm_evaluation(self, user_prompt: str, trajectory_summary: str, expected_agents: list = None) -> Dict[str, Any]:
         """
-        Get LLM evaluation of routing and tool match quality.
+        Get LLM evaluation of routing quality.
 
         Args:
             user_prompt: Original user request
-            trajectory_summary: Formatted trajectory
+            trajectory_summary: Formatted routing trajectory
+            expected_agents: List of expected agents that should handle this request
 
         Returns:
-            Dictionary with routing_score, tool_match_score, and reasoning
+            Dictionary with routing_score and routing_reasoning
         """
-        evaluation_prompt = f"""You are evaluating a multi-agent system's routing and tool selection quality.
+        if expected_agents:
+            expectation_context = f"""
+The following agents are expected to handle this request: {', '.join(expected_agents)}
+
+Evaluate whether the supervisor routed to one of these expected agents."""
+        else:
+            expectation_context = """
+Evaluate based on semantic alignment between the request and the chosen agent.
+The agent name should match the domain of the user's request."""
+
+        evaluation_prompt = f"""You are evaluating a multi-agent system's routing decisions.
 
 User Request: {user_prompt}
 
-Agent Trajectory:
+Routing Decisions (Supervisor → Agent):
 {trajectory_summary}
 
-Evaluate ONLY these two aspects:
-
-1. **Routing Quality**: Did the supervisor correctly route to the appropriate specialized agent for this type of request?
-   - Consider: Does the task require GitHub operations → github_agent, Slack operations → slack_agent, etc.
-
-2. **Tool Match Quality**: Did each agent use appropriate tools that match their domain/responsibility?
-   - Consider: github_agent should use GitHub tools, slack_agent should use Slack tools, etc.
+{expectation_context}
 
 Return your evaluation in this exact JSON format:
 {{
     "routing_score": <float between 0.0 and 1.0>,
-    "routing_reasoning": "<specific explanation of the routing score>",
-    "tool_match_score": <float between 0.0 and 1.0>,
-    "tool_match_reasoning": "<specific explanation of the tool match score>"
+    "routing_reasoning": "<explain whether the routing matches the expected agents or makes semantic sense>"
 }}
 
-Focus only on routing correctness and agent-tool alignment. Provide separate, specific reasoning for each score."""
+Focus only on supervisor routing correctness. Provide specific reasoning about which routing decisions were good or bad."""
 
         try:
             response = self.client.chat.completions.create(
@@ -183,24 +179,19 @@ Focus only on routing correctness and agent-tool alignment. Provide separate, sp
 
             result = json.loads(content)
 
-            # Validate and clamp scores
+            # Validate and clamp score
             result["routing_score"] = max(0.0, min(1.0, float(result.get("routing_score", 0.0))))
-            result["tool_match_score"] = max(0.0, min(1.0, float(result.get("tool_match_score", 0.0))))
 
-            # Ensure reasoning exists for each score
+            # Ensure reasoning exists
             if not result.get("routing_reasoning"):
                 result["routing_reasoning"] = f"Routing score: {result['routing_score']:.2f}"
-            if not result.get("tool_match_reasoning"):
-                result["tool_match_reasoning"] = f"Tool match score: {result['tool_match_score']:.2f}"
 
-            logger.info(f"LLM evaluation completed: routing={result['routing_score']:.2f}, tools={result['tool_match_score']:.2f}")
+            logger.info(f"Routing LLM evaluation completed: score={result['routing_score']:.2f}")
             return result
 
         except Exception as e:
-            logger.error(f"LLM evaluation failed: {e}")
+            logger.error(f"Routing LLM evaluation failed: {e}")
             return {
                 "routing_score": 0.0,
-                "routing_reasoning": f"LLM evaluation failed: {str(e)}",
-                "tool_match_score": 0.0,
-                "tool_match_reasoning": f"LLM evaluation failed: {str(e)}"
+                "routing_reasoning": f"LLM evaluation failed: {str(e)}"
             }

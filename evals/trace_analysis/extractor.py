@@ -176,16 +176,23 @@ class TraceExtractor:
                                             
                                             # Extract agent name from hierarchy
                                             agent_name = self._extract_agent_from_hierarchy(
-                                                obs.get('id', ''), 
+                                                obs.get('id', ''),
                                                 obs_by_id
                                             )
-                                            
+
+                                            # Classify call type
+                                            call_type = 'routing' if (tool_name or '').endswith(('_agent', '_tools_agent')) else 'tool'
+
                                             unique_tool_calls[tool_id] = {
                                                 'agent': agent_name,
                                                 'tool': tool_name or 'unknown',
                                                 'tool_id': tool_id,
-                                                'arguments': arguments or {}
+                                                'arguments': arguments or {},
+                                                'type': call_type
                                             }
+
+                                            # Debug logging for call classification
+                                            logger.debug(f"Extracted {call_type} call: {agent_name} → {tool_name or 'unknown'}")
             
             # Convert to list and sort by tool_id for consistent ordering
             tool_calls_list = list(unique_tool_calls.values())
