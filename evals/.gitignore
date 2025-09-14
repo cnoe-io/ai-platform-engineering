@@ -4,3 +4,11 @@ __pycache__/
 *.pyc
 dist/
 build/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
