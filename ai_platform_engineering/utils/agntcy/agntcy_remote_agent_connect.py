@@ -1,4 +1,6 @@
-from typing import Any, Union, Optional
+from typing import Any, Union, Optional, List
+import asyncio
+import os
 from a2a.types import (
     AgentCard,
     SendMessageRequest,
@@ -88,6 +90,32 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
     logger.info("Connection to the remote agent established successfully.")
     logger.info(f"Client instance created: {type(self._client)}")
 
+  async def connect(self):
+    """
+    Public method to establish a connection, aligning with registry expectations.
+    Enforces a timeout to avoid indefinite blocking during startup.
+    """
+    if self._client is not None:
+      logger.info("Client already connected; skipping reconnect.")
+      return
+
+    # Allow override via env; default to a conservative timeout
+    timeout_env = os.getenv("AGENT_CONNECT_TIMEOUT", "10")
+    try:
+      timeout_s = float(timeout_env)
+    except ValueError:
+      logger.warning(f"Invalid AGENT_CONNECT_TIMEOUT '{timeout_env}', falling back to 10s")
+      timeout_s = 10.0
+
+    logger.info(f"Connecting to the remote agent with timeout {timeout_s}s.")
+    try:
+      await asyncio.wait_for(self._connect(), timeout=timeout_s)
+    except asyncio.TimeoutError:
+      logger.error(f"Connection attempt timed out after {timeout_s}s")
+      # Ensure client remains None on timeout so later send_message can retry
+      self._client = None
+      raise
+
   async def send_message(self, message: str, role: Role = Role.user, trace_id: Optional[str] = None) -> Message:
     """
     Sends a message to the connected agent and returns the response.
@@ -96,7 +124,18 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
     if self._client is None:
       logger.info("Client is not connected. Initiating connection.")
       logger.info("Client is None, calling _connect()")
-      await self._connect()
+      timeout_env = os.getenv("AGENT_CONNECT_TIMEOUT", "10")
+      try:
+        timeout_s = float(timeout_env)
+      except ValueError:
+        logger.warning(f"Invalid AGENT_CONNECT_TIMEOUT '{timeout_env}', falling back to 10s")
+        timeout_s = 10.0
+      try:
+        await asyncio.wait_for(self._connect(), timeout=timeout_s)
+      except asyncio.TimeoutError:
+        logger.error(f"Connection attempt timed out after {timeout_s}s in send_message")
+        self._client = None
+        raise
 
     logger.info(f"Sending message to the agent: {message}")
     message_id = str(uuid4())
@@ -104,7 +143,7 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
     logger.info(f"Generated message ID: {message_id}, request ID: {request_id}")
 
     logger.info("Creating SendMessageRequest")
-    
+
     # Create message with optional metadata for trace_id
     message_parts = [Part(TextPart(text=message))]
     message_kwargs = {
@@ -112,14 +151,14 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
       "role": role,
       "parts": message_parts
     }
-    
+
     # Add trace_id to metadata if provided (similar to A2A transport)
     if trace_id:
         message_kwargs["metadata"] = {"trace_id": trace_id}
         logger.info(f"Adding trace_id to Agntcy message metadata: {trace_id}")
     else:
         logger.info("No trace_id provided - message sent without trace metadata")
-    
+
     request = SendMessageRequest(
       id=str(uuid4()),
       params=MessageSendParams(
@@ -130,6 +169,46 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
     response = await self._client.send_message(request)
     logger.info(f"Received response from the agent: {response}")
     return response
+
+  # --- Compatibility helpers expected by registry/prompt code ---
+  def agent_card(self) -> Any:
+    """
+    Return the agent card-like object. If an actual AgentCard was provided,
+    return it; otherwise, return a lightweight object exposing at least
+    a 'description' attribute for downstream consumers.
+    """
+    if isinstance(self.remote_agent_card, AgentCard):
+      return self.remote_agent_card
+
+    class _CardShim:
+      def __init__(self, name: str, description: str):
+        self.name = name
+        self.description = description
+
+    # Fall back to tool's own description
+    return _CardShim(name=self.name, description=self.description)
+
+  def get_skill_examples(self) -> List[str]:
+    """
+    Return example prompts from the agent card if available; otherwise empty.
+    For multi-skill cards, flattens examples across all skills.
+    """
+    try:
+      card = self.agent_card()
+      skills = getattr(card, 'skills', []) or []
+      examples: List[str] = []
+      for skill in skills:
+        ex = getattr(skill, 'examples', []) or []
+        examples.extend(ex)
+      return examples
+    except Exception:
+      return []
+
+  def get_examples(self) -> List[str]:
+    """
+    Backwards-compatible alias expected by some registry utilities.
+    """
+    return self.get_skill_examples()
 
   def _run(self, prompt: str, trace_id: Optional[str] = None) -> Any:
     """
@@ -153,7 +232,7 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
       if not prompt:
         logger.error("Invalid input: Prompt must be a non-empty string.")
         raise ValueError("Invalid input: Prompt must be a non-empty string.")
-      
+
       # Use provided trace_id or try to get from TracingManager context
       if not trace_id:
         from cnoe_agent_utils.tracing import TracingManager
@@ -161,12 +240,12 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
         trace_id = tracing.get_trace_id() if tracing.is_enabled else None
         if trace_id:
           logger.info(f"AgntcySlimRemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
-      
+
       if trace_id:
         logger.info(f"AgntcySlimRemoteAgentConnectTool: Using trace_id: {trace_id}")
       else:
         logger.warning("AgntcySlimRemoteAgentConnectTool: No trace_id available")
-      
+
       response = await self.send_message(prompt, trace_id=trace_id)
       logger.info(f"Successfully received response: {response}")
       logger.info(f"Creating Output with response: {response}")
