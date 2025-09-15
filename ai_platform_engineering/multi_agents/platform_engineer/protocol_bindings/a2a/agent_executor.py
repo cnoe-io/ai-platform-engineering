@@ -28,6 +28,19 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     def __init__(self):
         self.agent = AIPlatformEngineerA2ABinding()
 
+    async def _safe_enqueue_event(self, event_queue: EventQueue, event) -> None:
+        """Safely enqueue an event, handling closed queue gracefully."""
+        try:
+            await event_queue.enqueue_event(event)
+        except Exception as e:
+            # Check if the error is related to queue being closed
+            if "Queue is closed" in str(e) or "QueueEmpty" in str(e):
+                logger.warning(f"Queue is closed, cannot enqueue event: {type(event).__name__}")
+                # Don't re-raise the exception for closed queue - this is expected during shutdown
+            else:
+                logger.error(f"Failed to enqueue event {type(event).__name__}: {e}")
+                raise
+
     @override
     async def execute(
         self,
@@ -45,7 +58,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             task = new_task(context.message)
             if not task:
                 raise Exception("Failed to create a new task from the provided message.")
-            await event_queue.enqueue_event(task)
+            await self._safe_enqueue_event(event_queue, task)
+
         # Extract trace_id from A2A context (or generate if root)
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
@@ -56,68 +70,96 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         else:
             logger.info(f"🔍 Platform Engineer Executor: Using trace_id from context: {trace_id}")
 
-        # invoke the underlying agent, using streaming results
-        async for event in self.agent.stream(query, context_id, trace_id):
-            if event['is_task_complete']:
-              logger.info("Task complete event received. Enqueuing TaskArtifactUpdateEvent and TaskStatusUpdateEvent.")
-              await event_queue.enqueue_event(
-                TaskArtifactUpdateEvent(
-                  append=False,
-                  contextId=task.contextId,
-                  taskId=task.id,
-                  lastChunk=True,
-                  artifact=new_text_artifact(
-                    name='current_result',
-                    description='Result of request to agent.',
-                    text=event['content'],
-                  ),
+        try:
+            # invoke the underlying agent, using streaming results
+            async for event in self.agent.stream(query, context_id, trace_id):
+                if event['is_task_complete']:
+                  logger.info("Task complete event received. Enqueuing TaskArtifactUpdateEvent and TaskStatusUpdateEvent.")
+                  await self._safe_enqueue_event(
+                    event_queue,
+                    TaskArtifactUpdateEvent(
+                      append=False,
+                      contextId=task.contextId,
+                      taskId=task.id,
+                      lastChunk=True,
+                      artifact=new_text_artifact(
+                        name='current_result',
+                        description='Result of request to agent.',
+                        text=event['content'],
+                      ),
+                    )
+                  )
+                  await self._safe_enqueue_event(
+                    event_queue,
+                    TaskStatusUpdateEvent(
+                      status=TaskStatus(state=TaskState.completed),
+                      final=True,
+                      contextId=task.contextId,
+                      taskId=task.id,
+                    )
+                  )
+                  logger.info(f"Task {task.id} marked as completed.")
+                elif event['require_user_input']:
+                  logger.info("User input required event received. Enqueuing TaskStatusUpdateEvent with input_required state.")
+                  await self._safe_enqueue_event(
+                    event_queue,
+                    TaskStatusUpdateEvent(
+                      status=TaskStatus(
+                        state=TaskState.input_required,
+                        message=new_agent_text_message(
+                          event['content'],
+                          task.contextId,
+                          task.id,
+                        ),
+                      ),
+                      final=True,
+                      contextId=task.contextId,
+                      taskId=task.id,
+                    )
+                  )
+                  logger.info(f"Task {task.id} requires user input.")
+                else:
+                  logger.info("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
+                  await self._safe_enqueue_event(
+                    event_queue,
+                    TaskStatusUpdateEvent(
+                      status=TaskStatus(
+                        state=TaskState.working,
+                        message=new_agent_text_message(
+                          event['content'],
+                          task.contextId,
+                          task.id,
+                        ),
+                      ),
+                      final=False,
+                      contextId=task.contextId,
+                      taskId=task.id,
+                    )
+                  )
+                  logger.info(f"Task {task.id} is in progress.")
+        except Exception as e:
+            logger.error(f"Error during agent execution: {e}")
+            # Try to enqueue a failure status if the queue is still open
+            try:
+                await self._safe_enqueue_event(
+                    event_queue,
+                    TaskStatusUpdateEvent(
+                        status=TaskStatus(
+                            state=TaskState.failed,
+                            message=new_agent_text_message(
+                                f"Agent execution failed: {str(e)}",
+                                task.contextId,
+                                task.id,
+                            ),
+                        ),
+                        final=True,
+                        contextId=task.contextId,
+                        taskId=task.id,
+                    )
                 )
-              )
-              await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                  status=TaskStatus(state=TaskState.completed),
-                  final=True,
-                  contextId=task.contextId,
-                  taskId=task.id,
-                )
-              )
-              logger.info(f"Task {task.id} marked as completed.")
-            elif event['require_user_input']:
-              logger.info("User input required event received. Enqueuing TaskStatusUpdateEvent with input_required state.")
-              await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                  status=TaskStatus(
-                    state=TaskState.input_required,
-                    message=new_agent_text_message(
-                      event['content'],
-                      task.contextId,
-                      task.id,
-                    ),
-                  ),
-                  final=True,
-                  contextId=task.contextId,
-                  taskId=task.id,
-                )
-              )
-              logger.info(f"Task {task.id} requires user input.")
-            else:
-              logger.info("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
-              await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                  status=TaskStatus(
-                    state=TaskState.working,
-                    message=new_agent_text_message(
-                      event['content'],
-                      task.contextId,
-                      task.id,
-                    ),
-                  ),
-                  final=False,
-                  contextId=task.contextId,
-                  taskId=task.id,
-                )
-              )
-              logger.info(f"Task {task.id} is in progress.")
+            except Exception as enqueue_error:
+                logger.error(f"Failed to enqueue error status: {enqueue_error}")
+            raise
 
     @override
     async def cancel(
