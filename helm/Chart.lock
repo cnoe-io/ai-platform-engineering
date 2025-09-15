@@ -26,6 +26,9 @@ dependencies:
 - name: agent
   repository: ""
   version: 0.2.0
+- name: agent
+  repository: ""
+  version: 0.2.0
 - name: slim
   repository: oci://ghcr.io/agntcy/slim/helm
   version: v0.1.8
@@ -44,5 +47,5 @@ dependencies:
 - name: milvus
   repository: https://zilliztech.github.io/milvus-helm/
   version: 5.0.2
-digest: sha256:c28eeed872542d0d9deb3a95e2b04a6b949e29826f93b1c684513c8db09016cb
-generated: "2025-09-10T13:51:26.013666039Z"
+digest: sha256:059eef478420fe8924844deebb74d7b8210a036d08135fd578f2daef28ba6e64
+generated: "2025-09-15T14:09:17.244389263Z"
