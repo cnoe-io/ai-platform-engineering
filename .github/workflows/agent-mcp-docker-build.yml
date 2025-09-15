@@ -12,15 +12,86 @@ on:
       - main
   workflow_dispatch:
 jobs:
+  determine-agents:
+    runs-on: ubuntu-latest
+    outputs:
+      agents: ${{ steps.set-matrix.outputs.agents }}
+      should_build: ${{ steps.set-matrix.outputs.should_build }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Detect changed paths (MCP)
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            argocd:
+              - 'ai_platform_engineering/agents/argocd/mcp/**'
+              - 'ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
+            backstage:
+              - 'ai_platform_engineering/agents/backstage/mcp/**'
+              - 'ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
+            confluence:
+              - 'ai_platform_engineering/agents/confluence/mcp/**'
+              - 'ai_platform_engineering/agents/confluence/build/Dockerfile.mcp'
+            jira:
+              - 'ai_platform_engineering/agents/jira/mcp/**'
+              - 'ai_platform_engineering/agents/jira/build/Dockerfile.mcp'
+            komodor:
+              - 'ai_platform_engineering/agents/komodor/mcp/**'
+              - 'ai_platform_engineering/agents/komodor/build/Dockerfile.mcp'
+            pagerduty:
+              - 'ai_platform_engineering/agents/pagerduty/mcp/**'
+              - 'ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp'
+            slack:
+              - 'ai_platform_engineering/agents/slack/mcp/**'
+              - 'ai_platform_engineering/agents/slack/build/Dockerfile.mcp'
+            splunk:
+              - 'ai_platform_engineering/agents/splunk/mcp/**'
+              - 'ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
+
+      - name: Set matrix based on changes (MCP)
+        id: set-matrix
+        uses: actions/github-script@v7
+        env:
+          BUILD_ALL: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+          CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
+          CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
+          CHANGED_CONFLUENCE: ${{ steps.filter.outputs.confluence }}
+          CHANGED_JIRA: ${{ steps.filter.outputs.jira }}
+          CHANGED_KOMODOR: ${{ steps.filter.outputs.komodor }}
+          CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
+          CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
+          CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
+        with:
+          script: |
+            const allAgents = [
+              'argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk'
+            ];
+            const buildAll = process.env.BUILD_ALL === 'true';
+            let selected;
+            if (buildAll) {
+              selected = allAgents;
+            } else {
+              const env = process.env;
+              selected = allAgents.filter(a => env['CHANGED_' + a.toUpperCase()] === 'true');
+            }
+            core.setOutput('agents', JSON.stringify(selected));
+            core.setOutput('should_build', String(selected.length > 0));
+
   build-and-push:
     runs-on: ubuntu-latest
+    needs: determine-agents
+    if: needs.determine-agents.outputs.should_build == 'true'
     permissions:
       contents: read
       packages: write
 
     strategy:
       matrix:
-        agent: [argocd, backstage, confluence, jira, komodor, pagerduty, slack, splunk]
+        agent: ${{ fromJson(needs.determine-agents.outputs.agents) }}
       fail-fast: false
 
     env:
@@ -30,7 +101,7 @@ jobs:
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
+        uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
         with:
           egress-policy: audit
 

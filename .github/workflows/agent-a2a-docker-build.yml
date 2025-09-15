@@ -13,15 +13,122 @@ on:
   workflow_dispatch:
 
 jobs:
+  determine-agents:
+    runs-on: ubuntu-latest
+    outputs:
+      agents: ${{ steps.set-matrix.outputs.agents }}
+      should_build: ${{ steps.set-matrix.outputs.should_build }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            shared:
+              - 'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py'
+              - 'ai_platform_engineering/utils/agntcy/agntcy_remote_agent_connect.py'
+            argocd:
+              - 'ai_platform_engineering/agents/argocd/**'
+              - '!ai_platform_engineering/agents/argocd/mcp/**'
+              - '!ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
+            aws:
+              - 'ai_platform_engineering/agents/aws/**'
+              - '!ai_platform_engineering/agents/aws/mcp/**'
+              - '!ai_platform_engineering/agents/aws/build/Dockerfile.mcp'
+            backstage:
+              - 'ai_platform_engineering/agents/backstage/**'
+              - '!ai_platform_engineering/agents/backstage/mcp/**'
+              - '!ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
+            confluence:
+              - 'ai_platform_engineering/agents/confluence/**'
+              - '!ai_platform_engineering/agents/confluence/mcp/**'
+              - '!ai_platform_engineering/agents/confluence/build/Dockerfile.mcp'
+            github:
+              - 'ai_platform_engineering/agents/github/**'
+              - '!ai_platform_engineering/agents/github/mcp/**'
+              - '!ai_platform_engineering/agents/github/build/Dockerfile.mcp'
+            jira:
+              - 'ai_platform_engineering/agents/jira/**'
+              - '!ai_platform_engineering/agents/jira/mcp/**'
+              - '!ai_platform_engineering/agents/jira/build/Dockerfile.mcp'
+            komodor:
+              - 'ai_platform_engineering/agents/komodor/**'
+              - '!ai_platform_engineering/agents/komodor/mcp/**'
+              - '!ai_platform_engineering/agents/komodor/build/Dockerfile.mcp'
+            pagerduty:
+              - 'ai_platform_engineering/agents/pagerduty/**'
+              - '!ai_platform_engineering/agents/pagerduty/mcp/**'
+              - '!ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp'
+            slack:
+              - 'ai_platform_engineering/agents/slack/**'
+              - '!ai_platform_engineering/agents/slack/mcp/**'
+              - '!ai_platform_engineering/agents/slack/build/Dockerfile.mcp'
+            splunk:
+              - 'ai_platform_engineering/agents/splunk/**'
+              - '!ai_platform_engineering/agents/splunk/mcp/**'
+              - '!ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
+            template:
+              - 'ai_platform_engineering/agents/template/**'
+              - '!ai_platform_engineering/agents/template/mcp/**'
+              - '!ai_platform_engineering/agents/template/build/Dockerfile.mcp'
+            webex:
+              - 'ai_platform_engineering/agents/webex/**'
+              - '!ai_platform_engineering/agents/webex/mcp/**'
+              - '!ai_platform_engineering/agents/webex/build/Dockerfile.mcp'
+            weather:
+              - 'ai_platform_engineering/agents/weather/**'
+              - '!ai_platform_engineering/agents/weather/mcp/**'
+              - '!ai_platform_engineering/agents/weather/build/Dockerfile.mcp'
+
+      - name: Set matrix based on changes
+        id: set-matrix
+        uses: actions/github-script@v7
+        env:
+          BUILD_ALL: ${{ steps.filter.outputs.shared == 'true' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+          CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
+          CHANGED_AWS: ${{ steps.filter.outputs.aws }}
+          CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
+          CHANGED_CONFLUENCE: ${{ steps.filter.outputs.confluence }}
+          CHANGED_GITHUB: ${{ steps.filter.outputs.github }}
+          CHANGED_JIRA: ${{ steps.filter.outputs.jira }}
+          CHANGED_KOMODOR: ${{ steps.filter.outputs.komodor }}
+          CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
+          CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
+          CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
+          CHANGED_TEMPLATE: ${{ steps.filter.outputs.template }}
+          CHANGED_WEBEX: ${{ steps.filter.outputs.webex }}
+          CHANGED_WEATHER: ${{ steps.filter.outputs.weather }}
+        with:
+          script: |
+            const allAgents = [
+              'argocd','aws','backstage','confluence','github','jira','komodor','pagerduty','slack','splunk','template','webex','weather'
+            ];
+            const buildAll = process.env.BUILD_ALL === 'true';
+            let selected;
+            if (buildAll) {
+              selected = allAgents;
+            } else {
+              const env = process.env;
+              selected = allAgents.filter(a => env['CHANGED_' + a.toUpperCase()] === 'true');
+            }
+            core.setOutput('agents', JSON.stringify(selected));
+            core.setOutput('should_build', String(selected.length > 0));
+
   build-and-push:
     runs-on: ubuntu-latest
+    needs: determine-agents
+    if: needs.determine-agents.outputs.should_build == 'true'
     permissions:
       contents: read
       packages: write
 
     strategy:
       matrix:
-        agent: [argocd, aws, backstage, confluence, github, jira, komodor, pagerduty, slack, splunk, template, webex, weather]
+        agent: ${{ fromJson(needs.determine-agents.outputs.agents) }}
       fail-fast: false
 
 
@@ -32,7 +139,7 @@ jobs:
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@ec9f2d5744a09debf3a187a3f4f675c53b671911 # v2.13.0
+        uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
         with:
           egress-policy: audit
 
