@@ -1,4 +1,4 @@
-name: MCP Docker Build and Push
+name: Pre-Release MCP Docker Build and Push
 
 on:
   pull_request:
@@ -158,30 +158,33 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Comment image on PR
+      - name: 💬 Comment on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           AGENT: ${{ matrix.agent }}
           IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
+          PREBUILD_TAG: ${{ env.PREBUILD_TAG }}
         with:
           script: |
-            const pr = context.payload.pull_request?.number;
-            if (!pr) { core.info('No PR number found; skipping comment.'); return; }
-            const body = [
-              `Prebuild MCP image for agent ${process.env.AGENT}`,
-              '',
-              'GHCR repository:',
-              `\`${process.env.IMAGE_REPO}\``,
-              '',
-              'Pull this image:',
-              `\`${process.env.IMAGE_REF}\``
-            ].join('\n');
-            await github.rest.issues.createComment({
+            const body = `## 🐳 Prebuild Docker Image Published
+
+            **Agent:** \`${process.env.AGENT}\`
+            **Repository:** \`${process.env.IMAGE_REPO}\`
+            **Tag:** \`${process.env.PREBUILD_TAG}\`
+
+            ### Usage
+            \`\`\`bash
+            docker pull ${process.env.IMAGE_REF}
+            \`\`\`
+
+            > **Note:** This prebuild image will be automatically cleaned up when the PR is closed or merged.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: pr,
               body
             });
 
