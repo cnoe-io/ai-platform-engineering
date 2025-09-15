@@ -54,10 +54,12 @@ jobs:
             splunk:
               - 'ai_platform_engineering/agents/splunk/mcp/**'
               - 'ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
+            webex:
+              - 'ai_platform_engineering/agents/webex/mcp/**'
+              - 'ai_platform_engineering/agents/webex/build/Dockerfile.mcp'
             litellm:
               - 'ai_platform_engineering/agents/litellm/mcp/**'
               - 'ai_platform_engineering/agents/litellm/build/Dockerfile.mcp'
-
       - name: Set matrix based on changes (MCP)
         id: set-matrix
         uses: actions/github-script@v7
