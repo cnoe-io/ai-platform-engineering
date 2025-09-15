@@ -8,6 +8,7 @@ global:
     jira: false
     pagerduty: false
     slack: false
+    litellm: false
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
@@ -120,6 +121,19 @@ agent-slack:
     mode: "http" # Options: stdio, http
     port: 8000
     pullPolicy: "Always"
+
+agent-litellm:
+  nameOverride: "agent-litellm"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-litellm"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-litellm"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
 
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
