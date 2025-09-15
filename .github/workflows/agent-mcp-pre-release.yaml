@@ -1,0 +1,235 @@
+name: MCP Docker Build and Push
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+jobs:
+  determine-agents:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'prebuild/') &&
+      github.event.action != 'closed'
+    outputs:
+      agents: ${{ steps.set-matrix.outputs.agents }}
+      should_build: ${{ steps.set-matrix.outputs.should_build }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed paths (MCP)
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            argocd:
+              - 'ai_platform_engineering/agents/argocd/mcp/**'
+              - 'ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
+            backstage:
+              - 'ai_platform_engineering/agents/backstage/mcp/**'
+              - 'ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
+            confluence:
+              - 'ai_platform_engineering/agents/confluence/mcp/**'
+              - 'ai_platform_engineering/agents/confluence/build/Dockerfile.mcp'
+            jira:
+              - 'ai_platform_engineering/agents/jira/mcp/**'
+              - 'ai_platform_engineering/agents/jira/build/Dockerfile.mcp'
+            komodor:
+              - 'ai_platform_engineering/agents/komodor/mcp/**'
+              - 'ai_platform_engineering/agents/komodor/build/Dockerfile.mcp'
+            pagerduty:
+              - 'ai_platform_engineering/agents/pagerduty/mcp/**'
+              - 'ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp'
+            slack:
+              - 'ai_platform_engineering/agents/slack/mcp/**'
+              - 'ai_platform_engineering/agents/slack/build/Dockerfile.mcp'
+            splunk:
+              - 'ai_platform_engineering/agents/splunk/mcp/**'
+              - 'ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
+
+      - name: Set matrix based on changes (MCP)
+        id: set-matrix
+        uses: actions/github-script@v7
+        env:
+          BUILD_ALL: 'false'
+          CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
+          CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
+          CHANGED_CONFLUENCE: ${{ steps.filter.outputs.confluence }}
+          CHANGED_JIRA: ${{ steps.filter.outputs.jira }}
+          CHANGED_KOMODOR: ${{ steps.filter.outputs.komodor }}
+          CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
+          CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
+          CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
+        with:
+          script: |
+            const allAgents = [
+              'argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk'
+            ];
+            const buildAll = process.env.BUILD_ALL === 'true';
+            let selected;
+            if (buildAll) {
+              selected = allAgents;
+            } else {
+              const env = process.env;
+              selected = allAgents.filter(a => env['CHANGED_' + a.toUpperCase()] === 'true');
+            }
+            core.setOutput('agents', JSON.stringify(selected));
+            core.setOutput('should_build', String(selected.length > 0));
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: determine-agents
+    if: |
+      needs.determine-agents.outputs.should_build == 'true' &&
+      startsWith(github.head_ref, 'prebuild/') &&
+      github.event.action != 'closed'
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+
+    strategy:
+      matrix:
+        agent: ${{ fromJson(needs.determine-agents.outputs.agents) }}
+      fail-fast: false
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: cnoe-io/prebuild/mcp-${{ matrix.agent }}
+      AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
+
+    steps:
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute prebuild tag
+        id: compute_tag
+        shell: bash
+        run: |
+          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
+          BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          echo "BRANCH_BARE=${BRANCH_SANITIZED}" >> $GITHUB_ENV
+          echo "PREBUILD_TAG=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> $GITHUB_ENV
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ env.PREBUILD_TAG }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and Push MCP Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.AGENT_DIR }}
+          file: ${{ env.AGENT_DIR }}/build/Dockerfile.mcp
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Comment image on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          AGENT: ${{ matrix.agent }}
+          IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
+        with:
+          script: |
+            const pr = context.payload.pull_request?.number;
+            if (!pr) { core.info('No PR number found; skipping comment.'); return; }
+            const body = [
+              `Prebuild MCP image for agent ${process.env.AGENT}`,
+              '',
+              'GHCR repository:',
+              `\`${process.env.IMAGE_REPO}\``,
+              '',
+              'Pull this image:',
+              `\`${process.env.IMAGE_REF}\``
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr,
+              body
+            });
+
+  cleanup-images:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        agent: ['argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk']
+      fail-fast: false
+    env:
+      OWNER: ${{ github.repository_owner }}
+      PACKAGE_NAME: prebuild/mcp-${{ matrix.agent }}
+    steps:
+      - name: Delete prebuild images for branch
+        uses: actions/github-script@v7
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        with:
+          script: |
+            const owner = process.env.OWNER;
+            const rawBranch = process.env.HEAD_REF || '';
+            const branchNoPrefix = rawBranch.startsWith('prebuild/') ? rawBranch.substring('prebuild/'.length) : rawBranch;
+            const sanitized = branchNoPrefix.replace(/\//g, '-');
+            const prefix = `${sanitized}-`;
+            const packageName = process.env.PACKAGE_NAME;
+            const packageType = 'container';
+            try {
+              const versions = await github.paginate(github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg, {
+                org: owner,
+                package_type: packageType,
+                package_name: packageName,
+                per_page: 100,
+              });
+              const toDelete = versions.filter(v => (v.metadata?.container?.tags || []).some(t => t.startsWith(prefix)));
+              for (const v of toDelete) {
+                await github.rest.packages.deletePackageVersionForOrg({
+                  org: owner,
+                  package_type: packageType,
+                  package_name: packageName,
+                  package_version_id: v.id,
+                });
+              }
+              core.info(`Deleted ${toDelete.length} versions for ${packageName} with tag prefix ${prefix}`);
+            } catch (e) {
+              if (e.status === 404) {
+                core.info(`Package ${packageName} not found in org ${owner}, skipping.`);
+              } else {
+                throw e;
+              }
+            }
