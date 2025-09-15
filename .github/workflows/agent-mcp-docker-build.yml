@@ -51,6 +51,9 @@ jobs:
             splunk:
               - 'ai_platform_engineering/agents/splunk/mcp/**'
               - 'ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
+            litellm:
+              - 'ai_platform_engineering/agents/litellm/mcp/**'
+              - 'ai_platform_engineering/agents/litellm/build/Dockerfile.mcp'
 
       - name: Set matrix based on changes (MCP)
         id: set-matrix
@@ -65,10 +68,11 @@ jobs:
           CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
           CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
           CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
+          CHANGED_LITTELM: ${{ steps.filter.outputs.litellm }}
         with:
           script: |
             const allAgents = [
-              'argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk'
+              'argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk','litellm'
             ];
             const buildAll = process.env.BUILD_ALL === 'true';
             let selected;
