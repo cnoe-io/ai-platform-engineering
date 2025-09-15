@@ -3,6 +3,9 @@ name: Pre-Release MCP Docker Build and Push
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
+    paths:
+      - 'ai_platform_engineering/agents/**'
+
 jobs:
   determine-agents:
     runs-on: ubuntu-latest
