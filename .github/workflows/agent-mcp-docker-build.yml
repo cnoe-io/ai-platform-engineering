@@ -10,10 +10,14 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - 'ai_platform_engineering/agents/**'
+
   workflow_dispatch:
 jobs:
   determine-agents:
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/')
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
       should_build: ${{ steps.set-matrix.outputs.should_build }}
@@ -88,7 +92,9 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     needs: determine-agents
-    if: needs.determine-agents.outputs.should_build == 'true'
+    if: |
+      needs.determine-agents.outputs.should_build == 'true' &&
+      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/'))
     permissions:
       contents: read
       packages: write
