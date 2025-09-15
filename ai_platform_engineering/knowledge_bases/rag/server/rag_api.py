@@ -124,7 +124,7 @@ class ConfigResponse(BaseModel):
 embeddings = AzureOpenAIEmbeddings(model=os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-large"))
 
 # Milvus connection parameters - using single unified collection
-UNIFIED_COLLECTION_NAME = "rag_default"
+DEFAULT_COLLECTION_NAME = "rag_default"
 milvus_connection_args = {"uri": os.getenv("MILVUS_URI", "http://milvus-standalone:19530")}
 milvus_index_params = {"index_type": "HNSW", "metric_type": "L2"}
 
@@ -132,7 +132,7 @@ def get_vector_db() -> VectorStore:
     """Get the unified Milvus vector database"""
     return Milvus(
         embedding_function=embeddings,
-        collection_name=UNIFIED_COLLECTION_NAME,
+        collection_name=DEFAULT_COLLECTION_NAME,
         connection_args=milvus_connection_args,
         index_params=milvus_index_params,
     )
