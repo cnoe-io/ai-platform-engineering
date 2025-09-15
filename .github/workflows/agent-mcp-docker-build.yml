@@ -29,7 +29,6 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
-          predicate-quantifier: 'every'
           filters: |
             argocd:
               - 'ai_platform_engineering/agents/argocd/mcp/**'
