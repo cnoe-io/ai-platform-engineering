@@ -45,6 +45,8 @@ if os.getenv("ENABLE_CONFLUENCE", "true").lower() == "true":
 if os.getenv("ENABLE_GITHUB", "true").lower() == "true":
     AGENT_NAMES.append("github")
 
+logger.info("Local Build Running......")
+
 if os.getenv("ENABLE_JIRA", "true").lower() == "true":
     AGENT_NAMES.append("jira")
 
@@ -57,6 +59,8 @@ if os.getenv("ENABLE_SLACK", "true").lower() == "true":
 if os.getenv("ENABLE_SPLUNK", "true").lower() == "true":
     AGENT_NAMES.append("splunk")
 
+if os.getenv("ENABLE_WEBEX_AGENT", "true").lower() == "true":
+    AGENT_NAMES.append("webex")
 
 # Optional agents
 if os.getenv("ENABLE_KOMODOR", "false").lower() == "true":

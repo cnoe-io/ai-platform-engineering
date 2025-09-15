@@ -74,6 +74,10 @@ class AgentRegistry:
             "slim": "ai_platform_engineering.agents.splunk.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.splunk.clients.a2a.agent"
         },
+        "webex": {
+            "slim": "ai_platform_engineering.agents.webex.clients.slim.agent",
+            "a2a": "ai_platform_engineering.agents.webex.clients.a2a.agent"
+        },
         "petstore": {
             "slim": "ai_platform_engineering.agents.template.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.template.clients.a2a.agent"
@@ -99,6 +103,14 @@ class AgentRegistry:
         self._retry_delay = float(os.getenv("AGENT_CONNECTIVITY_RETRY_DELAY", "2.0"))
         # Initial startup delay before starting connectivity checks
         self._startup_delay = float(os.getenv("AGENT_CONNECTIVITY_STARTUP_DELAY", "0.0"))
+
+        if os.getenv("ENABLE_WEBEX_AGENT", "").lower() == "true":
+            if "webex" not in self.AGENT_IMPORT_MAP:
+                logger.debug("Adding Webex to AGENT_IMPORT_MAP")
+                self.AGENT_IMPORT_MAP["webex"] = {
+                    "slim": "ai_platform_engineering.agents.webex.clients.slim.agent",
+                    "a2a": "ai_platform_engineering.agents.webex.clients.a2a.agent"
+                }
 
         self._agents: Dict[str, Any] = {}  # Will be populated by _load_agents
         self._tools: Dict[str, Any] = {}  # Will be populated by _load_agents
@@ -385,6 +397,7 @@ class AgentRegistry:
 
         # Step 1: Load all agent modules first
         loaded_modules = {}
+        logger.debug(f"Configured agents: {self.AGENT_NAMES}")
         for agent_name in self.AGENT_NAMES:
             if agent_name not in self.AGENT_IMPORT_MAP:
                 logger.warning(f"Unknown agent: {agent_name}")

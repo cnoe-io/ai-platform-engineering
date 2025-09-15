@@ -18,6 +18,9 @@ logger.info("Komodor enabled: %s", KOMODOR_ENABLED)
 BACKSTAGE_ENABLED = os.getenv("ENABLE_BACKSTAGE", "false").lower() == "true"
 logger.info("Backstage enabled: %s", BACKSTAGE_ENABLED)
 
+WEBEX_AGENT_ENABLED = os.getenv("ENABLE_WEBEX_AGENT", "false").lower() == "true"
+logger.info("Webex agent enabled: %s", WEBEX_AGENT_ENABLED)
+
 AGENT_NAMES = [
     "github",
     "pagerduty",
@@ -30,6 +33,9 @@ if KOMODOR_ENABLED:
 
 if BACKSTAGE_ENABLED:
     AGENT_NAMES.append("backstage")
+
+if WEBEX_AGENT_ENABLED:
+    AGENT_NAMES.append("webex")
 
 class IncidentRegistry(AgentRegistry):
     """Registry for incident engineer multi-agent system."""
