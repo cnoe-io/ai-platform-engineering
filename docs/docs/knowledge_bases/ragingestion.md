@@ -171,7 +171,7 @@ Response:
 
 The ingestion service uses collections to organize different knowledge bases:
 
-- **Default Collection**: `rag_unified` (configurable via `DEFAULT_VSTORE_COLLECTION` environment variable)
+- **Default Collection**: `rag_default` (configurable via `DEFAULT_VSTORE_COLLECTION` environment variable)
 - **Collection Format**: All documents are stored in the configured collection
 - **Environment Configuration**: Set `DEFAULT_VSTORE_COLLECTION=your_collection_name` to use a custom collection
 
