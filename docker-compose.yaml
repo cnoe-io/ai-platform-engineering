@@ -3,10 +3,7 @@ services:
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
-    # image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
-    build:
-      context: .
-      dockerfile: build/Dockerfile
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-p2p
     volumes:
       - .env:/app/.env
@@ -215,10 +212,9 @@ services:
   #                                      AGENT AWS A2A P2P                                           #
   ####################################################################################################
   agent-aws-p2p:
-    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-latest}
-    # build:
-    #   context: ../agent-aws
-    #   dockerfile: build/Dockerfile.a2a
+    build:
+      context: ./ai_platform_engineering/agents/aws
+      dockerfile: build/Dockerfile.a2a
     container_name: agent-aws-p2p
     profiles:
       - p2p
@@ -240,6 +236,8 @@ services:
       # MCP Configuration
       - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
       - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
+      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
+      - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
       - LLM_PROVIDER=${LLM_PROVIDER}
