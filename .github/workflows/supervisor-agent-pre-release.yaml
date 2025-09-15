@@ -1,8 +1,17 @@
-name: Docker Build and Push
+name: Pre-Release Supervisor Agent Docker Build and Push
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
+    paths:
+      - 'build/**'
+      - 'ai_platform_engineering/multi_agents/**'
+      - 'ai_platform_engineering/utils/**'
+      - 'ai_platform_engineering/common/**'
+      - 'ai_platform_engineering/knowledge_bases/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'ai_platform_engineering/__init__.py'
 
 env:
   IMAGE_NAME: cnoe-io/prebuild/ai-platform-engineering
@@ -102,29 +111,31 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Comment image on PR
+      - name: 💬 Comment on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           IMAGE_REPO: ghcr.io/${{ env.IMAGE_NAME }}
           IMAGE_REF: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
+          PREBUILD_TAG: ${{ env.PREBUILD_TAG }}
         with:
           script: |
-            const pr = context.payload.pull_request?.number;
-            if (!pr) { core.info('No PR number found; skipping comment.'); return; }
-            const body = [
-              'Prebuild supervisor image',
-              '',
-              'GHCR repository:',
-              `\`${process.env.IMAGE_REPO}\``,
-              '',
-              'Pull this image:',
-              `\`${process.env.IMAGE_REF}\``
-            ].join('\n');
-            await github.rest.issues.createComment({
+            const body = `## 🐳 Prebuild Docker Image Published
+
+            **Repository:** \`${process.env.IMAGE_REPO}\`
+            **Tag:** \`${process.env.PREBUILD_TAG}\`
+
+            ### Usage
+            \`\`\`bash
+            docker pull ${process.env.IMAGE_REF}
+            \`\`\`
+
+            > **Note:** This prebuild image will be automatically cleaned up when the PR is closed or merged.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: pr,
               body
             });
 
