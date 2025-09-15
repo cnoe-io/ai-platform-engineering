@@ -3,6 +3,9 @@ name: Pre-Release Agent A2A Docker Build and Push
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
+    paths:
+      - 'ai_platform_engineering/utils/**'
+      - 'ai_platform_engineering/agents/**'
 
 jobs:
   determine-agents:

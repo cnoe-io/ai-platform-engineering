@@ -10,6 +10,9 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - 'ai_platform_engineering/utils/**'
+      - 'ai_platform_engineering/agents/**'
   workflow_dispatch:
 
 jobs:
