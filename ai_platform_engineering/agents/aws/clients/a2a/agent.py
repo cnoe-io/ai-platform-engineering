@@ -20,7 +20,8 @@ agent_url = f'http://{AGENT_HOST}:{AGENT_PORT}'
 
 # Check which MCP servers are enabled
 ENABLE_EKS_MCP = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
-ENABLE_COST_EXPLORER_MCP = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
+ENABLE_COST_EXPLORER_MCP = os.getenv("ENABLE_COST_EXPLORER_MCP", "true").lower() == "true"
+ENABLE_IAM_MCP = os.getenv("ENABLE_IAM_MCP", "true").lower() == "true"
 
 # Define skills based on enabled MCP servers
 skills = []
@@ -82,6 +83,38 @@ if ENABLE_COST_EXPLORER_MCP:
     )
     skills.append(cost_skill)
 
+# IAM skill (optional)
+if ENABLE_IAM_MCP:
+    iam_skill = AgentSkill(
+        id="aws_iam_skill",
+        name="AWS IAM Security Management",
+        description="AWS Identity and Access Management operations for security and compliance",
+        tags=[
+            "aws",
+            "iam",
+            "security",
+            "access",
+            "permissions",
+            "policy",
+            "compliance"
+        ],
+        examples=[
+            "List all IAM users and their attached policies",
+            "Create a new IAM user for the development team",
+            "Create an IAM role for EC2 instances to access S3",
+            "Attach the ReadOnlyAccess policy to a user",
+            "List all IAM groups and their members",
+            "Generate access keys for a service account",
+            "Test permissions for a user against specific AWS actions",
+            "Create an inline policy for S3 bucket access",
+            "Add a user to the Developers group",
+            "Delete an unused IAM role with all its policies",
+            "List all policies attached to a specific role",
+            "Simulate policy permissions before applying"
+        ]
+    )
+    skills.append(iam_skill)
+
 # Primary skill for backwards compatibility (use first available skill)
 agent_skill = skills[0] if skills else None
 
@@ -96,6 +129,7 @@ def create_agent_card(base_url: str) -> AgentCard:
     print(f"AGENT_URL: {base_url}")
     print(f"EKS MCP Enabled: {ENABLE_EKS_MCP}")
     print(f"Cost Explorer MCP Enabled: {ENABLE_COST_EXPLORER_MCP}")
+    print(f"IAM MCP Enabled: {ENABLE_IAM_MCP}")
     print("===================================")
 
     # Build description based on enabled capabilities
