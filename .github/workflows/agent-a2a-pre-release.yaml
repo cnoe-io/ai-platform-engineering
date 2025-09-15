@@ -1,30 +1,27 @@
-name: Agent A2A Docker Build and Push
+name: Pre-Release Agent A2A Docker Build and Push
 
 on:
-  push:
-    branches:
-      - main
-    # Build on all new tags as well
-    tags:
-      - '**'
   pull_request:
-    branches:
-      - main
+    types: [opened, synchronize, reopened, closed]
     paths:
       - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/agents/**'
-  workflow_dispatch:
 
 jobs:
   determine-agents:
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/')
+    if: |
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'prebuild/') &&
+      github.event.action != 'closed'
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
       should_build: ${{ steps.set-matrix.outputs.should_build }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Detect changed paths
         id: filter
@@ -96,7 +93,7 @@ jobs:
         id: set-matrix
         uses: actions/github-script@v7
         env:
-          BUILD_ALL: ${{ steps.filter.outputs.shared == 'true' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+          BUILD_ALL: ${{ steps.filter.outputs.shared == 'true' }}
           CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
           CHANGED_AWS: ${{ steps.filter.outputs.aws }}
           CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
@@ -132,10 +129,12 @@ jobs:
     needs: determine-agents
     if: |
       needs.determine-agents.outputs.should_build == 'true' &&
-      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/'))
+      startsWith(github.head_ref, 'prebuild/') &&
+      github.event.action != 'closed'
     permissions:
       contents: read
       packages: write
+      pull-requests: write
 
     strategy:
       matrix:
@@ -145,7 +144,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
+      IMAGE_NAME: cnoe-io/prebuild/agent-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -167,16 +166,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute prebuild tag
+        id: compute_tag
+        shell: bash
+        run: |
+          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
+          BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          echo "BRANCH_BARE=${BRANCH_SANITIZED}" >> $GITHUB_ENV
+          echo "PREBUILD_TAG=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> $GITHUB_ENV
+
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch,prefix=
-            type=ref,event=tag,prefix=
-            type=sha,format=short,prefix=
+            type=raw,value=${{ env.PREBUILD_TAG }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -186,9 +194,91 @@ jobs:
         with:
           context: ${{ env.AGENT_DIR }}
           file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
-          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: 💬 Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        env:
+          AGENT: ${{ matrix.agent }}
+          IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
+          PREBUILD_TAG: ${{ env.PREBUILD_TAG }}
+        with:
+          script: |
+            const body = `## 🐳 Prebuild Docker Image Published
+
+            **Agent:** \`${process.env.AGENT}\`
+            **Repository:** \`${process.env.IMAGE_REPO}\`
+            **Tag:** \`${process.env.PREBUILD_TAG}\`
+
+            ### Usage
+            \`\`\`bash
+            docker pull ${process.env.IMAGE_REF}
+            \`\`\`
+
+            > **Note:** This prebuild image will be automatically cleaned up when the PR is closed or merged.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+  cleanup-images:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        agent: ['argocd','aws','backstage','confluence','github','jira','komodor','pagerduty','slack','splunk','template','webex','weather','litellm']
+      fail-fast: false
+    env:
+      OWNER: ${{ github.repository_owner }}
+      PACKAGE_NAME: prebuild/agent-${{ matrix.agent }}
+    steps:
+      - name: Delete prebuild images for branch
+        uses: actions/github-script@v7
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        with:
+          script: |
+            const owner = process.env.OWNER;
+            const rawBranch = process.env.HEAD_REF || '';
+            const branchNoPrefix = rawBranch.startsWith('prebuild/') ? rawBranch.substring('prebuild/'.length) : rawBranch;
+            const sanitized = branchNoPrefix.replace(/\//g, '-');
+            const prefix = `${sanitized}-`;
+            const packageName = process.env.PACKAGE_NAME;
+            const packageType = 'container';
+            try {
+              const versions = await github.paginate(github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg, {
+                org: owner,
+                package_type: packageType,
+                package_name: packageName,
+                per_page: 100,
+              });
+              const toDelete = versions.filter(v => (v.metadata?.container?.tags || []).some(t => t.startsWith(prefix)));
+              for (const v of toDelete) {
+                await github.rest.packages.deletePackageVersionForOrg({
+                  org: owner,
+                  package_type: packageType,
+                  package_name: packageName,
+                  package_version_id: v.id,
+                });
+              }
+              core.info(`Deleted ${toDelete.length} versions for ${packageName} with tag prefix ${prefix}`);
+            } catch (e) {
+              if (e.status === 404) {
+                core.info(`Package ${packageName} not found in org ${owner}, skipping.`);
+              } else {
+                throw e;
+              }
+            }
