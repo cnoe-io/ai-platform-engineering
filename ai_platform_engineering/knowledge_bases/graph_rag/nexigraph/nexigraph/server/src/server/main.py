@@ -4,29 +4,22 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, status, Request
 from fastapi.responses import JSONResponse
-from fastapi.responses import HTMLResponse
 from fastapi.security import APIKeyHeader
-from fastapi.templating import Jinja2Templates
-from core.msg_pubsub.redis.msg_pubsub import RedisPubSub
 from core import utils
-from core.constants import FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC
 from core.graph_db.neo4j.graph_db import Neo4jDB
 from core.models import Entity, Relation
 from fastapi.encoders import jsonable_encoder
 import dotenv
-
-from agent_graph_gen.relation_manager import RelationCandidateManager
 
 # Load environment variables from .env file
 dotenv.load_dotenv()
 
 logging = utils.get_logger("server")
 
-templates = Jinja2Templates(directory=os.getenv("TEMPLATES_DIR", "templates"))
 
 # TODO: Make the dependencies configurable at runtime
 graph_db = Neo4jDB()
-msg_pubsub = RedisPubSub()
+ontology_graph_db = Neo4jDB(uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
 
 api_header_scheme = APIKeyHeader(name="x-api-key")
 clean_up_interval = int(os.getenv("CLEANUP_INTERVAL", 3 * 60 * 60))  # Default to 3 hours
@@ -56,6 +49,8 @@ async def graph_db_clean_up():
 async def lifespan(_: FastAPI):
     logging.info("setting up db")
     await graph_db.setup()
+    await ontology_graph_db.setup()
+
 
     logging.info("starting periodic graph clean up task")
     loop.create_task(graph_db_clean_up())
@@ -127,7 +122,7 @@ async def update_relationship(client_name: str, relation: Relation, fresh_until:
     """
     Updates an entity to the database
     """
-    await graph_db.update_relationship(relation,
+    await graph_db.update_relation(relation,
                                        client_name=client_name,
                                        ignore_direction=ignore_direction,
                                        fresh_until=fresh_until)
@@ -141,117 +136,6 @@ async def update_entity_type_knowledge(entity_type: str):
     """
     # TODO: implement this
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Not implemented yet"})
-
-
-#####
-# Relation agent (foreign key) admin endpoints
-# Only accessible from localhost
-#####
-@app.post("/admin/agent/fkey/relation/accept/{relation_id:path}", dependencies=[Depends(check_localhost)])
-async def fkey_agent_accept(relation_id: str):
-    """
-    Accepts a foreign key relation
-    """
-    logging.warning("Accepting foreign key relation %s", relation_id)
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "accept:" + relation_id)
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Foreign key relation accepted"})
-
-
-@app.post("/admin/agent/fkey/relation/reject/{relation_id:path}", dependencies=[Depends(check_localhost)])
-async def fkey_agent_reject(relation_id: str):
-    """
-    Reject a foreign key relation
-    """
-    logging.warning("Rejecting foreign key relation %s", relation_id)
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "reject:" + relation_id)
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Foreign key relation rejected"})
-
-@app.post("/admin/agent/fkey/relation/un_reject/{relation_id:path}", dependencies=[Depends(check_localhost)])
-async def fkey_agent_unreject(relation_id: str):
-    """
-    Undo an accepted or rejected foreign key relation
-    """
-    logging.warning("Un-rejecting foreign key relation %s", relation_id)
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "unreject:" + relation_id)
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Foreign key relation un-rejected"})
-
-@app.post("/admin/agent/fkey/relation/evaluate/{relation_id:path}", dependencies=[Depends(check_localhost)])
-async def fkey_agent_evaluate(relation_id: str):
-    """
-    Asks the agent to reevaluate a foreign key relation
-    """
-    logging.warning("Re-evaluating foreign key relation %s", relation_id)
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, f"evaluate:{relation_id}")
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted"})
-
-
-@app.post("/admin/agent/fkey/relation/process",  dependencies=[Depends(check_localhost)])
-async def fkey_agent_process_entity(entity_type: str, primary_key_value: str):
-    """
-    Asks the agent to process a specific entity for foreign key relations
-    """
-    logging.warning("Processing entity %s:%s for foreign key relations", entity_type, primary_key_value)
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, f"process:{entity_type},{primary_key_value}")
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted for processing"})
-
-
-@app.post("/admin/agent/fkey/relation/process_evaluate_all", dependencies=[Depends(check_localhost)])
-async def fkey_agent_process_evaluate_all():
-    """
-    Asks the agent to reevaluate all foreign key relation
-    """
-    logging.warning("Re-evaluating all foreign key relations")
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "process_evaluate_all")
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted"})
-
-@app.post("/admin/agent/fkey/relation/evaluate_all", dependencies=[Depends(check_localhost)])
-async def fkey_agent_evaluate_all():
-    """
-    Asks the agent to reevaluate all foreign key relation
-    """
-    logging.warning("Re-evaluating all foreign key relations")
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "evaluate_all")
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted"})
-
-@app.post("/admin/agent/fkey/heuristics/process_all", dependencies=[Depends(check_localhost)])
-async def fkey_agent_process_all():
-    """
-    Asks the agent to reevaluate all foreign key relation
-    """
-    logging.warning("Processing all heuristics")
-    await msg_pubsub.publish(FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC, "process_all")
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Submitted"})
-
-
-#####
-# Health, status and UI endpoints
-#####
-@app.get("/admin", response_class=HTMLResponse, dependencies=[Depends(check_localhost)])
-async def admin_panel(request: Request):
-    
-    # TODO: Get these from the agent itself
-    ACCEPTANCE_THRESHOLD = float(os.getenv('ACCEPTANCE_THRESHOLD', float(0.75))) # > 75% by default
-    REJECTION_THRESHOLD = float(os.getenv('REJECTION_THRESHOLD', float(0.3))) # < 40% by default
-    MIN_COUNT_FOR_EVAL = int(os.getenv('MIN_COUNT_FOR_EVAL', int(3))) # 3 by default
-    rc_manager = RelationCandidateManager(graph_db, ACCEPTANCE_THRESHOLD, REJECTION_THRESHOLD)
-    return templates.TemplateResponse(
-        request=request, name="admin_panel.jinja2", context={
-            "reject_endpoint": "/agent/fkey/relation/reject/{relation_id}",
-            "un_reject_endpoint": "/agent/fkey/relation/un_reject/{relation_id}",
-            "accept_endpoint": "/agent/fkey/relation/accept/{relation_id}",
-            "evaluate_endpoint": "/agent/fkey/relation/evaluate/{relation_id}",
-            "process_evaluate_all_endpoint": "/agent/fkey/relation/process_evaluate_all",
-            "evaluate_all_endpoint": "/agent/fkey/relation/evaluate_all",
-            "process_all_endpoint": "/agent/fkey/heuristics/process_all",
-            "relations": dict(sorted((await rc_manager.fetch_all_candidates()).items(), key=lambda x: x[1].heuristic.count, reverse=True)),
-            "graph_db_type": "neo4j",
-            "graph_db_url": graph_db.uri,
-            "entity_type_count": len(await graph_db.get_all_entity_types()),
-            "ACCEPTANCE_THRESHOLD": ACCEPTANCE_THRESHOLD,
-            "REJECTION_THRESHOLD": REJECTION_THRESHOLD,
-            "MIN_COUNT_FOR_EVAL": MIN_COUNT_FOR_EVAL,
-        }
-    )
 
 @app.get("/healthz")
 async def healthz():
