@@ -74,10 +74,11 @@ jobs:
           CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
           CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
           CHANGED_LITTELM: ${{ steps.filter.outputs.litellm }}
+          CHANGED_WEBEX: ${{ steps.filter.outputs.webex }}
         with:
           script: |
             const allAgents = [
-              'argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk','litellm'
+              'argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk','litellm','webex'
             ];
             const buildAll = process.env.BUILD_ALL === 'true';
             let selected;
