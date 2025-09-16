@@ -1,3 +1,4 @@
+import os
 import pytest
 import pytest_asyncio
 import logging
@@ -5,7 +6,7 @@ import json
 from agent_graph_gen.relation_manager import RelationCandidateManager
 
 from core.graph_db.neo4j.graph_db import Neo4jDB
-from core.utils import ObjEncoder
+from core.utils import ObjEncoder, get_default_fresh_until
 
 from core.models import RelationCandidate
 
@@ -20,9 +21,10 @@ TEST_DATA_HEURISTICS_FILE = "test_data_heuristics.json"
 TEST_DATA_FILE = "test_data.json"
 
 graph_db = Neo4jDB()
+ontology_graph_db = Neo4jDB("bolt://localhost:7688")
 
-rc = RelationCandidateManager(graph_db=graph_db, acceptance_threshold=0.75, rejection_threshold=0.3)
-hp = HeuristicsProcessor(graph_db=graph_db, rc_manager=rc)
+rc = RelationCandidateManager(graph_db=graph_db, ontology_graph_db=ontology_graph_db, heuristics_version_id="test", acceptance_threshold=0.75, rejection_threshold=0.3)
+hp = HeuristicsProcessor(graph_db=graph_db)
 
 ground_truth_candidates = {}
 
@@ -33,35 +35,41 @@ async def initialise():
 
     # Clear existing data for the client
     logging.info("Clearing existing data for the client...")
+    await ontology_graph_db.raw_query("MATCH ()-[r]-() DELETE r")
+    await ontology_graph_db.raw_query("MATCH (n) DETACH DELETE n") 
     await graph_db.raw_query("MATCH ()-[r]-() DELETE r")
     await graph_db.raw_query("MATCH (n) DETACH DELETE n") 
-    await rc.delete_all_candidates()
+    # await rc.cleanup()
 
     logging.info("Loading test data...")
     with open(TEST_DATA_FILE, "r") as f:
         data = json.load(f)
 
+    # create entities directory if it doesn't exist
+    if not os.path.exists("entities"):
+        os.makedirs("entities")
+
     logging.info("Writing test data to the database...")
     for i, entity in enumerate(data["entities"]):
         logging.info(f"Creating entity {i}...")
         entity = Entity.model_validate(entity)
-
+        
         # write entity to a file
         with open(f"entities/{i}.json", "w") as ef:
-            json.dump(entity.dict(), ef, cls=ObjEncoder, indent=2)
+            json.dump(entity.model_dump(), ef, cls=ObjEncoder, indent=2)
 
-        # await rc.graph_db.update_entity(entity, client_name=CLIENT_NAME, fresh_until=get_default_fresh_until())
+        await graph_db.update_entity(entity, client_name=CLIENT_NAME, fresh_until=get_default_fresh_until())
     
     # Process all entities in the database, and compute heuristics
     logging.info("Processing all entities in the database...")
-    await rc.delete_all_candidates()
-    entities = await rc.graph_db.find_entity(DEFAULT_LABEL, properties={
+    # await rc.cleanup()
+    entities = await graph_db.find_entity(DEFAULT_LABEL, properties={
         UPDATED_BY_KEY: CLIENT_NAME
     })
     for entity in entities:
-        logging.info(f"Processing entity {entity}...")
-        await hp.process(entity)
-        logging.info(f"Finished processing entity {entity}.")
+        logging.info(f"Processing entity ({entity.entity_type}) {entity.generate_primary_key()}...")
+        await hp.process(entity, rc_manager=rc)
+        logging.info(f"Finished processing entity ({entity.entity_type}) {entity.generate_primary_key()}.")
     
     # Load up ground truth data
     logging.info("Loading ground truth data...")
@@ -81,6 +89,9 @@ async def test_total_count():
     logging.warning("Difference in relation candidates (in test, not in ground truth):")
     for rel_id in diff_tcs:
         logging.warning(f"  - {rel_id}")
+        c = test_candidates[rel_id]
+        logging.warning(f"    - {c.heuristic.entity_a_type} -> {c.heuristic.entity_b_type}")
+        logging.warning(f"    - {c.heuristic.property_mappings}")
     logging.warning("Difference in relation candidates (in ground truth, not in test):")
     for rel_id in diff_gtcs:
         logging.warning(f"  - {rel_id}")
@@ -97,7 +108,8 @@ async def test_relation_candidate_count():
             logging.warning(f"Relation ID {rel_id} not found in test candidates.")
             continue
         test_candidate = test_candidates[rel_id]
-        logging.info(f"[TEST] Testing relation candidate count for {rel_id}, expected {ground_truth_candidate.heuristic.count}, got {test_candidate.heuristic.count}")
+        if ground_truth_candidate.heuristic.count != test_candidate.heuristic.count:
+            logging.warning(f"[TEST] Testing relation candidate count for {rel_id}, expected {ground_truth_candidate.heuristic.count}, got {test_candidate.heuristic.count}")
         assert ground_truth_candidate.heuristic.count == test_candidate.heuristic.count, f"Mismatch in count for {rel_id}, expected {ground_truth_candidate.heuristic.count}, got {test_candidate.heuristic.count}"
 
 

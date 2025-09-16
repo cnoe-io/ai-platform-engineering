@@ -49,15 +49,16 @@ RELATION_PROMPT = """
 Heuristics of the potential relationship:
 
 entity_a: {entity_a}
-entity_a_property: {entity_a_property}
-
 entity_b: {entity_b}
+
+property mappings (set of properties in entity_a that map to properties in entity_b):
+{property_mappings}
 
 number of occurrences: {count}
 example values: {values}
 
-total count of '{entity_a_property}' property in '{entity_a}': {entity_a_with_property_count}
-coverage of this relation (based on the count): {entity_a_with_property_percentage}%
+Count of the properties in all '{entity_a}' entities: 
+{entity_a_with_property_counts}
 
 example_matches: 
 {example_matches}

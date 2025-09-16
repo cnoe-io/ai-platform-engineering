@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Tuple, Union
 from core.models import Entity, Relation, EntityTypeMetaRelation
 
 
@@ -19,7 +19,7 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    async def fuzzy_search(self, keywords: List[List[str]], 
+    async def fuzzy_search(self, keywords: List[List[Union[str, Tuple[float, str]]]], 
                            type_filter: List[str], 
                            num_record_per_type: int = 0, 
                            require_single_match_per_type: bool = False, 
@@ -29,7 +29,10 @@ class GraphDB(ABC):
         Does a fuzzy search on a subset of properties (that are deemed important for identity of the entity e.g. id, name, arn etc.)
         The search is strict for keywords
 
-        :param keywords: list of keywords to search for, they are OR'd in the same array, and AND'd across arrays
+        :param keywords: list of keywords to search for, they are OR'd in the same array, and AND'd across arrays.
+                        Each keyword can be either a string or a (weight, string) tuple for relevance boosting.
+                        E.g. keywords = [['id1', (2.0, 'id2')], ['name1', 'name2']] 
+                        will search for (id1 OR id2^2.0) AND (name1 OR name2)
         :param type_filter: only return entity types that are in the list, empty for all
         :param num_record_per_type: Number of records to return per type, if 0, return all records, sorted by highest score
         :param strict: if True, the search is strict, meaning that the keywords must match exactly, if False, the search is fuzzy
@@ -49,6 +52,20 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
     
     @abstractmethod
+    async def get_entity_type_properties(self, entity_type: str, max_results=1000) -> List[str]:
+        """
+        Get all properties for a given entity type in the graph database.
+        
+        Args:
+            entity_type (str): The type of entity to get properties for
+            max_results (int): Maximum number of results to return
+            
+        Returns:
+            List[str]: A list of all properties for the specified entity type
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    @abstractmethod
     async def find_entity(self, entity_type: str, properties: dict, max_results=10000) -> List[Entity]:
         """
         Finds an entity in the graph database
@@ -60,6 +77,16 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
+    async def get_entity(self, entity_type: str, primary_key_value: str) -> (Entity | None):
+        """
+        Gets a single entity by type and primary key value
+        :param entity_type: type of entity
+        :param primary_key_value: the primary key value of the entity
+        :return: entity if found, None otherwise
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
     async def find_entity_by_id_value(self, entity_type: str, identity_values=[], max_results=10000) -> List[Entity]:
         """
         Finds an entity in the graph database
@@ -67,6 +94,19 @@ class GraphDB(ABC):
         :param identity_values: list of identity values to match, values are AND'd together
         :param max_results: maximum number of results to return
         :return: list of entities
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
+    async def find_relations(self, from_entity_type: str | None = None, to_entity_type: str | None = None, relation_name: str | None = None, 
+        properties: dict | None = None, max_results: int = 10000) -> List[Relation]:
+        """
+        Finds relations between entities of specified types with given properties.
+        :param from_entity_type: type of from entity, empty for any
+        :param to_entity_type: type of to entity, empty for any
+        :param relation_name: name of the relation, empty for any
+        :param properties: dict of properties to match, None for any
+        :param max_results: maximum number of results to return
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
@@ -101,7 +141,7 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    async def update_relationship(self, relation: Relation, fresh_until: int, ignore_direction=False, client_name=None):
+    async def update_relation(self, relation: Relation, fresh_until: int, ignore_direction=False, client_name=None):
         """
         Creates a relationship between two entities in the graph database
         Should only be used in rare cases, use update_entity instead
@@ -149,8 +189,8 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    async def get_values_of_matching_property(self, entity_type_a: str, entity_a_property: str, 
-                                              entity_type_b: str,  entity_b_property: str, max_results: int=10) -> List[str]:
+    async def get_values_of_matching_property(self, entity_type_a: str, entity_a_property: str,
+                                              entity_type_b: str,  matching_properties: dict, max_results: int=10) -> List[str]:
         """
         Returns a list of values where two entity types have matching property value.
         :param entity_type_a: type of the first entity

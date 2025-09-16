@@ -58,19 +58,30 @@ class Relation(BaseModel):
     """
     Represents a relationship between two entities in the graph database
     """
-    from_entity: EntityIdentifier
-    to_entity: EntityIdentifier
-    relation_name: str
-    relation_properties: Optional[dict[str, Any]] = None
+    from_entity: EntityIdentifier = Field(description="The from entity")
+    to_entity: EntityIdentifier = Field(description="The to entity")
+    relation_name: str = Field(description="The name of the relation")
+    primary_key_properties: Optional[List[str]] = Field(description="(Optional) Primary key properties of the relation to maintain uniqueness between the from and to entities")
+    relation_properties: Optional[dict[str, Any]] = Field(description="(Optional) The properties of the relation")
+
+    def generate_primary_key(self) -> str:
+        """
+        Generates a primary key for this entity from the primary key properties
+        :return: str
+        """
+        if self.primary_key_properties is None or self.relation_properties is None:
+            return ""
+        return PROP_DELIMITER.join([self.relation_properties[k] for k in self.primary_key_properties])
+
 
 class EntityTypeMetaRelation(BaseModel):
     """
     Represents a meta relationship between two entity types in the graph database
     It maybe used to approximate a relationship between two entity types
     """
-    from_entity_type: str
-    to_entity_type: str
-    relation_name: str
+    from_entity_type: str = Field(description="The from entity type")
+    to_entity_type: str = Field(description="The to entity type")
+    relation_name: str = Field(description="The name of the relation")
 
 class KnowledgeSource(BaseModel):
     """
@@ -136,9 +147,8 @@ class FkeyEvaluation(BaseModel):
     justification: Optional[str] = Field(default="", description="Justification for the relation and the confidence")
     thought: str = Field(default="", description="The agent's thoughts about the relation")
     last_evaluated: int = Field(default=0, description="The last time this heuristic was evaluated, used to determine freshness")
-    values: List[Any] = Field(default=[], description="The example values that were used to evaluate the heuristic")
-    entity_a_with_property_count: int = Field(default=0, description="The number of entities of entity_a type that have the property that matches the heuristic")
-    entity_a_with_property_percentage: float = Field(default=0, description="The percentage of entity_a properties that match the heuristic")
+    entity_a_property_values: dict[str, List[Any]] = Field(default={}, description="The example values that were used to evaluate the heuristic for each property")
+    entity_a_property_counts: dict[str, int] = Field(default={}, description="The number of entities of entity_a type that have each property")
     last_evaluation_count: int = Field(default=0, description="The previous count of the heuristic, used to determine if the heuristic has changed")
 
 class RelationCandidate(BaseModel):

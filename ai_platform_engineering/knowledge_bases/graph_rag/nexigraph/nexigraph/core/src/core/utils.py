@@ -6,6 +6,8 @@ import traceback
 import asyncio
 import hashlib
 import time
+from turtle import reset
+import uuid
 
 from core.models import Entity
 
@@ -30,14 +32,60 @@ class ObjEncoder(JSONEncoder):
 def json_encode(obj, **kwargs):
     return json.dumps(obj, cls=ObjEncoder, **kwargs)
 
+
+class CustomFormatter(logging.Formatter):
+    grey = "\x1b[38;20m"
+    yellow = "\x1b[33;20m"
+    red = "\x1b[31;20m"
+    bold_red = "\x1b[31;1m"
+    reset = "\x1b[0m"
+    _format = "%(asctime)s - [%(name)s] %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
+    FORMATS = {
+        logging.DEBUG: grey + _format + reset,
+        logging.INFO: grey + _format + reset,
+        logging.WARNING: yellow + _format + reset,
+        logging.ERROR: red + _format + reset,
+        logging.CRITICAL: bold_red + _format + reset
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
 def get_logger(name) -> logging.Logger:
-    logger = logging.getLogger(name)
+    logger = logging.getLogger("rag")
+    logger.propagate = False
+    logger = logging.getLogger(f"rag.{name}")
     logger.setLevel(os.getenv("LOG_LEVEL", "DEBUG").upper())
-    formatter = logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s')
+
+    formatter = CustomFormatter()
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     return logger
+
+async def gather(n: int, *coros: asyncio.Future, logger: logging.Logger):
+    """
+    Gathers (waits for) a list of coroutines with a limit on the number of concurrent executions.
+    """ 
+    semaphore = asyncio.Semaphore(n)
+
+    async def sem_coro(index, coro):
+        async with semaphore:
+            try:
+                await coro
+            except Exception as e:
+                logger.error(traceback.format_exc())
+                logger.error(f"Error in task {index}: {e}")
+            
+            logger.debug(f"Finished task {index}")
+            return 
+    
+    logger.debug(f"Starting {len(coros)} tasks with {n} concurrent tasks")
+    await asyncio.gather(*(sem_coro(index, coro) for index, coro in enumerate(coros)))
+    logger.info(f"All {len(coros)} tasks finished")
+
 
 def hash_entity_properties(entity: Entity):
     """
@@ -67,6 +115,12 @@ def get_default_fresh_until():
     :return: fresh until timestamp
     """
     return int(time.time()) + (7 * DURATION_DAY)
+
+def get_uuid():
+    """
+    Returns a random UUID.
+    """
+    return str(uuid.uuid4())
 
 def retry_function(func, retries=10, delay=10, *args, **kwargs):
     """
