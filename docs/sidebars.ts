@@ -119,6 +119,10 @@ const sidebars: SidebarsConfig = {
         {
           type: 'doc',
           id: 'architecture/index',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/gateway',
         }
       ],
     },
