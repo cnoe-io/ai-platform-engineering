@@ -1,8 +1,3 @@
-
----
-sidebar_position: 3
----
-
 # Confluence Agent
 
 - 🤖 **Confluence Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and Confluence [MCP Server](https://modelcontextprotocol.io/introduction).
@@ -12,6 +7,8 @@ sidebar_position: 3
 - 🔌 **MCP Tools:** Uses [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) to glue the tools from Confluence MCP server to LangGraph ReAct Agent Graph.
 
 ## 🏗️ Architecture
+
+**[Detailed Sequence Diagram with Agentgateway](../architecture/gateway.md)**
 
 ### System Diagram
 
@@ -80,40 +77,6 @@ sequenceDiagram
 
 ---
 
-## ⚙️ Local Development Setup
-
-Use this setup to test the agent against a local Confluence instance.
-
-### ▶️ Start Confluence with Docker
-
-> **Note:** Confluence can be run locally using Docker for development and testing.
-
-```bash
-# Start Confluence with Docker Compose
-docker-compose up -d confluence
-```
-
-### 🛂 Retrieve Admin Credentials
-
-```bash
-# Get the admin password from Confluence logs
-docker-compose logs confluence | grep "admin password"
-```
-
-### 📦 Install CLI (Optional)
-
-```bash
-# Install Confluence CLI
-npm install -g confluence-cli
-```
-
-### 🚀 Create Test Space
-
-```bash
-# Create a test space using Confluence CLI
-confluence-cli space create --name "Test Space" --key "TEST"
-```
-
 ### 🔑 Get API Token
 
 1. Log in to your Confluence instance
@@ -130,30 +93,12 @@ CONFLUENCE_API_URL=http://localhost:8090
 ATLASSIAN_VERIFY_SSL=false
 ```
 
-### Run Confluence Sanity tests
+### Local Development
 
+```bash
+# Navigate to the Confluence agent directory
+cd ai_platform_engineering/agents/confluence
+
+# Run the MCP server in stdio mode
+make run-a2a
 ```
-make confluence-sanity
-```
-
-## ✨ Features
-
-- **Page Management**: Create, read, update, and delete Confluence pages
-- **Space Management**: Manage Confluence spaces and permissions
-- **Content Operations**: Search, filter, and organize content
-- **User Management**: Manage users, groups, and permissions
-- **Attachment Management**: Upload, download, and manage attachments
-- **Comment System**: Add and manage comments on pages
-- **Template Management**: Create and use page templates
-- **API Integration**: Full Confluence API coverage through MCP tools
-
-## 🎯 Example Use Cases
-
-Ask the agent natural language questions like:
-
-- **Page Operations**: "Create a new page called 'Project Overview' in the 'Engineering' space"
-- **Content Search**: "Find all pages containing 'API documentation'"
-- **Space Management**: "List all spaces I have access to"
-- **User Management**: "Add user 'john.doe' to the 'Developers' group"
-- **Template Usage**: "Create a meeting notes page using the 'Meeting Template'"
-- **Attachment Management**: "Upload the 'project-plan.pdf' file to the 'Planning' page"
