@@ -16,7 +16,23 @@ services:
       NEO4J_apoc_export_file_enabled: true
       NEO4J_apoc_import_file_enabled: true
       NEO4J_apoc_import_file_use__neo4j__config: true
-
+      
+  neo4j-ontology:
+    image: neo4j:latest
+    volumes:
+        - ./.neo4j-ontology/logs:/logs
+        - ./.neo4j-ontology/config:/config
+        - ./.neo4j-ontology/data:/data
+        - ./.neo4j-ontology/plugins:/plugins
+    ports:
+      - "7688:7687"
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/dummy_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: true
+      NEO4J_apoc_import_file_enabled: true
+      NEO4J_apoc_import_file_use__neo4j__config: true
   redis:
     image: redis
     command:

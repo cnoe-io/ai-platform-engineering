@@ -36,7 +36,6 @@ def main():
     for rel_id, rel in data.items():
         entity_a_type = rel["heuristic"]["entity_a_type"]
         entity_b_type = rel["heuristic"]["entity_b_type"]
-        entity_a_property = rel["heuristic"]["entity_a_property"]
         
         driver = neo4j.GraphDatabase.driver("bolt://localhost:7688", auth=("neo4j", "dummy_password"))
 
