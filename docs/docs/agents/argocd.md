@@ -1,7 +1,3 @@
----
-sidebar_position: 10
----
-
 # ArgoCD Agent
 
 - 🤖 **ArgoCD Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and ArgoCD [MCP Server](https://modelcontextprotocol.io/introduction).
@@ -12,6 +8,8 @@ sidebar_position: 10
 
 ## 🏗️ Architecture
 
+**[Detailed Sequence Diagram with Agentgateway](../architecture/gateway.md)**
+
 ### System Diagram
 
 ```mermaid
@@ -20,15 +18,15 @@ flowchart TD
     A[User Client A2A]
   end
   subgraph Agent Transport Layer
-    B[Google A2A]
+    B[A2A - Agent2Agent Protocol]
   end
   subgraph Agent Graph Layer
     C[LangGraph ReAct Agent]
   end
   subgraph Tools Layer
-    D[LangChain MCP Adapter]
-    E[ArgoCD MCP Server]
-    F[ArgoCD API Server]
+    D[LangGraph MCP Adapter]
+    E[MCP Server]
+    F[External API Server]
   end
 
   A --> B --> C --> D --> E --> F
@@ -137,8 +135,12 @@ ARGOCD_API_URL=https://localhost:8080
 ARGOCD_VERIFY_SSL=false
 ```
 
-### Run ArgoCD Sanity tests
+### Local Development
 
-```
-make argocd-sanity
+```bash
+# Navigate to the ArgoCD agent directory
+cd ai_platform_engineering/agents/argocd
+
+# Run the MCP server in stdio mode
+make run-a2a
 ```

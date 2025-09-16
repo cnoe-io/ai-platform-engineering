@@ -174,12 +174,20 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'agents/splunk',
+        },
+        {
+          type: 'doc',
           id: 'agents/template',
         },
         {
           type: 'doc',
           id: 'agents/weather',
         },
+        {
+          type: 'doc',
+          id: 'agents/webex',
+        }
       ],
     },
     {

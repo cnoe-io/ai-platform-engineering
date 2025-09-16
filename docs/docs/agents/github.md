@@ -1,8 +1,3 @@
-
----
-sidebar_position: 4
----
-
 # GitHub Agent
 
 - 🤖 **GitHub Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and GitHub [MCP Server](https://modelcontextprotocol.io/introduction).
@@ -12,6 +7,8 @@ sidebar_position: 4
 - 🔌 **MCP Tools:** Uses [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) to glue the tools from GitHub MCP server to LangGraph ReAct Agent Graph.
 
 ## 🏗️ Architecture
+
+**[Detailed Sequence Diagram with Agentgateway](../architecture/gateway.md)**
 
 ### System Diagram
 
@@ -91,6 +88,7 @@ Use this setup to test the agent against GitHub.
 3. Give your token a descriptive name
 4. Set an expiration date (recommended: 90 days)
 5. Select the required permissions:
+   > **⚠️ Note:** Always grant the minimum required permissions (principle of least privilege) when generating your GitHub API token. Only select the scopes necessary for your use case to enhance security.
    - `repo` (Full control of private repositories)
    - `workflow` (Update GitHub Action workflows)
    - `admin:org` (Full control of orgs and teams)
@@ -115,33 +113,12 @@ GITHUB_PERSONAL_ACCESS_TOKEN=<your_token>
 GITHUB_API_URL=https://api.github.com
 ```
 
-### Run GitHub Sanity tests
+### Local Development
 
+```bash
+# Navigate to the GitHub agent directory
+cd ai_platform_engineering/agents/github
+
+# Run the MCP server in stdio mode
+make run-a2a
 ```
-make github-sanity
-```
-
-## ✨ Features
-
-- **Repository Management**: Create, clone, fork, and manage repositories
-- **Issue Management**: Create, assign, label, and track issues
-- **Pull Request Management**: Create, review, merge, and manage pull requests
-- **Branch Management**: Create, delete, and manage branches
-- **Commit Operations**: Create commits, view history, and manage changes
-- **Project Management**: Manage GitHub Projects and boards
-- **Team Collaboration**: Manage teams, members, and permissions
-- **Webhook Management**: Configure and manage webhooks
-- **Release Management**: Create and manage releases
-- **API Integration**: Full GitHub API coverage through MCP tools
-
-## 🎯 Example Use Cases
-
-Ask the agent natural language questions like:
-
-- **Repository Operations**: "Create a new repository called 'my-project'"
-- **Issue Management**: "Create an issue titled 'Bug: Login not working' in the 'frontend' repository"
-- **Pull Request Operations**: "Create a pull request from 'feature-branch' to 'main'"
-- **Branch Management**: "Create a new branch called 'hotfix' from 'main'"
-- **Project Management**: "Add issue #123 to the 'Sprint 1' project"
-- **Team Management**: "Add user 'john.doe' to the 'Developers' team"
-- **Release Management**: "Create a new release v1.0.0 with the latest changes"
