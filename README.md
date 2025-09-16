@@ -94,6 +94,12 @@ We’re excited to collaborate with you!
 
 [![Star History Chart](https://api.star-history.com/svg?repos=cnoe-io/ai-platform-engineering&type=Date)](https://www.star-history.com/#cnoe-io/ai-platform-engineering&Date)
 
+## Contributors
+
+<a href="https://github.com/cnoe-io/ai-platform-engineering/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=cnoe-io/ai-platform-engineering" />
+</a>
+
 ## 📄 License
 
 Licensed under the [Apache-2.0 License](LICENSE).

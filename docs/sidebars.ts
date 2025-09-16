@@ -295,6 +295,11 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'doc',
+          id: 'workshop/flyer',
+          label: 'Register',
+        },
+        {
+          type: 'doc',
           id: 'workshop/README',
           label: 'Workshop Overview',
         },
