@@ -16,6 +16,9 @@ from typing import Dict, Any, Optional
 import uuid
 import datetime
 import json
+from server.utils import generate_document_id, generate_chunk_id
+from server.redis_client import store_document_info, store_chunk_info, DocumentInfo, ChunkInfo
+
 
 class Loader:
     def __init__(self, vstore: VectorStore, logger: logging.Logger, redis_client=None):
@@ -28,6 +31,7 @@ class Loader:
         
         # ID tracking for unified collection
         self.current_source_id = None
+        self.current_source_info = None
 
         # Batch size for URL processing (configurable via environment variable)
         self.batch_size = int(os.getenv("URL_BATCH_SIZE", "5"))
@@ -61,6 +65,14 @@ class Loader:
             separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""]
         )
         self.logger.info(f"Updated chunking config: size={chunk_size}, overlap={chunk_overlap}")
+
+    def get_document_chunk_params(self) -> tuple[int, int]:
+        """Get chunk_size and chunk_overlap for documents from source metadata"""
+        if self.current_source_info and self.current_source_info.metadata:
+            chunk_size = self.current_source_info.metadata.get("default_chunk_size", 10000)
+            chunk_overlap = self.current_source_info.metadata.get("default_chunk_overlap", 2000)
+            return chunk_size, chunk_overlap
+        return 10000, 2000  # fallback defaults
 
     def set_batch_size(self, batch_size: int):
         """Update batch size for URL processing"""
@@ -276,7 +288,7 @@ class Loader:
         self.logger.debug(f"Sanitized filename: {filename}")
         return filename
 
-    async def process_document(self, doc: Document, job_id: Optional[str] = None):
+    async def process_document(self, doc: Document, job_id: Optional[str] = None, chunk_size: int = 10000, chunk_overlap: int = 2000):
         """
         Process a document, splitting into chunks if necessary, with proper ID management.
         """
@@ -290,7 +302,6 @@ class Loader:
         self.logger.info(f"Processing document: {source} ({len(content)} characters)")
 
         # Generate document ID
-        from server.rag_api import generate_document_id, generate_chunk_id, store_document_info, store_chunk_info, DocumentInfo, ChunkInfo
         document_id = generate_document_id(self.current_source_id, source)
         
         # Store document info in Redis
@@ -302,16 +313,26 @@ class Loader:
             title=doc.metadata.get("title", ""),
             description=doc.metadata.get("description", ""),
             content_length=len(content),
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
             created_at=current_time,
             metadata=doc.metadata
         )
 
         # Check if document needs chunking
-        if len(content) > self.chunk_size:
+        if len(content) > chunk_size:
             self.logger.info("Document exceeds chunk size, splitting into chunks using RecursiveCharacterTextSplitter")
 
-            # Use LangChain's RecursiveCharacterTextSplitter
-            chunk_docs = self.text_splitter.split_documents([doc])
+            # Create document-specific text splitter
+            document_text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                length_function=len,
+                separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""]
+            )
+            
+            # Use document-specific RecursiveCharacterTextSplitter
+            chunk_docs = document_text_splitter.split_documents([doc])
             document_info.chunk_count = len(chunk_docs)
 
             self.logger.info(f"Length of chunk_docs: {len(chunk_docs)}")
@@ -509,7 +530,8 @@ class Loader:
                             soup = BeautifulSoup(html_content, 'html.parser')
                             content, metadata = await self.custom_parser(soup, url)
                             doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
-                            await self.process_document(doc, job_id)
+                            chunk_size, chunk_overlap = self.get_document_chunk_params()
+                            await self.process_document(doc, job_id, chunk_size, chunk_overlap)
                         else:
                             self.logger.warning(f"Failed to fetch {url}: HTTP {resp.status}")
                 else:
@@ -527,7 +549,8 @@ class Loader:
                         if doc.metadata is None:
                             doc.metadata = {}
                         doc.metadata["source"] = url
-                        await self.process_document(doc, job_id)
+                        chunk_size, chunk_overlap = self.get_document_chunk_params()
+                        await self.process_document(doc, job_id, chunk_size, chunk_overlap)
 
                 await self.update_job_progress(job_id,
                     status="completed",
@@ -583,7 +606,8 @@ class Loader:
                                             soup = BeautifulSoup(html_content, 'html.parser')
                                             content, metadata = await self.custom_parser(soup, page_url)
                                             doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
-                                            await self.process_document(doc, job_id)
+                                            chunk_size, chunk_overlap = self.get_document_chunk_params()
+                                            await self.process_document(doc, job_id, chunk_size, chunk_overlap)
                                             processed_count += 1
                                         else:
                                             self.logger.warning(f"Failed to fetch {page_url}: HTTP {resp.status}")
@@ -608,7 +632,8 @@ class Loader:
                                 # Just update the document ID and source metadata
                                 doc.id = uuid.uuid4().hex
                                 doc.metadata["source"] = source_url
-                                await self.process_document(doc, job_id)
+                                chunk_size, chunk_overlap = self.get_document_chunk_params()
+                                await self.process_document(doc, job_id, chunk_size, chunk_overlap)
                                 processed_count += 1
 
                         # Force garbage collection after each batch to free memory
