@@ -1,68 +1,50 @@
-True Positive: BackstageSystem.spec.domain -> BackstageDomain [a116e2a155373328419726d22b90ca37] - Expected: 1.0, Test: 0.9
-False Positive: K8sService.cluster_name -> K8sDeployment [a2d1df31d88819e4d683ef92378f1347] - Expected: 0.0, Test: 0.7
-True Positive: K8sDeployment.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9] - Expected: 1.0, Test: 0.9
-True Positive: AWSEksCluster.name -> K8sCluster [866f527d5d274a30df697baeb1748f45] - Expected: 1.0, Test: 0.9
-False Positive: K8sIngress.cluster_name -> K8sClusterIssuer [ffe49f5b4d02e5e2597fb2b64184aff8] - Expected: 0.0, Test: 0.5
-True Positive: K8sIngress.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9] - Expected: 1.0, Test: 0.9
-True Positive: K8sIngress.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-False Positive: K8sDeployment.spec.template.spec.serviceAccount -> BackstageComponent [45d05d116a816fc98c70927b93992fcf] - Expected: 0.0, Test: 0.7
-True Positive: AWSEc2Instance.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9] - Expected: 1.0, Test: 0.9
-False Positive: K8sIngress.spec.tls.[*].secretName -> K8sCertificate [372931173c72d53765e8a7ad9a66ab5c] - Expected: 0.0, Test: 0.9
-True Positive: AWSElasticloadbalancingLoadbalancer.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9] - Expected: 1.0, Test: 0.9
-True Negative: K8sCertificate.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9] - Expected: 0.0, Test: 0.2
-False Positive: K8sDeployment.spec.selector.matchLabels.app.kubernetes.io/name -> BackstageComponent [b30cbdc29fa59f71fbff863f2e7d0d8d] - Expected: 0.0, Test: 0.9
-True Negative: K8sService.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9] - Expected: 0.0, Test: 0.2
-False Positive: K8sDeployment.spec.template.spec.nodeSelector.applications -> BackstageComponent [4b1764a45a1745ca6761ea77281df274] - Expected: 0.0, Test: 0.8
-False Positive: K8sService.spec.selector.app.kubernetes.io/name -> K8sDeployment [a2d1df31d88819e4d683ef92378f1347] - Expected: 0.0, Test: 0.9
-True Positive: AWSS3Bucket.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9] - Expected: 1.0, Test: 0.9
-True Positive: K8sClusterIssuer.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Negative: K8sDeployment.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9] - Expected: 0.0, Test: 0.2
-True Positive: K8sDeployment.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Positive: AWSS3Bucket.Tagging.[*].Value -> BackstageSystem [dae2cb05f57aa88861de7ed1dd0b5e89] - Expected: 1.0, Test: 0.9
-True Positive: K8sService.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Positive: K8sNamespace.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Positive: K8sCertificate.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9] - Expected: 1.0, Test: 0.9
-False Positive: K8sDeployment.spec.template.metadata.labels.app.kubernetes.io/name -> BackstageComponent [e6fe4c8edee2965e246601963601f121] - Expected: 0.0, Test: 0.9
-True Positive: K8sService.metadata.namespace -> K8sNamespace [67aff46728108905440334f5984586b9] - Expected: 1.0, Test: 0.9
-True Positive: K8sDeployment.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Negative: K8sIngress.metadata.namespace -> K8sCertificate [372931173c72d53765e8a7ad9a66ab5c] - Expected: 0.0, Test: 0.1
-False Positive: K8sDeployment.spec.template.spec.serviceAccount -> BackstageComponent [125eb3c84c69707c10dcbdb05e2b4c0c] - Expected: 0.0, Test: 0.7
-True Positive: AWSEc2Instance.Tags.[*].Value -> BackstageSystem [32382baf66b2f55a60ff994cf59225db] - Expected: 1.0, Test: 0.8
-False Positive: K8sDeployment.spec.template.metadata.labels.app.kubernetes.io/name -> BackstageComponent [45a2b54791b7fd07916017913d6c1e10] - Expected: 0.0, Test: 0.9
-True Positive: AWSEc2Instance.NetworkInterfaces.[*].OwnerId -> AwsAccount [31b774eb8564805fa89f98eb578324c0] - Expected: 1.0, Test: 0.9
-False Positive: K8sService.spec.selector.app.kubernetes.io/name -> BackstageComponent [712055349aaffb0ea2f18e6d47ded582] - Expected: 0.0, Test: 0.9
-True Positive: K8sClusterIssuer.spec.acme.solvers.[*].dns01.route53.hostedZoneID -> AWSRoute53Hostedzone [2c467ecb865483c5ef63f54fef0a2576] - Expected: 1.0, Test: 0.9
-True Negative: K8sCertificate.cluster_name -> K8sClusterIssuer [9b7d85373c009417a346d135574b876d] - Expected: 0.0, Test: 0.3
-True Negative: K8sIngress.cluster_name -> K8sService [d56578864d76f3c638c01cdba054a1c7] - Expected: 0.0, Test: 0.3
-True Positive: K8sNamespace.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-False Positive: K8sDeployment.spec.template.spec.serviceAccountName -> BackstageComponent [c32b2c9c121ab1bbc28ea241639b641d] - Expected: 0.0, Test: 0.7
-True Positive: K8sClusterIssuer.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Positive: K8sDeployment.metadata.name -> BackstageComponent [83ea232492532d6b817a547d49283cc6] - Expected: 1.0, Test: 0.8
-True Positive: K8sIngress.status.loadBalancer.ingress.[*].hostname -> AWSElasticloadbalancingLoadbalancer [0ea49f8bb6298436273899984d2a76e4] - Expected: 1.0, Test: 0.9
-False Positive: K8sDeployment.spec.template.spec.nodeSelector.applications -> BackstageComponent [f14965be61c8b9226357e16a5d2bd5f2] - Expected: 0.0, Test: 0.8
-True Positive: K8sDeployment.metadata.name -> BackstageComponent [23a1f8daddb0f46a3a7b14cd7603d0ec] - Expected: 1.0, Test: 0.8
-True Positive: K8sCertificate.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Positive: K8sService.cluster_name -> K8sCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Positive: AWSIamUser.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9] - Expected: 1.0, Test: 0.9
-True Negative: K8sIngress.cluster_name -> K8sNamespace [67aff46728108905440334f5984586b9] - Expected: 0.0, Test: 0.3
-True Positive: K8sCluster.name -> AWSEksCluster [866f527d5d274a30df697baeb1748f45] - Expected: 1.0, Test: 0.9
-False Positive: K8sDeployment.spec.template.spec.serviceAccountName -> BackstageComponent [77965278fca24a255e3d5f2220188d45] - Expected: 0.0, Test: 0.7
-True Positive: AWSElasticloadbalancingLoadbalancer.CanonicalHostedZoneId -> AWSRoute53Hostedzone [ac50efaade8daba3584c473b122a17b8] - Expected: 1.0, Test: 0.9
-True Positive: AWSEksCluster.tags.ResourceOwner -> BackstageGroup [d60da749cd15dd8df22bcd3ad6d26709] - Expected: 1.0, Test: 0.9
-True Positive: K8sIngress.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Positive: AWSRoute53Hostedzone.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9] - Expected: 1.0, Test: 0.9
-True Negative: K8sIngress.cluster_name -> K8sCertificate [372931173c72d53765e8a7ad9a66ab5c] - Expected: 0.0, Test: 0.1
-True Positive: K8sClusterIssuer.spec.acme.solvers.[*].dns01.route53.accessKeyID -> AWSIamUser [18e484ebcc13328086e641d82a8d21b7] - Expected: 1.0, Test: 0.9
-True Negative: K8sIngress.metadata.namespace -> K8sService [d56578864d76f3c638c01cdba054a1c7] - Expected: 0.0, Test: 0.2
-True Positive: K8sCertificate.spec.issuerRef.name -> K8sClusterIssuer [9b7d85373c009417a346d135574b876d] - Expected: 1.0, Test: 0.9
-False Positive: K8sService.spec.selector.app.kubernetes.io/name -> BackstageComponent [e728d6387839d4af6f3986bc82033c3b] - Expected: 0.0, Test: 0.8
-True Positive: AWSEksCluster.account_id -> AwsAccount [1db1c2cd4adebc92eba4f5c43a1f30f9] - Expected: 1.0, Test: 0.9
-True Positive: K8sIngress.spec.rules.[*].http.paths.[*].backend.service.name -> K8sService [d56578864d76f3c638c01cdba054a1c7] - Expected: 1.0, Test: 0.9
-True Positive: K8sIngress.metadata.annotations.cert-manager.io/cluster-issuer -> K8sClusterIssuer [ffe49f5b4d02e5e2597fb2b64184aff8] - Expected: 1.0, Test: 0.9
-True Positive: K8sCertificate.cluster_name -> AWSEksCluster [c48120faf8069ead7ee4bd35fa7e96c5] - Expected: 1.0, Test: 0.9
-True Negative: K8sService.metadata.namespace -> K8sDeployment [a2d1df31d88819e4d683ef92378f1347] - Expected: 0.0, Test: 0.2
-False Positive: K8sDeployment.spec.selector.matchLabels.app.kubernetes.io/name -> BackstageComponent [098fcfccd65a997cd8ee3cafd82b23eb] - Expected: 0.0, Test: 0.9
-True Positive: BackstageComponent.spec.system -> BackstageSystem [38c6d563122e6564d761a7e19a27110a] - Expected: 1.0, Test: 0.9
+False Negative: fba6f74cafd6fe4952166ff923bf5510 - Expected: 1.0, Test: 0.5
+True Positive: bd8f859d2555c4977bfccbd2da8166fd - Expected: 1.0, Test: 0.9
+True Positive: 4cc85709ff96f20e04c8c84bab6a331b - Expected: 1.0, Test: 0.9
+True Positive: 3faa4870743def7ca047148c30eaa32d - Expected: 1.0, Test: 0.9
+True Positive: 7a1b2ed3679e2ef4625559f3efdf97af - Expected: 1.0, Test: 0.9
+True Positive: 8bb25018d23b9aa0cee2d791a9be9d00 - Expected: 1.0, Test: 0.9
+True Positive: 4e75b56ba9590e0e2e8e17deb6ca5018 - Expected: 1.0, Test: 0.9
+False Positive: 2143743f0059f4e459e6778c2f7cb43d - Expected: 0.0, Test: 0.7
+True Positive: cac5acf340b04dba87f0df0888b917ff - Expected: 1.0, Test: 0.9
+False Positive: 65d9561b66e8664244baa48bc13f38c1 - Expected: 0.0, Test: 0.9
+True Positive: b9b9fc8c8f68ebda71c41b5c873990d0 - Expected: 1.0, Test: 0.9
+True Positive: 641ace37bbf51e1c83e32e253ad1bf27 - Expected: 1.0, Test: 0.9
+True Positive: 51ce0818920aec8bafec88457ef43e5f - Expected: 1.0, Test: 0.9
+False Positive: 8d764006ba586761650b115590b3d1d0 - Expected: 0.0, Test: 0.8
+True Positive: bd4b825419661de2cdec7a0359d095bd - Expected: 1.0, Test: 0.9
+True Positive: 02fdd9e47b4ef086902a3816e061c5d8 - Expected: 1.0, Test: 0.9
+True Positive: 6b502ab6144a8683dc7182f7ecc7bb3d - Expected: 1.0, Test: 0.9
+True Positive: c5d3a748ed2ea685c8fc54ae36803374 - Expected: 1.0, Test: 0.9
+True Positive: 9fa1078c009f1e24dc9467f699244ed5 - Expected: 1.0, Test: 0.9
+True Positive: b5bc4a8a737ed240ba52eac9bfbaefb7 - Expected: 1.0, Test: 0.9
+True Positive: e34a7ae0dd40c9b992dd9e231c1d6e29 - Expected: 1.0, Test: 0.9
+False Negative: 856187048f6fec49f2301f03dc73e359 - Expected: 1.0, Test: 0.7
+True Positive: 7d2a49a265e032ffed15744fbbdc3bbd - Expected: 1.0, Test: 0.8
+False Positive: 5ebd3190eb2a2b2e929ea5d0111154a2 - Expected: 0.0, Test: 0.9
+True Positive: 62cf2c3bbe66f63b103d4a60ba697645 - Expected: 1.0, Test: 0.9
+False Negative: 672459df516a223a66a80013c837b7c9 - Expected: 1.0, Test: 0.7
+True Positive: 28e7b96ea49e452055c4279095f79393 - Expected: 1.0, Test: 0.9
+True Positive: 75254898126fca4a507e0ba21f6d9033 - Expected: 1.0, Test: 0.9
+False Positive: 51373703712f90689adf6a076df52cfd - Expected: 0.0, Test: 0.8
+True Positive: c32b2ab75db8deb56e70a7b663fe6c2e - Expected: 1.0, Test: 0.8
+False Negative: 1bace456d9324c0dbc9ad0ce696fede6 - Expected: 1.0, Test: 0.7
+False Positive: 504306345190cf42e7290aeb5ff92c5d - Expected: 0.0, Test: 0.8
+True Positive: 54b8c5932a5f7a78abfa8a9427304599 - Expected: 1.0, Test: 0.9
+True Positive: c04a163aa1b95105def56799e0433330 - Expected: 1.0, Test: 0.9
+True Positive: 500db6e763bb5bbe1731ba3f1766a51c - Expected: 1.0, Test: 0.9
+True Positive: 1932c5aadf5139388d9b2a6471ecfd4f - Expected: 1.0, Test: 0.9
+True Positive: 7826d8805886e9cfbe7d6d17bf3d9e7e - Expected: 1.0, Test: 0.9
+False Positive: afa36fd0207456e55b59547282366148 - Expected: 0.0, Test: 0.8
+True Positive: ba786fa6b12235e2a4bce2ae9a2d7a1d - Expected: 1.0, Test: 0.9
+True Positive: d8089000e38ebe01170352ad0239e6ef - Expected: 1.0, Test: 0.8
+True Positive: 5bf136cf1ba855f4d4315975341ddd1d - Expected: 1.0, Test: 0.9
+True Positive: a7066fb74d31ff951c05e0522e4e54b9 - Expected: 1.0, Test: 0.9
+True Positive: 5277bef0ea9aff9513e10eb87898136f - Expected: 1.0, Test: 0.9
+False Negative: 50b846709bb10929e5bf22fc680bb643 - Expected: 1.0, Test: 0.7
+True Positive: fe7144b8c329414b762be9038a1104b1 - Expected: 1.0, Test: 0.9
+False Positive: 63fa2e3b16fdfdfaf402684f78651770 - Expected: 0.0, Test: 0.9
+True Positive: c12551aeffd6caf5223554e099639231 - Expected: 1.0, Test: 0.9
 Test 2 Results:
-True Positives: 39, True Negatives: 10, False Positives: 16, False Negatives: 0
-Precision: 0.7090909090909091, Recall: 1.0, Accuracy: 0.7538461538461538, F1 Score: 0.8297872340425533
+True Positives: 34, True Negatives: 0, False Positives: 8, False Negatives: 5
+Precision: 0.8095238095238095, Recall: 0.8717948717948718, Accuracy: 0.723404255319149, F1 Score: 0.8395061728395062
