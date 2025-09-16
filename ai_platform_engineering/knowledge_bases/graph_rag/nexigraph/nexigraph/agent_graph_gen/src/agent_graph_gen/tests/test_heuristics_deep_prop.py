@@ -208,7 +208,7 @@ async def test_deep_property_match():
     logger = logging.getLogger("test_logger")
     logger.setLevel(logging.DEBUG)
 
-    hp = HeuristicsProcessor(graph_db=None, rc_manager=None) # type:ignore Mocked for testing
+    hp = HeuristicsProcessor(graph_db=None) # type:ignore Mocked for testing
     for test_case in test_cases:
         entity_property_value = test_case.entity_to_search.all_properties.get(test_case.property_to_search, None)
         if entity_property_value is None:

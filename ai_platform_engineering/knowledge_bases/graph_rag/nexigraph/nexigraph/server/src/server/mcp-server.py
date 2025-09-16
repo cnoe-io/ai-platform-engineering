@@ -7,7 +7,7 @@ from core.agent.tools import ALL_READ_TOOLS
 
 logging = utils.get_logger("mcp-server")
 
-# Convert langchain tools to MCP tools
+# Convert langchain tools to MCP tools
 mcp_tools = [to_fastmcp(tool) for tool in ALL_READ_TOOLS]
 
 class MCPServer:
