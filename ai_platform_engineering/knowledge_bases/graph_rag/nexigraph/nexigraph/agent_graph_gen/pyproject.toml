@@ -17,7 +17,6 @@ dependencies = [
     "cnoe-agent-utils==0.3.0",
     "fastapi[standard]>=0.116.1",
     "apscheduler>=3.11.0",
-    "logging-tree>=1.10",
     "core",
 ]
 

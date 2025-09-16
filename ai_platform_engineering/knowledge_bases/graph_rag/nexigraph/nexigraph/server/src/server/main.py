@@ -4,30 +4,22 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, status, Request
 from fastapi.responses import JSONResponse
-from fastapi.responses import HTMLResponse
 from fastapi.security import APIKeyHeader
-from fastapi.templating import Jinja2Templates
-from core.msg_pubsub.redis.msg_pubsub import RedisPubSub
 from core import utils
-from core.constants import FKEY_AGENT_EVAL_REQ_PUBSUB_TOPIC
 from core.graph_db.neo4j.graph_db import Neo4jDB
 from core.models import Entity, Relation
 from fastapi.encoders import jsonable_encoder
 import dotenv
-
-from agent_graph_gen.relation_manager import RelationCandidateManager
 
 # Load environment variables from .env file
 dotenv.load_dotenv()
 
 logging = utils.get_logger("server")
 
-templates = Jinja2Templates(directory=os.getenv("TEMPLATES_DIR", "templates"))
 
 # TODO: Make the dependencies configurable at runtime
 graph_db = Neo4jDB()
 ontology_graph_db = Neo4jDB(uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
-msg_pubsub = RedisPubSub()
 
 api_header_scheme = APIKeyHeader(name="x-api-key")
 clean_up_interval = int(os.getenv("CLEANUP_INTERVAL", 3 * 60 * 60))  # Default to 3 hours

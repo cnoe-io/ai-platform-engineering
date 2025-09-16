@@ -6,7 +6,6 @@ import pytest
 from core.models import RelationCandidate
 from core.graph_db.neo4j.graph_db import Neo4jDB
 from agent_graph_gen.relation_manager import RelationCandidateManager
-from agent_graph_gen.heuristics import HeuristicsProcessor
 from agent_graph_gen.agent import OntologyAgent
 from core.utils import get_default_fresh_until
 from core.models import Entity

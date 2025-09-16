@@ -135,6 +135,7 @@ dmypy.json
 
 .idea/
 .neo4j/
+.neo4j*
 temp/
 deploy/charts/nexigraph/charts/
 data/

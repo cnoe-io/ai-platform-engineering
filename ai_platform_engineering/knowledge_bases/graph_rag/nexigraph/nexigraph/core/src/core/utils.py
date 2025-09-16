@@ -6,7 +6,6 @@ import traceback
 import asyncio
 import hashlib
 import time
-from turtle import reset
 import uuid
 
 from core.models import Entity

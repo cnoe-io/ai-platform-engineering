@@ -190,7 +190,7 @@ class OntologyAgent:
                 # If the heuristic count changed less than 20% than previous count, we ignore it
                 if candidate.evaluation.last_evaluation_count > 0:
                     count_distance = abs( - candidate.heuristic.count) / abs(candidate.heuristic.count)
-                    if count_distance < percent_change_for_eval: # type: ignore
+                    if count_distance < self.percent_change_for_eval: # type: ignore
                         self.logger.info(f"Skipping evaluation for {candidate.relation_id}, previous count is less than 20% of current count.")
                         return
             else:
