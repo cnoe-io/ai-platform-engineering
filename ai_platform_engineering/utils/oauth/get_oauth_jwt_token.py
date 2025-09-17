@@ -146,7 +146,7 @@ def display_token_contents(token):
 
 def get_token():
   """
-  Get Cisco Access Token
+  Get OAuth2 JWT Access Token
 
   Parameters
   ----------
