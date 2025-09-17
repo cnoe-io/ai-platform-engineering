@@ -1,10 +1,9 @@
-name: Quick Sanity Integration Tests
+name: "Dev - Quick Sanity"
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
