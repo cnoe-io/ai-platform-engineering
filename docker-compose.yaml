@@ -221,6 +221,8 @@ services:
       - p2p-tracing
     volumes:
       - ./.env:/app/.env
+    env_file:
+      - .env
     ports:
       - "8013:8000"
     environment:
@@ -1015,10 +1017,10 @@ services:
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/kb-rag-redis:/data
     command: >
-      redis-server 
-      --appendonly yes 
-      --save 60 1 
-      --maxmemory 256mb 
+      redis-server
+      --appendonly yes
+      --save 60 1
+      --maxmemory 256mb
       --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
