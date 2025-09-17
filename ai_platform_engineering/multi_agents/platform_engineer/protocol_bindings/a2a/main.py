@@ -3,6 +3,8 @@
 
 import os
 import httpx
+from dotenv import load_dotenv
+
 
 from starlette.middleware.cors import CORSMiddleware
 
@@ -62,10 +64,15 @@ def get_agent_card(host: str, port: int, external_url: str = None):
     skills=[skill],
   )
 
+# Load environment variables from a .env file if present
+load_dotenv()
+
 # Check environment variables for host and port if not provided via CLI
 env_host = os.getenv('A2A_HOST')
 env_port = os.getenv('A2A_PORT')
 external_url = os.getenv('EXTERNAL_URL')
+
+USE_AUTH = os.getenv('USE_AUTH', 'false').lower() == 'true'
 
 # Use CLI argument if provided, else environment variable, else default
 host = env_host or 'localhost'
@@ -108,3 +115,11 @@ app.add_middleware(
   allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
   allow_headers=["*"],  # Allow all headers
 )
+
+if USE_AUTH:
+  from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.oauth2_middleware import OAuth2Middleware
+  app.add_middleware(
+    OAuth2Middleware,
+    agent_card=get_agent_card(host, port, external_url),
+    public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
+  )
