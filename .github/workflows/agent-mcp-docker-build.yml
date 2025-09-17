@@ -79,7 +79,7 @@ jobs:
           CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
           CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
           CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
-          CHANGED_LITTELM: ${{ steps.filter.outputs.litellm }}
+          CHANGED_LITELLM: ${{ steps.filter.outputs.litellm }}
           CHANGED_WEBEX: ${{ steps.filter.outputs.webex }}
         with:
           script: |
