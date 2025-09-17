@@ -86,6 +86,10 @@ class AgentRegistry:
             "slim": "ai_platform_engineering.knowledge_bases.rag.clients.slim.agent",
             "a2a": "ai_platform_engineering.knowledge_bases.rag.clients.a2a.agent"
         },
+        "litellm": {
+            "slim": GENERIC_CLIENT,
+            "a2a": GENERIC_CLIENT
+        },
         "graph-rag": {
             "slim": GENERIC_CLIENT,
             "a2a": GENERIC_CLIENT
