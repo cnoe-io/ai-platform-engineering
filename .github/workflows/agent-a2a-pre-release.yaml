@@ -107,7 +107,7 @@ jobs:
           CHANGED_TEMPLATE: ${{ steps.filter.outputs.template }}
           CHANGED_WEBEX: ${{ steps.filter.outputs.webex }}
           CHANGED_WEATHER: ${{ steps.filter.outputs.weather }}
-          CHANGED_LITTELM: ${{ steps.filter.outputs.litellm }}
+          CHANGED_LITELLM: ${{ steps.filter.outputs.litellm }}
         with:
           script: |
             const allAgents = [
