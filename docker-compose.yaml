@@ -911,9 +911,10 @@ services:
     ports:
       - "8010:8000"
   kb-rag-server:
-    build:
-      context: ai_platform_engineering/knowledge_bases/rag
-      dockerfile: build/Dockerfile.server
+    image: ghcr.io/cnoe-io/kb-rag-server:latest
+    # build:
+    #   context: ai_platform_engineering/knowledge_bases/rag
+    #   dockerfile: build/Dockerfile.server
     container_name: kb-rag-server
     profiles:
       - kb-rag
@@ -927,9 +928,10 @@ services:
     environment:
       - REDIS_URL=redis://kb-rag-redis:6379/0
   kb-rag-web:
-    build:
-      context: ai_platform_engineering/knowledge_bases/rag
-      dockerfile: build/Dockerfile.web
+    image: ghcr.io/cnoe-io/kb-rag-web:latest
+    # build:
+    #   context: ai_platform_engineering/knowledge_bases/rag
+    #   dockerfile: build/Dockerfile.web
     container_name: kb-rag-web
     profiles:
       - kb-rag
