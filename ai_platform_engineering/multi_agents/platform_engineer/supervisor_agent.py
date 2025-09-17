@@ -24,6 +24,10 @@ from ai_platform_engineering.multi_agents.platform_engineer.response_format impo
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+
+
+
 class AIPlatformEngineerMAS:
   def __init__(self):
     # Use existing platform_registry and enable dynamic monitoring

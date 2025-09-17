@@ -5,6 +5,10 @@ This module provides Pydantic models for common Jira entities like users, status
 issue types, priorities, attachments, and time tracking.
 """
 
+
+
+
+
 import logging
 from datetime import datetime
 from typing import Any
