@@ -38,8 +38,7 @@ jobs:
   determine-agents:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/')) &&
-      !(github.event_name == 'workflow_dispatch' && inputs.build_all == 'true')
+      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/')) && !(github.event_name == 'workflow_dispatch' && github.event.inputs.build_all == 'true') && !startsWith(github.ref, 'refs/tags/')
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
       should_build: ${{ steps.set-matrix.outputs.should_build }}
@@ -109,14 +108,15 @@ jobs:
     if: |
       (needs.determine-agents.outputs.should_build == 'true' &&
        (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/'))) ||
-      (github.event_name == 'workflow_dispatch' && inputs.build_all == 'true')
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.build_all == 'true') ||
+      startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: read
       packages: write
 
     strategy:
       matrix:
-        agent: ${{ github.event_name == 'workflow_dispatch' && inputs.build_all == 'true' && fromJson(needs.set-all-agents.outputs.all_agents) || (needs.determine-agents.outputs.agents && fromJson(needs.determine-agents.outputs.agents)) || fromJson('[]') }}
+        agent: ${{ ((github.event_name == 'workflow_dispatch' && github.event.inputs.build_all == 'true') || startsWith(github.ref, 'refs/tags/')) && fromJson(needs.set-all-agents.outputs.all_agents) || (needs.determine-agents.outputs.agents && fromJson(needs.determine-agents.outputs.agents)) || fromJson('[]') }}
       fail-fast: false
 
 
