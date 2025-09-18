@@ -204,3 +204,14 @@ milvus:
         storageClassName: standard
         requests:
           storage: 1Gi
+  # MinIO configuration
+  minio:
+    replicas: 2
+    persistence:
+      size: 1Gi
+      storageClass: standard
+  # etcd configuration  
+  etcd:
+    persistence:
+      size: 1Gi
+      storageClass: standard
