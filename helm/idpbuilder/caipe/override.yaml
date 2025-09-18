@@ -63,6 +63,7 @@ supervisor-agent:
     GITHUB_AGENT_HOST: "ai-platform-engineering-agent-github"
     JIRA_AGENT_HOST: "ai-platform-engineering-agent-jira"
     KB_RAG_AGENT_HOST: "ai-platform-engineering-kb-rag-agent"
+    KB-RAG_AGENT_HOST: "ai-platform-engineering-kb-rag-agent"
     KOMODOR_AGENT_HOST: "ai-platform-engineering-agent-komodor"
     PAGERDUTY_AGENT_HOST: "ai-platform-engineering-agent-pagerduty"
     SLACK_AGENT_HOST: "ai-platform-engineering-agent-slack"
