@@ -1,4 +1,4 @@
-name: "Dev - Quick Sanity"
+name: "Dev - Quick Sanity Integration Tests"
 
 on:
   push:

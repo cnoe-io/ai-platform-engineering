@@ -149,8 +149,9 @@ class Loader:
         if not self.use_hybrid_approach:
             return self.use_custom_parser
 
-        # Use custom parser only for Docusaurus and MkDocs
-        custom_parser_generators = {"docusaurus", "mkdocs"}
+        # Use custom parser for Docusaurus, MkDocs, and generic sites
+        # The custom parser has good fallback logic for generic sites (removes nav/header elements)
+        custom_parser_generators = {"docusaurus", "mkdocs", "generic"}
         return generator in custom_parser_generators
 
     async def get_sitemaps(self, url: str) -> List[str]:
