@@ -133,7 +133,7 @@ supervisor-agent:
     pullPolicy: "Always"
     args: ["platform-engineer"]
   env:
-    EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
+    EXTERNAL_URL: "https://cnoe.localtest.me:8443/ai-platform-engineering"  # Agent url for the client
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
