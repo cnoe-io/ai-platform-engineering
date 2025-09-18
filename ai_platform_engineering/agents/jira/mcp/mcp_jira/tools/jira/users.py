@@ -44,15 +44,15 @@ async def handle_user_operations(
     if action == "get_user_profile":
         logger.debug(f"Fetching user profile for identifier: {identifier}")
         params = {"accountId": identifier}
-        path = "rest/api/2/user"
+        path = "rest/api/3/user"
     elif action == "get_user":
         logger.debug(f"Fetching details for user {identifier}")
         params = {"accountId": identifier}
-        path = "rest/api/2/user"
+        path = "rest/api/3/user"
     elif action == "search_users":
         logger.debug(f"Searching for users with query: {query}")
         params = {"query": query}
-        path = "rest/api/2/user/search"
+        path = "rest/api/3/user/search"
     else:
         raise ValueError(f"Invalid action: {action}")
 
@@ -101,7 +101,7 @@ async def get_current_user_account_id() -> str:
     """Get the account ID of the current user."""
     logger.debug("Fetching current user account ID")
     success, response = await make_api_request(
-        path="rest/api/2/myself",
+        path="rest/api/3/myself",
         method="GET",
     )
     if not success:
