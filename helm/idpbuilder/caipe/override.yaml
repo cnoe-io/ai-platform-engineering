@@ -56,6 +56,7 @@ supervisor-agent:
   nameOverride: "supervisor-agent"
   env:
     EXTERNAL_URL: "https://cnoe.localtest.me:8443/ai-platform-engineering"
+    KB-RAG_AGENT_HOST: "ai-platform-engineering-kb-rag-agent"
     ENABLE_ARGOCD: "true"
     ENABLE_AWS: "true"
     ENABLE_BACKSTAGE: "true"
