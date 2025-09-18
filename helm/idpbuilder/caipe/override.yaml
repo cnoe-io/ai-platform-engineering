@@ -192,8 +192,15 @@ neo4j:
 
 # KB-RAG Stack with 1Gi storage for kind
 kb-rag-stack:
-  enabled: false  # Disabled for kind cluster
+  enabled: true
 
 # Milvus with 1Gi storage for kind
 milvus:
-  enabled: false  # Disabled for kind cluster
+  enabled: true
+  volumes:
+    data:
+      mode: "dynamic"
+      dynamic:
+        storageClassName: standard
+        requests:
+          storage: 1Gi
