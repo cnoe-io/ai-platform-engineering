@@ -50,7 +50,7 @@ global:
 supervisor-agent:
   nameOverride: "supervisor-agent"
   env:
-    EXTERNAL_URL: "http://localhost:8000"
+    EXTERNAL_URL: "https://cnoe.localtest.me:8443/ai-platform-engineering"
 
 agent-argocd:
   nameOverride: "agent-argocd"
