@@ -78,7 +78,7 @@ async def get_issue(
     }
 
     success, response = await make_api_request(
-        path=f"rest/api/2/issue/{issue_key}",
+        path=f"rest/api/3/issue/{issue_key}",
         method="GET",
         params=params,
     )
@@ -108,7 +108,7 @@ async def get_project_issues(
     }
 
     success, response = await make_api_request(
-        path="rest/api/2/search",
+        path="rest/api/3/search",
         method="GET",
         params=params,
     )

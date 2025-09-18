@@ -1,8 +1,184 @@
-## 0.1.11 (2025-08-26)
+## 0.1.12 (2025-09-17)
+
+### BREAKING CHANGE
+
+- test command now runs both general and RAG module tests
+- Redis service port name changed from 'http' to 'redis'
+
+### Feat
+
+- idpbuilder values
+- add OAuth2 authentication support for A2A protocol
+- add integration test workflows and improve agent Docker build automation
+- updating collection name from rag-default to rag-united
+- backend data management improvements for milvus and redis
+- adding addtional config in web UI frontend
+- add prebuild docker image github actions
+- Only build images if relevant change
+- Adding streamable http to Webex agent
+- Adding initial, optional Webex agent
+- Adding streamable http to Webex agent
+- Adding initial, optional Webex agent
+- major helm chart refactor
+- implement memory-optimized batch processing for URL loading
+- update agents documentation and sidebar
+- enhance coverage reporting with detailed metrics and tables
+- **tests**: add comprehensive test suite with memory monitoring and scale tests
+- add AWS agent to include cost explorer MCP (#251)
+- add kb-rag-web to helm chart
+- add the aws agent to platform engineer (#246)
+- Addition of Agent Splunk (#247)
+- use a2a card to dynamically create client
+- added redis db management backend
+- added reranking
+- frontend now supports RAG config
+- add multiple llm provider support for graphrag
 
 ### Fix
 
+- updates
+- adding generic to custom parser to scrap sites like wikipedia
+- updating docker compose for the workshop
+- **gha**: update for tags
+- gha litellm typo fix
+- **mcp-docker-build**: add webex mcp
+- update sidebars.ts
+- updated loader.py
+- updated rag_api
+- dividing rag_api for added flexibility and readiness
+- adding init file
+- changed variable name from UNIFLIED_COLLECTION_NAME TO DEFAULT_COLLECTION_NAME
+- renaming: rag_united --> rag_default
+- docker compose
+- **graph-rag**: lint
+- **graph-rag**: heuristics improvements, use graph db to store relation candidates
+- correct mcp image builds - use OR not AND
+- improve the prebuild github actions
+- add litellm to mcp as well
+- fixed conflicts between main
+- also modify supervisor agent
+- AND not OR
+- lint
+- fix slim to work
+- Add queue closed error protection to prevent crashes during shutdown
+- unit tests and quick sanity
+- ruff linter
+- minor formatting in splunk
+- added webex to platform engineer
+- adding logs to webex mcp
+- adding webex to workflows
+- updating docker compose
+- adding init files to webex client
+- **docker-compose.dev**: add p2p-tracing profile to nexigraph
+- no default env in kb-rag-server chart
+- kb-agent-rag requires milvus secret
+- smaller milvus res
+- remove excessive resource requests
+- remove node selector and limit eph storage
+- further cleanup
+- remove unsued env
+- bring latest milvus vals and template milvus uri
+- try more delay
+- revert wrong change
+- default llmSecrets in kb-rag-server
+- correct liveness and readiness port for kb-rag-agent
+- kb-rag-server also requires llm secret
+- copy working milvus values
+- move milvus to the parent chart
+- milvus is INSIDE kb-rag-stack...
+- remove deprecated isMultiAgent
+- correct appVersion
+- properly fix kb-rag-agent secrets
+- modify kb-rag-stack for the same change
+- resolve unit test failures and improve memory optimization
+- mcp_splunk symlink to be in-repo relative
+- **rag**: restructure package to use rag.server.* namespace
+- **docker**: update Dockerfile for new package structure
+- **rag**: update coverage configuration for new package structure
+- **helm**: bump chart version to 0.1.18
+- **rag**: restructure KB-RAG package with proper scoping
+- **ci**: resolve KB-RAG Stack Helm chart test failures
+- **ci**: resolve Helm chart test failures in GitHub Actions
+- **docs**: resolve broken links causing Docusaurus build failures
+- **ci**: add proper download links for coverage artifacts
+- correct XML attribute access for coverage parsing
+- handle missing main coverage and improve coverage reporting
+- update remaining uv.lock files and add coverage debugging
+- update uv.lock files to resolve Docker build issues
+- add debugging and error handling for coverage XML parsing
+- update uv.lock files to resolve Docker build issues
+- remove stray 'p' character causing JavaScript ReferenceError
+- add --index-strategy unsafe-best-match for PyTorch CPU installation
+- use --extra-index-url instead of --index-url for PyTorch CPU installation
+- update a2a-sdk dependency format and workspace configuration
+- resolve a2a-sdk dependency issue in CI
+- install CPU-only PyTorch in RAG tests to avoid NVIDIA packages
+- Pin all a2a-sdk versions to 0.2.16
+- Add missing fs import in GitHub Actions workflow
+- Resolve Docker build workspace member issues
+- Exclude RAG module tests from main test suite
+- Remove Poetry dependencies and migrate RAG module to UV
+- unit tests and linting
+- lint
+- **rag**: replace incorrect ascrape method with proper LangChain async methods
+- optimize memory usage by streaming page processing (#253)
+- **kb-rag-redis**: correct service port configuration to match deployment (#252)
+- add milvus to parent chart
+- updates
+- updates
+- update kb-rag-server
+- update kb-rag-server
+- **kb-rag-agent**: restore
+- **kb-rag-stack**: add condition: agent.enabled
+- remove kb-rag-agent dedicated chart
+- updates
+- just add a new subchart for now
+- default no SA
+- **aws**: ruff lint
+- broken links
+- updates
+- remove debug line
+- **aws-agent**: ruff lint
+- fixed readme and created agent container
+- add try/except when agent is unreachable
+- docker compose dev
+- docker compose dev
+- docker compose dev
+- docker compose dev
+- add misc utils - run coroutine in sync
+- cleanup how we do agent enabled
+- ruff lint
+- **graph-rag**: qa agent now fetches properties before raw query
+- created was being updated regardless
+- ruff linter
+- clean kb-rag workflow to reduce space usage
+- ruff linter
+- ruff linter
+- added dockerignore
+- updated docker compose
+- update uv lock
+- include in pyproject
+- get rid of non existing func
+- much simpler fix :)()(
+- ruff linter
+- **workshop**: mission4: rag-agent docker port -> 8020
+- **workshop**: mission4: rag-agent docker port -> 8020
+- **workshop**: mission4: switch to main tag for github agent
+- **workshop**: mission7
+- **workshop**: mission7
+- **github**: add load_dotenv
+- updates sidebars.ts for docs
+- png to svg
+- png to svg
+- **workshop**: mission4: add restart policy to docker compose
+- updating port number for kb-rag
+- typo for logger message
+- **workshop**: switch mission4 to a different env file
 - **weather**: add self.mcp_api_key
+
+### Refactor
+
+- create kb-rag-stack
 
 ## 0.1.10 (2025-08-26)
 
