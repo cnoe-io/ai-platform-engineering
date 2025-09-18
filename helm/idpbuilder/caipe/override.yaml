@@ -179,3 +179,21 @@ agent-slack:
 
 graphrag:
   enabled: true
+
+# neo4j configuration for kind cluster
+neo4j:
+  volumes:
+    data:
+      mode: "dynamic"
+      dynamic:
+        storageClassName: standard
+        requests:
+          storage: 1Gi
+
+# KB-RAG Stack with 1Gi storage for kind
+kb-rag-stack:
+  enabled: false  # Disabled for kind cluster
+
+# Milvus with 1Gi storage for kind
+milvus:
+  enabled: false  # Disabled for kind cluster
