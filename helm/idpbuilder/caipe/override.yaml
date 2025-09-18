@@ -178,7 +178,7 @@ agent-slack:
           property: SLACK_TEAM_ID
 
 graphrag:
-  enabled: true
+  enabled: false
 
 # neo4j configuration for kind cluster
 neo4j:
