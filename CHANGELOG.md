@@ -1,3 +1,13 @@
+## Unreleased
+
+### Feat
+
+- upgrade Jira agent to API v3
+
+### Fix
+
+- undo helm values.yaml
+
 ## 0.1.12 (2025-09-17)
 
 ### BREAKING CHANGE
