@@ -59,6 +59,7 @@ declare -A AWS_SECRETS=(
     ["AWS_ACCESS_KEY_ID"]=""
     ["AWS_SECRET_ACCESS_KEY"]=""
     ["AWS_DEFAULT_REGION"]=""
+    ["AWS_REGION"]=""
 )
 
 declare -A SPLUNK_SECRETS=(
@@ -69,11 +70,13 @@ declare -A SPLUNK_SECRETS=(
 declare -A WEBEX_SECRETS=(
     ["WEBEX_BOT_TOKEN"]=""
     ["WEBEX_WEBHOOK_SECRET"]=""
+    ["WEBEX_TOKEN"]=""
 )
 
 declare -A KOMODOR_SECRETS=(
     ["KOMODOR_API_KEY"]=""
     ["KOMODOR_API_URL"]=""
+    ["KOMODOR_TOKEN"]=""
 )
 
 declare -A GLOBAL_SECRETS=(
