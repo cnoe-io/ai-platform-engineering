@@ -60,14 +60,14 @@ class LitellmAgent:
         server_path = args.get("server_path", "./mcp/mcp_litellm/server.py")
         print(f"Launching MCP server at: {server_path}")
 
-        # Support both LITELLM_MCP_API_KEY and LITELLM_API_KEY for backward compatibility
+        # Support both LITELLM_MASTER_KEY and LITELLM_API_KEY for backward compatibility
         self.mcp_api_key = (
-            os.getenv("LITELLM_MCP_API_KEY")
+            os.getenv("LITELLM_MASTER_KEY")
             or os.getenv("LITELLM_API_KEY")
         )
         if not self.mcp_api_key and self.mcp_mode != "stdio":
             raise ValueError(
-                "LITELLM_MCP_API_KEY or LITELLM_API_KEY must be set as an environment variable for HTTP transport."
+                "LITELLM_MASTER_KEY or LITELLM_API_KEY must be set as an environment variable for HTTP transport."
             )
 
         self.mcp_api_url = os.getenv("LITELLM_MCP_API_URL")
