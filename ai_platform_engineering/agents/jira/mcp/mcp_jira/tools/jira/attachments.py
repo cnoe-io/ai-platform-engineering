@@ -67,7 +67,7 @@ async def upload_attachment(issue_key: str, attachment: JiraAttachment) -> JiraA
         # Use the Jira API to upload the file
         with open(attachment.filename, "rb") as file:
             response = await make_api_request(
-                f"/rest/api/2/issue/{issue_key}/attachments", method="POST", files={"file": file}
+                f"/rest/api/3/issue/{issue_key}/attachments", method="POST", files={"file": file}
             )
 
         if response:
@@ -87,7 +87,7 @@ async def upload_attachment(issue_key: str, attachment: JiraAttachment) -> JiraA
 async def get_issue_attachments(issue_key: str) -> list[JiraAttachment]:
     """Retrieve all attachments for a Jira issue."""
     logger.debug(f"Fetching attachments for issue {issue_key}")
-    response = await make_api_request(f"/rest/api/2/issue/{issue_key}?fields=attachment")
+    response = await make_api_request(f"/rest/api/3/issue/{issue_key}?fields=attachment")
     issue_data = response.json()
 
     if not isinstance(issue_data, dict):
