@@ -111,6 +111,28 @@ while IFS= read -r line; do
     fi
 done < "$ENV_FILE"
 
+# Try to create ArgoCD API token
+log "🔑 Attempting to create ArgoCD API token..."
+ARGOCD_PASSWORD=$(kubectl get secret -n argocd argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+
+if [[ -n "$ARGOCD_PASSWORD" ]]; then
+    ARGOCD_TOKEN=$(kubectl exec -n argocd deployment/argocd-server -- sh -c "
+        argocd login localhost:8080 --username admin --password '$ARGOCD_PASSWORD' --plaintext >/dev/null 2>&1
+        argocd account generate-token --account admin --id vault-sync-$(date +%s) 2>/dev/null || echo ''
+    " 2>/dev/null || echo "")
+    
+    if [[ -n "$ARGOCD_TOKEN" ]]; then
+        ARGOCD_SECRETS["ARGOCD_TOKEN"]="$ARGOCD_TOKEN"
+        ARGOCD_SECRETS["ARGOCD_API_URL"]="https://argocd-server.argocd.svc.cluster.local/api/v1/"
+        ARGOCD_SECRETS["ARGOCD_VERIFY_SSL"]="false"
+        log "✅ ArgoCD API token created and added"
+    else
+        log "⚠️  Could not create ArgoCD API token"
+    fi
+else
+    log "⚠️  Could not retrieve ArgoCD admin password"
+fi
+
 # Function to upload secrets to Vault
 upload_secrets() {
     local path="$1"
