@@ -64,20 +64,6 @@ declare -A GLOBAL_SECRETS=(
     ["AWS_ACCESS_KEY_ID"]=""
     ["AWS_SECRET_ACCESS_KEY"]=""
     ["AWS_REGION"]=""
-    ["ENABLE_IAM_MCP"]=""
-    ["ENABLE_KOMODOR"]=""
-    ["KOMODOR_TOKEN"]=""
-    ["KOMODOR_API_URL"]=""
-    ["ENABLE_TRACING"]=""
-    ["LANGFUSE_PUBLIC_KEY"]=""
-    ["LANGFUSE_SECRET_KEY"]=""
-    ["LANGFUSE_HOST"]=""
-    ["PETSTORE_MCP_API_KEY"]=""
-    ["PETSTORE_MCP_API_URL"]=""
-    ["ENABLE_WEATHER_AGENT"]=""
-    ["ENABLE_PETSTORE_AGENT"]=""
-    ["MCP_MODE"]=""
-    ["WEBEX_TOKEN"]=""
 )
 
 # Parse .env file
