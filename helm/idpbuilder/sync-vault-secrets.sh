@@ -55,6 +55,27 @@ declare -A KB_RAG_SECRETS=(
     ["MILVUS_SECRET"]=""
 )
 
+declare -A AWS_SECRETS=(
+    ["AWS_ACCESS_KEY_ID"]=""
+    ["AWS_SECRET_ACCESS_KEY"]=""
+    ["AWS_DEFAULT_REGION"]=""
+)
+
+declare -A SPLUNK_SECRETS=(
+    ["SPLUNK_API_TOKEN"]=""
+    ["SPLUNK_URL"]=""
+)
+
+declare -A WEBEX_SECRETS=(
+    ["WEBEX_BOT_TOKEN"]=""
+    ["WEBEX_WEBHOOK_SECRET"]=""
+)
+
+declare -A KOMODOR_SECRETS=(
+    ["KOMODOR_API_KEY"]=""
+    ["KOMODOR_API_URL"]=""
+)
+
 declare -A GLOBAL_SECRETS=(
     ["LLM_PROVIDER"]=""
     ["AZURE_OPENAI_API_KEY"]=""
@@ -88,6 +109,14 @@ while IFS= read -r line; do
             SLACK_SECRETS[$key]="$value"
         elif [[ -v KB_RAG_SECRETS[$key] ]]; then
             KB_RAG_SECRETS[$key]="$value"
+        elif [[ -v AWS_SECRETS[$key] ]]; then
+            AWS_SECRETS[$key]="$value"
+        elif [[ -v SPLUNK_SECRETS[$key] ]]; then
+            SPLUNK_SECRETS[$key]="$value"
+        elif [[ -v WEBEX_SECRETS[$key] ]]; then
+            WEBEX_SECRETS[$key]="$value"
+        elif [[ -v KOMODOR_SECRETS[$key] ]]; then
+            KOMODOR_SECRETS[$key]="$value"
         elif [[ -v GLOBAL_SECRETS[$key] ]]; then
             GLOBAL_SECRETS[$key]="$value"
         fi
@@ -146,6 +175,10 @@ upload_secrets "jira-secret" JIRA_SECRETS
 upload_secrets "pagerduty-secret" PAGERDUTY_SECRETS
 upload_secrets "slack-secret" SLACK_SECRETS
 upload_secrets "kb-rag-secret" KB_RAG_SECRETS
+upload_secrets "aws-secret" AWS_SECRETS
+upload_secrets "splunk-secret" SPLUNK_SECRETS
+upload_secrets "webex-secret" WEBEX_SECRETS
+upload_secrets "komodor-secret" KOMODOR_SECRETS
 upload_secrets "global" GLOBAL_SECRETS
 
 log "🎉 All secrets organized and uploaded!"
@@ -157,4 +190,8 @@ echo "  - $BASE_PATH/jira-secret"
 echo "  - $BASE_PATH/pagerduty-secret"
 echo "  - $BASE_PATH/slack-secret"
 echo "  - $BASE_PATH/kb-rag-secret"
+echo "  - $BASE_PATH/aws-secret"
+echo "  - $BASE_PATH/splunk-secret"
+echo "  - $BASE_PATH/webex-secret"
+echo "  - $BASE_PATH/komodor-secret"
 echo "  - $BASE_PATH/global"
