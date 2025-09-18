@@ -193,6 +193,15 @@ neo4j:
 # KB-RAG Stack with 1Gi storage for kind
 kb-rag-stack:
   enabled: true
+  kb-rag-agent:
+    agentSecrets:
+      secretName: "kb-rag-agent-secret"
+      externalSecrets:
+        data:
+        - secretKey: MILVUS_SECRET
+          remoteRef:
+            key: secret/ai-platform-engineering/kb-rag-secret
+            property: MILVUS_SECRET
 
 # Milvus with 1Gi storage for kind
 milvus:
