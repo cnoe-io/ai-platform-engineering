@@ -24,6 +24,10 @@ dependencies:
     condition: global.enabledSubAgents.argocd
   - name: agent
     version: 0.2.0
+    alias: agent-aws
+    condition: global.enabledSubAgents.aws
+  - name: agent
+    version: 0.2.0
     alias: agent-backstage
     condition: global.enabledSubAgents.backstage
   - name: agent
@@ -40,6 +44,10 @@ dependencies:
     condition: global.enabledSubAgents.jira
   - name: agent
     version: 0.2.0
+    alias: agent-komodor
+    condition: global.enabledSubAgents.komodor
+  - name: agent
+    version: 0.2.0
     alias: agent-pagerduty
     condition: global.enabledSubAgents.pagerduty
   - name: agent
@@ -48,20 +56,12 @@ dependencies:
     condition: global.enabledSubAgents.slack
   - name: agent
     version: 0.2.0
-    alias: agent-aws
-    condition: global.enabledSubAgents.aws
-  - name: agent
-    version: 0.2.0
     alias: agent-splunk
     condition: global.enabledSubAgents.splunk
   - name: agent
     version: 0.2.0
     alias: agent-webex
     condition: global.enabledSubAgents.webex
-  - name: agent
-    version: 0.2.0
-    alias: agent-komodor
-    condition: global.enabledSubAgents.komodor
   # AGNTCY Slim dataplane service
   - name: slim
     version: v0.1.8
