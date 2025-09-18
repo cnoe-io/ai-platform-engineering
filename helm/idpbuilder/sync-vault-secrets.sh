@@ -61,9 +61,6 @@ declare -A GLOBAL_SECRETS=(
     ["AZURE_OPENAI_API_VERSION"]=""
     ["AZURE_OPENAI_DEPLOYMENT"]=""
     ["AZURE_OPENAI_ENDPOINT"]=""
-    ["AWS_ACCESS_KEY_ID"]=""
-    ["AWS_SECRET_ACCESS_KEY"]=""
-    ["AWS_REGION"]=""
 )
 
 # Parse .env file
