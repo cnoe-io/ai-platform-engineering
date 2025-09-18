@@ -24,7 +24,7 @@ async def get_transitions(
         JSON string representing a list of available transitions.
     """
     success, response = await make_api_request(
-        path=f"rest/api/2/issue/{issue_key}/transitions",
+        path=f"rest/api/3/issue/{issue_key}/transitions",
         method="GET",
     )
 
@@ -91,7 +91,7 @@ async def transition_issue(
         }
 
     success, response = await make_api_request(
-        path=f"rest/api/2/issue/{issue_key}/transitions",
+        path=f"rest/api/3/issue/{issue_key}/transitions",
         method="POST",
         data=payload,
     )
