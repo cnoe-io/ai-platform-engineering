@@ -121,6 +121,58 @@ agent-slack:
     port: 8000
     pullPolicy: "Always"
 
+agent-aws:
+  nameOverride: "agent-aws"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-aws"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-aws"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-splunk:
+  nameOverride: "agent-splunk"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-splunk"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-splunk"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-webex:
+  nameOverride: "agent-webex"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-webex"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-webex"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-komodor:
+  nameOverride: "agent-komodor"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-komodor"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-komodor"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
   enabled: true
