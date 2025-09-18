@@ -2,12 +2,16 @@
 global:
   enabledSubAgents:
     argocd: false
+    aws: false
     backstage: false
     confluence: false
     github: false
     jira: false
+    komodor: false
     pagerduty: false
     slack: false
+    splunk: false
+    webex: false
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
