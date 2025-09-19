@@ -9,12 +9,6 @@ from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
-try:
-    # Try absolute import (when run directly)
-    from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.jwks_cache import JwksCache
-except ImportError:
-    # Fall back to relative import (when run as module)
-    from .jwks_cache import JwksCache
 
 # Load environment variables from .env file
 load_dotenv()
