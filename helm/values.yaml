@@ -572,3 +572,15 @@ milvus:
       limits:
         cpu: 200m
         memory: 256Mi
+
+  # MinIO storage overrides for kind cluster - drastically reduce from 500Gi default
+  minio:
+    persistence:
+      size: 2Gi  # Down from 500Gi default
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 256Mi
+        cpu: 200m
