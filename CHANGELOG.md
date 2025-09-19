@@ -1,3 +1,26 @@
+## Unreleased
+
+### BREAKING CHANGE
+
+- helm chart version bumped to 0.2.3
+
+### Feat
+
+- **auth**: update A2A authentication configuration
+- add additional authentication options for A2A protocol
+- add missing agent deployments for aws, splunk, webex, komodor
+
+### Fix
+
+- **ci**: A2A/MCP build and publish on main/tags
+- **ci**: A2A/MCP build and publish on main/tags
+- **ci**: A2A/MCP build and publish on main/tags
+- **A2A_AUTH_SHARED_KEY**: set default to false
+- CHANGESET.md
+- lint
+- updates
+- correct commit count for prebuild GHAs
+
 ## 0.1.13 (2025-09-18)
 
 ### Feat
