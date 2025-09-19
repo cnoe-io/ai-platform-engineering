@@ -15,7 +15,7 @@ global:
     kb-rag: true
 
   slim:
-    enabled: false
+    enabled: true
 
   externalSecrets:
     enabled: true
