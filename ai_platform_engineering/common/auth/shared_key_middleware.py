@@ -12,12 +12,10 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-USE_SHARED_KEY = os.getenv('USE_SHARED_KEY', 'false').lower() == 'true'
+A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY')
 
-if USE_SHARED_KEY:
-  SHARED_KEY = os.environ["SHARED_KEY"]
-  if not SHARED_KEY:
-    raise ValueError('SHARED_KEY is not set')
+if not A2A_AUTH_SHARED_KEY:
+  raise ValueError('A2A_AUTH_SHARED_KEY is not set')
 
 class SharedKeyMiddleware(BaseHTTPMiddleware):
     """Starlette middleware that authenticates A2A access using a shared key."""
@@ -60,7 +58,7 @@ class SharedKeyMiddleware(BaseHTTPMiddleware):
         # Authenticate the request
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            logger.warning('Missing or malformed Authorization header: %s', auth_header)
+            logger.warning('Missing or malformed Authorization header')
             return self._unauthorized(
                 'Missing or malformed Authorization header.', request
             )
@@ -68,8 +66,8 @@ class SharedKeyMiddleware(BaseHTTPMiddleware):
         access_token = auth_header.split('Bearer ')[1]
 
         try:
-            if access_token != SHARED_KEY:
-                logger.warning('Invalid shared key: %s', access_token)
+            if access_token != A2A_AUTH_SHARED_KEY:
+                logger.warning('Invalid shared key provided')
                 return self._unauthorized(
                     'Invalid shared key.', request
                 )

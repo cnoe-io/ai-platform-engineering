@@ -49,7 +49,7 @@ Configure your application with these environment variables:
 
 ```bash
 # Enable OAuth2 authentication
-USE_OAUTH2=true
+A2A_AUTH_OAUTH2=true
 
 # Keycloak OAuth2 endpoints
 JWKS_URI=http://localhost:7080/realms/caipe/protocol/openid-connect/certs

@@ -30,7 +30,7 @@ Setup CAIPE to run in a docker environment on a latop or a virtual machine like 
 
    Add the following to your `.env` file:
    ```bash
-   USE_OAUTH2=true
+   A2A_AUTH_OAUTH2=true
    JWKS_URI=https://your-identity-provider.com/.well-known/jwks.json
    AUDIENCE=your-audience
    ISSUER=https://your-identity-provider.com
@@ -61,7 +61,7 @@ Setup CAIPE to run in a docker environment on a latop or a virtual machine like 
 
    Then configure your environment:
    ```bash
-   USE_OAUTH2=true
+   A2A_AUTH_OAUTH2=true
    JWKS_URI=http://localhost:7080/realms/caipe/protocol/openid-connect/certs
    AUDIENCE=caipe
    ISSUER=http://localhost:7080/realms/caipe
@@ -93,8 +93,7 @@ Setup CAIPE to run in a docker environment on a latop or a virtual machine like 
 
    Add the following to your `.env` file:
    ```bash
-   USE_SHARED_KEY=true
-   SHARED_KEY=your-secret-key
+   A2A_AUTH_SHARED_KEY=your-secret-key
    ```
 
    > **Note:** If neither authentication method is enabled, the A2A agent will run without authentication. This is not recommended for production environments.

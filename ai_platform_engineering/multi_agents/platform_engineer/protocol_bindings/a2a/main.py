@@ -109,9 +109,9 @@ app = a2a_server.build()
 ################################################################################
 # Add authentication middleware if enabled
 ################################################################################
-USE_OAUTH2 = os.getenv('USE_OAUTH2', 'false').lower() == 'true'
+A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
 
-USE_SHARED_KEY = os.getenv('USE_SHARED_KEY', 'false').lower() == 'true'
+A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY')
 
 # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
 app.add_middleware(
@@ -121,14 +121,14 @@ app.add_middleware(
   allow_headers=["*"],  # Allow all headers
 )
 
-if USE_SHARED_KEY:
+if A2A_AUTH_SHARED_KEY:
   from ai_platform_engineering.common.auth.shared_key_middleware import SharedKeyMiddleware
   app.add_middleware(
     SharedKeyMiddleware,
     agent_card=get_agent_card(host, port, external_url),
     public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
   )
-elif USE_OAUTH2:
+elif A2A_AUTH_OAUTH2:
   from ai_platform_engineering.common.auth.oauth2_middleware import OAuth2Middleware
   app.add_middleware(
     OAuth2Middleware,
