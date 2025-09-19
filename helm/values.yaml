@@ -38,91 +38,91 @@ global:
 
       # Azure OpenAI configuration
       - secretKey: AZURE_OPENAI_API_KEY
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: AZURE_OPENAI_API_KEY
-          optional: true
       - secretKey: AZURE_OPENAI_ENDPOINT
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: AZURE_OPENAI_ENDPOINT
-          optional: true
       - secretKey: AZURE_OPENAI_API_VERSION
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: AZURE_OPENAI_API_VERSION
-          optional: true
       - secretKey: AZURE_OPENAI_DEPLOYMENT
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: AZURE_OPENAI_DEPLOYMENT
-          optional: true
       # OpenAI configuration
       - secretKey: OPENAI_API_KEY
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: OPENAI_API_KEY
-          optional: true
       - secretKey: OPENAI_ENDPOINT
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: OPENAI_ENDPOINT
-          optional: true
       - secretKey: OPENAI_MODEL_NAME
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: OPENAI_MODEL_NAME
-          optional: true
       # AWS Bedrock configuration
       - secretKey: AWS_ACCESS_KEY_ID
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: AWS_ACCESS_KEY_ID
-          optional: true
       - secretKey: AWS_SECRET_ACCESS_KEY
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: AWS_SECRET_ACCESS_KEY
-          optional: true
       - secretKey: AWS_REGION
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: AWS_REGION
-          optional: true
       - secretKey: AWS_BEDROCK_MODEL_ID
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: AWS_BEDROCK_MODEL_ID
-          optional: true
       - secretKey: AWS_BEDROCK_PROVIDER
+        optional: true
         remoteRef:
           conversionStrategy: Default
           decodingStrategy: None
           key: ai-platform-engineering/global
           property: AWS_BEDROCK_PROVIDER
-          optional: true
 
 # AI Platform Engineer Multi-Agent
 supervisor-agent:
