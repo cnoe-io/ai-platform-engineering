@@ -1,8 +1,5 @@
-import json
 import logging
 import os
-import jwt
-from jwt import InvalidTokenError
 from dotenv import load_dotenv
 from a2a.types import AgentCard
 from starlette.applications import Starlette
