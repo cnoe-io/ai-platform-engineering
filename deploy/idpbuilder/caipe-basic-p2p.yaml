@@ -1,0 +1,200 @@
+# Override values for idpbuilder local deployment
+global:
+  enabledSubAgents:
+    argocd: true
+    backstage: true
+    confluence: false
+    github: true
+    jira: false
+    pagerduty: false
+    slack: false
+    weather: true
+
+  slim:
+    enabled: false
+
+  externalSecrets:
+    enabled: true
+    secretStoreRef:
+      name: "vault-secret-store"
+      kind: ClusterSecretStore
+
+  agentSecrets:
+    create: true
+
+  llmSecrets:
+    create: false
+    secretName: "llm-secret"
+    externalSecrets:
+      data:
+      - secretKey: LLM_PROVIDER
+        remoteRef:
+          key: secret/ai-platform-engineering/global
+          property: LLM_PROVIDER
+      - secretKey: AZURE_OPENAI_API_KEY
+        remoteRef:
+          key: secret/ai-platform-engineering/global
+          property: AZURE_OPENAI_API_KEY
+      - secretKey: AZURE_OPENAI_ENDPOINT
+        remoteRef:
+          key: secret/ai-platform-engineering/global
+          property: AZURE_OPENAI_ENDPOINT
+      - secretKey: AZURE_OPENAI_API_VERSION
+        remoteRef:
+          key: secret/ai-platform-engineering/global
+          property: AZURE_OPENAI_API_VERSION
+      - secretKey: AZURE_OPENAI_DEPLOYMENT
+        remoteRef:
+          key: secret/ai-platform-engineering/global
+          property: AZURE_OPENAI_DEPLOYMENT
+
+supervisor-agent:
+  nameOverride: "supervisor-agent"
+  env:
+    EXTERNAL_URL: "http://localhost:8000"
+
+agent-argocd:
+  nameOverride: "agent-argocd"
+  agentSecrets:
+    secretName: "agent-argocd-secret"
+    externalSecrets:
+      data:
+      - secretKey: ARGOCD_TOKEN
+        remoteRef:
+          key: secret/ai-platform-engineering/argocd-secret
+          property: ARGOCD_TOKEN
+      - secretKey: ARGOCD_API_URL
+        remoteRef:
+          key: secret/ai-platform-engineering/argocd-secret
+          property: ARGOCD_API_URL
+      - secretKey: ARGOCD_VERIFY_SSL
+        remoteRef:
+          key: secret/ai-platform-engineering/argocd-secret
+          property: ARGOCD_VERIFY_SSL
+
+agent-backstage:
+  nameOverride: "agent-backstage"
+  agentSecrets:
+    secretName: "agent-backstage-secret"
+    externalSecrets:
+      data:
+      - secretKey: BACKSTAGE_API_TOKEN
+        remoteRef:
+          key: secret/ai-platform-engineering/backstage-secret
+          property: BACKSTAGE_API_TOKEN
+      - secretKey: BACKSTAGE_URL
+        remoteRef:
+          key: secret/ai-platform-engineering/backstage-secret
+          property: BACKSTAGE_URL
+
+agent-confluence:
+  nameOverride: "agent-confluence"
+  agentSecrets:
+    secretName: "agent-confluence-secret"
+    externalSecrets:
+      data:
+      - secretKey: ATLASSIAN_TOKEN
+        remoteRef:
+          key: secret/ai-platform-engineering/jira-secret
+          property: ATLASSIAN_TOKEN
+      - secretKey: ATLASSIAN_EMAIL
+        remoteRef:
+          key: secret/ai-platform-engineering/jira-secret
+          property: ATLASSIAN_EMAIL
+      - secretKey: ATLASSIAN_API_URL
+        remoteRef:
+          key: secret/ai-platform-engineering/jira-secret
+          property: ATLASSIAN_API_URL
+
+agent-github:
+  nameOverride: "agent-github"
+  agentSecrets:
+    secretName: "agent-github-secret"
+    externalSecrets:
+      data:
+      - secretKey: GITHUB_PERSONAL_ACCESS_TOKEN
+        remoteRef:
+          key: secret/ai-platform-engineering/github-secret
+          property: GITHUB_PERSONAL_ACCESS_TOKEN
+
+agent-jira:
+  nameOverride: "agent-jira"
+  agentSecrets:
+    secretName: "agent-jira-secret"
+    externalSecrets:
+      data:
+      - secretKey: ATLASSIAN_TOKEN
+        remoteRef:
+          key: secret/ai-platform-engineering/jira-secret
+          property: ATLASSIAN_TOKEN
+      - secretKey: ATLASSIAN_EMAIL
+        remoteRef:
+          key: secret/ai-platform-engineering/jira-secret
+          property: ATLASSIAN_EMAIL
+      - secretKey: ATLASSIAN_API_URL
+        remoteRef:
+          key: secret/ai-platform-engineering/jira-secret
+          property: ATLASSIAN_API_URL
+
+agent-pagerduty:
+  nameOverride: "agent-pagerduty"
+  agentSecrets:
+    secretName: "agent-pagerduty-secret"
+    externalSecrets:
+      data:
+      - secretKey: PAGERDUTY_API_KEY
+        remoteRef:
+          key: secret/ai-platform-engineering/pagerduty-secret
+          property: PAGERDUTY_API_KEY
+      - secretKey: PAGERDUTY_API_URL
+        remoteRef:
+          key: secret/ai-platform-engineering/pagerduty-secret
+          property: PAGERDUTY_API_URL
+
+agent-slack:
+  nameOverride: "agent-slack"
+  agentSecrets:
+    secretName: "agent-slack-secret"
+    externalSecrets:
+      data:
+      - secretKey: SLACK_BOT_TOKEN
+        remoteRef:
+          key: secret/ai-platform-engineering/slack-secret
+          property: SLACK_BOT_TOKEN
+      - secretKey: SLACK_APP_TOKEN
+        remoteRef:
+          key: secret/ai-platform-engineering/slack-secret
+          property: SLACK_APP_TOKEN
+      - secretKey: SLACK_SIGNING_SECRET
+        remoteRef:
+          key: secret/ai-platform-engineering/slack-secret
+          property: SLACK_SIGNING_SECRET
+      - secretKey: SLACK_CLIENT_SECRET
+        remoteRef:
+          key: secret/ai-platform-engineering/slack-secret
+          property: SLACK_CLIENT_SECRET
+      - secretKey: SLACK_TEAM_ID
+        remoteRef:
+          key: secret/ai-platform-engineering/slack-secret
+          property: SLACK_TEAM_ID
+
+graphrag:
+  enabled: true
+
+# neo4j configuration for kind cluster
+neo4j:
+  volumes:
+    data:
+      mode: "dynamic"
+      dynamic:
+        storageClassName: standard
+        requests:
+          storage: 1Gi
+
+# KB-RAG Stack with 1Gi storage for kind
+kb-rag-stack:
+  enabled: false  # Disabled for kind cluster
+
+# Milvus with 1Gi storage for kind
+milvus:
+  enabled: false  # Disabled for kind cluster
