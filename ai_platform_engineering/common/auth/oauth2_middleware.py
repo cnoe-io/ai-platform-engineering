@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 try:
     # Try absolute import (when run directly)
-    from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.jwks_cache import JwksCache
+    from ai_platform_engineering.common.auth.jwks_cache import JwksCache
 except ImportError:
     # Fall back to relative import (when run as module)
     from .jwks_cache import JwksCache
@@ -29,7 +29,7 @@ if USE_OAUTH2:
   JWKS_URI = os.environ["JWKS_URI"]
   AUDIENCE = os.environ["AUDIENCE"]  # expected 'aud' claim in token
   ISSUER = os.environ["ISSUER"]
-  CIRCUIT_CLIENT_ID = os.environ["OAUTH2_CLIENT_ID"]  # your client ID for audience validation
+  OAUTH2_CLIENT_ID = os.environ["OAUTH2_CLIENT_ID"]  # your client ID for audience validation
   DEBUG_UNMASK_AUTH_HEADER = os.environ.get("DEBUG_UNMASK_AUTH_HEADER", "false").lower() == "true"
   _jwks_cache = JwksCache(JWKS_URI)
 
@@ -105,11 +105,11 @@ def verify_token(token: str) -> bool:
         # Check if 'cid' claim exists and validate it
         if "cid" in payload:
             token_cid = payload["cid"]
-            if token_cid == CIRCUIT_CLIENT_ID:
+            if token_cid == OAUTH2_CLIENT_ID:
                 logger.debug(f"Token CID matches expected client ID: {token_cid}")
                 return True
             else:
-                logger.warning(f"Token CID '{token_cid}' does not match expected client ID '{CIRCUIT_CLIENT_ID}'")
+                logger.warning(f"Token CID '{token_cid}' does not match expected client ID '{OAUTH2_CLIENT_ID}'")
                 return False
         else:
             print("\n" + "="*40)
