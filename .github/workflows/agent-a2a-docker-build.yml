@@ -114,7 +114,7 @@ jobs:
 
     strategy:
       matrix:
-        agent: ${{ needs.determine-agents.outputs.agents }}
+        agent: ${{ fromJson(needs.determine-agents.outputs.agents) }}
       fail-fast: false
 
     env:
