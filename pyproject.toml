@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.1.13"
+version = "0.1.14"
 description = "AI Platform Engineering Multi-Agent Systems"
 authors = [
   {name = "CNOE Contributors"}
