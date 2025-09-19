@@ -1,0 +1,13 @@
+{
+  "dockerfile_lines": [
+    "ENV PYTHONPATH=./agent_litellm"
+  ],
+  "graphs": {
+    "JARVIS": "agent_litellm.graph:graph"
+  },
+  "env": "./.env",
+  "python_version": "3.13",
+  "dependencies": [
+    "."
+  ]
+}
