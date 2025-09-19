@@ -127,9 +127,20 @@ const sidebars: SidebarsConfig = {
       ],
     },
     {
-      type: 'doc',
-      id: 'security/index',
+      type: 'category',
       label: 'Security',
+      items: [
+        {
+          type: 'doc',
+          id: 'security/index',
+          label: 'Overview',
+        },
+        {
+          type: 'doc',
+          id: 'security/a2a-auth',
+          label: 'A2A Authentication',
+        }
+      ],
     },
     {
       type: 'category',

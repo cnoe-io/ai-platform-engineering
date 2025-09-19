@@ -134,7 +134,7 @@ def display_token_contents(token):
   # Display any additional claims
   additional_claims = set(parsed_token.keys()) - set(common_claims.keys())
   if additional_claims:
-    print(f"\nAdditional Claims:")
+    print("\nAdditional Claims:")
     for claim in sorted(additional_claims):
       value = parsed_token[claim]
       if isinstance(value, dict):
