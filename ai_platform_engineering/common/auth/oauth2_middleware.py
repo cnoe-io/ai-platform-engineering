@@ -1,9 +1,6 @@
 import json
-import time
 import logging
-import base64
 import os
-import requests
 import jwt
 from jwt import InvalidTokenError
 from dotenv import load_dotenv
@@ -24,9 +21,9 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-USE_AUTH = os.getenv('USE_AUTH', 'false').lower() == 'true'
+USE_OAUTH2 = os.getenv('USE_OAUTH2', 'false').lower() == 'true'
 
-if USE_AUTH:
+if USE_OAUTH2:
   CLOCK_SKEW_LEEWAY = 10
   ALGORITHMS = ["RS256"]
   JWKS_URI = os.environ["JWKS_URI"]
@@ -116,7 +113,7 @@ def verify_token(token: str) -> bool:
                 return False
         else:
             print("\n" + "="*40)
-            print(f"Token missing 'cid' claim. Moving on and return True")
+            print("Token missing 'cid' claim. Moving on and return True")
             print("="*40 + "\n")
     except InvalidTokenError as e:
         logger.warning("Token validation failed: %s", e)
