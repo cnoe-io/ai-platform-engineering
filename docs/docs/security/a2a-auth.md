@@ -22,20 +22,19 @@ These endpoints provide agent discovery and metadata information.
 Shared key authentication provides a simple authentication mechanism using a pre-shared secret. This method is suitable for development and testing environments.
 
 **Configuration:**
-- Set `USE_SHARED_KEY=true` in your environment
-- Configure the following required environment variable:
-  - `SHARED_KEY`: The shared secret key for authentication
+- Set the following required environment variable:
+  - `A2A_AUTH_SHARED_KEY`: The shared secret key for authentication
 
 **Usage:**
 - Send the shared key as `Authorization: Bearer <shared_key>` header
-- The key must match exactly with the configured `SHARED_KEY` value
+- The key must match exactly with the configured `A2A_AUTH_SHARED_KEY` value
 
 ### OAuth2 Authentication
 
 OAuth2 authentication provides enterprise-grade security using JWT tokens with JWKS validation. This method is recommended for production environments.
 
 **Configuration:**
-- Set `USE_OAUTH2=true` in your environment
+- Set `A2A_AUTH_OAUTH2=true` in your environment
 - Configure the following required environment variables:
   - `JWKS_URI`: The JWKS endpoint URL for token validation
   - `AUDIENCE`: Expected audience claim in the JWT token
@@ -86,7 +85,7 @@ docker compose up
 
 **Environment Variables for Local Keycloak:**
 ```bash
-USE_OAUTH2=true
+A2A_AUTH_OAUTH2=true
 JWKS_URI=http://localhost:7080/realms/caipe/protocol/openid-connect/certs
 AUDIENCE=caipe
 ISSUER=http://localhost:7080/realms/caipe

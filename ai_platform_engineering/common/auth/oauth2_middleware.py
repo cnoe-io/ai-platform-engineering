@@ -21,9 +21,9 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-USE_OAUTH2 = os.getenv('USE_OAUTH2', 'false').lower() == 'true'
+A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
 
-if USE_OAUTH2:
+if A2A_AUTH_OAUTH2:
   CLOCK_SKEW_LEEWAY = 10
   ALGORITHMS = ["RS256"]
   JWKS_URI = os.environ["JWKS_URI"]
@@ -149,7 +149,7 @@ class OAuth2Middleware(BaseHTTPMiddleware):
                 # Mask the Authorization header for security
                 if header_value.startswith('Bearer '):
                     token = header_value[7:]  # Remove 'Bearer ' prefix
-                    masked_token = f"{token[:10]}.........{token[-10:]}" if len(token) > 20 else "***"
+                    masked_token = f"{token[:3]}***{token[-3:]}" if len(token) > 20 else "***"
                     print(f"{header_name}: Bearer {masked_token}")
                 else:
                     print(f"{header_name}: ***MASKED***")
@@ -164,7 +164,7 @@ class OAuth2Middleware(BaseHTTPMiddleware):
         # Authenticate the request
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            logger.warning('Missing or malformed Authorization header: %s', auth_header)
+            logger.warning('Missing or malformed Authorization header')
             return self._unauthorized(
                 'Missing or malformed Authorization header.', request
             )
@@ -175,7 +175,7 @@ class OAuth2Middleware(BaseHTTPMiddleware):
 
             is_valid = verify_token(access_token)
             if not is_valid:
-                logger.warning(f'Invalid or expired access token : {auth_header}',)
+                logger.warning('Invalid or expired access token')
                 return self._unauthorized(
                     'Invalid or expired access token.', request
                 )
