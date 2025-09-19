@@ -1,3 +1,9 @@
+## Unreleased
+
+### Fix
+
+- **ci**: A2A/MCP builds
+
 ## 0.1.14 (2025-09-19)
 
 ### BREAKING CHANGE
