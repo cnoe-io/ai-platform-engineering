@@ -17,9 +17,10 @@ from trace_analysis.extractor import TraceExtractor
 
 def test_trace_tool_calls(trace_id: str):
     """Test tool call extraction for a specific trace ID."""
-    
-    # Load configuration
-    load_dotenv('/home/ubuntu/ai-platform-engineering/.env')
+
+    # Load configuration from project root .env file
+    project_root = Path(__file__).parent.parent.parent
+    load_dotenv(project_root / '.env')
     
     config = {
         'public_key': os.getenv('LANGFUSE_PUBLIC_KEY'),
@@ -27,7 +28,7 @@ def test_trace_tool_calls(trace_id: str):
         'host': 'http://localhost:3000'
     }
     
-    print(f"🧪 TESTING TOOL CALL EXTRACTION")
+    print("🧪 TESTING TOOL CALL EXTRACTION")
     print("="*60)
     print(f"Trace ID: {trace_id}")
     print(f"Host: {config['host']}")

@@ -33,7 +33,6 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 
 from models.dataset import WebhookPayload, EvaluationStatus
-from models.evaluation import EvaluationResult
 from trace_analysis import TraceExtractor
 from evaluators.routing_evaluator import RoutingEvaluator
 from evaluators.tool_match_evaluator import ToolMatchEvaluator
@@ -149,7 +148,7 @@ class LangfuseWebhookService:
     async def handle_webhook(self, payload: WebhookPayload) -> EvaluationStatus:
         """Handle webhook trigger from Langfuse UI for remote dataset run."""
         logger.info(f"🔍 Webhook: Received request for dataset: {payload.dataset_name} (ID: {payload.dataset_id})")
-        logger.info(f"🔍 Webhook: Dataset runs will create traces that include Platform Engineer execution")
+        logger.info("🔍 Webhook: Dataset runs will create traces that include Platform Engineer execution")
         
         if not self.langfuse:
             raise HTTPException(

@@ -171,7 +171,7 @@ class TraceExtractor:
                                                         try:
                                                             import json
                                                             arguments = json.loads(arguments)
-                                                        except:
+                                                        except (json.JSONDecodeError, TypeError):
                                                             pass
                                             
                                             # Extract agent name from hierarchy
