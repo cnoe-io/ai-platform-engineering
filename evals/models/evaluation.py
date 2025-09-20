@@ -1,7 +1,7 @@
 """
 Evaluation data models for routing and tool match evaluation.
 """
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field
 from typing import Optional
 
 

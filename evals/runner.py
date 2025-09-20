@@ -3,9 +3,7 @@ Evaluation runner that orchestrates the evaluation process.
 """
 import asyncio
 import logging
-import time
-import uuid
-from typing import Dict, Any, List
+from typing import Dict, Any
 import yaml
 
 from langfuse import Langfuse
@@ -56,7 +54,6 @@ class EvaluationRunner:
             config: Optional configuration for the evaluation
         """
         config = config or {}
-        evaluation_id = evaluation_info["evaluation_id"]
         run_name = evaluation_info["run_name"]
         
         try:
@@ -125,7 +122,7 @@ class EvaluationRunner:
             prompt = self._extract_prompt(dataset_item)
             
             logger.info(f"🔍 Dataset Run: Evaluating item {dataset_item.id} with trace_id={trace_id}")
-            logger.info(f"🔍 Dataset Run: This trace_id will be passed to Platform Engineer for hierarchical tracing")
+            logger.info("🔍 Dataset Run: This trace_id will be passed to Platform Engineer for hierarchical tracing")
             
             try:
                 # Send request to Platform Engineer using EvalClient
@@ -136,7 +133,7 @@ class EvaluationRunner:
                 response = await self.eval_client.send_message(request)
                 response_text = response.response_text
                 
-                logger.info(f"🔍 Dataset Run: Platform Engineer execution completed under dataset run trace")
+                logger.info("🔍 Dataset Run: Platform Engineer execution completed under dataset run trace")
                 
                 # Update root span with input and output
                 root_span.update_trace(input=prompt, output=response_text)

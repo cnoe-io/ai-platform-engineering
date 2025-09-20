@@ -38,7 +38,7 @@ def check_credentials() -> bool:
         print("\nPlease set these environment variables:")
         for var in missing_vars:
             print(f"   export {var}=your_key")
-        print(f"\nOptionally set LANGFUSE_HOST (defaults to https://cloud.langfuse.com)")
+        print("\nOptionally set LANGFUSE_HOST (defaults to https://cloud.langfuse.com)")
         return False
     
     return True
@@ -209,7 +209,7 @@ Examples:
             print(f"   ❌ Error processing {file_path}: {e}")
     
     # Summary
-    print(f"\n📊 Upload Summary:")
+    print("\n📊 Upload Summary:")
     print(f"   Successful: {success_count}/{total_files}")
     print(f"   Failed: {total_files - success_count}/{total_files}")
     

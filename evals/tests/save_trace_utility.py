@@ -20,7 +20,10 @@ def save_trace_to_file(trace_id: str, output_format: str = 'json', output_dir: s
     """Save trace structure to file."""
     
     # Load configuration
-    load_dotenv('/home/ubuntu/ai-platform-engineering/.env')
+    # Load from project root .env file
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent
+    load_dotenv(project_root / '.env')
     
     config = {
         'public_key': os.getenv('LANGFUSE_PUBLIC_KEY'),
@@ -28,7 +31,7 @@ def save_trace_to_file(trace_id: str, output_format: str = 'json', output_dir: s
         'host': os.getenv('LANGFUSE_HOST', 'http://localhost:3000')
     }
     
-    print(f"💾 SAVING TRACE TO FILE")
+    print("💾 SAVING TRACE TO FILE")
     print("="*50)
     print(f"Trace ID: {trace_id}")
     print(f"Format: {output_format}")
@@ -84,7 +87,7 @@ def save_trace_to_file(trace_id: str, output_format: str = 'json', output_dir: s
         elif output_format == 'txt':
             # Save as formatted text
             with open(filename, 'w', encoding='utf-8') as f:
-                f.write(f"LANGFUSE TRACE STRUCTURE\\n")
+                f.write("LANGFUSE TRACE STRUCTURE\\n")
                 f.write(f"{'='*50}\\n\\n")
                 f.write(f"Trace ID: {trace_id}\\n")
                 f.write(f"Retrieved: {datetime.now().isoformat()}\\n")
@@ -95,12 +98,12 @@ def save_trace_to_file(trace_id: str, output_format: str = 'json', output_dir: s
         
         # Show file info
         file_size = os.path.getsize(filename)
-        print(f"✅ File saved successfully!")
+        print("✅ File saved successfully!")
         print(f"📂 File: {filename}")
         print(f"📏 Size: {file_size:,} bytes")
         
         # Show trace summary
-        print(f"\\n📊 TRACE SUMMARY:")
+        print("\\n📊 TRACE SUMMARY:")
         print(f"   ID: {trace_dict.get('id', 'N/A')}")
         print(f"   Name: {trace_dict.get('name', 'N/A')}")
         observations = trace_dict.get('observations', [])

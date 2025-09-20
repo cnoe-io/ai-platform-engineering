@@ -1,7 +1,10 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
+import uuid
 from typing_extensions import override
+
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
@@ -10,17 +13,14 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
-import uuid
-
-import logging
-logger = logging.getLogger(__name__)
 
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
   AIPlatformEngineerA2ABinding
 )
+
+logger = logging.getLogger(__name__)
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor."""
@@ -47,7 +47,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 raise Exception("Failed to create a new task from the provided message.")
             await event_queue.enqueue_event(task)
         # Debug logging to understand message structure
-        logger.info(f"🔍 Platform Engineer Executor: Debugging message structure")
+        logger.info("🔍 Platform Engineer Executor: Debugging message structure")
         logger.info(f"🔍 Platform Engineer Executor: context.message type: {type(context.message)}")
         if context.message:
             logger.info(f"🔍 Platform Engineer Executor: context.message.metadata: {getattr(context.message, 'metadata', 'NO_METADATA')}")
@@ -59,7 +59,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # Enhanced trace_id extraction - check multiple locations
         if not trace_id and context and context.message:
             # Try additional extraction methods for evaluation requests
-            logger.info(f"🔍 Platform Engineer Executor: No trace_id from extract_trace_id_from_context, checking alternatives")
+            logger.info("🔍 Platform Engineer Executor: No trace_id from extract_trace_id_from_context, checking alternatives")
             
             # Check if there's metadata in the message
             if hasattr(context.message, 'metadata') and context.message.metadata:

@@ -22,7 +22,10 @@ class TestTraceExtractor:
     def setup_class(cls):
         """Set up test environment."""
         # Load configuration from parent directory
-        load_dotenv('/home/ubuntu/ai-platform-engineering/.env')
+        # Load from project root .env file
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent
+        load_dotenv(project_root / '.env')
         
         cls.config = {
             'public_key': os.getenv('LANGFUSE_PUBLIC_KEY'),
@@ -144,7 +147,7 @@ class TestTraceExtractor:
     
     def test_hierarchy_agent_detection(self):
         """Test the hierarchy-based agent detection method."""
-        print(f"\n🧪 Testing hierarchy-based agent detection")
+        print("\n🧪 Testing hierarchy-based agent detection")
         
         # Test with GitHub trace
         trace_id = self.test_traces['github_agent']
