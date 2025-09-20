@@ -174,7 +174,8 @@ class LangfuseWebhookService:
             
             # Create evaluation run with descriptive name
             evaluation_id = str(uuid.uuid4())
-            run_name = f"remote_eval_{payload.dataset_name}_{int(time.time())}"
+            timestamp = time.strftime("%m%d_%H%M", time.localtime())
+            run_name = f"{payload.dataset_name}_{timestamp}"
             
             evaluation_info = {
                 "evaluation_id": evaluation_id,
