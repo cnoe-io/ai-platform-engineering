@@ -29,8 +29,6 @@ norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/* a
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
-langgraph-cli = "^0.3.3"
-
 
 [tool.poetry.group.unittest.dependencies]
 pytest-asyncio = "^1.0.0"
@@ -71,7 +69,6 @@ dev = [
     "agent-argocd",
     "agent-komodor",
     "httpx>=0.28.1",
-    "langgraph-cli[inmem]",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
     "pyyaml>=6.0.2",
