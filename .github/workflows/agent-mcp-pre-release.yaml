@@ -56,7 +56,7 @@ jobs:
               - 'ai_platform_engineering/agents/litellm/build/Dockerfile.mcp'
       - name: Set matrix based on changes (MCP)
         id: set-matrix
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           BUILD_ALL: 'false'
           CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
@@ -207,7 +207,7 @@ jobs:
       PACKAGE_NAME: prebuild/mcp-${{ matrix.agent }}
     steps:
       - name: Delete prebuild images for branch
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         with:
