@@ -3,7 +3,7 @@ services:
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:latest
+    image: ghcr.io/cnoe-io/ai-platform-engineering:0.1.15
     pull_policy: always
     container_name: platform-engineer-p2p
     restart: unless-stopped
@@ -33,7 +33,7 @@ services:
   #                                      AGENT GITHUB A2A P2P                                        #
   ####################################################################################################
   agent-github-p2p:
-    image: ghcr.io/cnoe-io/agent-github:main
+    image: ghcr.io/cnoe-io/agent-github:0.1.15
     pull_policy: always
     container_name: agent-github-p2p
     restart: unless-stopped
@@ -52,7 +52,7 @@ services:
   #                                          KB-RAG SERVICES                                         #
   ####################################################################################################
   kb-rag-agent:
-    image: ghcr.io/cnoe-io/kb-rag-agent-a2a:latest
+    image: ghcr.io/cnoe-io/kb-rag-agent-a2a:0.1.15
     pull_policy: always
     container_name: kb-rag-agent
     restart: unless-stopped
@@ -66,7 +66,7 @@ services:
     ports:
       - "8020:8000"
   kb-rag-server:
-    image: ghcr.io/cnoe-io/kb-rag-server:latest
+    image: ghcr.io/cnoe-io/kb-rag-server:0.1.15
     pull_policy: always
     container_name: kb-rag-server
     restart: unless-stopped
@@ -79,7 +79,7 @@ services:
     ports:
       - "9446:9446"
   kb-rag-web:
-    image: ghcr.io/cnoe-io/kb-rag-web:latest
+    image: ghcr.io/cnoe-io/kb-rag-web:0.1.15
     pull_policy: always
     container_name: kb-rag-web
     restart: unless-stopped
