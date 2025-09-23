@@ -119,13 +119,28 @@ const sidebars: SidebarsConfig = {
         {
           type: 'doc',
           id: 'architecture/index',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/gateway',
         }
       ],
     },
     {
-      type: 'doc',
-      id: 'security/index',
+      type: 'category',
       label: 'Security',
+      items: [
+        {
+          type: 'doc',
+          id: 'security/index',
+          label: 'Overview',
+        },
+        {
+          type: 'doc',
+          id: 'security/a2a-auth',
+          label: 'A2A Authentication',
+        }
+      ],
     },
     {
       type: 'category',
@@ -174,12 +189,20 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'agents/splunk',
+        },
+        {
+          type: 'doc',
           id: 'agents/template',
         },
         {
           type: 'doc',
           id: 'agents/weather',
         },
+        {
+          type: 'doc',
+          id: 'agents/webex',
+        }
       ],
     },
     {
@@ -293,6 +316,11 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Workshop - Mars Colony',
       items: [
+        {
+          type: 'doc',
+          id: 'workshop/flyer',
+          label: 'Register',
+        },
         {
           type: 'doc',
           id: 'workshop/README',

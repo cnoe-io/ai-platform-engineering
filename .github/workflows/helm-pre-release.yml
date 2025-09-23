@@ -95,7 +95,7 @@ jobs:
           echo "   helm upgrade --install my-release oci://ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts/$CHART_NAME --version ${{ steps.version.outputs.pre-release-version }}"
 
       - name: 💬 Comment on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const chartName = 'ai-platform-engineering';

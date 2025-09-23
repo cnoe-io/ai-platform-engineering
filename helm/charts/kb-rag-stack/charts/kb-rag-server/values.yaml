@@ -32,10 +32,7 @@ podLabels: {}
 
 imagePullSecrets: []
 
-env:
-  REDIS_URL: "redis://kb-rag-redis:6379/0"
-  MILVUS_HOST: "milvus-standalone"
-  MILVUS_PORT: "19530"
+env: {}
 
 # For now, we rely on the secret to be created by kb-rag-agent subchart.
 # Thus, we only need the name of the secret here.

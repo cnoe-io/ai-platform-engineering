@@ -14,6 +14,8 @@ requires-python = ">=3.11, <4.0"
 dependencies = [
     "strands-agents>=0.1.0",
     "awslabs.eks-mcp-server>=0.1.0",
+    "awslabs.cost-explorer-mcp-server>=0.0.11",
+    "awslabs.iam-mcp-server>=0.1.0",
     "boto3>=1.35.0",
     "pydantic>=2.0.0",
     "click>=8.2.0",

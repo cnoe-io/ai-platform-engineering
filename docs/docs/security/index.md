@@ -9,7 +9,6 @@ These interfaces empower users to build and manage sophisticated multi-agent sys
 
 Refer to [User Interfaces](../getting-started/user-interfaces.md) for additional details on client authentication.
 
-
 ## Login Flow
 
 ```mermaid
