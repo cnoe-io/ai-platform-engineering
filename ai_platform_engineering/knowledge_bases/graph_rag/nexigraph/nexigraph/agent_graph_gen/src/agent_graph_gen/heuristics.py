@@ -1,3 +1,4 @@
+import asyncio
 from itertools import combinations
 import logging
 from typing import Any, List, Tuple
@@ -29,9 +30,9 @@ class HeuristicsProcessor:
     Heuristic processor class for determining foreign key relations between entities.
     """
     
-    def __init__(self, graph_db: GraphDB, rc_manager: RelationCandidateManager):
+    def __init__(self, graph_db: GraphDB):
         self.graph_db = graph_db
-        self.rc_manager = rc_manager
+        self.heuristics_locks = {} # Locks for concurrent heuristics processing, so we don't process the same heuristic concurrently, which can lead to data race conditions
 
 
     async def targeted_fuzzy_search(self, entity: Entity, entity_property: str, entity_property_value: str, logger: logging.Logger) -> List[Tuple[Entity, float]]:
@@ -51,7 +52,7 @@ class HeuristicsProcessor:
         :return: List of matched entities with their scores.
         """
         
-        logger.info(f"Fuzzy searching for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}")
+        logger.debug(f"Fuzzy searching for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}")
         # Check if the property we are doing a search for is part of the identity key - special handling for them later
         entity_property_id_key = None
         if entity.additional_key_properties is None:
@@ -63,35 +64,44 @@ class HeuristicsProcessor:
                     entity_property_id_key = id_key
                     break
 
-        logger.info(f"Fuzzy searching (initial) for property value: {entity_property_value}")
+        logger.debug(f"Fuzzy searching (initial) for property value: {entity_property_value}")
 
-        # Do a fuzzy search for the property value in all entity identity values
-        matches = await self.graph_db.fuzzy_search([[entity_property_value]], type_filter=[], num_record_per_type=0)
+        # Do a fuzzy search for the property value in all entity identity values
+        # matches = await self.graph_db.fuzzy_search([[entity_property_value]], type_filter=[], num_record_per_type=0)
+        matches = [] # TODO: remove this
 
         # More than one match means its not a 1-1 matching, it might be a composite key (for e.g. same resource name in different accounts)
-        if len(matches) > 1:
-            # Do a fuzzy search of all property values in the entity
-            logger.info(f"Found {len(matches)} matches for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}, doing a multi key search.")
-            type_filter = set([entity.entity_type for entity, score in matches])
+        # if len(matches) > 1:
+        # Do a fuzzy search of all property values in the entity
+        # logger.info(f"Found {len(matches)} matches for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}, doing a multi key search.")
+        #type_filter = set([entity.entity_type for entity, score in matches])
+        type_filter = set()
 
-            # Special rule for when the property is part of an identity key, i.e. the property is a foreign key to another entity
-            # We don't want to search for all properties, but only the identity key properties - this prevents false positives
-            if entity_property_id_key:
-                # Only search for the identity key properties in the matched entities
-                vals = []
-                for id_key_prop in entity_property_id_key:
-                    vals.append(entity.all_properties.get(id_key_prop, None))
-                matches = await self.graph_db.fuzzy_search([[entity_property_value],vals], type_filter=list(type_filter), num_record_per_type=1)
-            else:
-                vals = []
-                for id_key_prop, val in entity.all_properties.items():
-                    if id_key_prop[0] == "_": # skip internal properties
-                        continue
-                    vals.append(val)
 
-                # Do a fuzzy search with all property values
-                logger.debug(f"Entity property is NOT an identity key, doing a fuzzy search for all property values in entity types {type_filter}")
-                matches = await self.graph_db.fuzzy_search([[entity_property_value],vals], type_filter=list(type_filter), num_record_per_type=1)
+        # Special rule for when the property is part of an identity key, i.e. the property is a foreign key to another entity
+        # We don't want to search for all properties, but only the identity key properties - this prevents false positives
+        if entity_property_id_key:
+            # Only search for the identity key properties in the matched entities
+            vals = []
+            for id_key_prop in entity_property_id_key:
+                vals.append(entity.all_properties.get(id_key_prop, None))
+
+            vals = [(100.0, entity_property_value)] + vals # boost the property value we are searching for
+            matches = await self.graph_db.fuzzy_search([vals], type_filter=list(type_filter), num_record_per_type=1) # type: ignore
+        else:
+            vals = []
+            for id_key_prop, val in entity.all_properties.items():
+                if id_key_prop[0] == "_": # skip internal properties
+                    continue
+                vals.append(val)
+
+            vals = [(100.0, entity_property_value)] + vals # boost the property value we are searching for
+            # Do a fuzzy search with all property values
+            logger.debug(f"Entity property is NOT an identity key, doing a fuzzy search for all property values in entity types {type_filter}")
+            matches = await self.graph_db.fuzzy_search([vals], type_filter=list(type_filter), num_record_per_type=1) # type: ignore
+
+            # Filter out matches that don't have a score of 100 (boosted value)
+            matches = [(match, score) for match, score in matches if score >= 100.0]
 
         return matches
     
@@ -175,9 +185,26 @@ class HeuristicsProcessor:
 
     async def deep_property_match(self, entity: Entity, entity_property: str, entity_property_value: str, matches: List[Tuple[Entity, float]], logger: logging.Logger) -> List[DeepPropertyMatch]:
         """
-        Performs deep property matching for the given entity and its property value against a list of matched entities.
-        Checks for identity keys in the matched entities and then finds properties in the original entity that match the identity keys of the matched entities.
-        Returns a list of DeepPropertyMatch objects containing the matched entities and their properties.
+        Performs deep property matching for entity relationships.
+        
+        • Analyzes matched entities from fuzzy search to find potential foreign key relationships
+        • Extracts identity keys from matched entities and maps them to source entity properties
+        • Creates property mappings between source entity and matched entity identity keys
+        • Filters out self-references and same-type entity matches (TODO: support in the future)
+        • Filters out matches that do not have a full identity key mapping to the source entity
+        
+        Args:
+            entity (Entity): The source entity being analyzed for relationships
+            entity_property (str): The property name in the source entity
+            entity_property_value (str): The value of the property being matched
+            matches (List[Tuple[Entity, float]]): List of fuzzy-matched entities with confidence scores
+            logger (logging.Logger): Logger instance for debugging and error reporting
+            
+        Returns:
+            List[DeepPropertyMatch]: List of deep property matches containing:
+                - matched_entity: The target entity that was matched
+                - property mappings between source and target entities
+                - identity key information for relationship creation
         """
         deep_matches = []
         for matched_entity, _ in matches:
@@ -189,7 +216,7 @@ class HeuristicsProcessor:
                 continue
             
             if matched_entity.entity_type == entity.entity_type: # TODO: Support for self-references and relations to same type
-                logger.warning(f"Matched entity {matched_entity.entity_type} is the same as the search entity {entity.entity_type}, skipping deep property match for property {entity_property} with value {entity_property_value}.")
+                logger.debug(f"Matched entity {matched_entity.entity_type} is the same as the search entity {entity.entity_type}, skipping deep property match for property {entity_property} with value {entity_property_value}.")
                 continue
 
             # Fetch the identity keys of the matched entity
@@ -242,22 +269,21 @@ class HeuristicsProcessor:
                     logger.debug(f"Found deep property match: {deep_match.matched_entity.entity_type}\n matched_entity_idkey: {deep_match.matched_entity_idkey}\n matched_entity_idkey_property: {deep_match.matched_entity_idkey_property}\n matched_properties: {deep_match.matching_properties}")
 
         # Only keep the matches with lowest length of matched_properties - as we want the most specific match
-        logger.info(f"Found {len(deep_matches)} deep property matches for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}.")
+        logger.debug(f"Found {len(deep_matches)} deep property matches for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}.")
         return deep_matches
 
-    async def process(self, entity: Entity):
+    async def process(self, entity: Entity, rc_manager: RelationCandidateManager):
         """
         Processes an entity and computes heuristics.
         """
-        logger = utils.get_logger(f"heuristics[{hash(entity.generate_primary_key())}]")
-        logger.info(f"======== Processing Entity {entity.entity_type} ({entity.generate_primary_key()}) ========")
-        if not entity:
-            logger.warning(f"Entity type={entity.entity_type}, id={entity.generate_primary_key()} not found in the graph database.")
-            return
-        
-         # Skip if the entity is not a valid entity type
+        logger = utils.get_logger(f"heuristics[{entity.generate_primary_key()}]")
+
+        visited_relations = set() # Keep track of relations that have already been counted for this pair of entities, each relation only gets one count per entity and matched entity
+
+        logger.debug(f"======== Processing Entity {entity.entity_type} ({entity.generate_primary_key()}) ========")
+        # Skip if the entity is not a valid entity type
         if entity.entity_type == DEFAULT_LABEL:
-            logger.warning(f"Entity type={entity.entity_type} is the default entity type, skipping processing.")
+            logger.debug(f"Entity type={entity.entity_type} is the default entity type, skipping processing.")
             return
 
         # Iterate over all properties values and find matches
@@ -281,9 +307,14 @@ class HeuristicsProcessor:
                 if len(fuzzy_matches) == 0:
                     logger.debug(f"No fuzzy matches found for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}.")
                     continue
-                
-                logger.info(f"(Fuzzy search) Found {len(fuzzy_matches)} matches for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}")
-                logger.debug(f"Matched entity types: {[m[0].entity_type for m in fuzzy_matches]}")
+                else:
+                    # Only log the matches if the logger is set to debug
+                    if logger.getEffectiveLevel() == logging.DEBUG:
+                        log = f"Fuzzy search matches for {entity.entity_type}.{entity_property}: {entity_property_value}:\n"
+                        for match, score in fuzzy_matches:
+                            log += f"  - [Fuzzy] {match.entity_type}: {match.generate_primary_key()} (score: {score})\n"
+                        logger.debug(log)
+                        logger.debug(f"Found {len(fuzzy_matches)} FUZZY matches for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}")
 
                 # Do a deep property match for the entity and its property value against the matched entities
                 deep_matches = await self.deep_property_match(entity, entity_property, entity_property_value, fuzzy_matches, logger)
@@ -291,26 +322,45 @@ class HeuristicsProcessor:
                 if len(deep_matches) == 0:
                     logger.debug(f"No deep property matches found for property {entity_property} with value {entity_property_value} in entity {entity.entity_type}.")
                     continue
-
-                logger.info(f"Found {len(deep_matches)} deep property matches for property {entity_property} ({entity.entity_type})")
+                else:
+                    # Only log the matches if the logger is set to debug
+                    if logger.getEffectiveLevel() == logging.DEBUG:
+                        log = f"Deep property matches for {entity.entity_type}.{entity_property}: {entity_property_value}:\n"
+                        for match in deep_matches:
+                            log += f"  - [Deep] {match.matched_entity.entity_type}: {match.matched_entity.generate_primary_key()}\n"
+                        logger.debug(log)
+                        logger.debug(f"Found {len(deep_matches)} DEEP property matches for property {entity_property} ({entity.entity_type})")
 
                 # Iterate over the deep matches and create relation candidates
                 for dm in deep_matches:
                     # Create property mappings for the matched entity from the dictionaries - this can be stored with the relation candidate
-                    
-                    
                     logger.debug(f"Property mappings: {dm.matching_properties}")
                     if not dm.matching_properties:
                         logger.warning(f"No property mappings found for entity {entity.entity_type} ({entity.generate_primary_key()}) and matched entity {dm.matched_entity.entity_type} ({dm.matched_entity.generate_primary_key()}).")
-                        exit(1)
+                        continue
 
-                    # Update the heuristic for the potential relation
-                    await self.rc_manager.update_heuristic(
-                        entity=entity,
-                        entity_property_key=entity_property,
-                        matched_entity=dm.matched_entity,
-                        matched_entity_property_key=dm.matched_entity_idkey_property,
-                        count=1,
-                        property_mappings=dm.matching_properties,
-                        matching_entity_id_key=list(dm.matched_entity_idkey.keys()),
-                    )
+                    relation_id = rc_manager.generate_relation_id(entity.entity_type, dm.matched_entity.entity_type, dm.matching_properties)
+                    if relation_id in visited_relations:
+                        logger.debug(f"Relation {relation_id} already visited for entity {entity.entity_type} ({entity.generate_primary_key()}) -> {dm.matched_entity.entity_type} ({dm.matched_entity.generate_primary_key()}).")
+                        continue
+                    else:
+                        logger.debug(f"Relation {relation_id} not visited for entity {entity.entity_type} ({entity.generate_primary_key()}) -> {dm.matched_entity.entity_type} ({dm.matched_entity.generate_primary_key()}), incrementing count.")
+                        visited_relations.add(relation_id)
+
+                    # Acquire a lock for the relation_id to avoid concurrent updates to the same heuristic
+                    if relation_id not in self.heuristics_locks:
+                        logger.debug(f"Creating lock for relation_id={relation_id} as it doesn't exist.")
+                        self.heuristics_locks[relation_id] = asyncio.Lock() # create lock if it doesn't exist
+                    
+                    async with self.heuristics_locks[relation_id]:
+                        logger.debug(f"Acquired lock for relation_id={relation_id}, updating heuristic.")
+                        # Update the heuristic for the potential relation
+                        await rc_manager.update_heuristic(
+                            relation_id=relation_id,
+                            entity=entity,
+                            entity_property_key=entity_property,
+                            matched_entity=dm.matched_entity,
+                            additional_count=1,
+                            property_mappings=dm.matching_properties,
+                            matching_entity_id_key=list(dm.matched_entity_idkey.keys()),
+                        )

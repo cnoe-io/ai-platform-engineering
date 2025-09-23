@@ -1,8 +1,3 @@
-
----
-sidebar_position: 5
----
-
 # Jira Agent
 
 - 🤖 **Jira Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and Jira [MCP Server](https://modelcontextprotocol.io/introduction).
@@ -12,6 +7,8 @@ sidebar_position: 5
 - 🔌 **MCP Tools:** Uses [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) to glue the tools from Jira MCP server to LangGraph ReAct Agent Graph.
 
 ## 🏗️ Architecture
+
+**[Detailed Sequence Diagram with Agentgateway](../architecture/gateway.md)**
 
 ### System Diagram
 
@@ -80,40 +77,6 @@ sequenceDiagram
 
 ---
 
-## ⚙️ Local Development Setup
-
-Use this setup to test the agent against a local Jira instance.
-
-### ▶️ Start Jira with Docker
-
-> **Note:** Jira can be run locally using Docker for development and testing.
-
-```bash
-# Start Jira with Docker Compose
-docker-compose up -d jira
-```
-
-### 🛂 Retrieve Admin Credentials
-
-```bash
-# Get the admin password from Jira logs
-docker-compose logs jira | grep "admin password"
-```
-
-### 📦 Install CLI (Optional)
-
-```bash
-# Install Jira CLI
-npm install -g jira-cli
-```
-
-### 🚀 Create Test Project
-
-```bash
-# Create a test project using Jira CLI
-jira-cli project create --name "Test Project" --key "TEST"
-```
-
 ### 🔑 Get API Token
 
 1. Log in to your Jira instance
@@ -130,34 +93,12 @@ ATLASSIAN_API_URL=http://localhost:8080
 ATLASSIAN_VERIFY_SSL=false
 ```
 
-### Run Jira Sanity tests
+### Local Development
 
+```bash
+# Navigate to the Jira agent directory
+cd ai_platform_engineering/agents/jira
+
+# Run the MCP server in stdio mode
+make run-a2a
 ```
-make jira-sanity
-```
-
-## ✨ Features
-
-- **Issue Management**: Create, update, assign, and track issues
-- **Project Management**: Create and manage Jira projects
-- **Sprint Management**: Plan and manage sprints
-- **User Management**: Manage users, groups, and permissions
-- **Workflow Management**: Configure and manage workflows
-- **Custom Fields**: Manage custom fields and their values
-- **Dashboard Management**: Create and manage dashboards
-- **Filter Management**: Create and manage JQL filters
-- **Comment System**: Add and manage comments on issues
-- **Attachment Management**: Upload and manage attachments
-- **API Integration**: Full Jira API coverage through MCP tools
-
-## 🎯 Example Use Cases
-
-Ask the agent natural language questions like:
-
-- **Issue Operations**: "Create a new bug issue titled 'Login button not working' in the 'Frontend' project"
-- **Sprint Management**: "Create a new sprint called 'Sprint 1' starting next Monday"
-- **Project Management**: "Create a new project called 'Mobile App' with key 'MOB'"
-- **User Management**: "Add user 'john.doe' to the 'Developers' group"
-- **Filter Management**: "Create a filter to show all open bugs assigned to me"
-- **Dashboard Management**: "Create a dashboard showing sprint progress"
-- **Workflow Management**: "Configure the bug workflow to require testing before closing"

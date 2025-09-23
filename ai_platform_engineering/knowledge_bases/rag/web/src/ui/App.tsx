@@ -28,20 +28,23 @@ type IngestResponse = {
 	message: string
 }
 
-type CollectionConfig = {
-	collection_name: string
-	url?: string
+type SourceInfo = {
+	source_id: string
+	url: string
+	domain: string
 	chunk_size: number
 	chunk_overlap: number
 	created_at: string
 	last_updated: string
+	total_documents: number
+	total_chunks: number
 	metadata?: Record<string, unknown>
 }
 
 type ConfigResponse = {
 	success: boolean
 	message: string
-	config?: CollectionConfig
+	source_info?: SourceInfo
 }
 
 const apiBase = import.meta.env.VITE_API_BASE?.toString() || ''
@@ -52,7 +55,6 @@ export default function App() {
 	
 	// Ingestion state
 	const [url, setUrl] = useState('')
-	const [collectionName, setCollectionName] = useState('')
 	const [chunkSize, setChunkSize] = useState(10000)
 	const [chunkOverlap, setChunkOverlap] = useState(2000)
 	const [currentJob, setCurrentJob] = useState<IngestionJob | null>(null)
@@ -60,7 +62,7 @@ export default function App() {
 
 	// Retrieve config state
 	const [retrieveUrl, setRetrieveUrl] = useState('')
-	const [retrieveResult, setRetrieveResult] = useState<CollectionConfig | null>(null)
+	const [retrieveResult, setRetrieveResult] = useState<SourceInfo | null>(null)
 	const [retrieveMessage, setRetrieveMessage] = useState('')
 	const [retrieveLoading, setRetrieveLoading] = useState(false)
 
@@ -123,23 +125,21 @@ export default function App() {
 		try {
 			// Always save configuration for the URL
 			const configData = {
-				collection_name: collectionName || 'rag_default',
 				url: url,
 				chunk_size: chunkSize,
 				chunk_overlap: chunkOverlap
 			}
 			
 			try {
-				await api.post('/v1/config', configData)
-				console.log('Configuration saved before ingestion')
+				await api.post('/v1/source/config', configData)
+				console.log('Source configuration saved before ingestion')
 			} catch (configError) {
-				console.warn('Failed to save configuration:', configError)
+				console.warn('Failed to save source configuration:', configError)
 				// Continue with ingestion even if config save fails
 			}
 
 			const response = await api.post<IngestResponse>('/v1/datasource/ingest/url', { 
-				url,
-				collection_name: collectionName || undefined
+				url
 			})
 			const { job_id } = response.data
 			
@@ -161,13 +161,13 @@ export default function App() {
 		setRetrieveResult(null)
 		
 		try {
-			const response = await api.get<ConfigResponse>(`/v1/config/url?url=${encodeURIComponent(retrieveUrl)}`)
+			const response = await api.get<ConfigResponse>(`/v1/source/config?url=${encodeURIComponent(retrieveUrl)}`)
 
-			if (response.data.success && response.data.config) {
-				setRetrieveResult(response.data.config)
-				setRetrieveMessage(`✅ Configuration found`)
+			if (response.data.success && response.data.source_info) {
+				setRetrieveResult(response.data.source_info)
+				setRetrieveMessage(`✅ Source configuration found`)
 			} else {
-				setRetrieveMessage(`❌ No configuration found for this URL`)
+				setRetrieveMessage(`❌ No source configuration found for this URL`)
 			}
 		} catch (e: any) {
 			if (e.response?.status === 404) {
@@ -257,19 +257,7 @@ export default function App() {
 				{/* Optional Configuration */}
 				<div className="mb-4 rounded-lg bg-slate-50 p-4">
 					<h4 className="mb-3 text-sm font-semibold text-slate-700">Optional Configuration</h4>
-					<div className="grid gap-4 md:grid-cols-3">
-						<div>
-							<label className="block text-sm font-medium text-slate-600 mb-1">
-								Collection Name
-							</label>
-							<input
-								type="text"
-								placeholder="rag_default"
-								value={collectionName}
-								onChange={(e) => setCollectionName(e.target.value)}
-								className="input bg-gray-50 text-gray-600"
-							/>
-						</div>
+					<div className="grid gap-4 md:grid-cols-2">
 						<div>
 							<label className="block text-sm font-medium text-slate-600 mb-1">
 								Chunk Size
@@ -300,7 +288,7 @@ export default function App() {
 						</div>
 					</div>
 					<p className="mt-2 text-xs text-slate-500">
-						Leave empty to use defaults. Custom values will be saved for this URL.
+						Custom values will be saved for this source URL.
 					</p>
 				</div>
 
@@ -334,9 +322,9 @@ export default function App() {
 				)}
 			</section>
 
-			{/* Retrieve Configuration Section */}
+			{/* Retrieve Source Configuration Section */}
 			<section className="card mb-6 p-5">
-				<h3 className="mb-4 text-lg font-semibold text-slate-900">Retrieve Configuration</h3>
+				<h3 className="mb-4 text-lg font-semibold text-slate-900">Retrieve Source Configuration</h3>
 				
 				<div className="flex gap-2 mb-4">
 					<input
@@ -363,11 +351,15 @@ export default function App() {
 
 				{retrieveResult && (
 					<div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
-						<h5 className="font-semibold text-blue-900 mb-3">Configuration Details</h5>
+						<h5 className="font-semibold text-blue-900 mb-3">Source Configuration Details</h5>
 						<div className="grid gap-3 md:grid-cols-2 text-sm">
 							<div>
-								<span className="font-medium text-blue-800">Collection Name:</span>
-								<div className="text-blue-700">{retrieveResult.collection_name}</div>
+								<span className="font-medium text-blue-800">Source ID:</span>
+								<div className="text-blue-700 font-mono text-xs">{retrieveResult.source_id}</div>
+							</div>
+							<div>
+								<span className="font-medium text-blue-800">Domain:</span>
+								<div className="text-blue-700">{retrieveResult.domain}</div>
 							</div>
 							<div>
 								<span className="font-medium text-blue-800">Chunk Size:</span>
@@ -376,6 +368,14 @@ export default function App() {
 							<div>
 								<span className="font-medium text-blue-800">Chunk Overlap:</span>
 								<div className="text-blue-700">{retrieveResult.chunk_overlap}</div>
+							</div>
+							<div>
+								<span className="font-medium text-blue-800">Total Documents:</span>
+								<div className="text-blue-700">{retrieveResult.total_documents}</div>
+							</div>
+							<div>
+								<span className="font-medium text-blue-800">Total Chunks:</span>
+								<div className="text-blue-700">{retrieveResult.total_chunks}</div>
 							</div>
 							<div>
 								<span className="font-medium text-blue-800">Last Updated:</span>

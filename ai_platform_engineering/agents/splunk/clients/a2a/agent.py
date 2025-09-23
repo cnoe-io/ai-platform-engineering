@@ -4,8 +4,8 @@
 import os
 
 from ai_platform_engineering.agents.splunk.agent_splunk.agentcard import (
-    create_agent_card,
     agent_skill,
+    create_agent_card,
 )
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
