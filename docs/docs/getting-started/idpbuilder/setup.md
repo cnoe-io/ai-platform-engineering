@@ -272,11 +272,11 @@ Select LLM provider (1-5): 3
 [2025-09-24 05:11:27] 🔒 Note: Sensitive credentials will not be displayed on screen
 [2025-09-24 05:11:27] 🤖 Configuring LLM credentials...
 
-AWS Access Key ID: AKIAW3MD62VLH6OMOPWX
+AWS Access Key ID:
 AWS Secret Access Key:
-AWS Region: us-east-2
-AWS Bedrock Model ID: us.anthropic.claude-sonnet-4-20250514-v1:0
-AWS Bedrock Provider: amazon
+AWS Region:
+AWS Bedrock Model ID:
+AWS Bedrock Provider:
 
 [2025-09-24 05:12:04] 🐙 Configuring GitHub agent secrets...
 GitHub Personal Access Token:
@@ -355,23 +355,6 @@ Open https://cnoe.localtest.me:8443/ and login with:
 - Username: `user1`
 - Password: From the command above
 
-
-
-## Troubleshooting
-
-### Prerequisites
-- `kubectl` CLI installed and configured
-- `vault` CLI installed
-- Access to the CAIPE cluster
-
-### Common Issues
-1. **Vault connection failed**: Ensure port-forward is working and Vault is running
-2. **Permission denied**: Check that you have access to the vault namespace
-3. **Invalid provider**: Select a number from 1-5 for supported providers
-
-### Support
-For issues and questions, please refer to the [CNOE documentation](https://cnoe.io/docs/) or open an issue in the repository.
-
 ## Useful Addresses for IDPBuilder Cluster
 
 - ArgoCD: https://cnoe.localtest.me:8443/argocd/
@@ -380,38 +363,9 @@ For issues and questions, please refer to the [CNOE documentation](https://cnoe.
 - Keycloak: https://cnoe.localtest.me:8443/keycloak/admin/master/console/
 - Gitea: https://cnoe.localtest.me:8443/gitea/
 
-## Complete Setup Script
 
-For users who want everything set up automatically, use the complete setup script:
 
-```bash
-# Complete CAIPE + i3 VNC environment setup
-curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/caipe/setup-ubuntu-prerequisites.sh | bash
-```
-
-This script includes:
-- All system prerequisites installation
-- i3 desktop environment with VNC
-- IDPBuilder cluster creation with CAIPE complete-p2p profile
-- Automatic configuration of all components
-
-## Refreshing Secrets and Restarting Deployments
-
-### Automated Refresh Script
-
-To refresh all secrets and restart deployments in the ai-platform-engineering namespace, you can use the automated refresh script:
-
-```bash
-# Download and run the refresh script
-curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/caipe/scripts/refresh-secrets.sh -o /tmp/refresh-secrets.sh && chmod +x /tmp/refresh-secrets.sh && /tmp/refresh-secrets.sh
-```
-
-This script will:
-1. **Delete all secrets** in the ai-platform-engineering namespace
-2. **Restart all deployments** using `kubectl rollout restart`
-3. **Wait for deployments** to be ready (5-minute timeout)
-4. **Monitor pod status** and provide detailed troubleshooting if pods are not ready
-5. **Verify final state** of all pods and deployments
+## Troubleshooting
 
 ### Manual Refresh Commands
 
@@ -420,15 +374,24 @@ If you prefer to run the commands manually:
 ```bash
 # Delete all secrets
 kubectl delete secret --all -n ai-platform-engineering
+```
 
+```bash
 # Restart all deployments
 kubectl rollout restart deployment -n ai-platform-engineering
+```
 
+```bash
 # Wait for deployments to be ready
 kubectl rollout status deployment -n ai-platform-engineering --timeout=300s
+```
 
+```bash
 # Check final status
 kubectl get pods -n ai-platform-engineering
+```
+
+```bash
 kubectl get deployments -n ai-platform-engineering
 ```
 
@@ -446,23 +409,7 @@ Common issues and solutions:
 - **Application startup time**: Some applications need more time to initialize
 - **Dependency issues**: Verify all required services are available
 
-## VNC Management Commands
-
-```bash
-# List VNC sessions
-vncserver -list
-
-# Kill VNC session
-vncserver -kill :1
-
-# Restart VNC with new resolution
-vncserver :1 -geometry 2560x1400 -depth 24 -localhost yes
-
-# Start VNC viewer with SSH tunnel
-ssh -i ~/.ssh/private.pem -L 5903:localhost:5901 ubuntu@<YOUR UBUNTU IP> -f -N && vncviewer localhost:5903
-```
-
-## Manual Setup (Alternative)
+## Manual Setup Secrets
 
 If you prefer to configure secrets manually instead of using the automated script:
 
@@ -530,16 +477,26 @@ GCP_MODEL_NAME: <your-model-name>
 
 For each agent you plan to use, populate all required fields in their respective secrets (e.g., `github-secret`, `pagerduty-secret`, `jira-secret`). All fields are required for the agent to function properly.
 
-### Force Secret Refresh
+## VNC Management Commands
 
 ```bash
-# Refresh secrets
-kubectl delete secret --all -n ai-platform-engineering
+# List VNC sessions
+vncserver -list
 ```
 
 ```bash
-# Once new secrets are created, delete pods to pick up new secrets
-kubectl delete pod --all -n ai-platform-engineering
+# Kill VNC session
+vncserver -kill :1
+```
+
+```bash
+# Restart VNC with new resolution
+vncserver :1 -geometry 2560x1400 -depth 24 -localhost yes
+```
+
+```bash
+# Start VNC viewer with SSH tunnel
+ssh -i ~/.ssh/private.pem -L 5903:localhost:5901 ubuntu@<YOUR UBUNTU IP> -f -N && vncviewer localhost:5903
 ```
 
 ## Cleanup
@@ -547,7 +504,10 @@ kubectl delete pod --all -n ai-platform-engineering
 ```bash
 # Destroy the cluster and all resources
 kind delete cluster --name localdev
+```
 
+```bash
 # Stop VNC server (if running)
 vncserver -kill :1
 ```
+
