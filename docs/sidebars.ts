@@ -90,6 +90,10 @@ const sidebars: SidebarsConfig = {
               type: 'doc',
               id: 'getting-started/idpbuilder/setup',
             },
+            {
+              type: 'doc',
+              id: 'getting-started/idpbuilder/ubuntu-prerequisites',
+            },
           ],
         },
         {
