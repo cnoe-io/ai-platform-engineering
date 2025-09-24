@@ -9,7 +9,7 @@
 
 ## Quick Start Options
 
-## 2 Step 1: Install Pre-requisities (Recommended)
+## Step 1: Install Pre-requisities (Recommended)
 
 > **Note:** These instructions are based on a Ubuntu/Debian VM
 
@@ -150,6 +150,7 @@ IDPBuilder supports different profiles as listed above:
 # Create cluster with CAIPE basic-p2p profile
 idpbuilder create \
   --use-path-routing \
+  --package https://github.com/cnoe-io/stacks//ref-implementation \
   --package https://github.com/sriaradhyula/stacks//caipe/caipe-basic-p2p
 ```
 
@@ -158,6 +159,7 @@ idpbuilder create \
 # Create cluster with CAIPE complete-p2p profile
 idpbuilder create \
   --use-path-routing \
+  --package https://github.com/cnoe-io/stacks//ref-implementation \
   --package https://github.com/sriaradhyula/stacks//caipe/caipe-complete-p2p
 ```
 
@@ -166,6 +168,7 @@ idpbuilder create \
 # Create cluster with CAIPE complete-slim profile
 idpbuilder create \
   --use-path-routing \
+  --package https://github.com/cnoe-io/stacks//ref-implementation \
   --package https://github.com/sriaradhyula/stacks//caipe/caipe-complete-slim
 ```
 Run your preferred runtime option. This process will:
