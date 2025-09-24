@@ -1,0 +1,137 @@
+name: single_agent_tests
+description: Single agent evaluation tests covering individual agent capabilities
+prompts:
+  # GitHub Agent Tests
+  - id: "github_repo_description"
+    messages:
+      - role: "user"
+        content: "show all repo description for ai-platform-engineering in cnoe-io org"
+    expected_output: "The ai-platform-engineering repository is a platform engineering toolkit that provides infrastructure automation and GitOps workflows."
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to fetch repository description for ai-platform-engineering in cnoe-io organization"
+
+  - id: "github_list_repositories"
+    messages:
+      - role: "user"
+        content: "list all repositories in cnoe-io organization"
+    expected_output: "Found 15 repositories in cnoe-io organization: ai-platform-engineering, backstage-plugins, argocd-extensions, platform-templates..."
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to list all repositories in the cnoe-io organization"
+
+  - id: "github_get_commit_history"
+    messages:
+      - role: "user"
+        content: "show the last 10 commits in the main branch"
+    expected_output: "Latest 10 commits on main branch:\n1. abc123 - feat: add new evaluation system\n2. def456 - fix: resolve Docker issues..."
+    expected_agents: ["github_tools_agent"]
+    expected_behavior: "Should use GitHub agent to retrieve and display the last 10 commits from the main branch"
+
+  # ArgoCD Agent Tests
+  - id: "argocd_version"
+    messages:
+      - role: "user"
+        content: "show argocd version"
+    expected_output: "ArgoCD server version: v2.8.4+abc1234"
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to retrieve and display the current ArgoCD version"
+
+  - id: "argocd_list_applications"
+    messages:
+      - role: "user"
+        content: "list all ArgoCD applications"
+    expected_output: "Found 12 applications: platform-api (Synced), user-service (OutOfSync), payment-gateway (Healthy)..."
+    expected_agents: ["argocd_tools_agent"]
+    expected_behavior: "Should use ArgoCD agent to list all applications managed by ArgoCD"
+
+  # Backstage Agent Tests
+  - id: "backstage_list_entities"
+    messages:
+      - role: "user"
+        content: "list all entities in the Backstage catalog"
+    expected_output: "Service catalog contains 45 entities: 23 services, 12 APIs, 10 components including user-api, payment-service..."
+    expected_agents: ["backstage_tools_agent"]
+    expected_behavior: "Should use Backstage agent to retrieve and list all entities in the service catalog"
+
+  - id: "backstage_get_entity_details"
+    messages:
+      - role: "user"
+        content: "get details about a specific service in Backstage"
+    expected_output: "Service: user-api\nOwner: platform-team\nLanguage: Node.js\nStatus: Active\nDependencies: auth-service, database..."
+    expected_agents: ["backstage_tools_agent"]
+    expected_behavior: "Should use Backstage agent to retrieve detailed information about a specific service entity"
+
+  # Confluence Agent Tests
+  - id: "confluence_list_spaces"
+    messages:
+      - role: "user"
+        content: "list all Confluence spaces I have access to"
+    expected_output: "Found 8 Confluence spaces: Engineering Docs, Platform Guides, Team Handbook, Architecture..."
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should use Confluence agent to list all spaces the user has access to"
+
+  - id: "confluence_search_content"
+    messages:
+      - role: "user"
+        content: "search for 'deployment' in Confluence"
+    expected_output: "Found 15 pages matching 'deployment': CI/CD Pipeline Guide, Production Deployment Process, Rollback Procedures..."
+    expected_agents: ["confluence_tools_agent"]
+    expected_behavior: "Should use Confluence agent to search for pages and content containing 'deployment'"
+
+  # Jira Agent Tests
+  - id: "jira_list_projects"
+    messages:
+      - role: "user"
+        content: "list all Jira projects I have access to"
+    expected_output: "Found 6 Jira projects: PLAT (Platform Engineering), DEV (Development), OPS (Operations)..."
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent to list all projects the user has access to"
+
+  - id: "jira_search_issues"
+    messages:
+      - role: "user"
+        content: "find all open bugs in Jira"
+    expected_output: "Found 12 open bugs: PLAT-123 (API timeout), DEV-456 (Login issue), OPS-789 (Memory leak)..."
+    expected_agents: ["jira_tools_agent"]
+    expected_behavior: "Should use Jira agent to search for and list all issues with type 'Bug' and status 'Open'"
+
+  # PagerDuty Agent Tests
+  - id: "pagerduty_list_services"
+    messages:
+      - role: "user"
+        content: "list all PagerDuty services"
+    expected_output: "Found 8 PagerDuty services: API Gateway (Active), Database (Active), Frontend (Warning)..."
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should use PagerDuty agent to retrieve and list all services configured in PagerDuty"
+
+  - id: "pagerduty_get_incidents"
+    messages:
+      - role: "user"
+        content: "show current open incidents"
+    expected_output: "3 open incidents: INC-001 (High: API down), INC-002 (Medium: Slow response), INC-003 (Low: Log errors)..."
+    expected_agents: ["pagerduty_tools_agent"]
+    expected_behavior: "Should use PagerDuty agent to retrieve and display all currently open incidents"
+
+  # Slack Agent Tests
+  - id: "slack_list_channels"
+    messages:
+      - role: "user"
+        content: "list all Slack channels I have access to"
+    expected_output: "Found 15 channels: #general, #platform-team, #engineering, #alerts, #random..."
+    expected_agents: ["slack_tools_agent"]
+    expected_behavior: "Should use Slack agent to list all channels the user has access to"
+
+  - id: "slack_channel_info"
+    messages:
+      - role: "user"
+        content: "get information about the #general channel"
+    expected_output: "Channel: #general\nMembers: 245\nTopic: General company discussions\nCreated: 2023-01-15"
+    expected_agents: ["slack_tools_agent"]
+    expected_behavior: "Should use Slack agent to retrieve information about the #general channel"
+
+  # Komodor Agent Tests
+  - id: "komodor_get_clusters"
+    messages:
+      - role: "user"
+        content: "list all Kubernetes clusters in Komodor"
+    expected_agents: ["komodor_tools_agent"]
+    expected_behavior: "Should use Komodor agent to list all Kubernetes clusters being monitored"

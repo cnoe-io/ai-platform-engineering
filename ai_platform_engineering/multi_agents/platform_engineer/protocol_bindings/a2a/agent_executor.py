@@ -1,7 +1,10 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
+import uuid
 from typing_extensions import override
+
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
@@ -10,17 +13,14 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
-import uuid
-
-import logging
-logger = logging.getLogger(__name__)
 
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
   AIPlatformEngineerA2ABinding
 )
+
+logger = logging.getLogger(__name__)
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor."""
@@ -62,6 +62,27 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         # Extract trace_id from A2A context (or generate if root)
         trace_id = extract_trace_id_from_context(context)
+        
+        # Enhanced trace_id extraction - check multiple locations
+        if not trace_id and context and context.message:
+            # Try additional extraction methods for evaluation requests
+            logger.info("🔍 Platform Engineer Executor: No trace_id from extract_trace_id_from_context, checking alternatives")
+            
+            # Check if there's metadata in the message
+            if hasattr(context.message, 'metadata') and context.message.metadata:
+                if isinstance(context.message.metadata, dict):
+                    trace_id = context.message.metadata.get('trace_id')
+                    if trace_id:
+                        logger.info(f"🔍 Platform Engineer Executor: Found trace_id in message.metadata: {trace_id}")
+            
+            # Check if there's a params object with metadata
+            if not trace_id and hasattr(context, 'params') and context.params:
+                if hasattr(context.params, 'metadata') and context.params.metadata:
+                    if isinstance(context.params.metadata, dict):
+                        trace_id = context.params.metadata.get('trace_id')
+                        if trace_id:
+                            logger.info(f"🔍 Platform Engineer Executor: Found trace_id in params.metadata: {trace_id}")
+        
         if not trace_id:
             # Platform engineer is the ROOT supervisor - generate trace_id
             # Langfuse requires 32 lowercase hex chars (no dashes)
