@@ -20,7 +20,7 @@ Usage:
     dataset = await load_dataset_from_yaml('evals/datasets/multi_agent.yaml')
 """
 
-from .models import Dataset, DatasetItem, Message, ToolCall, Trajectory, EvaluationResult
+from .models import Dataset, DatasetItem, Message, EvaluationResult
 from .evaluators import RoutingEvaluator
 from .trace_analysis import TraceExtractor
 from .runner import EvaluationRunner, load_dataset_from_yaml
@@ -31,8 +31,6 @@ __all__ = [
     'Dataset',
     'DatasetItem',
     'Message',
-    'ToolCall',
-    'Trajectory',
     'EvaluationResult',
     'RoutingEvaluator',
     'TraceExtractor',
