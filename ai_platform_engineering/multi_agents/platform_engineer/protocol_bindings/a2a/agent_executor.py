@@ -53,7 +53,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     ) -> None:
         query = context.get_user_input()
         task = context.current_task
-        context_id = context.message.contextId if context.message else None
+        context_id = context.message.context_id if context.message else None
 
         if not context.message:
           raise Exception('No message provided')
@@ -101,13 +101,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                 state=TaskState.working,
                                 message=new_agent_text_message(
                                     text_content or "(streamed message)",
-                                    task.contextId,
+                                    task.context_id,
                                     task.id,
                                 ),
                             ),
                             final=False,
-                            contextId=task.contextId,
-                            taskId=task.id,
+                            context_id=task.context_id,
+                            task_id=task.id,
                         )
                     )
                     continue
@@ -121,8 +121,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     event_queue,
                     TaskArtifactUpdateEvent(
                       append=False,
-                      contextId=task.contextId,
-                      taskId=task.id,
+                      context_id=task.context_id,
+                      task_id=task.id,
                       lastChunk=True,
                       artifact=new_text_artifact(
                         name='current_result',
@@ -136,8 +136,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                       status=TaskStatus(state=TaskState.completed),
                       final=True,
-                      contextId=task.contextId,
-                      taskId=task.id,
+                      context_id=task.context_id,
+                      task_id=task.id,
                     )
                   )
                   logger.info(f"Task {task.id} marked as completed.")
@@ -150,13 +150,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         state=TaskState.input_required,
                         message=new_agent_text_message(
                           event['content'],
-                          task.contextId,
+                          task.context_id,
                           task.id,
                         ),
                       ),
                       final=True,
-                      contextId=task.contextId,
-                      taskId=task.id,
+                      context_id=task.context_id,
+                      task_id=task.id,
                     )
                   )
                   logger.info(f"Task {task.id} requires user input.")
@@ -169,13 +169,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         state=TaskState.working,
                         message=new_agent_text_message(
                           event['content'],
-                          task.contextId,
+                          task.context_id,
                           task.id,
                         ),
                       ),
                       final=False,
-                      contextId=task.contextId,
-                      taskId=task.id,
+                      context_id=task.context_id,
+                      task_id=task.id,
                     )
                   )
                   logger.info(f"Task {task.id} is in progress.")
@@ -190,13 +190,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             state=TaskState.failed,
                             message=new_agent_text_message(
                                 f"Agent execution failed: {str(e)}",
-                                task.contextId,
+                                task.context_id,
                                 task.id,
                             ),
                         ),
                         final=True,
-                        contextId=task.contextId,
-                        taskId=task.id,
+                        context_id=task.context_id,
+                        task_id=task.id,
                     )
                 )
             except Exception as enqueue_error:

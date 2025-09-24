@@ -108,8 +108,8 @@ class AIPlatformEngineerMAS:
       tools=all_agents,
       instructions=system_prompt,
       subagents=subagents,
-      model=base_model
-      # response_format=PlatformEngineerResponse
+      model=base_model,
+      response_format=PlatformEngineerResponse
     )
 
     # Check if LANGGRAPH_DEV is defined in the environment

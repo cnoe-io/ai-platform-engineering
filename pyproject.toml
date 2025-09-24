@@ -9,20 +9,21 @@ license = {text = "Apache-2.0"}
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "click (>=8.2.1,<9.0.0)",
-    "fastapi (>=0.115.12,<0.116.0)",
-    "uvicorn (>=0.34.3,<0.35.0)",
-    "config (>=0.5.1,<0.6.0)",
-    "langchain-core (>=0.3.65,<0.4.0)",
-    "langgraph (==0.5.3)",
+    "click (>=8.2)",
+    "fastapi (>=0.115)",
+    "uvicorn (>=0.34.3)",
+    "config (>=0.5.1)",
+    "langchain-core (>=0.3)",
+    "langgraph (>=0.5)",
     "langgraph-supervisor (==0.0.28)",
-    "a2a-sdk==0.2.16",
-    "cnoe-agent-utils==0.3.0",
-    "langchain (>=0.3.25)",
-    "langfuse (>=3.0.8,<4.0.0)",
-    "agntcy-app-sdk==0.1.4",
+    "a2a-sdk>=0.2",
+    "cnoe-agent-utils>=0.3.0",
+    "langchain (>=0.3)",
+    "langfuse (>=3.0)",
+    "agntcy-app-sdk>=0.1.4",
     "identity-service-sdk>=0.0.1",
-    "deepagents>=0.0.5"
+    "langgraph-api",
+    # "deepagents>=0.0.5"
 ]
 
 [tool.pytest.ini_options]
@@ -30,7 +31,6 @@ norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/* a
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
-langgraph-cli = "^0.3.3"
 
 
 [tool.poetry.group.unittest.dependencies]
@@ -57,21 +57,20 @@ version_provider = "uv"
 update_changelog_on_bump = true
 major_version_zero = true
 
-[tool.uv.sources]
-agent-argocd = { workspace = true }
-agent-komodor = { workspace = true }
+# [tool.uv.sources]
+# agent-argocd = { workspace = true }
+# agent-komodor = { workspace = true }
 
-[tool.uv.workspace]
-members = [
-    "ai_platform_engineering/agents/argocd",
-    "ai_platform_engineering/agents/komodor",
-]
+# [tool.uv.workspace]
+# members = [
+#     "ai_platform_engineering/agents/argocd",
+#     "ai_platform_engineering/agents/komodor",
+# ]
 
 [dependency-groups]
 dev = [
-    "agent-argocd",
-    "agent-komodor",
     "httpx>=0.28.1",
+    "langgraph-cli[inmem]>=0.3",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
     "pyyaml>=6.0.2",

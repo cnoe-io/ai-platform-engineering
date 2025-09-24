@@ -68,7 +68,7 @@ run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Ag
 
 langgraph-dev: setup-venv ## Run langgraph in development mode
 	@echo "Running langgraph dev..."
-	@. .venv/bin/activate && uv add langgraph-cli[inmem] --dev && uv sync --dev && cd ai_platform_engineering/multi_agents/platform_engineer && LANGGRAPH_DEV=true langgraph dev
+	@. .venv/bin/activate && uv add langgraph-cli[inmem] --dev && uv sync --dev && LANGGRAPH_DEV=true langgraph dev --config ai_platform_engineering/multi_agents/platform_engineer/langgraph.json
 
 ## ========== Lint ==========
 
@@ -93,7 +93,7 @@ test: setup-venv ## Install dependencies and run tests using pytest
 
 	@echo "Running general project tests..."
 	@. .venv/bin/activate && uv run pytest --ignore=integration --ignore=ai_platform_engineering/knowledge_bases/rag/tests
-	
+
 	@echo ""
 	@echo "Running RAG module tests..."
 	@$(MAKE) test-rag-all
