@@ -6,6 +6,7 @@ Interactive test script for testing tool call extraction with different trace ID
 import os
 import sys
 from pathlib import Path
+import pytest
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,7 +16,8 @@ from langfuse import Langfuse
 from trace_analysis.extractor import TraceExtractor
 
 
-def test_trace_tool_calls(trace_id: str):
+@pytest.mark.skip(reason="Cannot run remotely - needs Langfuse dependency configuration")
+def test_trace_tool_calls(trace_id: str = 'a611481ab405d927a23626f3ffbd2bbc'):
     """Test tool call extraction for a specific trace ID."""
 
     # Load configuration from project root .env file
