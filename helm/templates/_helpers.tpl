@@ -97,4 +97,3 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
         {{- "llm-secret" }}
     {{- end }}
 {{- end }}
-
