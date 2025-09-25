@@ -71,14 +71,14 @@ class AIPlatformEngineerA2ABinding:
               ):
                   logging.info("Detected AIMessage with tool calls, yielding 'Looking up...' response")
                   yield {
-                      'is_task_complete': False,
+                      'is_task_complete': True,  # Always True for now
                       'require_user_input': False,
                       'content': 'Looking up...',
                   }
               elif isinstance(message, ToolMessage):
                   logging.info("Detected ToolMessage, yielding 'Processing..' response")
                   yield {
-                      'is_task_complete': False,
+                      'is_task_complete': True,  # Always True for now
                       'require_user_input': False,
                       'content': 'Processing..',
                   }
@@ -116,6 +116,9 @@ class AIPlatformEngineerA2ABinding:
         if isinstance(ai_message.content, PlatformEngineerResponse):
           logging.info("Found structured PlatformEngineerResponse object")
           response = ai_message.content
+          if not response.is_task_complete:
+            logging.info("PlatformEngineerResponse is not complete, but for now we will return it as complete")
+            response.is_task_complete = True
           result = {
             'is_task_complete': response.is_task_complete,
             'require_user_input': response.require_user_input,
@@ -176,7 +179,7 @@ class AIPlatformEngineerA2ABinding:
   def _get_default_error_response(self, error_message: str) -> dict:
     """Return a default error response in the expected format"""
     return {
-      'is_task_complete': False,
+      'is_task_complete': True,  # Always True for now
       'require_user_input': True,
       'content': f"{error_message}. Please try again.",
     }
