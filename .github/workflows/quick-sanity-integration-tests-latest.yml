@@ -205,7 +205,7 @@ jobs:
           echo "Stable tag created/updated to point to commit: $(git rev-parse HEAD)"
 
       - name: Trigger stable integration tests
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { data: workflowRuns } = await github.rest.actions.listWorkflowRuns({
