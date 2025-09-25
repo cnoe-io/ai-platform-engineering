@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import uuid
+
 from collections.abc import AsyncIterable
 from typing import Any, Literal, Dict, List, Optional
 
@@ -15,9 +15,8 @@ from langchain_core.runnables.config import (
 from pydantic import BaseModel
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import create_react_agent, InjectedStore  # type: ignore
+from langgraph.prebuilt import create_react_agent  # type: ignore
 from langgraph.store.memory import InMemoryStore
-from typing_extensions import Annotated
 
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
