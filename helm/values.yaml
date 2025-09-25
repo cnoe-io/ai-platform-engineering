@@ -1,17 +1,18 @@
 # Global configuration shared across all subcharts
 global:
-  enabledSubAgents:
-    argocd: true
-    aws: true
-    backstage: true
-    confluence: true
-    github: true
-    jira: true
-    komodor: true
-    pagerduty: true
-    slack: true
-    splunk: true
-    webex: true
+  # Use below condition values only if you want to override the tags
+  # enabledSubAgents:
+  #   argocd: true
+  #   aws: true
+  #   backstage: true
+  #   confluence: true
+  #   github: true
+  #   jira: true
+  #   komodor: true
+  #   pagerduty: true
+  #   slack: true
+  #   splunk: true
+  #   webex: true
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
@@ -181,7 +182,7 @@ agent-komodor:
 
 # Backstage plugin agent forge
 backstage-plugin-agent-forge:
-  enabled: true
+  # enabled: true # only uncomment this if you want to override the tag and use condition instead
   nameOverride: "backstage-plugin-agent-forge"
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
@@ -230,7 +231,7 @@ neo4j:
 
 # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
 kb-rag-stack:
-  enabled: true
+  # enabled: true # only uncomment this if you want to override the tag and use condition instead
 
   # KB-RAG Web configuration
   kb-rag-web:
