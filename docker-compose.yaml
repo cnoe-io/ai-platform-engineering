@@ -190,6 +190,9 @@ services:
   ####################################################################################################
   agent-argocd-p2p:
     image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
+    # build:
+    #   context: ai_platform_engineering/agents/argocd
+    #   dockerfile: build/Dockerfile.a2a
     container_name: agent-argocd-p2p
     profiles:
       - p2p
