@@ -1,3 +1,22 @@
+tags:
+  basic: false
+  complete: false
+  backstage-agent-forge: false
+  agent-argocd: false
+  agent-aws: false
+  agent-backstage: false
+  agent-confluence: false
+  agent-github: false
+  agent-jira: false
+  agent-komodor: false
+  agent-pagerduty: false
+  agent-slack: false
+  agent-splunk: false
+  agent-webex: false
+  slim: false
+  graphrag: false
+  kb-rag-stack: false
+
 # Global configuration shared across all subcharts
 global:
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
