@@ -12,11 +12,13 @@ dependencies:
   - name: supervisor-agent
     # Chart version for agent subchart
     version: 0.1.0
-    condition: supervisor-agent.enabled
   # Backstage plugin agent forge
   - name: backstage-plugin-agent-forge
     version: 0.1.0
     condition: backstage-plugin-agent-forge.enabled
+    tags:
+      - basic
+      - complete
   # Single agent chart used multiple times with different aliases
   - name: agent
     version: 0.2.0
