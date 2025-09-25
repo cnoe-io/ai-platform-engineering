@@ -44,6 +44,7 @@ dependencies = [
     { name = "agntcy-acp" },
     { name = "awslabs-cost-explorer-mcp-server" },
     { name = "awslabs-eks-mcp-server" },
+    { name = "awslabs-iam-mcp-server" },
     { name = "boto3" },
     { name = "click" },
     { name = "httpx" },
@@ -68,6 +69,7 @@ requires-dist = [
     { name = "agntcy-acp", specifier = ">=1.3.2" },
     { name = "awslabs-cost-explorer-mcp-server", specifier = ">=0.0.11" },
     { name = "awslabs-eks-mcp-server", specifier = ">=0.1.0" },
+    { name = "awslabs-iam-mcp-server", specifier = ">=0.1.0" },
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -292,6 +294,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/0e/65/6bc9f422457ff1172940cbf6fe6ff569a5050d69a4db1d3bfdc7d28e8278/awslabs_eks_mcp_server-0.1.7.tar.gz", hash = "sha256:9488ca905996a3d8a94403390bb4fb1eec9bd5600519b17e58c92e28ecd99ea3", size = 164321, upload-time = "2025-07-18T00:30:44.881Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8c/33/832c607642ac81b1b3f7322dc027d4e45b26cd054f8c368b175dd857e67a/awslabs_eks_mcp_server-0.1.7-py3-none-any.whl", hash = "sha256:231b9244e44d294b300d5dab30563305f819c2ef72a732c33f3f4145e34e8971", size = 71292, upload-time = "2025-07-18T00:30:42.522Z" },
+]
+
+[[package]]
+name = "awslabs-iam-mcp-server"
+version = "1.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "boto3" },
+    { name = "botocore" },
+    { name = "loguru" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/2a/8b7c3677bb721abd97a13ecc915b7eca3075c6deb6d392e60d360b6def7c/awslabs_iam_mcp_server-1.0.6.tar.gz", hash = "sha256:eedaadffb8a92ab43ab31ffdfdd0544c11eb3c32460ff3783e0721c0fc28905e", size = 100530, upload-time = "2025-08-21T18:29:25.604Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/d2/af3880dc0126b6ef07cc4e07849157190aaa79a0ece1bd1a9491192b3a70/awslabs_iam_mcp_server-1.0.6-py3-none-any.whl", hash = "sha256:052cdd1f6158b3be8cc3ed191ff80ce1ce5300f70ca39bc55a3caf619166b6c6", size = 26903, upload-time = "2025-08-21T18:29:24.288Z" },
 ]
 
 [[package]]
