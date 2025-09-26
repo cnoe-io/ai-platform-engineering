@@ -1,6 +1,9 @@
 # Default values for agent.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
+agentExports:
+  data:
+    enabled: true
 
 # This is to override the chart name.
 nameOverride: ""

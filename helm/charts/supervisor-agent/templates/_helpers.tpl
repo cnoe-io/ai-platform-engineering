@@ -171,42 +171,6 @@ Get llmSecrets.secretName with global fallback
 {{- end -}}
 
 {{/*
-Resolve multiAgentConfig.agents with priority:
-1. Use global.enabledSubAgents where value == true (by key name)
-2. Otherwise fallback to .Values.multiAgentConfig.agents
-Returns JSON array of agent names
-*/}}
-{{- define "supervisorAgent.multiAgentConfig.agents" -}}
-    {{- $agents := list -}}
-    {{- with .Values.global -}}
-        {{- with .enabledSubAgents -}}
-            {{- range $name, $enabled := . -}}
-                {{- if $enabled -}}
-                    {{- $agents = append $agents $name -}}
-                {{- end -}}
-            {{- end -}}
-        {{- else -}}
-            {{- with $.Values.multiAgentConfig -}}
-                {{- with .agents -}}
-                    {{- range . -}}
-                        {{- $agents = append $agents . -}}
-                    {{- end -}}
-                {{- end -}}
-            {{- end -}}
-        {{- end -}}
-    {{- else -}}
-        {{- with .Values.multiAgentConfig -}}
-            {{- with .agents -}}
-                {{- range . -}}
-                    {{- $agents = append $agents . -}}
-                {{- end -}}
-            {{- end -}}
-        {{- end -}}
-    {{- end -}}
-    {{- $_ := set . "agents" $agents -}}
-{{- end -}}
-
-{{/*
 Get llmSecrets.create with global fallback
 */}}
 {{- define "supervisorAgent.llmSecrets.create" -}}

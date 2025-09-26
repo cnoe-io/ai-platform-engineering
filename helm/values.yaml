@@ -29,7 +29,7 @@ global:
     endpoint: "http://ai-platform-engineering-slim:46357"
     transport: "slim"
 
-# AI Platform Engineer Multi-Agent
+######### Supervisor agent configuration #########
 supervisor-agent:
   nameOverride: "supervisor-agent"
   image:
@@ -45,6 +45,7 @@ supervisor-agent:
     protocol: "a2a"
     port: "8000"
 
+######### Sub-agent configurations #########
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
   nameOverride: "agent-argocd"
@@ -185,7 +186,7 @@ agent-komodor:
     mode: "http" # Options: stdio, http
     port: 8000
 
-# Backstage plugin agent forge
+######### Backstage plugin agent forge configuration #########
 backstage-plugin-agent-forge:
   nameOverride: "backstage-plugin-agent-forge"
   image:
@@ -201,6 +202,7 @@ backstage-plugin-agent-forge:
         port: 7007
         protocol: TCP
 
+######### GraphRAG configuration #########
 graphrag:
   neo4jNameOverride: "graphrag-neo4j" # This needs to match the value in neo4j.fullnameOverride
 
@@ -232,6 +234,7 @@ neo4j:
       dynamic:
         storageClassName: gp2
 
+######### KB-RAG Stack configuration #########
 # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
 kb-rag-stack:
   # KB-RAG Web configuration
