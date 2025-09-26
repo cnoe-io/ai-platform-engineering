@@ -11,82 +11,110 @@ dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
     # Chart version for agent subchart
-    version: 0.1.0
-  # Backstage plugin agent forge
-  - name: backstage-plugin-agent-forge
-    version: 0.1.0
-    tags:
-      - backstage-agent-forge
+    version: 0.1.1
   # Single agent chart used multiple times with different aliases
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-argocd
     tags:
       - agent-argocd
       - basic
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.argocd
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-aws
     tags:
       - agent-aws
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.aws
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-backstage
     tags:
       - agent-backstage
       - basic
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.backstage
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-confluence
     tags:
       - agent-confluence
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.confluence
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-github
     tags:
       - agent-github
       - basic
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.github
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-jira
     tags:
       - agent-jira
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.jira
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-komodor
     tags:
       - agent-komodor
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.komodor
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-pagerduty
     tags:
       - agent-pagerduty
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.pagerduty
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-slack
     tags:
       - agent-slack
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.slack
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-splunk
     tags:
       - agent-splunk
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.splunk
   - name: agent
-    version: 0.2.0
+    version: 0.2.1
     alias: agent-webex
     tags:
       - agent-webex
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.webex
     # AGNTCY Slim dataplane service
   - name: slim
     version: v0.1.8
@@ -120,3 +148,8 @@ dependencies:
     tags:
       - kb-rag-stack
       - complete
+  # Backstage plugin agent forge
+  - name: backstage-plugin-agent-forge
+    version: 0.1.0
+    tags:
+      - backstage-agent-forge
