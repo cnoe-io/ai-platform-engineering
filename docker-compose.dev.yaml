@@ -83,6 +83,7 @@ services:
         - agent-pagerduty-p2p
         - agent-slack-p2p
         - agent_graph_qa
+        - agent-litellm-p2p
     env_file:
       - .env
     ports:
@@ -99,6 +100,8 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - SLACK_AGENT_HOST=agent-slack-p2p
       - WEBEX_AGENT_HOST=agent-webex-p2p
+      - LITELLM_AGENT_HOST=agent-litellm-p2p
+      - LITELLM_AGENT_URL=http://agent-litellm-p2p:8000
       - ENABLE_GRAPH_RAG=true
       - GRAPH_RAG_AGENT_URL=http://agent_graph_qa:8096
       - ENABLE_KOMODOR=true
@@ -142,6 +145,61 @@ services:
     volumes:
       - ./slim-config.yaml:/config.yaml
     command: ["/slim", "--config", "/config.yaml"]
+
+  ####################################################################################################
+  #                                      AGENT LITELLM A2A P2P                                       #
+  ####################################################################################################
+  agent-litellm-p2p:
+    build:
+      context: ai_platform_engineering/agents/litellm
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-litellm-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/litellm/agent_litellm:/app/agent_litellm
+      - ./ai_platform_engineering/agents/litellm/clients:/app/clients
+    ports:
+      - "8011:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=http
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-litellm
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      MCP LITELLM                                                 #
+  ####################################################################################################
+  mcp-litellm:
+    build:
+      context: ai_platform_engineering/agents/litellm
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-litellm
+    profiles:
+      - slim
+      - p2p
+      - slim-tracing
+      - p2p-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/litellm/mcp/mcp_litellm:/app/mcp_litellm
+    ports:
+      - "18011:8000"
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT PAGERDUTY A2A over SLIM                               #
+  ####################################################################################################
 
   ####################################################################################################
   #                                           MCP ARGOCD                                            #

@@ -1,0 +1,14 @@
+[project]
+name = "litellm-agent"
+version = "0.1.0"
+description = "LiteLLM MCP Server"
+requires-python = ">=3.10"
+license = {}
+authors = []
+keywords = []
+classifiers = []
+
+dependencies = [
+    "fastmcp>=2.12.0",
+    "httpx>=0.25.0",
+]

@@ -1,0 +1,23 @@
+[project]
+name = "mcp-litellm"
+version = "0.1.0"
+description = "Litellm MCP server"
+authors = [
+  { name = "john doe", email = "johdoe@cisco.com" }
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "httpx>=0.24.0",
+  "python-dotenv>=1.0.0",
+  "pydantic>=2.0.0",
+  "mcp>=1.12.3",
+  "fastmcp>=2.11.1",
+]
+
+[tool.poetry.scripts]
+mcp_litellm = "mcp_litellm.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
