@@ -13,7 +13,6 @@ tags:
   agent-slack: false
   agent-splunk: false
   agent-webex: false
-  slim: false
   graphrag: false
   kb-rag-stack: false
 
@@ -26,7 +25,7 @@ global:
   externalSecrets:
     enabled: false
   slim:
-    enabled: true
+    enabled: false
     endpoint: "http://ai-platform-engineering-slim:46357"
     transport: "slim"
 
