@@ -6,7 +6,7 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.2.4
+version: 0.2.5
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
@@ -129,13 +129,13 @@ dependencies:
     version: 0.1.1
     tags:
       - graphrag
-      - complete
+      # - complete
   - name: neo4j
     version: "2025.07.1"
     repository: "https://helm.neo4j.com/neo4j"
     tags:
       - graphrag
-      - complete
+      # - complete
   # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
   - name: kb-rag-stack
     version: 0.1.4
