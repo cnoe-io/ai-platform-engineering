@@ -1,17 +1,23 @@
+tags:
+  basic: false
+  complete: false
+  backstage-agent-forge: false
+  agent-argocd: false
+  agent-aws: false
+  agent-backstage: false
+  agent-confluence: false
+  agent-github: false
+  agent-jira: false
+  agent-komodor: false
+  agent-pagerduty: false
+  agent-slack: false
+  agent-splunk: false
+  agent-webex: false
+  graphrag: false
+  kb-rag-stack: false
+
 # Global configuration shared across all subcharts
 global:
-  enabledSubAgents:
-    argocd: false
-    aws: false
-    backstage: false
-    confluence: false
-    github: false
-    jira: false
-    komodor: false
-    pagerduty: false
-    slack: false
-    splunk: false
-    webex: false
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
@@ -19,11 +25,11 @@ global:
   externalSecrets:
     enabled: false
   slim:
-    enabled: true
+    enabled: false
     endpoint: "http://ai-platform-engineering-slim:46357"
     transport: "slim"
 
-# AI Platform Engineer Multi-Agent
+######### Supervisor agent configuration #########
 supervisor-agent:
   nameOverride: "supervisor-agent"
   image:
@@ -32,11 +38,14 @@ supervisor-agent:
     pullPolicy: "Always"
     args: ["platform-engineer"]
   env:
-    EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client
+    EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client. NOTE: this will be user applicaiton specific
+    SKIP_AGENT_CONNECTIVITY_CHECK: "false"
+    AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
   multiAgentConfig:
     protocol: "a2a"
     port: "8000"
 
+######### Sub-agent configurations #########
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
   nameOverride: "agent-argocd"
@@ -177,9 +186,8 @@ agent-komodor:
     mode: "http" # Options: stdio, http
     port: 8000
 
-# Backstage plugin agent forge
+######### Backstage plugin agent forge configuration #########
 backstage-plugin-agent-forge:
-  enabled: true
   nameOverride: "backstage-plugin-agent-forge"
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
@@ -194,8 +202,8 @@ backstage-plugin-agent-forge:
         port: 7007
         protocol: TCP
 
+######### GraphRAG configuration #########
 graphrag:
-  enabled: true
   neo4jNameOverride: "graphrag-neo4j" # This needs to match the value in neo4j.fullnameOverride
 
 # neo4j is used by graphrag to store the graph data. If graphrag.enabled is false, neo4j is not deployed.
@@ -226,10 +234,9 @@ neo4j:
       dynamic:
         storageClassName: gp2
 
+######### KB-RAG Stack configuration #########
 # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
 kb-rag-stack:
-  enabled: false
-
   # KB-RAG Web configuration
   kb-rag-web:
     enabled: true
