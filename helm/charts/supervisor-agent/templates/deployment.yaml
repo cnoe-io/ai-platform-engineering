@@ -70,17 +70,11 @@ spec:
             - secretRef:
                 name: {{ $llmSecretName }}
             {{- end }}
+            - configMapRef:
+                name: {{ printf "%s-supervisor-agent-env" .Release.Name }}
           env:
             - name: AGENT_PROTOCOL
               value: {{ .Values.multiAgentConfig.protocol | quote }}
-            {{- include "supervisorAgent.multiAgentConfig.agents" . -}}
-            {{- range $a := .agents -}}
-            {{- $envPrefix := upper $a }}
-            - name: {{ $envPrefix }}_AGENT_HOST
-              value: {{ printf "%s-agent-%s" $.Release.Name $a | quote }}
-            - name: {{ $envPrefix }}_AGENT_PORT
-              value: {{ $.Values.multiAgentConfig.port | quote }}
-            {{- end }}
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
