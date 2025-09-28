@@ -151,7 +151,7 @@ IDPBuilder supports different profiles as listed above:
 idpbuilder create \
   --use-path-routing \
   --package https://github.com/cnoe-io/stacks//ref-implementation \
-  --package https://github.com/sriaradhyula/stacks//caipe/caipe-basic-p2p
+  --package https://github.com/sriaradhyula/stacks//caipe/base
 ```
 
 #### Option 2: CAIPE Complete A2A P2P Profile (recommended)
@@ -160,7 +160,7 @@ idpbuilder create \
 idpbuilder create \
   --use-path-routing \
   --package https://github.com/cnoe-io/stacks//ref-implementation \
-  --package https://github.com/sriaradhyula/stacks//caipe/caipe-complete-p2p
+  --package https://github.com/sriaradhyula/stacks//caipe/complete
 ```
 
 #### Option 3: CAIPE Complete A2A over Slim Profile
@@ -169,7 +169,7 @@ idpbuilder create \
 idpbuilder create \
   --use-path-routing \
   --package https://github.com/cnoe-io/stacks//ref-implementation \
-  --package https://github.com/sriaradhyula/stacks//caipe/caipe-complete-slim
+  --package https://github.com/sriaradhyula/stacks//caipe/complete-slim
 ```
 Run your preferred runtime option. This process will:
 * Create a KIND cluster
