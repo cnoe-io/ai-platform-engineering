@@ -49,12 +49,12 @@ dependencies:
   version: 2025.7.1
 - name: kb-rag-stack
   repository: ""
-  version: 0.1.4
+  version: 0.1.5
 - name: milvus
   repository: https://zilliztech.github.io/milvus-helm/
   version: 5.0.2
 - name: backstage-plugin-agent-forge
   repository: ""
   version: 0.1.0
-digest: sha256:63c52d59c2862a7d422c6e74b868769cce89d73ac52b2b27632ac7b31dc75417
-generated: "2025-09-26T15:23:34.881024095Z"
+digest: sha256:ccca83369b52452c8ab28a8794f8e1766696228618118b24cabd5a99fd9c152d
+generated: "2025-09-28T18:15:37.921679306-05:00"
