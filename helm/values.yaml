@@ -15,47 +15,91 @@ supervisor-agent:
 ######### Sub-agent configurations #########
 # Agent configurations using aliases from Chart.yaml
 agent-argocd:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "argocd-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-backstage:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "backstage-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-confluence:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "agent-confluence-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-github:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "github-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-jira:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "atlassian-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-pagerduty:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "pagerduty-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-slack:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "slack-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-aws:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "aws-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
   mcp:
     mode: "stdio"
 
 agent-splunk:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "splunk-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-webex:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "webex-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-komodor:
+  image:
+    tag: "latest"
+  mcp:
+    tag: "latest"
   agentSecrets:
     secretName: "komodor-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
