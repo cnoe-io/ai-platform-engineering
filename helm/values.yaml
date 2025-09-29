@@ -1,5 +1,11 @@
+tags:
+  complete: true
+
 # Global configuration shared across all subcharts
 global:
+  slim:
+    enabled: true
+
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
     secretName: "existing-llm-secret"

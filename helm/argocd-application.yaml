@@ -14,10 +14,10 @@ spec:
       targetRevision: 0.2.6
       helm:
         parameters:
-        - name: tags.complete # enable basic agents ()
-          value: "true"
-        - name: global.slim.enabled
-          value: "true"
+        # - name: tags.complete # enable basic agents ()
+        #   value: "true"
+        # - name: global.slim.enabled
+        #   value: "true"
         valueFiles:
           - $values/helm/values.yaml
     # Values files from Git repository (your custom branch)
