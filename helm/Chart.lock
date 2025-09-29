@@ -4,37 +4,37 @@ dependencies:
   version: 0.1.1
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.1
+  version: 0.2.2
 - name: slim
   repository: oci://ghcr.io/agntcy/slim/helm
   version: v0.1.8
@@ -49,12 +49,12 @@ dependencies:
   version: 2025.7.1
 - name: kb-rag-stack
   repository: ""
-  version: 0.1.5
+  version: 0.1.6
 - name: milvus
   repository: https://zilliztech.github.io/milvus-helm/
   version: 5.0.2
 - name: backstage-plugin-agent-forge
   repository: ""
   version: 0.1.0
-digest: sha256:ccca83369b52452c8ab28a8794f8e1766696228618118b24cabd5a99fd9c152d
-generated: "2025-09-28T18:15:37.921679306-05:00"
+digest: sha256:4855a3b7793d1df4dea7c8ba4d45d76d288a45375d770025439d2cd75fec2582
+generated: "2025-09-29T13:49:26.117868631Z"

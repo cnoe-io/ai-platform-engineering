@@ -3,8 +3,8 @@ name: kb-rag-stack
 description: A complete KB-RAG stack including web, server, agent, Redis, and Milvus
 
 type: application
-version: 0.1.5
-appVersion: "0.1.5"
+version: 0.1.6
+appVersion: "0.1.6"
 
 dependencies:
   - name: kb-rag-web
@@ -14,7 +14,7 @@ dependencies:
     version: "0.1.1"
     repository: "file://./charts/kb-rag-server"
   - name: kb-rag-agent
-    version: "0.1.3"
+    version: "0.1.4"
     repository: "file://./charts/kb-rag-agent"
   - name: kb-rag-redis
     version: "0.1.1"

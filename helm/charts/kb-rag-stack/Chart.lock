@@ -7,9 +7,9 @@ dependencies:
   version: 0.1.1
 - name: kb-rag-agent
   repository: file://./charts/kb-rag-agent
-  version: 0.1.3
+  version: 0.1.4
 - name: kb-rag-redis
   repository: file://./charts/kb-rag-redis
   version: 0.1.1
-digest: sha256:5cb779876acc0f41a8b8fdc9b4d4f240dedac0aaecdad187350bc26bf9241bec
-generated: "2025-09-28T18:15:25.251543747-05:00"
+digest: sha256:26667face6686f1924dd1e8a4dea191d0ee8c868792ad1ea7ddde86998f892cc
+generated: "2025-09-29T13:48:54.605465826Z"
