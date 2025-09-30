@@ -151,6 +151,8 @@ services:
       - slim
       - p2p-tracing
       - slim-tracing
+    volumes:
+      - ./ai_platform_engineering/agents/argocd/mcp/mcp_argocd:/app/mcp_argocd
     env_file:
       - .env
     ports:
@@ -496,6 +498,8 @@ services:
       - p2p
       - p2p-tracing
       - slim-tracing
+    volumes:
+      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/mcp_jira
     env_file:
       - .env
     ports:

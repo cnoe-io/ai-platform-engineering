@@ -17,7 +17,7 @@ dependencies = [
     "langgraph (==0.5.3)",
     "langgraph-supervisor (==0.0.28)",
     "a2a-sdk==0.2.16",
-    "cnoe-agent-utils==0.3.0",
+    "cnoe-agent-utils==0.3.2",
     "langchain (>=0.3.25)",
     "langfuse (>=3.0.8,<4.0.0)",
     "agntcy-app-sdk==0.1.4",
