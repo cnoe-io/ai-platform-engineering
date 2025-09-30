@@ -21,6 +21,7 @@ services:
       - agent-splunk-p2p
       - agent-weather-p2p
       - agent-webex-p2p
+      - agent-litellm-p2p
     profiles:
       - p2p
       - p2p-tracing

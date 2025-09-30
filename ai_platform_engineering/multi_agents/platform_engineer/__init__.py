@@ -78,6 +78,9 @@ if os.getenv("ENABLE_KB_RAG", "false").lower() == "true":
 if os.getenv("ENABLE_GRAPH_RAG", "false").lower() == "true":
     AGENT_NAMES.append("graph-rag")
 
+if os.getenv("ENABLE_LITELLM", "false").lower() == "true":
+    AGENT_NAMES.append("litellm")
+
 for agent_name in AGENT_NAMES:
     logger.info("🤖 Agent enabled: %s", agent_name)
 
