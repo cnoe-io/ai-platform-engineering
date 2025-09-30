@@ -30,7 +30,6 @@ from .constants import (  # noqa: F401 - Keep constants available
 # Jira models (Keep existing imports)
 from .jira import (
     JiraAttachment,
-    JiraBoard,
     JiraComment,
     JiraIssue,
     JiraIssueType,
@@ -38,7 +37,6 @@ from .jira import (
     JiraProject,
     JiraResolution,
     JiraSearchResult,
-    JiraSprint,
     JiraStatus,
     JiraStatusCategory,
     JiraTimetracking,
@@ -83,6 +81,4 @@ __all__ = [
     "JiraSearchResult",
     "JiraAttachment",
     "JiraTimetracking",
-    "JiraBoard",
-    "JiraSprint",
 ]

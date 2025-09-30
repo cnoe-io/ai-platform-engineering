@@ -41,9 +41,11 @@ async def make_api_request(
     params: Dict[str, Any] = {},
     data: Dict[str, Any] = {},
     timeout: int = 30,
+    expand: Optional[str] = None,
+    order_by: Optional[str] = None,
 ) -> Tuple[bool, Dict[str, Any]]:
     """
-    Make a request to the Jira API
+    Make a request to the Jira API v3
 
     Args:
         path: API path to request (without base URL)
@@ -52,6 +54,8 @@ async def make_api_request(
         params: Query parameters for the request (optional)
         data: JSON data for POST/PATCH/PUT requests (optional)
         timeout: Request timeout in seconds (default: 30)
+        expand: Fields to expand using v3 dot notation (optional)
+        order_by: Field to order by with +/- prefix (optional)
 
     Returns:
         Tuple of (success, data) where data is either the response JSON or an error dict
@@ -76,8 +80,15 @@ async def make_api_request(
 
     headers = {
         "Authorization": f"Basic {encoded_auth}",
-        "Accept": "application/json"
+        "Accept": "application/json",
+        "Content-Type": "application/json"
     }
+
+    # Add v3-specific parameters
+    if expand:
+        params["expand"] = expand
+    if order_by:
+        params["orderBy"] = order_by
 
     # DO NOT accidentally log headers that contain API tokens
     # logger.debug(f"Request headers: {headers}")
@@ -133,7 +144,17 @@ async def make_api_request(
                 try:
                     error_data = response.json()
                     logger.error(f"Error details: {error_data}")
-                    return (False, {"error": error_message, "details": error_data})
+
+                    # Handle v3 error format
+                    if "errorMessages" in error_data or "errors" in error_data:
+                        return (False, {
+                            "error": error_message,
+                            "errorMessages": error_data.get("errorMessages", []),
+                            "errors": error_data.get("errors", {}),
+                            "status": response.status_code
+                        })
+                    else:
+                        return (False, {"error": error_message, "details": error_data})
                 except ValueError:
                     logger.error(f"Error response (not JSON): {response.text[:200]}")
                     return (False, {"error": f"{error_message} - {response.text[:200]}"})

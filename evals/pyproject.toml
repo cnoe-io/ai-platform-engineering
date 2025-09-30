@@ -14,7 +14,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     # Platform Engineer integration
     "a2a-sdk==0.2.16",
-    "cnoe_agent_utils",
+    "cnoe-agent-utils==0.3.2",
     # LangChain for LLM evaluation
     "langchain-core>=0.1.0",
     "langchain-openai>=0.0.5",

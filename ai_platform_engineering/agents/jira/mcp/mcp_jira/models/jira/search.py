@@ -5,7 +5,7 @@ This module provides Pydantic models for Jira search (JQL) results.
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import Field, model_validator
 
@@ -24,6 +24,8 @@ class JiraSearchResult(BaseModel):
     start_at: int = 0
     max_results: int = 0
     issues: list[JiraIssue] = Field(default_factory=list)
+    is_last: bool = True
+    next_page_token: Optional[str] = None
 
     @classmethod
     def from_api_response(
@@ -61,6 +63,8 @@ class JiraSearchResult(BaseModel):
         raw_total = data.get("total")
         raw_start_at = data.get("startAt")
         raw_max_results = data.get("maxResults")
+        raw_is_last = data.get("isLast")
+        raw_next_page_token = data.get("nextPageToken")
 
         try:
             total = int(raw_total) if raw_total is not None else -1
@@ -77,11 +81,16 @@ class JiraSearchResult(BaseModel):
         except (ValueError, TypeError):
             max_results = -1
 
+        is_last = bool(raw_is_last) if raw_is_last is not None else True
+        next_page_token = str(raw_next_page_token) if raw_next_page_token is not None else None
+
         return cls(
             total=total,
             start_at=start_at,
             max_results=max_results,
             issues=issues,
+            is_last=is_last,
+            next_page_token=next_page_token,
         )
 
     @model_validator(mode="after")

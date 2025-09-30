@@ -14,7 +14,7 @@ logger = logging.getLogger("mcp_tools")
 
 
 async def applicationset_list(
-    param_projects: List[str] = None, param_selector: str = None, param_appsetNamespace: str = None
+    param_projects: List[str] = None, param_selector: str = None, param_appsetNamespace: str = None, summary_only: bool = True
 ) -> Dict[str, Any]:
     '''
     List returns a list of applicationsets.
@@ -23,6 +23,7 @@ async def applicationset_list(
         param_projects (List[str], optional): The project names to restrict the returned list of applicationsets. Defaults to None.
         param_selector (str, optional): The selector to restrict the returned list to applications only with matched labels. Defaults to None.
         param_appsetNamespace (str, optional): The application set namespace. If not provided, defaults to the ArgoCD control plane namespace. Defaults to None.
+        summary_only (bool, optional): If True, return only summary information (default: True).
 
     Returns:
         Dict[str, Any]: The JSON response from the API call containing the list of applicationsets.
@@ -54,6 +55,36 @@ async def applicationset_list(
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
         return {"error": response.get("error", "Request failed")}
+
+    # If summary_only is True, return only essential information
+    if summary_only and "items" in response:
+        summary_items = []
+        for appset in response["items"]:
+            summary_item = {
+                "name": appset.get("metadata", {}).get("name", ""),
+                "namespace": appset.get("metadata", {}).get("namespace", ""),
+                "generation": appset.get("metadata", {}).get("generation", ""),
+                "resource_version": appset.get("metadata", {}).get("resourceVersion", ""),
+                "creation_timestamp": appset.get("metadata", {}).get("creationTimestamp", ""),
+                "template_name": appset.get("spec", {}).get("template", {}).get("metadata", {}).get("name", ""),
+                "template_namespace": appset.get("spec", {}).get("template", {}).get("spec", {}).get("destination", {}).get("namespace", ""),
+                "template_project": appset.get("spec", {}).get("template", {}).get("spec", {}).get("project", ""),
+                "template_repo": appset.get("spec", {}).get("template", {}).get("spec", {}).get("source", {}).get("repoURL", ""),
+                "template_path": appset.get("spec", {}).get("template", {}).get("spec", {}).get("source", {}).get("path", ""),
+                "template_target_revision": appset.get("spec", {}).get("template", {}).get("spec", {}).get("source", {}).get("targetRevision", ""),
+                "generators_count": len(appset.get("spec", {}).get("generators", [])),
+                "sync_policy": appset.get("spec", {}).get("syncPolicy", {}),
+                "phase": appset.get("status", {}).get("phase", ""),
+                "conditions": appset.get("status", {}).get("conditions", []),
+            }
+            summary_items.append(summary_item)
+
+        return {
+            "items": summary_items,
+            "total": response.get("total", len(summary_items)),
+            "summary_only": True
+        }
+
     return response
 
 

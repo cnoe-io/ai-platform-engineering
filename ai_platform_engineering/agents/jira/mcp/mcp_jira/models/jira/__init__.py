@@ -5,7 +5,6 @@ This package provides Pydantic models for Jira API data structures,
 organized by entity type for better maintainability and clarity.
 """
 
-from .agile import JiraBoard, JiraSprint
 from .comment import JiraComment
 from .common import (
     JiraAttachment,
@@ -39,8 +38,6 @@ __all__ = [
     "JiraWorklog",
     "JiraProject",
     "JiraTransition",
-    "JiraBoard",
-    "JiraSprint",
     "JiraIssue",
     "JiraSearchResult",
     "JiraIssueLinkType",

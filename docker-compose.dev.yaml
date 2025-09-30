@@ -82,7 +82,8 @@ services:
         - agent-komodor-p2p
         - agent-pagerduty-p2p
         - agent-slack-p2p
-        - agent_graph_qa
+        - agent-splunk-p2p
+        # - agent_graph_qa
     env_file:
       - .env
     ports:
@@ -98,7 +99,9 @@ services:
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - SLACK_AGENT_HOST=agent-slack-p2p
+      - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - WEBEX_AGENT_HOST=agent-webex-p2p
+      - ENABLE_SPLUNK=true
       - ENABLE_GRAPH_RAG=true
       - GRAPH_RAG_AGENT_URL=http://agent_graph_qa:8096
       - ENABLE_KOMODOR=true
@@ -878,6 +881,56 @@ services:
       - MCP_PORT=8000
 
   ####################################################################################################
+  #                                      MCP SPLUNK                                                  #
+  ####################################################################################################
+  mcp-splunk:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-splunk
+    profiles:
+      - slim
+      - p2p
+      - p2p-tracing
+      - slim-tracing
+    env_file:
+      - .env
+    ports:
+      - "18012:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT SPLUNK A2A P2P                                        #
+  ####################################################################################################
+  agent-splunk-p2p:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-splunk-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    depends_on:
+      - mcp-splunk
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8012:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-splunk
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+
+  ####################################################################################################
   #                                      AGENT WEATHER A2A over SLIM                                 #
   ####################################################################################################
   agent-weather-slim:
@@ -923,12 +976,13 @@ services:
     container_name: kb-rag
     profiles:
       - kb-rag
+      - p2p-tracing
     depends_on:
       - milvus-standalone
     volumes:
       - ./.env:/app/.env
     ports:
-      - "8010:8000"
+      - "8015:8000"
   kb-rag-server:
     build:
       context: ai_platform_engineering/knowledge_bases/rag
@@ -937,6 +991,7 @@ services:
     container_name: kb-rag-server
     profiles:
       - kb-rag
+      - p2p-tracing
     depends_on:
       - milvus-standalone
       - kb-rag-redis
@@ -954,6 +1009,7 @@ services:
     container_name: kb-rag-web
     profiles:
       - kb-rag
+      - p2p-tracing
     depends_on:
       - kb-rag-server
     ports:
@@ -964,6 +1020,7 @@ services:
     command: ["milvus", "run", "standalone"]
     profiles:
       - kb-rag
+      - p2p-tracing
     security_opt:
       - seccomp:unconfined
     environment:
@@ -980,8 +1037,8 @@ services:
       timeout: 20s
       retries: 3
     ports:
-      - "19530:19530"
-      - "9091:9091"
+      - ":19530"
+      - ":9091"
     depends_on:
       - etcd
       - milvus-minio
@@ -990,6 +1047,7 @@ services:
     image: quay.io/coreos/etcd:v3.5.18
     profiles:
       - kb-rag
+      - p2p-tracing
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
@@ -1009,12 +1067,13 @@ services:
     image: minio/minio:RELEASE.2024-05-28T17-19-04Z
     profiles:
       - kb-rag
+      - p2p-tracing
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     ports:
-      - "9001:9001"
-      - "9000:9000"
+      - ":9001"
+      - ":9000"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
@@ -1029,8 +1088,9 @@ services:
     container_name: kb-rag-redis
     profiles:
       - kb-rag
+      - p2p-tracing
     ports:
-      - "6379:6379"
+      - ":6379"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/kb-rag-redis:/data
     command: >
@@ -1056,7 +1116,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
-     - p2p-tracing
+    #  - p2p-tracing
     volumes:
         - ./.neo4j/logs:/logs
         - ./.neo4j/config:/config
@@ -1080,7 +1140,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
-     - p2p-tracing
+    #  - p2p-tracing
     command:
       - /bin/sh
       - -c
@@ -1098,7 +1158,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
-     - p2p-tracing
+    #  - p2p-tracing
     depends_on:
       - neo4j
       - nexigraph_redis
@@ -1119,7 +1179,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
-     - p2p-tracing
+    #  - p2p-tracing
     depends_on:
       - nexigraph_server
     env_file:
@@ -1140,7 +1200,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
-     - p2p-tracing
+    #  - p2p-tracing
     ports:
       - "8096:8096"
     depends_on:
@@ -1164,7 +1224,7 @@ services:
      - graph_rag
      - nexigraph
      - p2p
-     - p2p-tracing
+    #  - p2p-tracing
     depends_on:
       - nexigraph_server
     environment:
@@ -1286,8 +1346,8 @@ services:
       - langfuse_clickhouse_data:/var/lib/clickhouse
       - langfuse_clickhouse_logs:/var/log/clickhouse-server
     ports:
-      - "127.0.0.1:8123:8123"
-      - "127.0.0.1:9000:9000"
+      - ":8123"
+      - ":9000"
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 5s
@@ -1308,8 +1368,8 @@ services:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: miniosecret
     ports:
-      - "9090:9000"
-      - "127.0.0.1:9091:9001"
+      - ":9000"
+      - ":9001"
     volumes:
       - langfuse_minio_data:/data
     healthcheck:
@@ -1329,7 +1389,7 @@ services:
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
     ports:
-      - "127.0.0.1:6379:6379"
+      - ":6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
