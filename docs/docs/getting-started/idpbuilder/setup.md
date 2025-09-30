@@ -16,6 +16,7 @@
 For a complete development environment with i3 desktop and VNC access on a vanilla Ubuntu VM or Ubuntu EC2 instance:
 
 **System Requirements:**
+
 - 8 CPUs
 - 16 GB RAM
 - 80 GB Disk Space
@@ -28,10 +29,12 @@ curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/
 ```
 
 This script will:
+
 - Install all prerequisites (Docker, kubectl, Vault, etc.)
 - Set up i3 desktop environment with VNC
 
 ### Option 2: Manual Setup
+
 For detailed manual installation and configuration steps, see [Manual Setup Guide](./ubuntu-prerequisites.md).
 
 ## Architecture Overview
@@ -146,6 +149,7 @@ CAIPE (Community AI Platform Engineering) offers multiple runtime/deployment pro
 IDPBuilder supports different profiles as listed above:
 
 #### Option 1: CAIPE Basic A2A P2P Profile (for learning)
+
 ```bash
 # Create cluster with CAIPE basic-p2p profile
 idpbuilder create \
@@ -155,23 +159,29 @@ idpbuilder create \
 ```
 
 #### Option 2: CAIPE Complete A2A P2P Profile (recommended)
+
 ```bash
 # Create cluster with CAIPE complete-p2p profile
 idpbuilder create \
   --use-path-routing \
   --package https://github.com/cnoe-io/stacks//ref-implementation \
+  --package https://github.com/sriaradhyula/stacks//caipe/base \
   --package https://github.com/sriaradhyula/stacks//caipe/complete
 ```
 
 #### Option 3: CAIPE Complete A2A over Slim Profile
+
 ```bash
 # Create cluster with CAIPE complete-slim profile
 idpbuilder create \
   --use-path-routing \
   --package https://github.com/cnoe-io/stacks//ref-implementation \
+  --package https://github.com/sriaradhyula/stacks//caipe/base \
   --package https://github.com/sriaradhyula/stacks//caipe/complete-slim
 ```
+
 Run your preferred runtime option. This process will:
+
 * Create a KIND cluster
 * Install core platform components
 * Deploy ArgoCD, Vault, and Backstage
