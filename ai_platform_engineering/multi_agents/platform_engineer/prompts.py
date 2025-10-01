@@ -61,12 +61,14 @@ def generate_subagents():
       system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt")
       description = getattr(agent.agent_card(), "description", agent_key)
       prompt = system_prompt_override or description
-      subagents.append({
+      sub_agent = {
           "name": agent_key,
           "description": description,
-          "prompt": prompt,
-          "tool": agent
-      })
+          "prompt": prompt
+          # "tool": agent
+      }
+      logger.info(f'sub_agent: {sub_agent}')
+      subagents.append(sub_agent)
   return subagents
 
 # Generate system prompt dynamically based on tools and their tasks

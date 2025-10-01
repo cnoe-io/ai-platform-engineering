@@ -189,7 +189,6 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
       # Prepare stream writer
       writer = get_stream_writer()
-      writer({"type": "progress", "data": "Connecting to A2A and starting stream..."})
       logger.info("Starting A2A streaming send_message.")
 
       accumulated_text: list[str] = []
