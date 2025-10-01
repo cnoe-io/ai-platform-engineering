@@ -49,29 +49,82 @@ skills_prompt = PromptTemplate(
     )
 )
 
+# Categorize agents by type for better organization
+def categorize_agents(agents: Dict[str, Any]) -> Dict[str, list]:
+  """Categorize agents into logical groups for better prompt organization."""
+
+  categories = {
+    "Application Deployment & Infrastructure": ["argocd", "aws", "komodor"],
+    "Communication & Collaboration": ["slack", "webex"],
+    "Project Management & Documentation": ["jira", "confluence", "backstage"],
+    "Monitoring & Incident Management": ["pagerduty", "splunk"],
+    "Version Control & Code Management": ["github"],
+    "Knowledge & Information": ["kb-rag"],
+    "Testing & Development": ["petstore", "weather"]
+  }
+
+  categorized = {cat: [] for cat in categories}
+  uncategorized = []
+
+  for agent_key in agents.keys():
+    found = False
+    for category, agent_list in categories.items():
+      if agent_key.lower() in agent_list:
+        categorized[category].append(agent_key)
+        found = True
+        break
+    if not found:
+      uncategorized.append(agent_key)
+
+  # Add uncategorized agents to a misc category if any exist
+  if uncategorized:
+    categorized["Other Services"] = uncategorized
+
+  # Remove empty categories
+  return {k: v for k, v in categorized.items() if v}
+
 # Generate system prompt dynamically based on tools and their tasks
 def generate_system_prompt(agents: Dict[str, Any]):
   tool_instructions = []
-  for agent_key, agent in agents.items():
+  categorized_agents = categorize_agents(agents)
 
-    logger.info(f"Generating tool instruction for agent_key: {agent_key}")
-    description = agent.agent_card().description
+  # GPT-4o Optimization: Add a condensed summary at the top
+  agent_count = len(agents)
+  category_count = len(categorized_agents)
 
-    # Check if there is a system_prompt override provided in the prompt config
-    system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt", None)
-    if system_prompt_override:
-      agent_system_prompt = system_prompt_override
-    else:
-      # Use the agent description as the system prompt
-      agent_system_prompt = description
+  summary = f"""
+QUICK REFERENCE - You have {agent_count} agents across {category_count} categories:
+{', '.join([f"{cat} ({len(agents_in_cat)})" for cat, agents_in_cat in categorized_agents.items()])}
 
-    instruction = f"""
-{agent_key}:
+REMEMBER: When user asks "what can you do", list ALL agents with specific examples. DO NOT give generic responses.
+"""
+  tool_instructions.append(summary)
+
+  # Generate categorized agent instructions
+  for category, agent_keys in categorized_agents.items():
+    category_instructions = [f"\n## {category}\n"]
+
+    for agent_key in agent_keys:
+      agent = agents[agent_key]
+      logger.info(f"Generating tool instruction for agent_key: {agent_key}")
+      description = agent.agent_card().description
+
+      # Check if there is a system_prompt override provided in the prompt config
+      system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt", None)
+      if system_prompt_override:
+        agent_system_prompt = system_prompt_override
+      else:
+        # Use the agent description as the system prompt
+        agent_system_prompt = description
+
+      instruction = f"""**{agent_key}**:
   {agent_system_prompt}
 """
-    tool_instructions.append(instruction.strip())
+      category_instructions.append(instruction.strip())
 
-  tool_instructions_str = "\n\n".join(tool_instructions)
+    tool_instructions.append("\n".join(category_instructions))
+
+  tool_instructions_str = "\n".join(tool_instructions)
 
   yaml_template = config.get("system_prompt_template")
 
