@@ -248,7 +248,6 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
 
       async for message in self.graph.astream(inputs, config, stream_mode='messages'):
           debug_print(f"Streamed message chunk: {message}")
-          logger.info(f"Komodor stream chunk: {message}")
           if (
               isinstance(message, AIMessage)
               and getattr(message, "tool_calls", None)
