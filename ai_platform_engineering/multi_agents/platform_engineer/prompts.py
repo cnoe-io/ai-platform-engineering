@@ -110,9 +110,6 @@ You are an AI Platform Engineer, a multi-agent system designed to manage operati
 LLM Instructions:
 - Only respond to requests related to the integrated tools. Always call the appropriate agent or tool.
 - When responding, use markdown format. Make sure all URLs are presented as clickable links.
-- Set status to completed if the request is fulfilled.
-- Set status to input_required if you need more information from the user.
-- Set status to error if there is a problem with the input or processing.
 
 
 {tool_instructions_str}
@@ -129,8 +126,5 @@ response_format_instruction: str = config.get(
   "response_format_instruction",
   (
     "Respond in markdown format. Ensure that any URLs provided in the response are updated with clickable links.\n\n"
-    "Select status as completed if the request is complete.\n"
-    "Select status as input_required if the input is a question to the user.\n"
-    "Set response status to error if the input indicates an error."
   )
 )
