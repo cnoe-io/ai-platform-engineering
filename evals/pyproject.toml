@@ -1,0 +1,43 @@
+[project]
+name = "platform-engineer-evals"
+version = "1.0.0"
+description = "Evaluation system for Platform Engineer multi-agent workflows"
+requires-python = ">=3.13"
+dependencies = [
+    # Core evaluation dependencies
+    "pydantic>=2.0.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.20.0",
+    "langfuse>=2.0.0",
+    "httpx>=0.24.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    # Platform Engineer integration
+    "a2a-sdk==0.2.16",
+    "cnoe_agent_utils",
+    # LangChain for LLM evaluation
+    "langchain-core>=0.1.0",
+    "langchain-openai>=0.0.5",
+    "langchain-anthropic>=0.1.0",
+]
+
+[project.scripts]
+eval-webhook = "webhook.langfuse_webhook:main"
+upload-dataset = "upload_dataset:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.20.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py313']
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"

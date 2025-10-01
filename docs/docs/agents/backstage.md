@@ -1,7 +1,3 @@
----
-sidebar_position: 2
----
-
 # Backstage Agent
 
 - 🤖 **Backstage Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and Backstage [MCP Server](https://modelcontextprotocol.io/introduction).
@@ -132,27 +128,12 @@ BACKSTAGE_API_KEY=<your_token>
 BACKSTAGE_API_URL=http://localhost:7007
 ```
 
-### Run Backstage Sanity tests
+### Local Development
 
+```bash
+# Navigate to the Backstage agent directory
+cd ai_platform_engineering/agents/backstage
+
+# Run the MCP server in stdio mode
+make run-a2a
 ```
-make backstage-sanity
-```
-
-## ✨ Features
-
-- **Catalog Management**: List, create, and manage services, components, and resources
-- **Service Management**: Deploy, update, and monitor services
-- **User Management**: Manage users, teams, and permissions
-- **Plugin Management**: Install and configure Backstage plugins
-- **Documentation Management**: Create and manage technical documentation
-- **API Integration**: Full Backstage API coverage through MCP tools
-
-## 🎯 Example Use Cases
-
-Ask the agent natural language questions like:
-
-- **Catalog Operations**: "List all services in the catalog"
-- **Service Management**: "Create a new service called 'my-api'"
-- **User Management**: "Show me all users in the 'platform' team"
-- **Plugin Management**: "Install the GitHub plugin"
-- **Documentation**: "Create documentation for the 'frontend' service"

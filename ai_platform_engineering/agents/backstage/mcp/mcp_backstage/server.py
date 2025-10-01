@@ -15,32 +15,10 @@ import os
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-
-# from mcp_backstage.tools import refresh
-
-# from mcp_backstage.tools import entities
-
-# from mcp_backstage.tools import entities_by_uid_uid
-
-# from mcp_backstage.tools import entities_by_name_kind_namespace_name
-
-# from mcp_backstage.tools import entities_by_name_kind_namespace_name_ancestry
-
-# from mcp_backstage.tools import entities_by_refs
-
 from mcp_backstage.tools import entities_by_query
-
-# from mcp_backstage.tools import entity_facets
-
-# from mcp_backstage.tools import locations
-
-# from mcp_backstage.tools import locations_id
-
-# from mcp_backstage.tools import locations_by_entity_kind_namespace_name
-
-# from mcp_backstage.tools import analyze_location
-
-# from mcp_backstage.tools import validate_entity
+from mcp_backstage.tools import techdocs_metadata
+from mcp_backstage.tools import techdocs_content
+from mcp_backstage.tools import techdocs_index
 
 
 def main():
@@ -72,6 +50,15 @@ def main():
     mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
   mcp.tool()(entities_by_query.get_entities_by_query)
+
+  # Register TechDocs tools
+  mcp.tool()(techdocs_metadata.get_techdocs_metadata)
+  mcp.tool()(techdocs_metadata.get_techdocs_entity_metadata)
+  mcp.tool()(techdocs_content.get_techdocs_page)
+  mcp.tool()(techdocs_content.get_techdocs_mkdocs_yml)
+  mcp.tool()(techdocs_content.search_techdocs)
+  mcp.tool()(techdocs_index.get_techdocs_index)
+  mcp.tool()(techdocs_index.list_entities_with_techdocs)
 
   # Run the MCP server
   mcp.run(transport=MCP_MODE.lower())

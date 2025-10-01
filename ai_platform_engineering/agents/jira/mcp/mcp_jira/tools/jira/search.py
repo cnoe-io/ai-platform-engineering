@@ -49,7 +49,7 @@ async def search(
     }
 
     success, response = await make_api_request(
-        path="rest/api/2/search",
+        path="rest/api/3/search",
         method="GET",
         params=params,
     )
@@ -82,7 +82,7 @@ async def search_fields(
     }
 
     success, response = await make_api_request(
-        path="rest/api/2/field/search",
+        path="rest/api/3/field/search",
         method="GET",
         params=params,
     )

@@ -1,0 +1,83 @@
+name: multi_agent_workflows
+description: Multi-agent integration tests for cross-platform workflows
+prompts:
+  # GitHub + Jira Integration
+  - id: "github_and_jira_integration"
+    messages:
+      - role: "user"
+        content: "Create a Jira issue for the latest GitHub issue in cnoe-io/ai-platform-engineering repo"
+    expected_output: "Created Jira issue PLAT-456 based on GitHub issue #123 'Fix Docker configuration' from ai-platform-engineering repo."
+    expected_agents: ["github_tools_agent", "jira_tools_agent"]
+    expected_behavior: "Should first use GitHub agent to fetch the latest issue, then use Jira agent to create a new issue with the relevant details"
+
+  - id: "github_issues_to_jira_backlog"
+    messages:
+      - role: "user"
+        content: "Create Jira tickets for all open GitHub issues labeled 'bug'"
+    expected_output: "Created 5 Jira tickets from GitHub bug issues: PLAT-457, PLAT-458, PLAT-459, PLAT-460, PLAT-461."
+    expected_agents: ["github_tools_agent", "jira_tools_agent"]
+    expected_behavior: "Should use GitHub agent to find issues with 'bug' label, then use Jira agent to create corresponding tickets for each bug"
+
+  # GitHub + ArgoCD Deployment
+  - id: "cross_service_deployment"
+    messages:
+      - role: "user"
+        content: "Create a new GitHub repository, set up ArgoCD application, and deploy to production"
+    expected_output: "Created GitHub repo 'new-service', configured ArgoCD application 'new-service-prod', deployed successfully to production."
+    expected_agents: ["github_tools_agent", "argocd_tools_agent"]
+    expected_behavior: |
+      1. GitHub agent creates a new repository
+      2. ArgoCD agent creates application configuration for the new repository
+      3. ArgoCD agent triggers deployment to production environment
+
+
+  # PagerDuty + Slack + Jira Incident Management
+  - id: "incident_management_workflow"
+    messages:
+      - role: "user"
+        content: "Create a PagerDuty incident for server downtime, notify Slack, and create a Jira ticket for tracking"
+    expected_output: "Created PagerDuty incident INC-789, posted alert to #incidents Slack channel, created Jira ticket PLAT-462 for tracking."
+    expected_agents: ["pagerduty_tools_agent", "slack_tools_agent", "jira_tools_agent"]
+    expected_behavior: |
+      1. PagerDuty agent creates incident for server downtime
+      2. Slack agent sends notification to team channel about the incident
+      3. Jira agent creates tracking ticket with incident details and references
+
+
+  # Confluence + Backstage Documentation
+  - id: "documentation_workflow"
+    messages:
+      - role: "user"
+        content: "Create a Confluence page documenting the deployment process and link it to the Backstage service catalog"
+    expected_output: "Created Confluence page 'Deployment Process Guide', updated Backstage catalog with documentation links."
+    expected_agents: ["confluence_tools_agent", "backstage_tools_agent"]
+    expected_behavior: |
+      1. Confluence agent creates documentation page for deployment process
+      2. Backstage agent updates service catalog entry to reference the documentation
+      3. Establishes link between service definition and its documentation
+
+
+  # GitHub + ArgoCD + Confluence Release Process
+  - id: "release_process"
+    messages:
+      - role: "user"
+        content: "Create GitHub release v2.1.0 for ai-platform-engineering repo, update ArgoCD application platform-api, and post release notes to Confluence"
+    expected_output: "Created GitHub release v2.1.0 for ai-platform-engineering, updated ArgoCD application platform-api deployment, posted release notes to Confluence documentation."
+    expected_agents: ["github_tools_agent", "argocd_tools_agent", "confluence_tools_agent"]
+    expected_behavior: |
+      1. GitHub agent creates release v2.1.0 with version tag and release notes for ai-platform-engineering repo
+      2. ArgoCD agent updates platform-api application to deploy the new release
+      3. Confluence agent creates or updates release documentation page
+
+  # Slack Integration Workflows
+  - id: "slack_notification_hub"
+    messages:
+      - role: "user"
+        content: "Set up notifications: GitHub PR updates to #dev, Jira status changes to #project, PagerDuty alerts to #ops"
+    expected_output: "Configured notifications: GitHub PR updates → #dev channel, Jira status changes → #project channel, PagerDuty alerts → #ops channel."
+    expected_agents: ["slack_tools_agent", "github_tools_agent", "jira_tools_agent", "pagerduty_tools_agent"]
+    expected_behavior: |
+      1. GitHub agent configures PR webhook notifications
+      2. Jira agent sets up status change notifications
+      3. PagerDuty agent configures alert routing
+      4. Slack agent creates appropriate channel notifications for each service

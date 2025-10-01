@@ -894,7 +894,7 @@ services:
       - slim-dataplane
     volumes:
       - ./.env:/app/.env
-      - ./ai_platform_engineering/agents/weather:/app
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
     ports:
       - "8100:8000"
 
@@ -1248,6 +1248,7 @@ services:
       CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
       CLICKHOUSE_URL: http://langfuse-clickhouse:8123
       CLICKHOUSE_USER: clickhouse
+      HOSTNAME: "0.0.0.0"
       CLICKHOUSE_PASSWORD: clickhouse
       CLICKHOUSE_CLUSTER_ENABLED: "false"
       LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
@@ -1355,6 +1356,43 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
+
+  ####################################################################################################
+  #                                      EVALUATION WEBHOOK SERVICE                                   #
+  ####################################################################################################
+  evaluation-webhook:
+    build:
+      context: ./evals
+      dockerfile: Dockerfile
+    container_name: evaluation-webhook
+    restart: unless-stopped
+    profiles:
+      - slim-tracing
+      - p2p-tracing
+      - evaluation
+    depends_on:
+      langfuse-web:
+        condition: service_started
+    ports:
+      - "8011:8000"
+    env_file:
+      - .env
+    environment:
+      - PLATFORM_ENGINEER_URL=http://platform-engineering:8000
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      # Mount datasets for development
+      - ./evals/datasets:/app/datasets
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 volumes:
   langfuse_postgres_data:

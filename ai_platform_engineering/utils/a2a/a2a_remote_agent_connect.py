@@ -132,6 +132,10 @@ class A2ARemoteAgentConnectTool(BaseTool):
     """
     Returns the examples for the skill that is invoked on the remote agent.
     """
+    if self._agent_card is None:
+      logger.warning(f"Agent card not yet loaded for {self.name}. Returning empty skill examples.")
+      return []
+
     for skill in self._agent_card.skills:
       if skill.id == self._skill_id:
         return skill.examples
@@ -160,7 +164,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
       if not prompt:
         logger.error("Invalid input: Prompt must be a non-empty string.")
         raise ValueError("Invalid input: Prompt must be a non-empty string.")
-      
+
       # Use provided trace_id or try to get from TracingManager context
       if trace_id:
           logger.info(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
@@ -172,7 +176,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
               logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
           else:
               logger.warning("A2ARemoteAgentConnectTool: No trace_id available from any source")
-      
+
       response = await self.send_message(prompt, trace_id)
       return Output(response=response)
     except Exception as e:
@@ -201,12 +205,12 @@ class A2ARemoteAgentConnectTool(BaseTool):
         ],
         'messageId': uuid4().hex,
     }
-    
+
     # Add trace_id to metadata if provided
     if trace_id:
         message_payload['metadata'] = {'trace_id': trace_id}
         logger.info(f"Adding trace_id to A2A message: {trace_id}")
-    
+
     send_message_payload = {'message': message_payload}
     # logger.info("Sending message to A2A agent with payload:\n" + json.dumps({**send_message_payload, 'message': send_message_payload['message'].dict()}, indent=4))
     request = SendMessageRequest(

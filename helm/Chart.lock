@@ -1,31 +1,40 @@
 dependencies:
 - name: supervisor-agent
   repository: ""
-  version: 0.1.0
-- name: backstage-plugin-agent-forge
-  repository: ""
-  version: 0.1.0
+  version: 0.1.1
 - name: agent
   repository: ""
-  version: 0.2.0
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.0
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.0
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.0
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.0
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.0
+  version: 0.2.2
 - name: agent
   repository: ""
-  version: 0.2.0
+  version: 0.2.2
+- name: agent
+  repository: ""
+  version: 0.2.2
+- name: agent
+  repository: ""
+  version: 0.2.2
+- name: agent
+  repository: ""
+  version: 0.2.2
+- name: agent
+  repository: ""
+  version: 0.2.2
 - name: slim
   repository: oci://ghcr.io/agntcy/slim/helm
   version: v0.1.8
@@ -40,9 +49,12 @@ dependencies:
   version: 2025.7.1
 - name: kb-rag-stack
   repository: ""
-  version: 0.1.4
+  version: 0.1.6
 - name: milvus
   repository: https://zilliztech.github.io/milvus-helm/
   version: 5.0.2
-digest: sha256:c28eeed872542d0d9deb3a95e2b04a6b949e29826f93b1c684513c8db09016cb
-generated: "2025-09-10T13:51:26.013666039Z"
+- name: backstage-plugin-agent-forge
+  repository: ""
+  version: 0.1.0
+digest: sha256:4855a3b7793d1df4dea7c8ba4d45d76d288a45375d770025439d2cd75fec2582
+generated: "2025-09-29T13:52:53.724194215Z"

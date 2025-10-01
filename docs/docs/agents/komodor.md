@@ -1,8 +1,3 @@
-
----
-sidebar_position: 6
----
-
 # Komodor Agent
 
 - 🤖 **Komodor Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and Komodor [MCP Server](https://modelcontextprotocol.io/introduction).
@@ -12,6 +7,8 @@ sidebar_position: 6
 - 🔌 **MCP Tools:** Uses [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) to glue the tools from Komodor MCP server to LangGraph ReAct Agent Graph.
 
 ## 🏗️ Architecture
+
+**[Detailed Sequence Diagram with Agentgateway](../architecture/gateway.md)**
 
 ### System Diagram
 
@@ -99,32 +96,43 @@ KOMODOR_API_URL=https://api.komodor.io
 KOMODOR_VERIFY_SSL=true
 ```
 
-### Run Komodor Sanity tests
+### Local Development
 
+```bash
+# Navigate to the Komodor agent directory
+cd ai_platform_engineering/agents/komodor
+
+# Run the MCP server in stdio mode
+make run-a2a
 ```
 make komodor-sanity
 ```
 
 ## ✨ Features
 
-- **Application Management**: Create, update, and manage applications
-- **Service Discovery**: Discover and monitor services
-- **Deployment Management**: Track and manage deployments
-- **Incident Management**: Create and manage incidents
-- **Monitoring**: Set up and manage monitoring configurations
-- **Alerting**: Configure and manage alerts
-- **User Management**: Manage users, teams, and permissions
-- **Integration Management**: Configure integrations with external tools
-- **API Integration**: Full Komodor API coverage through MCP tools
+- **Kubernetes Troubleshooting**: Automatically detect, diagnose, and resolve issues across your Kubernetes clusters.
+- **Unified Cluster Visibility**: Get a real-time, centralized view of all your Kubernetes clusters, workloads, and resources.
+- **Automated Incident Detection**: Instantly surface incidents, anomalies, and unhealthy workloads with actionable context.
+- **Root Cause Analysis**: Correlate events, changes, and alerts to quickly identify the root cause of issues.
+- **Change Tracking**: Visualize and audit all changes (deployments, config updates, rollbacks) across clusters and namespaces.
+- **Workload & Pod Management**: Investigate, restart, or roll back workloads and pods directly from the agent.
+- **Helm & ArgoCD Integration**: Track and troubleshoot changes from GitOps and Helm deployments.
+- **Kubernetes Health Monitoring**: Monitor cluster health, node status, and resource utilization.
+- **Alerting & Notifications**: Configure alerts and receive notifications via Slack, email, or other integrations.
+- **RBAC & Audit**: Manage user access and audit activity for compliance and security.
+- **API Integration**: Full Komodor API coverage through MCP tools for automation and custom workflows.
 
 ## 🎯 Example Use Cases
 
 Ask the agent natural language questions like:
 
-- **Application Operations**: "Create a new application called 'frontend-service'"
-- **Service Discovery**: "Show me all services running in the 'production' environment"
-- **Deployment Management**: "Deploy version 1.2.3 of the 'api-service' to production"
-- **Incident Management**: "Create an incident for the 'database' service that's down"
-- **Monitoring Setup**: "Set up monitoring for the 'payment-service' with CPU and memory alerts"
-- **User Management**: "Add user 'john.doe' to the 'DevOps' team"
-- **Integration Management**: "Configure Slack integration for deployment notifications"
+- **Cluster Troubleshooting**: "Diagnose why pods in the 'payments' namespace are crashing"
+- **Incident Response**: "Show me all recent incidents in the production cluster"
+- **Change Tracking**: "What changes were made to the 'frontend' deployment in the last 24 hours?"
+- **Root Cause Analysis**: "Why did the 'orders' service go down yesterday?"
+- **Pod Management**: "Restart the 'checkout' pod in the staging environment"
+- **Resource Monitoring**: "Show me nodes with high CPU or memory usage"
+- **Helm/ArgoCD Deployments**: "List all recent Helm releases and their status"
+- **Alerting**: "Set up an alert for failed deployments in the 'dev' cluster"
+- **User & Access Management**: "Add user 'jane.doe' with read-only access to the 'dev' cluster"
+- **Integration Setup**: "Configure Slack notifications for critical incidents"

@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.1.11"
+version = "0.1.15"
 description = "AI Platform Engineering Multi-Agent Systems"
 authors = [
   {name = "CNOE Contributors"}
@@ -22,6 +22,8 @@ dependencies = [
     "langfuse (>=3.0.8,<4.0.0)",
     "agntcy-app-sdk==0.1.4",
     "identity-service-sdk>=0.0.1",
+    "pyjwt>=2.10.1",
+    "cryptography>=45.0.7",
 ]
 
 [tool.pytest.ini_options]
@@ -29,8 +31,6 @@ norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/* a
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
-langgraph-cli = "^0.3.3"
-
 
 [tool.poetry.group.unittest.dependencies]
 pytest-asyncio = "^1.0.0"

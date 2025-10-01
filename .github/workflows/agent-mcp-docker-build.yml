@@ -12,12 +12,34 @@ on:
       - main
     paths:
       - 'ai_platform_engineering/agents/**'
-
   workflow_dispatch:
+    inputs:
+      build_all:
+        description: 'Build all containers (skip change detection)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  ALL_AGENTS: '["argocd","backstage","confluence","jira","komodor","pagerduty","slack","splunk","webex"]'
+
 jobs:
+  set-all-agents:
+    runs-on: ubuntu-latest
+    if: always()
+    outputs:
+      all_agents: ${{ steps.set-agents.outputs.all_agents }}
+    steps:
+      - name: Set all agents list
+        id: set-agents
+        run: echo "all_agents=${{ env.ALL_AGENTS }}" >> $GITHUB_OUTPUT
+
   determine-agents:
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/')
+    if: |
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))) ||
+      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
+      (github.event_name == 'workflow_dispatch')
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
       should_build: ${{ steps.set-matrix.outputs.should_build }}
@@ -25,46 +47,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Generate path filters
+        id: generate-filters
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const agents = JSON.parse(process.env.ALL_AGENTS);
+            let filters = '';
+            agents.forEach(agent => {
+              filters += `${agent}:\n`;
+              filters += `  - 'ai_platform_engineering/agents/${agent}/mcp/**'\n`;
+              filters += `  - 'ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+            });
+            core.setOutput('filters', filters);
+
       - name: Detect changed paths (MCP)
         id: filter
         uses: dorny/paths-filter@v3
         with:
-          filters: |
-            argocd:
-              - 'ai_platform_engineering/agents/argocd/mcp/**'
-              - 'ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
-            backstage:
-              - 'ai_platform_engineering/agents/backstage/mcp/**'
-              - 'ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
-            confluence:
-              - 'ai_platform_engineering/agents/confluence/mcp/**'
-              - 'ai_platform_engineering/agents/confluence/build/Dockerfile.mcp'
-            jira:
-              - 'ai_platform_engineering/agents/jira/mcp/**'
-              - 'ai_platform_engineering/agents/jira/build/Dockerfile.mcp'
-            komodor:
-              - 'ai_platform_engineering/agents/komodor/mcp/**'
-              - 'ai_platform_engineering/agents/komodor/build/Dockerfile.mcp'
-            pagerduty:
-              - 'ai_platform_engineering/agents/pagerduty/mcp/**'
-              - 'ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp'
-            slack:
-              - 'ai_platform_engineering/agents/slack/mcp/**'
-              - 'ai_platform_engineering/agents/slack/build/Dockerfile.mcp'
-            splunk:
-              - 'ai_platform_engineering/agents/splunk/mcp/**'
-              - 'ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
-            webex:
-              - 'ai_platform_engineering/agents/webex/mcp/**'
-              - 'ai_platform_engineering/agents/webex/build/Dockerfile.mcp'
-            litellm:
-              - 'ai_platform_engineering/agents/litellm/mcp/**'
-              - 'ai_platform_engineering/agents/litellm/build/Dockerfile.mcp'
+          filters: ${{ steps.generate-filters.outputs.filters }}
       - name: Set matrix based on changes (MCP)
         id: set-matrix
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
-          BUILD_ALL: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+          BUILD_ALL: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
           CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
           CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
           CHANGED_CONFLUENCE: ${{ steps.filter.outputs.confluence }}
@@ -73,12 +79,11 @@ jobs:
           CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
           CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
           CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
-          CHANGED_LITTELM: ${{ steps.filter.outputs.litellm }}
+          CHANGED_LITELLM: ${{ steps.filter.outputs.litellm }}
+          CHANGED_WEBEX: ${{ steps.filter.outputs.webex }}
         with:
           script: |
-            const allAgents = [
-              'argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk','litellm'
-            ];
+            const allAgents = JSON.parse(process.env.ALL_AGENTS);
             const buildAll = process.env.BUILD_ALL === 'true';
             let selected;
             if (buildAll) {
@@ -92,10 +97,8 @@ jobs:
 
   build-and-push:
     runs-on: ubuntu-latest
-    needs: determine-agents
-    if: |
-      needs.determine-agents.outputs.should_build == 'true' &&
-      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/'))
+    needs: [determine-agents, set-all-agents]
+    if: (needs.determine-agents.outputs.should_build == 'true' && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/')))
     permissions:
       contents: read
       packages: write
