@@ -11,8 +11,7 @@ import pytest
 import psutil
 import time
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
-from typing import List
+from unittest.mock import AsyncMock, MagicMock
 import uuid
 
 class MemoryMonitor:

@@ -467,7 +467,7 @@ class Loader:
             await self.jobmanager.update_job(job_id,
                 status=JobStatus.FAILED,
                 error="Error processing URLs",
-                message=f"Failed to process URLs"
+                message="Failed to process URLs"
             )
             raise
 

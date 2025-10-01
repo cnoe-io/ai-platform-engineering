@@ -2,7 +2,7 @@
 Unit tests for RAG API endpoints.
 """
 import datetime
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 from common.job_manager import JobInfo, JobStatus
 import uuid
 
@@ -41,15 +41,6 @@ class TestDatasourceEndpoints:
 
     def test_get_ingestion_status_success(self, test_client, mock_job_manager):
         """Test successful job status retrieval."""
-        job_data = {
-            "job_id": "test-job-id",
-            "status": "in_progress",
-            "progress": {"message": "Processing...", "processed": 5, "total": 10},
-            "created_at": "2024-01-01T00:00:00Z",
-            "completed_at": None,
-            "error": None
-        }
-        
         mock_job_manager.get_job.return_value = JobInfo(
             job_id="test-job-id",
             status=JobStatus.IN_PROGRESS,

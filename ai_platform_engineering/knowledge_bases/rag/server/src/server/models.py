@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List
 from fastapi import UploadFile
 from langchain_core.documents import Document
 from common.models.rag import DataSourceInfo

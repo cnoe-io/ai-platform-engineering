@@ -197,7 +197,7 @@ async def ingest_datasource_url(
                 logger.warning(f"Ingestion for datasource {datasource_id} is already completed with job_id {existing_datasource.job_id}.")
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Ingestion for this datasource is already completed. Please delete the datasource and try again."
+                    detail="Ingestion for this datasource is already completed. Please delete the datasource and try again."
                 )
 
     # Create job and update job status

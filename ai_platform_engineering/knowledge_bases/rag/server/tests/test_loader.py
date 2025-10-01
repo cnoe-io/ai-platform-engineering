@@ -3,13 +3,12 @@ Unit tests for the Loader class.
 """
 from asyncio import Lock
 import pytest
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
 import datetime
 
 from server.loader.loader import Loader, MetadataStorage
-from common.job_manager import JobManager, redis
+from common.job_manager import JobManager
 from common.models.rag import DataSourceInfo
 
 
