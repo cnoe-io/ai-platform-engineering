@@ -10,13 +10,13 @@ class Todo(TypedDict):
     status: Literal["pending", "in_progress", "completed"]
 
 
-def file_reducer(l, r):
-    if l is None:
-        return r
-    elif r is None:
-        return l
+def file_reducer(left, right):
+    if left is None:
+        return right
+    elif right is None:
+        return left
     else:
-        return {**l, **r}
+        return {**left, **right}
 
 
 class DeepAgentState(AgentState):
