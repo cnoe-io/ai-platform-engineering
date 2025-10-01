@@ -13,7 +13,9 @@ async def post_api_v2_services_issues_search(body: str) -> Dict[str, Any]:
     '''
     Search for issues in service scope.
 
-    Search for issues based on the provided criteria. The maximum time range for the search is 2 days. If no time range is specified, the default is the last 24 hours. The maximum time back for the search is 7 days.
+    Search for issues based on the provided criteria. The maximum time range for the search is 2 days. 
+    If no time range is specified, the default is the last 24 hours. 
+    The maximum time back for the search is 7 days.
 
     Args:
         body (str): The request body containing search criteria and parameters.

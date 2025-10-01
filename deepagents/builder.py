@@ -1,4 +1,4 @@
-from deepagents import create_deep_agent, async_create_deep_agent, SubAgent
+from deepagents import create_deep_agent, async_create_deep_agent
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel
 from typing import Any, Optional

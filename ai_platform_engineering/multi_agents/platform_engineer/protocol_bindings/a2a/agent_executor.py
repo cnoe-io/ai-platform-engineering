@@ -1,30 +1,30 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
+import uuid
 from typing_extensions import override
+
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
+    Message as A2AMessage,
+    Task as A2ATask,
     TaskArtifactUpdateEvent,
+    TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    Message as A2AMessage,
-    Task as A2ATask,
     TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
-    TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
 )
-
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
+    AIPlatformEngineerA2ABinding
+)
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
-import uuid
 
-import logging
 logger = logging.getLogger(__name__)
 
-from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
-  AIPlatformEngineerA2ABinding
-)
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor."""
