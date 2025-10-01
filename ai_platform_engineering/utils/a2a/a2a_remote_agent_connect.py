@@ -11,12 +11,18 @@ import httpx
 
 from a2a.client import A2ACardResolver, A2AClient
 from a2a.types import (
-    AgentCard,
-    SendMessageRequest,
-    MessageSendParams,
+  AgentCard,
+  SendMessageRequest,
+  SendStreamingMessageRequest,
+  MessageSendParams,
+  Message as A2AMessage,
+  Task as A2ATask,
+  TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
+  TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
 )
 
 from langchain_core.tools import BaseTool
+from langgraph.config import get_stream_writer
 
 from ai_platform_engineering.utils.models.generic_agent import Output
 from cnoe_agent_utils.tracing import TracingManager
@@ -28,6 +34,7 @@ logger = logging.getLogger("a2a.client.tool")
 
 class A2AToolInput(BaseModel):
   """Input schema for A2A remote agent tool."""
+
   prompt: str = Field(description="The prompt to send to the agent")
   trace_id: Optional[str] = Field(default=None, description="Optional trace ID for distributed tracing")
 
@@ -38,6 +45,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
   Currently only supports single skill agents.
   TODO: Support multi-skill agents.
   """
+
   name: str
   description: str
   args_schema: type[BaseModel] = A2AToolInput
@@ -47,12 +55,12 @@ class A2ARemoteAgentConnectTool(BaseTool):
   _httpx_client = PrivateAttr()
 
   def __init__(
-      self,
-      # Accept AgentCard or URL string
-      remote_agent_card: Union[AgentCard, str],
-      skill_id: str,
-      access_token: Optional[str] = None,  # For extended card if needed
-      **kwargs: Any,
+    self,
+    # Accept AgentCard or URL string
+    remote_agent_card: Union[AgentCard, str],
+    skill_id: str,
+    access_token: Optional[str] = None,  # For extended card if needed
+    **kwargs: Any,
   ):
     """
     Initializes the A2ARemoteAgentConnectTool.
@@ -76,8 +84,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
     Fetches AgentCard if not already provided.
     """
     logger.info("*" * 80)
-    logger.info(
-        f"Connecting to remote agent: {getattr(self._remote_agent_card, 'name', self._remote_agent_card)}")
+    logger.info(f"Connecting to remote agent: {getattr(self._remote_agent_card, 'name', self._remote_agent_card)}")
     self._httpx_client = httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(retries=10), timeout=httpx.Timeout(300.0))
 
     # If self._remote_agent_card is already an AgentCard, just use it
@@ -88,40 +95,28 @@ class A2ARemoteAgentConnectTool(BaseTool):
     else:
       base_url = self._remote_agent_card  # e.g. http://localhost:10000
       logger.info(f"Fetching agent card from {base_url}")
-      resolver = A2ACardResolver(
-          httpx_client=self._httpx_client,
-          base_url=base_url)
+      resolver = A2ACardResolver(httpx_client=self._httpx_client, base_url=base_url)
       try:
         _public_card = await resolver.get_agent_card()
         self._agent_card = _public_card
         self.description = self._agent_card.description
-        if not self._skill_id: # If skill_id is not provided, use the first skill
+        if not self._skill_id:  # If skill_id is not provided, use the first skill
           self._skill_id = self._agent_card.skills[0].id
 
         logger.info(f"Successfully fetched public agent card for {self._remote_agent_card}.")
         if _public_card.supportsAuthenticatedExtendedCard and self._access_token:
           try:
-            _extended_card = await resolver.get_agent_card(
-                relative_card_path='/agent/authenticatedExtendedCard',
-                http_kwargs={'headers': {'Authorization': f'Bearer {self._access_token}'}}
-            )
+            _extended_card = await resolver.get_agent_card(relative_card_path="/agent/authenticatedExtendedCard", http_kwargs={"headers": {"Authorization": f"Bearer {self._access_token}"}})
             self._agent_card = _extended_card
             logger.info("Using authenticated extended agent card.")
           except Exception as e:
-            logger.warning(
-                f"Failed to fetch extended agent card: {e}. Using public card.")
+            logger.warning(f"Failed to fetch extended agent card: {e}. Using public card.")
       except Exception as e:
-        logger.error(
-            f"Failed to fetch agent card from {base_url}: {e}",
-            exc_info=True)
-        raise RuntimeError(
-            f"Could not fetch remote agent card from {base_url}") from e
+        logger.error(f"Failed to fetch agent card from {base_url}: {e}", exc_info=True)
+        raise RuntimeError(f"Could not fetch remote agent card from {base_url}") from e
 
     logger.info(f"Agent Card: {self._agent_card}")
-    self._client = A2AClient(
-        httpx_client=self._httpx_client,
-        agent_card=self._agent_card
-    )
+    self._client = A2AClient(httpx_client=self._httpx_client, agent_card=self._agent_card)
     logger.info("A2AClient initialized.")
     logger.info("*" * 80)
 
@@ -150,14 +145,8 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
   async def _arun(self, prompt: str, trace_id: Optional[str] = None) -> Any:
     """
-    Asynchronously sends a prompt to the A2A agent and returns the response.
-
-    Args:
-      prompt (str): The prompt to send to the agent.
-      trace_id (Optional[str]): Optional trace ID for distributed tracing.
-
-    Returns:
-      Output: The response from the agent.
+    Asynchronously sends a prompt to the A2A agent and returns the response via streaming.
+    Streams A2A events (Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent) using get_stream_writer.
     """
     try:
       logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
@@ -167,20 +156,92 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
       # Use provided trace_id or try to get from TracingManager context
       if trace_id:
-          logger.info(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
+        logger.info(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
       else:
-          # Get from TracingManager context - this is set by the trace decorator
-          tracing = TracingManager()
-          trace_id = tracing.get_trace_id() if tracing.is_enabled else None
-          if trace_id:
-              logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
-          else:
-              logger.warning("A2ARemoteAgentConnectTool: No trace_id available from any source")
+        tracing = TracingManager()
+        trace_id = tracing.get_trace_id() if tracing.is_enabled else None
+        if trace_id:
+          logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
+        else:
+          logger.warning("A2ARemoteAgentConnectTool: No trace_id available from any source")
 
-      response = await self.send_message(prompt, trace_id)
-      return Output(response=response)
+      if self._client is None:
+        logger.info("A2AClient not initialized. Connecting now...")
+        await self.connect()
+
+      # Build message payload with optional trace_id in metadata
+      message_payload: dict[str, Any] = {
+        "message": {
+          "role": "user",
+          "parts": [{"kind": "text", "text": prompt}],
+          "message_id": uuid4().hex,
+        }
+      }
+      if trace_id:
+        message_payload["message"]["metadata"] = {"trace_id": trace_id}
+        logger.info(f"Adding trace_id to A2A message: {trace_id}")
+
+      # Create streaming request
+      streaming_request = SendStreamingMessageRequest(
+        id=str(uuid4()),
+        params=MessageSendParams(**message_payload),
+      )
+
+      # Prepare stream writer
+      writer = get_stream_writer()
+      writer({"type": "progress", "data": "Connecting to A2A and starting stream..."})
+      logger.info("Starting A2A streaming send_message.")
+
+      accumulated_text: list[str] = []
+
+      async for chunk in self._client.send_message_streaming(streaming_request):
+        try:
+          chunk_dump = chunk.model_dump(mode="json", exclude_none=True)
+        except Exception:
+          chunk_dump = str(chunk)
+
+        logger.info(f"Received A2A stream chunk: {chunk_dump}")
+        writer({"type": "a2a_event", "data": chunk_dump})
+
+        try:
+          if isinstance(chunk, A2ATaskArtifactUpdateEvent):
+            art = chunk.artifact
+            if getattr(art, "parts", None):
+              for part in art.parts:
+                root = getattr(part, "root", None)
+                text = getattr(root, "text", None) if root is not None else None
+                if text:
+                  accumulated_text.append(text)
+          elif isinstance(chunk, A2ATaskStatusUpdateEvent):
+            status_msg = getattr(chunk.status, "message", None)
+            if status_msg and getattr(status_msg, "parts", None):
+              for part in status_msg.parts:
+                root = getattr(part, "root", None)
+                text = getattr(root, "text", None) if root is not None else None
+                if text:
+                  writer({"type": "progress", "data": text})
+          elif isinstance(chunk, A2AMessage):
+            parts = getattr(chunk, "parts", None)
+            if parts:
+              for part in parts:
+                root = getattr(part, "root", None)
+                text = getattr(root, "text", None) if root is not None else None
+                if text:
+                  writer({"type": "progress", "data": text})
+          elif isinstance(chunk, A2ATask):
+            writer({"type": "progress", "data": f"Task created: {getattr(chunk, 'id', '')}"})
+        except Exception as e:
+          logger.warning(f"Non-fatal error while handling stream chunk: {e}")
+
+      writer({"type": "progress", "data": "A2A stream complete."})
+      final_response = " ".join(accumulated_text).strip()
+      if not final_response:
+        logger.info("No accumulated artifact text; falling back to non-streaming send_message to get result.")
+        final_response = await self.send_message(prompt, trace_id)
+
+      return Output(response=final_response)
     except Exception as e:
-      logger.error(f"Failed to execute A2A client tool: {str(e)}")
+      logger.error(f"Failed to execute A2A client tool via streaming: {str(e)}")
       raise RuntimeError(f"Failed to execute A2A client tool: {str(e)}")
 
   async def send_message(self, prompt: str, trace_id: str = None) -> str:
@@ -199,24 +260,19 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
     # Build message payload with optional trace_id in metadata
     message_payload = {
-        'role': 'user',
-        'parts': [
-            {'kind': 'text', 'text': prompt}
-        ],
-        'messageId': uuid4().hex,
+      "role": "user",
+      "parts": [{"kind": "text", "text": prompt}],
+      "messageId": uuid4().hex,
     }
 
     # Add trace_id to metadata if provided
     if trace_id:
-        message_payload['metadata'] = {'trace_id': trace_id}
-        logger.info(f"Adding trace_id to A2A message: {trace_id}")
+      message_payload["metadata"] = {"trace_id": trace_id}
+      logger.info(f"Adding trace_id to A2A message: {trace_id}")
 
-    send_message_payload = {'message': message_payload}
+    send_message_payload = {"message": message_payload}
     # logger.info("Sending message to A2A agent with payload:\n" + json.dumps({**send_message_payload, 'message': send_message_payload['message'].dict()}, indent=4))
-    request = SendMessageRequest(
-        id=str(uuid4()),
-        params=MessageSendParams(**send_message_payload)
-    )
+    request = SendMessageRequest(id=str(uuid4()), params=MessageSendParams(**send_message_payload))
 
     logger.info(f"Request to send message: {request}")
     pprint.pprint(request)
@@ -237,18 +293,18 @@ class A2ARemoteAgentConnectTool(BaseTool):
           artifacts = [artifacts]
 
         for artifact in artifacts:
-          parts = getattr(artifact, 'parts', None)
+          parts = getattr(artifact, "parts", None)
           if parts is None:
             logging.warning(f"No 'parts' found in artifact: {artifact}")
             continue
 
           for part in parts:
-            root = getattr(part, 'root', None)
+            root = getattr(part, "root", None)
             if root is None:
               logging.warning(f"No 'root' found in part: {part}")
               continue
 
-            text = getattr(root, 'text', None)
+            text = getattr(root, "text", None)
             if text is not None:
               texts.append(text)
             else:
