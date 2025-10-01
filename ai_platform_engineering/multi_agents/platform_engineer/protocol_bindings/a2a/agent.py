@@ -8,16 +8,20 @@ from typing import Any
 
 # A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 import json
+from a2a.types import Message as A2AMessage
+from a2a.types import Task as A2ATask
+from a2a.types import TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent
+from a2a.types import TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent
 
 logger = logging.getLogger(__name__)
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt
 )
-from ai_platform_engineering.multi_agents.platform_engineer.supervisor_agent import (
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
   AIPlatformEngineerMAS,
 )
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
@@ -35,6 +39,17 @@ class AIPlatformEngineerA2ABinding:
   def __init__(self):
       self.graph = AIPlatformEngineerMAS().get_graph()
       self.tracing = TracingManager()
+
+  def _deserialize_a2a_event(self, data: Any):
+      """Try to deserialize a dict payload into known A2A models."""
+      if not isinstance(data, dict):
+          return None
+      for model in (A2ATaskStatusUpdateEvent, A2ATaskArtifactUpdateEvent, A2ATask, A2AMessage):
+          try:
+              return model.model_validate(data)  # type: ignore[attr-defined]
+          except Exception:
+              continue
+      return None
 
   @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
@@ -61,34 +76,46 @@ class AIPlatformEngineerA2ABinding:
       logging.info(f"Created tracing config: {config}")
 
       try:
-          async for item in self.graph.astream(inputs, config, stream_mode='values'):
-              logging.debug(f"Received item from graph stream: {item}")
-              message = item['messages'][-1]
+          async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
+
+              # Handle custom A2A event payloads emitted via get_stream_writer()
+              if isinstance(item, dict) and item.get("type") == "a2a_event":
+                  event_obj = self._deserialize_a2a_event(item.get("data"))
+                  if event_obj is not None:
+                      yield event_obj
+                      continue
+                  else:
+                      logging.warning("Supervisor: Received a2a_event but failed to deserialize; ignoring.")
+              elif item_type == 'messages':
+                message = item[0]
+              elif 'generate_structured_response' in item:
+                yield self.handle_structured_response(item['generate_structured_response']['structured_response'])
+
               if (
                   isinstance(message, AIMessage)
-                  and message.tool_calls
+                  and getattr(message, "tool_calls", None)
                   and len(message.tool_calls) > 0
               ):
-                  logging.info("Detected AIMessage with tool calls, yielding 'Looking up...' response")
+                  logging.info("Detected AIMessage with tool calls, yielding")
                   yield {
-                      'is_task_complete': True,  # Always True for now
-                      'require_user_input': False,
-                      'content': 'Looking up...',
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": "",
                   }
               elif isinstance(message, ToolMessage):
-                  logging.info("Detected ToolMessage, yielding 'Processing..' response")
+                  logging.info("Detected ToolMessage, yielding")
                   yield {
-                      'is_task_complete': True,  # Always True for now
-                      'require_user_input': False,
-                      'content': 'Processing..',
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": "",
+                  }
+              elif isinstance(message, AIMessageChunk):
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": message.content,
                   }
 
-          logging.debug("Stream processing complete, fetching final agent response")
-          logging.debug(f"Finalizing response with config: {config}")
-          result = self.get_agent_response(config)
-          logging.info(f"Final agent response: {result}")
-
-          yield result
       except Exception as e:
           logging.error(f"Error during agent stream processing: {e}")
           # Yield an error response instead of letting the exception propagate
@@ -98,89 +125,98 @@ class AIPlatformEngineerA2ABinding:
               'content': f'Agent processing failed: {str(e)}',
           }
 
-  def get_agent_response(self, config):
-      logging.debug("Fetching current state from graph with provided config")
-      current_state = self.graph.get_state(config)
-      logging.debug(f"Current state retrieved: {current_state}")
+  def handle_structured_response(self, ai_message):
+    try:
+      response_obj = None
+      if isinstance(ai_message, PlatformEngineerResponse):
+          response_obj = ai_message
+      elif isinstance(ai_message, dict):
+          response_obj = PlatformEngineerResponse.model_validate(ai_message)
+      elif isinstance(ai_message, str):
+          raw_content = ai_message.strip()
+          # Strip Markdown code fences if present
+          if raw_content.startswith('```') and raw_content.endswith('```'):
+              if raw_content.startswith('```json'):
+                  raw_content = raw_content[7:-3].strip()
+              else:
+                  raw_content = raw_content[3:-3].strip()
+          try:
+              response_obj = PlatformEngineerResponse.model_validate_json(raw_content)
+          except Exception:
+              try:
+                  # Last resort: json.loads then validate
+                  response_obj = PlatformEngineerResponse.model_validate(json.loads(raw_content))
+              except Exception:
+                  response_obj = None
+    except Exception as e:
+      logging.warning(f"Failed to deserialize PlatformEngineerResponse: {e}")
 
-      # Extract the AIMessage from the current state
-      messages = current_state.values.get('messages', [])
-      ai_message = next(
-        (msg for msg in reversed(messages) if isinstance(msg, AIMessage)), None
-      )
-
-      if isinstance(ai_message, AIMessage):
-        logging.info(f"AIMessage retrieved: {ai_message.content}")
-
-        # Handle structured output from PlatformEngineerResponse model
-        if isinstance(ai_message.content, PlatformEngineerResponse):
-          logging.info("Found structured PlatformEngineerResponse object")
-          response = ai_message.content
-          if not response.is_task_complete:
-            logging.info("PlatformEngineerResponse is not complete, but for now we will return it as complete")
-            response.is_task_complete = True
-          result = {
-            'is_task_complete': response.is_task_complete,
-            'require_user_input': response.require_user_input,
-            'content': response.content,
+    if response_obj is not None:
+      result = {
+        'is_task_complete': response_obj.is_task_complete,
+        'require_user_input': response_obj.require_user_input,
+        'content': response_obj.content,
+      }
+      # Add metadata if present
+      if getattr(response_obj, "metadata", None):
+          md = response_obj.metadata
+          result['metadata'] = {
+            'user_input': getattr(md, 'user_input', None),
+            'input_fields': [
+              {
+                'field_name': f.field_name,
+                'field_description': f.field_description,
+                'field_values': f.field_values
+              }
+              for f in (md.input_fields or [])
+            ] if getattr(md, 'input_fields', None) else None
           }
+      logging.info(f"Returning structured response (deserialized): {result}")
+      return result
 
-          # Add metadata if present
-          if response.metadata:
-            result['metadata'] = {
-              'user_input': response.metadata.user_input,
-              'input_fields': [
-                {
-                  'field_name': field.field_name,
-                  'field_description': field.field_description,
-                  'field_values': field.field_values
-                }
-                for field in response.metadata.input_fields
-              ] if response.metadata.input_fields else None
-            }
+    # Fallback: handle plain text or attempt JSON parsing for backward compatibility
+    try:
+      content = ai_message if isinstance(ai_message, str) else str(ai_message)
 
-          logging.info(f"Returning structured response: {result}")
-          return result
+      # Log the raw content for debugging
+      logging.info(f"Raw LLM content (fallback handling): {repr(content)}")
 
-        # Fallback: try to parse as JSON string (backward compatibility)
-        try:
-          content = ai_message.content if isinstance(ai_message.content, str) else str(ai_message.content)
+      # Strip markdown code block formatting if present
+      if content.startswith('```json') and content.endswith('```'):
+        content = content[7:-3].strip()  # Remove ```json at start and ``` at end
+        logging.info("Stripped ```json``` formatting")
+      elif content.startswith('```') and content.endswith('```'):
+        content = content[3:-3].strip()  # Remove ``` at start and end
+        logging.info("Stripped ``` formatting")
 
-          # Log the raw content for debugging
-          logging.info(f"Raw LLM content (fallback JSON parsing): {repr(content)}")
+      logging.info(f"Content after stripping: {repr(content)}")
 
-          # Strip markdown code block formatting if present
-          if content.startswith('```json') and content.endswith('```'):
-            content = content[7:-3].strip()  # Remove ```json at start and ``` at end
-            logging.info("Stripped ```json``` formatting")
-          elif content.startswith('```') and content.endswith('```'):
-            content = content[3:-3].strip()  # Remove ``` at start and end
-            logging.info("Stripped ``` formatting")
+      # If content doesn't look like JSON, treat it as a working text update
+      if not (content.startswith('{') or content.startswith('[')):
+        logging.info("Content appears to be plain text; returning working structured response.")
+        return {
+          'is_task_complete': False,
+          'require_user_input': False,
+          'content': content,
+        }
 
-          logging.info(f"Content after stripping: {repr(content)}")
-
-          response_dict = json.loads(content)
-          if isinstance(response_dict, dict):
-            logging.info("Successfully parsed JSON response (fallback)")
-            return response_dict
-          else:
-            logging.warning("AIMessage content is not a valid dictionary, returning default structured response")
-            return self._get_default_error_response("AIMessage content is not a valid dictionary")
-
-        except json.JSONDecodeError as e:
-          logging.error(f"Error decoding AIMessage content to dictionary: {e}")
-          logging.error(f"Content that failed to parse: {repr(content)}")
-          return self._get_default_error_response(f"Error decoding AIMessage content: {e}")
-
+      # Attempt to parse JSON
+      response_dict = json.loads(content)
+      if isinstance(response_dict, dict):
+        logging.info("Successfully parsed JSON response (fallback)")
+        return response_dict
       else:
-        logging.warning("AIMessage is missing or invalid, proceeding with default structured response")
-        return self._get_default_error_response("AIMessage is missing or invalid")
-
-  def _get_default_error_response(self, error_message: str) -> dict:
-    """Return a default error response in the expected format"""
-    return {
-      'is_task_complete': True,  # Always True for now
-      'require_user_input': True,
-      'content': f"{error_message}. Please try again.",
-    }
-  SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
+        logging.warning("Parsed JSON is not a dictionary; returning working structured response with text content.")
+        return {
+          'is_task_complete': False,
+          'require_user_input': False,
+          'content': content,
+        }
+    except json.JSONDecodeError as e:
+      logging.warning(f"Failed to decode content as JSON, returning working structured response: {e}")
+      logging.warning(f"Content that failed to parse: {repr(content)}")
+      return {
+        'is_task_complete': False,
+        'require_user_input': False,
+        'content': content,
+      }

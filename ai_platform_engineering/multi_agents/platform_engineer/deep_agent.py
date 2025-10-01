@@ -5,20 +5,18 @@ import logging
 import uuid
 import os
 import threading
+import json
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableLambda
 from langgraph.graph.state import CompiledStateGraph
-from langgraph_supervisor import create_supervisor
-from langgraph_supervisor.handoff import create_forward_message_tool
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.store.memory import InMemoryStore
 from cnoe_agent_utils import LLMFactory
 
-from langchain_core.runnables import RunnableLambda
-import json
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 
-from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt, generate_subagents
+from deepagents import async_create_deep_agent
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -92,106 +90,45 @@ class AIPlatformEngineerMAS:
 
   def _build_graph(self) -> None:
     """
-    Internal method to construct and compile a LangGraph instance with current agents.
+    Internal method to construct and compile a DeepAgents graph with current agents.
     Updates self._graph and increments generation counter.
     """
-    logger.debug(f"Building graph (generation {self._graph_generation + 1})...")
+    logger.debug(f"Building deep agent (generation {self._graph_generation + 1})...")
 
     base_model = LLMFactory().get_llm()
+
+    all_agents = platform_registry.get_all_agents()
+
+    subagents = generate_subagents()
+
+    logger.info(f'sub_agents: {subagents}')
+
+    # Create the Deep Agent
+    deep_agent = async_create_deep_agent(
+      tools=all_agents,
+      instructions=system_prompt,
+      subagents=subagents,
+      model=base_model
+      # response_format=PlatformEngineerResponse
+    )
 
     # Check if LANGGRAPH_DEV is defined in the environment
     if os.getenv("LANGGRAPH_DEV"):
       checkpointer = None
-      store = None
     else:
       checkpointer = InMemorySaver()
-      store = InMemoryStore()
 
-    # Get current agents from platform registry
-    agent_tools = platform_registry.get_all_agents()
-
-    # The argument is the name to assign to the resulting forwarded message
-    forwarding_tool = create_forward_message_tool("platform_engineer_supervisor")
-
-    # Get schema and fix for OpenAI strict validation requirements
-    schema = PlatformEngineerResponse.model_json_schema()
-    def fix_schema_for_openai(obj):
-        if isinstance(obj, dict):
-            if obj.get('type') == 'object':
-                obj['additionalProperties'] = False
-                # OpenAI strict mode requires ALL properties to be in required array
-                if 'properties' in obj:
-                    obj['required'] = list(obj['properties'].keys())
-            for value in obj.values():
-                fix_schema_for_openai(value)
-        elif isinstance(obj, list):
-            for item in obj:
-                fix_schema_for_openai(item)
-
-    fix_schema_for_openai(schema)
-
-    # Create a base model with tools (for tool calling)
-    model_with_tools = base_model.bind_tools([forwarding_tool] + agent_tools)
-
-    # Create a conditional output processor that handles both tool calls and structured responses
-    def process_model_output(message):
-        # If the message has tool calls, return it as-is (don't apply structured output)
-        if hasattr(message, 'tool_calls') and message.tool_calls:
-            return message
-
-        # If it's a final response without tool calls, apply structured output
-        try:
-            # Try to parse the content as structured output
-            if hasattr(message, 'content') and message.content:
-                # Use the base model with structured output for final responses
-                structured_model = base_model.with_structured_output(
-                    schema=schema,
-                    method="json_schema",
-                    strict=True,
-                )
-                # Re-invoke with structured output, preserving context that this is a tool response
-                context_prompt = f"""TOOL RESPONSE - Format this according to structured output requirements. PRESERVE EXACT CONTENT:
-
-Tool/Agent Response: {message.content}
-
-Instructions:
-- If the tool asks for information, use the exact message in 'content' field
-- Set require_user_input=true if the tool is asking for user input
-- Set is_task_complete=false if the tool needs more information
-- Extract specific field requirements from the tool's actual request for input_fields
-- DO NOT rewrite or generalize the tool's specific request"""
-                structured_response = structured_model.invoke([HumanMessage(content=context_prompt)])
-                return AIMessage(
-                    content=json.dumps(structured_response.model_dump() if hasattr(structured_response, 'model_dump') else structured_response)
-                )
-        except Exception as e:
-            logger.warning(f"Failed to apply structured output formatting: {e}")
-
-        # Fallback: return original message
-        return message
-
-    model = model_with_tools | RunnableLambda(process_model_output)
-
-    new_graph = create_supervisor(
-      model=model,
-      agents=[],
-      prompt=system_prompt,
-      add_handoff_back_messages=True,
-      parallel_tool_calls=True,
-      tools=[forwarding_tool] + agent_tools,
-      output_mode="last_message",
-      supervisor_name="platform_engineer_supervisor",
-    ).compile(
-      checkpointer=checkpointer,
-      store=store,
-    )
+    # Attach checkpointer if desired
+    if checkpointer is not None:
+      deep_agent.checkpointer = checkpointer
 
     # Atomically update graph and increment generation
-    self._graph = new_graph
+    self._graph = deep_agent
     self._graph_generation += 1
 
-    logger.debug(f"LangGraph supervisor created and compiled successfully (generation {self._graph_generation})")
-    logger.info(f"Graph updated with {len(agent_tools)} agent tools")
+    logger.debug(f"Deep agent created successfully (generation {self._graph_generation})")
+    logger.info(f"Deep agent updated with {len(subagents)} subagents")
+
 
   async def serve(self, prompt: str):
     """
@@ -205,7 +142,8 @@ Instructions:
       logger.debug(f"Received prompt: {prompt}")
       if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("Prompt must be a non-empty string.")
-      result = await self.graph.ainvoke({
+      graph = self.get_graph()
+      result = await graph.ainvoke({
           "messages": [
               {
                   "role": "user",
