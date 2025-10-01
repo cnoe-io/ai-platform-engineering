@@ -11,13 +11,17 @@ from typing import Any
 from langchain_core.messages import AIMessage, ToolMessage
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 import json
+from a2a.types import Message as A2AMessage
+from a2a.types import Task as A2ATask
+from a2a.types import TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent
+from a2a.types import TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent
 
 logger = logging.getLogger(__name__)
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   system_prompt
 )
-from ai_platform_engineering.multi_agents.platform_engineer.supervisor_agent import (
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
   AIPlatformEngineerMAS,
 )
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
@@ -35,6 +39,17 @@ class AIPlatformEngineerA2ABinding:
   def __init__(self):
       self.graph = AIPlatformEngineerMAS().get_graph()
       self.tracing = TracingManager()
+
+  def _deserialize_a2a_event(self, data: Any):
+      """Try to deserialize a dict payload into known A2A models."""
+      if not isinstance(data, dict):
+          return None
+      for model in (A2ATaskStatusUpdateEvent, A2ATaskArtifactUpdateEvent, A2ATask, A2AMessage):
+          try:
+              return model.model_validate(data)  # type: ignore[attr-defined]
+          except Exception:
+              continue
+      return None
 
   @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
@@ -61,26 +76,42 @@ class AIPlatformEngineerA2ABinding:
       logging.info(f"Created tracing config: {config}")
 
       try:
-          async for item in self.graph.astream(inputs, config, stream_mode='values'):
+          async for item in self.graph.astream(inputs, config, stream_mode='custom'):
               logging.debug(f"Received item from graph stream: {item}")
-              message = item['messages'][-1]
+
+              # Handle custom A2A event payloads emitted via get_stream_writer()
+              if isinstance(item, dict) and item.get("type") == "a2a_event":
+                  event_obj = self._deserialize_a2a_event(item.get("data"))
+                  if event_obj is not None:
+                      logging.info(f"Supervisor: Emitting deserialized A2A event: {type(event_obj).__name__}")
+                      yield event_obj
+                      continue
+                  else:
+                      logging.info("Supervisor: Received a2a_event but failed to deserialize; ignoring.")
+
+              # Fallback to message-driven heuristics
+              try:
+                  message = item['messages'][-1]
+              except Exception:
+                  message = item  # Custom streams may return message objects directly
+
               if (
                   isinstance(message, AIMessage)
-                  and message.tool_calls
+                  and getattr(message, "tool_calls", None)
                   and len(message.tool_calls) > 0
               ):
                   logging.info("Detected AIMessage with tool calls, yielding 'Looking up...' response")
                   yield {
-                      'is_task_complete': True,  # Always True for now
-                      'require_user_input': False,
-                      'content': 'Looking up...',
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": "Looking up...",
                   }
               elif isinstance(message, ToolMessage):
                   logging.info("Detected ToolMessage, yielding 'Processing..' response")
                   yield {
-                      'is_task_complete': True,  # Always True for now
-                      'require_user_input': False,
-                      'content': 'Processing..',
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": "Processing..",
                   }
 
           logging.debug("Stream processing complete, fetching final agent response")

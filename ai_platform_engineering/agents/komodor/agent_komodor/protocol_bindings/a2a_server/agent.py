@@ -246,12 +246,12 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
       inputs: dict[str, Any] = {'messages': [('user', query)]}
       config: RunnableConfig = self.tracing.create_config(sessionId)
 
-      async for item in self.graph.astream(inputs, config, stream_mode='values'):
-          message = item['messages'][-1]
-          debug_print(f"Streamed message: {message}")
+      async for message in self.graph.astream(inputs, config, stream_mode='messages'):
+          debug_print(f"Streamed message chunk: {message}")
+          logger.info(f"Komodor stream chunk: {message}")
           if (
               isinstance(message, AIMessage)
-              and message.tool_calls
+              and getattr(message, "tool_calls", None)
               and len(message.tool_calls) > 0
           ):
               yield {
@@ -265,6 +265,18 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
                 'require_user_input': False,
                 'content': 'Processing Komodor Resources rates..',
               }
+          else:
+              content_text = None
+              if hasattr(message, "content"):
+                  content_text = getattr(message, "content", None)
+              elif isinstance(message, str):
+                  content_text = message
+              if content_text:
+                  yield {
+                    'is_task_complete': False,
+                    'require_user_input': False,
+                    'content': str(content_text),
+                  }
 
       yield self.get_agent_response(config)
 
