@@ -1,0 +1,27 @@
+tests:
+  kubernetes_agent_1:
+    input: |
+      show kubernetes version
+    reference_trajectory:
+      solution_1: __start__;agent_kubernetes
+    metadata:
+      comments: |
+        Shows the version of the Kubernetes Server Version.
+
+  kubernetes_agent_2:
+    input: |
+      show kubernetes app health status in project jarvis-agent-dev
+    reference_trajectory:
+      solution_1: __start__;agent_kubernetes
+    metadata:
+      comments: |
+        Shows the health status of all applications in the jarvis-agent-dev project.
+
+  kubernetes_agent_3:
+    input: |
+      show kubernetes unhealthy apps in project jarvis-agent-dev
+    reference_trajectory:
+      solution_1: __start__;agent_kubernetes
+    metadata:
+      comments: |
+        Lists all unhealthy applications in the jarvis-agent-dev project.

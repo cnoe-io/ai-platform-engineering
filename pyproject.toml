@@ -24,6 +24,7 @@ dependencies = [
     "identity-service-sdk>=0.0.1",
     "pyjwt>=2.10.1",
     "cryptography>=45.0.7",
+    "kubernetes (>=30.0.0,<31.0.0)",
 ]
 
 [tool.pytest.ini_options]

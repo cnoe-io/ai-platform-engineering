@@ -898,6 +898,53 @@ services:
     container_name: backstage-agent-forge
     ports:
       - "13000:3000"
+  
+    ####################################################################################################
+  #                                      AGENT KUBERNETES A2A P2P                                    #
+  ####################################################################################################
+  agent-kubernetes-p2p:
+    build:
+      context: ai_platform_engineering/agents/kubernetes
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-kubernetes-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/kubernetes/agent_kubernetes:/app/agent_kubernetes
+      - ./ai_platform_engineering/agents/kubernetes/clients:/app/clients
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8010:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-kubernetes
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+
+ ####################################################################################################
+  #                                      MCP KUBERNETES                                              #
+  ####################################################################################################
+  mcp-kubernetes:
+    image: ghcr.io/azure/mcp-kubernetes:latest
+    container_name: mcp-kubernetes
+    profiles:
+      - p2p
+      - p2p-tracing
+    env_file:
+      - .env
+    volumes:
+      - ${KUBE_CONFIG_PATH}:/home/mcp/.kube/config
+    ports:
+      - "18008:8000"
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    command: ["--transport", "streamable-http", "--port", "8000"]
+
   ####################################################################################################
   #                                          KB-RAG SERVICES                                         #
   ####################################################################################################
