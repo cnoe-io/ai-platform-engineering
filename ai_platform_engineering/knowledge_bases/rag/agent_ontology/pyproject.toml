@@ -1,0 +1,28 @@
+[project]
+name = "agent-ontology"
+version = "0.1.0"
+description = "Ontology agent to generate relations between entities in the knowledge graph"
+readme = "README.md"
+authors = [
+    { email = "subbaksh@cisco.com" }
+]
+requires-python = ">=3.13, <4.0"
+dependencies = [
+    "langchain>=0.3.26",
+    "langchain-openai>=0.3.23",
+    "langgraph>=0.4.8",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "python-dotenv>=1.1.0",
+    "cnoe-agent-utils==0.3.0",
+    "fastapi[standard]>=0.116.1",
+    "apscheduler>=3.11.0",
+    "common",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+common = { path = "../common" }
