@@ -226,5 +226,5 @@ ai_platform_engineering/knowledge_bases/rag/web/node_modules
 
 # node
 node_modules/
-package-lock.json
+# package-lock.json
 # package.json
