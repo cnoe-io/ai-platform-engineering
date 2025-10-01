@@ -49,6 +49,28 @@ skills_prompt = PromptTemplate(
     )
 )
 
+def generate_subagents():
+  """
+  Build DeepAgents-compatible subagent definitions (without tools) from the platform registry.
+  Each subagent contains: name, description, and prompt.
+  The 'tools' field is intentionally omitted so DeepAgents can populate access later.
+  """
+  subagents = []
+  for agent_key, agent in agents.items():
+      # Prefer system_prompt override from prompt config; fallback to agent description
+      system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt")
+      description = getattr(agent.agent_card(), "description", agent_key)
+      prompt = system_prompt_override or description
+      sub_agent = {
+          "name": agent_key,
+          "description": description,
+          "prompt": prompt
+          # "tool": agent
+      }
+      logger.info(f'sub_agent: {sub_agent}')
+      subagents.append(sub_agent)
+  return subagents
+
 # Generate system prompt dynamically based on tools and their tasks
 def generate_system_prompt(agents: Dict[str, Any]):
   tool_instructions = []
@@ -88,9 +110,6 @@ You are an AI Platform Engineer, a multi-agent system designed to manage operati
 LLM Instructions:
 - Only respond to requests related to the integrated tools. Always call the appropriate agent or tool.
 - When responding, use markdown format. Make sure all URLs are presented as clickable links.
-- Set status to completed if the request is fulfilled.
-- Set status to input_required if you need more information from the user.
-- Set status to error if there is a problem with the input or processing.
 
 
 {tool_instructions_str}
@@ -107,8 +126,5 @@ response_format_instruction: str = config.get(
   "response_format_instruction",
   (
     "Respond in markdown format. Ensure that any URLs provided in the response are updated with clickable links.\n\n"
-    "Select status as completed if the request is complete.\n"
-    "Select status as input_required if the input is a question to the user.\n"
-    "Set response status to error if the input indicates an error."
   )
 )

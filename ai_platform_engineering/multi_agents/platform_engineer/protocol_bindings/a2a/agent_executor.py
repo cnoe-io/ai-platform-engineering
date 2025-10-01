@@ -1,10 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-import logging
-import uuid
 from typing_extensions import override
-
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
@@ -12,15 +9,22 @@ from a2a.types import (
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
+    Message as A2AMessage,
+    Task as A2ATask,
+    TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
+    TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
 )
+
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
+import uuid
+
+import logging
+logger = logging.getLogger(__name__)
 
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
   AIPlatformEngineerA2ABinding
 )
-
-logger = logging.getLogger(__name__)
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor."""
@@ -49,7 +53,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     ) -> None:
         query = context.get_user_input()
         task = context.current_task
-        context_id = context.message.contextId if context.message else None
+        context_id = context.message.context_id if context.message else None
 
         if not context.message:
           raise Exception('No message provided')
@@ -62,19 +66,19 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         # Extract trace_id from A2A context (or generate if root)
         trace_id = extract_trace_id_from_context(context)
-        
+
         # Enhanced trace_id extraction - check multiple locations
         if not trace_id and context and context.message:
             # Try additional extraction methods for evaluation requests
             logger.info("🔍 Platform Engineer Executor: No trace_id from extract_trace_id_from_context, checking alternatives")
-            
+
             # Check if there's metadata in the message
             if hasattr(context.message, 'metadata') and context.message.metadata:
                 if isinstance(context.message.metadata, dict):
                     trace_id = context.message.metadata.get('trace_id')
                     if trace_id:
                         logger.info(f"🔍 Platform Engineer Executor: Found trace_id in message.metadata: {trace_id}")
-            
+
             # Check if there's a params object with metadata
             if not trace_id and hasattr(context, 'params') and context.params:
                 if hasattr(context.params, 'metadata') and context.params.metadata:
@@ -82,7 +86,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         trace_id = context.params.metadata.get('trace_id')
                         if trace_id:
                             logger.info(f"🔍 Platform Engineer Executor: Found trace_id in params.metadata: {trace_id}")
-        
         if not trace_id:
             # Platform engineer is the ROOT supervisor - generate trace_id
             # Langfuse requires 32 lowercase hex chars (no dashes)
@@ -94,14 +97,52 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         try:
             # invoke the underlying agent, using streaming results
             async for event in self.agent.stream(query, context_id, trace_id):
+                # Handle typed A2A events directly
+                if isinstance(event, (A2ATaskArtifactUpdateEvent, A2ATaskStatusUpdateEvent)):
+                    logger.debug(f"Executor: Enqueuing streamed A2A event: {type(event).__name__}")
+                    await self._safe_enqueue_event(event_queue, event)
+                    continue
+                elif isinstance(event, A2AMessage):
+                    logger.debug("Executor: Converting A2A Message to TaskStatusUpdateEvent (working)")
+                    text_content = ""
+                    parts = getattr(event, "parts", None)
+                    if parts:
+                        texts = []
+                        for part in parts:
+                            root = getattr(part, "root", None)
+                            txt = getattr(root, "text", None) if root is not None else None
+                            if txt:
+                                texts.append(txt)
+                        text_content = " ".join(texts)
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskStatusUpdateEvent(
+                            status=TaskStatus(
+                                state=TaskState.working,
+                                message=new_agent_text_message(
+                                    text_content or "(streamed message)",
+                                    task.context_id,
+                                    task.id,
+                                ),
+                            ),
+                            final=False,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                        )
+                    )
+                    continue
+                elif isinstance(event, A2ATask):
+                    logger.debug("Executor: Received A2A Task event; enqueuing.")
+                    await self._safe_enqueue_event(event_queue, event)
+                    continue
                 if event['is_task_complete']:
                   logger.info("Task complete event received. Enqueuing TaskArtifactUpdateEvent and TaskStatusUpdateEvent.")
                   await self._safe_enqueue_event(
                     event_queue,
                     TaskArtifactUpdateEvent(
                       append=False,
-                      contextId=task.contextId,
-                      taskId=task.id,
+                      context_id=task.context_id,
+                      task_id=task.id,
                       lastChunk=True,
                       artifact=new_text_artifact(
                         name='current_result',
@@ -115,8 +156,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                       status=TaskStatus(state=TaskState.completed),
                       final=True,
-                      contextId=task.contextId,
-                      taskId=task.id,
+                      context_id=task.context_id,
+                      task_id=task.id,
                     )
                   )
                   logger.info(f"Task {task.id} marked as completed.")
@@ -129,18 +170,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         state=TaskState.input_required,
                         message=new_agent_text_message(
                           event['content'],
-                          task.contextId,
+                          task.context_id,
                           task.id,
                         ),
                       ),
                       final=True,
-                      contextId=task.contextId,
-                      taskId=task.id,
+                      context_id=task.context_id,
+                      task_id=task.id,
                     )
                   )
                   logger.info(f"Task {task.id} requires user input.")
                 else:
-                  logger.info("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
+                  logger.debug("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
                   await self._safe_enqueue_event(
                     event_queue,
                     TaskStatusUpdateEvent(
@@ -148,16 +189,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         state=TaskState.working,
                         message=new_agent_text_message(
                           event['content'],
-                          task.contextId,
+                          task.context_id,
                           task.id,
                         ),
                       ),
                       final=False,
-                      contextId=task.contextId,
-                      taskId=task.id,
+                      context_id=task.context_id,
+                      task_id=task.id,
                     )
                   )
-                  logger.info(f"Task {task.id} is in progress.")
+                  logger.debug(f"Task {task.id} is in progress.")
         except Exception as e:
             logger.error(f"Error during agent execution: {e}")
             # Try to enqueue a failure status if the queue is still open
@@ -169,13 +210,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             state=TaskState.failed,
                             message=new_agent_text_message(
                                 f"Agent execution failed: {str(e)}",
-                                task.contextId,
+                                task.context_id,
                                 task.id,
                             ),
                         ),
                         final=True,
-                        contextId=task.contextId,
-                        taskId=task.id,
+                        context_id=task.context_id,
+                        task_id=task.id,
                     )
                 )
             except Exception as enqueue_error:
