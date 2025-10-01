@@ -13,7 +13,8 @@ async def post_api_v2_clusters_issues_search(body: str) -> Dict[str, Any]:
     '''
     Search for issues in cluster scope.
 
-    Search for issues based on the provided criteria. Maximum time range is 2 days. If no time range is provided, the default is the last 24 hours. Maximum time back is 7 days.
+    Search for issues based on the provided criteria. Maximum time range is 2 days. 
+    If no time range is provided, the default is the last 24 hours. Maximum time back is 7 days.
 
     Args:
         body (str): The request body containing search criteria for issues.

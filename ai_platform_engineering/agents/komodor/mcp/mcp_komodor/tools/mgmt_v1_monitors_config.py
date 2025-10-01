@@ -13,7 +13,8 @@ async def monitors_controller_v1_get_all() -> Dict[str, Any]:
     '''
     Fetches all monitor configurations.
 
-    This function is deprecated. Please use `/api/v2/realtime-monitors/config` API instead for new implementations and better validation and error handling.
+    This function is deprecated. Please use `/api/v2/realtime-monitors/config` API 
+    instead for new implementations and better validation and error handling.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call containing monitor configurations.
@@ -57,7 +58,8 @@ async def monitors_controller_v1_post(
     '''
     Deprecated: Use `/api/v2/realtime-monitors/config` instead.
 
-    This function makes a POST request to the `/mgmt/v1/monitors/config` endpoint to configure monitor settings. It is deprecated and should be replaced with `/api/v2/realtime-monitors/config` for new implementations.
+    This function makes a POST request to the `/mgmt/v1/monitors/config` endpoint to configure monitor settings. 
+    It is deprecated and should be replaced with `/api/v2/realtime-monitors/config` for new implementations.
 
     Args:
         body_name (str): The name of the monitor.

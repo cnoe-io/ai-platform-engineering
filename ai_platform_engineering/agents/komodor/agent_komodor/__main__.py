@@ -1,6 +1,15 @@
 # Copyright 2025 Cisco
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
+import click
+import httpx
+import os
+import uvicorn
+from dotenv import load_dotenv
+from agntcy_app_sdk.factory import AgntcyFactory
+from starlette.middleware.cors import CORSMiddleware
+
 # =====================================================
 # CRITICAL: Disable a2a tracing BEFORE any a2a imports
 # =====================================================
@@ -12,26 +21,15 @@ disable_a2a_tracing()
 # =====================================================
 # Now safe to import a2a modules
 # =====================================================
-
-import click
-import httpx
-import uvicorn
-import asyncio
-import os
-from dotenv import load_dotenv
-from agntcy_app_sdk.factory import AgntcyFactory
-
-from agent_komodor.protocol_bindings.a2a_server.agent_executor import KomodorAgentExecutor # type: ignore[import-untyped]
-from agent_komodor.agentcard import create_agent_card
-from a2a.server.apps import A2AStarletteApplication
-from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import (
+from a2a.server.apps import A2AStarletteApplication  # noqa: E402
+from a2a.server.request_handlers import DefaultRequestHandler  # noqa: E402
+from a2a.server.tasks import (  # noqa: E402
     BasePushNotificationSender,
     InMemoryPushNotificationConfigStore,
     InMemoryTaskStore,
 )
-
-from starlette.middleware.cors import CORSMiddleware
+from agent_komodor.agentcard import create_agent_card  # noqa: E402
+from agent_komodor.protocol_bindings.a2a_server.agent_executor import KomodorAgentExecutor  # type: ignore[import-untyped]  # noqa: E402
 
 load_dotenv()
 

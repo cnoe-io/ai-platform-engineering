@@ -50,7 +50,9 @@ async def put_api_v2_rbac_roles_id_or_name(
     '''
     Update a role by its ID or name.
 
-    This function sends an asynchronous PUT request to update a role in the RBAC system using either the role's ID or name. The role's attributes such as name, default status, associated policy IDs, and policy names can be updated.
+    This function sends an asynchronous PUT request to update a role in the RBAC system 
+    using either the role's ID or name. The role's attributes such as name, default status, 
+    associated policy IDs, and policy names can be updated.
 
     Args:
         path_id_or_name (str): The ID or name of the role to be updated.

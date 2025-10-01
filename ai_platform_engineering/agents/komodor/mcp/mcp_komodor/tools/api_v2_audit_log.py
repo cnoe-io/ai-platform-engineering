@@ -35,7 +35,8 @@ async def get_api_v2_audit_log(
         param_operations (List[str], optional): List of operations to filter the audit logs. Defaults to None.
         param_entityTypes (List[str], optional): List of entity types to filter the audit logs. Defaults to None.
         param_entityName (str, optional): Name of the entity to filter the audit logs. Defaults to None.
-        param_startTime (str, optional): Start time for the audit logs query. Defaults to 8 hours ago if not provided. Ignored if the response is CSV.
+        param_startTime (str, optional): Start time for the audit logs query. 
+            Defaults to 8 hours ago if not provided. Ignored if the response is CSV.
         param_endTime (str, optional): End time for the audit logs query. Defaults to now if not provided. Ignored if the response is CSV.
         param_status (str, optional): Status to filter the audit logs. Defaults to all statuses if not provided.
         param_page (int, optional): Page number for pagination. Defaults to 1 if not provided. Ignored if the response is CSV.

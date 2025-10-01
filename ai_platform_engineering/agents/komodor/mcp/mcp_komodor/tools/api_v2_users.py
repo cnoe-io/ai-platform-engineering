@@ -18,7 +18,9 @@ async def get_api_v2_users(
     Args:
         param_displayName (str, optional): The display name of the user to filter by. Defaults to None.
         param_email (str, optional): The email of the user to filter by. Defaults to None.
-        param_isDeleted (bool, optional): Filter users based on their deletion status. If True, only deleted users are returned. If False, only non-deleted users are returned. Defaults to False.
+        param_isDeleted (bool, optional): Filter users based on their deletion status. 
+            If True, only deleted users are returned. If False, only non-deleted users are returned. 
+            Defaults to False.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call containing user data.
@@ -62,7 +64,8 @@ async def post_api_v2_users(
     Args:
         body_displayName (str): The display name of the user to be created.
         body_email (str): The email address of the user to be created.
-        body_restoreIfDeleted (bool, optional): Flag indicating whether to restore the user if they were previously marked as deleted. Defaults to None.
+        body_restoreIfDeleted (bool, optional): Flag indicating whether to restore the user 
+            if they were previously marked as deleted. Defaults to None.
 
     Returns:
         Dict[str, Any]: The JSON response from the API call, containing user details or error information.
