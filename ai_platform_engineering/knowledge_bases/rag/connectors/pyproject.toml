@@ -1,0 +1,23 @@
+[project]
+name = "connectors"
+version = "0.1.0"
+description = "Connectors for the knowledge graph"
+readme = "README.md"
+authors = [
+    { email = "subbaksh@cisco.com" }
+]
+requires-python = ">=3.13, <4.0"
+dependencies = [
+    "boto3>=1.38.38",
+    "common",
+    "kubernetes>=33.1.0",
+    "python-dotenv>=1.1.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+core = { path = "../common" }
+common = { path = "../common" }
