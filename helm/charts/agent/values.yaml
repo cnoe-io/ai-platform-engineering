@@ -1,6 +1,9 @@
 # Default values for agent.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
+agentExports:
+  data:
+    enabled: true
 
 # This is to override the chart name.
 nameOverride: ""
@@ -14,7 +17,7 @@ image:
   # This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "a2a-stable"
+  tag: "stable"
 
 # This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []

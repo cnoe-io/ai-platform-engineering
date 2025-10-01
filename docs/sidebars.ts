@@ -90,6 +90,10 @@ const sidebars: SidebarsConfig = {
               type: 'doc',
               id: 'getting-started/idpbuilder/setup',
             },
+            {
+              type: 'doc',
+              id: 'getting-started/idpbuilder/ubuntu-prerequisites',
+            },
           ],
         },
         {
@@ -119,13 +123,28 @@ const sidebars: SidebarsConfig = {
         {
           type: 'doc',
           id: 'architecture/index',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/gateway',
         }
       ],
     },
     {
-      type: 'doc',
-      id: 'security/index',
+      type: 'category',
       label: 'Security',
+      items: [
+        {
+          type: 'doc',
+          id: 'security/index',
+          label: 'Overview',
+        },
+        {
+          type: 'doc',
+          id: 'security/a2a-auth',
+          label: 'A2A Authentication',
+        }
+      ],
     },
     {
       type: 'category',
@@ -174,12 +193,20 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
+          id: 'agents/splunk',
+        },
+        {
+          type: 'doc',
           id: 'agents/template',
         },
         {
           type: 'doc',
           id: 'agents/weather',
         },
+        {
+          type: 'doc',
+          id: 'agents/webex',
+        }
       ],
     },
     {

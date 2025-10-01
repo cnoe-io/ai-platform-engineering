@@ -98,3 +98,19 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
     {{- end }}
 {{- end }}
 
+{{/*
+Iterate all keys in enabledSubAgents and get the agent names IF enabled is true
+*/}}
+{{- define "ai-platform-engineering.enabledSubAgents.names" -}}
+    {{- $names := list -}}
+    {{- if and (hasKey .Values "global") (hasKey .Values.global "enabledSubAgents") }}
+        {{- range $name, $enabled := .Values.global.enabledSubAgents }}
+            {{- if $enabled }}
+                {{- $names = append $names $name }}
+            {{- end }}
+        {{- end }}
+    {{- else }}
+        {{- $names -}}
+    {{- end }}
+    {{- $names -}}
+{{- end }}

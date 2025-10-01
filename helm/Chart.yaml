@@ -6,51 +6,120 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.2.2
+version: 0.2.7
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
     # Chart version for agent subchart
-    version: 0.1.0
-    condition: supervisor-agent.enabled
-  # Backstage plugin agent forge
-  - name: backstage-plugin-agent-forge
-    version: 0.1.0
-    condition: backstage-plugin-agent-forge.enabled
+    version: 0.1.1
   # Single agent chart used multiple times with different aliases
   - name: agent
-    version: 0.2.0
+    version: 0.2.2
     alias: agent-argocd
-    condition: global.enabledSubAgents.argocd
+    tags:
+      - agent-argocd
+      - basic
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.argocd
   - name: agent
-    version: 0.2.0
+    version: 0.2.2
+    alias: agent-aws
+    tags:
+      - agent-aws
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.aws
+  - name: agent
+    version: 0.2.2
     alias: agent-backstage
-    condition: global.enabledSubAgents.backstage
+    tags:
+      - agent-backstage
+      - basic
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.backstage
   - name: agent
-    version: 0.2.0
+    version: 0.2.2
     alias: agent-confluence
-    condition: global.enabledSubAgents.confluence
+    tags:
+      - agent-confluence
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.confluence
   - name: agent
-    version: 0.2.0
+    version: 0.2.2
     alias: agent-github
-    condition: global.enabledSubAgents.github
+    tags:
+      - agent-github
+      - basic
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.github
   - name: agent
-    version: 0.2.0
+    version: 0.2.2
     alias: agent-jira
-    condition: global.enabledSubAgents.jira
+    tags:
+      - agent-jira
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.jira
   - name: agent
-    version: 0.2.0
+    version: 0.2.2
+    alias: agent-komodor
+    tags:
+      - agent-komodor
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.komodor
+  - name: agent
+    version: 0.2.2
     alias: agent-pagerduty
-    condition: global.enabledSubAgents.pagerduty
+    tags:
+      - agent-pagerduty
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.pagerduty
   - name: agent
-    version: 0.2.0
+    version: 0.2.2
     alias: agent-slack
-    condition: global.enabledSubAgents.slack
-  # AGNTCY Slim dataplane service
+    tags:
+      - agent-slack
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.slack
+  - name: agent
+    version: 0.2.2
+    alias: agent-splunk
+    tags:
+      - agent-splunk
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.splunk
+  - name: agent
+    version: 0.2.2
+    alias: agent-webex
+    tags:
+      - agent-webex
+      - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.webex
+    # AGNTCY Slim dataplane service
   - name: slim
     version: v0.1.8
     repository: oci://ghcr.io/agntcy/slim/helm
-    condition: global.slim.enabled
+    condition: global.slim.enabled # NOTE: slim uses condition, not tags as it requires global variables to be passed into other subcharts
   - name: slim-control-plane
     version: v0.1.3
     repository: oci://ghcr.io/agntcy/slim/helm
@@ -58,16 +127,29 @@ dependencies:
   # GraphRAG services
   - name: graphrag
     version: 0.1.1
-    condition: graphrag.enabled
+    tags:
+      - graphrag
+      # - complete
   - name: neo4j
     version: "2025.07.1"
     repository: "https://helm.neo4j.com/neo4j"
-    condition: graphrag.enabled
+    tags:
+      - graphrag
+      # - complete
   # KB-RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
   - name: kb-rag-stack
-    version: 0.1.4
-    condition: kb-rag-stack.enabled
+    version: 0.1.6
+    tags:
+      - kb-rag-stack
+      - complete
   - name: milvus
     version: "5.0.2"
     repository: "https://zilliztech.github.io/milvus-helm/"
-    condition: kb-rag-stack.enabled
+    tags:
+      - kb-rag-stack
+      - complete
+  # Backstage plugin agent forge
+  - name: backstage-plugin-agent-forge
+    version: 0.1.0
+    tags:
+      - backstage-agent-forge

@@ -3,6 +3,8 @@
 
 import os
 import httpx
+from dotenv import load_dotenv
+
 
 from starlette.middleware.cors import CORSMiddleware
 
@@ -62,6 +64,9 @@ def get_agent_card(host: str, port: int, external_url: str = None):
     skills=[skill],
   )
 
+# Load environment variables from a .env file if present
+load_dotenv()
+
 # Check environment variables for host and port if not provided via CLI
 env_host = os.getenv('A2A_HOST')
 env_port = os.getenv('A2A_PORT')
@@ -101,6 +106,13 @@ a2a_server = A2AStarletteApplication(
 
 app = a2a_server.build()
 
+################################################################################
+# Add authentication middleware if enabled
+################################################################################
+A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
+
+A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY', 'false').lower() == 'true'
+
 # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
 app.add_middleware(
   CORSMiddleware,
@@ -108,3 +120,18 @@ app.add_middleware(
   allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
   allow_headers=["*"],  # Allow all headers
 )
+
+if A2A_AUTH_SHARED_KEY:
+  from ai_platform_engineering.common.auth.shared_key_middleware import SharedKeyMiddleware
+  app.add_middleware(
+    SharedKeyMiddleware,
+    agent_card=get_agent_card(host, port, external_url),
+    public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
+  )
+elif A2A_AUTH_OAUTH2:
+  from ai_platform_engineering.common.auth.oauth2_middleware import OAuth2Middleware
+  app.add_middleware(
+    OAuth2Middleware,
+    agent_card=get_agent_card(host, port, external_url),
+    public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
+  )

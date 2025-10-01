@@ -1,8 +1,3 @@
-
----
-sidebar_position: 8
----
-
 # Slack Agent
 
 - 🤖 **Slack Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and Slack [MCP Server](https://modelcontextprotocol.io/introduction).
@@ -12,6 +7,8 @@ sidebar_position: 8
 - 🔌 **MCP Tools:** Uses [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) to glue the tools from Slack MCP server to LangGraph ReAct Agent Graph.
 
 ## 🏗️ Architecture
+
+**[Detailed Sequence Diagram with Agentgateway](../architecture/gateway.md)**
 
 ### System Diagram
 
@@ -110,10 +107,14 @@ SLACK_CLIENT_SECRET=<your-client-secret>
 SLACK_TEAM_ID=<your-team-id>
 ```
 
-### Run Slack Sanity tests
+### Local Development
 
-```
-make slack-sanity
+```bash
+# Navigate to the Slack agent directory
+cd ai_platform_engineering/agents/slack
+
+# Run the MCP server in stdio mode
+make run-a2a
 ```
 
 ## ✨ Features

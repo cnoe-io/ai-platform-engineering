@@ -18,7 +18,7 @@ async def get_worklog(
     logger.debug(f"Parameters: issue_key={issue_key}")
 
     success, response = await make_api_request(
-        path=f"rest/api/2/issue/{issue_key}/worklog",
+        path=f"rest/api/3/issue/{issue_key}/worklog",
         method="GET",
     )
 
@@ -52,7 +52,7 @@ async def add_worklog(
     }
 
     success, response = await make_api_request(
-        path=f"rest/api/2/issue/{issue_key}/worklog",
+        path=f"rest/api/3/issue/{issue_key}/worklog",
         method="POST",
         json=worklog_data,
     )

@@ -1,4 +1,4 @@
-# Level Up Your 🤖 AI Agentic Jam: CAIPE (Community AI Platform Engineering) Hands-On Workshop
+# CAIPE (Community AI Platform Engineering) Hands-On Workshop
 
 **Registration Link - [caipe.io/workshop/register](https://caipe.io/workshop/register)**
 

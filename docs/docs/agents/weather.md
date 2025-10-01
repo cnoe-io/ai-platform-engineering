@@ -1,7 +1,3 @@
----
-sidebar_position: 11
----
-
 # Weather Agent
 
 - 🤖 **Weather Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and Weather [MCP Server](https://modelcontextprotocol.io/introduction).
@@ -11,6 +7,8 @@ sidebar_position: 11
 - 🔌 **MCP Tools:** Uses [langchain-mcp-adapters](https://github.com/langchain-ai/langchain-mcp-adapters) to glue the tools from Weather MCP server to LangGraph ReAct Agent Graph.
 
 ## 🏗️ Architecture
+
+**[Detailed Sequence Diagram with Agentgateway](../architecture/gateway.md)**
 
 ### System Diagram
 
@@ -103,6 +101,16 @@ Use this setup to test the agent against weather APIs.
    WEATHER_API_PROVIDER=openweathermap
    ```
 
+### Local Development
+
+```bash
+# Navigate to the Weather agent directory
+cd ai_platform_engineering/agents/weather
+
+# Run the MCP server in stdio mode
+make run-a2a
+```
+
 ### 🚀 Test Weather API
 
 ```bash
@@ -111,12 +119,6 @@ curl "http://api.openweathermap.org/data/2.5/weather?q=London&appid=YOUR_API_KEY
 
 # Test forecast
 curl "http://api.openweathermap.org/data/2.5/forecast?q=London&appid=YOUR_API_KEY"
-```
-
-### Run Weather Sanity tests
-
-```
-make weather-sanity
 ```
 
 ## ✨ Features

@@ -14,13 +14,13 @@ permissions: read-all
 jobs:
   mark-stale:
     # Call reusable workflow file
-    uses: cnoe-io/agent-template/.github/workflows/_stale.yml@main
+    uses: cnoe-io/ai-platform-engineering/.github/workflows/_stale.yml@main
     permissions:
       contents: read
       issues: write
       pull-requests: write
     with:
-      days-until-stale: 60
+      days-until-stale: 90
       days-until-close: 7
       stale-label: "stale"
       exempt-label: "keep"

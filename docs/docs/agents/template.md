@@ -1,8 +1,3 @@
-
----
-sidebar_position: 9
----
-
 # Petstore/Template Agent
 
 - 🤖 **Petstore Agent** is an LLM-powered agent built using the [LangGraph ReAct Agent](https://langchain-ai.github.io/langgraph/agents/agents/) workflow and Petstore [MCP Server](https://modelcontextprotocol.io/introduction).
@@ -13,6 +8,8 @@ sidebar_position: 9
 - 🧪 **Mock Server:** Includes a built-in mock server for testing and development purposes.
 
 ## 🏗️ Architecture
+
+**[Detailed Sequence Diagram with Agentgateway](../architecture/gateway.md)**
 
 ### System Diagram
 
@@ -114,6 +111,16 @@ A2A_AGENT_PORT=8000
 # MCP Configuration
 MCP_HOST=localhost
 MCP_PORT=9000
+```
+
+### Local Development
+
+```bash
+# Navigate to the Template agent directory
+cd ai_platform_engineering/agents/template
+
+# Run the MCP server in stdio mode
+make run-a2a
 ```
 
 ### 🚀 Test Petstore Operations

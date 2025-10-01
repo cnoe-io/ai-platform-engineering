@@ -17,7 +17,7 @@ async def get_link_types() -> str:
     Returns:
         JSON string representing a list of issue link type objects.
     """
-    response = await make_api_request("/rest/api/2/issueLinkType")
+    response = await make_api_request("/rest/api/3/issueLinkType")
     if not response or response.status_code != 200:
         raise ValueError("Failed to fetch issue link types. Response: {response}")
     link_types_data = response.json().get("issueLinkTypes", [])
