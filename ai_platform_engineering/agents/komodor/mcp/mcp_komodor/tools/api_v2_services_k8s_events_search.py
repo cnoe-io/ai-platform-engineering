@@ -13,7 +13,9 @@ async def post_api_v2_services_k8s_events_search(body: str) -> Dict[str, Any]:
     '''
     Search for Kubernetes events within a service scope.
 
-    This function performs a search for Kubernetes events based on the provided criteria. The maximum time range for the search is 2 days. If no time range is specified, the default search period is the last 24 hours. The maximum allowable time back for the search is 7 days.
+    This function performs a search for Kubernetes events based on the provided criteria. 
+    The maximum time range for the search is 2 days. If no time range is specified, 
+    the default search period is the last 24 hours. The maximum allowable time back for the search is 7 days.
 
     Args:
         body (str): The request body containing search criteria for Kubernetes events.

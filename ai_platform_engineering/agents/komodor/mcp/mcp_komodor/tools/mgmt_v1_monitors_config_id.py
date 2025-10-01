@@ -13,7 +13,8 @@ async def monitors_controller_v1_get(path_id: str) -> Dict[str, Any]:
     '''
     Fetches the configuration of a monitor by its UUID.
 
-    This function is deprecated. Please use `/api/v2/realtime-monitors/config` API instead for new implementations and better validation and error handling.
+    This function is deprecated. Please use `/api/v2/realtime-monitors/config` API 
+    instead for new implementations and better validation and error handling.
 
     Args:
         path_id (str): UUID of the monitor to retrieve the configuration for.
@@ -143,7 +144,8 @@ async def monitors_controller_v1_delete(path_id: str) -> Dict[str, Any]:
     '''
     Deletes a monitor configuration using its UUID.
 
-    This function is deprecated. Please use the `/api/v2/realtime-monitors/config` API for new implementations, which offers better validation and error handling.
+    This function is deprecated. Please use the `/api/v2/realtime-monitors/config` API 
+    for new implementations, which offers better validation and error handling.
 
     Args:
         path_id (str): The UUID of the monitor to be deleted.

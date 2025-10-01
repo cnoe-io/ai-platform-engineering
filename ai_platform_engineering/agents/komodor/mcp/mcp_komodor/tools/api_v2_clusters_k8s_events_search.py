@@ -13,7 +13,9 @@ async def post_api_v2_clusters_k8s_events_search(body: str) -> Dict[str, Any]:
     '''
     Search for Kubernetes events in cluster scope.
 
-    Search for events based on the provided criteria. The maximum time range for the search is 2 days. If no time range is specified, the default is the last 24 hours. The maximum time back for the search is 7 days.
+    Search for events based on the provided criteria. The maximum time range for the search is 2 days. 
+    If no time range is specified, the default is the last 24 hours. 
+    The maximum time back for the search is 7 days.
 
     Args:
         body (str): The request body containing the search criteria for Kubernetes events.

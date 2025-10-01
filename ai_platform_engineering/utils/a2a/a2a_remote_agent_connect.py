@@ -15,9 +15,6 @@ from a2a.types import (
     SendMessageRequest,
     SendStreamingMessageRequest,
     MessageSendParams,
-    Message as A2AMessage,
-    Task as A2ATask,
-    TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
     TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
 )
 

@@ -1,30 +1,25 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import logging
-
 from collections.abc import AsyncIterable
 from typing import Any
 
 # A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
-
-from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
-from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
-import json
 from a2a.types import Message as A2AMessage
 from a2a.types import Task as A2ATask
-from a2a.types import TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent
 from a2a.types import TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent
-
-logger = logging.getLogger(__name__)
-
-from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
-  system_prompt
-)
+from a2a.types import TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent
 from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
-  AIPlatformEngineerMAS,
+    AIPlatformEngineerMAS,
+)
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
+    system_prompt
 )
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
+from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
