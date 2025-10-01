@@ -524,10 +524,8 @@ class AgentRegistry:
 
         logger.debug(f"Refreshing connectivity for {len(self._loaded_modules)} cached modules...")
 
-        # Store current state
-        old_agent_versions = ""
-        for agent_name, agent in self._agents.items():
-            old_agent_versions += f"{agent_name}={agent.version}\n"
+        # Store current agent names (what we're really tracking is which agents are available)
+        old_agent_names = set(self._agents.keys())
 
         # Check connectivity and rebuild registry
         connectivity_results = self._check_connectivity_for_modules(self._loaded_modules)
@@ -536,19 +534,16 @@ class AgentRegistry:
         # Update registry
         self._agents = agents
 
-        # Check for changes
-        new_agent_versions = ""
-        for agent_name, agent in self._agents.items():
-            new_agent_versions += f"{agent_name}={agent.version}\n"
-
-        has_changes = old_agent_versions != new_agent_versions
-        logger.debug(f"Old agent versions: {old_agent_versions}")
-        logger.debug(f"New agent versions: {new_agent_versions}")
+        # Check for changes in available agents
+        new_agent_names = set(self._agents.keys())
+        has_changes = old_agent_names != new_agent_names
 
         if has_changes:
-            logger.debug("Connectivity refresh: Changes detected")
+            added = new_agent_names - old_agent_names
+            removed = old_agent_names - new_agent_names
+            logger.debug(f"Connectivity refresh: Changes detected - Added: {added}, Removed: {removed}")
         else:
-            logger.debug("Connectivity refresh: No changes detected")
+            logger.debug(f"Connectivity refresh: No changes ({len(new_agent_names)} agents still available)")
 
         return has_changes
 
