@@ -118,7 +118,7 @@ test-rag-scale: setup-venv ## Run RAG module scale tests with memory monitoring
 
 test-rag-all: setup-venv ## Run all RAG module tests (unit, scale, memory, coverage)
 	@echo "Running comprehensive RAG module test suite..."
-	@cd ai_platform_engineering/knowledge_bases/rag && make test-all
+	@cd ai_platform_engineering/knowledge_bases/rag/server && make test-all
 
 ## ========== Integration Tests ==========
 
