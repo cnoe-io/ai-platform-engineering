@@ -1,4 +1,4 @@
-name: KB RAG Build and Push
+name: CAIPE RAG Build and Push
 
 on:
   push:
@@ -21,12 +21,12 @@ jobs:
 
     strategy:
       matrix:
-        component: [agent-a2a, server, web]
+        component: [agent-rag, agent-ontology, server, webui]
       fail-fast: false
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/kb-rag-${{ matrix.component }}
+      IMAGE_NAME: cnoe-io/caipe-rag-${{ matrix.component }}
       BUILD_CTX: ai_platform_engineering/knowledge_bases/rag
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 

@@ -1,9 +1,8 @@
 from enum import Enum
-from typing import Any, Optional, Dict
+from typing import Optional
 import redis.asyncio as redis
 import redis.exceptions as redis_exceptions
 from common.utils import get_logger
-import traceback
 import datetime
 from pydantic import BaseModel, Field
 import asyncio

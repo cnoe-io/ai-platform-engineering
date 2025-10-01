@@ -9,7 +9,6 @@ from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
 from common.constants import KV_HEURISTICS_VERSION_ID_KEY, PROP_DELIMITER
 from common.models.graph import EntityIdentifier
-import os
 import traceback
 import httpx
 
@@ -18,7 +17,7 @@ dotenv.load_dotenv(verbose=True)
 data_graphdb = Neo4jDB(readonly=True)
 ontology_graphdb = Neo4jDB(readonly=True, uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
 redis_client = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
-server_query_url = os.getenv("RAG_SERVER_URL", "http://localhost:8000") + "/v1/query"
+server_query_url = os.getenv("RAG_SERVER_URL", "http://localhost:9446") + "/v1/query"
 
 logger = get_logger(__name__)
 

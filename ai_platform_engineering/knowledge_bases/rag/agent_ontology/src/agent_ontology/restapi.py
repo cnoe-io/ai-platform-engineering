@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from agent_ontology.agent import OntologyAgent, RelationCandidateManager
 from common.graph_db.base import GraphDB
-from fastapi import APIRouter, FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from common import constants, utils
 from common.graph_db.neo4j.graph_db import Neo4jDB

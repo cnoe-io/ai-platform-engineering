@@ -305,7 +305,7 @@ export default function IngestView() {
 															<div><strong>Job ID:</strong> {ds.job_id}</div>
 															{job && (
 																<>
-																	<div><strong>Documents Completed:</strong> {job.completed_counter}</div>
+																	<div><strong>Documents Processed:</strong> {job.completed_counter}</div>
 																	<div><strong>Documents Failed:</strong> {job.failed_counter}</div>
 																</>
 															)}

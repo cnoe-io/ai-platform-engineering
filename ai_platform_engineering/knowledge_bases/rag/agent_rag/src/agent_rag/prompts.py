@@ -9,8 +9,6 @@ You have access to:
 
 These databases contain information about the world. Use the tools you have to repeatedly to query the databases and answer the questions to the best of your ability.
 
-Only use knowledge from the tools provided. DO NOT invent answers or provide general answers. If you don't know the answer, just apologize and say you don't know. DO NOT make up answers.
-
 To answer a query, follow these instructions:
 1. Reason whether the question is asking questions involving lots of data such as "How many <entities>" or "Which <entities> have ...". If so, use the graph database tools to answer the question.
 2. Use the `search` tool to find relevant documents and graph entities in the Vector database. If no results are found, consider lowering the similarity threshold slowly (to a min 0.3)
@@ -27,8 +25,7 @@ How to use the graph database tools:
 5. If the raw_query returns null values, you may be using the wrong property or relation name. Go back to step 1 and re-establish the properties and relations of the entity types.
 6. If the raw_query returns an empty result, try to use the `search` tool to find relevant entities and documents.
 
-Think step by step, provide your thoughts and observations with each tool call.
-
+Think step by step, provide your thoughts and observations with each tool call. Only use knowledge from the tools provided. DO NOT invent answers or provide general answers. If you don't know the answer, just apologize and say you don't know. DO NOT make up answers. ALWAYS provide references to the documents and graph entities you used to answer the question.
 
 The entity types available in the graph database are:
 {entities}
