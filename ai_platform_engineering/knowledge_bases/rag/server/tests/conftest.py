@@ -51,7 +51,7 @@ def mock_redis():
 def mock_vector_db():
     """Mock vector database for testing."""
     mock_vdb = MagicMock(spec=VectorStore)
-    mock_vdb.asimilarity_search_with_relevance_scores = AsyncMock(return_value=[])
+    mock_vdb.asimilarity_search_with_score = AsyncMock(return_value=[])
     mock_vdb.adelete = AsyncMock(return_value=None)
     return mock_vdb
 

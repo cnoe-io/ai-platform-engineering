@@ -83,7 +83,7 @@ class TestQueryEndpoints:
 
     def test_query_success(self, test_client, mock_vector_db, sample_document):
         """Test successful document query."""
-        mock_vector_db.asimilarity_search_with_relevance_scores.return_value = [[sample_document, 0.9]]
+        mock_vector_db.asimilarity_search_with_score.return_value = [[sample_document, 0.9]]
 
         with patch('server.restapi.vector_db_docs', mock_vector_db):
             with patch('server.restapi.vector_db_graph', mock_vector_db):
