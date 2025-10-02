@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.13, <4.0"
 resolution-markers = [
     "platform_python_implementation != 'PyPy'",
@@ -8,7 +8,6 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "agent-argocd",
     "agent-komodor",
     "ai-platform-engineering",
 ]
@@ -30,51 +29,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/1e/3b/8fd1e3fe28606712c203b968a6fe2c8e7944b6df9e65c28976c66c19286c/a2a_sdk-0.2.16.tar.gz", hash = "sha256:d9638c71674183f32fe12f8865015e91a563a90a3aa9ed43020f1b23164862b3", size = 179006, upload-time = "2025-07-21T19:51:14.107Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a5/92/16bfbc2ef0ef037c5860ef3b13e482aeb1860b9643bf833ed522c995f639/a2a_sdk-0.2.16-py3-none-any.whl", hash = "sha256:54782eab3d0ad0d5842bfa07ff78d338ea836f1259ece51a825c53193c67c7d0", size = 103090, upload-time = "2025-07-21T19:51:12.613Z" },
-]
-
-[[package]]
-name = "agent-argocd"
-version = "0.1.0"
-source = { editable = "ai_platform_engineering/agents/argocd" }
-dependencies = [
-    { name = "a2a-sdk" },
-    { name = "agentevals" },
-    { name = "agntcy-app-sdk" },
-    { name = "click" },
-    { name = "cnoe-agent-utils" },
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "langchain-core" },
-    { name = "langchain-mcp-adapters" },
-    { name = "langgraph" },
-    { name = "mcp-argocd" },
-    { name = "pytest" },
-    { name = "python-dotenv" },
-    { name = "rich" },
-    { name = "sseclient" },
-    { name = "tabulate" },
-    { name = "uv" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "a2a-sdk", specifier = "==0.2.16" },
-    { name = "agentevals", specifier = ">=0.0.7" },
-    { name = "agntcy-app-sdk", specifier = "==0.1.4" },
-    { name = "click", specifier = ">=8.2.0" },
-    { name = "cnoe-agent-utils", specifier = "==0.3.0" },
-    { name = "fastapi", specifier = ">=0.100.0" },
-    { name = "fastmcp", specifier = "==2.11.1" },
-    { name = "langchain-core", specifier = ">=0.3.60" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
-    { name = "langgraph", specifier = "==0.5.3" },
-    { name = "mcp-argocd", directory = "ai_platform_engineering/agents/argocd/mcp" },
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "rich", specifier = ">=14.0.0,<15.0.0" },
-    { name = "sseclient", specifier = ">=0.0.27,<0.0.28" },
-    { name = "tabulate", specifier = ">=0.9.0" },
-    { name = "uv" },
 ]
 
 [[package]]
@@ -204,7 +158,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "agent-argocd" },
     { name = "agent-komodor" },
     { name = "httpx" },
     { name = "pytest" },
@@ -238,7 +191,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "agent-argocd", editable = "ai_platform_engineering/agents/argocd" },
     { name = "agent-komodor", editable = "ai_platform_engineering/agents/komodor" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=8.4.1" },
@@ -2142,27 +2094,6 @@ wheels = [
 cli = [
     { name = "python-dotenv" },
     { name = "typer" },
-]
-
-[[package]]
-name = "mcp-argocd"
-version = "0.1.0"
-source = { directory = "ai_platform_engineering/agents/argocd/mcp" }
-dependencies = [
-    { name = "fastmcp" },
-    { name = "httpx" },
-    { name = "mcp" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastmcp", specifier = ">=2.11.1" },
-    { name = "httpx", specifier = ">=0.24.0" },
-    { name = "mcp", specifier = ">=1.12.3" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 
 [[package]]
