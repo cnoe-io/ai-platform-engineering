@@ -1,0 +1,19 @@
+[project]
+name = "common"
+version = "0.1.0"
+description = "Common code for RAG"
+readme = "README.md"
+authors = [
+    { email = "subbaksh@cisco.com" }
+]
+requires-python = ">=3.13, <4.0"
+dependencies = [
+    "cymple>=0.12.0",
+    "neo4j>=5.28.1",
+    "pydantic>=2.11.7",
+    "redis>=6.2.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
