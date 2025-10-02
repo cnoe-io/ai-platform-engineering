@@ -1,4 +1,4 @@
-# 🚀 RAG AI Agent
+# 🚀 CAIPE RAG
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue?logo=python)](https://www.python.org/)
 [![UV](https://img.shields.io/badge/uv-0.1%2B-blue?logo=python)](https://github.com/astral-sh/uv)
@@ -8,68 +8,87 @@
 
 ## Overview
 
-- 🤖 **RAG Agent** is an LLM-powered agent that can ingest documentation from any URL, web scrape all content, chunk and embed it, and answer questions using Retrieval-Augmented Generation (RAG).
-- 🌐 **Protocol Support:** Compatible with the A2A protocol for integration with external user clients.
-- 🧠 **Vector Store:** Uses Milvus for storing and retrieving document embeddings ([LangChain Milvus Integration](https://python.langchain.com/docs/integrations/vectorstores/milvus/)).
-- 🔗 **Integrated Communication:** All RAG logic is contained within the A2A server, including scraping, chunking, embedding, and retrieval.
+- 🤖 **Intelligent Knowledge Platform** with autonomous ontology discovery and RAG-powered question answering across multiple data sources.
+- 🧠 **Ontology Agent:** AI agent that automatically discovers and evaluates entity relationships from graph data using heuristics and LLM evaluation.
+- 🔍 **RAG/GraphRAG Agent:** Retrieval-augmented generation system for answering questions using vector embeddings and graph traversal.
+- 🌐 **Ingestion and Indexing:** Supports ingestion of URLs, as well as graph connectors for AWS, Kubernetes, Backstage, and other data sources.
+- 📊 **Graph Database Integration:** Uses Neo4j for both data storage and ontology relationship management.
+- 🖥️ **Web Interface:** React-based UI for exploring ontologies, searching data, and visualizing relationships.
 
----
+![CAIPE RAG Demo](docs/rag_gif.gif)
 
 ## Getting Started
 
-### 1️⃣ Configure Environment
+### 1️⃣ Prerequisites
 
-Set up your `.env` file with your LLM and Milvus configuration.
+- Docker and Docker Compose
+- Environment variables configured in `.env`
 
-### 2️⃣ Start the Agent (A2A Mode)
+### 2️⃣ Start all services
 
 ```bash
-docker pull <your-agent-rag-image>
-docker run --rm -p 0.0.0.0:8000:8000 -it \
-  -v $(pwd)/.env:/app/.env \
-  <your-agent-rag-image>
+# Start all services using Docker Compose
+docker compose --profile apps up
 ```
+### 3️⃣ Access the Interface
 
-### 3️⃣ Run the Client
+Interfaces:
 
-Use an A2A-compatible client to interact with the agent.
-
----
-
-## Architecture
-
-- **A2A Protocol** for agent-to-agent or client-to-agent communication
-- **RAG Pipeline:**
-  - Web scraping
-  - Text chunking
-  - Embedding (OpenAI or other)
-  - Storage in Milvus
-  - Retrieval and LLM answering
+  - Web UI: [http://localhost:9447](http://localhost:9447)
+  - API Docs: [http://localhost:9446/docs](http://localhost:9446/docs)
+  - (Advanced) Neo4j Browser: [http://localhost:7474](http://localhost:7474)
+  - (Advanced) Milvus Studio: [http://localhost:9091](http://localhost:9091)
+For detailed architecture information, see [Architecture.md](Architecture.md).
 
 ---
 
 ## Features
 
-- Ingest documentation from any URL
-- Web scrape and chunk all content
-- Store and retrieve embeddings in Milvus
-- Answer questions using RAG and LLM
-- Expose all functionality via the A2A protocol
+### Ontology Agent
+- Automatic relationship discovery using heuristics
+- LLM-powered evaluation of relationship candidates
+- Progress tracking with real-time status updates
+- Configurable acceptance/rejection thresholds
+- Background processing with concurrent task management
+
+### RAG System
+- Document ingestion and chunking
+- Vector embeddings with Milvus storage
+- Semantic search and retrieval
+- LLM-powered question answering
+
+### Web Interface
+- Interactive graph visualization
+- Real-time agent status with progress indicators
+- Search functionality across all data
+- Entity exploration and relationship browsing
 
 ---
 
 ## Local Development
 
-Clone the repo and run locally:
+Clone the repo locally.
+
+Navigate to `ai-platform-engineering/knowledge_bases/rag`
+
+Run the dependent services:
 
 ```bash
-git clone <your-agent-rag-repo>.git
-cd agent-rag
-make run-a2a
+docker compose --profile deps up
 ```
 
----
+This will start:
 
-## License
+- Neo4j (data graph database)
+- Neo4j Ontology (ontology graph database)
+- Milvus (vector database)
+- MinIO (object storage for Milvus)
+- Etcd (configuration for Milvus)
+- Redis (key-value store)
 
-Apache 2.0
+Then navigate to the different components and run them:
+
+ - server: `uv sync; source ./.venv/bin/activate; python3 src/server/__main__.py`
+ - agent_ontology: `uv sync; source ./.venv/bin/activate; python3 src/agent_ontology/restapi.py`
+ - agent_rag: `uv sync; source ./.venv/bin/activate; python3 src/agent_rag/restapi.py`
+ - webui: `npm run dev`

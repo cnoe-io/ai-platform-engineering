@@ -79,8 +79,8 @@ jobs:
         with:
           name: coverage-reports-rag
           path: |
-            ai_platform_engineering/knowledge_bases/rag/coverage.xml
-            ai_platform_engineering/knowledge_bases/rag/htmlcov/
+            ai_platform_engineering/knowledge_bases/rag/server/coverage.xml
+            ai_platform_engineering/knowledge_bases/rag/server/htmlcov/
 
   coverage-report:
     runs-on: ubuntu-latest

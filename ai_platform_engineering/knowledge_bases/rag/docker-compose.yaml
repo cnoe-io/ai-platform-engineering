@@ -1,0 +1,213 @@
+services:
+
+  rag_server:
+    ports:
+      - "9446:9446"
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_URL: redis://rag-redis:6379/0
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        MILVUS_URI: http://milvus-standalone:19530
+        ONTOLOGY_AGENT_RESTAPI_ADDR: http://agent_ontology:8098
+        CLEANUP_INTERVAL: 86400
+    restart: unless-stopped
+    env_file:
+      - ../../../.env
+    depends_on:
+      - neo4j
+      - neo4j-ontology
+      - rag-redis
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.server
+    profiles:
+      - apps
+
+  agent_rag:
+    ports:
+      - "8099:8099"
+    env_file:
+      - ../../../.env
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_URL: redis://rag-redis:6379/0
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        RAG_SERVER_URL: http://rag_server:9446
+    restart: unless-stopped
+    depends_on:
+      - neo4j
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.agent-rag
+    profiles:
+      - apps
+
+  agent_ontology:
+    ports:
+      - "8098:8098"
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_URL: redis://rag-redis:6379/0
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        SYNC_INTERVAL: 86400 # 24 hours
+    env_file:
+      - ../../../.env
+    restart: unless-stopped
+    depends_on:
+      - rag_server
+      - neo4j
+      - neo4j-ontology
+      - rag-redis
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.agent-ontology
+    profiles:
+      - apps
+
+  webui:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.webui
+    container_name: rag-webui
+    depends_on:
+      - rag_server
+    ports:
+      - "9447:80"
+    profiles:
+      - apps
+
+#####################
+# Dependent services
+#####################
+  neo4j:
+    image: neo4j:latest
+    volumes:
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/logs:/logs
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/config:/config
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/data:/data
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/plugins:/plugins
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: unless-stopped
+    profiles:
+      - deps
+      - apps
+    environment:
+      NEO4J_AUTH: neo4j/dummy_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: true
+      NEO4J_apoc_import_file_enabled: true
+      NEO4J_apoc_import_file_use__neo4j__config: true
+      
+  neo4j-ontology:
+    image: neo4j:latest
+    volumes:
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/logs:/logs
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/config:/config
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/data:/data
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/plugins:/plugins
+    ports:
+      - "7688:7687"
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/dummy_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: true
+      NEO4J_apoc_import_file_enabled: true
+      NEO4J_apoc_import_file_use__neo4j__config: true
+    profiles:
+      - deps
+      - apps
+
+  rag-redis:
+    image: redis
+    command:
+      - /bin/sh
+      - -c
+      - redis-server
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    profiles:
+      - deps
+      - apps
+
+  milvus-standalone:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.6.0
+    command: ["milvus", "run", "standalone"]
+    profiles:
+      - deps
+      - apps
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      MINIO_REGION: us-east-1
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: milvus-minio:9000
+      LOG_LEVEL: error
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - etcd
+      - milvus-minio
+
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.18
+    profiles:
+      - deps
+      - apps
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      
+  milvus-minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    profiles:
+      - deps
+      - apps
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3

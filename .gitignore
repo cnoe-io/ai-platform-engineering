@@ -172,6 +172,10 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# Pywright configuration file
+pyrightconfig.json
+.windsurfpyright/
+
 # env vars for wfsm
 .env
 .env.*
@@ -222,8 +226,8 @@ ai_platform_engineering/knowledge_bases/rag/web/node_modules
 
 # node
 node_modules/
-package-lock.json
-package.json
+# package-lock.json
+# package.json
 
 # Claude Code configuration
 .claude/
