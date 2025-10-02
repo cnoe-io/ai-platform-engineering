@@ -154,11 +154,15 @@ class AIPlatformEngineerMAS:
 
 Tool/Agent Response: {message.content}
 
-Instructions:
-- If the tool asks for information, use the exact message in 'content' field
-- Set require_user_input=true if the tool is asking for user input
-- Set is_task_complete=false if the tool needs more information
-- Extract specific field requirements from the tool's actual request for input_fields
+CRITICAL - Task Completion Rules:
+- Set is_task_complete=TRUE if the response is final/complete (e.g., lists results, answers question, confirms action)
+- Set is_task_complete=FALSE only if the tool explicitly asks for MORE information or input
+- Set require_user_input=TRUE only if the tool is asking the user for specific input
+- Set require_user_input=FALSE if the response is informational or complete
+
+Content Rules:
+- Use the tool's EXACT message in 'content' field - do not paraphrase
+- Extract specific field requirements for input_fields only if the tool asks for input
 - DO NOT rewrite or generalize the tool's specific request"""
                 structured_response = structured_model.invoke([HumanMessage(content=context_prompt)])
                 return AIMessage(
@@ -171,6 +175,19 @@ Instructions:
         return message
 
     model = model_with_tools | RunnableLambda(process_model_output)
+
+    # Log the system prompt being passed to create_supervisor
+    logger.info("="*80)
+    logger.info("PASSING SYSTEM PROMPT TO create_supervisor()")
+    logger.info("="*80)
+    logger.info(f"System Prompt Length: {len(system_prompt)} characters")
+    logger.info(f"System Prompt Lines: {len(system_prompt.splitlines())} lines")
+    logger.info(f"Number of Agent Tools: {len(agent_tools)}")
+    logger.info("="*80)
+    logger.info("SYSTEM PROMPT BEING PASSED:")
+    logger.info("="*80)
+    logger.info(system_prompt)
+    logger.info("="*80)
 
     new_graph = create_supervisor(
       model=model,

@@ -88,17 +88,15 @@ def generate_system_prompt(agents: Dict[str, Any]):
   tool_instructions = []
   categorized_agents = categorize_agents(agents)
 
-  # GPT-4o Optimization: Add a condensed summary at the top
+  # Add a helpful header for context
   agent_count = len(agents)
   category_count = len(categorized_agents)
 
-  summary = f"""
-QUICK REFERENCE - You have {agent_count} agents across {category_count} categories:
-{', '.join([f"{cat} ({len(agents_in_cat)})" for cat, agents_in_cat in categorized_agents.items()])}
-
-REMEMBER: When user asks "what can you do", list ALL agents with specific examples. DO NOT give generic responses.
+  header = f"""
+You manage {agent_count} specialized agents organized into {category_count} categories.
+When describing capabilities, cover all agents with concrete examples for each.
 """
-  tool_instructions.append(summary)
+  tool_instructions.append(header)
 
   # Generate categorized agent instructions
   for category, agent_keys in categorized_agents.items():
