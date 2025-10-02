@@ -38,7 +38,15 @@ class AIPlatformEngineerA2ABinding:
 
   @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
-      logging.info(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
+      logging.info("="*80)
+      logging.info("PLATFORM ENGINEER AGENT: RECEIVING USER QUERY")
+      logging.info("="*80)
+      logging.info(f"User Query: {query}")
+      logging.info(f"Context ID: {context_id}")
+      logging.info(f"Trace ID: {trace_id}")
+      logging.info(f"System Prompt Length Available: {len(self.SYSTEM_INSTRUCTION)} characters")
+      logging.info("="*80)
+
       inputs = {'messages': [('user', query)]}
       config = self.tracing.create_config(context_id)
 
@@ -61,34 +69,95 @@ class AIPlatformEngineerA2ABinding:
       logging.info(f"Created tracing config: {config}")
 
       try:
-          async for item in self.graph.astream(inputs, config, stream_mode='values'):
-              logging.debug(f"Received item from graph stream: {item}")
-              message = item['messages'][-1]
-              if (
-                  isinstance(message, AIMessage)
-                  and message.tool_calls
-                  and len(message.tool_calls) > 0
-              ):
-                  logging.info("Detected AIMessage with tool calls, yielding 'Looking up...' response")
+          # MULTI-TURN CONVERSATION LOOP
+          # Keep processing until task is complete OR user input is required
+          max_iterations = 10  # Safety limit to prevent infinite loops
+          iteration = 0
+          is_continuation = False
+
+          while iteration < max_iterations:
+              iteration += 1
+              logging.info(f"Starting conversation iteration {iteration}, is_continuation={is_continuation}")
+
+              # If this is a continuation (not first iteration), inputs are already set up
+              # by the previous iteration's continuation logic
+
+              async for item in self.graph.astream(inputs, config, stream_mode='values'):
+                  logging.debug(f"Received item from graph stream: {item}")
+                  message = item['messages'][-1]
+                  if (
+                      isinstance(message, AIMessage)
+                      and message.tool_calls
+                      and len(message.tool_calls) > 0
+                  ):
+                      logging.info("Detected AIMessage with tool calls, yielding 'Looking up...' response")
+                      yield {
+                          'is_task_complete': False,  # Still processing
+                          'require_user_input': False,
+                          'content': 'Looking up...',
+                      }
+                  elif isinstance(message, ToolMessage):
+                      logging.info("Detected ToolMessage, yielding 'Processing..' response")
+                      yield {
+                          'is_task_complete': False,  # Still processing
+                          'require_user_input': False,
+                          'content': 'Processing..',
+                      }
+
+              logging.debug("Stream processing complete, fetching final agent response")
+              logging.debug(f"Finalizing response with config: {config}")
+              result = self.get_agent_response(config)
+              logging.info(f"Final agent response: {result}")
+
+              # Check if task is complete or requires user input
+              is_complete = result.get('is_task_complete', True)
+              requires_input = result.get('require_user_input', False)
+
+              logging.info(f"Iteration {iteration}: is_complete={is_complete}, requires_input={requires_input}")
+
+              # Exit conditions:
+              if is_complete:
+                  logging.info("Task marked as complete, ending conversation loop")
+                  yield result
+                  break
+              elif requires_input:
+                  logging.info("User input required, ending conversation loop (will wait for user response)")
+                  yield result
+                  break
+              else:
+                  # Task not complete and no user input required
+                  # The agent wants to continue processing - let it continue!
+                  logging.info(
+                      f"Task not complete (iteration {iteration}). Continuing to next iteration for agent self-reflection/continuation."
+                  )
+
+                  # Yield intermediate result to show progress
                   yield {
-                      'is_task_complete': True,  # Always True for now
+                      'is_task_complete': False,
                       'require_user_input': False,
-                      'content': 'Looking up...',
-                  }
-              elif isinstance(message, ToolMessage):
-                  logging.info("Detected ToolMessage, yielding 'Processing..' response")
-                  yield {
-                      'is_task_complete': True,  # Always True for now
-                      'require_user_input': False,
-                      'content': 'Processing..',
+                      'content': result.get('content', 'Processing...'),
                   }
 
-          logging.debug("Stream processing complete, fetching final agent response")
-          logging.debug(f"Finalizing response with config: {config}")
-          result = self.get_agent_response(config)
-          logging.info(f"Final agent response: {result}")
+                  # CRITICAL: Update inputs for next iteration
+                  # The LangGraph checkpointer maintains state via config (context_id)
+                  # BUT we need to tell it we're continuing, not restarting
+                  # Option 1: Use None for inputs to continue from checkpoint
+                  # Option 2: Re-invoke with checkpoint state
 
-          yield result
+                  # For LangGraph with checkpointer, calling with None uses checkpoint
+                  inputs = None  # Signal to use checkpointed state
+                  is_continuation = True
+
+                  logging.info("Updated inputs to None to continue from checkpoint state")
+                  continue  # ← Loop back to LLM!
+
+          if iteration >= max_iterations:
+              logging.error(f"Reached maximum iterations ({max_iterations}), forcing task completion")
+              yield {
+                  'is_task_complete': True,
+                  'require_user_input': False,
+                  'content': 'Maximum processing iterations reached. Please try rephrasing your request.',
+              }
       except Exception as e:
           logging.error(f"Error during agent stream processing: {e}")
           # Yield an error response instead of letting the exception propagate
@@ -162,6 +231,13 @@ class AIPlatformEngineerA2ABinding:
           response_dict = json.loads(content)
           if isinstance(response_dict, dict):
             logging.info("Successfully parsed JSON response (fallback)")
+
+            # SAFETY CHECK: Force is_task_complete to True to prevent queue closure issues
+            # This matches the behavior of the structured response path (lines 127-129)
+            if not response_dict.get('is_task_complete', True):
+              logging.warning("JSON response has is_task_complete=False, forcing to True to prevent queue issues")
+              response_dict['is_task_complete'] = True
+
             return response_dict
           else:
             logging.warning("AIMessage content is not a valid dictionary, returning default structured response")
