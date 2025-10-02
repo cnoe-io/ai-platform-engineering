@@ -79,12 +79,12 @@ def main():
     MCP_HOST = os.getenv("MCP_HOST", "localhost")
     MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
 
-    logging.info("Starting MCP server in {} mode on {}:{}".format(MCP_MODE, MCP_HOST, MCP_PORT))
+    logging.info(f"Starting MCP server in {MCP_MODE} mode on {MCP_HOST}:{MCP_PORT}")
 
     # Get server name from environment variables
     SERVER_NAME = os.getenv("SERVER_NAME", "ArgoCD")
     logging.info('*'*40)
-    logging.info("MCP Server name: {}".format(SERVER_NAME))
+    logging.info(f"MCP Server name: {SERVER_NAME}")
     logging.info('*'*40)
 
     # Create server instance
