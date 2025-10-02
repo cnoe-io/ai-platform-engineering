@@ -112,7 +112,7 @@ spec:
       volumes:
         - name: prompt-config
           configMap:
-            name: prompt-config
+            name: {{ .Values.multiAgentConfig.promptConfig.name }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

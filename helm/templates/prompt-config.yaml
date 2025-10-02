@@ -1,7 +1,8 @@
+{{- if (index .Values "supervisor-agent").multiAgentConfig.promptConfig.create }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: prompt-config
+  name: {{ (index .Values "supervisor-agent").multiAgentConfig.promptConfig.name }}
   namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: {{ include "ai-platform-engineering.name" . }}
@@ -11,3 +12,4 @@ metadata:
 data:
   prompt_config.yaml: |
 {{ .Files.Get "data/prompt_config.yaml" | nindent 4 }}
+{{- end }}

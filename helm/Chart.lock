@@ -1,7 +1,7 @@
 dependencies:
 - name: supervisor-agent
   repository: ""
-  version: 0.1.1
+  version: 0.1.2
 - name: agent
   repository: ""
   version: 0.2.2
@@ -56,5 +56,5 @@ dependencies:
 - name: backstage-plugin-agent-forge
   repository: ""
   version: 0.1.0
-digest: sha256:4855a3b7793d1df4dea7c8ba4d45d76d288a45375d770025439d2cd75fec2582
-generated: "2025-09-29T13:52:53.724194215Z"
+digest: sha256:75ca296d39590f36ae54230e05687b59a83eb6393d9a13fcf856e5681206b3bf
+generated: "2025-10-02T13:35:13.977442448Z"
