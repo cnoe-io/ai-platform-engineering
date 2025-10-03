@@ -1,0 +1,1548 @@
+services:
+  ####################################################################################################
+  #   AI Platform Engineer Multi-Agent System
+  ####################################################################################################
+  ####################################################################################################
+  #                                      PLATFORM ENGINEER A2A over SLIM                             #
+  ####################################################################################################
+  platform-engineer-slim:
+    build:
+      context: .
+      dockerfile: build/Dockerfile
+    volumes:
+      - ./prompt_config.yaml:/app/prompt_config.yaml
+      # Mount only code that changes during development
+      - ./ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+    container_name: platform-engineering
+    profiles:
+      - slim
+      - slim-tracing
+      - argocd
+      - weather
+    depends_on:
+        - slim-dataplane
+        - agent-argocd-slim
+        - agent-backstage-slim
+        - agent-confluence-slim
+        - agent-github-slim
+        - agent-jira-slim
+        - agent-komodor-slim
+        - agent-pagerduty-slim
+        - agent-slack-slim
+        - agent-splunk-slim
+        - agent-weather-slim
+        - agent-webex-slim
+    env_file:
+      - .env
+    ports:
+      # Expose the AI Platform Engineer agent on port 8000
+      - "8000:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - ARGOCD_AGENT_HOST=agent-argocd-slim
+      - BACKSTAGE_AGENT_HOST=agent-backstage-slim
+      - CONFLUENCE_AGENT_HOST=agent-confluence-slim
+      - GITHUB_AGENT_HOST=agent-github-slim
+      - JIRA_AGENT_HOST=agent-jira-slim
+      - KOMODOR_AGENT_HOST=agent-komodor-slim
+      - PAGERDUTY_AGENT_HOST=agent-pagerduty-slim
+      - SLACK_AGENT_HOST=agent-slack-slim
+      - SPLUNK_AGENT_HOST=agent-splunk-slim
+      - WEBEX_AGENT_HOST=agent-webex-slim
+      - WEATHER_AGENT_HOST=agent-weather-slim
+      # Enable Komodor
+      - ENABLE_KOMODOR=true
+      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-platform-engineer}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+    command: platform-engineer
+
+  ####################################################################################################
+  #                                      PLATFORM ENGINEER A2A P2P                                   #
+  ####################################################################################################
+  platform-engineer-p2p:
+    build:
+      context: .
+      dockerfile: build/Dockerfile
+    volumes:
+      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - .env:/app/.env
+      - ./ai_platform_engineering:/app/ai_platform_engineering
+    container_name: platform-engineering
+    profiles:
+      - p2p
+      - p2p-tracing
+      - argocd
+      - weather
+      - rag_p2p
+      - rag_no_graph_p2p
+    depends_on: 
+      "agent-argocd-p2p":
+        condition: service_started
+        required: false
+      "agent-aws-p2p":
+        condition: service_started
+        required: false
+      "agent-backstage-p2p":
+        condition: service_started
+        required: false
+      "agent-confluence-p2p":
+        condition: service_started
+        required: false
+      "agent-github-p2p":
+        condition: service_started
+        required: false
+      "agent-jira-p2p":
+        condition: service_started
+        required: false
+      "agent-komodor-p2p":
+        condition: service_started
+        required: false
+      "agent-pagerduty-p2p":
+        condition: service_started
+        required: false
+      "agent-slack-p2p":
+        condition: service_started
+        required: false
+      "agent-splunk-p2p":
+        condition: service_started
+        required: false
+      "agent-weather-p2p":
+        condition: service_started
+        required: false
+      "agent-webex-p2p":
+        condition: service_started
+        required: false
+    env_file:
+      - .env
+    ports:
+      # Expose the AI Platform Engineer agent on port 8000
+      - "8000:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - ARGOCD_AGENT_HOST=agent-argocd-p2p
+      - AWS_AGENT_HOST=agent-aws-p2p
+      - BACKSTAGE_AGENT_HOST=agent-backstage-p2p
+      - CONFLUENCE_AGENT_HOST=agent-confluence-p2p
+      - GITHUB_AGENT_HOST=agent-github-p2p
+      - JIRA_AGENT_HOST=agent-jira-p2p
+      - KOMODOR_AGENT_HOST=agent-komodor-p2p
+      - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
+      - SLACK_AGENT_HOST=agent-slack-p2p
+      - SPLUNK_AGENT_HOST=agent-splunk-p2p
+      - KOMODOR_AGENT_HOST=agent-komodor-p2p
+      - WEATHER_AGENT_HOST=agent-weather-p2p
+      - WEBEX_AGENT_HOST=agent-webex-p2p
+      - ENABLE_SPLUNK=true
+      - ENABLE_RAG=${ENABLE_RAG:-true}
+      - RAG_AGENT_URL=http://agent_rag:8099
+      - ENABLE_KOMODOR=true
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-platform-engineer}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+    command: platform-engineer
+
+  ####################################################################################################
+  #                                            SLIM Dataplane and control plane                      #
+  ####################################################################################################
+  slim-dataplane:
+    image: ghcr.io/agntcy/slim:0.3.15
+    container_name: slim-dataplane
+    profiles:
+      - slim
+      - slim-tracing
+    ports:
+      - "46357:46357"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
+  slim-control-plane:
+    image: ghcr.io/agntcy/slim/control-plane:0.0.1
+    container_name: slim-control-plane
+    profiles:
+      - slim
+      - slim-tracing
+    ports:
+      - "50051:50051"
+      - "50052:50052"
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes:
+      - ./slim-config.yaml:/config.yaml
+    command: ["/slim", "--config", "/config.yaml"]
+
+  ####################################################################################################
+  #                                           MCP ARGOCD                                            #
+  ####################################################################################################
+  mcp-argocd:
+    build:
+      context: ai_platform_engineering/agents/argocd
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-argocd
+    profiles:
+      - p2p
+      - p2p-tracing
+      - slim
+      - slim-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/argocd/mcp/mcp_argocd:/app/mcp_argocd
+    ports:
+      - "18000:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT ARGOCD A2A over SLIM                                  #
+  ####################################################################################################
+  agent-argocd-slim:
+    build:
+      context: ai_platform_engineering/agents/argocd
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-argocd-slim
+    profiles:
+      - argocd
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+      - mcp-argocd
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/agent_argocd
+      - ./ai_platform_engineering/agents/argocd/clients:/app/clients
+    ports:
+      - "8001:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-argocd
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT ARGOCD A2A P2P                                        #
+  ####################################################################################################
+  agent-argocd-p2p:
+    build:
+      context: ai_platform_engineering/agents/argocd
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-argocd-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    depends_on:
+      - mcp-argocd
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/agent_argocd
+      - ./ai_platform_engineering/agents/argocd/clients:/app/clients
+    ports:
+      - "8001:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-argocd
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT AWS A2A P2P                                           #
+  ####################################################################################################
+  agent-aws-p2p:
+    build:
+      context: ./ai_platform_engineering/agents/aws
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-aws-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+    env_file:
+      - .env
+    ports:
+      - "8013:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # AWS Configuration
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      # MCP Configuration
+      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
+      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
+      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
+      - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+      - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
+      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+
+  ####################################################################################################
+  #                                      AGENT BACKSTAGE A2A over SLIM                               #
+  ####################################################################################################
+  agent-backstage-slim:
+    build:
+      context: ai_platform_engineering/agents/backstage
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-backstage-slim
+    profiles:
+      - slim
+      - slim-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/agent_backstage
+      - ./ai_platform_engineering/agents/backstage/clients:/app/clients
+    depends_on:
+      - slim-dataplane
+    ports:
+      - "8002:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-backstage
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT BACKSTAGE A2A P2P                                     #
+  ####################################################################################################
+  agent-backstage-p2p:
+    build:
+      context: ai_platform_engineering/agents/backstage
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-backstage-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/agent_backstage
+      - ./ai_platform_engineering/agents/backstage/clients:/app/clients
+    ports:
+      - "8002:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-backstage
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      MCP BACKSTAGE                                               #
+  ####################################################################################################
+  mcp-backstage:
+    build:
+      context: ai_platform_engineering/agents/backstage
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-backstage
+    profiles:
+      - p2p
+      - p2p-tracing
+      - slim
+      - slim-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/backstage/mcp/mcp_backstage:/app/mcp_backstage
+    ports:
+      - "18001:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT CONFLUENCE A2A over SLIM                              #
+  ####################################################################################################
+
+  agent-confluence-slim:
+    build:
+      context: ai_platform_engineering/agents/confluence
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-confluence-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/agent_confluence
+      - ./ai_platform_engineering/agents/confluence/clients:/app/clients
+    ports:
+      - "8003:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-confluence
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT CONFLUENCE A2A P2P                                    #
+  ####################################################################################################
+  agent-confluence-p2p:
+    build:
+      context: ai_platform_engineering/agents/confluence
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-confluence-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/agent_confluence
+      - ./ai_platform_engineering/agents/confluence/clients:/app/clients
+    ports:
+      - "8003:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-confluence
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      MCP CONFLUENCE                                             #
+  ####################################################################################################
+  mcp-confluence:
+    build:
+      context: ai_platform_engineering/agents/confluence
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-confluence
+    profiles:
+      - slim
+      - p2p
+      - slim-tracing
+      - p2p-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/confluence/mcp/mcp_confluence:/app/mcp_confluence
+    ports:
+      - "18002:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT GITHUB A2A over SLIM                                  #
+  ####################################################################################################
+  agent-github-slim:
+    build:
+      context: ai_platform_engineering/agents/github
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-github-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/github/agent_github:/app/agent_github
+      - ./ai_platform_engineering/agents/github/clients:/app/clients
+    ports:
+      - "8004:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-github-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-github-agent}
+
+  ####################################################################################################
+  #                                      AGENT GITHUB A2A P2P                                        #
+  ####################################################################################################
+  agent-github-p2p:
+    build:
+      context: ai_platform_engineering/agents/github
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-github-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/github/agent_github:/app/agent_github
+      - ./ai_platform_engineering/agents/github/clients:/app/clients
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8004:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+
+  ####################################################################################################
+  #                                      AGENT JIRA SLIM                                             #
+  ####################################################################################################
+  agent-jira-slim:
+    build:
+      context: ai_platform_engineering/agents/jira
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-jira-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/jira/agent_jira:/app/agent_jira
+      - ./ai_platform_engineering/agents/jira/clients:/app/clients
+    ports:
+      - "8005:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-jira
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-jira-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-jira-agent}
+
+  ####################################################################################################
+  #                                      AGENT JIRA A2A P2P                                          #
+  ####################################################################################################
+  agent-jira-p2p:
+    build:
+      context: ai_platform_engineering/agents/jira
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-jira-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/jira/agent_jira:/app/agent_jira
+      - ./ai_platform_engineering/agents/jira/clients:/app/clients
+    ports:
+      - "8005:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-jira
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-jira-agent}
+
+  ####################################################################################################
+  #                                      MCP JIRA                                                    #
+  ####################################################################################################
+  mcp-jira:
+    build:
+      context: ai_platform_engineering/agents/jira
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-jira
+    profiles:
+      - slim
+      - p2p
+      - p2p-tracing
+      - slim-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/mcp_jira
+    ports:
+      - "18003:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT KOMODOR A2A over SLIM                                 #
+  ####################################################################################################
+  agent-komodor-slim:
+    build:
+      context: ai_platform_engineering/agents/komodor
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-komodor-slim
+    profiles:
+      - slim
+      - slim-tracing
+      - komodor
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/agent_komodor
+      - ./ai_platform_engineering/agents/komodor/clients:/app/clients
+    ports:
+      - "8006:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-komodor
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT KOMODOR A2A P2P                                       #
+  ####################################################################################################
+  agent-komodor-p2p:
+    build:
+      context: ai_platform_engineering/agents/komodor
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-komodor-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/agent_komodor
+      - ./ai_platform_engineering/agents/komodor/clients:/app/clients
+    ports:
+      - "8006:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-komodor
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      MCP KOMODOR                                                 #
+  ####################################################################################################
+  mcp-komodor:
+    build:
+      context: ai_platform_engineering/agents/komodor
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-komodor
+    profiles:
+      - slim
+      - p2p
+      - p2p-tracing
+      - slim-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/komodor/mcp/mcp_komodor:/app/mcp_komodor
+    ports:
+      - "18004:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT PAGERDUTY A2A over SLIM                               #
+  ####################################################################################################
+  agent-pagerduty-slim:
+    build:
+      context: ai_platform_engineering/agents/pagerduty
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-pagerduty-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/agent_pagerduty
+      - ./ai_platform_engineering/agents/pagerduty/clients:/app/clients
+    ports:
+      - "8007:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-pagerduty
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT PAGERDUTY A2A P2P                                     #
+  ####################################################################################################
+  agent-pagerduty-p2p:
+    build:
+      context: ai_platform_engineering/agents/pagerduty
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-pagerduty-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/agent_pagerduty
+      - ./ai_platform_engineering/agents/pagerduty/clients:/app/clients
+    ports:
+      - "8007:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-pagerduty
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      MCP PAGERDUTY                                             #
+  ####################################################################################################
+  mcp-pagerduty:
+    build:
+      context: ai_platform_engineering/agents/pagerduty
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-pagerduty
+    profiles:
+      - slim
+      - p2p
+      - slim-tracing
+      - p2p-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/pagerduty/mcp/mcp_pagerduty:/app/mcp_pagerduty
+    ports:
+      - "18005:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT SLACK A2A over SLIM                                   #
+  ####################################################################################################
+  agent-slack-slim:
+    build:
+      context: ai_platform_engineering/agents/slack
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-slack-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/slack/agent_slack:/app/agent_slack
+      - ./ai_platform_engineering/agents/slack/clients:/app/clients
+    ports:
+      - "8008:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-slack
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-slack-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-slack-agent}
+
+  ####################################################################################################
+  #                                      AGENT SLACK A2A P2P                                         #
+  ####################################################################################################
+  agent-slack-p2p:
+    build:
+      context: ai_platform_engineering/agents/slack
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-slack-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/slack/agent_slack:/app/agent_slack
+      - ./ai_platform_engineering/agents/slack/clients:/app/clients
+    ports:
+      - "8008:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-slack
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      MCP SLACK                                                   #
+  ####################################################################################################
+  mcp-slack:
+    build:
+      context: ai_platform_engineering/agents/slack
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-slack
+    profiles:
+      - slim
+      - p2p
+      - p2p-tracing
+      - slim-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/slack/mcp/mcp_slack:/app/mcp_slack
+    ports:
+      - "18006:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      AGENT WEBEX A2A P2P                                         #
+  ####################################################################################################
+  agent-webex-p2p:
+    build:
+      context: ai_platform_engineering/agents/webex
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-webex-p2p
+    profiles:
+      - webex
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/webex/agent_webex:/app/agent_webex
+    ports:
+      - "8009:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-webex
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+
+  ####################################################################################################
+  #                                      AGENT WEBEX A2A over SLIM                                   #
+  ####################################################################################################
+  agent-webex-slim:
+    build:
+      context: ai_platform_engineering/agents/webex
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-webex-slim
+    profiles:
+      - webex-slim
+    volumes:
+      - ./.env:/app/.env
+    depends_on:
+      - slim-dataplane
+    ports:
+      - "8009:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-webex
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      MCP WEBEX                                                   #
+  ####################################################################################################
+  mcp-webex:
+    build:
+      context: ai_platform_engineering/agents/webex
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-webex
+    profiles:
+      - webex
+      - webex-slim
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/webex/mcp/mcp_webex:/app/mcp_webex
+    ports:
+      - "18009:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      MCP SPLUNK                                                  #
+  ####################################################################################################
+  mcp-splunk:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-splunk
+    profiles:
+      - slim
+      - p2p
+      - p2p-tracing
+      - slim-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/splunk/mcp/mcp_splunk:/app/mcp_splunk
+    ports:
+      - "18012:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+  ####################################################################################################
+  #                                      AGENT SPLUNK A2A over SLIM                                  #
+  ####################################################################################################
+  agent-splunk-slim:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-splunk-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/splunk/agent_splunk:/app/agent_splunk
+    ports:
+      - "8012:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-splunk
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT SPLUNK A2A P2P                                        #
+  ####################################################################################################
+  agent-splunk-p2p:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-splunk-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    depends_on:
+      - mcp-splunk
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8012:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-splunk
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT WEATHER A2A over SLIM                                 #
+  ####################################################################################################
+  agent-weather-slim:
+    build:
+      context: ai_platform_engineering/agents/weather
+      dockerfile: build/Dockerfile.a2a
+      cache_from: []
+    container_name: agent-weather-slim
+    profiles:
+      - weather
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/app/.env
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
+      - ./ai_platform_engineering/agents/weather/clients:/app/clients
+    ports:
+      - "8100:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-weather-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-weather-agent}
+
+  ####################################################################################################
+  #                                      AGENT WEATHER A2A P2P                                       #
+  ####################################################################################################
+  agent-weather-p2p:
+    build:
+      context: ai_platform_engineering/agents/weather
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-weather-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
+      - ./ai_platform_engineering/agents/weather/clients:/app/clients
+    ports:
+      - "8100:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-weather
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+
+  ####################################################################################################
+  #                                      BACKSTAGE AGENT FORGE                                       #
+  ####################################################################################################
+  backstage-agent-forge:
+    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+    container_name: backstage-agent-forge
+    profiles:
+      - p2p
+      - slim
+      - slim-tracing
+      - p2p-tracing
+    ports:
+      - "13000:3000"
+  ####################################################################################################
+  #                                             RAG SERVICES                                         #
+  ####################################################################################################
+  rag_server:
+    ports:
+      - "9446:9446"
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_URL: redis://rag-redis:6379/0
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7688
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        MILVUS_URI: http://milvus-standalone:19530
+        ONTOLOGY_AGENT_RESTAPI_ADDR: http://agent_ontology:8098
+        GRAPH_RAG_ENABLED: ${GRAPH_RAG_ENABLED:-true}
+        CLEANUP_INTERVAL: 86400
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - rag-redis
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.server
+    profiles:
+      - rag_p2p
+      - rag_no_graph_p2p
+      - p2p
+      - p2p-tracing
+
+  agent-rag:
+    container_name: agent-rag
+    ports:
+      - "8099:8099"
+    env_file:
+      - .env
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_URL: redis://rag-redis:6379/0
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7688
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        RAG_SERVER_URL: http://rag_server:9446
+        GRAPH_RAG_ENABLED: ${GRAPH_RAG_ENABLED:-true}
+    restart: unless-stopped
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.agent-rag
+    profiles:
+      - rag_p2p
+      - rag_no_graph_p2p
+      - p2p
+      - p2p-tracing
+  agent_ontology:
+    ports:
+      - "8098:8098"
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_URL: redis://rag-redis:6379/0
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7688
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        SYNC_INTERVAL: 86400 # 24 hours
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      - rag_server
+      - neo4j
+      - neo4j-ontology
+      - rag-redis
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.agent-ontology
+    profiles:
+      - rag_p2p
+      - p2p
+      - p2p-tracing
+
+  webui:
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.webui
+    container_name: rag-webui
+    depends_on:
+      - rag_server
+    ports:
+      - "9447:80"
+    profiles:
+      - rag_p2p
+      - rag_no_graph_p2p
+      - p2p
+      - p2p-tracing
+
+
+  ###########################################
+  # Dependent services for RAG              #
+  ###########################################
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j
+    volumes:
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/logs:/logs
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/config:/config
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/data:/data
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/plugins:/plugins
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: unless-stopped
+    profiles:
+      - rag_p2p
+      - p2p
+      - p2p-tracing
+    environment:
+      NEO4J_AUTH: neo4j/dummy_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: true
+      NEO4J_apoc_import_file_enabled: true
+      NEO4J_apoc_import_file_use__neo4j__config: true
+
+  neo4j-ontology:
+    image: neo4j:latest
+    container_name: neo4j-ontology
+    volumes:
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/logs:/logs
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/config:/config
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/data:/data
+        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/plugins:/plugins
+    ports:
+      - "7688:7687"
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/dummy_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: true
+      NEO4J_apoc_import_file_enabled: true
+      NEO4J_apoc_import_file_use__neo4j__config: true
+    profiles:
+      - rag_p2p
+      - p2p
+      - p2p-tracing
+
+  rag-redis:
+    image: redis
+    command:
+      - /bin/sh
+      - -c
+      - redis-server
+    ports:
+      - ":6379"
+    restart: unless-stopped
+    profiles:
+      - rag_p2p
+      - rag_no_graph_p2p
+      - p2p
+      - p2p-tracing
+
+  milvus-standalone:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.6.0
+    command: ["milvus", "run", "standalone"]
+    profiles:
+      - rag_p2p
+      - rag_no_graph_p2p
+      - p2p
+      - p2p-tracing
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      MINIO_REGION: us-east-1
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: milvus-minio:9000
+      LOG_LEVEL: error
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    ports:
+      - ":19530"
+      - ":9091"
+    depends_on:
+      - etcd
+      - milvus-minio
+
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.18
+    profiles:
+      - rag_p2p
+      - rag_no_graph_p2p
+      - p2p
+      - p2p-tracing
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  milvus-minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    profiles:
+      - rag_p2p
+      - rag_no_graph_p2p
+      - p2p
+      - p2p-tracing
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - ":9001"
+      - ":9000"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  ####################################################################################################
+  #                                      LANGFUSE TRACING SERVICES                                   #
+  ####################################################################################################
+  # Langfuse Tracing Services (use ENABLE_TRACING=true and --profile=p2p-tracing/slim-tracing to enable)
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: langfuse-worker
+    restart: always
+    profiles:
+      - p2p-tracing
+      - slim-tracing
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3030:3030"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@langfuse-postgres:5432/postgres
+      SALT: "mysalt"
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      # S3 Event Upload Configuration (Required for tracing)
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: "events/"
+      # S3 Media Upload Configuration
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: "media/"
+      REDIS_HOST: langfuse-redis
+      REDIS_AUTH: myredissecret
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    container_name: langfuse-web
+    restart: always
+    profiles:
+      - p2p-tracing
+      - slim-tracing
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@langfuse-postgres:5432/postgres
+      SALT: "mysalt"
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      HOSTNAME: "0.0.0.0"
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      # S3 Event Upload Configuration (Required for tracing)
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: "events/"
+      # S3 Media Upload Configuration
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: "media/"
+      REDIS_HOST: langfuse-redis
+      REDIS_AUTH: myredissecret
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: mysecret
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server
+    container_name: langfuse-clickhouse
+    restart: always
+    profiles:
+      - p2p-tracing
+      - slim-tracing
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    ports:
+      - ":8123"
+      - ":9000"
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  langfuse-minio:
+    image: minio/minio
+    container_name: langfuse-minio
+    restart: always
+    profiles:
+      - p2p-tracing
+      - slim-tracing
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    ports:
+      - ":9000"
+      - ":9001"
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  langfuse-redis:
+    image: redis:7
+    container_name: langfuse-redis
+    restart: always
+    profiles:
+      - p2p-tracing
+      - slim-tracing
+    command: >
+      --requirepass ${REDIS_AUTH:-myredissecret}
+    ports:
+      - ":6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  langfuse-postgres:
+    image: postgres:15
+    container_name: langfuse-postgres
+    restart: always
+    profiles:
+      - p2p-tracing
+      - slim-tracing
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+  ####################################################################################################
+  #                                      EVALUATION WEBHOOK SERVICE                                   #
+  ####################################################################################################
+  evaluation-webhook:
+    build:
+      context: ./evals
+      dockerfile: Dockerfile
+    container_name: evaluation-webhook
+    restart: unless-stopped
+    profiles:
+      - slim-tracing
+      - p2p-tracing
+      - evaluation
+    depends_on:
+      langfuse-web:
+        condition: service_started
+    ports:
+      - "8011:8000"
+    env_file:
+      - .env
+    environment:
+      - PLATFORM_ENGINEER_URL=http://platform-engineering:8000
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      # Mount datasets for development
+      - ./evals/datasets:/app/datasets
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+volumes:
+  langfuse_postgres_data:
+    driver: local
+  langfuse_clickhouse_data:
+    driver: local
+  langfuse_clickhouse_logs:
+    driver: local
+  langfuse_minio_data:
+    driver: local
+  milvus_etcd:
+    driver: local
+  milvus_minio:
+    driver: local
+  milvus_data:
+    driver: local
