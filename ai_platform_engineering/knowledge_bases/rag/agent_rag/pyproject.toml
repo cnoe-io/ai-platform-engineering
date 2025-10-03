@@ -10,6 +10,7 @@ requires-python = ">=3.13, <4.0"
 dependencies = [
     "a2a-sdk==0.2.16",
     "click>=8.2.1",
+    "common",
     "httpx>=0.28.1",
     "langchain>=0.3.25",
     "langchain-aws>=0.2.26",
@@ -19,8 +20,7 @@ dependencies = [
     "pydantic>=2.11.7",
     "python-dotenv>=1.1.0",
     "uvicorn>=0.34.3",
-    "cnoe-agent-utils==0.3.0",
-    "common",
+    "cnoe-agent-utils==0.3.2",
 ]
 
 [project.scripts]

@@ -92,8 +92,12 @@ test: setup-venv ## Install dependencies and run tests using pytest
 	@. .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
 
 	@echo "Running general project tests..."
-	@. .venv/bin/activate && uv run pytest --ignore=integration --ignore=ai_platform_engineering/knowledge_bases/rag/tests
-	
+	@. .venv/bin/activate && uv run pytest --ignore=integration --ignore=ai_platform_engineering/knowledge_bases/rag/tests --ignore=ai_platform_engineering/agents/argocd/mcp/tests --ignore=volumes
+
+	@echo ""
+	@echo "Running ArgoCD MCP tests..."
+	@cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
+
 	@echo ""
 	@echo "Running RAG module tests..."
 	@$(MAKE) test-rag-all

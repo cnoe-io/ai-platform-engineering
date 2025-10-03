@@ -1,0 +1,31 @@
+tabulate and correlate argocd apps in project jarvis-agent-dev, backstage projects for jarvis filter, confluence pager for "jarvis", correlate Jira issues, correlate komodor clusters and workload running on them, pagerduty services and slack channels, and github issues and PRs in ai-platform-engineering in cnoe-io org
+
+Find all the on-call personnnel in SRE team and find all the Jiras assigned to them and sort them based on MTTR. Mask their Names and Emails
+
+What is CAIPE project and how can I get started with it?
+
+Deploy my app to sandbox cluster
+
+show me github repo in cnoe-io org with agent name
+
+show me argocod apps in jarvis-agent-dev project
+
+show me who is on call SRE and mask the email addresss and find the jiras for them in the last 7 days
+
+show argocd version
+
+show backstage apps and filter with name jarvis
+
+find confluence page for jarvis
+
+show my github profile
+
+get my jiras in OPENSD project
+
+find all the clusters in komodor
+
+debug backstage app in comn-dev-use2-1 using komodor
+
+who is on call sre
+
+what splunk events do you see in the last week?

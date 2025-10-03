@@ -45,16 +45,34 @@ async def add_worklog(
 
     worklog_data = {
         "timeSpent": time_spent,
-        "comment": comment,
         "started": started,
         "originalEstimate": original_estimate,
         "remainingEstimate": remaining_estimate,
     }
 
+    # Use ADF format for comments in v3
+    if comment:
+        adf_comment = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": comment
+                        }
+                    ]
+                }
+            ]
+        }
+        worklog_data["comment"] = adf_comment
+
     success, response = await make_api_request(
         path=f"rest/api/3/issue/{issue_key}/worklog",
         method="POST",
-        json=worklog_data,
+        data=worklog_data,
     )
 
     if not success:

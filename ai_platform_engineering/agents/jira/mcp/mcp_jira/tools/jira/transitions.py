@@ -86,8 +86,24 @@ async def transition_issue(
     }
 
     if comment:
+        # Use ADF format for comments in v3
+        adf_comment = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": comment
+                        }
+                    ]
+                }
+            ]
+        }
         payload["update"] = {
-            "comment": [{"add": {"body": comment}}]
+            "comment": [{"add": {"body": adf_comment}}]
         }
 
     success, response = await make_api_request(

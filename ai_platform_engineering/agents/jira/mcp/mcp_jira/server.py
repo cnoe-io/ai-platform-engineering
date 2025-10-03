@@ -17,8 +17,6 @@ from mcp_jira.tools.jira import users
 from mcp_jira.tools.jira import search
 from mcp_jira.tools.jira import transitions
 from mcp_jira.tools.jira import worklog
-from mcp_jira.tools.jira import boards
-from mcp_jira.tools.jira import sprints
 from mcp_jira.tools.jira import links
 
 def main():
@@ -56,24 +54,18 @@ def main():
     mcp.tool()(users.get_current_user_account_id)
     mcp.tool()(users.handle_user_operations)
     mcp.tool()(issues.get_issue)
-    mcp.tool()(issues.get_board_issues)
-    mcp.tool()(issues.get_project_issues)
     mcp.tool()(issues.create_issue)
     mcp.tool()(issues.create_issue_link)
     mcp.tool()(issues.remove_issue_link)
     mcp.tool()(search.search)
-    mcp.tool()(search.search_fields)
+    mcp.tool()(search.check_jql_match)
+    mcp.tool()(search.get_approximate_count)
     mcp.tool()(transitions.get_transitions)
     mcp.tool()(transitions.transition_issue)
     mcp.tool()(worklog.get_worklog)
     mcp.tool()(worklog.add_worklog)
-    mcp.tool()(boards.get_agile_boards)
-    mcp.tool()(sprints.get_sprints_from_board)
-    mcp.tool()(sprints.create_sprint)
-    mcp.tool()(sprints.update_sprint)
     mcp.tool()(links.get_link_types)
     mcp.tool()(links.link_to_epic)
-    mcp.tool()(issues.create_issue)
 
     # Run the MCP server
     mcp.run(transport=MCP_MODE.lower())
