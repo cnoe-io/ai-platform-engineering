@@ -17,6 +17,23 @@ export default function ExploreView() {
     const [acceptanceThreshold, setAcceptanceThreshold] = useState<number>(0.75);
     const [rejectionThreshold, setRejectionThreshold] = useState<number>(0.3);
     const [exploreEntityData, setExploreEntityData] = useState<{entityType: string, primaryKey: string} | null>(null);
+    const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
+
+    const fetchConfig = useCallback(async () => {
+        try {
+            const response = await axios.get('/healthz');
+            const { config } = response.data;
+            const graphRagEnabled = config?.graph_rag_enabled ?? true;
+            setGraphRagEnabled(graphRagEnabled);
+            
+            // If graph RAG is disabled and user is on a graph tab, redirect to search
+            if (!graphRagEnabled && (activeView === 'ontology' || activeView === 'data')) {
+                setActiveView('search');
+            }
+        } catch (error) {
+            console.error('Failed to fetch config:', error);
+        }
+    }, [activeView]);
 
     const fetchAgentStatus = useCallback(async () => {
         try {
@@ -67,8 +84,11 @@ export default function ExploreView() {
     
 
 
-    // Periodic status checking
+    // Initial config and status fetching
     useEffect(() => {
+        // Fetch config once on component mount
+        fetchConfig();
+        
         // Initial status check
         fetchAgentStatus();
 
@@ -78,7 +98,7 @@ export default function ExploreView() {
         return () => {
             clearInterval(statusInterval);
         };
-    }, [fetchAgentStatus]);
+    }, [fetchConfig, fetchAgentStatus]);
 
     const isAgentActive = isAgentProcessing || isAgentEvaluating;
 
@@ -120,22 +140,30 @@ export default function ExploreView() {
                         🔍 Search
                     </button>
                     <button
-                        onClick={() => setActiveView('ontology')}
+                        onClick={graphRagEnabled ? () => setActiveView('ontology') : undefined}
+                        disabled={!graphRagEnabled}
                         className={`px-6 py-2 text-sm font-medium transition-colors ${
-                            activeView === 'ontology'
+                            !graphRagEnabled
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                : activeView === 'ontology'
                                 ? 'bg-brand-600 text-white'
                                 : 'bg-white text-gray-700 hover:bg-gray-50'
                         }`}
+                        title={!graphRagEnabled ? 'Graph RAG is disabled' : ''}
                     >
                         🌐 Graph: Ontology
                     </button>
                     <button
-                        onClick={() => setActiveView('data')}
+                        onClick={graphRagEnabled ? () => setActiveView('data') : undefined}
+                        disabled={!graphRagEnabled}
                         className={`px-6 py-2 text-sm font-medium transition-colors ${
-                            activeView === 'data'
+                            !graphRagEnabled
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                : activeView === 'data'
                                 ? 'bg-brand-600 text-white'
                                 : 'bg-white text-gray-700 hover:bg-gray-50'
                         }`}
+                        title={!graphRagEnabled ? 'Graph RAG is disabled' : ''}
                     >
                         📊 Graph: Data
                     </button>

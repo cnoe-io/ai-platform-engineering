@@ -36,15 +36,17 @@ jobmanager: Optional[JobManager] = None
 data_graph_db: Optional[GraphDB] = None
 ontology_graph_db: Optional[GraphDB] = None
 
-logger = logging.getLogger("uvicorn")
-max_concurrent_ingest_jobs = int(os.getenv("MAX_CONCURRENT_INGEST_JOBS", 20))
-ontology_agent_client = httpx.AsyncClient(base_url=os.getenv("ONTOLOGY_AGENT_RESTAPI_ADDR", "http://localhost:8098"))
-
 # Initialize logger
-logger = logging.getLogger("uvicorn")
+logger = utils.get_logger(__name__)
 logger.setLevel(os.getenv("LOG_LEVEL", logging.DEBUG))
 clean_up_interval = int(os.getenv("CLEANUP_INTERVAL", 3 * 60 * 60))  # Default to 3 hours
-
+max_concurrent_ingest_jobs = int(os.getenv("MAX_CONCURRENT_INGEST_JOBS", 20))
+ontology_agent_client = httpx.AsyncClient(base_url=os.getenv("ONTOLOGY_AGENT_RESTAPI_ADDR", "http://localhost:8098"))
+graph_rag_enabled = os.getenv("GRAPH_RAG_ENABLED", "true").lower() in ("true", "1", "yes")
+if graph_rag_enabled:
+    logger.info("Graph RAG is enabled.")
+else:
+    logger.info("Graph RAG is disabled.")
 
 # Lifespan event handler
 @asynccontextmanager
@@ -78,11 +80,6 @@ async def setup():
     metadata_storage = MetadataStorage(redis_client=redis_client)
     jobmanager = JobManager(redis_client=redis_client)
     embeddings = AzureOpenAIEmbeddings(model=os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small"))
-    data_graph_db = Neo4jDB()
-    await data_graph_db.setup()
-    ontology_graph_db = Neo4jDB(uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
-    await ontology_graph_db.setup()
-
 
     # Setup Vector Databases
     milvus_connection_args = {"uri": os.getenv("MILVUS_URI", "http://localhost:19530")}
@@ -101,15 +98,22 @@ async def setup():
         vector_field=["dense", "sparse"]
     )
 
-    # Setup vector db for graph data
-    vector_db_graph = Milvus(
-        embedding_function=embeddings,
-        collection_name=DEFAULT_COLLECTION_NAME_GRAPH,
-        connection_args=milvus_connection_args,
-        index_params=[dense_index_params, sparse_index_params],
-        builtin_function=BM25BuiltInFunction(output_field_names="sparse"),
-        vector_field=["dense", "sparse"]
-    )
+    if graph_rag_enabled:
+        # Setup graph dbs
+        data_graph_db = Neo4jDB()
+        await data_graph_db.setup()
+        ontology_graph_db = Neo4jDB(uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
+        await ontology_graph_db.setup()
+
+        # Setup vector db for graph data
+        vector_db_graph = Milvus(
+            embedding_function=embeddings,
+            collection_name=DEFAULT_COLLECTION_NAME_GRAPH,
+            connection_args=milvus_connection_args,
+            index_params=[dense_index_params, sparse_index_params],
+            builtin_function=BM25BuiltInFunction(output_field_names="sparse"),
+            vector_field=["dense", "sparse"]
+        )
 
 # ============================================================================
 # Datasources Endpoints
@@ -297,8 +301,6 @@ async def get_ingestion_status(job_id: str):
 @app.post("/v1/query", response_model=QueryResults)
 async def query_documents(query_request: QueryRequest):
     """Query for relevant documents using semantic search in the unified collection."""
-    if not vector_db_docs or not vector_db_graph:
-        raise HTTPException(status_code=500, detail="Server not initialized")
 
     # Build filter expressions for filtering if specified
     docs_filter_expr = None
@@ -308,19 +310,12 @@ async def query_documents(query_request: QueryRequest):
     if query_request.datasource_id:
         docs_filter_expr = f"datasource_id == '{query_request.datasource_id}'"
     
-    # Build graph filter expression
-    graph_filter_parts = []
-    if query_request.connector_id:
-        graph_filter_parts.append(f"connector_id == '{query_request.connector_id}'")
-    if query_request.graph_entity_type:
-        graph_filter_parts.append(f"entity_type == '{query_request.graph_entity_type}'")
-    
-    if graph_filter_parts:
-        graph_filter_expr = " AND ".join(graph_filter_parts)
-    
     # Define async functions for concurrent execution
     async def search_docs(vector_db_docs: Milvus):
         logger.info(f"Searching docs vector db with filters - datasource_id: {query_request.datasource_id}, query: {query_request.query}")
+        if vector_db_docs is None:
+            logger.warning("Document vector DB is not initialized.")
+            return []
         try:
             docs = await vector_db_docs.asimilarity_search_with_score(
                 query_request.query,
@@ -333,8 +328,22 @@ async def query_documents(query_request: QueryRequest):
             logger.error(f"Error querying docs vector db: {e}")
             return []
 
+     # Build graph filter expression
+    graph_filter_parts = []
+    if query_request.connector_id:
+        graph_filter_parts.append(f"connector_id == '{query_request.connector_id}'")
+    if query_request.graph_entity_type:
+        graph_filter_parts.append(f"entity_type == '{query_request.graph_entity_type}'")
+    
+    if graph_filter_parts:
+        graph_filter_expr = " AND ".join(graph_filter_parts)
+    
+
     async def search_graph(vector_db_graph: Milvus):
         logger.info(f"Searching graph vector db with filters - connector_id: {query_request.connector_id}, entity_type: {query_request.graph_entity_type}, query: {query_request.query}")
+        if vector_db_graph is None:
+            logger.warning("Graph vector DB is not initialized.")
+            return []
         try:
             graph_entities = await vector_db_graph.asimilarity_search_with_score(
                 query_request.query,
@@ -346,10 +355,15 @@ async def query_documents(query_request: QueryRequest):
         except Exception as e:
             logger.error(f"Error querying graph vector db: {e}")
             return []
-    
-    # Execute both searches concurrently
-    docs, graph_entities = await asyncio.gather(search_docs(vector_db_docs), search_graph(vector_db_graph))
-    
+
+    if graph_rag_enabled:
+        # Execute both searches concurrently
+        docs, graph_entities = await asyncio.gather(search_docs(vector_db_docs), search_graph(vector_db_graph))
+    else:
+        # Only search documents
+        docs = await search_docs(vector_db_docs)
+        graph_entities = []
+
     # Format results for response
     doc_results: List[QueryResult] = []
     graph_results: List[QueryResult] = []
@@ -368,11 +382,12 @@ async def query_documents(query_request: QueryRequest):
                 score=score
             )
         )
+    
     return QueryResults(
-        query=query_request.query,
-        results_docs=doc_results,
-        results_graph=graph_results,
-    )
+            query=query_request.query,
+            results_docs=doc_results,
+            results_graph=graph_results,
+        )
 
 # ============================================================================
 # Knowledge Graph Endpoints
@@ -384,7 +399,7 @@ async def list_graph_connectors():
     Lists all graph connectors in the database
     """
     if not metadata_storage:
-        raise HTTPException(status_code=500, detail="Server not initialized")
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
     logger.debug("Listing graph connectors")
     connectors = await metadata_storage.fetch_all_graphconnector_info()
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(connectors))
@@ -392,7 +407,7 @@ async def list_graph_connectors():
 @app.delete("/v1/graph/connector/{connector_id}")
 async def delete_connector(connector_id: str):
     if not metadata_storage or not vector_db_graph or not data_graph_db:
-        raise HTTPException(status_code=500, detail="Server not initialized")
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
     connector_info =  await metadata_storage.get_graphconnector_info(connector_id)
     
     if not connector_info:
@@ -410,7 +425,7 @@ async def list_entity_types():
     Lists all entity types in the database
     """
     if not ontology_graph_db:
-        raise HTTPException(status_code=500, detail="Server not initialized")
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
     logger.debug("Listing entity types")
     e = await ontology_graph_db.get_all_entity_types()
     return JSONResponse(status_code=status.HTTP_200_OK, content=e)
@@ -421,7 +436,7 @@ async def explore_data_entity(explore_data_entity_request: ExploreDataEntityRequ
     Gets an entity from the database
     """
     if not data_graph_db:
-        raise HTTPException(status_code=500, detail="Server not initialized")
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
     logger.debug(f"Finding entity: {explore_data_entity_request.entity_type}, {explore_data_entity_request.entity_pk}")
     entity = await data_graph_db.fetch_entity(explore_data_entity_request.entity_type, explore_data_entity_request.entity_pk)
     relations = await data_graph_db.fetch_entity_relations(explore_data_entity_request.entity_type, explore_data_entity_request.entity_pk)
@@ -435,7 +450,7 @@ async def explore_ontology_entities(explore_entity_request: ExploreEntityRequest
     Gets an entity from the database
     """
     if not ontology_graph_db:
-        raise HTTPException(status_code=500, detail="Server not initialized")
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
 
     # Fetch the current heuristics version id
     heuristics_version_id = await redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
@@ -460,7 +475,7 @@ async def explore_ontology_relations(explore_relations_request: ExploreRelations
     Gets a relation from the database
     """
     if not ontology_graph_db:
-        raise HTTPException(status_code=500, detail="Server not initialized")
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
     
     # Fetch the current heuristics version id
     heuristics_version_id = await redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
@@ -483,7 +498,7 @@ async def explore_ontology_relations(explore_relations_request: ExploreRelations
 async def ingest_entities(entity_ingest_request: EntityIngest, background_tasks: BackgroundTasks):
     """Updates/Ingests entities to the database"""
     if not data_graph_db or not ontology_graph_db:
-        raise HTTPException(status_code=500, detail="Server not initialized")
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
     logger.debug(f"Updating entities: {entity_ingest_request.connector_name}, type={entity_ingest_request.entity_type}, count={len(entity_ingest_request.entities)}, fresh_until={entity_ingest_request.fresh_until}")
     try:
         background_tasks.add_task(run_graph_entity_ingestion, entity_ingest_request.connector_name, entity_ingest_request.entity_type, entity_ingest_request.entities, entity_ingest_request.fresh_until)
@@ -507,8 +522,9 @@ async def _reverse_proxy(request: Request):
         background=BackgroundTask(rp_resp.aclose),
     )
 
-app.add_route("/v1/graph/ontology/agent/{path:path}",
-            _reverse_proxy, ["GET", "POST", "DELETE"])
+if graph_rag_enabled:
+    app.add_route("/v1/graph/ontology/agent/{path:path}",
+                _reverse_proxy, ["GET", "POST", "DELETE"])
 
 
 # ============================================================================
@@ -521,6 +537,9 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "config": {
+            "graph_rag_enabled": graph_rag_enabled,
+        }
     }
 
 
