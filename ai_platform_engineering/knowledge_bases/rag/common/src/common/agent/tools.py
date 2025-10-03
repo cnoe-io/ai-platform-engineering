@@ -14,10 +14,14 @@ import httpx
 
 # Load environment variables from .env file
 dotenv.load_dotenv(verbose=True)
-data_graphdb = Neo4jDB(readonly=True)
-ontology_graphdb = Neo4jDB(readonly=True, uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
-redis_client = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+
+graph_rag_enabled = os.getenv("GRAPH_RAG_ENABLED", "true").lower() in ("true", "1", "yes")
 server_query_url = os.getenv("RAG_SERVER_URL", "http://localhost:9446") + "/v1/query"
+
+if graph_rag_enabled:
+    data_graphdb = Neo4jDB(readonly=True)
+    ontology_graphdb = Neo4jDB(readonly=True, uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
+    redis_client = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
 
 logger = get_logger(__name__)
 
@@ -78,13 +82,20 @@ async def search(query: str, graph_entity_type: Optional[str] = "", limit: int =
                 "score": result["score"]
             })
         
-        results = {
-            "query": query,
-            "documents": doc_results,
-            "graph_entities": graph_results,
-            "total_documents": len(doc_results),
-            "total_graph_entities": len(graph_results)
-        }
+        if graph_rag_enabled:
+            results = {
+                "query": query,
+                "documents": doc_results,
+                "graph_entities": graph_results,
+                "total_documents": len(doc_results),
+                "total_graph_entities": len(graph_results)
+            }
+        else:
+            results = {
+                "query": query,
+                "documents": doc_results,
+                "total_documents": len(doc_results)
+            }
     except Exception as e:
         logger.error(f"Traceback: {traceback.format_exc()}")
         logger.error(f"Error during search: {e}")
@@ -281,7 +292,7 @@ async def raw_graph_query(query: str, thought: str) -> str:
     """
     logger.debug(f"Raw graph query: {query}, Thought: {thought}")
     try:
-        res = await data_graphdb.raw_query(query)
+        res = await data_graphdb.raw_query(query, return_everything=True, readonly=True, max_results=MAX_RESULTS)
         logger.debug(f"Raw query result: {res}")
         tokens = count_tokens_approximately(str(res))
         if tokens > 50000:

@@ -538,7 +538,7 @@ export default function OntologyGraph({
                         className="btn bg-yellow-500 hover:bg-yellow-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
                         disabled={isLoading || isAgentActive}
                         title={isAgentActive ? "Agent is currently active - please wait" : nodes.length === 0 ? "Detect Ontology" : "Re-Detect the Ontology"}>
-                        {isLoading ? 'Processing...' : nodes.length === 0 ? 'Detect Ontology' : 'Re-evaluate Ontology'}
+                        {isLoading ? 'Processing...' : nodes.length === 0 ? 'Detect Ontology' : 'Re-detect Ontology'}
                     </button>
                 </div>
                 {error && <p className="text-red-500 mt-2">{error}</p>}
@@ -550,22 +550,44 @@ export default function OntologyGraph({
                     </div>
                 )}
                 <div style={{ height: '65vh' }} className="flex-grow rounded-lg shadow-md bg-white">
-                    {nodes.length === 0 && !isLoading ? (
-                        // Welcome Screen when no ontology data
+                    {nodes.length === 0 ? (
+                        // Welcome Screen when no ontology data or loading
                         <div className="h-full p-8 flex items-center justify-center">
                             <div className="text-center space-y-4 max-w-md">
-                                <div className="text-6xl text-indigo-500 mb-4">🌐</div>
-                                <h3 className="text-2xl font-bold text-gray-800">Ontology Graph</h3>
-                                <p className="text-gray-600">
-                                    No ontology data found. <br/> Use 🔌 Graph connectors to ingest entities, and click detect ontology to see entity relationships and confidence scores.
-                                </p>
-                                <button
-                                    onClick={() => setShowRegenerateConfirm(true)}
-                                    className="btn bg-yellow-500 hover:bg-yellow-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
-                                    disabled={isLoading || isAgentActive}
-                                    title={isAgentActive ? "Agent is currently active - please wait" : nodes.length === 0 ? "Detect Ontology" : "Re-Detect the Ontology"}>
-                                    {isLoading ? 'Processing...' : nodes.length === 0 ? 'Detect Ontology' : 'Re-evaluate Ontology'}
-                                </button>
+                                {isLoading ? (
+                                    // Loading state
+                                    <>
+                                        <div className="text-6xl mb-4">
+                                            <div className="animate-spin">⚙️</div>
+                                        </div>
+                                        <h3 className="text-2xl font-bold text-gray-800">Loading Ontology...</h3>
+                                        <p className="text-gray-600">
+                                            {isAgentProcessing || isAgentEvaluating 
+                                                ? 'The ontology agent is analyzing data and discovering relationships. This may take a few moments...'
+                                                : 'Fetching ontology data...'
+                                            }
+                                        </p>
+                                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                            <div className="bg-indigo-600 h-2.5 rounded-full animate-pulse" style={{width: '60%'}}></div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    // Welcome state when no data
+                                    <>
+                                        <div className="text-6xl text-indigo-500 mb-4">🌐</div>
+                                        <h3 className="text-2xl font-bold text-gray-800">Ontology Graph</h3>
+                                        <p className="text-gray-600">
+                                            No ontology data found. <br/> Use 🔌 Graph connectors to ingest entities, and click detect ontology to see entity relationships and confidence scores.
+                                        </p>
+                                        <button
+                                            onClick={() => setShowRegenerateConfirm(true)}
+                                            className="btn bg-yellow-500 hover:bg-yellow-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                            disabled={isLoading || isAgentActive}
+                                            title={isAgentActive ? "Agent is currently active - please wait" : "Detect Ontology"}>
+                                            Detect Ontology
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     ) : (
