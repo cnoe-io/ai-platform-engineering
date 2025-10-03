@@ -800,7 +800,7 @@ class Neo4jDB(GraphDB):
             vals.append(result.get("values", ""))
         return vals
 
-    async def raw_query(self, query: str, readonly=False, max_results=10000) -> dict:
+    async def raw_query(self, query: str, return_everything: bool = False, readonly=False, max_results=10000) -> dict:
         if readonly:
             session = self.driver.session(default_access_mode=neo4j.READ_ACCESS, database=self.database)
         else:
@@ -809,12 +809,17 @@ class Neo4jDB(GraphDB):
             res = await session.run(query) # type: ignore
             # d = await res.data()
             rec = await res.fetch(max_results)
-            print(rec)
+            logger.debug(f"Query returned {len(rec)} records")
             d = await res.consume()
-            print(d)
-            return {
-                "results":rec
-            }
+            if return_everything:
+                return {
+                    "results":rec,
+                    "summary":d
+                }
+            else:
+                return {
+                    "results":rec
+                }
 
     async def _create_full_text_index(self, index_name: str, labels: list, props: list, analyzer: str = 'simple'):
         props = [f"n.`{prop}`" for prop in props]

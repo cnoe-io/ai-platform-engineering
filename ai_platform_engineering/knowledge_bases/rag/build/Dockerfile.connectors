@@ -29,6 +29,10 @@ FROM python:3.13-slim-bookworm
 # Python executable must be the same, e.g., using `python:3.13-slim-bookworm`
 # will fail.
 
+# Create a non-root user
+RUN groupadd --gid 1001 app && \
+    useradd --uid 1001 --gid app --shell /bin/bash --create-home app
+
 # Copy the application from the builder
 COPY --from=builder --chown=app:app /app /app
 
@@ -36,6 +40,9 @@ WORKDIR /app/connectors
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/connectors/.venv/bin:$PATH"
+
+# Use a non-root user to run the application
+USER app
 
 # Run the application by default
 CMD ["python3", "src/connectors/test_dummy/client.py"]
