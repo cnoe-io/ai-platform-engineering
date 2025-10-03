@@ -172,6 +172,7 @@ class AgentRegistry:
             )
         elif transport == "slim":
             return AgntcySlimRemoteAgentConnectTool(
+                endpoint=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357"),
                 name=name,
                 remote_agent_card=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
             )

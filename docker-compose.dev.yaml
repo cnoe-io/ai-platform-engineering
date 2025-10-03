@@ -79,20 +79,45 @@ services:
       - p2p-tracing
       - argocd
       - weather
-      - graph_rag
-    depends_on:
-        - agent-argocd-p2p
-        - agent-aws-p2p
-        - agent-backstage-p2p
-        - agent-confluence-p2p
-        - agent-github-p2p
-        - agent-jira-p2p
-        - agent-komodor-p2p
-        - agent-pagerduty-p2p
-        - agent-slack-p2p
-        - agent-splunk-p2p
-        - agent-weather-p2p
-        - agent-webex-p2p
+      - rag_p2p
+      - rag_no_graph_p2p
+    depends_on: 
+      "agent-argocd-p2p":
+        condition: service_started
+        required: false
+      "agent-aws-p2p":
+        condition: service_started
+        required: false
+      "agent-backstage-p2p":
+        condition: service_started
+        required: false
+      "agent-confluence-p2p":
+        condition: service_started
+        required: false
+      "agent-github-p2p":
+        condition: service_started
+        required: false
+      "agent-jira-p2p":
+        condition: service_started
+        required: false
+      "agent-komodor-p2p":
+        condition: service_started
+        required: false
+      "agent-pagerduty-p2p":
+        condition: service_started
+        required: false
+      "agent-slack-p2p":
+        condition: service_started
+        required: false
+      "agent-splunk-p2p":
+        condition: service_started
+        required: false
+      "agent-weather-p2p":
+        condition: service_started
+        required: false
+      "agent-webex-p2p":
+        condition: service_started
+        required: false
     env_file:
       - .env
     ports:
@@ -112,13 +137,10 @@ services:
       - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
-      - KB_RAG_AGENT_HOST=agent-rag
       - WEBEX_AGENT_HOST=agent-webex-p2p
-      - ENABLE_KB_RAG=true
       - ENABLE_SPLUNK=true
-      - ENABLE_GRAPH_RAG=false
-      - GRAPH_RAG_AGENT_URL=http://agent_graph_qa:8096
-      - KB_RAG_AGENT_URL=http://agent_rag:8099
+      - ENABLE_RAG=${ENABLE_RAG:-true}
+      - RAG_AGENT_URL=http://agent_rag:8099
       - ENABLE_KOMODOR=true
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -1072,17 +1094,15 @@ services:
     env_file:
       - .env
     depends_on:
-      - neo4j
-      - neo4j-ontology
       - rag-redis
     build:
       context: ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.server
     profiles:
+      - rag_p2p
+      - rag_no_graph_p2p
       - p2p
       - p2p-tracing
-      - apps
-      - rag_only
 
   agent-rag:
     container_name: agent-rag
@@ -1100,14 +1120,12 @@ services:
         RAG_SERVER_URL: http://rag_server:9446
         GRAPH_RAG_ENABLED: ${GRAPH_RAG_ENABLED:-true}
     restart: unless-stopped
-    depends_on:
-      - neo4j
     build:
       context: ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.agent-rag
     profiles:
-      - apps
-      - rag_only
+      - rag_p2p
+      - rag_no_graph_p2p
       - p2p
       - p2p-tracing
   agent_ontology:
@@ -1133,7 +1151,7 @@ services:
       context: ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.agent-ontology
     profiles:
-      - apps
+      - rag_p2p
       - p2p
       - p2p-tracing
 
@@ -1147,14 +1165,15 @@ services:
     ports:
       - "9447:80"
     profiles:
-      - apps
-      - rag_only
+      - rag_p2p
+      - rag_no_graph_p2p
       - p2p
       - p2p-tracing
 
-#####################
-# Dependent services
-#####################
+
+  ###########################################
+  # Dependent services for RAG              #
+  ###########################################
   neo4j:
     image: neo4j:latest
     container_name: neo4j
@@ -1168,8 +1187,7 @@ services:
       - "7687:7687"
     restart: unless-stopped
     profiles:
-      - deps
-      - apps
+      - rag_p2p
       - p2p
       - p2p-tracing
     environment:
@@ -1197,8 +1215,7 @@ services:
       NEO4J_apoc_import_file_enabled: true
       NEO4J_apoc_import_file_use__neo4j__config: true
     profiles:
-      - deps
-      - apps
+      - rag_p2p
       - p2p
       - p2p-tracing
 
@@ -1212,9 +1229,8 @@ services:
       - ":6379"
     restart: unless-stopped
     profiles:
-      - deps
-      - apps
-      - rag_only
+      - rag_p2p
+      - rag_no_graph_p2p
       - p2p
       - p2p-tracing
 
@@ -1223,9 +1239,8 @@ services:
     image: milvusdb/milvus:v2.6.0
     command: ["milvus", "run", "standalone"]
     profiles:
-      - deps
-      - apps
-      - rag_only
+      - rag_p2p
+      - rag_no_graph_p2p
       - p2p
       - p2p-tracing
     security_opt:
@@ -1254,9 +1269,8 @@ services:
     container_name: milvus-etcd
     image: quay.io/coreos/etcd:v3.5.18
     profiles:
-      - deps
-      - apps
-      - rag_only
+      - rag_p2p
+      - rag_no_graph_p2p
       - p2p
       - p2p-tracing
     environment:
@@ -1277,9 +1291,8 @@ services:
     container_name: milvus-minio
     image: minio/minio:RELEASE.2024-05-28T17-19-04Z
     profiles:
-      - deps
-      - apps
-      - rag_only
+      - rag_p2p
+      - rag_no_graph_p2p
       - p2p
       - p2p-tracing
     environment:

@@ -313,9 +313,6 @@ async def query_documents(query_request: QueryRequest):
     # Define async functions for concurrent execution
     async def search_docs(vector_db_docs: Milvus):
         logger.info(f"Searching docs vector db with filters - datasource_id: {query_request.datasource_id}, query: {query_request.query}")
-        if vector_db_docs is None:
-            logger.warning("Document vector DB is not initialized.")
-            return []
         try:
             docs = await vector_db_docs.asimilarity_search_with_score(
                 query_request.query,
@@ -337,7 +334,6 @@ async def query_documents(query_request: QueryRequest):
     
     if graph_filter_parts:
         graph_filter_expr = " AND ".join(graph_filter_parts)
-    
 
     async def search_graph(vector_db_graph: Milvus):
         logger.info(f"Searching graph vector db with filters - connector_id: {query_request.connector_id}, entity_type: {query_request.graph_entity_type}, query: {query_request.query}")
@@ -355,11 +351,15 @@ async def query_documents(query_request: QueryRequest):
         except Exception as e:
             logger.error(f"Error querying graph vector db: {e}")
             return []
-
+    
     if graph_rag_enabled:
+        if not vector_db_graph or not vector_db_docs:
+            raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
         # Execute both searches concurrently
         docs, graph_entities = await asyncio.gather(search_docs(vector_db_docs), search_graph(vector_db_graph))
     else:
+        if not vector_db_docs:
+            raise HTTPException(status_code=500, detail="Server not initialized")
         # Only search documents
         docs = await search_docs(vector_db_docs)
         graph_entities = []
