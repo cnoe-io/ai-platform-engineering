@@ -1104,8 +1104,8 @@ services:
       - p2p
       - p2p-tracing
 
-  agent-rag:
-    container_name: agent-rag
+  agent_rag:
+    container_name: agent_rag
     ports:
       - "8099:8099"
     env_file:
