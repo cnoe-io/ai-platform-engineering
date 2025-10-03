@@ -72,11 +72,8 @@ if os.getenv("ENABLE_WEATHER_AGENT", "false").lower() == "true":
 if os.getenv("ENABLE_PETSTORE_AGENT", "false").lower() == "true":
     AGENT_NAMES.append("petstore")
 
-if os.getenv("ENABLE_KB_RAG", "false").lower() == "true":
-    AGENT_NAMES.append("kb-rag")
-
-if os.getenv("ENABLE_GRAPH_RAG", "false").lower() == "true":
-    AGENT_NAMES.append("graph-rag")
+if os.getenv("ENABLE_RAG", "false").lower() == "true":
+    AGENT_NAMES.append("rag")
 
 for agent_name in AGENT_NAMES:
     logger.info("🤖 Agent enabled: %s", agent_name)
