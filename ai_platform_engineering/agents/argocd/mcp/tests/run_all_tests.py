@@ -10,9 +10,9 @@ from pathlib import Path
 
 def run_test_file(test_file):
     """Run a single test file and return the result"""
-    print(f"\n{'=' * 60}")
+    print("=" * 60)
     print(f"Running {test_file}")
-    print(f"{'=' * 60}")
+    print("=" * 60)
 
     try:
         result = subprocess.run(

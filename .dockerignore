@@ -36,6 +36,10 @@ ai_platform_engineering/agents/*/__main__.py
 # Exclude other heavy directories
 ai_platform_engineering/evaluation/**
 ai_platform_engineering/cli/**
+ai_platform_engineering/knowledge_bases/**
+volumes/**
+docs/**
+workshop/**
 
 # Exclude main project lock file (use minimal one instead)
 uv.lock
