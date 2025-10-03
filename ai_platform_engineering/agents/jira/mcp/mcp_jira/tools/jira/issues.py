@@ -72,7 +72,6 @@ async def get_issue(
 
     params = {
         "fields": fields_list,
-        "expand": expand,
         "properties": properties.split(",") if properties else None,
         "updateHistory": update_history,
     }
@@ -81,6 +80,7 @@ async def get_issue(
         path=f"rest/api/3/issue/{issue_key}",
         method="GET",
         params=params,
+        expand=expand,
     )
 
     if not success:
@@ -89,103 +89,6 @@ async def get_issue(
     return json.dumps(response, indent=2, ensure_ascii=False)
 
 
-async def get_project_issues(
-    project_key: Annotated[str, Field(description="The project key")],
-    limit: Annotated[
-        int,
-        Field(description="Maximum number of results (1-50)", default=10, ge=1, le=50),
-    ] = 10,
-    start_at: Annotated[
-        int,
-        Field(description="Starting index for pagination (0-based)", default=0, ge=0),
-    ] = 0,
-) -> str:
-    """Get all issues for a specific Jira project."""
-    params = {
-        "jql": f"project={project_key}",
-        "maxResults": limit,
-        "startAt": start_at,
-    }
-
-    success, response = await make_api_request(
-        path="rest/api/3/search",
-        method="GET",
-        params=params,
-    )
-
-    if not success:
-        raise ValueError(f"Failed to fetch project issues: {response}")
-
-    return json.dumps(response, indent=2, ensure_ascii=False)
-
-
-async def get_board_issues(
-    board_id: Annotated[str, Field(description="The id of the board (e.g., '1001')")],
-    jql: Annotated[
-        str,
-        Field(
-            description=(
-                "JQL query string (Jira Query Language). Examples:\n"
-                '- Find Epics: "issuetype = Epic AND project = PROJ"\n'
-                '- Find issues in Epic: "parent = PROJ-123"\n'
-                "- Find by status: \"status = 'In Progress' AND project = PROJ\"\n"
-                '- Find by assignee: "assignee = currentUser()"\n'
-                '- Find recently updated: "updated >= -7d AND project = PROJ"\n'
-                '- Find by label: "labels = frontend AND project = PROJ"\n'
-                '- Find by priority: "priority = High AND project = PROJ"'
-            )
-        ),
-    ],
-    fields: Annotated[
-        str,
-        Field(
-            description=(
-                "Comma-separated fields to return in the results. "
-                "Use '*all' for all fields, or specify individual "
-                "fields like 'summary,status,assignee,priority'"
-            ),
-            default="",
-        ),
-    ] = "",
-    start_at: Annotated[
-        int,
-        Field(description="Starting index for pagination (0-based)", default=0, ge=0),
-    ] = 0,
-    limit: Annotated[
-        int,
-        Field(description="Maximum number of results (1-50)", default=10, ge=1, le=50),
-    ] = 10,
-    expand: Annotated[
-        str,
-        Field(
-            description="Optional fields to expand in the response (e.g., 'changelog').",
-            default="version",
-        ),
-    ] = "version",
-) -> str:
-    """Get all issues linked to a specific board filtered by JQL."""
-    fields_list: Optional[List[str]] = None
-    if fields and fields != "*all":
-        fields_list = [f.strip() for f in fields.split(",")]
-
-    params = {
-        "jql": jql,
-        "fields": fields_list,
-        "maxResults": limit,
-        "startAt": start_at,
-        "expand": expand,
-    }
-
-    success, response = await make_api_request(
-        path=f"rest/agile/1.0/board/{board_id}/issue",
-        method="GET",
-        params=params,
-    )
-
-    if not success:
-        raise ValueError(f"Failed to fetch board issues: {response}")
-
-    return json.dumps(response, indent=2, ensure_ascii=False)
 
 
 logger = logging.getLogger("mcp-jira-create-issue")

@@ -27,7 +27,7 @@ dependencies = [
     "keyring>=25.6.0",
     "uv",
     "a2a-sdk==0.2.16",
-    "cnoe-agent-utils==0.3.0",
+    "cnoe-agent-utils==0.3.2",
     "fastmcp>=2.11.1",
     "mcp-jira",
 ]

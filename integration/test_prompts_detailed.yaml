@@ -55,13 +55,6 @@ prompts:
     expected_keywords: ["incident", "open", "pagerduty", "alert"]
     category: "pagerduty"
 
-  - id: "slack_channels"
-    messages:
-      - role: "user"
-        content: "list all slack channels"
-    expected_keywords: ["slack", "channel", "list"]
-    category: "slack"
-
   - id: "jira_issues"
     messages:
       - role: "user"

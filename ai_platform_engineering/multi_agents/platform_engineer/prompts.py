@@ -39,7 +39,16 @@ agent_prompts = config.get("agent_prompts", {})
 
 agents = platform_registry.agents
 
-agent_skill_examples = [skill for agent in agents.values() for skill in agent.get_skill_examples()]
+agent_skill_examples = []
+for agent in agents.values():
+  if agent is not None:
+    try:
+      skill_examples = agent.get_skill_examples()
+      if skill_examples:
+        agent_skill_examples.extend(skill_examples)
+    except Exception as e:
+      logger.warning(f"Error getting skill examples from agent: {e}")
+      continue
 
 skills_prompt = PromptTemplate(
     input_variables=["user_prompt"],
@@ -77,7 +86,24 @@ def generate_system_prompt(agents: Dict[str, Any]):
   for agent_key, agent in agents.items():
 
     logger.info(f"Generating tool instruction for agent_key: {agent_key}")
-    description = agent.agent_card().description
+
+    # Check if agent and agent_card are available
+    if agent is None:
+      logger.warning(f"Agent {agent_key} is None, skipping...")
+      continue
+
+    try:
+      agent_card = agent.agent_card()
+      if agent_card is None:
+        logger.warning(f"Agent {agent_key} has no agent card, skipping...")
+        continue
+      description = agent_card.description
+    except AttributeError as e:
+      logger.warning(f"Agent {agent_key} does not have agent_card method or description: {e}, skipping...")
+      continue
+    except Exception as e:
+      logger.error(f"Error getting agent card for {agent_key}: {e}, skipping...")
+      continue
 
     # Check if there is a system_prompt override provided in the prompt config
     system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt", None)

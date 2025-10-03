@@ -22,7 +22,7 @@ dependencies = [
     # Transport dependencies for agent connections
     "a2a-sdk (==0.2.16)",
     "agntcy-app-sdk==0.1.4",
-    "cnoe-agent-utils==0.3.0",
+    "cnoe-agent-utils==0.3.2",
 
     # Basic utilities
     "python-dotenv>=1.0.1",

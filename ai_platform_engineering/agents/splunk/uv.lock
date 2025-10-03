@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.13, <4.0"
 resolution-markers = [
     "platform_python_implementation != 'PyPy'",
@@ -84,7 +84,7 @@ requires-dist = [
     { name = "agentevals", specifier = ">=0.0.7" },
     { name = "agntcy-app-sdk", specifier = ">=0.1.4" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "cnoe-agent-utils", specifier = "==0.3.0" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.2" },
     { name = "fastapi", specifier = ">=0.115.11" },
     { name = "fastmcp", specifier = ">=2.11.2" },
     { name = "httpx", specifier = ">=0.27.0" },
@@ -420,7 +420,7 @@ name = "cffi"
 version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser" },
+    { name = "pycparser", marker = "platform_python_implementation != 'PyPy'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fc/97/c783634659c2920c3fc70419e3af40972dbaf758daa229a7d6ea6135c90d/cffi-1.17.1.tar.gz", hash = "sha256:1c39c6016c32bc48dd54561950ebd6836e1670f2ae46128f67cf49e789c52824", size = 516621, upload-time = "2024-09-04T20:45:21.852Z" }
 wheels = [
@@ -482,7 +482,7 @@ wheels = [
 
 [[package]]
 name = "cnoe-agent-utils"
-version = "0.3.0"
+version = "0.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -500,9 +500,9 @@ dependencies = [
     { name = "opentelemetry-sdk" },
     { name = "python-dotenv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/14/b8/9155bf6929a3e2846847c6c7f343f495881d85af38a8c670852701e18411/cnoe_agent_utils-0.3.0.tar.gz", hash = "sha256:f18a467eb8a919a4d7610906831d6ef6200589c4e930688339f6a4d7a68dc252", size = 126298, upload-time = "2025-08-18T03:14:51.42Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/37/e81ceb2a6f8fc66eb57dbbbd14605e51b08161418e14607507223eeb3257/cnoe_agent_utils-0.3.2.tar.gz", hash = "sha256:a75a4d21057c3a8f4aa3c40886ae6fcc9d7f0766b71f2d9a850450e11afcae34", size = 132922, upload-time = "2025-10-02T16:21:56.387Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/b6/5b8802b4159982ccf26ca774b621e9f0d8eb7e84b5887bb3c62b287d79ec/cnoe_agent_utils-0.3.0-py3-none-any.whl", hash = "sha256:39c75d16c3fff589f7714c78a1e55abf6b183edd9963f1556f6ee48f42d8153e", size = 23595, upload-time = "2025-08-18T03:14:50.581Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/ef/91303fad53696d32a5c45b2842a5f0b568b6a0c979adf4bb99660b05dd7a/cnoe_agent_utils-0.3.2-py3-none-any.whl", hash = "sha256:b17d12ba5f68bf4fe09994f69b815e076637977c672ae7a14928eaa26fe7ace7", size = 26166, upload-time = "2025-10-02T16:21:55.008Z" },
 ]
 
 [[package]]

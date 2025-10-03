@@ -24,7 +24,6 @@ GENERIC_CLIENT = "generic_client"
 class AgentRegistry:
     """Centralized registry for transport-aware agent management."""
 
-
     # Default agent names - to be overridden by subclasses
     AGENT_NAMES = []
 
@@ -82,11 +81,7 @@ class AgentRegistry:
             "slim": "ai_platform_engineering.agents.template.clients.slim.agent",
             "a2a": "ai_platform_engineering.agents.template.clients.a2a.agent"
         },
-        "kb-rag": {
-            "slim": "ai_platform_engineering.knowledge_bases.rag.clients.slim.agent",
-            "a2a": "ai_platform_engineering.knowledge_bases.rag.clients.a2a.agent"
-        },
-        "graph-rag": {
+        "rag": {
             "slim": GENERIC_CLIENT,
             "a2a": GENERIC_CLIENT
         },
@@ -103,14 +98,6 @@ class AgentRegistry:
         self._retry_delay = float(os.getenv("AGENT_CONNECTIVITY_RETRY_DELAY", "2.0"))
         # Initial startup delay before starting connectivity checks
         self._startup_delay = float(os.getenv("AGENT_CONNECTIVITY_STARTUP_DELAY", "0.0"))
-
-        if os.getenv("ENABLE_WEBEX_AGENT", "").lower() == "true":
-            if "webex" not in self.AGENT_IMPORT_MAP:
-                logger.debug("Adding Webex to AGENT_IMPORT_MAP")
-                self.AGENT_IMPORT_MAP["webex"] = {
-                    "slim": "ai_platform_engineering.agents.webex.clients.slim.agent",
-                    "a2a": "ai_platform_engineering.agents.webex.clients.a2a.agent"
-                }
 
         self._agents: Dict[str, Any] = {}  # Will be populated by _load_agents
         self._tools: Dict[str, Any] = {}  # Will be populated by _load_agents
@@ -177,6 +164,7 @@ class AgentRegistry:
             )
         elif transport == "slim":
             return AgntcySlimRemoteAgentConnectTool(
+                endpoint=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357"),
                 name=name,
                 remote_agent_card=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
             )

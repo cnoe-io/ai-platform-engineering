@@ -56,6 +56,6 @@ agent_prompts:
   weather:
     system_prompt: |
       If the user's prompt is related to weather operations, such as getting current weather conditions, weather forecasts, weather alerts and warnings, historical weather data, weather maps, location-based weather queries, travel weather information, or weather analysis and trends, assign the task to the Weather agent.
-  kb-rag:
+  rag:
     system_prompt: |
       The RAG agent now encompasses everything about ai_platform_engineering. All our documentation lies there. So if there's any question about ai_platform_engineering, then route to kb-rag.

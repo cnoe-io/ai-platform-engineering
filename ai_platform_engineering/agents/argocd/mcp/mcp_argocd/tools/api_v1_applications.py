@@ -6,8 +6,8 @@
 
 from typing import Dict, Any, List, Optional
 import logging
-from api.client import make_api_request
-from models.applications import (
+from mcp_argocd.api.client import make_api_request
+from mcp_argocd.models.applications import (
     application_to_api_format,
     Application,
     ApplicationSource,
@@ -26,6 +26,7 @@ async def list_applications(
     repo: str = "",
     namespace: str = "",
     refresh: str = "",
+    summary_only: bool = True,
 ) -> Dict[str, Any]:
     """
     List applications in ArgoCD with filtering options
@@ -36,6 +37,7 @@ async def list_applications(
         repo: Filter applications by repository URL
         namespace: Filter applications by namespace
         refresh: Forces application reconciliation if set to 'hard' or 'normal'
+        summary_only: If True, return only summary information (default: True)
 
     Returns:
         List of applications with pagination information
@@ -61,6 +63,41 @@ async def list_applications(
 
     if not success:
         return {"error": data.get("error", "Failed to retrieve applications")}
+
+    # Handle None data
+    if data is None:
+        return {"error": "No data received from API"}
+
+    # Handle None items
+    if data.get("items") is None:
+        return {
+            "items": [],
+            "total": 0,
+            "summary_only": summary_only
+        }
+
+    # If summary_only is True, return only essential information
+    if summary_only and "items" in data:
+        summary_items = []
+        for app in data["items"]:
+            summary_item = {
+                "name": app.get("metadata", {}).get("name", ""),
+                "namespace": app.get("metadata", {}).get("namespace", ""),
+                "project": app.get("spec", {}).get("project", ""),
+                "repo": app.get("spec", {}).get("source", {}).get("repoURL", ""),
+                "path": app.get("spec", {}).get("source", {}).get("path", ""),
+                "target_revision": app.get("spec", {}).get("source", {}).get("targetRevision", ""),
+                "sync_status": app.get("status", {}).get("sync", {}).get("status", ""),
+                "health_status": app.get("status", {}).get("health", {}).get("status", ""),
+                "phase": app.get("status", {}).get("phase", ""),
+            }
+            summary_items.append(summary_item)
+
+        return {
+            "items": summary_items,
+            "total": data.get("total", len(summary_items)),
+            "summary_only": True
+        }
 
     return data
 
