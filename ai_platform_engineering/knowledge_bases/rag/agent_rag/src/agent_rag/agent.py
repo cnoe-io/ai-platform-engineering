@@ -2,6 +2,7 @@
 
 Works with a chat model with tool calling support.
 """
+import os
 from common.agent.tools import (
     fetch_entity_details,
     search,
@@ -28,7 +29,7 @@ from common.graph_db.neo4j.graph_db import Neo4jDB
 from langgraph.checkpoint.memory import MemorySaver
 from cnoe_agent_utils import LLMFactory
 
-from agent_rag.prompts import SYSTEM_PROMPT
+from agent_rag.prompts import SYSTEM_PROMPT_COMBINED, SYSTEM_PROMPT_RAG_ONLY
 
 # Load environment variables from .env file
 dotenv.load_dotenv()
@@ -37,7 +38,16 @@ memory = MemorySaver()
 
 logger = utils.get_logger(__name__)
 
-GRAPH_DB_READ_TOOLS = [search, get_entity_types, get_entity_properties, fetch_entity_details, get_relation_path_between_entity_types, raw_graph_query]
+graph_rag_enabled = os.getenv("GRAPH_RAG_ENABLED", "true").lower() in ("true", "1", "yes")
+
+if graph_rag_enabled:
+    logger.info("Graph RAG is enabled.")
+    DB_READ_TOOLS = [search, get_entity_types, get_entity_properties, fetch_entity_details, get_relation_path_between_entity_types, raw_graph_query]
+    ui_url = str(os.getenv("RAG_UI_URL", "http://localhost:9447/explore/entity"))
+else:
+    logger.info("Graph RAG is disabled.")
+    DB_READ_TOOLS = [search]
+
 
 def pre_model_hook(state):
     trimmed_messages = trim_messages(
@@ -54,15 +64,16 @@ def pre_model_hook(state):
 class QnAAgent:
     SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
     def __init__(self):
-        self.graphdb = Neo4jDB(readonly=True)
+        if graph_rag_enabled:
+            self.graphdb = Neo4jDB(readonly=True)
 
         self.llm = LLMFactory().get_llm()
         print(f"Using LLM: {self.llm}")
-        logger.info(f"Number of tools: {len(GRAPH_DB_READ_TOOLS)}")
+        logger.info(f"Number of tools: {len(DB_READ_TOOLS)}")
         self.graph = create_react_agent(
             model=self.llm,
             name="RAG_Q&A_Agent",
-            tools=GRAPH_DB_READ_TOOLS,
+            tools=DB_READ_TOOLS,
             checkpointer=memory,
             prompt=self.render_system_prompt, # type: ignore
             pre_model_hook=pre_model_hook,
@@ -72,13 +83,18 @@ class QnAAgent:
         """
         Render the system prompt (dynamically) with the current time and rag database information.
         """
-        entity_types = await self.graphdb.get_all_entity_types()
-        system_prompt = PromptTemplate.from_template(SYSTEM_PROMPT).format(
-            system_time=datetime.now(tz=timezone.utc).isoformat(),
-            graphdb_type=self.graphdb.database_type,
-            query_language=self.graphdb.query_language,
-            entities=utils.json_encode(entity_types, indent=2)
-        )
+        if graph_rag_enabled:
+            entity_types = await self.graphdb.get_all_entity_types()
+            system_prompt = PromptTemplate.from_template(SYSTEM_PROMPT_COMBINED).format(
+                system_time=datetime.now(tz=timezone.utc).isoformat(),
+                graphdb_type=self.graphdb.database_type,
+                query_language=self.graphdb.query_language,
+                entities=utils.json_encode(entity_types),
+                ui_url=ui_url
+            )
+        else:
+            system_prompt = SYSTEM_PROMPT_RAG_ONLY
+        
         return [{"role": "system", "content": system_prompt}] + state["messages"]
 
     async def invoke(self, query, context_id) -> str:
