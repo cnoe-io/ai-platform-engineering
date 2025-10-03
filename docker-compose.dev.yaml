@@ -71,18 +71,45 @@ services:
       - p2p-tracing
       - argocd
       - weather
-      - graph_rag
+      - rag_p2p
+      - rag_no_graph_p2p
     depends_on:
-        - agent-argocd-p2p
-        - agent-aws-p2p
-        - agent-backstage-p2p
-        - agent-confluence-p2p
-        - agent-github-p2p
-        - agent-jira-p2p
-        - agent-komodor-p2p
-        - agent-pagerduty-p2p
-        - agent-slack-p2p
-        - agent_graph_qa
+      "agent-argocd-p2p":
+        condition: service_started
+        required: false
+      "agent-aws-p2p":
+        condition: service_started
+        required: false
+      "agent-backstage-p2p":
+        condition: service_started
+        required: false
+      "agent-confluence-p2p":
+        condition: service_started
+        required: false
+      "agent-github-p2p":
+        condition: service_started
+        required: false
+      "agent-jira-p2p":
+        condition: service_started
+        required: false
+      "agent-komodor-p2p":
+        condition: service_started
+        required: false
+      "agent-pagerduty-p2p":
+        condition: service_started
+        required: false
+      "agent-slack-p2p":
+        condition: service_started
+        required: false
+      "agent-splunk-p2p":
+        condition: service_started
+        required: false
+      "agent-weather-p2p":
+        condition: service_started
+        required: false
+      "agent-webex-p2p":
+        condition: service_started
+        required: false
     env_file:
       - .env
     ports:
@@ -156,6 +183,7 @@ services:
       - p2p
       - slim-tracing
       - p2p-tracing
+      - rag_no_graph_p2p
     env_file:
       - .env
     volumes:
@@ -209,6 +237,7 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - rag_no_graph_p2p
     depends_on:
       - mcp-argocd
     volumes:
@@ -238,6 +267,7 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - rag_no_graph_p2p
     volumes:
       - ./.env:/app/.env
     ports:
@@ -305,6 +335,7 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - rag_no_graph_p2p
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/agent_backstage
@@ -334,6 +365,7 @@ services:
       - p2p
       - slim-tracing
       - p2p-tracing
+      - rag_no_graph_p2p
     env_file:
       - .env
     volumes:
@@ -385,6 +417,7 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - rag_no_graph_p2p
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/agent_confluence
@@ -414,6 +447,7 @@ services:
       - p2p
       - slim-tracing
       - p2p-tracing
+      - rag_no_graph_p2p
     env_file:
       - .env
     volumes:
@@ -466,6 +500,7 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - rag_no_graph_p2p
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/github/agent_github:/app/agent_github
@@ -522,6 +557,7 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - rag_no_graph_p2p
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/jira/agent_jira:/app/agent_jira
@@ -552,6 +588,7 @@ services:
       - p2p
       - p2p-tracing
       - slim-tracing
+      - rag_no_graph_p2p
     env_file:
       - .env
     volumes:
@@ -604,6 +641,7 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - rag_no_graph_p2p
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/agent_komodor
@@ -633,6 +671,7 @@ services:
       - p2p
       - slim-tracing
       - p2p-tracing
+      - rag_no_graph_p2p
     env_file:
       - .env
     volumes:
@@ -684,6 +723,7 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - rag_no_graph_p2p
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/agent_pagerduty
@@ -713,6 +753,7 @@ services:
       - p2p
       - slim-tracing
       - p2p-tracing
+      - rag_no_graph_p2p
     env_file:
       - .env
     volumes:
@@ -766,6 +807,7 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - rag_no_graph_p2p
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/slack/agent_slack:/app/agent_slack
@@ -795,6 +837,7 @@ services:
       - p2p
       - slim-tracing
       - p2p-tracing
+      - rag_no_graph_p2p
     env_file:
       - .env
     volumes:
@@ -816,6 +859,9 @@ services:
     container_name: agent-webex-p2p
     profiles:
       - webex
+      - p2p
+      - p2p-tracing
+      - rag_no_graph_p2p
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/webex/agent_webex:/app/agent_webex
@@ -866,6 +912,7 @@ services:
     profiles:
       - webex
       - webex-slim
+      - rag_no_graph_p2p
     env_file:
       - .env
     volumes:
@@ -876,6 +923,87 @@ services:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      MCP SPLUNK                                                  #
+  ####################################################################################################
+  mcp-splunk:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-splunk
+    profiles:
+      - slim
+      - p2p
+      - p2p-tracing
+      - slim-tracing
+      - rag_no_graph_p2p
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/splunk/mcp/mcp_splunk:/app/mcp_splunk
+    ports:
+      - "18012:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+  ####################################################################################################
+  #                                      AGENT SPLUNK A2A over SLIM                                  #
+  ####################################################################################################
+  agent-splunk-slim:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-splunk-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/splunk/agent_splunk:/app/agent_splunk
+    ports:
+      - "8012:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-splunk
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT SPLUNK A2A P2P                                        #
+  ####################################################################################################
+  agent-splunk-p2p:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-splunk-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+      - rag_no_graph_p2p
+    depends_on:
+      - mcp-splunk
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8012:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-splunk
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
   #                                      AGENT WEATHER A2A over SLIM                                 #
@@ -897,6 +1025,43 @@ services:
       - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
     ports:
       - "8100:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-weather-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-weather-agent}
+
+  ####################################################################################################
+  #                                      AGENT WEATHER A2A P2P                                       #
+  ####################################################################################################
+  agent-weather-p2p:
+    build:
+      context: ai_platform_engineering/agents/weather
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-weather-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+      - rag_no_graph_p2p
+    volumes:
+      - ./.env:/app/.env
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
+      - ./ai_platform_engineering/agents/weather/clients:/app/clients
+    ports:
+      - "8100:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-weather
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
 
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                       #
@@ -954,6 +1119,49 @@ services:
     container_name: kb-rag-web
     profiles:
       - kb-rag
+      - rag_p2p
+      - rag_no_graph_p2p
+      - p2p
+      - p2p-tracing
+
+  agent_rag:
+    container_name: agent_rag
+    ports:
+      - "8099:8099"
+    env_file:
+      - .env
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_URL: redis://rag-redis:6379/0
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7688
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        RAG_SERVER_URL: http://rag_server:9446
+        GRAPH_RAG_ENABLED: ${GRAPH_RAG_ENABLED:-true}
+    restart: unless-stopped
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.agent-rag
+    profiles:
+      - rag_p2p
+      - rag_no_graph_p2p
+      - p2p
+      - p2p-tracing
+  agent_ontology:
+    ports:
+      - "8098:8098"
+    environment:
+        LOG_LEVEL: DEBUG
+        REDIS_URL: redis://rag-redis:6379/0
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7688
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        SYNC_INTERVAL: 86400 # 24 hours
+    env_file:
+      - .env
+    restart: unless-stopped
     depends_on:
       - kb-rag-server
     ports:
