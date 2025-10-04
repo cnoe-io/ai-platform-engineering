@@ -12,7 +12,7 @@ services:
         NEO4J_PASSWORD: dummy_password
         MILVUS_URI: http://milvus-standalone:19530
         ONTOLOGY_AGENT_RESTAPI_ADDR: http://agent_ontology:8098
-        GRAPH_RAG_ENABLED: ${GRAPH_RAG_ENABLED:-true}
+        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
         CLEANUP_INTERVAL: 86400
     restart: unless-stopped
     env_file:
@@ -24,7 +24,7 @@ services:
       dockerfile: ./build/Dockerfile.server
     profiles:
       - apps
-      - rag_only
+      - rag_no_graph
 
   agent_rag:
     ports:
@@ -39,14 +39,14 @@ services:
         NEO4J_USERNAME: neo4j
         NEO4J_PASSWORD: dummy_password
         RAG_SERVER_URL: http://rag_server:9446
-        GRAPH_RAG_ENABLED: ${GRAPH_RAG_ENABLED:-true}
+        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
     restart: unless-stopped
     build:
       context: .
       dockerfile: ./build/Dockerfile.agent-rag
     profiles:
       - apps
-      - rag_only
+      - rag_no_graph
 
   agent_ontology:
     ports:
@@ -84,7 +84,7 @@ services:
       - "9447:80"
     profiles:
       - apps
-      - rag_only
+      - rag_no_graph
 
 #####################
 # Dependent services
@@ -142,7 +142,7 @@ services:
     profiles:
       - deps
       - apps
-      - rag_only
+      - rag_no_graph
 
   milvus-standalone:
     container_name: milvus-standalone
@@ -151,7 +151,7 @@ services:
     profiles:
       - deps
       - apps
-      - rag_only
+      - rag_no_graph
     security_opt:
       - seccomp:unconfined
     environment:
@@ -180,7 +180,7 @@ services:
     profiles:
       - deps
       - apps
-      - rag_only
+      - rag_no_graph
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
@@ -201,7 +201,7 @@ services:
     profiles:
       - deps
       - apps
-      - rag_only
+      - rag_no_graph
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin

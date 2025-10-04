@@ -38,7 +38,7 @@ memory = MemorySaver()
 
 logger = utils.get_logger(__name__)
 
-graph_rag_enabled = os.getenv("GRAPH_RAG_ENABLED", "true").lower() in ("true", "1", "yes")
+graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1", "yes")
 
 if graph_rag_enabled:
     logger.info("Graph RAG is enabled.")
@@ -102,30 +102,54 @@ class QnAAgent:
         await self.graph.ainvoke({'messages': [('user', query)]}, config) # type: ignore
         return self.get_agent_response(config) # type: ignore
 
-    async def stream(self, query, context_id)  -> AsyncIterable[dict[str, Any]]:
+    async def stream(self, query, context_id, trace_id: (str | None)=None)  -> AsyncIterable[dict[str, Any]]:
         inputs = {'messages': [('user', query)]}
         config = {'configurable': {'thread_id': context_id}}
 
         async for item in self.graph.astream(inputs, config, stream_mode='values'): # type: ignore
             message = item['messages'][-1]
-            if (
-                isinstance(message, AIMessage)
-                and message.tool_calls
-                and len(message.tool_calls) > 0
-            ):
-                yield {
-                    'is_task_complete': False,
-                    'require_user_input': False,
-                    'content': 'Querying the graph database...',
-                }
+            logger.debug(f"Streamed message: {message}")
+            if isinstance(message, AIMessage):
+                if message.tool_calls and len(message.tool_calls) > 0:
+                    # Extract thoughts from tool calls to show user what the AI is thinking
+                    thoughts = []
+                    for tool_call in message.tool_calls:
+                        logger.debug(f"Processing tool call: {tool_call}")
+                        # Extract the thought parameter if it exists in the tool call args
+                        # Handle both dict and object formats
+                        args = None
+                        if hasattr(tool_call, 'args') and isinstance(tool_call.args, dict):
+                            args = tool_call.args
+                        elif isinstance(tool_call, dict) and 'args' in tool_call:
+                            args = tool_call['args']
+                        if args and isinstance(args, dict):
+                            thought = args.get('thought')
+                            if thought:
+                                thoughts.append(thought)
+                        else:
+                            logger.debug(f"No args found in tool_call: {tool_call}")
+                    
+                    # Use the extracted thoughts or fall back to a generic message
+                    if thoughts:
+                        content = "\n".join(thoughts) + "...\n"
+                    else:
+                        content = "Checking knowledge base...\n"
+
+                    yield {
+                        'is_task_complete': False,
+                        'require_user_input': False,
+                        'content': content,
+                    }
             elif isinstance(message, ToolMessage):
                 yield {
                     'is_task_complete': False,
                     'require_user_input': False,
-                    'content': 'Checking the graph database...',
+                    'content': f"Querying knowledge base...\n",
                 }
 
-        yield self.get_agent_response(config)
+        response = self.get_agent_response(config)
+        logger.debug(f"Final agent response: {response}")
+        yield response
 
     def get_agent_response(self, config):
         """
@@ -141,16 +165,17 @@ class QnAAgent:
         for message in reversed(messages):
             if isinstance(message, AIMessage):
                 content = message.content
+                logger.debug(f"Agent response content: {message}")
                 if isinstance(content, str):
                     return {
                         'is_task_complete': True,
-                        'require_user_input': True,
+                        'require_user_input': False,
                         'content': content,
                     }
                 elif isinstance(content, list) and len(content) > 0:
                     return {
                         'is_task_complete': True,
-                        'require_user_input': True,
+                        'require_user_input': False,
                         'content': content[0],
                     }
 
