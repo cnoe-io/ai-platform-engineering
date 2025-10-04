@@ -144,7 +144,7 @@ class QnAAgent:
                 yield {
                     'is_task_complete': False,
                     'require_user_input': False,
-                    'content': f"Querying knowledge base...\n",
+                    'content': "Querying knowledge base...\n",
                 }
 
         response = self.get_agent_response(config)
