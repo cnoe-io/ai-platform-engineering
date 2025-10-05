@@ -1,6 +1,12 @@
 ---
 name: Unit Tests
 
+# This workflow runs three independent test suites:
+# 1. run-tests: General project tests (excludes RAG and ArgoCD MCP tests)
+# 2. run-argocd-tests: ArgoCD MCP tests (requires ARGOCD_API_URL env var)
+# 3. run-rag-tests: RAG module tests (requires PyTorch and special setup)
+# Each suite runs independently to isolate dependencies and environment requirements.
+
 on:
   push:
     branches:
@@ -39,7 +45,14 @@ jobs:
           source .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
 
           echo "Running tests with coverage..."
-          source .venv/bin/activate && uv run pytest --ignore=integration --cov=ai_platform_engineering --cov-report=xml --cov-report=html
+          source .venv/bin/activate && uv run pytest \
+            --ignore=integration \
+            --ignore=ai_platform_engineering/knowledge_bases/rag/tests \
+            --ignore=ai_platform_engineering/agents/argocd/mcp/tests \
+            --ignore=volumes \
+            --cov=ai_platform_engineering \
+            --cov-report=xml \
+            --cov-report=html
 
       - name: Upload coverage reports
         if: github.event_name == 'pull_request'
@@ -50,6 +63,27 @@ jobs:
             coverage.xml
             htmlcov/
         continue-on-error: true
+
+  run-argocd-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install UV
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Run ArgoCD MCP tests
+        run: |
+          /home/runner/.local/bin/uv venv
+          source .venv/bin/activate && uv sync --no-dev
+          cd ai_platform_engineering/agents/argocd/mcp && make test
 
   run-rag-tests:
     runs-on: ubuntu-latest
@@ -84,7 +118,7 @@ jobs:
 
   coverage-report:
     runs-on: ubuntu-latest
-    needs: [run-tests, run-rag-tests]
+    needs: [run-tests, run-argocd-tests, run-rag-tests]
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout code
@@ -285,18 +319,18 @@ jobs:
             console.log('Issue number:', context.issue.number);
             console.log('PR number:', context.payload.pull_request?.number);
             console.log('Event type:', typeof context.payload);
-            
+
             // Only proceed if this is actually a pull request
             if (context.eventName !== 'pull_request' || !context.payload.pull_request) {
               console.log('Not a pull request event, skipping comment');
               return;
             }
-            
+
             // Use PR number from payload
             const issueNumber = context.payload.pull_request.number;
-            
+
             console.log('Using PR number:', issueNumber);
-            
+
             if (!issueNumber) {
               console.log('No PR number available, skipping comment');
               return;
