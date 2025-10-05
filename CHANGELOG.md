@@ -1,3 +1,79 @@
+## Unreleased
+
+### BREAKING CHANGE
+
+- none
+Closes: #324
+
+### Feat
+
+- **agents**: enhance jira agent and add argocd tests
+- **agents**: enhance jira agent and add argocd tests
+- add connectors
+- add common utils
+- unified rag server
+- migrate ontology and rag agent
+- **deepagents**: add deepagents package locally
+- **backstage**: add TechDocs tools for improved documentation access
+- disable graphrag in helm chart until fixed
+- add tags to helm dependencies
+- current experiment-dev-use2-1 values
+
+### Fix
+
+- resolve RAG agent connection issues
+- lint
+- agent_rag is now like all other agents
+- **docker-compose**: remove dev volume mount
+- updates
+- docker-compose; integrate rag with supervisor attempt
+- updates
+- **agent-rag**: update uv.lock
+- **rag**: update docker compose and bring back clients
+- optipnal disable graph-rag; prompt tweaks; raw_query tweaks
+- rag-query-test
+- agent_rag prompts lint
+- Makefile
+- gh-workflow, linting, small bugs
+- remove deprecated kb_rag
+- remove deprecated graph_rag
+- fix dockerfiles and docker compose
+- remove redundant client and pytest files
+- remove more redundant license, changelog etc.
+- remove redundant license, changelog etc.
+- add package-lock.json for webui
+- un-ignore package-lock.json
+- add pywright to gitignore
+- **format**: deep agents ruff fixes
+- **format**: add ruff linting fixes
+- **streaming**: remove response format from system prompt
+- **streaming**: enable structured output
+- **merge**: fix conflicts
+- **merge**: fix conflicts
+- **backstage**: update lockfile after adding pyyaml dependency
+- **idpbuilder**: update docs
+- actually bump main chart version
+- remove a2a-stable tag reference;
+- for now always set is_task_complete as True in order to avoid Queue is closed err
+- **kb-rag-agent**: prevent ExternalSecret creation when data is empty
+- **idpbuilder**: update paths
+- use helm dependency imports
+- add note on why slim is a condition
+- slim will have to be a condition
+- disable all tags by default
+- remove all condition
+- no condition path by default
+- updates
+- Remove undefined imports from evals __init__.py
+- remove test_extractor.py error file
+- pin kb-rag services to sha-b098b8d
+- fix workshop4 to specific version
+
+### Refactor
+
+- improve RAG agent configuration and testing
+- **argocd**: modernize string formatting in server.py
+
 ## 0.1.15 (2025-09-19)
 
 ### Fix
@@ -58,6 +134,16 @@
 - Adding initial, optional Webex agent
 - Adding streamable http to Webex agent
 - Adding initial, optional Webex agent
+- use routing evaluator and tool match evalutor and use the expected ouptut in the dataset
+- implement new llm-trajectory match evaluator
+- redesign the trajectory and tool call match evaluator
+- **trace**: redesign trace processing method to get the tool call
+- **evals**: refactor evaluator architecture and switch to OpenAI
+- **evals**: add unified trajectory evaluator with graceful LLM fallback
+- **evals**: link dataset traces with platform engineer execution
+- **evals**: add auto-detection for Langfuse host in upload script
+- add expected_output support and separate upload functionality
+- add eval service
 - major helm chart refactor
 - implement memory-optimized batch processing for URL loading
 - update agents documentation and sidebar
@@ -110,6 +196,14 @@
 - adding init files to webex client
 - **docker-compose.dev**: add p2p-tracing profile to nexigraph
 - no default env in kb-rag-server chart
+- **evals**: resolve linting issues and remove hardcoded local paths
+- **evals**: update evaluation datasets with correct agent names and enable tests
+- **evals**: remove unnecessary .python-version and fix Dockerfile
+- **evals**: improve A2A client integration and add Azure OpenAI support
+- remove relative import
+- update docker-compose networking and ports for p2p-tracing
+- resolve Docker compose issues for evaluation webhook
+- update weather agent dependencies and Docker configuration
 - kb-agent-rag requires milvus secret
 - smaller milvus res
 - remove excessive resource requests
@@ -217,6 +311,9 @@
 
 ### Refactor
 
+- **evals**: improve eval run naming with readable timestamp format
+- **evals**: clean up directory structure and remove obsolete files
+- remove hardcoded agent detection and use dynamic regex patterns
 - create kb-rag-stack
 
 ## 0.1.10 (2025-08-26)
