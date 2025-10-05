@@ -251,12 +251,12 @@ class A2ARemoteAgentConnectTool(BaseTool):
         ],
         'messageId': uuid4().hex,
     }
-    
+
     # Add trace_id to metadata if provided
     if trace_id:
         message_payload['metadata'] = {'trace_id': trace_id}
         logger.info(f"Adding trace_id to A2A message: {trace_id}")
-    
+
     send_message_payload = {'message': message_payload}
     # logger.info("Sending message to A2A agent with payload:\n" + json.dumps({**send_message_payload, 'message': send_message_payload['message'].dict()}, indent=4))
     request = SendMessageRequest(
@@ -270,49 +270,86 @@ class A2ARemoteAgentConnectTool(BaseTool):
     logger.info(f"Response received from A2A agent: {response}")
     pprint.pprint(response)
 
-    def extract_text_from_parts(artifacts):
-      """Extract all text fields from artifact parts."""
+    def extract_text_from_response(result):
+      """
+      Extract text from A2A response.
+      Tries multiple locations in order:
+      1. artifacts[].parts[].root.text (for agents that return artifacts)
+      2. status.message.parts[].root.text (for agents that return status messages)
+      """
       texts = []
+
       try:
-        if not artifacts:
-          logging.warning("Artifacts list is empty or None.")
-          return texts
+        # First, try extracting from artifacts
+        artifacts = getattr(result, 'artifacts', None)
+        if artifacts:
+          logging.info("Attempting to extract text from artifacts...")
+          if not isinstance(artifacts, list):
+            artifacts = [artifacts]
 
-        # Handle if artifacts is a list, or single object (rare but possible)
-        if not isinstance(artifacts, list):
-          artifacts = [artifacts]
+          for artifact in artifacts:
+            parts = getattr(artifact, 'parts', None)
+            if parts:
+              logging.info(f"Found {len(parts)} parts in artifact")
+              for part in parts:
+                # Try to get the root attribute (for Part objects with TextPart inside)
+                root = getattr(part, 'root', None)
+                if root:
+                  text = getattr(root, 'text', None)
+                  if text:
+                    texts.append(text)
+                    logging.info(f"Extracted text from artifact.part.root.text: {text[:100]}...")
+                    continue
 
-        for artifact in artifacts:
-          parts = getattr(artifact, 'parts', None)
-          if parts is None:
-            logging.warning(f"No 'parts' found in artifact: {artifact}")
-            continue
+                # Fallback: check if part itself has text (for direct text parts)
+                text = getattr(part, 'text', None)
+                if text:
+                  texts.append(text)
+                  logging.info(f"Extracted text from artifact.part.text: {text[:100]}...")
 
-          for part in parts:
-            root = getattr(part, 'root', None)
-            if root is None:
-              logging.warning(f"No 'root' found in part: {part}")
-              continue
+        # If no artifacts found, try extracting from status.message
+        if not texts:
+          logging.info("No artifacts found, attempting to extract from status.message...")
+          status = getattr(result, 'status', None)
+          if status:
+            message = getattr(status, 'message', None)
+            if message:
+              parts = getattr(message, 'parts', None)
+              if parts:
+                logging.info(f"Found {len(parts)} parts in status.message")
+                for part in parts:
+                  # Try to get the root attribute (for Part objects with TextPart inside)
+                  root = getattr(part, 'root', None)
+                  if root:
+                    text = getattr(root, 'text', None)
+                    if text:
+                      texts.append(text)
+                      logging.info(f"Extracted text from status.message.part.root.text: {text[:100]}...")
+                      continue
 
-            text = getattr(root, 'text', None)
-            if text is not None:
-              texts.append(text)
-            else:
-              logging.info(f"No 'text' found in root: {root}")
+                  # Fallback: check if part itself has text (for direct text parts)
+                  text = getattr(part, 'text', None)
+                  if text:
+                    texts.append(text)
+                    logging.info(f"Extracted text from status.message.part.text: {text[:100]}...")
 
-      except AttributeError as e:
-        logging.error(f"Attribute error while extracting text: {e}")
-      except TypeError as e:
-        logging.error(f"Type error while iterating: {e}")
+        if not texts:
+          logging.warning("No text found in either artifacts or status.message")
+          logging.warning(f"Result structure: artifacts={artifacts}, status={getattr(result, 'status', None)}")
+
       except Exception as e:
-        logging.error(f"Unexpected error: {e}")
+        logging.error(f"Error extracting text from response: {e}", exc_info=True)
 
       return texts
 
     if response.root.result:
-      texts = extract_text_from_parts(response.root.result.artifacts)
-      logger.info(f"Extracted texts from artifacts: {texts}")
-      return " ".join(texts)
+      texts = extract_text_from_response(response.root.result)
+      logger.info(f"Extracted texts: {[t[:100] + '...' if len(t) > 100 else t for t in texts]}")
+      if texts:
+        return " ".join(texts)
+      else:
+        logging.warning("No text extracted from response, returning empty string")
+        return ""
     elif response.root.error:
       raise Exception(f"A2A error: {response.root.error.message}")
 
