@@ -1,4 +1,4 @@
-## Unreleased
+## 0.1.16 (2025-10-04)
 
 ### BREAKING CHANGE
 
@@ -18,6 +18,16 @@ Closes: #324
 - disable graphrag in helm chart until fixed
 - add tags to helm dependencies
 - current experiment-dev-use2-1 values
+- use routing evaluator and tool match evalutor and use the expected ouptut in the dataset
+- implement new llm-trajectory match evaluator
+- redesign the trajectory and tool call match evaluator
+- **trace**: redesign trace processing method to get the tool call
+- **evals**: refactor evaluator architecture and switch to OpenAI
+- **evals**: add unified trajectory evaluator with graceful LLM fallback
+- **evals**: link dataset traces with platform engineer execution
+- **evals**: add auto-detection for Langfuse host in upload script
+- add expected_output support and separate upload functionality
+- add eval service
 
 ### Fix
 
@@ -68,11 +78,22 @@ Closes: #324
 - remove test_extractor.py error file
 - pin kb-rag services to sha-b098b8d
 - fix workshop4 to specific version
+- **evals**: resolve linting issues and remove hardcoded local paths
+- **evals**: update evaluation datasets with correct agent names and enable tests
+- **evals**: remove unnecessary .python-version and fix Dockerfile
+- **evals**: improve A2A client integration and add Azure OpenAI support
+- remove relative import
+- update docker-compose networking and ports for p2p-tracing
+- resolve Docker compose issues for evaluation webhook
+- update weather agent dependencies and Docker configuration
 
 ### Refactor
 
 - improve RAG agent configuration and testing
 - **argocd**: modernize string formatting in server.py
+- **evals**: improve eval run naming with readable timestamp format
+- **evals**: clean up directory structure and remove obsolete files
+- remove hardcoded agent detection and use dynamic regex patterns
 
 ## 0.1.15 (2025-09-19)
 
