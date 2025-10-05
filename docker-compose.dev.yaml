@@ -72,23 +72,59 @@ services:
       - argocd
       - weather
       - graph_rag
+    # The following block uses the extended 'depends_on' syntax to specify that these agent services are not strictly required for the platform-engineer container to start.
+    # Each agent is marked with 'required: false', so platform-engineer will start even if the agent is missing.
+    # 'condition: service_started' means Docker Compose will wait until the service has started (not necessarily healthy) before starting platform-engineer.
     depends_on:
-        - agent-argocd-p2p
-        - agent-aws-p2p
-        - agent-backstage-p2p
-        - agent-confluence-p2p
-        - agent-github-p2p
-        - agent-jira-p2p
-        - agent-komodor-p2p
-        - agent-pagerduty-p2p
-        - agent-slack-p2p
-        - agent_rag
+      agent-argocd-p2p:
+        condition: service_started
+        required: false
+      agent-aws-p2p:
+        condition: service_started
+        required: false
+      agent-backstage-p2p:
+        condition: service_started
+        required: false
+      agent-confluence-p2p:
+        condition: service_started
+        required: false
+      agent-github-p2p:
+        condition: service_started
+        required: false
+      agent-jira-p2p:
+        condition: service_started
+        required: false
+      agent-komodor-p2p:
+        condition: service_started
+        required: false
+      agent-pagerduty-p2p:
+        condition: service_started
+        required: false
+      agent-slack-p2p:
+        condition: service_started
+        required: false
+      agent-splunk-p2p:
+        condition: service_started
+        required: false
+      agent-weather-p2p:
+        condition: service_started
+        required: false
+      agent-webex-p2p:
+        condition: service_started
+        required: false
+      agent-petstore-p2p:
+        condition: service_started
+        required: false
+      agent_rag:
+        condition: service_started
+        required: false
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
       - A2A_TRANSPORT=p2p
+      # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
       - AWS_AGENT_HOST=agent-aws-p2p
       - BACKSTAGE_AGENT_HOST=agent-backstage-p2p
@@ -97,13 +133,28 @@ services:
       - JIRA_AGENT_HOST=agent-jira-p2p
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
-      - SLACK_AGENT_HOST=agent-slack-p2p
-      - WEBEX_AGENT_HOST=agent-webex-p2p
-      - ENABLE_GRAPH_RAG=true
-      - ENABLE_KOMODOR=true
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - ENABLE_RAG=${ENABLE_RAG:-true}
+      - PETSTORE_AGENT_HOST=agent-petstore-p2p
       - RAG_AGENT_HOST=agent_rag
+      - SLACK_AGENT_HOST=agent-slack-p2p
+      - SPLUNK_AGENT_HOST=agent-splunk-p2p
+      - WEATHER_AGENT_HOST=agent-weather-p2p
+      - WEBEX_AGENT_HOST=agent-webex-p2p
+      # Enable agents
+      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-true}
+      - ENABLE_AWS=${ENABLE_AWS:-true}
+      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-true}
+      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-true}
+      - ENABLE_GITHUB=${ENABLE_GITHUB:-true}
+      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-false}
+      - ENABLE_JIRA=${ENABLE_JIRA:-true}
+      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-true}
+      - ENABLE_PETSTORE_AGENT=${ENABLE_PETSTORE_AGENT:-true}
+      - ENABLE_RAG=${ENABLE_RAG:-true}
+      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-true}
+      - ENABLE_WEATHER_AGENT=${ENABLE_WEATHER_AGENT:-true}
+      - ENABLE_WEBEX_AGENT=${ENABLE_WEBEX_AGENT:-true}
+      # Tracing
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
@@ -817,6 +868,8 @@ services:
     container_name: agent-webex-p2p
     profiles:
       - webex
+      - p2p
+      - p2p-tracing
     volumes:
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/webex/agent_webex:/app/agent_webex
@@ -867,6 +920,8 @@ services:
     profiles:
       - webex
       - webex-slim
+      - p2p
+      - p2p-tracing
     env_file:
       - .env
     volumes:
@@ -877,6 +932,85 @@ services:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
+
+  ####################################################################################################
+  #                                      MCP SPLUNK                                                  #
+  ####################################################################################################
+  mcp-splunk:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.mcp
+    container_name: mcp-splunk
+    profiles:
+      - slim
+      - p2p
+      - p2p-tracing
+      - slim-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/splunk/mcp/mcp_splunk:/app/mcp_splunk
+    ports:
+      - "18012:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+  ####################################################################################################
+  #                                      AGENT SPLUNK A2A over SLIM                                  #
+  ####################################################################################################
+  agent-splunk-slim:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-splunk-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/splunk/agent_splunk:/app/agent_splunk
+    ports:
+      - "8012:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-splunk
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT SPLUNK A2A P2P                                        #
+  ####################################################################################################
+  agent-splunk-p2p:
+    build:
+      context: ai_platform_engineering/agents/splunk
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-splunk-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    depends_on:
+      - mcp-splunk
+    volumes:
+      - ./.env:/app/.env
+    ports:
+      - "8012:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-splunk
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
   ####################################################################################################
   #                                      AGENT WEATHER A2A over SLIM                                 #
@@ -894,10 +1028,73 @@ services:
     depends_on:
       - slim-dataplane
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env
       - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
+      - ./ai_platform_engineering/agents/weather/clients:/app/clients
     ports:
       - "8100:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-weather-agent}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-weather-agent}
+
+  ####################################################################################################
+  #                                      AGENT WEATHER A2A P2P                                       #
+  ####################################################################################################
+  agent-weather-p2p:
+    build:
+      context: ai_platform_engineering/agents/weather
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-weather-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
+    ports:
+      - ":8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=443
+      - MCP_HOST=weather.outshift.io
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+
+  ####################################################################################################
+  #                                      AGENT PETSTORE A2A P2P                                       #
+  ####################################################################################################
+  agent-petstore-p2p:
+    build:
+      context: ai_platform_engineering/agents/template
+      dockerfile: build/Dockerfile.a2a
+    container_name: agent-petstore-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    volumes:
+      - ./.env:/app/.env
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
+    ports:
+      - ":8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=443
+      - MCP_HOST=petstore.outshift.io
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
 
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                       #
