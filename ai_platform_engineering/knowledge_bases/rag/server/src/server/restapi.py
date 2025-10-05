@@ -42,7 +42,7 @@ logger.setLevel(os.getenv("LOG_LEVEL", logging.DEBUG))
 clean_up_interval = int(os.getenv("CLEANUP_INTERVAL", 3 * 60 * 60))  # Default to 3 hours
 max_concurrent_ingest_jobs = int(os.getenv("MAX_CONCURRENT_INGEST_JOBS", 20))
 ontology_agent_client = httpx.AsyncClient(base_url=os.getenv("ONTOLOGY_AGENT_RESTAPI_ADDR", "http://localhost:8098"))
-graph_rag_enabled = os.getenv("GRAPH_RAG_ENABLED", "true").lower() in ("true", "1", "yes")
+graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1", "yes")
 if graph_rag_enabled:
     logger.info("Graph RAG is enabled.")
 else:

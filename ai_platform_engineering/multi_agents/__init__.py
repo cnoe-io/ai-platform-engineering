@@ -82,8 +82,8 @@ class AgentRegistry:
             "a2a": "ai_platform_engineering.agents.template.clients.a2a.agent"
         },
         "rag": {
-            "slim": GENERIC_CLIENT,
-            "a2a": GENERIC_CLIENT
+            "slim": "ai_platform_engineering.knowledge_bases.rag.agent_rag.src.agent_rag.clients.slim.agent",
+            "a2a": "ai_platform_engineering.knowledge_bases.rag.agent_rag.src.agent_rag.clients.a2a.agent"
         },
     }
 

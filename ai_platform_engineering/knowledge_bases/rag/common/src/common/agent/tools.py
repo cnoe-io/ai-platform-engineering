@@ -15,7 +15,7 @@ import httpx
 # Load environment variables from .env file
 dotenv.load_dotenv(verbose=True)
 
-graph_rag_enabled = os.getenv("GRAPH_RAG_ENABLED", "true").lower() in ("true", "1", "yes")
+graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1", "yes")
 server_query_url = os.getenv("RAG_SERVER_URL", "http://localhost:9446") + "/v1/query"
 
 if graph_rag_enabled:
