@@ -114,21 +114,97 @@ def extract_response_text(response) -> str:
 
     result = response_data.get("result", {})
 
-    artifacts = result.get("artifacts")
-    if artifacts and isinstance(artifacts, list) and artifacts[0].get("parts"):
-      for part in artifacts[0]["parts"]:
-        if part.get("kind") == "text":
-          return part.get("text", "").strip()
+    # Log the full response structure for debugging
+    logger.info(f"Full response structure keys: {list(result.keys())}")
+    logger.info(f"Response structure - has artifacts: {bool(result.get('artifacts'))}, has status: {bool(result.get('status'))}, has history: {bool(result.get('history'))}")
 
+    # Log response size
+    response_json_str = json.dumps(result, indent=2, default=str)
+    if len(response_json_str) < 5000:
+      logger.debug(f"Full response: {response_json_str}")
+    else:
+      logger.debug(f"Response size: {len(response_json_str)} chars (too large to log)")
+
+    # First, try extracting from artifacts
+    artifacts = result.get("artifacts")
+    logger.debug(f"Artifacts found: {artifacts is not None}, count: {len(artifacts) if artifacts else 0}")
+    if artifacts and isinstance(artifacts, list) and len(artifacts) > 0 and artifacts[0].get("parts"):
+      logger.debug(f"Parts in first artifact: {len(artifacts[0]['parts'])}")
+      for idx, part in enumerate(artifacts[0]["parts"]):
+        logger.debug(f"Part {idx}: keys={list(part.keys())}")
+        # Check if part has a 'root' attribute (Part with TextPart inside)
+        if "root" in part:
+          root = part["root"]
+          logger.debug(f"Part {idx} has root: kind={root.get('kind')}, has_text={bool(root.get('text'))}")
+          if root.get("kind") == "text" and root.get("text"):
+            text = root.get("text", "").strip()
+            logger.info(f"✅ Extracted text from artifacts[0].parts[{idx}].root.text: {text[:100]}...")
+            return text
+        # Fallback: check if part itself has kind='text'
+        elif part.get("kind") == "text":
+          text = part.get("text", "").strip()
+          logger.info(f"✅ Extracted text from artifacts[0].parts[{idx}].text: {text[:100]}...")
+          return text
+
+    # If no artifacts found, try extracting from status.message
     message = result.get("status", {}).get("message", {})
-    for part in message.get("parts", []):
-      if part.get("kind") == "text":
-        return part.get("text", "").strip()
+    logger.debug(f"Status message found: {bool(message)}, has parts: {bool(message.get('parts'))}")
+    for idx, part in enumerate(message.get("parts", [])):
+      logger.debug(f"Status message part {idx}: {json.dumps(part, indent=2, default=str)}")
+      # Check if part has a 'root' attribute (Part with TextPart inside)
+      if "root" in part:
+        root = part["root"]
+        logger.debug(f"Status message part {idx} has root: kind={root.get('kind')}, text_length={len(root.get('text', ''))}")
+        if root.get("kind") == "text" and root.get("text"):
+          text = root.get("text", "").strip()
+          logger.info(f"✅ Extracted text from status.message.parts[{idx}].root.text: {text[:100]}...")
+          return text
+      # Fallback: check if part itself has kind='text'
+      elif part.get("kind") == "text":
+        text = part.get("text", "").strip()
+        logger.info(f"✅ Extracted text from status.message.parts[{idx}].text (length={len(text)}): {text[:100] if text else 'EMPTY'}...")
+        if text:  # Only return if non-empty
+          return text
       elif "text" in part:
-        return part["text"].strip()
+        text = part["text"].strip()
+        logger.info(f"✅ Extracted text from status.message.parts[{idx}]['text']: {text[:100]}...")
+        if text:  # Only return if non-empty
+          return text
+
+    # If still no text found, try extracting from history messages (concatenate ALL agent messages)
+    history = result.get("history", [])
+    logger.debug(f"History found: {len(history)} messages")
+
+    # Collect all text from agent messages (the response may be fragmented across multiple messages)
+    all_agent_texts = []
+    for idx, message in enumerate(history):
+      if message.get("role") == "agent":
+        parts = message.get("parts", [])
+        for part_idx, part in enumerate(parts):
+          # Check if part has a 'root' attribute (Part with TextPart inside)
+          if "root" in part:
+            root = part["root"]
+            text = root.get("text", "")
+            if text:
+              all_agent_texts.append(text)
+              logger.debug(f"Collected text from history[{idx}].parts[{part_idx}].root.text: {text[:50]}...")
+          # Fallback: check if part itself has kind='text'
+          elif part.get("kind") == "text":
+            text = part.get("text", "")
+            if text:
+              all_agent_texts.append(text)
+              logger.debug(f"Collected text from history[{idx}].parts[{part_idx}].text: {text[:50]}...")
+
+    if all_agent_texts:
+      combined_text = "".join(all_agent_texts).strip()
+      logger.info(f"✅ Extracted {len(all_agent_texts)} text fragments from history, combined length: {len(combined_text)}")
+      logger.info(f"Combined text preview: {combined_text[:200]}...")
+      return combined_text
+
+    logger.warning("❌ No text found in response (checked artifacts, status.message, and history)")
 
   except Exception as e:
-    logger.debug(f"Error extracting text: {str(e)}")
+    logger.error(f"Error extracting text: {str(e)}", exc_info=True)
 
   return ""
 
@@ -156,9 +232,12 @@ async def send_message_to_agent(user_input: str) -> str:
 
       if isinstance(response.root, SendMessageSuccessResponse):
         logger.debug("Agent returned success response")
+        response_data = response.root.model_dump()
         logger.debug("Response JSON:")
-        logger.debug(json.dumps(response.root.model_dump(), indent=2, default=str))
-        return extract_response_text(response)
+        logger.debug(json.dumps(response_data, indent=2, default=str))
+        extracted = extract_response_text(response)
+        logger.info(f"Extracted text length: {len(extracted)}, preview: {extracted[:200] if extracted else 'EMPTY'}")
+        return extracted
       else:
         print(f"❌ Agent returned a non-success response: {response.root}")
         return None
