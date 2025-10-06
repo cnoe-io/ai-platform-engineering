@@ -13,8 +13,8 @@
 #   ./scripts/generate-docker-compose.py --persona komodor
 #
 # Usage:
-#   docker compose --profile a2a-p2p up         # For P2P transport
-#   docker compose --profile a2a-over-slim up   # For SLIM transport
+#   docker compose -f docker-compose/docker-compose.komodor.yaml --profile a2a-p2p up         # A2A peer-to-peer transport
+#   docker compose -f docker-compose/docker-compose.komodor.yaml --profile a2a-over-slim up   # A2A over SLIM transport
 # ============================================================================
 
 services:
