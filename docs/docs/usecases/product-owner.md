@@ -18,3 +18,43 @@ The Confluence agent helps Product Owners draft and maintain:
 - **Documentation**: Collaborate on detailed plans, roadmaps, and other supporting materials.
 
 These tools streamline the workflow for Product Owners, ensuring efficient planning and communication.
+
+## Getting Started
+
+Run the Product Owner persona with both Jira and Confluence agents:
+
+```bash
+# Using the generated docker-compose file
+cd docker-compose
+docker compose -f docker-compose.product-owner.yaml --profile a2a-p2p up
+
+# Or with SLIM transport
+docker compose -f docker-compose.product-owner.yaml --profile a2a-over-slim up
+
+# Generate fresh compose file
+make generate-compose PERSONAS="product-owner"
+
+# Or in dev mode with local code
+make generate-compose PERSONAS="product-owner" DEV=true
+```
+
+### What's Included
+
+The Product Owner persona includes:
+- **Jira Agent**: Create and manage stories, epics, and tasks
+- **Confluence Agent**: Draft PRDs and maintain documentation
+- **CAIPE Orchestrator**: Coordinates between agents for seamless workflows
+
+### Individual Agents
+
+You can also run individual agents separately:
+
+```bash
+# Run only Jira agent
+docker compose -f docker-compose.jira.yaml --profile a2a-p2p up
+
+# Run only Confluence agent
+docker compose -f docker-compose.confluence.yaml --profile a2a-p2p up
+```
+
+See the [docker-compose README](../../../docker-compose/README.md) for all available personas and agents.
