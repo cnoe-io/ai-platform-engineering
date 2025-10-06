@@ -1,0 +1,30 @@
+# User-Defined Profiles Configuration
+persona:
+  # Minimal ArgoCD-only setup
+  argocd:
+    description: "Platform Engineer with only ArgoCD capabilities"
+    agents:
+      - argocd
+      # - aws.documentation
+
+  # Full platform engineer
+  full-platform:
+    description: "Complete Platform Engineer with all agents"
+    agents:
+      - argocd
+      - github
+      - jira
+      - slack
+      - pagerduty
+      - backstage
+      - confluence
+
+  # DevOps focused
+  devops-engineer:
+    description: "DevOps Engineer with CI/CD and monitoring tools"
+    agents:
+      - argocd
+      - github
+
+# Default profile if none specified
+default_profile: argocd
