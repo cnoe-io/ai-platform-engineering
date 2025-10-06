@@ -18,7 +18,7 @@ from langgraph.prebuilt import create_react_agent
 
 from typing import AsyncIterable, Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from langchain_core.messages.utils import (
     trim_messages
 )
