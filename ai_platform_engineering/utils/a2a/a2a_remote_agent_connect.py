@@ -203,7 +203,6 @@ class A2ARemoteAgentConnectTool(BaseTool):
             except Exception:
                 chunk_dump = str(chunk)
 
-            logger.info(f"Received A2A stream chunk: {chunk_dump}")
             writer({"type": "a2a_event", "data": chunk_dump})
 
             try:
