@@ -6,7 +6,8 @@ on:
       - main
     paths:
       - 'ai_platform_engineering/knowledge_bases/rag/**'
-    tags-ignore:
+    # Build on all new tags as well
+    tags:
       - '**'
   pull_request:
     paths:
@@ -40,7 +41,7 @@ jobs:
         run: |
           echo "Disk usage before cleanup:"
           df -h
-          
+
           # Remove unnecessary packages and files
           sudo apt-get remove -y '^ghc-*' || true
           sudo apt-get remove -y '^dotnet-*' || true
@@ -49,7 +50,7 @@ jobs:
           sudo apt-get remove -y azure-cli google-cloud-cli hhvm google-chrome-stable firefox powershell mono-devel || true
           sudo apt-get autoremove -y
           sudo apt-get clean
-          
+
           # Remove large directories
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
@@ -57,10 +58,10 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          
+
           # Clean Docker system
           docker system prune -af --volumes || true
-          
+
           echo "Disk usage after cleanup:"
           df -h
 
