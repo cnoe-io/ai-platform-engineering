@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
-from common.constants import KV_HEURISTICS_VERSION_ID_KEY, PROP_DELIMITER
+from common.constants import KV_HEURISTICS_VERSION_ID_KEY, PROP_DELIMITER, HEURISTICS_VERSION_ID_KEY
 from common.models.graph import EntityIdentifier
 import traceback
 import httpx
@@ -205,6 +205,40 @@ async def fetch_entity_details(entity_type: str, primary_key_id: str, thought: s
         logger.error(f"Traceback: {traceback.format_exc()}")
         logger.error(f"Error fetching entity details {entity_type} with primary_key_id {primary_key_id}: {e}")
         return f"Error fetching entity details {entity_type} with primary_key_id {primary_key_id}: {e}"
+
+
+@tool
+async def check_if_ontology_generated(thought: str) -> str:
+    """
+    Check if the ontology is generated and available for querying
+
+    Args:
+        thought (str): Your thoughts for choosing this tool
+    Returns:
+        str: "true" if the ontology is generated, "false" otherwise
+    """
+    logger.debug(f"Checking if ontology is generated, Thought: {thought}")
+    try:
+        heuristics_version_id = await redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
+        if heuristics_version_id is None:
+            return "false"
+        heuristics_version_id = heuristics_version_id.decode("utf-8")
+        logger.debug(f"Found heuristics version id: {heuristics_version_id}")
+
+        # Check if the ontology is generated - there should be at least one relation with the heuristics version id
+        relation = await ontology_graphdb.find_relations(None, None, None, {
+            HEURISTICS_VERSION_ID_KEY: heuristics_version_id
+        }, 1)
+        
+        if len(relation) > 0:
+            return "true"
+        
+        logger.debug(f"No relations found in ontology with the current heuristics version id: {heuristics_version_id}")
+        return "false"
+    except Exception as e:
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(f"Error checking if ontology is generated: {e}")
+        return f"Error checking if ontology is generated: {e}"
 
 @tool
 async def get_relation_path_between_entity_types(entity_type_1: str, entity_type_2: str, thought: str) -> str:

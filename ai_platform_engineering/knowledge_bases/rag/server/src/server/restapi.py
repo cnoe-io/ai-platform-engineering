@@ -85,7 +85,7 @@ async def setup():
     milvus_connection_args = {"uri": os.getenv("MILVUS_URI", "http://localhost:19530")}
     DEFAULT_COLLECTION_NAME_GRAPH = "graph_rag_default"
     DEFAULT_COLLECTION_NAME_DOCS = "rag_default"
-    dense_index_params = {"index_type": "HNSW", "metric_type": "L2"}
+    dense_index_params = {"index_type": "HNSW", "metric_type": "COSINE"}
     sparse_index_params = {"index_type": "SPARSE_INVERTED_INDEX", "metric_type": "BM25"}
 
     # Setup vector db for document data

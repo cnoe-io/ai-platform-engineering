@@ -10,6 +10,7 @@ from common.agent.tools import (
     get_entity_types,
     get_relation_path_between_entity_types,
     raw_graph_query,
+    check_if_ontology_generated
 )
 from datetime import datetime, timezone
 from langchain_core.prompts import PromptTemplate
@@ -17,7 +18,7 @@ from langgraph.prebuilt import create_react_agent
 
 from typing import AsyncIterable, Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from langchain_core.messages.utils import (
     trim_messages
 )
@@ -42,7 +43,7 @@ graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1
 
 if graph_rag_enabled:
     logger.info("Graph RAG is enabled.")
-    DB_READ_TOOLS = [search, get_entity_types, get_entity_properties, fetch_entity_details, get_relation_path_between_entity_types, raw_graph_query]
+    DB_READ_TOOLS = [search, get_entity_types, get_entity_properties, fetch_entity_details, get_relation_path_between_entity_types, check_if_ontology_generated, raw_graph_query]
     ui_url = str(os.getenv("RAG_UI_URL", "http://localhost:9447/explore/entity"))
 else:
     logger.info("Graph RAG is disabled.")
@@ -55,7 +56,7 @@ def pre_model_hook(state):
         strategy="last",
         token_counter=len,
         include_system=True,
-        max_tokens=10,
+        max_tokens=20,
         start_on="human",
         end_on=("human", "tool"),
     )
@@ -123,7 +124,7 @@ class QnAAgent:
                         elif isinstance(tool_call, dict) and 'args' in tool_call:
                             args = tool_call['args']
                         if args and isinstance(args, dict):
-                            thought = args.get('thought')
+                            thought = args.get('thought') # All rag tools have 'thought' param
                             if thought:
                                 thoughts.append(thought)
                         else:
@@ -140,13 +141,6 @@ class QnAAgent:
                         'require_user_input': False,
                         'content': content,
                     }
-            elif isinstance(message, ToolMessage):
-                yield {
-                    'is_task_complete': False,
-                    'require_user_input': False,
-                    'content': "Querying knowledge base...\n",
-                }
-
         response = self.get_agent_response(config)
         logger.debug(f"Final agent response: {response}")
         yield response
