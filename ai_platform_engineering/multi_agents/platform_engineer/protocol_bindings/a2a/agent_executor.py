@@ -97,44 +97,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         try:
             # invoke the underlying agent, using streaming results
             async for event in self.agent.stream(query, context_id, trace_id):
-                # Handle typed A2A events directly
-                if isinstance(event, (A2ATaskArtifactUpdateEvent, A2ATaskStatusUpdateEvent)):
-                    logger.debug(f"Executor: Enqueuing streamed A2A event: {type(event).__name__}")
-                    await self._safe_enqueue_event(event_queue, event)
-                    continue
-                elif isinstance(event, A2AMessage):
-                    logger.debug("Executor: Converting A2A Message to TaskStatusUpdateEvent (working)")
-                    text_content = ""
-                    parts = getattr(event, "parts", None)
-                    if parts:
-                        texts = []
-                        for part in parts:
-                            root = getattr(part, "root", None)
-                            txt = getattr(root, "text", None) if root is not None else None
-                            if txt:
-                                texts.append(txt)
-                        text_content = " ".join(texts)
-                    await self._safe_enqueue_event(
-                        event_queue,
-                        TaskStatusUpdateEvent(
-                            status=TaskStatus(
-                                state=TaskState.working,
-                                message=new_agent_text_message(
-                                    text_content or "(streamed message)",
-                                    task.context_id,
-                                    task.id,
-                                ),
-                            ),
-                            final=False,
-                            context_id=task.context_id,
-                            task_id=task.id,
-                        )
-                    )
-                    continue
-                elif isinstance(event, A2ATask):
-                    logger.debug("Executor: Received A2A Task event; enqueuing.")
-                    await self._safe_enqueue_event(event_queue, event)
-                    continue
+                logger.info(f'executor event: {type(event)} {event}')
                 if event['is_task_complete']:
                   logger.info("Task complete event received. Enqueuing TaskArtifactUpdateEvent and TaskStatusUpdateEvent.")
                   await self._safe_enqueue_event(

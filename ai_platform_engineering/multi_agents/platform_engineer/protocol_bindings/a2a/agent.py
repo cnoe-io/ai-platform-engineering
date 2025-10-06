@@ -39,11 +39,18 @@ class AIPlatformEngineerA2ABinding:
       """Try to deserialize a dict payload into known A2A models."""
       if not isinstance(data, dict):
           return None
-      for model in (A2ATaskStatusUpdateEvent, A2ATaskArtifactUpdateEvent, A2ATask, A2AMessage):
-          try:
-              return model.model_validate(data)  # type: ignore[attr-defined]
-          except Exception:
-              continue
+      logger.info(f'deserialize data: {data}')
+      # Only A2ATaskStatusUpdateEvent for streaming
+      try:
+          if 'status' in data and 'message' in data['status']:
+            parts = data['status']['message'].get('parts') or []
+            return {
+              "is_task_complete": False,
+              "require_user_input": False,
+              "content": ' '.join([p['text'] for p in parts])
+            }
+      except Exception as e:
+          logger.error(e)
       return None
 
   @trace_agent_stream("platform_engineer", update_input=True)
@@ -72,10 +79,9 @@ class AIPlatformEngineerA2ABinding:
 
       try:
           async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
-
               # Handle custom A2A event payloads emitted via get_stream_writer()
               if isinstance(item, dict) and item.get("type") == "a2a_event":
-                  event_obj = self._deserialize_a2a_event(item.get("data"))
+                  event_obj = self._deserialize_a2a_event(item.get("data").get("result"))
                   if event_obj is not None:
                       yield event_obj
                       continue

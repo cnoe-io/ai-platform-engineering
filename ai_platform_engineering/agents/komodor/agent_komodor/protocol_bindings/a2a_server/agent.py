@@ -8,7 +8,7 @@ from typing import Any, Literal, Dict
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, HumanMessage
 from langchain_core.runnables.config import (
     RunnableConfig,
 )
@@ -246,7 +246,8 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
       inputs: dict[str, Any] = {'messages': [('user', query)]}
       config: RunnableConfig = self.tracing.create_config(sessionId)
 
-      async for message in self.graph.astream(inputs, config, stream_mode='messages'):
+      async for item in self.graph.astream(inputs, config, stream_mode='messages'):
+          message = item[0]
           debug_print(f"Streamed message chunk: {message}")
           if (
               isinstance(message, AIMessage)
@@ -263,6 +264,12 @@ with Kubernetes operations. Do not attempt to answer unrelated questions or use 
                 'is_task_complete': False,
                 'require_user_input': False,
                 'content': 'Processing Komodor Resources rates..',
+              }
+          elif isinstance(message, AIMessageChunk):
+              yield {
+                "is_task_complete": False,
+                "require_user_input": False,
+                "content": message.content,
               }
           else:
               content_text = None
