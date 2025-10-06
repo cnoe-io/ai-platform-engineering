@@ -12,7 +12,8 @@ APP_NAME ?= ai-platform-engineering
 .PHONY: \
 	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
 	build install build-docker run run-ai-platform-engineer langgraph-dev \
-	lint lint-fix test \
+	generate-compose generate-compose-dev generate-compose-all clean-compose \
+	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale test-rag-all validate lock-all help
 
 .DEFAULT_GOAL := run
@@ -56,6 +57,43 @@ build-docker:  ## Build the Docker image
 	@echo "Building the Docker image..."
 	@docker build -t $(APP_NAME):latest -f build/Dockerfile .
 
+## ========== Generate Docker Compose ==========
+
+PERSONAS ?= p2p-basic
+OUTPUT_DIR ?= docker-compose
+A2A_TRANSPORT ?= p2p
+DEV ?= false
+
+generate-docker-compose:  ## Generate docker-compose files from personas (make generate-compose PERSONAS="p2p-basic argocd" DEV=true)
+	@echo "Generating docker-compose files for personas: $(PERSONAS)..."
+	@mkdir -p $(OUTPUT_DIR)
+	@chmod +x scripts/generate-docker-compose.py
+	@for persona in $(PERSONAS); do \
+		echo "Generating docker-compose.$$persona.yaml..."; \
+		A2A_TRANSPORT=$(A2A_TRANSPORT) ./scripts/generate-docker-compose.py \
+			--persona $$persona \
+			--output $(OUTPUT_DIR)/docker-compose.$$persona.yaml \
+			$(if $(filter true,$(DEV)),--dev,); \
+	done
+	@echo "✓ Generated compose files in $(OUTPUT_DIR)/"
+
+generate-docker-compose-dev:  ## Generate dev docker-compose files with local code mounts (make generate-compose-dev PERSONAS="p2p-basic")
+	@$(MAKE) generate-compose DEV=true
+
+generate-docker-compose-all:  ## Generate docker-compose files for all personas
+	@echo "Generating docker-compose files for all personas..."
+	@mkdir -p $(OUTPUT_DIR)
+	@chmod +x scripts/generate-docker-compose.py
+	@A2A_TRANSPORT=$(A2A_TRANSPORT) ./scripts/generate-docker-compose.py \
+		--output $(OUTPUT_DIR)/docker-compose.all-personas.yaml \
+		$(if $(filter true,$(DEV)),--dev,)
+	@echo "✓ Generated docker-compose.all-personas.yaml"
+
+clean-docker-compose:  ## Remove all generated docker-compose files
+	@echo "Cleaning generated docker-compose files..."
+	@rm -rf $(OUTPUT_DIR)
+	@echo "✓ Removed $(OUTPUT_DIR)/"
+
 ## ========== Run ==========
 
 run: run-ai-platform-engineer ## Run the application with uv
@@ -84,6 +122,15 @@ lint-fix: setup-venv ## Automatically fix linting issues using Ruff
 
 ## ========== Test ==========
 
+test-compose-generator: setup-venv ## Run unit tests for docker-compose generator
+	@echo "Running docker-compose generator tests..."
+	@. .venv/bin/activate && uv add pytest pyyaml --dev
+	@. .venv/bin/activate && uv run python -m pytest scripts/test_generate_docker_compose.py -v --tb=short
+
+test-compose-generator-coverage: setup-venv ## Run docker-compose generator tests with coverage
+	@echo "Running docker-compose generator tests with coverage..."
+	@. .venv/bin/activate && uv add pytest pytest-cov pyyaml --dev
+	@. .venv/bin/activate && uv run python -m pytest scripts/test_generate_docker_compose.py -v --cov=generate_docker_compose --cov-report=term-missing --cov-report=html
 
 test: setup-venv ## Install dependencies and run tests using pytest
 	@echo "Installing ai_platform_engineering, agents, and argocd..."
@@ -92,7 +139,7 @@ test: setup-venv ## Install dependencies and run tests using pytest
 	@. .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
 
 	@echo "Running general project tests..."
-	@. .venv/bin/activate && uv run pytest --ignore=integration --ignore=ai_platform_engineering/knowledge_bases/rag/tests --ignore=ai_platform_engineering/agents/argocd/mcp/tests --ignore=volumes
+	@. .venv/bin/activate && uv run pytest --ignore=integration --ignore=ai_platform_engineering/knowledge_bases/rag/tests --ignore=ai_platform_engineering/agents/argocd/mcp/tests --ignore=volumes --ignore=docker-compose
 
 	@echo ""
 	@echo "Running ArgoCD MCP tests..."

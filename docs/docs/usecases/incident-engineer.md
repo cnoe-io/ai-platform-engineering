@@ -39,6 +39,27 @@ Integrating PagerDuty, Jira, intelligent agents, and runbooks with Retrieval-Aug
 - **AI Agents**: Automated anomaly detection and analysis.
 - **Runbooks with RAG**: AI-enhanced retrieval of resolution steps.
 
+### Getting Started
+
+To run the Incident Engineer persona:
+
+```bash
+# Using the generated docker-compose file
+cd docker-compose
+docker compose -f docker-compose.incident-engineer.yaml --profile a2a-p2p up
+
+# Or generate it fresh with dev mode
+make generate-compose PERSONAS="incident-engineer" DEV=true
+```
+
+The Incident Engineer persona includes:
+- PagerDuty agent for incident alerting
+- GitHub agent for code analysis
+- Backstage agent for service catalog integration
+- Jira agent for ticket management
+- Confluence agent for documentation
+- Komodor agent for Kubernetes troubleshooting
+
 ### Conclusion
 
 Leveraging PagerDuty, Jira, intelligent agents, and RAG-powered runbooks transforms incident management into a proactive, efficient, and collaborative process.
