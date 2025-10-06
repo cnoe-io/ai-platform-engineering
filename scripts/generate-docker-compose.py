@@ -933,13 +933,14 @@ def generate_docker_compose(
 # Banner Generation
 # ============================================================================
 
-def generate_banner(personas: List[str], dev_mode: bool) -> str:
+def generate_banner(personas: List[str], dev_mode: bool, filename: str = None) -> str:
     """
     Generate informational banner for docker-compose file.
 
     Args:
         personas: List of persona names included
         dev_mode: Whether dev mode is enabled
+        filename: Name of the output file (for usage examples)
 
     Returns:
         Multi-line comment string with generation info and usage instructions
@@ -948,6 +949,17 @@ def generate_banner(personas: List[str], dev_mode: bool) -> str:
     personas_str = ' '.join(personas)
     dev_flag = ' DEV=true' if dev_mode else ''
     dev_arg = ' --dev' if dev_mode else ''
+
+    # Generate usage examples with correct file path
+    if filename:
+        file_path = f"docker-compose/{filename}"
+        usage_examples = f"""# Usage:
+#   docker compose -f {file_path} --profile a2a-p2p up         # A2A peer-to-peer transport
+#   docker compose -f {file_path} --profile a2a-over-slim up   # A2A over SLIM transport"""
+    else:
+        usage_examples = """# Usage:
+#   docker compose --profile a2a-p2p up         # A2A peer-to-peer transport
+#   docker compose --profile a2a-over-slim up   # A2A over SLIM transport"""
 
     return f"""# ============================================================================
 # AUTO-GENERATED FILE - DO NOT EDIT DIRECTLY
@@ -963,9 +975,7 @@ def generate_banner(personas: List[str], dev_mode: bool) -> str:
 # Or manually:
 #   ./scripts/generate-docker-compose.py --persona {personas_str}{dev_arg}
 #
-# Usage:
-#   docker compose --profile a2a-p2p up         # For P2P transport
-#   docker compose --profile a2a-over-slim up   # For SLIM transport
+{usage_examples}
 # ============================================================================
 
 """
@@ -1044,7 +1054,9 @@ Examples:
 
     # Determine personas for banner
     personas = args.persona or list(profiles_config['persona'].keys())
-    banner = generate_banner(personas, args.dev)
+    # Extract filename from output path for usage examples
+    output_filename = Path(args.output).name
+    banner = generate_banner(personas, args.dev, output_filename)
 
     # Write output file
     try:
