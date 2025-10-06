@@ -31,3 +31,30 @@ Platform Engineers focus on building and maintaining the foundational infrastruc
 ## Example Use-case
 
 A Platform Engineer designs a Kubernetes-based infrastructure to support microservices architecture, automates deployments using Helm charts, and integrates monitoring tools like Prometheus and Grafana to ensure system observability.
+
+## Getting Started
+
+CAIPE provides multiple Platform Engineer personas with different agent combinations:
+
+```bash
+# Full platform engineer with all agents
+cd docker-compose
+docker compose -f docker-compose.platform-engineer.yaml --profile a2a-p2p up
+
+# DevOps engineer persona
+docker compose -f docker-compose.devops-engineer.yaml --profile a2a-p2p up
+
+# Basic CAIPE setup
+docker compose -f docker-compose.caipe-basic.yaml --profile a2a-p2p up
+
+# Generate fresh compose files
+make generate-compose PERSONAS="platform-engineer devops-engineer"
+```
+
+### Available Personas
+
+- **platform-engineer**: Complete setup with ArgoCD, AWS, Backstage, Confluence, GitHub, Jira, Komodor, PagerDuty, Slack, Splunk, Weather, Webex, and Petstore agents
+- **devops-engineer**: DevOps-focused setup with ArgoCD, AWS, GitHub, Jira, Komodor, and PagerDuty agents
+- **caipe-basic**: Minimal setup with Weather and Petstore agents for getting started
+
+See the [docker-compose README](../../../docker-compose/README.md) for detailed information about all available personas.
