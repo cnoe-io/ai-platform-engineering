@@ -50,13 +50,13 @@ DEFAULT_PERSONA_FILE = 'persona.yaml'
 def load_profiles(profiles_file: str = DEFAULT_PERSONA_FILE) -> Dict[str, Any]:
     """
     Load persona configuration from YAML file.
-    
+
     Args:
         profiles_file: Path to persona.yaml configuration file
-        
+
     Returns:
         Dictionary containing persona definitions and metadata
-        
+
     Raises:
         FileNotFoundError: If profiles_file doesn't exist
         yaml.YAMLError: If file contains invalid YAML
@@ -68,7 +68,7 @@ def load_profiles(profiles_file: str = DEFAULT_PERSONA_FILE) -> Dict[str, Any]:
 def get_transport_from_env() -> str:
     """
     Get A2A transport mode from environment variable.
-    
+
     Returns:
         Transport mode ('p2p' or 'slim'), defaults to 'p2p'
     """
@@ -82,13 +82,13 @@ def get_transport_from_env() -> str:
 def get_agent_defaults(agent_name: str) -> Dict[str, Any]:
     """
     Get default configuration for a specific agent.
-    
+
     Each agent has default settings for image, MCP configuration,
     volumes, and other service-specific parameters.
-    
+
     Args:
         agent_name: Name of the agent (e.g., 'argocd', 'github')
-        
+
     Returns:
         Dictionary with agent's default configuration including:
         - image: Docker image reference
@@ -157,10 +157,10 @@ def generate_platform_engineer_service(
 ) -> Dict[str, Any]:
     """
     Generate CAIPE platform engineer orchestrator service configuration.
-    
+
     The platform engineer is the main orchestrator that coordinates
     communication between multiple AI agents.
-    
+
     Args:
         profile_name: Name of the profile (e.g., 'argocd-p2p')
         agents: List of agent names to enable
@@ -168,7 +168,7 @@ def generate_platform_engineer_service(
         use_profiles: Whether to add Docker Compose profile
         dev_mode: Enable development mode with local code mounts
         env_file_path: Path to environment file
-        
+
     Returns:
         Docker Compose service definition dictionary
     """
@@ -218,7 +218,7 @@ def generate_platform_engineer_service(
     for agent_name in ALL_AGENTS:
         is_enabled = 'true' if agent_name in agents else 'false'
         env_var_name = agent_name.upper().replace('-', '_')
-        
+
         # Special cases with different environment variable names
         env_var_mapping = {
             'petstore': 'ENABLE_PETSTORE_AGENT',
@@ -226,7 +226,7 @@ def generate_platform_engineer_service(
             'webex': 'ENABLE_WEBEX_AGENT',
             'rag': 'ENABLE_RAG'
         }
-        
+
         env_var = env_var_mapping.get(agent_name, f'ENABLE_{env_var_name}')
         service['environment'].append(f'{env_var}={is_enabled}')
 
@@ -253,7 +253,7 @@ def generate_agent_service(
 ) -> Dict[str, Any]:
     """
     Generate individual AI agent service configuration.
-    
+
     Args:
         agent_name: Name of the agent (e.g., 'argocd')
         profile_name: Full profile name (e.g., 'argocd-p2p')
@@ -263,7 +263,7 @@ def generate_agent_service(
         dev_mode: Enable development mode with local code mounts
         env_file_path: Path to environment file
         enable_graph_rag: Whether to enable graph RAG for RAG agent
-        
+
     Returns:
         Docker Compose service definition dictionary
     """
@@ -353,17 +353,17 @@ def generate_mcp_service(
 ) -> Optional[Dict[str, Any]]:
     """
     Generate Model Context Protocol (MCP) server service.
-    
+
     MCP servers provide the actual capabilities (tools) that agents use.
     Not all agents have dedicated MCP services (some use remote MCPs).
-    
+
     Args:
         agent_name: Name of the agent
         profiles: List of Docker Compose profiles
         use_profiles: Whether to add profiles
         dev_mode: Enable development mode
         env_file_path: Path to environment file
-        
+
     Returns:
         Docker Compose service definition or None if agent has no MCP service
     """
@@ -413,7 +413,7 @@ def generate_mcp_service(
 def generate_rag_services(enable_graph_rag: bool = True) -> Dict[str, Dict[str, Any]]:
     """
     Generate RAG (Retrieval-Augmented Generation) infrastructure services.
-    
+
     RAG services include:
     - rag_server: Main RAG orchestration server
     - agent_ontology: Ontology management agent
@@ -424,16 +424,16 @@ def generate_rag_services(enable_graph_rag: bool = True) -> Dict[str, Dict[str, 
     - milvus-standalone: Vector database
     - etcd: Configuration store for Milvus
     - milvus-minio: Object storage for Milvus
-    
+
     Args:
         enable_graph_rag: Whether to enable graph RAG (neo4j services)
-    
+
     Returns:
         Dictionary of service name to service configuration
     """
     # Set ENABLE_GRAPH_RAG based on parameter
     graph_rag_value = 'true' if enable_graph_rag else 'false'
-    
+
     return {
         'rag_server': {
             'image': 'ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}',
@@ -593,10 +593,10 @@ def generate_rag_services(enable_graph_rag: bool = True) -> Dict[str, Dict[str, 
 def generate_tracing_services() -> Dict[str, Dict[str, Any]]:
     """
     Generate Langfuse tracing infrastructure services.
-    
+
     Langfuse provides distributed tracing for LLM applications, allowing
     monitoring of agent interactions, LLM calls, and performance metrics.
-    
+
     Services included:
     - langfuse-worker: Background processing worker
     - langfuse-web: Web UI and API server
@@ -604,7 +604,7 @@ def generate_tracing_services() -> Dict[str, Dict[str, Any]]:
     - langfuse-minio: Object storage for events
     - langfuse-redis: Cache and queue
     - langfuse-postgres: Metadata database
-    
+
     Returns:
         Dictionary of service name to service configuration
     """
@@ -772,14 +772,14 @@ def generate_tracing_services() -> Dict[str, Dict[str, Any]]:
 def generate_infrastructure_services() -> Dict[str, Dict[str, Any]]:
     """
     Generate SLIM dataplane infrastructure services.
-    
+
     SLIM (Service Level Integration Mesh) provides advanced message routing,
     load balancing, and service mesh capabilities for agent communication.
-    
+
     Services:
     - slim-dataplane: Handles message routing and data plane operations
     - slim-control-plane: Manages control plane configuration
-    
+
     Returns:
         Dictionary of service name to service configuration
     """
@@ -822,15 +822,15 @@ def generate_docker_compose(
 ) -> Dict[str, Any]:
     """
     Generate complete docker-compose configuration with both P2P and SLIM profiles.
-    
+
     This is the main orchestration function that combines all service
     generation functions to create a complete docker-compose.yaml structure.
-    
+
     Args:
         profiles_config: Loaded persona configuration
         selected_profiles: List of persona names to generate (None = all)
         dev_mode: Enable development mode with local code mounts
-        
+
     Returns:
         Complete docker-compose.yaml structure as dictionary
     """
@@ -865,7 +865,7 @@ def generate_docker_compose(
             # Generate agent services
             for i, agent_name in enumerate(agents):
                 agent_service = generate_agent_service(
-                    agent_name, service_suffix, transport, i, True, dev_mode, 
+                    agent_name, service_suffix, transport, i, True, dev_mode,
                     DEFAULT_ENV_FILE, enable_graph_rag
                 )
                 agent_service['profiles'] = [profile]
@@ -936,11 +936,11 @@ def generate_docker_compose(
 def generate_banner(personas: List[str], dev_mode: bool) -> str:
     """
     Generate informational banner for docker-compose file.
-    
+
     Args:
         personas: List of persona names included
         dev_mode: Whether dev mode is enabled
-        
+
     Returns:
         Multi-line comment string with generation info and usage instructions
     """
@@ -978,7 +978,7 @@ def generate_banner(personas: List[str], dev_mode: bool) -> str:
 def main():
     """
     Main entry point for the docker-compose generator.
-    
+
     Parses command-line arguments, loads configuration, generates
     docker-compose content, and writes output file.
     """
@@ -990,13 +990,13 @@ def main():
 Examples:
   # Generate for single persona
   %(prog)s --persona argocd --output docker-compose/docker-compose.argocd.yaml
-  
+
   # Generate for multiple personas
   %(prog)s --persona github aws --output docker-compose/docker-compose.multi.yaml
-  
+
   # Generate with dev mode
   %(prog)s --persona argocd --dev
-  
+
   # Generate for all personas
   %(prog)s --output docker-compose/docker-compose.all.yaml
         """
@@ -1063,7 +1063,7 @@ Examples:
         print(f"Included personas: {', '.join(args.persona)}")
     else:
         print("Included all personas")
-    print(f"Transports: a2a-p2p, a2a-over-slim (both profiles generated)")
+    print("Transports: a2a-p2p, a2a-over-slim (both profiles generated)")
 
     return 0
 

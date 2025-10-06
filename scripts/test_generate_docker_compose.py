@@ -16,7 +16,6 @@ import os
 import sys
 import yaml
 import importlib.util
-from pathlib import Path
 
 # Import the generate_docker_compose module using importlib
 _script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -49,7 +48,7 @@ class TestConfigurationLoading(unittest.TestCase):
         """Create temporary test configuration files."""
         self.test_dir = tempfile.mkdtemp()
         self.config_file = os.path.join(self.test_dir, 'test-persona.yaml')
-        
+
         # Create test persona configuration
         test_config = {
             'persona': {
@@ -61,7 +60,7 @@ class TestConfigurationLoading(unittest.TestCase):
                 }
             }
         }
-        
+
         with open(self.config_file, 'w') as f:
             yaml.dump(test_config, f)
 
@@ -89,7 +88,7 @@ class TestConfigurationLoading(unittest.TestCase):
         if 'A2A_TRANSPORT' in os.environ:
             del os.environ['A2A_TRANSPORT']
         self.assertEqual(get_transport_from_env(), 'p2p')
-        
+
         # Test override
         os.environ['A2A_TRANSPORT'] = 'slim'
         self.assertEqual(get_transport_from_env(), 'slim')
@@ -155,7 +154,7 @@ class TestPlatformEngineerService(unittest.TestCase):
             'p2p',
             use_profiles=True
         )
-        
+
         self.assertEqual(service['container_name'], 'caipe-argocd-p2p')
         self.assertEqual(service['ports'], ['8000:8000'])
         self.assertIn('A2A_TRANSPORT=p2p', service['environment'])
@@ -170,7 +169,7 @@ class TestPlatformEngineerService(unittest.TestCase):
             'p2p',
             dev_mode=True
         )
-        
+
         self.assertIn('build', service)
         self.assertNotIn('image', service)
         self.assertEqual(service['build']['context'], '..')
@@ -183,7 +182,7 @@ class TestPlatformEngineerService(unittest.TestCase):
             ['argocd'],
             'slim'
         )
-        
+
         self.assertIn('A2A_TRANSPORT=slim', service['environment'])
         self.assertIn('slim-dataplane', service['depends_on'])
         self.assertIn('slim-control-plane', service['depends_on'])
@@ -195,11 +194,11 @@ class TestPlatformEngineerService(unittest.TestCase):
             ['github', 'argocd'],
             'p2p'
         )
-        
+
         # Check that selected agents are enabled
         self.assertIn('ENABLE_GITHUB=true', service['environment'])
         self.assertIn('ENABLE_ARGOCD=true', service['environment'])
-        
+
         # Check that non-selected agents are disabled
         self.assertIn('ENABLE_AWS=false', service['environment'])
         self.assertIn('ENABLE_JIRA=false', service['environment'])
@@ -216,7 +215,7 @@ class TestAgentService(unittest.TestCase):
             'p2p',
             port_offset=0
         )
-        
+
         self.assertEqual(service['container_name'], 'agent-argocd-argocd-p2p')
         self.assertEqual(service['ports'], ['8001:8000'])
         self.assertIn('A2A_TRANSPORT=p2p', service['environment'])
@@ -231,7 +230,7 @@ class TestAgentService(unittest.TestCase):
             port_offset=0,
             dev_mode=True
         )
-        
+
         self.assertIn('build', service)
         self.assertNotIn('image', service)
         self.assertIn('volumes', service)
@@ -244,7 +243,7 @@ class TestAgentService(unittest.TestCase):
             'p2p',
             port_offset=0
         )
-        
+
         self.assertEqual(service['container_name'], 'agent_rag')
         self.assertEqual(service['ports'], ['8099:8099'])
         self.assertIn('REDIS_URL=redis://rag-redis:6379/0', service['environment'])
@@ -254,7 +253,7 @@ class TestAgentService(unittest.TestCase):
         """Test that port offset works correctly."""
         service1 = generate_agent_service('argocd', 'test-p2p', 'p2p', 0)
         service2 = generate_agent_service('github', 'test-p2p', 'p2p', 5)
-        
+
         self.assertEqual(service1['ports'], ['8001:8000'])
         self.assertEqual(service2['ports'], ['8006:8000'])
 
@@ -265,7 +264,7 @@ class TestMCPService(unittest.TestCase):
     def test_generate_mcp_service_standard(self):
         """Test standard MCP service generation."""
         service = generate_mcp_service('argocd', ['a2a-p2p'])
-        
+
         self.assertIsNotNone(service)
         self.assertEqual(service['container_name'], 'mcp-argocd')
         self.assertIn('ghcr.io/cnoe-io/mcp-argocd', service['image'])
@@ -275,14 +274,14 @@ class TestMCPService(unittest.TestCase):
         """Test that agents without MCP return None."""
         service = generate_mcp_service('github', ['a2a-p2p'])
         self.assertIsNone(service)
-        
+
         service = generate_mcp_service('weather', ['a2a-p2p'])
         self.assertIsNone(service)
 
     def test_generate_mcp_service_dev_mode(self):
         """Test MCP service with dev mode."""
         service = generate_mcp_service('argocd', ['a2a-p2p'], dev_mode=True)
-        
+
         self.assertIn('build', service)
         self.assertNotIn('image', service)
         self.assertIn('volumes', service)
@@ -294,10 +293,10 @@ class TestInfrastructureServices(unittest.TestCase):
     def test_generate_infrastructure_services(self):
         """Test SLIM infrastructure generation."""
         services = generate_infrastructure_services()
-        
+
         self.assertIn('slim-dataplane', services)
         self.assertIn('slim-control-plane', services)
-        
+
         # Check dataplane configuration
         self.assertEqual(services['slim-dataplane']['container_name'], 'slim-dataplane')
         self.assertIn('a2a-over-slim', services['slim-dataplane']['profiles'])
@@ -306,15 +305,15 @@ class TestInfrastructureServices(unittest.TestCase):
     def test_generate_rag_services(self):
         """Test RAG infrastructure generation."""
         services = generate_rag_services()
-        
+
         required_services = [
             'rag_server', 'agent_ontology', 'neo4j', 'neo4j-ontology',
             'rag-redis', 'milvus-standalone', 'etcd', 'milvus-minio'
         ]
-        
+
         for service_name in required_services:
             self.assertIn(service_name, services)
-        
+
         # Check specific configurations
         self.assertEqual(services['rag_server']['ports'], ['9446:9446'])
         self.assertEqual(services['agent_ontology']['ports'], ['8098:8098'])
@@ -323,15 +322,15 @@ class TestInfrastructureServices(unittest.TestCase):
     def test_generate_tracing_services(self):
         """Test Langfuse tracing infrastructure generation."""
         services = generate_tracing_services()
-        
+
         required_services = [
             'langfuse-worker', 'langfuse-web', 'langfuse-clickhouse',
             'langfuse-minio', 'langfuse-redis', 'langfuse-postgres'
         ]
-        
+
         for service_name in required_services:
             self.assertIn(service_name, services)
-        
+
         # Check web service configuration
         self.assertEqual(services['langfuse-web']['ports'], ['3000:3000'])
         self.assertIn('langfuse-postgres', services['langfuse-web']['depends_on'])
@@ -359,33 +358,33 @@ class TestDockerComposeGeneration(unittest.TestCase):
     def test_generate_docker_compose_basic(self):
         """Test basic docker-compose generation."""
         compose = generate_docker_compose(self.test_config, ['test-basic'])
-        
+
         self.assertIn('services', compose)
-        
+
         # Check CAIPE services
         self.assertIn('caipe-test-basic-p2p', compose['services'])
         self.assertIn('caipe-test-basic-slim', compose['services'])
-        
+
         # Check agent services
         self.assertIn('agent-argocd-test-basic-p2p', compose['services'])
         self.assertIn('agent-github-test-basic-p2p', compose['services'])
-        
+
         # Check MCP services
         self.assertIn('mcp-argocd', compose['services'])
-        
+
         # Check infrastructure
         self.assertIn('slim-dataplane', compose['services'])
 
     def test_generate_docker_compose_rag(self):
         """Test docker-compose generation with RAG services."""
         compose = generate_docker_compose(self.test_config, ['test-rag'])
-        
+
         # Check RAG services are included
         self.assertIn('rag_server', compose['services'])
         self.assertIn('agent_ontology', compose['services'])
         self.assertIn('neo4j', compose['services'])
         self.assertIn('milvus-standalone', compose['services'])
-        
+
         # Check volumes are added
         self.assertIn('volumes', compose)
         self.assertIn('milvus_etcd', compose['volumes'])
@@ -393,12 +392,12 @@ class TestDockerComposeGeneration(unittest.TestCase):
     def test_generate_docker_compose_tracing(self):
         """Test docker-compose generation with tracing services."""
         compose = generate_docker_compose(self.test_config, ['test-tracing'])
-        
+
         # Check tracing services are included
         self.assertIn('langfuse-web', compose['services'])
         self.assertIn('langfuse-worker', compose['services'])
         self.assertIn('langfuse-postgres', compose['services'])
-        
+
         # Check volumes are added
         self.assertIn('volumes', compose)
         self.assertIn('langfuse_postgres_data', compose['volumes'])
@@ -406,7 +405,7 @@ class TestDockerComposeGeneration(unittest.TestCase):
     def test_generate_docker_compose_dev_mode(self):
         """Test docker-compose generation in dev mode."""
         compose = generate_docker_compose(self.test_config, ['test-basic'], dev_mode=True)
-        
+
         # Check that build contexts are used
         caipe_service = compose['services']['caipe-test-basic-p2p']
         self.assertIn('build', caipe_service)
@@ -415,11 +414,11 @@ class TestDockerComposeGeneration(unittest.TestCase):
     def test_generate_docker_compose_profiles(self):
         """Test that profiles are correctly assigned."""
         compose = generate_docker_compose(self.test_config, ['test-basic'])
-        
+
         # Check P2P profile
         p2p_service = compose['services']['caipe-test-basic-p2p']
         self.assertIn('a2a-p2p', p2p_service['profiles'])
-        
+
         # Check SLIM profile
         slim_service = compose['services']['caipe-test-basic-slim']
         self.assertIn('a2a-over-slim', slim_service['profiles'])
@@ -431,7 +430,7 @@ class TestBannerGeneration(unittest.TestCase):
     def test_generate_banner_single_persona(self):
         """Test banner for single persona."""
         banner = generate_banner(['argocd'], False)
-        
+
         self.assertIn('AUTO-GENERATED FILE', banner)
         self.assertIn('PROD (with container images)', banner)
         self.assertIn('Personas: argocd', banner)
@@ -440,13 +439,13 @@ class TestBannerGeneration(unittest.TestCase):
     def test_generate_banner_multiple_personas(self):
         """Test banner for multiple personas."""
         banner = generate_banner(['argocd', 'github'], False)
-        
+
         self.assertIn('Personas: argocd, github', banner)
 
     def test_generate_banner_dev_mode(self):
         """Test banner with dev mode."""
         banner = generate_banner(['argocd'], True)
-        
+
         self.assertIn('DEV (with local code mounts)', banner)
         self.assertIn('--dev', banner)
         self.assertIn('DEV=true', banner)
@@ -462,7 +461,7 @@ class TestConstants(unittest.TestCase):
             'komodor', 'pagerduty', 'slack', 'splunk', 'weather', 'webex',
             'petstore', 'rag'
         ]
-        
+
         for agent in expected_agents:
             self.assertIn(agent, ALL_AGENTS)
 
@@ -482,7 +481,7 @@ class TestEdgeCases(unittest.TestCase):
             [],
             'p2p'
         )
-        
+
         # Should still generate valid service
         self.assertEqual(service['container_name'], 'caipe-empty-p2p')
         self.assertEqual(len(service['depends_on']), 0)
@@ -502,7 +501,7 @@ class TestEdgeCases(unittest.TestCase):
             'p2p',
             env_file_path='/custom/.env'
         )
-        
+
         self.assertEqual(service['env_file'], ['/custom/.env'])
 
 
