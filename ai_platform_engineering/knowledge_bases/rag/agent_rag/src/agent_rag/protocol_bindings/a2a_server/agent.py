@@ -87,7 +87,7 @@ class QnAAgent:
         """
         Render the system prompt (dynamically) with the current time and rag database information.
         """
-        # Call the REST API endpoint
+        # Call the datasource endpoint for filtering
         async with httpx.AsyncClient() as client:
             response = await client.get(server_url + "/v1/datasources",
                 timeout=30.0
