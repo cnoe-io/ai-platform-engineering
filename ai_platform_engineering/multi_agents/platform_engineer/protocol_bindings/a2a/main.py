@@ -29,13 +29,13 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   agent_description,
   agent_skill_examples
 )
+from ai_platform_engineering.multi_agents import AgentRegistry
 
 def get_agent_card(host: str, port: int, external_url: str = None):
   capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
-  tags = ['argocd', 'pagerduty', 'github', 'jira', 'slack', 'devops']
-  if os.getenv('ENABLE_WEBEX_AGENT', '').lower() == 'true':
-    tags.append('webex')
+  # Get enabled agents and add 'devops' as a base tag
+  tags = AgentRegistry.get_enabled_agents()
 
   skill = AgentSkill(
     id='ai_platform_engineer',
