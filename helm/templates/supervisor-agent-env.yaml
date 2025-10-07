@@ -9,5 +9,6 @@ data:
   {{- $ENV := upper $name }}
   {{ $ENV }}_AGENT_HOST: {{ printf "%s-agent-%s" $.Release.Name $name | quote }}
   {{ $ENV }}_AGENT_PORT: {{ printf "%v" $port | quote }}
+  ENABLE_{{ $ENV }}: "true"
   {{- end }}
   {{- end }}
