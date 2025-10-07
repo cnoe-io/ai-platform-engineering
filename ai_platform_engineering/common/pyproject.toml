@@ -1,0 +1,42 @@
+[project]
+name = "ai-platform-engineering-common"
+version = "0.1.0"
+license = "Apache-2.0"
+description = "Common utilities and base classes for AI Platform Engineering agents"
+readme = "README.md"
+authors = [
+    {name = "CNOE Team", email = "info@cnoe.io"},
+]
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "a2a-sdk==0.2.16",
+    "langchain-core>=0.3.60",
+    "langchain-mcp-adapters>=0.1.0",
+    "langgraph==0.5.3",
+    "cnoe-agent-utils==0.3.2",
+    "pydantic>=2.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 140
+indent-width = 2
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle
+    "F",  # Pyflakes
+]
+ignore = ["F403"]
+
+
+

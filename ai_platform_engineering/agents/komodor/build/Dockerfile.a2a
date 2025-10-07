@@ -8,14 +8,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# NOTE: Build context should be the project root (ai-platform-engineering/)
+# Copy the common module maintaining the ai_platform_engineering directory structure
+COPY --chown=root:root ai_platform_engineering/common /app/ai_platform_engineering/common/
+# Copy the agent code
+COPY --chown=root:root ai_platform_engineering/agents/komodor /app/ai_platform_engineering/agents/komodor/
 
-# Copy the entire project structure first since uv sync needs it to build
-COPY --chown=root:root . /app/
+# Set working directory to the komodor agent
+WORKDIR /app/ai_platform_engineering/agents/komodor
 
 # Install dependencies into venv (no dev deps)
+# Note: Using uv sync without --locked since lock file path resolution needs adjustment
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev
+    uv sync --no-dev
 
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
@@ -28,15 +33,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
-WORKDIR /app
+WORKDIR /app/ai_platform_engineering/agents/komodor
 
 # Set env vars for uv & PATH
-ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
-    PATH="/app/.venv/bin:${PATH}" \
+ENV UV_PROJECT_ENVIRONMENT=/app/ai_platform_engineering/agents/komodor/.venv \
+    PATH="/app/ai_platform_engineering/agents/komodor/.venv/bin:${PATH}" \
+    PYTHONPATH="/app:${PYTHONPATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Copy venv & code from builder
+# Copy venv & code from builder (maintain directory structure)
 COPY --from=builder --chown=appuser:appuser /app /app
 
 USER appuser
