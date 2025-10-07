@@ -15,11 +15,10 @@ This test suite covers:
 
 import os
 import unittest
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, Any
+from unittest.mock import Mock, patch
 
 # Import the module to test
-from ai_platform_engineering.multi_agents.agent_registry import AgentRegistry, GENERIC_CLIENT
+from ai_platform_engineering.multi_agents.agent_registry import AgentRegistry
 
 
 class TestAgentConfigStructure(unittest.TestCase):
