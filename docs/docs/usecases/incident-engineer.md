@@ -49,7 +49,7 @@ cd docker-compose
 docker compose -f docker-compose.incident-engineer.yaml --profile a2a-p2p up
 
 # Or generate it fresh with dev mode
-make generate-compose PERSONAS="incident-engineer" DEV=true
+make generate-docker-compose PERSONAS="incident-engineer" DEV=true
 ```
 
 The Incident Engineer persona includes:

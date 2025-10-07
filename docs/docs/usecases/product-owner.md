@@ -32,10 +32,10 @@ docker compose -f docker-compose.product-owner.yaml --profile a2a-p2p up
 docker compose -f docker-compose.product-owner.yaml --profile a2a-over-slim up
 
 # Generate fresh compose file
-make generate-compose PERSONAS="product-owner"
+make generate-docker-compose PERSONAS="product-owner"
 
 # Or in dev mode with local code
-make generate-compose PERSONAS="product-owner" DEV=true
+make generate-docker-compose PERSONAS="product-owner" DEV=true
 ```
 
 ### What's Included
