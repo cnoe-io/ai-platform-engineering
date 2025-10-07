@@ -55,7 +55,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
             "datasource_id": datasource_id if datasource_id else None,
         }
         
-        # Call the REST API endpoint
+        # Call the query endpoint
         async with httpx.AsyncClient() as client:
             response = await client.post(server_url + "/v1/query",
                 json=api_payload,
