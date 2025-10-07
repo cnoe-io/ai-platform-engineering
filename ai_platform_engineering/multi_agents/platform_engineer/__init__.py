@@ -27,53 +27,8 @@ from ai_platform_engineering.multi_agents import AgentRegistry  # noqa: E402
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-AGENT_NAMES = []
-
-# Default agents
-if os.getenv("ENABLE_ARGOCD", "false").lower() == "true":
-    AGENT_NAMES.append("argocd")
-
-if os.getenv("ENABLE_AWS", "false").lower() == "true":
-    AGENT_NAMES.append("aws")
-
-if os.getenv("ENABLE_BACKSTAGE", "false").lower() == "true":
-    AGENT_NAMES.append("backstage")
-
-if os.getenv("ENABLE_CONFLUENCE", "false").lower() == "true":
-    AGENT_NAMES.append("confluence")
-
-if os.getenv("ENABLE_GITHUB", "false").lower() == "true":
-    AGENT_NAMES.append("github")
-
-logger.info("Local Build Running......")
-
-if os.getenv("ENABLE_JIRA", "false").lower() == "true":
-    AGENT_NAMES.append("jira")
-
-if os.getenv("ENABLE_PAGERDUTY", "false").lower() == "true":
-    AGENT_NAMES.append("pagerduty")
-
-if os.getenv("ENABLE_SLACK", "false").lower() == "true":
-    AGENT_NAMES.append("slack")
-
-if os.getenv("ENABLE_SPLUNK", "false").lower() == "true":
-    AGENT_NAMES.append("splunk")
-
-if os.getenv("ENABLE_WEBEX_AGENT", "false").lower() == "true":
-    AGENT_NAMES.append("webex")
-
-# Optional agents
-if os.getenv("ENABLE_KOMODOR", "false").lower() == "true":
-    AGENT_NAMES.append("komodor")
-
-if os.getenv("ENABLE_WEATHER_AGENT", "false").lower() == "true":
-    AGENT_NAMES.append("weather")
-
-if os.getenv("ENABLE_PETSTORE_AGENT", "false").lower() == "true":
-    AGENT_NAMES.append("petstore")
-
-if os.getenv("ENABLE_RAG", "false").lower() == "true":
-    AGENT_NAMES.append("rag")
+# Get enabled agents using the class method
+AGENT_NAMES = AgentRegistry.get_enabled_agents()
 
 for agent_name in AGENT_NAMES:
     logger.info("🤖 Agent enabled: %s", agent_name)
