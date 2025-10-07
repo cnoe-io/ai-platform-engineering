@@ -7,7 +7,7 @@
 # Transports: a2a-p2p, a2a-over-slim
 #
 # To regenerate this file, run:
-#   make generate-compose PERSONAS="weather"
+#   make generate-docker-compose PERSONAS="weather"
 #
 # Or manually:
 #   ./scripts/generate-docker-compose.py --persona weather

@@ -320,8 +320,8 @@ def generate_agent_service(
     # Use local build in dev mode
     if dev_mode and agent_name != 'rag':
         service['build'] = {
-            'context': '..',
-            'dockerfile': f'ai_platform_engineering/agents/{agent_name}/build/Dockerfile'
+            'context': f'../ai_platform_engineering/agents/{agent_name}',
+            'dockerfile': 'build/Dockerfile.a2a'
         }
         del service['image']
 
@@ -391,11 +391,11 @@ def generate_mcp_service(
     # Add local code mounts and build context in dev mode
     if dev_mode:
         service['volumes'] = [
-            f'../ai_platform_engineering/agents/{agent_name}/mcp:/app/mcp'
+            f'../ai_platform_engineering/agents/{agent_name}/mcp/mcp_{agent_name}:/app/mcp_{agent_name}'
         ]
         service['build'] = {
-            'context': '..',
-            'dockerfile': f'ai_platform_engineering/agents/{agent_name}/mcp/build/Dockerfile'
+            'context': f'../ai_platform_engineering/agents/{agent_name}',
+            'dockerfile': 'build/Dockerfile.mcp'
         }
         del service['image']
 
@@ -970,7 +970,7 @@ def generate_banner(personas: List[str], dev_mode: bool, filename: str = None) -
 # Transports: a2a-p2p, a2a-over-slim
 #
 # To regenerate this file, run:
-#   make generate-compose PERSONAS="{personas_str}"{dev_flag}
+#   make generate-docker-compose PERSONAS="{personas_str}"{dev_flag}
 #
 # Or manually:
 #   ./scripts/generate-docker-compose.py --persona {personas_str}{dev_arg}
