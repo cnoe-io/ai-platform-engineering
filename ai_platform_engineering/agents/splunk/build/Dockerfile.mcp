@@ -44,4 +44,4 @@ USER appuser
 EXPOSE 8000
 
 # Run the HTTP/SSE MCP server
-CMD ["python", "mcp_splunk/server.py"] 
+CMD ["python", "mcp_splunk/server.py"]

@@ -12,7 +12,7 @@ APP_NAME ?= ai-platform-engineering
 .PHONY: \
 	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
 	build install build-docker run run-ai-platform-engineer langgraph-dev \
-	generate-compose generate-compose-dev generate-compose-all clean-compose \
+	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale test-rag-all validate lock-all help
 
@@ -64,21 +64,26 @@ OUTPUT_DIR ?= docker-compose
 A2A_TRANSPORT ?= p2p
 DEV ?= false
 
-generate-docker-compose:  ## Generate docker-compose files from personas (make generate-compose PERSONAS="p2p-basic argocd" DEV=true)
+generate-docker-compose:  ## Generate docker-compose files from personas (make generate-docker-compose PERSONAS="p2p-basic argocd" DEV=true)
 	@echo "Generating docker-compose files for personas: $(PERSONAS)..."
 	@mkdir -p $(OUTPUT_DIR)
 	@chmod +x scripts/generate-docker-compose.py
 	@for persona in $(PERSONAS); do \
-		echo "Generating docker-compose.$$persona.yaml..."; \
+		if [ "$(DEV)" = "true" ]; then \
+			OUTPUT_FILE="$(OUTPUT_DIR)/docker-compose.$$persona.dev.yaml"; \
+		else \
+			OUTPUT_FILE="$(OUTPUT_DIR)/docker-compose.$$persona.yaml"; \
+		fi; \
 		A2A_TRANSPORT=$(A2A_TRANSPORT) ./scripts/generate-docker-compose.py \
 			--persona $$persona \
-			--output $(OUTPUT_DIR)/docker-compose.$$persona.yaml \
+			--output $$OUTPUT_FILE \
 			$(if $(filter true,$(DEV)),--dev,); \
+		echo "✓ Generated: $$(realpath $$OUTPUT_FILE)"; \
 	done
 	@echo "✓ Generated compose files in $(OUTPUT_DIR)/"
 
-generate-docker-compose-dev:  ## Generate dev docker-compose files with local code mounts (make generate-compose-dev PERSONAS="p2p-basic")
-	@$(MAKE) generate-compose DEV=true
+generate-docker-compose-dev:  ## Generate dev docker-compose files with local code mounts (make generate-docker-compose-dev PERSONAS="p2p-basic")
+	@$(MAKE) generate-docker-compose DEV=true
 
 generate-docker-compose-all:  ## Generate docker-compose files for all personas
 	@echo "Generating docker-compose files for all personas..."

@@ -7,7 +7,7 @@
 # Transports: a2a-p2p, a2a-over-slim
 #
 # To regenerate this file, run:
-#   make generate-compose PERSONAS="aws"
+#   make generate-docker-compose PERSONAS="aws"
 #
 # Or manually:
 #   ./scripts/generate-docker-compose.py --persona aws

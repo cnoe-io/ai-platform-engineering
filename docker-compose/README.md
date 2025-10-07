@@ -160,16 +160,16 @@ docker compose -f docker-compose.argocd.yaml --profile a2a-over-slim up
 
 ```bash
 # Generate a single persona
-make generate-compose PERSONAS="argocd"
+make generate-docker-compose PERSONAS="argocd"
 
 # Generate multiple personas
-make generate-compose PERSONAS="argocd github aws"
+make generate-docker-compose PERSONAS="argocd github aws"
 
 # Generate with dev mode (local code mounts)
-make generate-compose-dev PERSONAS="argocd"
+make generate-docker-compose-dev PERSONAS="argocd"
 
 # Generate all personas
-make generate-compose-all
+make generate-docker-compose-all
 ```
 
 ### Using the Script Directly

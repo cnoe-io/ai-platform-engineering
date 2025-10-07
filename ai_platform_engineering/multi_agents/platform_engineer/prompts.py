@@ -36,19 +36,30 @@ agent_description = config.get("agent_description", (
 
 # Load agent prompts from YAML
 agent_prompts = config.get("agent_prompts", {})
+agent_examples_from_config = config.get("agent_skill_examples", {})
 
 agents = platform_registry.agents
 
 agent_skill_examples = []
-for agent in agents.values():
-  if agent is not None:
-    try:
-      skill_examples = agent.get_skill_examples()
-      if skill_examples:
-        agent_skill_examples.extend(skill_examples)
-    except Exception as e:
-      logger.warning(f"Error getting skill examples from agent: {e}")
-      continue
+
+# Always include general examples
+if agent_examples_from_config.get("general"):
+    agent_skill_examples.extend(agent_examples_from_config.get("general"))
+
+# Include sub-agent examples from config ONLY IF the sub-agent is enabled
+for agent_name, agent in agents.items():
+    if agent is not None:
+        try:
+            agent_eg = agent_examples_from_config.get(agent_name)
+            if agent_eg:
+                logger.info("Agent examples config found for agent:", agent_name)
+                agent_skill_examples.extend(agent_eg)
+            else: # If no examples are provided in the config, use the agent's own examples
+                logger.info("Agent examples config not found for agent:", agent_name)
+                agent_skill_examples.extend(agent.get_skill_examples())
+        except Exception as e:
+            logger.warning(f"Error getting skill examples from agent: {e}")
+            continue
 
 skills_prompt = PromptTemplate(
     input_variables=["user_prompt"],
@@ -59,26 +70,26 @@ skills_prompt = PromptTemplate(
 )
 
 def generate_subagents():
-  """
-  Build DeepAgents-compatible subagent definitions (without tools) from the platform registry.
-  Each subagent contains: name, description, and prompt.
-  The 'tools' field is intentionally omitted so DeepAgents can populate access later.
-  """
-  subagents = []
-  for agent_key, agent in agents.items():
-      # Prefer system_prompt override from prompt config; fallback to agent description
-      system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt")
-      description = getattr(agent.agent_card(), "description", agent_key)
-      prompt = system_prompt_override or description
-      sub_agent = {
-          "name": agent_key,
-          "description": description,
-          "prompt": prompt
-          # "tool": agent
-      }
-      logger.info(f'sub_agent: {sub_agent}')
-      subagents.append(sub_agent)
-  return subagents
+    """
+    Build DeepAgents-compatible subagent definitions (without tools) from the platform registry.
+    Each subagent contains: name, description, and prompt.
+    The 'tools' field is intentionally omitted so DeepAgents can populate access later.
+    """
+    subagents = []
+    for agent_key, agent in agents.items():
+        # Prefer system_prompt override from prompt config; fallback to agent description
+        system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt")
+        description = getattr(agent.agent_card(), "description", agent_key)
+        prompt = system_prompt_override or description
+        sub_agent = {
+            "name": agent_key,
+            "description": description,
+            "prompt": prompt
+            # "tool": agent
+        }
+        logger.info(f'sub_agent: {sub_agent}')
+        subagents.append(sub_agent)
+    return subagents
 
 # Generate system prompt dynamically based on tools and their tasks
 def generate_system_prompt(agents: Dict[str, Any]):

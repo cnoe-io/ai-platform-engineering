@@ -45,14 +45,14 @@ persona:
 
 ### Using Personas
 
-Personas can be used with the `generate-compose.py` script to generate tailored docker-compose configurations:
+Personas can be used with the `generate-docker-compose.py` script to generate tailored docker-compose configurations:
 
 ```bash
 # Generate compose for a specific persona
-./scripts/generate-compose.py --persona devops-engineer
+./scripts/generate-docker-compose.py --persona devops-engineer
 
 # Generate for multiple personas
-./scripts/generate-compose.py --persona argocd full-platform
+./scripts/generate-docker-compose.py --persona argocd full-platform
 ```
 
 ### Available Agents
