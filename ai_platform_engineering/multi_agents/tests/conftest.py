@@ -7,7 +7,6 @@ Pytest configuration and shared fixtures for multi-agents tests.
 
 import pytest
 import os
-from typing import Dict
 from unittest.mock import Mock, patch
 
 

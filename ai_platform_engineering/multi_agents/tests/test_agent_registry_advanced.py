@@ -16,13 +16,11 @@ This test suite covers advanced scenarios including:
 
 import os
 import unittest
-from unittest.mock import Mock, patch, MagicMock, call
-from typing import Dict, Any
+from unittest.mock import Mock, patch
 import threading
-import time
 
 # Import the module to test
-from ai_platform_engineering.multi_agents.agent_registry import AgentRegistry, GENERIC_CLIENT
+from ai_platform_engineering.multi_agents.agent_registry import AgentRegistry
 
 
 class TestDynamicMonitoring(unittest.TestCase):
