@@ -48,7 +48,7 @@ docker compose -f docker-compose.devops-engineer.yaml --profile a2a-p2p up
 docker compose -f docker-compose.caipe-basic.yaml --profile a2a-p2p up
 
 # Generate fresh compose files
-make generate-compose PERSONAS="platform-engineer devops-engineer"
+make generate-docker-compose PERSONAS="platform-engineer devops-engineer"
 ```
 
 ### Available Personas

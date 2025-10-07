@@ -7,7 +7,7 @@
 # Transports: a2a-p2p, a2a-over-slim
 #
 # To regenerate this file, run:
-#   make generate-compose PERSONAS="platform-engineer"
+#   make generate-docker-compose PERSONAS="platform-engineer"
 #
 # Or manually:
 #   ./scripts/generate-docker-compose.py --persona platform-engineer

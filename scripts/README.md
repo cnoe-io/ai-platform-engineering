@@ -53,7 +53,7 @@ The `--dev` flag generates a docker-compose file similar to `docker-compose.dev.
   - `slim`: SLIM dataplane transport
 
 ```bash
-A2A_TRANSPORT=slim ./scripts/generate-compose.py --persona devops-engineer
+A2A_TRANSPORT=slim ./scripts/generate-docker-compose.py --persona devops-engineer
 ```
 
 ### Supported Agents

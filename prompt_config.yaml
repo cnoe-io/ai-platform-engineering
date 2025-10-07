@@ -59,3 +59,49 @@ agent_prompts:
   rag:
     system_prompt: |
       The RAG agent now encompasses everything about ai_platform_engineering. All our documentation lies there. So if there's any question about ai_platform_engineering, then route to kb-rag.
+
+agent_skill_examples:
+  general:
+    - "What can you do?"
+  argocd:
+    - "Get the status of applications"
+    - "Sync an application to the latest version"
+  aws:
+    - "Check EKS cluster health status"
+    - "Create S3 bucket"
+  backstage:
+    - "Search for services by owner"
+    - "Get details for a specific service"
+  confluence:
+    - "Search for pages about deployment"
+    - "Find recent pages in a space"
+  github:
+    - "Show open pull requests for a repository"
+    - "Get recent commits from a repository"
+  jira:
+    - "Search for high priority issues"
+    - "Find issues with a specific label"
+  pagerduty:
+    - "Show currently triggered incidents"
+    - "Who is on-call right now?"
+  slack:
+    - "Send a message to a channel"
+    - "Find channels by name"
+  splunk:
+    - "Search for errors in the last hour"
+    - "Check active alerts and detectors"
+  komodor:
+    - "Show health risks for clusters"
+    - "Trigger a root cause analysis"
+  webex:
+    - "Send a message to a room"
+    - "Get recent messages from a room"
+  petstore:
+    - "Find available pets by status"
+    - "Check store inventory levels"
+  weather:
+    - "What's the weather like today?"
+    - "Show the forecast for the next 5 days in London"
+  rag:
+    - "Give me information about SRE team onboarding"
+    - "How do I configure agents?"
