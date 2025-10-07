@@ -270,11 +270,13 @@ def generate_agent_service(
     defaults = get_agent_defaults(agent_name)
     volumes = defaults['volumes'].copy() if defaults['volumes'] else []
 
-    # Add local code mount for development
+    # Add local code mount for development (matching /app/ai_platform_engineering structure)
     if dev_mode:
-        volumes.append(
-            f'../ai_platform_engineering/agents/{agent_name}:/app/ai_platform_engineering/agents/{agent_name}'
-        )
+        volumes.extend([
+            f'../ai_platform_engineering/agents/{agent_name}/agent_{agent_name}:/app/ai_platform_engineering/agents/{agent_name}/agent_{agent_name}',
+            f'../ai_platform_engineering/agents/{agent_name}/clients:/app/ai_platform_engineering/agents/{agent_name}/clients',
+            f'../ai_platform_engineering/common:/app/ai_platform_engineering/common'
+        ])
 
     # Special handling for RAG agent with different configuration
     if agent_name == 'rag':
@@ -320,8 +322,8 @@ def generate_agent_service(
     # Use local build in dev mode
     if dev_mode and agent_name != 'rag':
         service['build'] = {
-            'context': f'../ai_platform_engineering/agents/{agent_name}',
-            'dockerfile': 'build/Dockerfile.a2a'
+            'context': '..',
+            'dockerfile': f'ai_platform_engineering/agents/{agent_name}/build/Dockerfile.a2a'
         }
         del service['image']
 
