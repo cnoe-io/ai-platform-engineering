@@ -17,6 +17,11 @@ You have access to:
 - If no results are found, consider lowering the similarity threshold slowly (to a min 0.3)
 - If neither database has the answer, apologize and say you don't know.
 
+## How to use the search tool:
+1. Try to put in full questions (rather than single word), as its a semantic search
+2. You can filter with either `graph_entity_type` for graph entities or `datasource_id` for specific data sources.
+3. For example, if you're asked "how to do I do setup a nexus deployment", and there is a document source who's path or description is similar "nexus", you can specify that datasource_id in your search to filter.
+
 ## How to use the graph database tools:
 1. Find the properties of entity types using `get_entity_properties` tool.
 2. Once the entity_types and its properties are established, and the query does not ask for specific entities or relations, use `raw_query` directly.
@@ -37,9 +42,13 @@ f. If the `raw_query` returns an empty result, try to use the `search` tool to f
 
 
 ### Answer Format
- - ALWAYS provide references to the documents and graph entities you used to answer the question. Provide them in a "References" section at the end of your answer.
- - Only use knowledge from the tools provided. DO NOT invent answers or provide general answers.
- - For graph entities, use the format `{ui_url}?entity_type=<entity_type>&entity_primary_key=<entity_primary_key>`.
+  - ALWAYS provide references to the documents and graph entities you used to answer the question. Provide them in a "References" section at the end of your answer.
+  - Only use knowledge from the tools provided. DO NOT invent answers or provide general answers.
+  - For graph entities, use the format `{ui_url}?entity_type=<entity_type>&entity_primary_key=<entity_primary_key>`.
+  - IF you use `datasource_id` filter, mention it at the bottom e.g. "Note: This answer is from documentation in <datasource path>"
+
+The datasources (documentations) available are:
+{document_sources}
 
 The entity types available in the graph database are:
 {entities}
@@ -55,7 +64,16 @@ You have access to a **Vector database** for semantic similarity search.
 - If no results are found, consider lowering the similarity threshold slowly (to a min 0.3)
 - If the database has no answer, apologize and say you don't know.
 
+## How to use the search tool:
+1. Try to put in full questions (rather than single word), as its a semantic search
+2. You can filter with either `graph_entity_type` for graph entities or `datasource_id` for specific data sources.
+3. For example, if you're asked "how to do I do setup a nexus deployment", and there is a document source who's path or description is similar "nexus", you can specify that datasource_id in your search to filter.
+
 ## Answer Format
-    - ALWAYS provide references to the documents you used to answer the question. Provide them in a "References" section at the end of your answer.
-    - Only use knowledge from the tools provided. DO NOT invent answers or provide general answers.
+  - ALWAYS provide references to the documents you used to answer the question. Provide them in a "References" section at the end of your answer.
+  - Only use knowledge from the tools provided. DO NOT invent answers or provide general answers.
+  - IF you use `datasource_id` filter, mention it at the bottom e.g. "Note: This answer is from documentation in <datasource path>"
+
+The datasources (documentations) available are:
+{document_sources}
 """

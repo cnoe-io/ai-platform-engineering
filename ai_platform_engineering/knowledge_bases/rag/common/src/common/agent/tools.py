@@ -16,7 +16,7 @@ import httpx
 dotenv.load_dotenv(verbose=True)
 
 graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1", "yes")
-server_query_url = os.getenv("RAG_SERVER_URL", "http://localhost:9446") + "/v1/query"
+server_url = os.getenv("RAG_SERVER_URL", "http://localhost:9446")
 
 if graph_rag_enabled:
     data_graphdb = Neo4jDB(readonly=True)
@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 MAX_RESULTS=100
 
 @tool
-async def search(query: str, graph_entity_type: Optional[str] = "", limit: int = 5, similarity_threshold: float = 0.7, thought: str = "") -> str:
+async def search(query: str, graph_entity_type: Optional[str] = "", datasource_id: Optional[str] = "", limit: int = 5, similarity_threshold: float = 0.7, thought: str = "") -> str:
     """
     Search for relevant documents and graph entities using semantic search in the vector databases.
     The scores for graph entity and documents are separate
@@ -43,7 +43,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", limit: int =
     Returns:
         str: JSON encoded search results containing both documents and graph entities
     """
-    logger.debug(f"Search query: {query}, Limit: {limit}, Similarity Threshold: {similarity_threshold}, Thought: {thought}")
+    logger.debug(f"Search query: {query}, Limit: {limit}, Similarity Threshold: {similarity_threshold}, graph_entity_type: {graph_entity_type}, datasource_id: {datasource_id}, Thought: {thought}")
     
     try:
         # Prepare the request payload for the REST API
@@ -51,12 +51,13 @@ async def search(query: str, graph_entity_type: Optional[str] = "", limit: int =
             "query": query,
             "limit": limit,
             "similarity_threshold": similarity_threshold,
-            "graph_entity_type": graph_entity_type if graph_entity_type else None
+            "graph_entity_type": graph_entity_type if graph_entity_type else None,
+            "datasource_id": datasource_id if datasource_id else None,
         }
         
-        # Call the REST API endpoint
+        # Call the query endpoint
         async with httpx.AsyncClient() as client:
-            response = await client.post(server_query_url,
+            response = await client.post(server_url + "/v1/query",
                 json=api_payload,
                 timeout=30.0
             )
@@ -101,6 +102,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", limit: int =
         logger.error(f"Error during search: {e}")
         return f"Error during search: {e}"
 
+    logger.debug(f"search results: total_documents {len(results.get('documents', []))}, total_graph_entities {len(results.get('graph_entities', []))}")
     return json_encode(results)
 
 @tool

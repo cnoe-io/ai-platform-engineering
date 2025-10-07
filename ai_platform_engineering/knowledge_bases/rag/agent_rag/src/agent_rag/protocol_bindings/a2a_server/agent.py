@@ -3,6 +3,8 @@
 Works with a chat model with tool calling support.
 """
 import os
+
+import httpx
 from common.agent.tools import (
     fetch_entity_details,
     search,
@@ -40,6 +42,7 @@ memory = MemorySaver()
 logger = utils.get_logger(__name__)
 
 graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1", "yes")
+server_url = os.getenv("RAG_SERVER_URL", "http://localhost:9446")
 
 if graph_rag_enabled:
     logger.info("Graph RAG is enabled.")
@@ -84,6 +87,14 @@ class QnAAgent:
         """
         Render the system prompt (dynamically) with the current time and rag database information.
         """
+        # Call the datasource endpoint for filtering
+        async with httpx.AsyncClient() as client:
+            response = await client.get(server_url + "/v1/datasources",
+                timeout=30.0
+            )
+            response.raise_for_status()
+            document_sources = response.json().get("datasources", [])
+        
         if graph_rag_enabled:
             entity_types = await self.graphdb.get_all_entity_types()
             system_prompt = PromptTemplate.from_template(SYSTEM_PROMPT_COMBINED).format(
@@ -91,11 +102,15 @@ class QnAAgent:
                 graphdb_type=self.graphdb.database_type,
                 query_language=self.graphdb.query_language,
                 entities=utils.json_encode(entity_types),
+                document_sources=document_sources,
                 ui_url=ui_url
             )
         else:
-            system_prompt = SYSTEM_PROMPT_RAG_ONLY
+            system_prompt = PromptTemplate.from_template(SYSTEM_PROMPT_RAG_ONLY).format(
+                document_sources=document_sources
+            )
         
+        logger.debug("\n\n=====PROMPT=====\n"+system_prompt+"\n=============\n\n")
         return [{"role": "system", "content": system_prompt}] + state["messages"]
 
     async def invoke(self, query, context_id) -> str:
@@ -109,7 +124,7 @@ class QnAAgent:
 
         async for item in self.graph.astream(inputs, config, stream_mode='values'): # type: ignore
             message = item['messages'][-1]
-            logger.debug(f"Streamed message: {message}")
+            # logger.debug(f"Streamed message: {message}")
             if isinstance(message, AIMessage):
                 if message.tool_calls and len(message.tool_calls) > 0:
                     # Extract thoughts from tool calls to show user what the AI is thinking
