@@ -43,6 +43,7 @@ ai_platform_engineering/cli/**
 !ai_platform_engineering/knowledge_bases/*
 
 volumes/**
+docker-compose/volumes/**
 docs/**
 workshop/**
 
