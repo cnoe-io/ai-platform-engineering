@@ -69,7 +69,7 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/komodor/agent_komodor:/app/ai_platform_engineering/agents/komodor/agent_komodor
     - ../ai_platform_engineering/agents/komodor/clients:/app/ai_platform_engineering/agents/komodor/clients
-    - ../ai_platform_engineering/common:/app/ai_platform_engineering/common
+    - ../ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     build:
       context: ..
       dockerfile: ai_platform_engineering/agents/komodor/build/Dockerfile.a2a
@@ -147,7 +147,7 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/komodor/agent_komodor:/app/ai_platform_engineering/agents/komodor/agent_komodor
     - ../ai_platform_engineering/agents/komodor/clients:/app/ai_platform_engineering/agents/komodor/clients
-    - ../ai_platform_engineering/common:/app/ai_platform_engineering/common
+    - ../ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     build:
       context: ..
       dockerfile: ai_platform_engineering/agents/komodor/build/Dockerfile.a2a

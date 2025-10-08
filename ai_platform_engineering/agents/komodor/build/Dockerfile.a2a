@@ -8,17 +8,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# NOTE: Build context should be the project root (ai-platform-engineering/)
-# Copy the common module maintaining the ai_platform_engineering directory structure
-COPY --chown=root:root ai_platform_engineering/common /app/ai_platform_engineering/common/
-# Copy the agent code
-COPY --chown=root:root ai_platform_engineering/agents/komodor /app/ai_platform_engineering/agents/komodor/
+WORKDIR /app
+
+# Copy only the necessary directories for the komodor agent
+COPY --chown=root:root utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root agents/komodor /app/ai_platform_engineering/agents/komodor/
 
 # Set working directory to the komodor agent
 WORKDIR /app/ai_platform_engineering/agents/komodor
 
 # Install dependencies into venv (no dev deps)
-# Note: Using uv sync without --locked since lock file path resolution needs adjustment
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev
 

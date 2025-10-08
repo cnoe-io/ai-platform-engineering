@@ -26,11 +26,11 @@ else
 fi
 
 echo ""
-echo "Step 2: Checking if common module is included..."
+echo "Step 2: Checking if utils module is included..."
 echo "----------------------------------------------"
 docker run --rm komodor-refactor-test:latest \
-  python -c "from ai_platform_engineering.common.a2a import BaseAgent; print('✅ Common module imported successfully')" || \
-  echo "❌ Common module import failed"
+  python -c "from ai_platform_engineering.utils.a2a import BaseAgent; print('✅ Utils module imported successfully')" || \
+  echo "❌ Utils module import failed"
 
 echo ""
 echo "Step 3: Checking agent structure..."
