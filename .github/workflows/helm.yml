@@ -64,18 +64,23 @@ jobs:
             CURRENT_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
             echo "Current version: $CURRENT_VERSION"
 
-            git checkout origin/$BASE_BRANCH -- charts/rag-stack/Chart.yaml
-            BASE_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
-            echo "Base version: $BASE_VERSION"
+            # Check if chart exists in base branch
+            if git show origin/$BASE_BRANCH:charts/rag-stack/Chart.yaml &>/dev/null; then
+              git checkout origin/$BASE_BRANCH -- charts/rag-stack/Chart.yaml
+              BASE_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
+              echo "Base version: $BASE_VERSION"
 
-            git checkout HEAD -- charts/rag-stack/Chart.yaml
+              git checkout HEAD -- charts/rag-stack/Chart.yaml
 
-            if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
-              echo "❌ Error: rag-stack chart has changes but version was not bumped!"
-              echo "Please update the version in charts/rag-stack/Chart.yaml"
-              exit 1
+              if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
+                echo "❌ Error: rag-stack chart has changes but version was not bumped!"
+                echo "Please update the version in charts/rag-stack/Chart.yaml"
+                exit 1
+              else
+                echo "✅ rag-stack version bumped from $BASE_VERSION to $CURRENT_VERSION"
+              fi
             else
-              echo "✅ rag-stack version bumped from $BASE_VERSION to $CURRENT_VERSION"
+              echo "ℹ️  rag-stack is a new chart (doesn't exist in $BASE_BRANCH), skipping version bump check"
             fi
           fi
 
@@ -86,18 +91,23 @@ jobs:
             CURRENT_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
             echo "Current version: $CURRENT_VERSION"
 
-            git checkout origin/$BASE_BRANCH -- charts/ai-platform-engineering/Chart.yaml
-            BASE_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
-            echo "Base version: $BASE_VERSION"
+            # Check if chart exists in base branch
+            if git show origin/$BASE_BRANCH:charts/ai-platform-engineering/Chart.yaml &>/dev/null; then
+              git checkout origin/$BASE_BRANCH -- charts/ai-platform-engineering/Chart.yaml
+              BASE_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
+              echo "Base version: $BASE_VERSION"
 
-            git checkout HEAD -- charts/ai-platform-engineering/Chart.yaml
+              git checkout HEAD -- charts/ai-platform-engineering/Chart.yaml
 
-            if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
-              echo "❌ Error: ai-platform-engineering chart has changes but version was not bumped!"
-              echo "Please update the version in charts/ai-platform-engineering/Chart.yaml"
-              exit 1
+              if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
+                echo "❌ Error: ai-platform-engineering chart has changes but version was not bumped!"
+                echo "Please update the version in charts/ai-platform-engineering/Chart.yaml"
+                exit 1
+              else
+                echo "✅ ai-platform-engineering version bumped from $BASE_VERSION to $CURRENT_VERSION"
+              fi
             else
-              echo "✅ ai-platform-engineering version bumped from $BASE_VERSION to $CURRENT_VERSION"
+              echo "ℹ️  ai-platform-engineering is a new chart (doesn't exist in $BASE_BRANCH), skipping version bump check"
             fi
           fi
 
