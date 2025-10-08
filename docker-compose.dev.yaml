@@ -712,8 +712,8 @@ services:
   ####################################################################################################
   agent-komodor-p2p:
     build:
-      context: ai_platform_engineering/agents/komodor
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/komodor/build/Dockerfile.a2a
     container_name: agent-komodor-p2p
     profiles:
       - p2p
@@ -1216,6 +1216,7 @@ services:
   #                                             RAG SERVICES                                         #
   ####################################################################################################
   rag_server:
+    container_name: rag_server
     ports:
       - "9446:9446"
     environment:
@@ -1268,6 +1269,7 @@ services:
       - p2p
       - p2p-tracing
   agent_ontology:
+    container_name: agent_ontology
     ports:
       - "8098:8098"
     environment:
@@ -1358,6 +1360,7 @@ services:
 
   rag-redis:
     image: redis
+    container_name: rag-redis
     command:
       - /bin/sh
       - -c
