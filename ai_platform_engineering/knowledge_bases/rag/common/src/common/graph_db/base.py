@@ -209,12 +209,11 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    async def raw_query(self, query: str, return_everything: bool = False, readonly=False, max_results=10000) -> dict:
+    async def raw_query(self, query: str, readonly=False, max_results=10000) -> dict:
         """
         Does a raw query to graph database
         
         :param query: The raw query string to execute
-        :param return_everything: If True, return complete result data, otherwise return simplified format
         :param readonly: If True, execute query in read-only mode
         :param max_results: Maximum number of results to return
         :return: Dictionary containing query results

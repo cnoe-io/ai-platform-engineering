@@ -17,17 +17,19 @@ from common.agent.tools import (
 from datetime import datetime, timezone
 from langchain_core.prompts import PromptTemplate
 from langgraph.prebuilt import create_react_agent
+from langmem.short_term import SummarizationNode
+from langchain_core.messages.utils import count_tokens_approximately
+
 
 from typing import AsyncIterable, Any
 
 from langchain_core.messages import AIMessage
-from langchain_core.messages.utils import (
-    trim_messages
-)
 import dotenv
 
 from common import utils
 from common.graph_db.neo4j.graph_db import Neo4jDB
+from langgraph.prebuilt.chat_agent_executor import AgentState
+
 
 from langgraph.checkpoint.memory import MemorySaver
 from cnoe_agent_utils import LLMFactory
@@ -43,6 +45,8 @@ logger = utils.get_logger(__name__)
 
 graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1", "yes")
 server_url = os.getenv("RAG_SERVER_URL", "http://localhost:9446")
+max_llm_tokens = int(os.getenv("MAX_LLM_TOKENS", 100000)) # the capacity of the LLM - default is configured for gpt-4o
+max_summary_tokens = int(max_llm_tokens * 0.1) # Use 10% of the LLM capacity for the summary
 
 if graph_rag_enabled:
     logger.info("Graph RAG is enabled.")
@@ -51,19 +55,6 @@ if graph_rag_enabled:
 else:
     logger.info("Graph RAG is disabled.")
     DB_READ_TOOLS = [search]
-
-
-def pre_model_hook(state):
-    trimmed_messages = trim_messages(
-        state["messages"],
-        strategy="last",
-        token_counter=len,
-        include_system=True,
-        max_tokens=20,
-        start_on="human",
-        end_on=("human", "tool"),
-    )
-    return {"llm_input_messages": trimmed_messages}
 
 class QnAAgent:
     SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
@@ -74,13 +65,26 @@ class QnAAgent:
         self.llm = LLMFactory().get_llm()
         print(f"Using LLM: {self.llm}")
         logger.info(f"Number of tools: {len(DB_READ_TOOLS)}")
+
+        class State(AgentState):
+            # NOTE: we're adding this key to keep track of previous summary information
+            # to make sure we're not summarizing on every LLM call
+            context: dict[str, Any]
+
         self.graph = create_react_agent(
             model=self.llm,
             name="RAG_Q&A_Agent",
             tools=DB_READ_TOOLS,
             checkpointer=memory,
+            state_schema=State,
             prompt=self.render_system_prompt, # type: ignore
-            pre_model_hook=pre_model_hook,
+            pre_model_hook=SummarizationNode( # Add summarization
+                token_counter=count_tokens_approximately,
+                model=self.llm,
+                max_tokens=max_llm_tokens,
+                max_summary_tokens=max_summary_tokens,
+                output_messages_key="llm_input_messages"
+            )
         )
 
     async def render_system_prompt(self, state, *args) -> str:
@@ -124,7 +128,7 @@ class QnAAgent:
 
         async for item in self.graph.astream(inputs, config, stream_mode='values'): # type: ignore
             message = item['messages'][-1]
-            # logger.debug(f"Streamed message: {message}")
+            logger.info(f"Processing message of type: {type(message)}")
             if isinstance(message, AIMessage):
                 if message.tool_calls and len(message.tool_calls) > 0:
                     # Extract thoughts from tool calls to show user what the AI is thinking
@@ -145,12 +149,13 @@ class QnAAgent:
                         else:
                             logger.debug(f"No args found in tool_call: {tool_call}")
                     
+                    
                     # Use the extracted thoughts or fall back to a generic message
                     if thoughts:
                         content = "\n".join(thoughts) + "...\n"
                     else:
                         content = "Checking knowledge base...\n"
-
+                    logger.info(f"Thought from tool call: {content}")
                     yield {
                         'is_task_complete': False,
                         'require_user_input': False,
