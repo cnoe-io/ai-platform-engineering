@@ -3,7 +3,7 @@
 
 import os
 
-from ai_platform_engineering.agents.litellm.agent_litellm.agentcard import (
+from ai_platform_engineering.agents.template.agent_litellm.agentcard import (
     create_agent_card,
     agent_skill,
 )

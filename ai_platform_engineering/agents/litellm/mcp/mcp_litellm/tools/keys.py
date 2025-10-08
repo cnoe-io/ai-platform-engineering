@@ -2,7 +2,14 @@ import httpx
 import json
 import os
 from enum import Enum
+import logging
 
+
+from mcp_litellm.api.client import make_api_request, assemble_nested_body
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("mcp_tools")
 
 class BudgetDuration(str, Enum):
     DAILY = "daily"
@@ -34,14 +41,9 @@ class BudgetDuration(str, Enum):
         return mapping[litellm_duration]
 
 
-# Configuration - these would need to be set from environment or config
-LITELLM_PROXY_URL = os.getenv("LITELLM_PROXY_URL", "http://localhost:4000")
-LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-1234")
-
-
 async def generate_key(
     user_id: str,
-    team_id: str,
+    #team_id: str,
     model: str,
     budget: float = 50.0,
     duration: BudgetDuration = BudgetDuration.MONTHLY,
@@ -50,7 +52,6 @@ async def generate_key(
 
     Args:
         user_id: The user ID to associate with the key
-        team_id: The team/project ID to associate with the key
         model: The model name (e.g. gpt-4o, mistral-small-latest, etc)
         budget: The budget limit for the key (defaults to 50, clamped to 0-100)
         duration: The budget duration - daily, weekly, monthly, yearly (defaults to monthly)
@@ -65,40 +66,19 @@ async def generate_key(
     # Prepare request body for LiteLLM /key/generate endpoint
     key_payload = {
         "user_id": user_id,
-        "team_id": team_id,
+        #"team_id": team_id,
         "models": [model],
         "max_budget": budget,
         "duration": duration.to_litellm_format(),
     }
+    
+    data = assemble_nested_body(key_payload)
+    success, response = await make_api_request("/key/generate", method="POST", data=data)
 
-    # Set headers
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LITELLM_MASTER_KEY}",
-    }
 
-    try:
-        # Call the LiteLLM /key/generate endpoint
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{LITELLM_PROXY_URL}/key/generate", json=key_payload, headers=headers
-            )
-
-            if resp.status_code != 200:
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": f"API Error {resp.status_code}: {resp.text}",
-                    },
-                    indent=2,
-                )
-
-            key_response = resp.json()
-
-            # Return the whole LiteLLM response
-            return json.dumps({"success": True, "result": key_response}, indent=2)
-
-    except Exception as e:
-        return json.dumps(
-            {"success": False, "error": f"Error generating key: {str(e)}"}, indent=2
-        )
+    if not success:
+        logger.error(f"Request failed: {response.get('error')}")
+        return {"error": response.get("error", "Request failed")}
+    
+    # Return the whole LiteLLM response
+    return json.dumps({"success": True, "result": response}, indent=2)

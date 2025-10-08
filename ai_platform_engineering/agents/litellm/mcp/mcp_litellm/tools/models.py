@@ -1,12 +1,14 @@
 import httpx
 import json
 import os
+import logging
 
 
-# Configuration - these would need to be set from environment or config
-LITELLM_PROXY_URL = os.getenv("LITELLM_PROXY_URL", "http://0.0.0.0:4000")
-LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "sk-1234")
+from mcp_litellm.api.client import make_api_request, assemble_nested_body
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("mcp_tools")
 
 async def list_models() -> str:
     """List all available models in LiteLLM with detailed information.
@@ -15,40 +17,19 @@ async def list_models() -> str:
         JSON string with list of models and their configuration details
     """
 
-    # Set headers including master key for authentication
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LITELLM_MASTER_KEY}",
-    }
+    flat_body = {}
+    data = assemble_nested_body(flat_body)
 
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{LITELLM_PROXY_URL}/model/info", headers=headers
-            )
+    success, response = await make_api_request("/model/info", method="GET", data=data)
 
-            if response.status_code != 200:
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": f"API Error {response.status_code}: {response.text}",
-                    },
-                    indent=2,
-                )
 
-            model_data = response.json()
+    if not success:
+        logger.error(f"Request failed: {response.get('error')}")
+        return {"error": response.get("error", "Request failed")}
+    
+    # Return the whole LiteLLM response
+    return json.dumps({"success": True, "result": response}, indent=2)
 
-            # Return the whole LiteLLM response
-            return json.dumps({"success": True, "result": model_data}, indent=2)
-
-    except Exception as e:
-        return json.dumps(
-            {
-                "success": False,
-                "error": f"Error fetching models from LiteLLM: {str(e)}",
-            },
-            indent=2,
-        )
 
 
 async def list_model_names() -> str:
@@ -58,46 +39,24 @@ async def list_model_names() -> str:
         JSON string with just the model names and count
     """
 
-    # Set headers including master key for authentication
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LITELLM_MASTER_KEY}",
-    }
+    flat_body = {}
+    data = assemble_nested_body(flat_body)
 
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{LITELLM_PROXY_URL}/model/info", headers=headers
-            )
+    success, response = await make_api_request("/model/info", method="GET", data=data)
 
-            if response.status_code != 200:
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": f"API Error {response.status_code}: {response.text}",
-                    },
-                    indent=2,
-                )
+    if not success:
+        logger.error(f"Request failed: {response.get('error')}")
+        return {"error": response.get("error", "Request failed")}
+    
 
-            model_data = response.json()
+    # Extract model names directly from data[].model_name
+    model_names = [model["model_name"] for model in response["data"]]
 
-            # Extract model names directly from data[].model_name
-            model_names = [model["model_name"] for model in model_data["data"]]
-
-            # Return just the list of model names
-            return json.dumps(
-                {
-                    "success": True,
-                    "result": {"models": model_names, "count": len(model_names)},
-                },
-                indent=2,
-            )
-
-    except Exception as e:
-        return json.dumps(
-            {
-                "success": False,
-                "error": f"Error fetching model names from LiteLLM: {str(e)}",
-            },
-            indent=2,
-        )
+    # Return just the list of model names
+    return json.dumps(
+        {
+            "success": True,
+            "result": {"models": model_names, "count": len(model_names)},
+        },
+        indent=2,
+    )
