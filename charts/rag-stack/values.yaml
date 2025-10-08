@@ -1,0 +1,287 @@
+# Default values for rag-stack
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+global:
+  enableGraphRag: true
+  rag:
+    ontologyAgentRestapi:
+      host: "agent-ontology"
+      port: 8098
+    neo4j:
+      host: "rag-neo4j"
+      port: 7687 # This is hardcoded in the neo4j chart: https://github.com/neo4j/helm-charts/blob/2025.7.1/neo4j/templates/neo4j-svc.yaml#L155-L158
+      username: neo4j
+      password: dummy_password
+    neo4jOntology:
+      host: "rag-neo4j-ontology"
+      port: 7688 # This is hardcoded in the neo4j chart: https://github.com/neo4j/helm-charts/blob/2025.7.1/neo4j/templates/neo4j-svc.yaml#L155-L158
+    redis:
+      host: "rag-redis"
+      port: 6379
+
+  # Secrets configuration for LLM providers
+  # When used as a subchart, global values can override these values
+  # When used as a standalone agent, this will be the secret for the LLM provider
+  llmSecrets:
+    create: true # if false, it'll assume that the secret already exists
+    secretName: "llm-secret"
+    data: {}
+    externalSecrets:
+      enabled: false
+      secretStoreRef:
+        name: "" # Use your secret store
+        kind: ClusterSecretStore # Use your secret store kind
+      data: []
+
+# RAG Server configuration
+rag-server:
+  enabled: true
+  fullnameOverride: "rag-server"
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-rag-server"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 9446
+
+  logLevel: DEBUG
+  cleanupInterval: 86400 # 24 hours
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      ephemeral-storage: 1Gi
+
+# Agent RAG configuration (standard agent chart)
+agent-rag:
+  enabled: true
+  fullnameOverride: "agent-rag"
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-rag-agent-rag"
+    tag: "latest"
+    pullPolicy: "Always"
+
+  service:
+    type: ClusterIP
+    port: 8099
+
+  logLevel: DEBUG
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 256Mi
+    limits:
+      cpu: 500m
+      memory: 2Gi
+      ephemeral-storage: 1Gi
+
+  # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+  livenessProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 10
+
+  readinessProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 10
+
+# Agent Ontology configuration (standard agent chart)
+agent-ontology:
+  enabled: true
+  fullnameOverride: "agent-ontology"
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-rag-agent-ontology"
+    tag: "latest"
+    pullPolicy: "Always"
+
+  service:
+    type: ClusterIP
+    port: 8098
+
+  logLevel: DEBUG
+  syncInterval: 86400 # 24 hours
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      ephemeral-storage: 256Mi
+    limits:
+      cpu: 500m
+      memory: 2Gi
+      ephemeral-storage: 1Gi
+
+  # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+  livenessProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 10
+
+  readinessProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 10
+
+# RAG Web configuration
+rag-webui:
+  enabled: true
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-rag-webui"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  ingress:
+    enabled: true
+    className: ""
+    annotations: {}
+    hosts:
+      - host: rag-webui.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+neo4j:
+  enabled: true
+  fullnameOverride: "rag-neo4j"
+  config:
+    server.directories.plugins: "/var/lib/neo4j/labs"
+    dbms.security.procedures.unrestricted: "apoc.*"
+    dbms.security.procedures.allowlist: "apoc.*"
+    server.config.strict_validation.enabled: "false"
+  apoc_config:
+    apoc.trigger.enabled: "true"
+    apoc.import.file.enabled: "true"
+  disableLookups: true
+  services:
+    neo4j:
+      enabled: false
+  neo4j:
+    name: rag-neo4j
+    password: "dummy_password" # This dummy password needs to match the value in rag.neo4j.auth.password
+    resources:
+      cpu: "1"
+      memory: "2Gi"
+
+  volumes:
+    data:
+      mode: "dynamic"
+      dynamic:
+        storageClassName: gp2
+
+neo4j-ontology:
+  enabled: true
+  fullnameOverride: "rag-neo4j-ontology"
+  config:
+    server.directories.plugins: "/var/lib/neo4j/labs"
+    dbms.security.procedures.unrestricted: "apoc.*"
+    dbms.security.procedures.allowlist: "apoc.*"
+    server.config.strict_validation.enabled: "false"
+  apoc_config:
+    apoc.trigger.enabled: "true"
+    apoc.import.file.enabled: "true"
+  disableLookups: true
+  services:
+    neo4j:
+      enabled: false
+  neo4j:
+    name: rag-neo4j-ontology
+    password: "dummy_password" # This dummy password needs to match the value in rag.neo4j.auth.password
+    resources:
+      cpu: "1"
+      memory: "2Gi"
+
+  volumes:
+    data:
+      mode: "dynamic"
+      dynamic:
+        storageClassName: gp2
+
+# RAG Redis configuration
+rag-redis:
+  enabled: true
+  fullnameOverride: "rag-redis"
+  image:
+    repository: "redis"
+    tag: "7.2-alpine"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 6379
+
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Redis configuration
+  redis:
+    maxmemory: "256mb"
+    maxmemoryPolicy: "allkeys-lru"
+    save: "60 1"
+    appendonly: "yes"
+
+# Minimal Milvus cluster configuration using Zilliz Helm chart defaults
+milvus:
+  # Only override what differs from chart defaults
+  pulsarv3:
+    enabled: false  # Default is true, we need false
+  woodpecker:
+    enabled: true   # Default is false, we need true
+
+  # Performance overrides only for compute nodes
+  queryNode:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  dataNode:
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi

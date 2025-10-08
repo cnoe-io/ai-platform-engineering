@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rag-redis.fullname" . }}
+  labels:
+    {{- include "rag-redis.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: redis
+      protocol: TCP
+      name: redis
+  selector:
+    {{- include "rag-redis.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,5914 @@
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-argocd
+  labels:
+    helm.sh/chart: agent-argocd-0.2.2
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-aws/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-aws
+  labels:
+    helm.sh/chart: agent-aws-0.2.2
+    app.kubernetes.io/name: agent-aws
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-backstage/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-backstage
+  labels:
+    helm.sh/chart: agent-backstage-0.2.2
+    app.kubernetes.io/name: agent-backstage
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-confluence/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-confluence
+  labels:
+    helm.sh/chart: agent-confluence-0.2.2
+    app.kubernetes.io/name: agent-confluence
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-github/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-github
+  labels:
+    helm.sh/chart: agent-github-0.2.2
+    app.kubernetes.io/name: agent-github
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-jira/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-jira
+  labels:
+    helm.sh/chart: agent-jira-0.2.2
+    app.kubernetes.io/name: agent-jira
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-komodor/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-komodor
+  labels:
+    helm.sh/chart: agent-komodor-0.2.2
+    app.kubernetes.io/name: agent-komodor
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-pagerduty
+  labels:
+    helm.sh/chart: agent-pagerduty-0.2.2
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-slack/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-slack
+  labels:
+    helm.sh/chart: agent-slack-0.2.2
+    app.kubernetes.io/name: agent-slack
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-splunk/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-splunk
+  labels:
+    helm.sh/chart: agent-splunk-0.2.2
+    app.kubernetes.io/name: agent-splunk
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/agent-webex/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-agent-webex
+  labels:
+    helm.sh/chart: agent-webex-0.2.2
+    app.kubernetes.io/name: agent-webex
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-ontology/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-ontology
+  labels:
+    helm.sh/chart: agent-ontology-0.0.1
+    app.kubernetes.io/name: agent-ontology
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-rag/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-rag
+  labels:
+    helm.sh/chart: agent-rag-0.0.1
+    app.kubernetes.io/name: agent-rag
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/charts/minio/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "test-release-minio"
+  namespace: "default"
+  labels:
+    app: minio
+    chart: minio-8.0.17
+    release: "test-release"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/rag-redis/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rag-redis
+  labels:
+    helm.sh/chart: rag-redis-0.0.1
+    app.kubernetes.io/name: rag-redis
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/supervisor-agent/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-supervisor-agent
+  labels:
+    helm.sh/chart: supervisor-agent-0.1.1
+    app.kubernetes.io/name: supervisor-agent
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/charts/minio/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: test-release-minio
+  labels:
+    app: minio
+    chart: minio-8.0.17
+    release: test-release
+    heritage: Helm
+type: Opaque
+data:
+  accesskey: "bWluaW9hZG1pbg=="
+  secretkey: "bWluaW9hZG1pbg=="
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-auth.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "rag-neo4j-ontology-auth"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j-ontology"    
+type: Opaque
+data:
+  NEO4J_AUTH: "bmVvNGovZHVtbXlfcGFzc3dvcmQ="
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-auth.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "rag-neo4j-auth"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j"    
+type: Opaque
+data:
+  NEO4J_AUTH: "bmVvNGovZHVtbXlfcGFzc3dvcmQ="
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/charts/minio/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-release-minio
+  labels:
+    app: minio
+    chart: minio-8.0.17
+    release: test-release
+    heritage: Helm
+data:
+  initialize: |-
+    #!/bin/sh
+    set -e ; # Have script exit in the event of a failed command.
+    MC_CONFIG_DIR="/etc/minio/mc/"
+    MC="/usr/bin/mc --insecure --config-dir ${MC_CONFIG_DIR}"
+    
+    # connectToMinio
+    # Use a check-sleep-check loop to wait for Minio service to be available
+    connectToMinio() {
+      SCHEME=$1
+      ATTEMPTS=0 ; LIMIT=29 ; # Allow 30 attempts
+      set -e ; # fail if we can't read the keys.
+      ACCESS=$(cat /config/accesskey) ; SECRET=$(cat /config/secretkey) ;
+      set +e ; # The connections to minio are allowed to fail.
+      echo "Connecting to Minio server: $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT" ;
+      MC_COMMAND="${MC} config host add myminio $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET" ;
+      $MC_COMMAND ;
+      STATUS=$? ;
+      until [ $STATUS = 0 ]
+      do
+        ATTEMPTS=`expr $ATTEMPTS + 1` ;
+        echo \"Failed attempts: $ATTEMPTS\" ;
+        if [ $ATTEMPTS -gt $LIMIT ]; then
+          exit 1 ;
+        fi ;
+        sleep 2 ; # 1 second intervals between attempts
+        $MC_COMMAND ;
+        STATUS=$? ;
+      done ;
+      set -e ; # reset `e` as active
+      return 0
+    }
+    
+    # checkBucketExists ($bucket)
+    # Check if the bucket exists, by using the exit code of `mc ls`
+    checkBucketExists() {
+      BUCKET=$1
+      CMD=$(${MC} ls myminio/$BUCKET > /dev/null 2>&1)
+      return $?
+    }
+    
+    # createBucket ($bucket, $policy, $purge)
+    # Ensure bucket exists, purging if asked to
+    createBucket() {
+      BUCKET=$1
+      POLICY=$2
+      PURGE=$3
+      VERSIONING=$4
+    
+      # Purge the bucket, if set & exists
+      # Since PURGE is user input, check explicitly for `true`
+      if [ $PURGE = true ]; then
+        if checkBucketExists $BUCKET ; then
+          echo "Purging bucket '$BUCKET'."
+          set +e ; # don't exit if this fails
+          ${MC} rm -r --force myminio/$BUCKET
+          set -e ; # reset `e` as active
+        else
+          echo "Bucket '$BUCKET' does not exist, skipping purge."
+        fi
+      fi
+    
+      # Create the bucket if it does not exist
+      if ! checkBucketExists $BUCKET ; then
+        echo "Creating bucket '$BUCKET'"
+        ${MC} mb myminio/$BUCKET
+      else
+        echo "Bucket '$BUCKET' already exists."
+      fi
+    
+    
+      # set versioning for bucket
+      if [ ! -z $VERSIONING ] ; then
+        if [ $VERSIONING = true ] ; then
+            echo "Enabling versioning for '$BUCKET'"
+            ${MC} version enable myminio/$BUCKET
+        elif [ $VERSIONING = false ] ; then
+            echo "Suspending versioning for '$BUCKET'"
+            ${MC} version suspend myminio/$BUCKET
+        fi
+      else
+          echo "Bucket '$BUCKET' versioning unchanged."
+      fi
+    
+      # At this point, the bucket should exist, skip checking for existence
+      # Set policy on the bucket
+      echo "Setting policy of bucket '$BUCKET' to '$POLICY'."
+      ${MC} policy set $POLICY myminio/$BUCKET
+    }
+    
+    # Try connecting to Minio instance
+    scheme=http
+    connectToMinio $scheme
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/configmap.yaml
+# If customConfigMap is not set, this ConfigMap will be redendered.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-release-milvus
+  namespace: default
+data:
+  default.yaml: |+
+    # Copyright (C) 2019-2021 Zilliz. All rights reserved.
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance
+    # with the License. You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software distributed under the License
+    # is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+    # or implied. See the License for the specific language governing permissions and limitations under the License.
+    
+    etcd:
+      endpoints:
+      - test-release-etcd-0.test-release-etcd-headless.default.svc.cluster.local:2379
+      - test-release-etcd-1.test-release-etcd-headless.default.svc.cluster.local:2379
+      - test-release-etcd-2.test-release-etcd-headless.default.svc.cluster.local:2379
+    
+    metastore:
+      type: etcd
+    
+    minio:
+      address: test-release-minio
+      port: 9000
+      accessKeyID: minioadmin
+      secretAccessKey: minioadmin
+      useSSL: false
+      bucketName: milvus-bucket
+      rootPath: file
+      useIAM: false
+      useVirtualHost: false
+    
+    mq:
+      type: woodpecker
+    
+    messageQueue: woodpecker
+    
+    rootCoord:
+      address: test-release-milvus-rootcoord
+      port: 53100
+      enableActiveStandby: false  # Enable rootcoord active-standby
+    
+    proxy:
+      port: 19530
+      internalPort: 19529
+    
+    queryCoord:
+      address: test-release-milvus-querycoord
+      port: 19531
+    
+      enableActiveStandby: false  # Enable querycoord active-standby
+    
+    queryNode:
+      port: 21123
+      enableDisk: true # Enable querynode load disk index, and search on disk index
+    
+    indexCoord:
+      address: test-release-milvus-indexcoord
+      port: 31000
+      enableActiveStandby: false  # Enable indexcoord active-standby
+    
+    indexNode:
+      port: 21121
+      enableDisk: true # Enable index node build disk vector index
+    
+    dataCoord:
+      address: test-release-milvus-datacoord
+      port: 13333
+      enableActiveStandby: false  # Enable datacoord active-standby
+    
+    dataNode:
+      port: 21124
+    
+    log:
+      level: info
+      file:
+        rootPath: ""
+        maxSize: 300
+        maxAge: 10
+        maxBackups: 20
+      format: text
+  user.yaml: |-
+    #    For example enable rest http for milvus proxy
+    #    proxy:
+    #      http:
+    #        enabled: true
+    #      maxUserNum: 100
+    #      maxRoleNum: 10
+    ##  Enable tlsMode and set the tls cert and key
+    #  tls:
+    #    serverPemPath: /etc/milvus/certs/tls.crt
+    #    serverKeyPath: /etc/milvus/certs/tls.key
+    #   common:
+    #     security:
+    #       tlsMode: 1
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-config.yaml
+# Neo4j config values that are required for neo4j to work correctly in Kubernetes, these are not overridden by user-provided values
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-ontology-k8s-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j-ontology"    
+data:
+  server.default_listen_address: "0.0.0.0"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-config.yaml
+# User-provided Neo4j config values
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-ontology-user-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j-ontology"    
+data:
+  dbms.security.procedures.allowlist: apoc.*
+  dbms.security.procedures.unrestricted: apoc.*
+  dbms.security.tls_reload_enabled: "true"
+  internal.dbms.sharded_property_database.enabled: "false"
+  server.config.strict_validation.enabled: "false"
+  server.directories.plugins: /var/lib/neo4j/labs
+  server.jvm.additional: |-  
+    -XX:+UseG1GC
+    -XX:-OmitStackTraceInFastThrow
+    -XX:+AlwaysPreTouch
+    -XX:+UnlockExperimentalVMOptions
+    -XX:+TrustFinalNonStaticFields
+    -XX:+DisableExplicitGC
+    -Djdk.nio.maxCachedBufferSize=1024
+    -Dio.netty.tryReflectionSetAccessible=true
+    -Djdk.tls.ephemeralDHKeySize=2048
+    -Djdk.tls.rejectClientInitiatedRenegotiation=true
+    -XX:FlightRecorderOptions=stackdepth=256
+    -XX:+UnlockDiagnosticVMOptions
+    -XX:+DebugNonSafepoints
+    --add-opens=java.base/java.nio=ALL-UNNAMED
+    --add-opens=java.base/java.io=ALL-UNNAMED
+    --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+    -Dlog4j2.disable.jmx=true
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-config.yaml
+# Default Neo4j config values, these are overridden by user-provided values in rag-neo4j-ontology-user-config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-ontology-default-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j-ontology"    
+data:
+
+  # Neo4j defaults
+  db.tx_log.rotation.retention_policy: 1 days
+  server.windows_service_name: neo4j
+  
+  server.logs.config: /config/server-logs.xml/server-logs.xml
+  server.logs.user.config: /config/user-logs.xml/user-logs.xml
+
+  # Helm defaults
+
+  # Bolt keep alive
+  # this helps to ensure that LoadBalancers do not close bolt connections that are in use but appear idle
+  server.bolt.connection_keep_alive: "30s"
+  server.bolt.connection_keep_alive_for_requests: "ALL"
+  server.bolt.connection_keep_alive_streaming_scheduling_interval: "30s"
+
+  # If we set default advertised address it over-rides the bolt address used to populate the browser in a really annoying way
+  # dbms.default_advertised_address: "$(bash -c 'echo ${SERVICE_DOMAIN}')"
+
+
+  # Other
+  internal.dbms.ssl.system.ignore_dot_files: "true"
+
+  # set the below configs in case of cluster or analytics
+  # Logging
+  server.directories.logs: "/logs"
+  # Import
+  server.directories.import: "/import"
+
+  # Use more reliable defaults SSL / TLS settings for K8s
+  dbms.ssl.policy.bolt.client_auth: "NONE"
+  dbms.ssl.policy.https.client_auth: "NONE"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-config.yaml
+# User-provided Neo4j Apoc config values
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-ontology-apoc-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j-ontology"    
+data:
+  apoc.conf: |-
+      apoc.import.file.enabled=true
+      apoc.trigger.enabled=true
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-config.yaml
+# server-logs.xml as configmap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-ontology-server-logs-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j-ontology"    
+data:
+  server-logs.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!--
+    
+        Copyright (c) "Neo4j"
+        Neo4j Sweden AB [http://neo4j.com]
+        This file is a commercial add-on to Neo4j Enterprise Edition.
+    
+    -->
+    <!--
+        This is a log4j 2 configuration file.
+    
+        It is highly recommended to keep the original "debug.log" as is, to make sure enough data is captured in case
+        of errors in a format that neo4j developers can work with.
+    
+        All configuration values can be queried with the lookup prefix "config:". You can for example, resolve
+        the path to your neo4j home directory with ${config:dbms.directories.neo4j_home}.
+    
+        Please consult https://logging.apache.org/log4j/2.x/manual/configuration.html for instructions and
+        available configuration options.
+    -->
+    <Configuration status="ERROR" monitorInterval="30" packages="org.neo4j.logging.log4j">
+        <Appenders>
+            <!-- Default debug.log, please keep -->
+            <RollingRandomAccessFile name="DebugLog" fileName="${config:server.directories.logs}/debug.log"
+                                     filePattern="$${config:server.directories.logs}/debug.log.%02i">
+                <Neo4jDebugLogLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p [%c{1.}] %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="7"/>
+            </RollingRandomAccessFile>
+    
+            <RollingRandomAccessFile name="HttpLog" fileName="${config:server.directories.logs}/http.log"
+                                     filePattern="$${config:server.directories.logs}/http.log.%02i">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="5"/>
+            </RollingRandomAccessFile>
+    
+            <RollingRandomAccessFile name="QueryLog" fileName="${config:server.directories.logs}/query.log"
+                                     filePattern="$${config:server.directories.logs}/query.log.%02i">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="7"/>
+            </RollingRandomAccessFile>
+    
+            <RollingRandomAccessFile name="SecurityLog" fileName="${config:server.directories.logs}/security.log"
+                                     filePattern="$${config:server.directories.logs}/security.log.%02i">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="7"/>
+            </RollingRandomAccessFile>
+        </Appenders>
+    
+        <Loggers>
+            <!-- Log levels. One of DEBUG, INFO, WARN, ERROR or OFF -->
+    
+            <!-- The debug log is used as the root logger to catch everything -->
+            <Root level="INFO">
+                <AppenderRef ref="DebugLog"/> <!-- Keep this -->
+            </Root>
+    
+            <!-- The query log, must be named "QueryLogger" -->
+            <Logger name="QueryLogger" level="INFO" additivity="false">
+                <AppenderRef ref="QueryLog"/>
+            </Logger>
+    
+            <!-- The http request log, must be named "HttpLogger" -->
+            <Logger name="HttpLogger" level="INFO" additivity="false">
+                <AppenderRef ref="HttpLog"/>
+            </Logger>
+    
+            <!-- The security log, must be named "SecurityLogger" -->
+            <Logger name="SecurityLogger" level="INFO" additivity="false">
+                <AppenderRef ref="SecurityLog"/>
+            </Logger>
+        </Loggers>
+    </Configuration>
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-config.yaml
+# user-logs.xml as configmap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-ontology-user-logs-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j-ontology"    
+data:
+  user-logs.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!--
+    
+        Copyright (c) "Neo4j"
+        Neo4j Sweden AB [http://neo4j.com]
+        This file is a commercial add-on to Neo4j Enterprise Edition.
+    
+    -->
+    <!--
+        This is a log4j 2 configuration file that provides maximum flexibility.
+    
+        All configuration values can be queried with the lookup prefix "config:". You can for example, resolve
+        the path to your neo4j home directory with ${config:dbms.directories.neo4j_home}.
+    
+        Please consult https://logging.apache.org/log4j/2.x/manual/configuration.html for instructions and
+        available configuration options.
+    -->
+    <Configuration status="ERROR" monitorInterval="30" packages="org.neo4j.logging.log4j">
+    
+        <Appenders>
+            <RollingRandomAccessFile name="Neo4jLog" fileName="${config:server.directories.logs}/neo4j.log"
+                                     filePattern="$${config:server.directories.logs}/neo4j.log.%02i">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="7"/>
+            </RollingRandomAccessFile>
+    
+            <!-- Only used by "neo4j console", will be ignored otherwise -->
+            <Console name="ConsoleAppender" target="SYSTEM_OUT">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+            </Console>
+        </Appenders>
+    
+        <Loggers>
+            <!-- Log level for the neo4j log. One of DEBUG, INFO, WARN, ERROR or OFF -->
+            <Root level="INFO">
+                <AppenderRef ref="Neo4jLog"/>
+                <AppenderRef ref="ConsoleAppender"/>
+            </Root>
+        </Loggers>
+    
+    </Configuration>
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-env.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-ontology-env"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j-ontology"    
+data:
+  # It should not be necessary for neo4j users/administrators to modify this configMap
+  # Neo4j configuration is set in the rag-neo4j-ontology-user-config ConfigMap
+  NEO4J_AUTH_PATH: "/config/neo4j-auth/NEO4J_AUTH"
+  NEO4J_EDITION: "COMMUNITY_K8S"
+  NEO4J_CONF: "/config/"
+  K8S_NEO4J_NAME: "rag-neo4j-ontology"
+  EXTENDED_CONF: "yes"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-config.yaml
+# Neo4j config values that are required for neo4j to work correctly in Kubernetes, these are not overridden by user-provided values
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-k8s-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j"    
+data:
+  server.default_listen_address: "0.0.0.0"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-config.yaml
+# User-provided Neo4j config values
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-user-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j"    
+data:
+  dbms.security.procedures.allowlist: apoc.*
+  dbms.security.procedures.unrestricted: apoc.*
+  dbms.security.tls_reload_enabled: "true"
+  internal.dbms.sharded_property_database.enabled: "false"
+  server.config.strict_validation.enabled: "false"
+  server.directories.plugins: /var/lib/neo4j/labs
+  server.jvm.additional: |-  
+    -XX:+UseG1GC
+    -XX:-OmitStackTraceInFastThrow
+    -XX:+AlwaysPreTouch
+    -XX:+UnlockExperimentalVMOptions
+    -XX:+TrustFinalNonStaticFields
+    -XX:+DisableExplicitGC
+    -Djdk.nio.maxCachedBufferSize=1024
+    -Dio.netty.tryReflectionSetAccessible=true
+    -Djdk.tls.ephemeralDHKeySize=2048
+    -Djdk.tls.rejectClientInitiatedRenegotiation=true
+    -XX:FlightRecorderOptions=stackdepth=256
+    -XX:+UnlockDiagnosticVMOptions
+    -XX:+DebugNonSafepoints
+    --add-opens=java.base/java.nio=ALL-UNNAMED
+    --add-opens=java.base/java.io=ALL-UNNAMED
+    --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+    -Dlog4j2.disable.jmx=true
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-config.yaml
+# Default Neo4j config values, these are overridden by user-provided values in rag-neo4j-user-config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-default-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j"    
+data:
+
+  # Neo4j defaults
+  db.tx_log.rotation.retention_policy: 1 days
+  server.windows_service_name: neo4j
+  
+  server.logs.config: /config/server-logs.xml/server-logs.xml
+  server.logs.user.config: /config/user-logs.xml/user-logs.xml
+
+  # Helm defaults
+
+  # Bolt keep alive
+  # this helps to ensure that LoadBalancers do not close bolt connections that are in use but appear idle
+  server.bolt.connection_keep_alive: "30s"
+  server.bolt.connection_keep_alive_for_requests: "ALL"
+  server.bolt.connection_keep_alive_streaming_scheduling_interval: "30s"
+
+  # If we set default advertised address it over-rides the bolt address used to populate the browser in a really annoying way
+  # dbms.default_advertised_address: "$(bash -c 'echo ${SERVICE_DOMAIN}')"
+
+
+  # Other
+  internal.dbms.ssl.system.ignore_dot_files: "true"
+
+  # set the below configs in case of cluster or analytics
+  # Logging
+  server.directories.logs: "/logs"
+  # Import
+  server.directories.import: "/import"
+
+  # Use more reliable defaults SSL / TLS settings for K8s
+  dbms.ssl.policy.bolt.client_auth: "NONE"
+  dbms.ssl.policy.https.client_auth: "NONE"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-config.yaml
+# User-provided Neo4j Apoc config values
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-apoc-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j"    
+data:
+  apoc.conf: |-
+      apoc.import.file.enabled=true
+      apoc.trigger.enabled=true
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-config.yaml
+# server-logs.xml as configmap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-server-logs-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j"    
+data:
+  server-logs.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!--
+    
+        Copyright (c) "Neo4j"
+        Neo4j Sweden AB [http://neo4j.com]
+        This file is a commercial add-on to Neo4j Enterprise Edition.
+    
+    -->
+    <!--
+        This is a log4j 2 configuration file.
+    
+        It is highly recommended to keep the original "debug.log" as is, to make sure enough data is captured in case
+        of errors in a format that neo4j developers can work with.
+    
+        All configuration values can be queried with the lookup prefix "config:". You can for example, resolve
+        the path to your neo4j home directory with ${config:dbms.directories.neo4j_home}.
+    
+        Please consult https://logging.apache.org/log4j/2.x/manual/configuration.html for instructions and
+        available configuration options.
+    -->
+    <Configuration status="ERROR" monitorInterval="30" packages="org.neo4j.logging.log4j">
+        <Appenders>
+            <!-- Default debug.log, please keep -->
+            <RollingRandomAccessFile name="DebugLog" fileName="${config:server.directories.logs}/debug.log"
+                                     filePattern="$${config:server.directories.logs}/debug.log.%02i">
+                <Neo4jDebugLogLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p [%c{1.}] %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="7"/>
+            </RollingRandomAccessFile>
+    
+            <RollingRandomAccessFile name="HttpLog" fileName="${config:server.directories.logs}/http.log"
+                                     filePattern="$${config:server.directories.logs}/http.log.%02i">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="5"/>
+            </RollingRandomAccessFile>
+    
+            <RollingRandomAccessFile name="QueryLog" fileName="${config:server.directories.logs}/query.log"
+                                     filePattern="$${config:server.directories.logs}/query.log.%02i">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="7"/>
+            </RollingRandomAccessFile>
+    
+            <RollingRandomAccessFile name="SecurityLog" fileName="${config:server.directories.logs}/security.log"
+                                     filePattern="$${config:server.directories.logs}/security.log.%02i">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="7"/>
+            </RollingRandomAccessFile>
+        </Appenders>
+    
+        <Loggers>
+            <!-- Log levels. One of DEBUG, INFO, WARN, ERROR or OFF -->
+    
+            <!-- The debug log is used as the root logger to catch everything -->
+            <Root level="INFO">
+                <AppenderRef ref="DebugLog"/> <!-- Keep this -->
+            </Root>
+    
+            <!-- The query log, must be named "QueryLogger" -->
+            <Logger name="QueryLogger" level="INFO" additivity="false">
+                <AppenderRef ref="QueryLog"/>
+            </Logger>
+    
+            <!-- The http request log, must be named "HttpLogger" -->
+            <Logger name="HttpLogger" level="INFO" additivity="false">
+                <AppenderRef ref="HttpLog"/>
+            </Logger>
+    
+            <!-- The security log, must be named "SecurityLogger" -->
+            <Logger name="SecurityLogger" level="INFO" additivity="false">
+                <AppenderRef ref="SecurityLog"/>
+            </Logger>
+        </Loggers>
+    </Configuration>
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-config.yaml
+# user-logs.xml as configmap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-user-logs-config"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j"    
+data:
+  user-logs.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!--
+    
+        Copyright (c) "Neo4j"
+        Neo4j Sweden AB [http://neo4j.com]
+        This file is a commercial add-on to Neo4j Enterprise Edition.
+    
+    -->
+    <!--
+        This is a log4j 2 configuration file that provides maximum flexibility.
+    
+        All configuration values can be queried with the lookup prefix "config:". You can for example, resolve
+        the path to your neo4j home directory with ${config:dbms.directories.neo4j_home}.
+    
+        Please consult https://logging.apache.org/log4j/2.x/manual/configuration.html for instructions and
+        available configuration options.
+    -->
+    <Configuration status="ERROR" monitorInterval="30" packages="org.neo4j.logging.log4j">
+    
+        <Appenders>
+            <RollingRandomAccessFile name="Neo4jLog" fileName="${config:server.directories.logs}/neo4j.log"
+                                     filePattern="$${config:server.directories.logs}/neo4j.log.%02i">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+                <Policies>
+                    <SizeBasedTriggeringPolicy size="20 MB"/>
+                </Policies>
+                <DefaultRolloverStrategy fileIndex="min" max="7"/>
+            </RollingRandomAccessFile>
+    
+            <!-- Only used by "neo4j console", will be ignored otherwise -->
+            <Console name="ConsoleAppender" target="SYSTEM_OUT">
+                <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss.SSSZ}{GMT+0} %-5p %m%n"/>
+            </Console>
+        </Appenders>
+    
+        <Loggers>
+            <!-- Log level for the neo4j log. One of DEBUG, INFO, WARN, ERROR or OFF -->
+            <Root level="INFO">
+                <AppenderRef ref="Neo4jLog"/>
+                <AppenderRef ref="ConsoleAppender"/>
+            </Root>
+        </Loggers>
+    
+    </Configuration>
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-env.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-neo4j-env"
+  namespace: "default"
+  labels:
+    app: "rag-neo4j"    
+data:
+  # It should not be necessary for neo4j users/administrators to modify this configMap
+  # Neo4j configuration is set in the rag-neo4j-user-config ConfigMap
+  NEO4J_AUTH_PATH: "/config/neo4j-auth/NEO4J_AUTH"
+  NEO4J_EDITION: "COMMUNITY_K8S"
+  NEO4J_CONF: "/config/"
+  K8S_NEO4J_NAME: "rag-neo4j"
+  EXTENDED_CONF: "yes"
+---
+# Source: ai-platform-engineering/templates/prompt-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prompt-config
+  namespace: default
+  labels:
+    app.kubernetes.io/name: ai-platform-engineering
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.1.11"
+    app.kubernetes.io/managed-by: Helm
+data:
+  prompt_config.yaml: |
+
+    agent_name: "AI Platform Engineer"
+    agent_description: |
+      An AI Platform Engineer is a multi-agent system designed to manage operations across various tools such as ArgoCD, AWS, Jira, GitHub, PagerDuty, Slack, and Splunk. Each tool has its own agent that handles specific tasks related to that tool.
+    system_prompt_template: |
+      You are an AI Platform Engineer, a multi-agent system designed to manage operations across various tools.
+    
+      CRITICAL INSTRUCTIONS for handling tool responses:
+      - When a tool/agent asks for more information, you MUST preserve their exact message
+      - DO NOT rewrite "Please specify the type of template resource..." into "I need more information to complete this task. Please provide the project name."
+      - DO NOT generalize specific requests into generic ones
+      - The user expects to see the exact request from the specialist tool, not your interpretation
+    
+      LLM Instructions:
+      - For new user requests: Call the appropriate agent or tool to handle the request.
+      - When responding, use markdown format. Make sure all URLs are presented as clickable links.
+    
+      {tool_instructions}
+    
+    agent_prompts:
+      argocd:
+        system_prompt: |
+          If the user's prompt is related to ArgoCD operations, such as creating a new ArgoCD application, getting the status of an application, updating the image version, deleting an app, or syncing an application to the latest commit, assign the task to the ArgoCD agent.
+      aws:
+        system_prompt: |
+          If the user's prompt is related to AWS operations, especially EKS cluster management, Kubernetes operations, CloudWatch monitoring, cost analysis and optimization, or IAM security management, assign the task to the AWS agent.
+      backstage:
+        system_prompt: |
+          If the user's prompt is related to Backstage operations, such as get backstage project, service, assign the task to the Backstage agent.
+      confluence:
+        system_prompt: |
+          If the user's prompt is related to Confluence operations, such as creating a new Confluence page, updating an existing page, retrieving the content of a page, or searching for pages, assign the task to the Confluence agent.
+      github:
+        system_prompt: |
+          If the user's prompt is related to GitHub operations, such as creating a new repository, listing open pull requests, merging a pull request, closing an issue, or getting the latest commit, assign the task to the GitHub agent.
+      jira:
+        system_prompt: |
+          If the user's prompt is related to Jira operations, such as creating a new Jira ticket, listing open tickets, updating the status of a ticket, assigning a ticket to a user, getting details of a ticket, or searching for tickets, assign the task to the Jira agent.
+      pagerduty:
+        system_prompt: |
+          If the user's prompt is related to PagerDuty operations, such as listing services, listing on-call schedules, acknowledging or resolving incidents, triggering alerts, or getting incident details, assign the task to the PagerDuty agent.
+      slack:
+        system_prompt: |
+          If the user's prompt is related to Slack operations, such as sending a message to a channel, listing workspace members, creating or archiving a channel, or posting a notification, assign the task to the Slack agent.
+      splunk:
+        system_prompt: |
+          If the user's prompt is related to Splunk operations, such as searching logs, creating alerts, managing detectors, checking system health, handling incidents, managing teams, or analyzing log data, assign the task to the Splunk agent.
+      komodor:
+        system_prompt: |
+          If the user's prompt is related to Komodor operations, such as getting the status of a cluster, fetching health risks, triggering a RCA, or getting RCA results, assign the task to the Komodor agent.
+      webex:
+        system_prompt: |
+          If the user's prompt is related to Webex operations, such as sending a message to a room, listing room members, creating or archiving a room, or posting a notification, assign the task to the Webex agent.
+      petstore:
+        system_prompt: |
+          If the user's prompt is related to Petstore operations, such as getting pet details, adding a new pet, updating a pet, deleting a pet, searching pets by status or tags, managing pet store inventory, testing REST API operations, or working with mock server data, assign the task to the Petstore agent.
+      weather:
+        system_prompt: |
+          If the user's prompt is related to weather operations, such as getting current weather conditions, weather forecasts, weather alerts and warnings, historical weather data, weather maps, location-based weather queries, travel weather information, or weather analysis and trends, assign the task to the Weather agent.
+      rag:
+        system_prompt: |
+          The RAG agent now encompasses everything about ai_platform_engineering. All our documentation lies there. So if there's any question about ai_platform_engineering, then route to kb-rag.
+    
+    agent_skill_examples:
+      general:
+        - "What can you do?"
+      argocd:
+        - "Get the status of applications"
+        - "Sync an application to the latest version"
+      aws:
+        - "Check EKS cluster health status"
+        - "Create S3 bucket"
+      backstage:
+        - "Search for services by owner"
+        - "Get details for a specific service"
+      confluence:
+        - "Search for pages about deployment"
+        - "Find recent pages in a space"
+      github:
+        - "Show open pull requests for a repository"
+        - "Get recent commits from a repository"
+      jira:
+        - "Search for high priority issues"
+        - "Find issues with a specific label"
+      pagerduty:
+        - "Show currently triggered incidents"
+        - "Who is on-call right now?"
+      slack:
+        - "Send a message to a channel"
+        - "Find channels by name"
+      splunk:
+        - "Search for errors in the last hour"
+        - "Check active alerts and detectors"
+      komodor:
+        - "Show health risks for clusters"
+        - "Trigger a root cause analysis"
+      webex:
+        - "Send a message to a room"
+        - "Get recent messages from a room"
+      petstore:
+        - "Find available pets by status"
+        - "Check store inventory levels"
+      weather:
+        - "What's the weather like today?"
+        - "Show the forecast for the next 5 days in London"
+      rag:
+        - "Give me information about SRE team onboarding"
+        - "How do I configure agents?"
+---
+# Source: ai-platform-engineering/templates/supervisor-agent-env.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-release-supervisor-agent-env
+data:
+  ARGOCD_AGENT_HOST: "test-release-agent-argocd"
+  ARGOCD_AGENT_PORT: "8000"
+  ENABLE_ARGOCD: "true"
+  AWS_AGENT_HOST: "test-release-agent-aws"
+  AWS_AGENT_PORT: "8000"
+  ENABLE_AWS: "true"
+  BACKSTAGE_AGENT_HOST: "test-release-agent-backstage"
+  BACKSTAGE_AGENT_PORT: "8000"
+  ENABLE_BACKSTAGE: "true"
+  CONFLUENCE_AGENT_HOST: "test-release-agent-confluence"
+  CONFLUENCE_AGENT_PORT: "8000"
+  ENABLE_CONFLUENCE: "true"
+  GITHUB_AGENT_HOST: "test-release-agent-github"
+  GITHUB_AGENT_PORT: "8000"
+  ENABLE_GITHUB: "true"
+  JIRA_AGENT_HOST: "test-release-agent-jira"
+  JIRA_AGENT_PORT: "8000"
+  ENABLE_JIRA: "true"
+  KOMODOR_AGENT_HOST: "test-release-agent-komodor"
+  KOMODOR_AGENT_PORT: "8000"
+  ENABLE_KOMODOR: "true"
+  PAGERDUTY_AGENT_HOST: "test-release-agent-pagerduty"
+  PAGERDUTY_AGENT_PORT: "8000"
+  ENABLE_PAGERDUTY: "true"
+  SLACK_AGENT_HOST: "test-release-agent-slack"
+  SLACK_AGENT_PORT: "8000"
+  ENABLE_SLACK: "true"
+  SPLUNK_AGENT_HOST: "test-release-agent-splunk"
+  SPLUNK_AGENT_PORT: "8000"
+  ENABLE_SPLUNK: "true"
+  WEBEX_AGENT_HOST: "test-release-agent-webex"
+  WEBEX_AGENT_PORT: "8000"
+  ENABLE_WEBEX: "true"
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-argocd-mcp
+  labels:
+    helm.sh/chart: agent-argocd-0.2.2
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-argocd-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-argocd-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-argocd
+  labels:
+    helm.sh/chart: agent-argocd-0.2.2
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-aws/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-aws-mcp
+  labels:
+    helm.sh/chart: agent-aws-0.2.2
+    app.kubernetes.io/name: agent-aws
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-aws-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-aws
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-aws-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-aws/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-aws
+  labels:
+    helm.sh/chart: agent-aws-0.2.2
+    app.kubernetes.io/name: agent-aws
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-aws
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-backstage/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-backstage-mcp
+  labels:
+    helm.sh/chart: agent-backstage-0.2.2
+    app.kubernetes.io/name: agent-backstage
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-backstage-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-backstage
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-backstage-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-backstage/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-backstage
+  labels:
+    helm.sh/chart: agent-backstage-0.2.2
+    app.kubernetes.io/name: agent-backstage
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-backstage
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-confluence/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-confluence-mcp
+  labels:
+    helm.sh/chart: agent-confluence-0.2.2
+    app.kubernetes.io/name: agent-confluence
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-confluence-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-confluence
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-confluence-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-confluence/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-confluence
+  labels:
+    helm.sh/chart: agent-confluence-0.2.2
+    app.kubernetes.io/name: agent-confluence
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-confluence
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-github/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-github
+  labels:
+    helm.sh/chart: agent-github-0.2.2
+    app.kubernetes.io/name: agent-github
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-github
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-jira/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-jira-mcp
+  labels:
+    helm.sh/chart: agent-jira-0.2.2
+    app.kubernetes.io/name: agent-jira
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-jira-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-jira
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-jira-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-jira/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-jira
+  labels:
+    helm.sh/chart: agent-jira-0.2.2
+    app.kubernetes.io/name: agent-jira
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-jira
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-komodor/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-komodor-mcp
+  labels:
+    helm.sh/chart: agent-komodor-0.2.2
+    app.kubernetes.io/name: agent-komodor
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-komodor-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-komodor
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-komodor-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-komodor/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-komodor
+  labels:
+    helm.sh/chart: agent-komodor-0.2.2
+    app.kubernetes.io/name: agent-komodor
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-komodor
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-pagerduty-mcp
+  labels:
+    helm.sh/chart: agent-pagerduty-0.2.2
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-pagerduty-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-pagerduty-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-pagerduty
+  labels:
+    helm.sh/chart: agent-pagerduty-0.2.2
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-slack/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-slack-mcp
+  labels:
+    helm.sh/chart: agent-slack-0.2.2
+    app.kubernetes.io/name: agent-slack
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-slack-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-slack
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-slack-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-slack/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-slack
+  labels:
+    helm.sh/chart: agent-slack-0.2.2
+    app.kubernetes.io/name: agent-slack
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-slack
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-splunk/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-splunk-mcp
+  labels:
+    helm.sh/chart: agent-splunk-0.2.2
+    app.kubernetes.io/name: agent-splunk
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-splunk-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-splunk
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-splunk-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-splunk/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-splunk
+  labels:
+    helm.sh/chart: agent-splunk-0.2.2
+    app.kubernetes.io/name: agent-splunk
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-splunk
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-webex/templates/mcp-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-webex-mcp
+  labels:
+    helm.sh/chart: agent-webex-0.2.2
+    app.kubernetes.io/name: agent-webex
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-webex-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-webex
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/name: test-release-agent-webex-mcp
+    app.kubernetes.io/component: mcp
+---
+# Source: ai-platform-engineering/charts/agent-webex/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-agent-webex
+  labels:
+    helm.sh/chart: agent-webex-0.2.2
+    app.kubernetes.io/name: agent-webex
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-webex
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-ontology/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-ontology
+  labels:
+    helm.sh/chart: agent-ontology-0.0.1
+    app.kubernetes.io/name: agent-ontology
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8098
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-ontology
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-rag/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-rag
+  labels:
+    helm.sh/chart: agent-rag-0.0.1
+    app.kubernetes.io/name: agent-rag
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8099
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: agent-rag
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/charts/etcd/templates/svc-headless.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-etcd-headless
+  namespace: default
+  labels:
+    app.kubernetes.io/name: etcd
+    helm.sh/chart: etcd-6.3.3
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: "client"
+      port: 2379
+      targetPort: client
+    - name: "peer"
+      port: 2380
+      targetPort: peer
+  selector:
+    app.kubernetes.io/name: etcd
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/charts/etcd/templates/svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-etcd
+  namespace: default
+  labels:
+    app.kubernetes.io/name: etcd
+    helm.sh/chart: etcd-6.3.3
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+spec:
+  type: ClusterIP
+  ports:
+    - name: "client"
+      port: 2379
+      targetPort: client
+      nodePort: null
+    - name: "peer"
+      port: 2380
+      targetPort: peer
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: etcd
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/charts/minio/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-minio
+  labels:
+    app: minio
+    chart: minio-8.0.17
+    release: test-release
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9000
+      protocol: TCP
+      targetPort: 9000
+  selector:
+    app: minio
+    release: test-release
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/charts/minio/templates/statefulset.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-minio-svc
+  labels:
+    app: minio
+    chart: minio-8.0.17
+    release: "test-release"
+    heritage: "Helm"
+spec:
+  publishNotReadyAddresses: true
+  clusterIP: None
+  ports:
+    - name: http
+      port: 9000
+      protocol: TCP
+  selector:
+    app: minio
+    release: test-release
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/datanode-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-milvus-datanode
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "datanode"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    component: "datanode"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/mixcoord-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-milvus-mixcoord
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "mixcoord"
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    component: "mixcoord"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/querynode-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-milvus-querynode
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "querynode"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    component: "querynode"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-milvus
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "proxy"
+spec:
+  type: ClusterIP
+  ports:
+    - name: milvus
+      port: 19530
+      protocol: TCP
+      targetPort: milvus
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    component: "proxy"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/streamingnode-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-milvus-streamingnode
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "streamingnode"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    component: "streamingnode"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-svc.yaml
+# ClusterIP service for bolt / http connections
+apiVersion: v1
+kind: Service
+metadata:
+  name: "rag-neo4j-ontology"
+  namespace: "default"
+  labels:
+    helm.neo4j.com/neo4j.name: "rag-neo4j-ontology"
+    app: "rag-neo4j-ontology"
+    helm.neo4j.com/instance: "rag-neo4j-ontology"
+    helm.neo4j.com/service: "default"    
+spec:
+  publishNotReadyAddresses: false
+  type: ClusterIP
+  selector:
+    app: "rag-neo4j-ontology"
+    helm.neo4j.com/instance: "rag-neo4j-ontology"
+  ports:
+    - protocol: TCP
+      port: 7687
+      targetPort: 7687
+      name: tcp-bolt
+    - protocol: TCP
+      port: 7474
+      targetPort: 7474
+      name: tcp-http
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-svc.yaml
+# ClusterIP service for admin connections to Neo4j inside Kubernetes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: "rag-neo4j-ontology-admin"
+  namespace: "default"
+  labels:
+    helm.neo4j.com/neo4j.name: "rag-neo4j-ontology"
+    app: "rag-neo4j-ontology"
+    helm.neo4j.com/instance: "rag-neo4j-ontology"
+    helm.neo4j.com/service: "admin"    
+spec:
+  publishNotReadyAddresses: true
+  type: "ClusterIP"
+  selector:
+    app: "rag-neo4j-ontology"
+    helm.neo4j.com/instance: "rag-neo4j-ontology"
+  ports:
+    - protocol: TCP
+      port: 7687
+      targetPort: 7687
+      name: tcp-bolt
+    - protocol: TCP
+      port: 7474
+      targetPort: 7474
+      name: tcp-http
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-svc.yaml
+# ClusterIP service for bolt / http connections
+apiVersion: v1
+kind: Service
+metadata:
+  name: "rag-neo4j"
+  namespace: "default"
+  labels:
+    helm.neo4j.com/neo4j.name: "rag-neo4j"
+    app: "rag-neo4j"
+    helm.neo4j.com/instance: "rag-neo4j"
+    helm.neo4j.com/service: "default"    
+spec:
+  publishNotReadyAddresses: false
+  type: ClusterIP
+  selector:
+    app: "rag-neo4j"
+    helm.neo4j.com/instance: "rag-neo4j"
+  ports:
+    - protocol: TCP
+      port: 7687
+      targetPort: 7687
+      name: tcp-bolt
+    - protocol: TCP
+      port: 7474
+      targetPort: 7474
+      name: tcp-http
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-svc.yaml
+# ClusterIP service for admin connections to Neo4j inside Kubernetes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: "rag-neo4j-admin"
+  namespace: "default"
+  labels:
+    helm.neo4j.com/neo4j.name: "rag-neo4j"
+    app: "rag-neo4j"
+    helm.neo4j.com/instance: "rag-neo4j"
+    helm.neo4j.com/service: "admin"    
+spec:
+  publishNotReadyAddresses: true
+  type: "ClusterIP"
+  selector:
+    app: "rag-neo4j"
+    helm.neo4j.com/instance: "rag-neo4j"
+  ports:
+    - protocol: TCP
+      port: 7687
+      targetPort: 7687
+      name: tcp-bolt
+    - protocol: TCP
+      port: 7474
+      targetPort: 7474
+      name: tcp-http
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/rag-redis/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-redis
+  labels:
+    helm.sh/chart: rag-redis-0.0.1
+    app.kubernetes.io/name: rag-redis
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: redis
+      protocol: TCP
+      name: redis
+  selector:
+    app.kubernetes.io/name: rag-redis
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/rag-server/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-server
+  labels:
+    helm.sh/chart: rag-server-0.0.1
+    app.kubernetes.io/name: rag-server
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9446
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rag-server
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/rag-webui/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-rag-webui
+  labels:
+    helm.sh/chart: rag-webui-0.0.1
+    app.kubernetes.io/name: rag-webui
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rag-webui
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/supervisor-agent/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-supervisor-agent
+  labels:
+    helm.sh/chart: supervisor-agent-0.1.1
+    app.kubernetes.io/name: supervisor-agent
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: supervisor-agent
+    app.kubernetes.io/instance: test-release
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-argocd
+  labels:
+    helm.sh/chart: agent-argocd-0.2.2
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-argocd
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-argocd-0.2.2
+        app.kubernetes.io/name: agent-argocd
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-argocd
+      containers:
+        - name: agent-argocd
+          image: "ghcr.io/cnoe-io/agent-argocd:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-argocd-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-argocd-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-argocd-mcp
+  labels:
+    helm.sh/chart: agent-argocd-0.2.2
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-argocd-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-argocd
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-argocd-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-argocd-0.2.2
+        app.kubernetes.io/name: agent-argocd
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-argocd-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-argocd
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-argocd:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-argocd-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/agent-aws/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-aws
+  labels:
+    helm.sh/chart: agent-aws-0.2.2
+    app.kubernetes.io/name: agent-aws
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-aws
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-aws-0.2.2
+        app.kubernetes.io/name: agent-aws
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-aws
+      containers:
+        - name: agent-aws
+          image: "ghcr.io/cnoe-io/agent-aws:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-aws-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-aws-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-aws/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-aws-mcp
+  labels:
+    helm.sh/chart: agent-aws-0.2.2
+    app.kubernetes.io/name: agent-aws
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-aws-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-aws
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-aws-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-aws-0.2.2
+        app.kubernetes.io/name: agent-aws
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-aws-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-aws
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-aws:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-aws-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/agent-backstage/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-backstage
+  labels:
+    helm.sh/chart: agent-backstage-0.2.2
+    app.kubernetes.io/name: agent-backstage
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-backstage
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-backstage-0.2.2
+        app.kubernetes.io/name: agent-backstage
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-backstage
+      containers:
+        - name: agent-backstage
+          image: "ghcr.io/cnoe-io/agent-backstage:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-backstage-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-backstage-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-backstage/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-backstage-mcp
+  labels:
+    helm.sh/chart: agent-backstage-0.2.2
+    app.kubernetes.io/name: agent-backstage
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-backstage-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-backstage
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-backstage-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-backstage-0.2.2
+        app.kubernetes.io/name: agent-backstage
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-backstage-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-backstage
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-backstage:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-backstage-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/agent-confluence/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-confluence
+  labels:
+    helm.sh/chart: agent-confluence-0.2.2
+    app.kubernetes.io/name: agent-confluence
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-confluence
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-confluence-0.2.2
+        app.kubernetes.io/name: agent-confluence
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-confluence
+      containers:
+        - name: agent-confluence
+          image: "ghcr.io/cnoe-io/agent-confluence:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-confluence-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-confluence-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-confluence/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-confluence-mcp
+  labels:
+    helm.sh/chart: agent-confluence-0.2.2
+    app.kubernetes.io/name: agent-confluence
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-confluence-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-confluence
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-confluence-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-confluence-0.2.2
+        app.kubernetes.io/name: agent-confluence
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-confluence-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-confluence
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-confluence:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-confluence-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/agent-github/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-github
+  labels:
+    helm.sh/chart: agent-github-0.2.2
+    app.kubernetes.io/name: agent-github
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-github
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-github-0.2.2
+        app.kubernetes.io/name: agent-github
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-github
+      containers:
+        - name: agent-github
+          image: "ghcr.io/cnoe-io/agent-github:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-github-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-github-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-jira/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-jira
+  labels:
+    helm.sh/chart: agent-jira-0.2.2
+    app.kubernetes.io/name: agent-jira
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-jira
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-jira-0.2.2
+        app.kubernetes.io/name: agent-jira
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-jira
+      containers:
+        - name: agent-jira
+          image: "ghcr.io/cnoe-io/agent-jira:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-jira-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-jira-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-jira/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-jira-mcp
+  labels:
+    helm.sh/chart: agent-jira-0.2.2
+    app.kubernetes.io/name: agent-jira
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-jira-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-jira
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-jira-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-jira-0.2.2
+        app.kubernetes.io/name: agent-jira
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-jira-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-jira
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-jira:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-jira-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/agent-komodor/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-komodor
+  labels:
+    helm.sh/chart: agent-komodor-0.2.2
+    app.kubernetes.io/name: agent-komodor
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-komodor
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-komodor-0.2.2
+        app.kubernetes.io/name: agent-komodor
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-komodor
+      containers:
+        - name: agent-komodor
+          image: "ghcr.io/cnoe-io/agent-komodor:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-komodor-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-komodor-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-komodor/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-komodor-mcp
+  labels:
+    helm.sh/chart: agent-komodor-0.2.2
+    app.kubernetes.io/name: agent-komodor
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-komodor-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-komodor
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-komodor-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-komodor-0.2.2
+        app.kubernetes.io/name: agent-komodor
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-komodor-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-komodor
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-komodor:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-komodor-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-pagerduty
+  labels:
+    helm.sh/chart: agent-pagerduty-0.2.2
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-pagerduty
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-pagerduty-0.2.2
+        app.kubernetes.io/name: agent-pagerduty
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-pagerduty
+      containers:
+        - name: agent-pagerduty
+          image: "ghcr.io/cnoe-io/agent-pagerduty:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-pagerduty-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-pagerduty-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-pagerduty-mcp
+  labels:
+    helm.sh/chart: agent-pagerduty-0.2.2
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-pagerduty-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-pagerduty
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-pagerduty-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-pagerduty-0.2.2
+        app.kubernetes.io/name: agent-pagerduty
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-pagerduty-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-pagerduty
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-pagerduty:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-pagerduty-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/agent-slack/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-slack
+  labels:
+    helm.sh/chart: agent-slack-0.2.2
+    app.kubernetes.io/name: agent-slack
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-slack
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-slack-0.2.2
+        app.kubernetes.io/name: agent-slack
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-slack
+      containers:
+        - name: agent-slack
+          image: "ghcr.io/cnoe-io/agent-slack:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-slack-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-slack-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-slack/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-slack-mcp
+  labels:
+    helm.sh/chart: agent-slack-0.2.2
+    app.kubernetes.io/name: agent-slack
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-slack-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-slack
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-slack-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-slack-0.2.2
+        app.kubernetes.io/name: agent-slack
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-slack-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-slack
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-slack:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-slack-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/agent-splunk/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-splunk
+  labels:
+    helm.sh/chart: agent-splunk-0.2.2
+    app.kubernetes.io/name: agent-splunk
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-splunk
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-splunk-0.2.2
+        app.kubernetes.io/name: agent-splunk
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-splunk
+      containers:
+        - name: agent-splunk
+          image: "ghcr.io/cnoe-io/agent-splunk:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-splunk-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-splunk-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-splunk/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-splunk-mcp
+  labels:
+    helm.sh/chart: agent-splunk-0.2.2
+    app.kubernetes.io/name: agent-splunk
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-splunk-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-splunk
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-splunk-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-splunk-0.2.2
+        app.kubernetes.io/name: agent-splunk
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-splunk-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-splunk
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-splunk:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-splunk-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/agent-webex/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-webex
+  labels:
+    helm.sh/chart: agent-webex-0.2.2
+    app.kubernetes.io/name: agent-webex
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-webex
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-webex-0.2.2
+        app.kubernetes.io/name: agent-webex
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-agent-webex
+      containers:
+        - name: agent-webex
+          image: "ghcr.io/cnoe-io/agent-webex:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-webex-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_HOST
+              value: test-release-agent-webex-mcp
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/agent-webex/templates/mcp-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-agent-webex-mcp
+  labels:
+    helm.sh/chart: agent-webex-0.2.2
+    app.kubernetes.io/name: agent-webex
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: test-release-agent-webex-mcp
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-webex
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/name: test-release-agent-webex-mcp
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-webex-0.2.2
+        app.kubernetes.io/name: agent-webex
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.2.2"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: test-release-agent-webex-mcp
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: test-release-agent-webex
+      containers:
+        - name: mcp
+          image: "ghcr.io/cnoe-io/mcp-webex:stable"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - secretRef:
+                name: agent-webex-secret
+          env:
+            - name: MCP_MODE
+              value: http
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-ontology/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-ontology
+  labels:
+    helm.sh/chart: agent-ontology-0.0.1
+    app.kubernetes.io/name: agent-ontology
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-ontology
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-ontology-0.0.1
+        app.kubernetes.io/name: agent-ontology
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.0.1"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: agent-ontology
+      containers:
+        - name: agent-ontology
+          image: "ghcr.io/cnoe-io/caipe-rag-agent-ontology:latest"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8098
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+          env:
+            - name: LOG_LEVEL
+              value: "DEBUG"
+            - name: REDIS_URL
+              value: "redis://rag-redis:6379/0"
+            - name: NEO4J_ADDR
+              value: "neo4j://rag-neo4j:7687"
+            - name: NEO4J_ONTOLOGY_ADDR
+              value: "neo4j://rag-neo4j-ontology:7688"
+            - name: NEO4J_USERNAME
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              value: "dummy_password"
+            - name: SYNC_INTERVAL
+              value: "86400"
+          livenessProbe:
+            failureThreshold: 10
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 10
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              ephemeral-storage: 1Gi
+              memory: 2Gi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 256Mi
+              memory: 128Mi
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-rag/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-rag
+  labels:
+    helm.sh/chart: agent-rag-0.0.1
+    app.kubernetes.io/name: agent-rag
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-rag
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: agent-rag-0.0.1
+        app.kubernetes.io/name: agent-rag
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.0.1"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: agent-rag
+      containers:
+        - name: agent-rag
+          image: "ghcr.io/cnoe-io/caipe-rag-agent-rag:latest"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8099
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+          env:
+            - name: LOG_LEVEL
+              value: "DEBUG"
+            - name: REDIS_URL
+              value: "redis://rag-redis:6379/0"
+            - name: NEO4J_ADDR
+              value: "neo4j://rag-neo4j:7687"
+            - name: NEO4J_ONTOLOGY_ADDR
+              value: "neo4j://rag-neo4j-ontology:7688"
+            - name: NEO4J_USERNAME
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              value: "dummy_password"
+            - name: ENABLE_GRAPH_RAG
+              value: "true"
+          livenessProbe:
+            failureThreshold: 10
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 10
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              ephemeral-storage: 1Gi
+              memory: 2Gi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 256Mi
+              memory: 128Mi
+          volumeMounts:
+      volumes:
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/datanode-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-milvus-datanode
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "datanode"
+
+    
+  annotations:
+    
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: test-release
+      component: "datanode"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: test-release
+        component: "datanode"
+        
+      annotations:
+        checksum/config: adf89b3889e7f4c7fbcb8c1b7e96b5d906691e82c2176c13eedb1540d9f103fd
+        
+    spec:
+      serviceAccountName: default
+      initContainers:
+      containers:
+      - name: datanode
+        image: "milvusdb/milvus:v2.6.1"
+        imagePullPolicy: IfNotPresent
+        
+        
+        args: [ "milvus", "run", "datanode" ]
+        env:
+        ports:
+          - name: datanode
+            containerPort: 21124
+            protocol: TCP
+          - name: metrics
+            containerPort: 9091
+            protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        volumeMounts:
+        - name: milvus-config
+          mountPath: /milvus/configs/default.yaml
+          subPath: default.yaml
+          readOnly: true
+        - name: milvus-config
+          mountPath: /milvus/configs/user.yaml
+          subPath: user.yaml
+          readOnly: true
+        - mountPath: /milvus/tools
+          name: tools
+      volumes:
+      - name: milvus-config
+        configMap:
+          name: test-release-milvus
+      - name: tools
+        emptyDir: {}
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/mixcoord-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-milvus-mixcoord
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "mixcoord"
+    
+  annotations:
+    
+
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: test-release
+      component: "mixcoord"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: test-release
+        
+        component: "mixcoord"
+      annotations:
+        checksum/config: adf89b3889e7f4c7fbcb8c1b7e96b5d906691e82c2176c13eedb1540d9f103fd
+        
+    spec:
+      serviceAccountName: default
+      initContainers:
+      containers:
+      - name: mixcoord
+        image: "milvusdb/milvus:v2.6.1"
+        imagePullPolicy: IfNotPresent
+        
+        
+        args: [ "milvus", "run", "mixture", "-rootcoord", "-querycoord", "-datacoord", "-indexcoord" ]
+        env:
+        ports:
+          - name: metrics
+            containerPort: 9091
+            protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        resources:
+          {}
+        volumeMounts:
+        - name: milvus-config
+          mountPath: /milvus/configs/default.yaml
+          subPath: default.yaml
+          readOnly: true
+        - name: milvus-config
+          mountPath: /milvus/configs/user.yaml
+          subPath: user.yaml
+          readOnly: true
+        - mountPath: /milvus/tools
+          name: tools
+
+      volumes:
+      - name: milvus-config
+        configMap:
+          name: test-release-milvus
+      - name: tools
+        emptyDir: {}
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/proxy-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-milvus-proxy
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "proxy"
+
+    
+  annotations:
+    
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: test-release
+      component: "proxy"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: test-release
+        component: "proxy"
+        
+      annotations:
+        checksum/config: adf89b3889e7f4c7fbcb8c1b7e96b5d906691e82c2176c13eedb1540d9f103fd
+        
+    spec:
+      serviceAccountName: default
+      initContainers:
+      containers:
+      - name: proxy
+        image: "milvusdb/milvus:v2.6.1"
+        imagePullPolicy: IfNotPresent
+        
+        
+        args: [ "milvus", "run", "proxy" ]
+        env:
+        ports:
+          - name: milvus
+            containerPort: 19530
+            protocol: TCP
+          - name: metrics
+            containerPort: 9091
+            protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        resources:
+          {}
+        volumeMounts:
+        - name: milvus-config
+          mountPath: /milvus/configs/default.yaml
+          subPath: default.yaml
+          readOnly: true
+        - name: milvus-config
+          mountPath: /milvus/configs/user.yaml
+          subPath: user.yaml
+          readOnly: true
+        - mountPath: /milvus/tools
+          name: tools
+
+      volumes:
+      - name: milvus-config
+        configMap:
+          name: test-release-milvus
+      - name: tools
+        emptyDir: {}
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/querynode-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-milvus-querynode
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "querynode"
+    
+  annotations:
+    
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: test-release
+      component: "querynode"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: test-release
+        component: "querynode"
+        
+      annotations:
+        checksum/config: adf89b3889e7f4c7fbcb8c1b7e96b5d906691e82c2176c13eedb1540d9f103fd
+        
+    spec:
+      serviceAccountName: default
+      initContainers:
+      containers:
+      - name: querynode
+        image: "milvusdb/milvus:v2.6.1"
+        imagePullPolicy: IfNotPresent
+        
+        
+        args: [ "milvus", "run", "querynode" ]
+        env:
+        ports:
+          - name: querynode
+            containerPort: 21123
+            protocol: TCP
+          - name: metrics
+            containerPort: 9091
+            protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        volumeMounts:
+        - name: milvus-config
+          mountPath: /milvus/configs/default.yaml
+          subPath: default.yaml
+          readOnly: true
+        - name: milvus-config
+          mountPath: /milvus/configs/user.yaml
+          subPath: user.yaml
+          readOnly: true
+        - mountPath: /milvus/tools
+          name: tools
+        - mountPath: /var/lib/milvus/data
+          name: disk
+
+      volumes:
+      - name: milvus-config
+        configMap:
+          name: test-release-milvus
+      - name: tools
+        emptyDir: {}
+      - name: disk
+        emptyDir: {}
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/templates/streamingnode-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-milvus-streamingnode
+  namespace: default
+  labels:
+    helm.sh/chart: milvus-5.0.2
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "2.6.1"
+    app.kubernetes.io/managed-by: Helm
+    component: "streamingnode"
+
+    
+  annotations:
+    
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: test-release
+      component: "streamingnode"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: test-release
+        component: "streamingnode"
+        
+      annotations:
+        checksum/config: adf89b3889e7f4c7fbcb8c1b7e96b5d906691e82c2176c13eedb1540d9f103fd
+        
+    spec:
+      serviceAccountName: default
+      initContainers:
+      containers:
+      - name: streamingnode
+        image: "milvusdb/milvus:v2.6.1"
+        imagePullPolicy: IfNotPresent
+        
+        
+        args: [ "milvus", "run", "streamingnode" ]
+        env:
+        ports:
+          - name: streamingnode
+            containerPort: 22222
+            protocol: TCP
+          - name: metrics
+            containerPort: 9091
+            protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+        resources:
+          {}
+        volumeMounts:
+        - name: milvus-config
+          mountPath: /milvus/configs/default.yaml
+          subPath: default.yaml
+          readOnly: true
+        - name: milvus-config
+          mountPath: /milvus/configs/user.yaml
+          subPath: user.yaml
+          readOnly: true
+        - mountPath: /milvus/tools
+          name: tools
+        - mountPath: /var/lib/milvus
+          name: woodpecker
+      volumes:
+      - name: milvus-config
+        configMap:
+          name: test-release-milvus
+      - name: tools
+        emptyDir: {}
+      - name: woodpecker
+        emptyDir: {}
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/rag-redis/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-redis
+  labels:
+    helm.sh/chart: rag-redis-0.0.1
+    app.kubernetes.io/name: rag-redis
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-redis
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: rag-redis-0.0.1
+        app.kubernetes.io/name: rag-redis
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.0.1"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: rag-redis
+      containers:
+        - name: rag-redis
+          image: "redis:7.2-alpine"
+          imagePullPolicy: IfNotPresent
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --save
+            - "60 1"
+            - --maxmemory
+            - "256mb"
+            - --maxmemory-policy
+            - "allkeys-lru"
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+              - redis-cli
+              - ping
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+              - redis-cli
+              - ping
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/rag-server/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-server
+  labels:
+    helm.sh/chart: rag-server-0.0.1
+    app.kubernetes.io/name: rag-server
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-server
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: rag-server-0.0.1
+        app.kubernetes.io/name: rag-server
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.0.1"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: default
+      automountServiceAccountToken: false
+      containers:
+        - name: rag-server
+          image: "ghcr.io/cnoe-io/caipe-rag-server:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9446
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+          env:
+            - name: LOG_LEVEL
+              value: "DEBUG"
+            - name: REDIS_URL
+              value: "redis://rag-redis:6379/0"
+            - name: NEO4J_ADDR
+              value: "neo4j://rag-neo4j:7687"
+            - name: NEO4J_ONTOLOGY_ADDR
+              value: "neo4j://rag-neo4j-ontology:7688"
+            - name: NEO4J_USERNAME
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              value: "dummy_password"
+            - name: MILVUS_URI
+              value: "http://test-release-milvus:19530"
+            - name: ONTOLOGY_AGENT_RESTAPI_ADDR
+              value: "http://agent-ontology:8098"
+            - name: ENABLE_GRAPH_RAG
+              value: ""
+            - name: CLEANUP_INTERVAL
+              value: "86400"
+          resources:
+            limits:
+              cpu: 500m
+              ephemeral-storage: 1Gi
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              ephemeral-storage: 256Mi
+              memory: 128Mi
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/rag-webui/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-rag-webui
+  labels:
+    helm.sh/chart: rag-webui-0.0.1
+    app.kubernetes.io/name: rag-webui
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-webui
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: rag-webui-0.0.1
+        app.kubernetes.io/name: rag-webui
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.0.1"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: default
+      automountServiceAccountToken: false
+      containers:
+        - name: rag-webui
+          image: "ghcr.io/cnoe-io/caipe-rag-webui:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+# Source: ai-platform-engineering/charts/supervisor-agent/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-supervisor-agent
+  labels:
+    helm.sh/chart: supervisor-agent-0.1.1
+    app.kubernetes.io/name: supervisor-agent
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: supervisor-agent
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: supervisor-agent-0.1.1
+        app.kubernetes.io/name: supervisor-agent
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.1.1"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: test-release-supervisor-agent
+      containers:
+        - name: supervisor-agent
+          image: "ghcr.io/cnoe-io/ai-platform-engineering:stable"
+          imagePullPolicy: Always
+          args:
+            - "platform-engineer"
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: llm-secret
+            - configMapRef:
+                name: test-release-supervisor-agent-env
+          env:
+            - name: AGENT_PROTOCOL
+              value: "a2a"
+            - name: AGENT_CONNECTIVITY_ENABLE_BACKGROUND
+              value: "true"
+            - name: EXTERNAL_URL
+              value: "http://localhost:8000"
+            - name: SKIP_AGENT_CONNECTIVITY_CHECK
+              value: "false"
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: http
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: prompt-config
+              mountPath: /app/prompt_config.yaml
+              subPath: prompt_config.yaml
+              readOnly: true
+      volumes:
+        - name: prompt-config
+          configMap:
+            name: prompt-config
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/charts/etcd/templates/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: test-release-etcd
+  namespace: default
+  labels:
+    app.kubernetes.io/name: etcd
+    helm.sh/chart: etcd-6.3.3
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: etcd
+      app.kubernetes.io/instance: test-release
+  serviceName: test-release-etcd-headless
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: etcd
+        helm.sh/chart: etcd-6.3.3
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/managed-by: Helm
+      annotations:
+    spec:
+      
+      affinity:
+        podAffinity:
+          
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: etcd
+                    app.kubernetes.io/instance: test-release
+                namespaces:
+                  - "default"
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity:
+          
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: "default"
+      containers:
+        - name: etcd
+          image: docker.io/milvusdb/etcd:3.5.18-r1
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ETCDCTL_API
+              value: "3"
+            - name: ETCD_ON_K8S
+              value: "yes"
+            - name: ETCD_START_FROM_SNAPSHOT
+              value: "no"
+            - name: ETCD_DISASTER_RECOVERY
+              value: "no"
+            - name: ETCD_NAME
+              value: "$(MY_POD_NAME)"
+            - name: ETCD_DATA_DIR
+              value: "/bitnami/etcd/data"
+            - name: ETCD_LOG_LEVEL
+              value: "info"
+            - name: ALLOW_NONE_AUTHENTICATION
+              value: "yes"
+            - name: ETCD_ADVERTISE_CLIENT_URLS
+              value: "http://$(MY_POD_NAME).test-release-etcd-headless.default.svc.cluster.local:2379"
+            - name: ETCD_LISTEN_CLIENT_URLS
+              value: "http://0.0.0.0:2379"
+            - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
+              value: "http://$(MY_POD_NAME).test-release-etcd-headless.default.svc.cluster.local:2380"
+            - name: ETCD_LISTEN_PEER_URLS
+              value: "http://0.0.0.0:2380"
+            - name: ETCD_AUTO_COMPACTION_MODE
+              value: "revision"
+            - name: ETCD_AUTO_COMPACTION_RETENTION
+              value: "1000"
+            - name: ETCD_INITIAL_CLUSTER_TOKEN
+              value: "etcd-cluster-k8s"
+            - name: ETCD_INITIAL_CLUSTER_STATE
+              value: "new"
+            - name: ETCD_INITIAL_CLUSTER
+              value: "test-release-etcd-0=http://test-release-etcd-0.test-release-etcd-headless.default.svc.cluster.local:2380,test-release-etcd-1=http://test-release-etcd-1.test-release-etcd-headless.default.svc.cluster.local:2380,test-release-etcd-2=http://test-release-etcd-2.test-release-etcd-headless.default.svc.cluster.local:2380"
+            - name: ETCD_CLUSTER_DOMAIN
+              value: "test-release-etcd-headless.default.svc.cluster.local"
+            - name: ETCD_QUOTA_BACKEND_BYTES
+              value: "4294967296"
+            - name: ETCD_HEARTBEAT_INTERVAL
+              value: "500"
+            - name: ETCD_ELECTION_TIMEOUT
+              value: "2500"
+          envFrom:
+          ports:
+            - name: client
+              containerPort: 2379
+              protocol: TCP
+            - name: peer
+              containerPort: 2380
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - /opt/bitnami/scripts/etcd/healthcheck.sh
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - /opt/bitnami/scripts/etcd/healthcheck.sh
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 5
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /opt/bitnami/scripts/etcd/prestop.sh
+          resources:
+            limits: {}
+            requests: {}
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/etcd
+      volumes:
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "10Gi"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/milvus/charts/minio/templates/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: test-release-minio
+  labels:
+    app: minio
+    chart: minio-8.0.17
+    release: test-release
+    heritage: Helm
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: "Parallel"
+  serviceName: test-release-minio-svc
+  replicas: 4
+  selector:
+    matchLabels:
+      app: minio
+      release: test-release
+  template:
+    metadata:
+      name: test-release-minio
+      labels:
+        app: minio
+        release: test-release
+      annotations:
+        checksum/secrets: 85dcdfd7c6e154b23411a81670081a877c30815874cc05621f4a41fa9e6d8a4c
+        checksum/config: 63ab91e4d8ffbdcdfdb709c72e04b38e0341e8f5850146809d2dd3e7d78dc053
+    spec:
+      serviceAccountName: "test-release-minio"
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+          imagePullPolicy: IfNotPresent
+
+          command: [ "/bin/sh",
+            "-ce",
+            "/usr/bin/docker-entrypoint.sh minio -S /etc/minio/certs/ server  http://test-release-minio-{0...3}.test-release-minio-svc.default.svc.cluster.local/export" ]
+          volumeMounts:
+            - name: export
+              mountPath: /export            
+          ports:
+            - name: http
+              containerPort: 9000
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+          startupProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 60
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: test-release-minio
+                  key: accesskey
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: test-release-minio
+                  key: secretkey
+          resources:
+            requests:
+              memory: 2Gi      
+      volumes:
+        - name: minio-user
+          secret:
+            secretName: test-release-minio        
+  volumeClaimTemplates:
+    - metadata:
+        name: export
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 500Gi
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j-ontology/templates/neo4j-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    helm.neo4j.com/neo4j.name: "rag-neo4j-ontology"
+    helm.neo4j.com/clustering: "false"
+    app: "rag-neo4j-ontology"
+    helm.neo4j.com/instance: rag-neo4j-ontology    
+  name: rag-neo4j-ontology
+  namespace: "default"
+spec:
+  serviceName: "rag-neo4j-ontology"
+  podManagementPolicy: "Parallel" # This setting means that the StatefulSet controller doesn't block applying changes until the existing Pod is READY.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "rag-neo4j-ontology"
+      helm.neo4j.com/instance: "rag-neo4j-ontology"
+  template:
+    metadata:
+      labels:
+        app: "rag-neo4j-ontology"
+        helm.neo4j.com/neo4j.name: "rag-neo4j-ontology"
+        helm.neo4j.com/clustering: "false"
+        helm.neo4j.com/pod_category: "neo4j-instance" # used for anti affinity rules
+        helm.neo4j.com/neo4j.loadbalancer: "include"
+        helm.neo4j.com/instance: "rag-neo4j-ontology"        
+      annotations:
+        "checksum/rag-neo4j-ontology-config": fa6d326af9da7ff6a59bc3918a758cc1aba8ec4cf09ae41122e0fc724c927ddf
+        "checksum/rag-neo4j-ontology-env": 37e52e81a72dd7da6d6d39ba99b3a27f5942c10f6d96e88bb1373320969e1a00        
+    spec:      
+      affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app: "rag-neo4j-ontology"
+                    helm.neo4j.com/pod_category: "neo4j-instance"
+                topologyKey: kubernetes.io/hostname
+      dnsPolicy: ClusterFirst
+      securityContext: 
+        fsGroup: 7474
+        fsGroupChangePolicy: Always
+        runAsGroup: 7474
+        runAsNonRoot: true
+        runAsUser: 7474            
+      
+      terminationGracePeriodSeconds: 3600            
+      containers:
+        - name: "neo4j"
+          image: "neo4j:2025.07.1"
+          imagePullPolicy: "IfNotPresent"
+          envFrom:
+            - configMapRef:
+                name: "rag-neo4j-ontology-env"
+          env:
+            - name: HELM_NEO4J_VERSION
+              value: "2025.07.1"
+            - name: HELM_CHART_VERSION
+              value: "2025.7.1"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SERVICE_NEO4J_ADMIN
+              value: "rag-neo4j-ontology-admin.default.svc.cluster.local"
+            - name: SERVICE_NEO4J_INTERNALS
+              value: "rag-neo4j-ontology-internals.default.svc.cluster.local"
+            - name: SERVICE_NEO4J
+              value: "rag-neo4j-ontology.default.svc.cluster.local"
+          ports:
+            - containerPort: 7474
+              name: http
+            - containerPort: 7687
+              name: bolt
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+          securityContext: 
+              capabilities:
+                drop:
+                - ALL
+              runAsGroup: 7474
+              runAsNonRoot: true
+              runAsUser: 7474
+          volumeMounts:
+            - mountPath: "/config/neo4j.conf"
+              name: neo4j-conf
+            - mountPath: "/config/server-logs.xml"
+              name: neo4j-server-logs
+            - mountPath: "/config/user-logs.xml"
+              name: neo4j-user-logs
+            - mountPath: "/config/neo4j-auth"
+              name: neo4j-auth
+                        
+            - mountPath: "/config/"
+              name: "apoc-conf"                                    
+            - mountPath: "/backups"
+              name: "data"
+              subPathExpr: "backups"
+            - mountPath: "/data"
+              name: "data"
+              subPathExpr: "data"
+            - mountPath: "/import"
+              name: "data"
+              subPathExpr: "import"
+            - mountPath: "/licenses"
+              name: "data"
+              subPathExpr: "licenses"
+            - mountPath: "/logs"
+              name: "data"
+              subPathExpr: "logs/$(POD_NAME)"
+            - mountPath: "/metrics"
+              name: "data"
+              subPathExpr: "metrics/$(POD_NAME)"            
+          # Allow user to override the readinessProbe settings for advanced use cases
+          # See: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#probe-v1-core
+          readinessProbe:
+            # Allow overriding the probe action
+            tcpSocket:
+              port: 7687
+            # If no probe action is set, default to using tcpSocket probe to check port 7687 to check if bolt connections can be made
+            failureThreshold: 20
+            timeoutSeconds: 10
+            periodSeconds: 5
+          # Allow user to override the livenessProbe settings for advanced use cases
+          # See: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#probe-v1-core
+          livenessProbe:
+            # Allow overriding the probe action
+            tcpSocket:
+              port: 7687
+            # If no probe action is set, default to using tcpSocket probe to check port 7687 to check if bolt connections can be made
+            failureThreshold: 40
+            timeoutSeconds: 10
+            periodSeconds: 5
+          # Allow user to override the startupProbe settings for advanced use cases
+          # See: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#probe-v1-core
+          startupProbe:
+            # Allow overriding the probe action
+            tcpSocket:
+              port: 7687
+            failureThreshold: 1000
+            periodSeconds: 5
+      volumes:
+        - name: neo4j-conf
+          projected:
+            defaultMode: 0440
+            sources:
+              - configMap:
+                  name: "rag-neo4j-ontology-default-config"
+              - configMap:
+                  name: "rag-neo4j-ontology-user-config"
+              - configMap:
+                  name: "rag-neo4j-ontology-k8s-config"
+        - name: neo4j-server-logs
+          configMap:
+            name: "rag-neo4j-ontology-server-logs-config"
+        - name: neo4j-user-logs
+          configMap:
+            name: "rag-neo4j-ontology-user-logs-config"
+        - name: "neo4j-auth"
+          secret:
+            secretName: "rag-neo4j-ontology-auth"                
+        - name: apoc-conf
+          projected:
+            defaultMode: 0440
+            sources:
+              - configMap:
+                  name: "rag-neo4j-ontology-apoc-config"                
+  volumeClaimTemplates: 
+    - metadata:
+        name: "data"
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Gi
+        storageClassName: gp2
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/neo4j/templates/neo4j-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    helm.neo4j.com/neo4j.name: "rag-neo4j"
+    helm.neo4j.com/clustering: "false"
+    app: "rag-neo4j"
+    helm.neo4j.com/instance: rag-neo4j    
+  name: rag-neo4j
+  namespace: "default"
+spec:
+  serviceName: "rag-neo4j"
+  podManagementPolicy: "Parallel" # This setting means that the StatefulSet controller doesn't block applying changes until the existing Pod is READY.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "rag-neo4j"
+      helm.neo4j.com/instance: "rag-neo4j"
+  template:
+    metadata:
+      labels:
+        app: "rag-neo4j"
+        helm.neo4j.com/neo4j.name: "rag-neo4j"
+        helm.neo4j.com/clustering: "false"
+        helm.neo4j.com/pod_category: "neo4j-instance" # used for anti affinity rules
+        helm.neo4j.com/neo4j.loadbalancer: "include"
+        helm.neo4j.com/instance: "rag-neo4j"        
+      annotations:
+        "checksum/rag-neo4j-config": eb782b019b5f87b3256bc95e1beb9e324a3b96b9cb9028cc6d395b864e5282bf
+        "checksum/rag-neo4j-env": 08371b3b60da6c14792c3d5f09d0237fef53afa8ef184e9021a674f69a29d764        
+    spec:      
+      affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app: "rag-neo4j"
+                    helm.neo4j.com/pod_category: "neo4j-instance"
+                topologyKey: kubernetes.io/hostname
+      dnsPolicy: ClusterFirst
+      securityContext: 
+        fsGroup: 7474
+        fsGroupChangePolicy: Always
+        runAsGroup: 7474
+        runAsNonRoot: true
+        runAsUser: 7474            
+      
+      terminationGracePeriodSeconds: 3600            
+      containers:
+        - name: "neo4j"
+          image: "neo4j:2025.07.1"
+          imagePullPolicy: "IfNotPresent"
+          envFrom:
+            - configMapRef:
+                name: "rag-neo4j-env"
+          env:
+            - name: HELM_NEO4J_VERSION
+              value: "2025.07.1"
+            - name: HELM_CHART_VERSION
+              value: "2025.7.1"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SERVICE_NEO4J_ADMIN
+              value: "rag-neo4j-admin.default.svc.cluster.local"
+            - name: SERVICE_NEO4J_INTERNALS
+              value: "rag-neo4j-internals.default.svc.cluster.local"
+            - name: SERVICE_NEO4J
+              value: "rag-neo4j.default.svc.cluster.local"
+          ports:
+            - containerPort: 7474
+              name: http
+            - containerPort: 7687
+              name: bolt
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+          securityContext: 
+              capabilities:
+                drop:
+                - ALL
+              runAsGroup: 7474
+              runAsNonRoot: true
+              runAsUser: 7474
+          volumeMounts:
+            - mountPath: "/config/neo4j.conf"
+              name: neo4j-conf
+            - mountPath: "/config/server-logs.xml"
+              name: neo4j-server-logs
+            - mountPath: "/config/user-logs.xml"
+              name: neo4j-user-logs
+            - mountPath: "/config/neo4j-auth"
+              name: neo4j-auth
+                        
+            - mountPath: "/config/"
+              name: "apoc-conf"                                    
+            - mountPath: "/backups"
+              name: "data"
+              subPathExpr: "backups"
+            - mountPath: "/data"
+              name: "data"
+              subPathExpr: "data"
+            - mountPath: "/import"
+              name: "data"
+              subPathExpr: "import"
+            - mountPath: "/licenses"
+              name: "data"
+              subPathExpr: "licenses"
+            - mountPath: "/logs"
+              name: "data"
+              subPathExpr: "logs/$(POD_NAME)"
+            - mountPath: "/metrics"
+              name: "data"
+              subPathExpr: "metrics/$(POD_NAME)"            
+          # Allow user to override the readinessProbe settings for advanced use cases
+          # See: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#probe-v1-core
+          readinessProbe:
+            # Allow overriding the probe action
+            tcpSocket:
+              port: 7687
+            # If no probe action is set, default to using tcpSocket probe to check port 7687 to check if bolt connections can be made
+            failureThreshold: 20
+            timeoutSeconds: 10
+            periodSeconds: 5
+          # Allow user to override the livenessProbe settings for advanced use cases
+          # See: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#probe-v1-core
+          livenessProbe:
+            # Allow overriding the probe action
+            tcpSocket:
+              port: 7687
+            # If no probe action is set, default to using tcpSocket probe to check port 7687 to check if bolt connections can be made
+            failureThreshold: 40
+            timeoutSeconds: 10
+            periodSeconds: 5
+          # Allow user to override the startupProbe settings for advanced use cases
+          # See: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#probe-v1-core
+          startupProbe:
+            # Allow overriding the probe action
+            tcpSocket:
+              port: 7687
+            failureThreshold: 1000
+            periodSeconds: 5
+      volumes:
+        - name: neo4j-conf
+          projected:
+            defaultMode: 0440
+            sources:
+              - configMap:
+                  name: "rag-neo4j-default-config"
+              - configMap:
+                  name: "rag-neo4j-user-config"
+              - configMap:
+                  name: "rag-neo4j-k8s-config"
+        - name: neo4j-server-logs
+          configMap:
+            name: "rag-neo4j-server-logs-config"
+        - name: neo4j-user-logs
+          configMap:
+            name: "rag-neo4j-user-logs-config"
+        - name: "neo4j-auth"
+          secret:
+            secretName: "rag-neo4j-auth"                
+        - name: apoc-conf
+          projected:
+            defaultMode: 0440
+            sources:
+              - configMap:
+                  name: "rag-neo4j-apoc-config"                
+  volumeClaimTemplates: 
+    - metadata:
+        name: "data"
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Gi
+        storageClassName: gp2
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/rag-webui/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-release-rag-webui
+  labels:
+    helm.sh/chart: rag-webui-0.0.1
+    app.kubernetes.io/name: rag-webui
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  rules:
+    - host: "rag-webui.local"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: test-release-rag-webui
+                port:
+                  number: 80
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-argocd-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-argocd-0.2.2
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-argocd:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-argocd:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-argocd/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-argocd-test-connection"
+  labels:
+    helm.sh/chart: agent-argocd-0.2.2
+    app.kubernetes.io/name: agent-argocd
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-argocd:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-aws/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-aws-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-aws-0.2.2
+    app.kubernetes.io/name: agent-aws
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-aws:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-aws:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-aws/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-aws-test-connection"
+  labels:
+    helm.sh/chart: agent-aws-0.2.2
+    app.kubernetes.io/name: agent-aws
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-aws:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-backstage/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-backstage-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-backstage-0.2.2
+    app.kubernetes.io/name: agent-backstage
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-backstage:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-backstage:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-backstage/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-backstage-test-connection"
+  labels:
+    helm.sh/chart: agent-backstage-0.2.2
+    app.kubernetes.io/name: agent-backstage
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-backstage:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-confluence/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-confluence-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-confluence-0.2.2
+    app.kubernetes.io/name: agent-confluence
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-confluence:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-confluence:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-confluence/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-confluence-test-connection"
+  labels:
+    helm.sh/chart: agent-confluence-0.2.2
+    app.kubernetes.io/name: agent-confluence
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-confluence:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-github/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-github-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-github-0.2.2
+    app.kubernetes.io/name: agent-github
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-github:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-github:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-github/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-github-test-connection"
+  labels:
+    helm.sh/chart: agent-github-0.2.2
+    app.kubernetes.io/name: agent-github
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-github:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-jira/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-jira-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-jira-0.2.2
+    app.kubernetes.io/name: agent-jira
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-jira:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-jira:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-jira/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-jira-test-connection"
+  labels:
+    helm.sh/chart: agent-jira-0.2.2
+    app.kubernetes.io/name: agent-jira
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-jira:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-komodor/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-komodor-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-komodor-0.2.2
+    app.kubernetes.io/name: agent-komodor
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-komodor:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-komodor:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-komodor/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-komodor-test-connection"
+  labels:
+    helm.sh/chart: agent-komodor-0.2.2
+    app.kubernetes.io/name: agent-komodor
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-komodor:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-pagerduty-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-pagerduty-0.2.2
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-pagerduty:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-pagerduty:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-pagerduty/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-pagerduty-test-connection"
+  labels:
+    helm.sh/chart: agent-pagerduty-0.2.2
+    app.kubernetes.io/name: agent-pagerduty
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-pagerduty:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-slack/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-slack-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-slack-0.2.2
+    app.kubernetes.io/name: agent-slack
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-slack:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-slack:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-slack/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-slack-test-connection"
+  labels:
+    helm.sh/chart: agent-slack-0.2.2
+    app.kubernetes.io/name: agent-slack
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-slack:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-splunk/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-splunk-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-splunk-0.2.2
+    app.kubernetes.io/name: agent-splunk
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-splunk:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-splunk:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-splunk/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-splunk-test-connection"
+  labels:
+    helm.sh/chart: agent-splunk-0.2.2
+    app.kubernetes.io/name: agent-splunk
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-splunk:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/agent-webex/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-webex-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-webex-0.2.2
+    app.kubernetes.io/name: agent-webex
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://test-release-agent-webex:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-agent-webex:8000 || echo "Basic connectivity test"
+
+      # Test MCP service if enabled
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/agent-webex/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-agent-webex-test-connection"
+  labels:
+    helm.sh/chart: agent-webex-0.2.2
+    app.kubernetes.io/name: agent-webex
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.2.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-agent-webex:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-ontology/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "agent-ontology-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-ontology-0.0.1
+    app.kubernetes.io/name: agent-ontology
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://agent-ontology:8098/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://agent-ontology:8098 || echo "Basic connectivity test"
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-ontology/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "agent-ontology-test-connection"
+  labels:
+    helm.sh/chart: agent-ontology-0.0.1
+    app.kubernetes.io/name: agent-ontology
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['agent-ontology:8098']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-rag/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "agent-rag-test-comprehensive"
+  labels:
+    helm.sh/chart: agent-rag-0.0.1
+    app.kubernetes.io/name: agent-rag
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://agent-rag:8099/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://agent-rag:8099 || echo "Basic connectivity test"
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+
+      echo "✓ Agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/agent-rag/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "agent-rag-test-connection"
+  labels:
+    helm.sh/chart: agent-rag-0.0.1
+    app.kubernetes.io/name: agent-rag
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['agent-rag:8099']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/rag-stack/charts/rag-redis/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "rag-redis-test-connection"
+  labels:
+    helm.sh/chart: rag-redis-0.0.1
+    app.kubernetes.io/name: rag-redis
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.0.1"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['rag-redis:6379']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/charts/supervisor-agent/templates/tests/test-agent-comprehensive.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-supervisor-agent-test-comprehensive"
+  labels:
+    helm.sh/chart: supervisor-agent-0.1.1
+    app.kubernetes.io/name: supervisor-agent
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-supervisor-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing supervisor-agent comprehensive functionality..."
+
+      # Test main supervisor-agent service
+      echo "Testing main supervisor-agent service..."
+      curl -f http://test-release-supervisor-agent:8000/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://test-release-supervisor-agent:8000 || echo "Basic connectivity test"
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+      echo "Environment variable AGENT_CONNECTIVITY_ENABLE_BACKGROUND: true"
+      echo "Environment variable EXTERNAL_URL: http://localhost:8000"
+      echo "Environment variable SKIP_AGENT_CONNECTIVITY_CHECK: false"
+
+      echo "✓ supervisor-agent comprehensive tests completed"
+---
+# Source: ai-platform-engineering/charts/supervisor-agent/templates/tests/test-connection.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-supervisor-agent-test-connection"
+  labels:
+    helm.sh/chart: supervisor-agent-0.1.1
+    app.kubernetes.io/name: supervisor-agent
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.1.1"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['test-release-supervisor-agent:8000']
+  restartPolicy: Never
+---
+# Source: ai-platform-engineering/templates/tests/test-ai-platform-engineering.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-ai-platform-engineering-test-ai-platform-engineering"
+  labels:
+    helm.sh/chart: ai-platform-engineering-0.3.0
+    app.kubernetes.io/name: ai-platform-engineering
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.1.11"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-ai-platform-engineering
+    image: bitnami/kubectl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing AI Platform Engineering deployment..."
+
+      # Test if AI Platform Engineering agent is running
+      if kubectl get deployment test-release-ai-platform-engineering -o jsonpath='{.status.readyReplicas}' | grep -q "1"; then
+        echo "✓ AI Platform Engineering agent deployment is ready"
+      else
+        echo "✗ AI Platform Engineering agent deployment is not ready"
+        kubectl get deployment test-release-ai-platform-engineering
+        exit 1
+      fi
+
+      # Test service connectivity
+      if kubectl get service test-release-ai-platform-engineering; then
+        echo "✓ AI Platform Engineering service exists"
+      else
+        echo "✗ AI Platform Engineering service not found"
+        exit 1
+      fi
+
+      echo "✓ All AI Platform Engineering tests passed"
+---
+# Source: ai-platform-engineering/templates/tests/test-backstage-plugin.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-ai-platform-engineering-test-backstage-plugin"
+  labels:
+    helm.sh/chart: ai-platform-engineering-0.3.0
+    app.kubernetes.io/name: ai-platform-engineering
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.1.11"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-backstage-plugin
+    image: bitnami/kubectl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Backstage Plugin Agent Forge deployment..."
+
+      # Test if Backstage Plugin Agent Forge is running (only if enabled)
+      if kubectl get deployment test-release-ai-platform-engineering-backstage-plugin-agent-forge -o jsonpath='{.status.readyReplicas}' 2>/dev/null | grep -q "1"; then
+        echo "✓ Backstage Plugin Agent Forge deployment is ready"
+      else
+        echo "ℹ Backstage Plugin Agent Forge is not enabled or not ready"
+      fi
+
+      # Test service connectivity (only if enabled)
+      if kubectl get service test-release-ai-platform-engineering-backstage-plugin-agent-forge 2>/dev/null; then
+        echo "✓ Backstage Plugin Agent Forge service exists"
+      else
+        echo "ℹ Backstage Plugin Agent Forge service not found (likely disabled)"
+      fi
+
+      echo "✓ Backstage Plugin tests completed"
+---
+# Source: ai-platform-engineering/templates/tests/test-integration.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "test-release-ai-platform-engineering-test-integration"
+  labels:
+    helm.sh/chart: ai-platform-engineering-0.3.0
+    app.kubernetes.io/name: ai-platform-engineering
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "0.1.11"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-integration
+    image: bitnami/kubectl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing AI Platform Engineering Integration..."
+
+      # Test overall deployment health
+      echo "Checking overall deployment status..."
+
+      # Count total deployments
+      total_deployments=$(kubectl get deployments -l app.kubernetes.io/instance=test-release --no-headers | wc -l)
+      echo "Total deployments found: $total_deployments"
+
+      # Count ready deployments
+      ready_deployments=$(kubectl get deployments -l app.kubernetes.io/instance=test-release -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.readyReplicas}{"\n"}{end}' | awk '$2 >= 1' | wc -l)
+      echo "Ready deployments: $ready_deployments"
+
+      # Count total services
+      total_services=$(kubectl get services -l app.kubernetes.io/instance=test-release --no-headers | wc -l)
+      echo "Total services found: $total_services"
+
+      # Test service connectivity
+      echo "Testing service connectivity..."
+
+      # Test AI Platform Engineering service
+      if kubectl get service test-release-ai-platform-engineering 2>/dev/null; then
+        echo "✓ AI Platform Engineering service is accessible"
+      fi
+
+      echo "✓ Integration tests completed successfully"

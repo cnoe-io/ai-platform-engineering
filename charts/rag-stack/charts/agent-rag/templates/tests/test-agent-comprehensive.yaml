@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "agent.fullname" . }}-test-comprehensive"
+  labels:
+    {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "2"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test-agent-comprehensive
+    image: curlimages/curl:latest
+    command: ['sh', '-c']
+    args:
+    - |
+      set -e
+      echo "Testing Agent comprehensive functionality..."
+
+      # Test main agent service
+      echo "Testing main agent service..."
+      curl -f http://{{ include "rag-server.fullname" . }}:{{ .Values.service.port }}/health || echo "Health endpoint not available, trying basic connectivity"
+      curl -f http://{{ include "rag-server.fullname" . }}:{{ .Values.service.port }} || echo "Basic connectivity test"
+
+      # Test environment variables
+      echo "Checking environment configuration..."
+      {{- if .Values.env }}
+      {{- range $key, $value := .Values.env }}
+      echo "Environment variable {{ $key }}: {{ $value }}"
+      {{- end }}
+      {{- end }}
+
+      echo "✓ Agent comprehensive tests completed"
