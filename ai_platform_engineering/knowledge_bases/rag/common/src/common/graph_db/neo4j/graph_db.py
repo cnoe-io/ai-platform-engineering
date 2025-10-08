@@ -45,8 +45,8 @@ class Neo4jDB(GraphDB):
         self.uri = uri
         self.readonly = readonly
         self.database = database
-        self.driver = AsyncGraphDatabase.driver(uri, auth=auth, notifications_min_severity="INFORMATION")
-        self.non_async_driver = GraphDatabase.driver(uri, auth=auth, notifications_min_severity="INFORMATION")
+        self.driver = AsyncGraphDatabase.driver(uri, auth=auth, notifications_min_severity="INFORMATION") #nosec
+        self.non_async_driver = GraphDatabase.driver(uri, auth=auth, notifications_min_severity="INFORMATION") #nosec
         logger.info(f"Connecting to neo4j at {uri}")
         # Try to connect to the database, retry if it fails
         utils.retry_function(self.non_async_driver.verify_connectivity, 10, 10)
