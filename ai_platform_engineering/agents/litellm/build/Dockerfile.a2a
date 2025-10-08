@@ -15,7 +15,7 @@ COPY --chown=root:root . /app/
 
 # Install dependencies into venv (no dev deps)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev
+    uv sync --no-dev
 
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
