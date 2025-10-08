@@ -138,6 +138,12 @@ jobs:
           # Update Chart.yaml with pre-release version
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
 
+          # If rag-stack was also changed, update its dependency version
+          if [[ "${{ steps.detect.outputs.rag-stack-changed }}" == "true" ]]; then
+            echo "📝 Updating rag-stack dependency version to ${{ steps.version.outputs.rag-stack-version }}"
+            sed -i "/name: rag-stack/,/repository:/ s/version:.*/version: ${{ steps.version.outputs.rag-stack-version }}/" charts/ai-platform-engineering/Chart.yaml
+          fi
+
           # Update dependencies and package
           helm dependency update charts/ai-platform-engineering/
           helm package charts/ai-platform-engineering/ --destination ./packaged-charts/
