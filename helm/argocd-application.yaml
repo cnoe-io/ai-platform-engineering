@@ -11,7 +11,7 @@ spec:
     # Main chart from GHCR
     - chart: ai-platform-engineering
       repoURL: ghcr.io/cnoe-io/pre-release-helm-charts
-      targetRevision: 0.3.0-unified-rag-helm-5
+      targetRevision: 0.3.0-unified-rag-helm-6
       helm:
         parameters:
         # - name: tags.complete # enable basic agents ()
