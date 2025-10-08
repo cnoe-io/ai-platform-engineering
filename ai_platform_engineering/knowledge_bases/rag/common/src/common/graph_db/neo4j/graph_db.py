@@ -9,7 +9,6 @@ from neo4j import Record, AsyncGraphDatabase, GraphDatabase
 from cymple.builder import QueryBuilder # TODO: Move away from cymple, limited support for complex queries
 from neo4j.graph import Node, Relationship
 import asyncio
-from neo4j.warnings import Neo4jWarning
 
 import common.utils as utils
 
