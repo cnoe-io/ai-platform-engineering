@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Test runner script to execute all mcp_argocd tests
 """
@@ -70,18 +71,18 @@ def main():
             failed += 1
 
     # Print summary
-    print(f"\n{'=' * 60}")
+    print("\n{}".format("=" * 60))
     print("TEST SUMMARY")
-    print(f"{'=' * 60}")
-    print(f"Total tests: {len(test_files)}")
-    print(f"Passed: {passed} ✅")
-    print(f"Failed: {failed} ❌")
+    print("{}".format("=" * 60))
+    print("Total tests: {}".format(len(test_files)))
+    print("Passed: {} ✅".format(passed))
+    print("Failed: {} ❌".format(failed))
 
     if failed == 0:
         print("\n🎉 All tests passed!")
         return 0
     else:
-        print(f"\n💔 {failed} test(s) failed!")
+        print("\n💔 {} test(s) failed!".format(failed))
         return 1
 
 if __name__ == "__main__":

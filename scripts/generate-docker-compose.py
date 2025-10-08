@@ -275,7 +275,7 @@ def generate_agent_service(
         volumes.extend([
             f'../ai_platform_engineering/agents/{agent_name}/agent_{agent_name}:/app/ai_platform_engineering/agents/{agent_name}/agent_{agent_name}',
             f'../ai_platform_engineering/agents/{agent_name}/clients:/app/ai_platform_engineering/agents/{agent_name}/clients',
-            f'../ai_platform_engineering/utils:/app/ai_platform_engineering/utils'
+            '../ai_platform_engineering/utils:/app/ai_platform_engineering/utils'
         ])
 
     # Special handling for RAG agent with different configuration
