@@ -26,6 +26,7 @@ if graph_rag_enabled:
 logger = get_logger(__name__)
 
 MAX_RESULTS=100
+MAX_QUERY_TOKENS=80000
 
 @tool
 async def search(query: str, graph_entity_type: Optional[str] = "", datasource_id: Optional[str] = "", limit: int = 5, similarity_threshold: float = 0.7, thought: str = "") -> str:
@@ -43,7 +44,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
     Returns:
         str: JSON encoded search results containing both documents and graph entities
     """
-    logger.debug(f"Search query: {query}, Limit: {limit}, Similarity Threshold: {similarity_threshold}, graph_entity_type: {graph_entity_type}, datasource_id: {datasource_id}, Thought: {thought}")
+    logger.info(f"Search query: {query}, Limit: {limit}, Similarity Threshold: {similarity_threshold}, graph_entity_type: {graph_entity_type}, datasource_id: {datasource_id}, Thought: {thought}")
     
     try:
         # Prepare the request payload for the REST API
@@ -102,7 +103,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
         logger.error(f"Error during search: {e}")
         return f"Error during search: {e}"
 
-    logger.debug(f"search results: total_documents {len(results.get('documents', []))}, total_graph_entities {len(results.get('graph_entities', []))}")
+    logger.info(f"search results: total_documents {len(results.get('documents', []))}, total_graph_entities {len(results.get('graph_entities', []))}")
     return json_encode(results)
 
 @tool
@@ -116,7 +117,7 @@ async def get_entity_types(thought: str) -> str:
     Returns:
         str: A list of all entity types in the graph database
     """
-    logger.debug(f"Getting entity types, Thought: {thought}")
+    logger.info(f"Getting entity types, Thought: {thought}")
     try:
         entity_types = await data_graphdb.get_all_entity_types()
         return json_encode(entity_types)
@@ -137,7 +138,7 @@ async def get_entity_properties(entity_type: str, thought: str) -> str:
     Returns:
         str: A list of all properties for the specified entity type
     """
-    logger.debug(f"Getting entity properties for {entity_type}, Thought: {thought}")
+    logger.info(f"Getting entity properties for {entity_type}, Thought: {thought}")
     try:
         properties = await data_graphdb.get_entity_type_properties(entity_type)
         return json_encode({"entity_type": entity_type, "properties": properties})
@@ -158,7 +159,7 @@ async def fetch_entity(entity_type: str, primary_key_id: str, thought: str) -> s
     Returns:
         str: The properties of the entity
     """
-    logger.debug(f"Fetching entity of type {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
+    logger.info(f"Fetching entity of type {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
     try:
         entity = await data_graphdb.fetch_entity(entity_type, primary_key_id)
         if entity is None:
@@ -183,7 +184,7 @@ async def fetch_entity_details(entity_type: str, primary_key_id: str, thought: s
     Returns:
         str: The properties of the entity, as well as its relations
     """
-    logger.debug(f"Fetching entity details of type {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
+    logger.info(f"Fetching entity details of type {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
     try:
         entity = await data_graphdb.fetch_entity(entity_type, primary_key_id)
         if entity is None:
@@ -219,13 +220,13 @@ async def check_if_ontology_generated(thought: str) -> str:
     Returns:
         str: "true" if the ontology is generated, "false" otherwise
     """
-    logger.debug(f"Checking if ontology is generated, Thought: {thought}")
+    logger.info(f"Checking if ontology is generated, Thought: {thought}")
     try:
         heuristics_version_id = await redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
         if heuristics_version_id is None:
             return "false"
         heuristics_version_id = heuristics_version_id.decode("utf-8")
-        logger.debug(f"Found heuristics version id: {heuristics_version_id}")
+        logger.info(f"Found heuristics version id: {heuristics_version_id}")
 
         # Check if the ontology is generated - there should be at least one relation with the heuristics version id
         relation = await ontology_graphdb.find_relations(None, None, None, {
@@ -234,8 +235,8 @@ async def check_if_ontology_generated(thought: str) -> str:
         
         if len(relation) > 0:
             return "true"
-        
-        logger.debug(f"No relations found in ontology with the current heuristics version id: {heuristics_version_id}")
+
+        logger.warning(f"No relations found in ontology with the current heuristics version id: {heuristics_version_id}")
         return "false"
     except Exception as e:
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -254,7 +255,7 @@ async def get_relation_path_between_entity_types(entity_type_1: str, entity_type
     Returns:
         str: A cypher-like notation of entity and their relations, none if there is no relation
     """
-    logger.debug(f"Getting relation path between {entity_type_1} and {entity_type_2}, Thought: {thought}")
+    logger.info(f"Getting relation path between {entity_type_1} and {entity_type_2}, Thought: {thought}")
 
     try:
         # Fetch the latest heuristics id
@@ -326,17 +327,30 @@ async def raw_graph_query(query: str, thought: str) -> str:
     Returns:
         str: The result of the raw query
     """
-    logger.debug(f"Raw graph query: {query}, Thought: {thought}")
+    logger.info(f"Raw graph query: {query}, Thought: {thought}")
     try:
-        res = await data_graphdb.raw_query(query, return_everything=True, readonly=True, max_results=MAX_RESULTS)
-        logger.debug(f"Raw query result: {res}")
-        tokens = count_tokens_approximately(str(res))
-        if tokens > 50000:
+        res = await data_graphdb.raw_query(query, readonly=True, max_results=MAX_RESULTS)
+        notifications = json_encode(res.get("notifications", []))
+        results = json_encode(res.get("results", []))
+
+        # Check for warnings/errors in notifications first
+        if "warning" in notifications.lower() or "error" in notifications.lower():
+            logger.warning(f"Query returned warnings/errors: {notifications}")
+            return f"Query has warnings/errors, PLEASE FIX your query: {notifications}"
+        
+        # Check the size of the results, if too large return an error message instead
+        tokens = count_tokens_approximately(results)
+        if tokens > MAX_QUERY_TOKENS:
             logger.warning(f"Raw query result is too large ({tokens} tokens), returning error message instead.")
             return "Raw query result is too large, please refine your query to return less data. Try to search for specific entities or properties, or use filters to narrow down the results, or use other tools"
-
-        return str(res)
+        
+        output = {
+            "results" : results,
+            "notifications": notifications
+        }
+        logger.debug(f"Raw query output: {output}")
+        return output
     except Exception as e:
         logger.error(f"Traceback: {traceback.format_exc()}")
         logger.error(f"Error executing raw graph query: {e}")
-        return f"Error executing raw graph query: {e}"
+        return f"Error executing raw graph query, PLEASE FIX your query: {e}"

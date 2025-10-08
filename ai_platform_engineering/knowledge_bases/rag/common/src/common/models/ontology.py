@@ -57,7 +57,6 @@ class FkeyEvaluation(BaseModel):
     last_evaluated: int = Field(default=0, description="The last time this heuristic was evaluated, used to determine freshness")
     entity_a_property_values: dict[str, List[Any]] = Field(default={}, description="The example values that were used to evaluate the heuristic for each property")
     entity_a_property_counts: dict[str, int] = Field(default={}, description="The number of entities of entity_a type that have each property")
-    last_evaluation_count: int = Field(default=0, description="The previous count of the heuristic, used to determine if the heuristic has changed")
 
 class RelationCandidate(BaseModel):
     """

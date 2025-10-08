@@ -13,41 +13,44 @@ import dotenv
 import uvicorn
 import redis.asyncio as redis
 
-port = int(os.getenv("SERVER_PORT", 8098))
-
 # Load environment variables from .env file
 dotenv.load_dotenv()
 
-logging = utils.get_logger("rest-server")
+logger = utils.get_logger("restapi")
 
+port = int(os.getenv("SERVER_PORT", 8098))
 SYNC_INTERVAL = int(os.getenv('SYNC_INTERVAL', 21600)) # 6 hours by default
 ACCEPTANCE_THRESHOLD = float(os.getenv('ACCEPTANCE_THRESHOLD', float(0.75))) # > 75% by default
 REJECTION_THRESHOLD = float(os.getenv('REJECTION_THRESHOLD', float(0.3))) # < 40% by default
 MIN_COUNT_FOR_EVAL = int(os.getenv('MIN_COUNT_FOR_EVAL', int(3))) # 3 by default
-PERCENT_CHANGE_FOR_EVAL = float(os.getenv('PERCENT_CHANGE_FOR_EVAL', float(0.1))) # 10% by default
-MAX_CONCURRENT_PROCESSING = int(os.getenv('MAX_CONCURRENT_PROCESSING', int(30))) # 30 by default
-MAX_CONCURRENT_EVALUATION = int(os.getenv('MAX_CONCURRENT_EVALUATION', int(5))) # 5 by default
+COUNT_CHANGE_THRESHOLD_RATIO = float(os.getenv('COUNT_CHANGE_THRESHOLD_RATIO', float(0.1))) # 10% by default
+MAX_CONCURRENT_PROCESSING = int(os.getenv('MAX_CONCURRENT_PROCESSING', int(40))) # 40 by default
+MAX_CONCURRENT_EVALUATION = int(os.getenv('MAX_CONCURRENT_EVALUATION', int(10))) # 10 by default
+
+GRAPH_DB_CLIENT_NAME="web_manual"
 
 scheduler = AsyncIOScheduler()
 
 # Initialize dependencies
-logging.info("Initializing data graph database...")
+logger.info("Initializing data graph database...")
 graph_db: GraphDB = Neo4jDB()
 
-logging.info("Initializing ontology graph database...")
+logger.info("Initializing ontology graph database...")
 ontology_graph_db: GraphDB = Neo4jDB(uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
 
-logging.info("Initializing key-value store...")
+logger.info("Initializing key-value store...")
 redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
 
-logging.info("Initializing ontology agent...")
+logger.info("Initializing ontology agent...")
+logger.info("Config:\nAcceptance threshold: %s\nRejection threshold: %s\nMax concurrent processing: %s\nMax concurrent evaluation: %s\nCount change threshold ratio: %s\nMin count for eval: %s", 
+            ACCEPTANCE_THRESHOLD, REJECTION_THRESHOLD, MAX_CONCURRENT_PROCESSING, MAX_CONCURRENT_EVALUATION, COUNT_CHANGE_THRESHOLD_RATIO, MIN_COUNT_FOR_EVAL)
 agent: OntologyAgent = OntologyAgent(graph_db=graph_db,
                                         ontology_graph_db=ontology_graph_db,
                                         redis=redis_client,
                                         acceptance_threshold=ACCEPTANCE_THRESHOLD,
                                         rejection_threshold=REJECTION_THRESHOLD,
                                         min_count_for_eval=MIN_COUNT_FOR_EVAL,
-                                        percent_change_for_eval=PERCENT_CHANGE_FOR_EVAL,
+                                        count_change_threshold_ratio=COUNT_CHANGE_THRESHOLD_RATIO,
                                         max_concurrent_processing=MAX_CONCURRENT_PROCESSING,
                                         max_concurrent_evaluation=MAX_CONCURRENT_EVALUATION,
                                     )
@@ -55,7 +58,7 @@ agent: OntologyAgent = OntologyAgent(graph_db=graph_db,
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    logging.info("Setting up key-value store with heuristics version")
+    logger.info("Setting up key-value store with heuristics version")
     
     # Fetch latest heuristics version
     heuristics_version_id = await redis_client.get(constants.KV_HEURISTICS_VERSION_ID_KEY)
@@ -63,7 +66,7 @@ async def lifespan(_: FastAPI):
         heuristics_version_id = utils.get_uuid()
         await redis_client.set(constants.KV_HEURISTICS_VERSION_ID_KEY, heuristics_version_id)
 
-    logging.info("Running the ontology agent periodically every %s seconds ...", SYNC_INTERVAL)
+    logger.info("Running the ontology agent periodically every %s seconds ...", SYNC_INTERVAL)
     scheduler.add_job(agent.process_and_evaluate_all, trigger=IntervalTrigger(seconds=SYNC_INTERVAL))
     scheduler.start()
     
@@ -86,9 +89,9 @@ async def accept_relation(relation_id: str):
     """
     Accepts a foreign key relation
     """
-    logging.warning("Accepting foreign key relation %s", relation_id)
+    logger.warning("Accepting foreign key relation %s", relation_id)
     rc_manager = await get_rc_manager_with_latest_heuristics()
-    await rc_manager.apply_relation("web", relation_id, manual=True)
+    await rc_manager.apply_relation(GRAPH_DB_CLIENT_NAME, relation_id, manual=True) # TODO: change client name to something more meaningful
     
     return JSONResponse(status_code=200, content={"message": "Foreign key relation accepted"})
 
@@ -97,7 +100,7 @@ async def reject_relation(relation_id: str):
     """
     Reject a foreign key relation
     """
-    logging.warning("Rejecting foreign key relation %s", relation_id)
+    logger.warning("Rejecting foreign key relation %s", relation_id)
     rc_manager = await get_rc_manager_with_latest_heuristics()
     await rc_manager.unapply_relation(relation_id, manual=True) # setting manual=True will explicitly reject the relation
     return JSONResponse(status_code=200, content={"message": "Foreign key relation rejected"})
@@ -107,7 +110,7 @@ async def unreject_relation(relation_id: str):
     """
     Undo an accepted or rejected foreign key relation
     """
-    logging.warning("Un-rejecting foreign key relation %s", relation_id)
+    logger.warning("Un-rejecting foreign key relation %s", relation_id)
     rc_manager = await get_rc_manager_with_latest_heuristics()
     await rc_manager.unapply_relation(relation_id) # manual=False by default, so it will be undone without explicitly rejecting
     return JSONResponse(status_code=200, content={"message": "Foreign key relation un-rejected"})
@@ -117,7 +120,7 @@ async def evaluate_relation(relation_id: str):
     """
     Asks the agent to reevaluate a single foreign key relation
     """
-    logging.warning("Re-evaluating foreign key relation %s", relation_id)
+    logger.warning("Re-evaluating foreign key relation %s", relation_id)
     rc_manager = await get_rc_manager_with_latest_heuristics()
     await agent.evaluate(rc_manager=rc_manager, relation_id=relation_id)
     return JSONResponse(status_code=200, content={"message": "Submitted"})
@@ -128,9 +131,9 @@ async def sync_relation(relation_id: str):
     """
     Syncs a single foreign key relation with the graph database
     """
-    logging.warning("Syncing foreign key relation %s", relation_id)
+    logger.warning("Syncing foreign key relation %s", relation_id)
     rc_manager = await get_rc_manager_with_latest_heuristics()
-    await rc_manager.sync_relation("web", relation_id)
+    await rc_manager.sync_relation(GRAPH_DB_CLIENT_NAME, relation_id)
     return JSONResponse(status_code=200, content={"message": "Submitted"})
 
 
@@ -139,7 +142,7 @@ async def regenerate_ontology(background_tasks: BackgroundTasks):
     """
     Asks the agent to regenerate the ontology graph based on current foreign key relations in the data graph
     """
-    logging.warning("Regenerating ontology graph")
+    logger.warning("Regenerating ontology graph")
     if agent.is_processing or agent.is_evaluating:
         return JSONResponse(status_code=400, content={"message": "Heuristics processing is in progress"})
     background_tasks.add_task(agent.process_and_evaluate_all)
@@ -150,7 +153,7 @@ async def clear_ontology():
     """
     Clears all foreign key relations and the ontology graph
     """
-    logging.warning("Clearing all foreign key relations and the ontology graph")
+    logger.warning("Clearing all foreign key relations and the ontology graph")
     if agent.is_processing or agent.is_evaluating:
         return JSONResponse(status_code=400, content={"message": "Heuristics processing is in progress"})
     heuristics_version_id = await redis_client.get(constants.KV_HEURISTICS_VERSION_ID_KEY)
@@ -178,7 +181,7 @@ async def process_entity(entity_type: str, primary_key_value: str):
     Asks the agent to process a specific entity for heuristics, this is used for debugging
     For debugging purposes
     """
-    logging.warning("Processing entity %s:%s for heuristics", entity_type, primary_key_value)
+    logger.warning("Processing entity %s:%s for heuristics", entity_type, primary_key_value)
     rc_manager = await get_rc_manager_with_latest_heuristics()
     await agent.process(rc_manager, entity_type, primary_key_value)
     return JSONResponse(status_code=200, content={"message": "Submitted for processing"})
@@ -190,7 +193,7 @@ async def process_all(background_tasks: BackgroundTasks):
     Asks the agent to process all foreign key relations
     For debugging purposes
     """
-    logging.warning("Processing all heuristics")
+    logger.warning("Processing all heuristics")
     if agent.is_processing:
         return JSONResponse(status_code=400, content={"message": "Heuristics processing is already in progress"})
 
@@ -206,7 +209,7 @@ async def evaluate_all(background_tasks: BackgroundTasks):
     Asks the agent to reevaluate all heuristics
     For debugging purposes
     """
-    logging.warning("Re-evaluating all heuristics")
+    logger.warning("Re-evaluating all heuristics")
     if agent.is_processing:
         return JSONResponse(status_code=400, content={"message": "Heuristics processing is in progress"})
     rc_manager = await get_rc_manager_with_latest_heuristics()
@@ -221,7 +224,7 @@ async def cleanup():
     For debugging purposes
     """
     rc_manager = await get_rc_manager_with_latest_heuristics()
-    await rc_manager.cleanup() # This will remove all relations that are no longer candidates, but still exist in the graph database
+    await rc_manager.cleanup() # This will remove all relations that are no longer candidates, as well as applied relations
     return JSONResponse(status_code=200, content={"message": "Submitted"})
 
 #####
@@ -238,8 +241,10 @@ async def status():
             "evaluated_tasks_count": agent.evaluated_tasks_count,
             "candidate_acceptance_threshold": ACCEPTANCE_THRESHOLD, 
             "candidate_rejection_threshold": REJECTION_THRESHOLD, 
+            "max_concurrent_processing": MAX_CONCURRENT_PROCESSING,
+            "max_concurrent_evaluation": MAX_CONCURRENT_EVALUATION,
             "min_count_for_eval": MIN_COUNT_FOR_EVAL,   
-            "percent_change_for_eval": PERCENT_CHANGE_FOR_EVAL}
+            "count_change_threshold_ratio": COUNT_CHANGE_THRESHOLD_RATIO,}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=port)

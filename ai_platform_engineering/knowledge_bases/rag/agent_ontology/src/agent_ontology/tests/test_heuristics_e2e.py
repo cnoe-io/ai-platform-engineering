@@ -3,7 +3,7 @@ import pytest
 import pytest_asyncio
 import logging
 import json
-from agent_graph_gen.relation_manager import RelationCandidateManager
+from agent_ontology.relation_manager import RelationCandidateManager
 
 from core.graph_db.neo4j.graph_db import Neo4jDB
 from core.utils import ObjEncoder, get_default_fresh_until
@@ -13,7 +13,7 @@ from core.models import RelationCandidate
 from core.models import Entity
 
 
-from agent_graph_gen.heuristics import HeuristicsProcessor
+from agent_ontology.heuristics import HeuristicsProcessor
 from core.constants import DEFAULT_LABEL, UPDATED_BY_KEY
 
 
