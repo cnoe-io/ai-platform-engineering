@@ -1,9 +1,0 @@
-# This gitleaks config extends the default config and ignores lines that have `nosec`
-title = "CAIPE Gitleaks config"
-[extend]
-useDefault = true
-
-[allowlist]
-    description = "ignore #nosec lines"
-    regexTarget = "line"
-    regexes = ['''#nosec''']
