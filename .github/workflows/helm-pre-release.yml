@@ -3,11 +3,11 @@ name: 🔬 Pre-release Helm Chart Publishing
 on:
   pull_request:
     paths:
-      - helm/**
+      - charts/**
   pull_request_target:
     types: [closed]
     paths:
-      - helm/**
+      - charts/**
 
 permissions:
   contents: read
@@ -38,20 +38,36 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: 🏷️ Generate Pre-release Version
+      - name: 🔍 Detect Changed Charts
+        id: detect
+        run: |
+          # Detect which charts have changes
+          git fetch origin main
+
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Check which charts changed
+          RAG_STACK_CHANGED=false
+          AI_PLATFORM_CHANGED=false
+
+          if echo "$CHANGED_FILES" | grep -q "^charts/rag-stack/"; then
+            RAG_STACK_CHANGED=true
+            echo "✅ rag-stack chart has changes"
+          fi
+
+          if echo "$CHANGED_FILES" | grep -q "^charts/ai-platform-engineering/"; then
+            AI_PLATFORM_CHANGED=true
+            echo "✅ ai-platform-engineering chart has changes"
+          fi
+
+          echo "rag-stack-changed=$RAG_STACK_CHANGED" >> $GITHUB_OUTPUT
+          echo "ai-platform-changed=$AI_PLATFORM_CHANGED" >> $GITHUB_OUTPUT
+
+      - name: 🏷️ Generate Pre-release Versions
         id: version
         run: |
-          # Get current version from main branch
-          git fetch origin main
-          BASE_VERSION=$(git show origin/main:helm/Chart.yaml | grep "^version:" | awk '{print $2}')
-          echo "Base version: $BASE_VERSION"
-
-          # Extract version components
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
-
-          # Increment patch version for pre-release
-          NEXT_PATCH=$((PATCH + 1))
-
           # Get branch name without 'pre/' prefix and sanitize for version
           BRANCH_NAME="${{ github.head_ref }}"
           CLEAN_BRANCH=$(echo "${BRANCH_NAME#pre/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
@@ -59,60 +75,122 @@ jobs:
           # Get commit count for this PR
           COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
 
-          # Create pre-release version
-          PRE_RELEASE_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
-
-          echo "Generated pre-release version: $PRE_RELEASE_VERSION"
-          echo "pre-release-version=$PRE_RELEASE_VERSION" >> $GITHUB_OUTPUT
           echo "clean-branch=$CLEAN_BRANCH" >> $GITHUB_OUTPUT
+          echo "commit-count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
 
-      - name: 📦 Package Pre-release Helm Chart
+          # Generate version for rag-stack if changed
+          if [[ "${{ steps.detect.outputs.rag-stack-changed }}" == "true" ]]; then
+            # Check if chart exists in main
+            if git show origin/main:charts/rag-stack/Chart.yaml &>/dev/null; then
+              RAG_STACK_BASE=$(git show origin/main:charts/rag-stack/Chart.yaml | grep "^version:" | awk '{print $2}')
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$RAG_STACK_BASE"
+              NEXT_PATCH=$((PATCH + 1))
+              RAG_STACK_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
+            else
+              echo "ℹ️ rag-stack is a new chart (doesn't exist in main), using PR version"
+              RAG_STACK_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
+              RAG_STACK_VERSION="${RAG_STACK_VERSION}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
+            fi
+            echo "rag-stack version: $RAG_STACK_VERSION"
+            echo "rag-stack-version=$RAG_STACK_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+          # Generate version for ai-platform-engineering if changed
+          if [[ "${{ steps.detect.outputs.ai-platform-changed }}" == "true" ]]; then
+            # Check if chart exists in main
+            if git show origin/main:charts/ai-platform-engineering/Chart.yaml &>/dev/null; then
+              AI_PLATFORM_BASE=$(git show origin/main:charts/ai-platform-engineering/Chart.yaml | grep "^version:" | awk '{print $2}')
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$AI_PLATFORM_BASE"
+              NEXT_PATCH=$((PATCH + 1))
+              AI_PLATFORM_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
+            else
+              echo "ℹ️ ai-platform-engineering is a new chart (doesn't exist in main), using PR version"
+              AI_PLATFORM_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
+              AI_PLATFORM_VERSION="${AI_PLATFORM_VERSION}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
+            fi
+            echo "ai-platform-engineering version: $AI_PLATFORM_VERSION"
+            echo "ai-platform-version=$AI_PLATFORM_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📦 Package rag-stack Chart
+        if: steps.detect.outputs.rag-stack-changed == 'true'
         run: |
+          echo "📦 Packaging rag-stack..."
+
+          mkdir -p ./packaged-charts
+
           # Update Chart.yaml with pre-release version
-          sed -i "s/^version:.*/version: ${{ steps.version.outputs.pre-release-version }}/" helm/Chart.yaml
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
 
           # Update dependencies and package
-          helm dependency update helm/
-          helm package helm/ --destination ./
+          helm dependency update charts/rag-stack/
+          helm package charts/rag-stack/ --destination ./packaged-charts/
 
-      - name: 🚀 Push Pre-release Chart to GHCR
+          echo "✅ rag-stack packaged successfully"
+
+      - name: 📦 Package ai-platform-engineering Chart
+        if: steps.detect.outputs.ai-platform-changed == 'true'
         run: |
-          CHART_FILE=$(ls ./*.tgz)
-          CHART_VERSION=$(helm show chart "$CHART_FILE" | grep '^version:' | awk '{print $2}')
-          CHART_NAME=$(helm show chart "$CHART_FILE" | grep '^name:' | awk '{print $2}')
+          echo "📦 Packaging ai-platform-engineering..."
+
+          mkdir -p ./packaged-charts
+
+          # Update Chart.yaml with pre-release version
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
+
+          # Update dependencies and package
+          helm dependency update charts/ai-platform-engineering/
+          helm package charts/ai-platform-engineering/ --destination ./packaged-charts/
+
+          echo "✅ ai-platform-engineering packaged successfully"
+
+      - name: 🚀 Push Pre-release Charts to GHCR
+        run: |
           REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts"
 
-          echo "Chart file: $CHART_FILE"
-          echo "Chart name: $CHART_NAME"
-          echo "Version: $CHART_VERSION"
-          echo "Registry: $REGISTRY"
+          echo "📦 Pushing pre-release charts to $REGISTRY"
 
-          echo "📦 Pushing pre-release chart: $CHART_NAME:$CHART_VERSION"
-          helm push "$CHART_FILE" "$REGISTRY"
+          for CHART_FILE in ./packaged-charts/*.tgz; do
+            if [ -f "$CHART_FILE" ]; then
+              CHART_NAME=$(helm show chart "$CHART_FILE" | grep '^name:' | awk '{print $2}')
+              CHART_VERSION=$(helm show chart "$CHART_FILE" | grep '^version:' | awk '{print $2}')
 
-          echo "✅ Pre-release chart published successfully!"
-          echo "📋 To use this pre-release version:"
-          echo "   helm upgrade --install my-release oci://ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts/$CHART_NAME --version ${{ steps.version.outputs.pre-release-version }}"
+              echo "📦 Pushing $CHART_NAME:$CHART_VERSION"
+              helm push "$CHART_FILE" "$REGISTRY"
+              echo "✅ $CHART_NAME:$CHART_VERSION published successfully!"
+            fi
+          done
 
       - name: 💬 Comment on PR
         uses: actions/github-script@v8
         with:
           script: |
-            const chartName = 'ai-platform-engineering';
-            const preReleaseVersion = '${{ steps.version.outputs.pre-release-version }}';
             const registry = `ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts`;
+            const ragStackChanged = '${{ steps.detect.outputs.rag-stack-changed }}' === 'true';
+            const aiPlatformChanged = '${{ steps.detect.outputs.ai-platform-changed }}' === 'true';
 
-            const body = `## 📦 Pre-release Helm Chart Published
+            let body = `## 📦 Pre-release Helm Charts Published\n\n`;
+            body += `**Registry:** \`${registry}\`\n\n`;
 
-            **Version:** \`${preReleaseVersion}\`
-            **Registry:** \`${registry}\`
+            if (ragStackChanged) {
+              const version = '${{ steps.version.outputs.rag-stack-version }}';
+              body += `### rag-stack\n`;
+              body += `**Version:** \`${version}\`\n\n`;
+              body += `\`\`\`bash\n`;
+              body += `helm upgrade --install rag oci://${registry}/rag-stack --version ${version}\n`;
+              body += `\`\`\`\n\n`;
+            }
 
-            ### Usage
-            \`\`\`bash
-            helm upgrade --install my-release oci://${registry}/${chartName} --version ${preReleaseVersion}
-            \`\`\`
+            if (aiPlatformChanged) {
+              const version = '${{ steps.version.outputs.ai-platform-version }}';
+              body += `### ai-platform-engineering\n`;
+              body += `**Version:** \`${version}\`\n\n`;
+              body += `\`\`\`bash\n`;
+              body += `helm upgrade --install ai-platform oci://${registry}/ai-platform-engineering --version ${version}\n`;
+              body += `\`\`\`\n\n`;
+            }
 
-            > **Note:** This pre-release version will be automatically cleaned up when the PR is closed or merged.`;
+            body += `> **Note:** These pre-release versions will be automatically cleaned up when the PR is closed or merged.`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -142,38 +220,47 @@ jobs:
 
           echo "🧹 Cleaning up pre-release versions for branch: $CLEAN_BRANCH"
 
-          # Chart details
-          CHART_NAME="ai-platform-engineering"
-          PACKAGE_NAME="pre-release-helm-charts/ai-platform-engineering"
           OWNER="${{ github.repository_owner }}"
 
-          echo "🔍 Searching for pre-release versions matching pattern: *-${CLEAN_BRANCH}-*"
+          # Function to cleanup a chart
+          cleanup_chart() {
+            local CHART_NAME=$1
+            local PACKAGE_NAME="pre-release-helm-charts/${CHART_NAME}"
 
-          # Get package versions using GitHub CLI (for OCI packages)
-          # Note: Forward slash in package name must be URL encoded as %2F
-          gh api \
-            "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions" \
-            --jq '.[] | select(.metadata.container.tags[]? | test(".*-'${CLEAN_BRANCH}'-.*")) | {id: .id, tags: .metadata.container.tags}' > pre_release_versions.json || true
+            echo "🔍 Checking ${CHART_NAME} for pre-release versions matching pattern: *-${CLEAN_BRANCH}-*"
 
-          if [ -s pre_release_versions.json ]; then
-            echo "🗑️ Found pre-release versions to delete:"
-            cat pre_release_versions.json
+            # Get package versions using GitHub CLI (for OCI packages)
+            # Note: Forward slash in package name must be URL encoded as %2F
+            gh api \
+              "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions" \
+              --jq '.[] | select(.metadata.container.tags[]? | test(".*-'${CLEAN_BRANCH}'-.*")) | {id: .id, tags: .metadata.container.tags}' > "${CHART_NAME}_versions.json" || true
 
-            # Delete each version
-            while IFS= read -r version; do
-              VERSION_ID=$(echo "$version" | jq -r '.id')
-              TAGS=$(echo "$version" | jq -r '.tags | join(", ")')
+            if [ -s "${CHART_NAME}_versions.json" ]; then
+              echo "🗑️ Found ${CHART_NAME} pre-release versions to delete:"
+              cat "${CHART_NAME}_versions.json"
 
-              echo "Deleting version $VERSION_ID with tags: $TAGS"
+              # Delete each version
+              while IFS= read -r version; do
+                VERSION_ID=$(echo "$version" | jq -r '.id')
+                TAGS=$(echo "$version" | jq -r '.tags | join(", ")')
 
-              gh api \
-                --method DELETE \
-                "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions/${VERSION_ID}" || true
-            done < <(cat pre_release_versions.json | jq -c '.')
+                echo "Deleting ${CHART_NAME} version $VERSION_ID with tags: $TAGS"
 
-            echo "✅ Pre-release chart cleanup completed"
-          else
-            echo "ℹ️ No pre-release versions found for branch: $CLEAN_BRANCH"
-          fi
+                gh api \
+                  --method DELETE \
+                  "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions/${VERSION_ID}" || true
+              done < <(cat "${CHART_NAME}_versions.json" | jq -c '.')
+
+              echo "✅ ${CHART_NAME} pre-release cleanup completed"
+            else
+              echo "ℹ️ No ${CHART_NAME} pre-release versions found for branch: $CLEAN_BRANCH"
+            fi
+          }
+
+          # Cleanup both charts
+          cleanup_chart "rag-stack"
+          cleanup_chart "ai-platform-engineering"
+
+          echo "✅ All pre-release chart cleanup completed"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

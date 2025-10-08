@@ -1,0 +1,59 @@
+# Default values for rag-webui.
+
+nameOverride: "rag-webui"
+fullnameOverride: ""
+
+image:
+  repository: "ghcr.io/cnoe-io/caipe-rag-webui"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+serviceAccount:
+  create: false
+  name: ""
+  automount: false
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
+
+imagePullSecrets: []
+
+secrets:
+  secretName: ""
+
+livenessProbe: {}
+readinessProbe: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: rag-webui.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: rag-webui-tls
+    #   hosts:
+    #     - rag-webui.local
+
+

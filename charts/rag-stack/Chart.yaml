@@ -1,0 +1,35 @@
+apiVersion: v2
+name: rag-stack
+description: A complete RAG stack including web UI, server, agents, Redis, Neo4j and Milvus
+
+type: application
+version: 0.0.1
+appVersion: "0.0.1"
+
+dependencies:
+  - name: rag-server
+    version: "0.0.1"
+    repository: "file://./charts/rag-server"
+  - name: agent-rag
+    version: "0.0.1"
+    repository: "file://./charts/agent-rag"
+  - name: agent-ontology
+    version: "0.0.1"
+    repository: "file://./charts/agent-ontology"
+  - name: rag-webui
+    version: "0.0.1"
+    repository: "file://./charts/rag-webui"
+  - name: neo4j
+    version: "2025.07.1"
+    repository: "https://helm.neo4j.com/neo4j"
+    alias: neo4j
+  - name: neo4j
+    version: "2025.07.1"
+    repository: "https://helm.neo4j.com/neo4j"
+    alias: neo4j-ontology
+  - name: rag-redis
+    version: "0.0.1"
+    repository: "file://./charts/rag-redis"
+  - name: milvus
+    version: "5.0.2"
+    repository: "https://zilliztech.github.io/milvus-helm/"

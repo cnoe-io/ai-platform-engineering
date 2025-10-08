@@ -191,9 +191,9 @@ a2a-python
 .langgraph_api/
 
 # helm chart
-helm/values-secrets.yaml
-helm/values-ingress.yaml
-helm/tmp/*
+charts/*/values-secrets.yaml
+charts/*/values-ingress.yaml
+charts/*/tmp/*
 
 .aider*
 .aider.*

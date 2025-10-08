@@ -1,0 +1,27 @@
+dependencies:
+- name: rag-server
+  repository: file://./charts/rag-server
+  version: 0.0.1
+- name: agent-rag
+  repository: file://./charts/agent-rag
+  version: 0.0.1
+- name: agent-ontology
+  repository: file://./charts/agent-ontology
+  version: 0.0.1
+- name: rag-webui
+  repository: file://./charts/rag-webui
+  version: 0.0.1
+- name: neo4j
+  repository: https://helm.neo4j.com/neo4j
+  version: 2025.7.1
+- name: neo4j
+  repository: https://helm.neo4j.com/neo4j
+  version: 2025.7.1
+- name: rag-redis
+  repository: file://./charts/rag-redis
+  version: 0.0.1
+- name: milvus
+  repository: https://zilliztech.github.io/milvus-helm/
+  version: 5.0.2
+digest: sha256:2b5edac34813644f17dd10fd210ad6143e5b33a9510a8341daf2dc10f01f99e5
+generated: "2025-10-08T16:29:03.14129781Z"

@@ -1,0 +1,226 @@
+tags:
+  basic: false
+  complete: false
+  backstage-agent-forge: false
+  agent-argocd: false
+  agent-aws: false
+  agent-backstage: false
+  agent-confluence: false
+  agent-github: false
+  agent-jira: false
+  agent-komodor: false
+  agent-pagerduty: false
+  agent-slack: false
+  agent-splunk: false
+  agent-webex: false
+  rag-stack: false
+
+# Global configuration shared across all subcharts
+global:
+  createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
+  llmSecrets:
+    create: false # do not create llm secret in subcharts (use global or existing llm secret)
+    secretName: "llm-secret"
+  externalSecrets:
+    enabled: false
+  slim:
+    enabled: false
+    endpoint: "http://ai-platform-engineering-slim:46357"
+    transport: "slim"
+
+  # RAG Stack configuration
+  enableGraphRag: true
+  rag:
+    neo4j:
+      port: 7687 # This is hardcoded in the neo4j chart: https://github.com/neo4j/helm-charts/blob/2025.7.1/neo4j/templates/neo4j-svc.yaml#L155-L158
+      username: neo4j
+      password: dummy_password
+    neo4jOntology:
+      port: 7688 # This is hardcoded in the neo4j chart: https://github.com/neo4j/helm-charts/blob/2025.7.1/neo4j/templates/neo4j-svc.yaml#L155-L158
+
+######### Supervisor agent configuration #########
+supervisor-agent:
+  nameOverride: "supervisor-agent"
+  image:
+    repository: "ghcr.io/cnoe-io/ai-platform-engineering"
+    tag: "stable"
+    pullPolicy: "Always"
+    args: ["platform-engineer"]
+  env:
+    EXTERNAL_URL: "http://localhost:8000"  # Agent url for the client. NOTE: this will be user applicaiton specific
+    SKIP_AGENT_CONNECTIVITY_CHECK: "false"
+    AGENT_CONNECTIVITY_ENABLE_BACKGROUND: "true"
+  multiAgentConfig:
+    protocol: "a2a"
+    port: "8000"
+
+######### Sub-agent configurations #########
+# Agent configurations using aliases from Chart.yaml
+agent-argocd:
+  nameOverride: "agent-argocd"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-argocd"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-argocd"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-backstage:
+  nameOverride: "agent-backstage"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-backstage"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-backstage"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-confluence:
+  nameOverride: "agent-confluence"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-confluence"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-confluence"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-github:
+  nameOverride: "agent-github"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-github"
+    pullPolicy: "Always"
+  mcp:
+    useRemoteMcpServer: true
+
+agent-jira:
+  nameOverride: "agent-jira"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-jira"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-jira"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-pagerduty:
+  nameOverride: "agent-pagerduty"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-pagerduty"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-pagerduty"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-slack:
+  nameOverride: "agent-slack"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-slack"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-slack"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+    pullPolicy: "Always"
+
+agent-aws:
+  nameOverride: "agent-aws"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-aws"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-aws"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-splunk:
+  nameOverride: "agent-splunk"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-splunk"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-splunk"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-webex:
+  nameOverride: "agent-webex"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-webex"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-webex"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-komodor:
+  nameOverride: "agent-komodor"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-komodor"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-komodor"
+      tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+######### Backstage plugin agent forge configuration #########
+backstage-plugin-agent-forge:
+  nameOverride: "backstage-plugin-agent-forge"
+  image:
+    repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
+    tag: "latest"
+    pullPolicy: "Always"
+  service:
+    ports:
+      - name: http
+        port: 3000
+        protocol: TCP
+      - name: backend
+        port: 7007
+        protocol: TCP
+
+######### RAG Stack configuration #########
+# RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
+rag-stack:
+  rag-server:
+    enabled: true
+  rag-webui:
+    enabled: true
+  rag-agent:
+    enabled: true
+  rag-redis:
+    enabled: true
+  rag-milvus:
+    enabled: true
