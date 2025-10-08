@@ -18,7 +18,7 @@ from a2a.types import (
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
 
-from ai_platform_engineering.common.a2a.base_agent import BaseAgent
+from ai_platform_engineering.utils.a2a.base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 

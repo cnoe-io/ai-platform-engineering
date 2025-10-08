@@ -7,7 +7,7 @@ import os
 from typing import Literal
 from pydantic import BaseModel
 
-from ai_platform_engineering.common.a2a import BaseAgent
+from ai_platform_engineering.utils.a2a import BaseAgent
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 

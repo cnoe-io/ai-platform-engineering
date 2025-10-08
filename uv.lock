@@ -85,6 +85,7 @@ dependencies = [
     { name = "a2a-sdk" },
     { name = "agentevals" },
     { name = "agntcy-app-sdk" },
+    { name = "ai-platform-engineering-utils" },
     { name = "click" },
     { name = "cnoe-agent-utils" },
     { name = "langchain-anthropic" },
@@ -106,6 +107,7 @@ requires-dist = [
     { name = "a2a-sdk", specifier = "==0.2.16" },
     { name = "agentevals", specifier = ">=0.0.7" },
     { name = "agntcy-app-sdk", specifier = "==0.1.4" },
+    { name = "ai-platform-engineering-utils", directory = "ai_platform_engineering/utils" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "cnoe-agent-utils", specifier = "==0.3.2" },
     { name = "langchain-anthropic", specifier = ">=0.3.13" },
@@ -171,6 +173,7 @@ dependencies = [
     { name = "identity-service-sdk" },
     { name = "langchain" },
     { name = "langchain-core" },
+    { name = "langchain-mcp-adapters" },
     { name = "langfuse" },
     { name = "langgraph" },
     { name = "langgraph-supervisor" },
@@ -206,6 +209,7 @@ requires-dist = [
     { name = "identity-service-sdk", specifier = ">=0.0.1" },
     { name = "langchain", specifier = ">=0.3.25" },
     { name = "langchain-core", specifier = ">=0.3.65,<0.4.0" },
+    { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
     { name = "langfuse", specifier = ">=3.0.8,<4.0.0" },
     { name = "langgraph", specifier = "==0.5.3" },
     { name = "langgraph-supervisor", specifier = "==0.0.28" },
@@ -227,6 +231,39 @@ dev = [
 unittest = [
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
+]
+
+[[package]]
+name = "ai-platform-engineering-utils"
+version = "0.1.0"
+source = { directory = "ai_platform_engineering/utils" }
+dependencies = [
+    { name = "a2a-sdk" },
+    { name = "agntcy-app-sdk" },
+    { name = "cnoe-agent-utils" },
+    { name = "httpx" },
+    { name = "langchain-core" },
+    { name = "langchain-mcp-adapters" },
+    { name = "langgraph" },
+    { name = "pydantic" },
+    { name = "pyjwt" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "a2a-sdk", specifier = "==0.2.16" },
+    { name = "agntcy-app-sdk", specifier = "==0.1.4" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.2" },
+    { name = "httpx", specifier = ">=0.24.0" },
+    { name = "langchain-core", specifier = ">=0.3.60" },
+    { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
+    { name = "langgraph", specifier = "==0.5.3" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pyjwt", specifier = ">=2.0.0" },
+    { name = "python-dotenv", specifier = ">=0.19.0" },
+    { name = "requests", specifier = ">=2.25.0" },
 ]
 
 [[package]]

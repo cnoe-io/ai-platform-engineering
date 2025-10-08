@@ -122,14 +122,14 @@ app.add_middleware(
 )
 
 if A2A_AUTH_SHARED_KEY:
-  from ai_platform_engineering.common.auth.shared_key_middleware import SharedKeyMiddleware
+  from ai_platform_engineering.utils.auth.shared_key_middleware import SharedKeyMiddleware
   app.add_middleware(
     SharedKeyMiddleware,
     agent_card=get_agent_card(host, port, external_url),
     public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
   )
 elif A2A_AUTH_OAUTH2:
-  from ai_platform_engineering.common.auth.oauth2_middleware import OAuth2Middleware
+  from ai_platform_engineering.utils.auth.oauth2_middleware import OAuth2Middleware
   app.add_middleware(
     OAuth2Middleware,
     agent_card=get_agent_card(host, port, external_url),
