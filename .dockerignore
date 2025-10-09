@@ -42,6 +42,7 @@ ai_platform_engineering/knowledge_bases/*
 # even if a previous ignore pattern would have excluded it.
 !ai_platform_engineering/knowledge_bases/rag/clients/**
 volumes/**
+docker-compose/volumes/**
 docs/**
 workshop/**
 
