@@ -83,6 +83,8 @@ spec:
               value: {{ include "agent.neo4jUsername" . | quote }}
             - name: NEO4J_PASSWORD
               value: {{ include "agent.neo4jPassword" . | quote }}
+            - name: RAG_SERVER_URL
+              value: {{ include "agent.ragServerUrl" . | quote }}
             - name: ENABLE_GRAPH_RAG
               value: {{ include "agent.enableGraphRag" . | quote }}
             {{- if .Values.env }}
