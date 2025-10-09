@@ -37,6 +37,13 @@ global:
         kind: ClusterSecretStore # Use your secret store kind
       data: []
 
+# Default values for rag-stack.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+agentExports:
+  data:
+    enabled: true
+
 # RAG Server configuration
 rag-server:
   enabled: true
