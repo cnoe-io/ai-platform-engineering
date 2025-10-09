@@ -10,26 +10,34 @@ dependencies:
   - name: rag-server
     version: "0.0.1"
     repository: "file://./charts/rag-server"
+    condition: rag-server.enabled
   - name: agent-rag
     version: "0.0.1"
     repository: "file://./charts/agent-rag"
+    condition: agent-rag.enabled
   - name: agent-ontology
     version: "0.0.1"
     repository: "file://./charts/agent-ontology"
+    condition: agent-ontology.enabled
   - name: rag-webui
     version: "0.0.1"
     repository: "file://./charts/rag-webui"
+    condition: rag-webui.enabled
   - name: neo4j
     version: "2025.07.1"
     repository: "https://helm.neo4j.com/neo4j"
     alias: neo4j
+    condition: neo4j.enabled
   - name: neo4j
     version: "2025.07.1"
     repository: "https://helm.neo4j.com/neo4j"
     alias: neo4j-ontology
+    condition: neo4j-ontology.enabled
   - name: rag-redis
     version: "0.0.1"
     repository: "file://./charts/rag-redis"
+    condition: rag-redis.enabled
   - name: milvus
     version: "5.0.2"
     repository: "https://zilliztech.github.io/milvus-helm/"
+    condition: milvus.enabled

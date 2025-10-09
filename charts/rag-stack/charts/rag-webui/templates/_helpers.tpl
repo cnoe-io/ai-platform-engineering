@@ -59,4 +59,23 @@ Create the name of the service account to use
     {{- end }}
 {{- end }}
 
-
+{{/*
+Get Rag Server URL combining host and port
+*/}}
+{{- define "rag-webui.ragServerUrl" -}}
+    {{- $host := "rag-server" -}}
+    {{- $port := "9446" -}}
+    {{- with .Values.global -}}
+        {{- with .rag -}}
+            {{- with .ragServer -}}
+                {{- if hasKey . "host" -}}
+                    {{- $host = .host -}}
+                {{- end -}}
+                {{- if hasKey . "port" -}}
+                    {{- $port = .port -}}
+                {{- end -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- printf "http://%s:%s" $host ($port | toString) -}}
+{{- end -}}

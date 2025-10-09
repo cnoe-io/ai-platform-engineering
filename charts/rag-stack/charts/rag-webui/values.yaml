@@ -1,5 +1,7 @@
 # Default values for rag-webui.
 
+nginxEnvsubstTemplateSuffix: ".conf"
+
 nameOverride: "rag-webui"
 fullnameOverride: ""
 
