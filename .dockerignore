@@ -36,6 +36,11 @@ ai_platform_engineering/agents/*/__main__.py
 # Exclude other heavy directories
 ai_platform_engineering/evaluation/**
 ai_platform_engineering/cli/**
+ai_platform_engineering/knowledge_bases/*
+# This line ensures that all files under ai_platform_engineering/knowledge_bases/rag/clients/ are NOT ignored by Docker.
+# In other words, it includes the entire rag/clients directory (and all its subdirectories/files) in the Docker build context,
+# even if a previous ignore pattern would have excluded it.
+!ai_platform_engineering/knowledge_bases/rag/agent_rag/src/agent_rag/clients/**
 
 volumes/**
 docs/**
