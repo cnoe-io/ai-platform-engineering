@@ -130,6 +130,9 @@ dependencies:
     tags:
       - rag-stack
       - complete
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.rag
   # Backstage plugin agent forge
   - name: backstage-plugin-agent-forge
     version: 0.1.0
