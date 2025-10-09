@@ -5,10 +5,10 @@ on:
     branches:
       - main
     paths:
-      - helm/**
+      - charts/**
   pull_request:
     paths:
-      - helm/**
+      - charts/**
 
 permissions:
   contents: read
@@ -25,49 +25,97 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 🔍 Check for helm changes and version bump
+      - name: 🔍 Check for chart changes and version bumps
         run: |
-          echo "Checking if helm directory has changes..."
-          
+          echo "Checking for chart changes..."
+
           # Get the base branch (usually main or master)
           BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-          
-          # Check if there are any changes in the helm directory
-          HELM_CHANGES=$(git diff --name-only origin/$BASE_BRANCH...HEAD | grep "^helm/" || true)
-          
-          if [ -z "$HELM_CHANGES" ]; then
-            echo "No changes in helm directory, skipping version check"
+
+          # Check if there are any changes in the charts directory
+          CHART_CHANGES=$(git diff --name-only origin/$BASE_BRANCH...HEAD | grep "^charts/" || true)
+
+          if [ -z "$CHART_CHANGES" ]; then
+            echo "No changes in charts directory, skipping version check"
             exit 0
           fi
-          
-          echo "Changes detected in helm directory:"
-          echo "$HELM_CHANGES"
-          
-          # Get current chart version
-          CURRENT_VERSION=$(grep "^version:" helm/Chart.yaml | awk '{print $2}')
-          echo "Current chart version: $CURRENT_VERSION"
-          
-          # Get base branch chart version
-          git checkout origin/$BASE_BRANCH -- helm/Chart.yaml
-          BASE_VERSION=$(grep "^version:" helm/Chart.yaml | awk '{print $2}')
-          echo "Base branch chart version: $BASE_VERSION"
-          
-          # Restore current version
-          git checkout HEAD -- helm/Chart.yaml
-          
-          # Compare versions
-          if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
-            echo "❌ Error: Helm chart has changes but version was not bumped!"
-            echo "Current version: $CURRENT_VERSION"
-            echo "Base version: $BASE_VERSION"
-            echo "Please update the version in helm/Chart.yaml"
-            exit 1
-          else
-            echo "✅ Chart version was bumped from $BASE_VERSION to $CURRENT_VERSION"
+
+          echo "Changes detected in charts directory:"
+          echo "$CHART_CHANGES"
+
+          # Detect which charts have changes
+          RAG_STACK_CHANGED=false
+          AI_PLATFORM_CHANGED=false
+
+          if echo "$CHART_CHANGES" | grep -q "^charts/rag-stack/"; then
+            RAG_STACK_CHANGED=true
+            echo "✅ rag-stack chart has changes"
           fi
 
+          if echo "$CHART_CHANGES" | grep -q "^charts/ai-platform-engineering/"; then
+            AI_PLATFORM_CHANGED=true
+            echo "✅ ai-platform-engineering chart has changes"
+          fi
+
+          # Check version bump for rag-stack
+          if [ "$RAG_STACK_CHANGED" = true ]; then
+            echo ""
+            echo "Checking rag-stack version bump..."
+            CURRENT_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
+            echo "Current version: $CURRENT_VERSION"
+
+            # Check if chart exists in base branch
+            if git show origin/$BASE_BRANCH:charts/rag-stack/Chart.yaml &>/dev/null; then
+              git checkout origin/$BASE_BRANCH -- charts/rag-stack/Chart.yaml
+              BASE_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
+              echo "Base version: $BASE_VERSION"
+
+              git checkout HEAD -- charts/rag-stack/Chart.yaml
+
+              if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
+                echo "❌ Error: rag-stack chart has changes but version was not bumped!"
+                echo "Please update the version in charts/rag-stack/Chart.yaml"
+                exit 1
+              else
+                echo "✅ rag-stack version bumped from $BASE_VERSION to $CURRENT_VERSION"
+              fi
+            else
+              echo "ℹ️  rag-stack is a new chart (doesn't exist in $BASE_BRANCH), skipping version bump check"
+            fi
+          fi
+
+          # Check version bump for ai-platform-engineering
+          if [ "$AI_PLATFORM_CHANGED" = true ]; then
+            echo ""
+            echo "Checking ai-platform-engineering version bump..."
+            CURRENT_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
+            echo "Current version: $CURRENT_VERSION"
+
+            # Check if chart exists in base branch
+            if git show origin/$BASE_BRANCH:charts/ai-platform-engineering/Chart.yaml &>/dev/null; then
+              git checkout origin/$BASE_BRANCH -- charts/ai-platform-engineering/Chart.yaml
+              BASE_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
+              echo "Base version: $BASE_VERSION"
+
+              git checkout HEAD -- charts/ai-platform-engineering/Chart.yaml
+
+              if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
+                echo "❌ Error: ai-platform-engineering chart has changes but version was not bumped!"
+                echo "Please update the version in charts/ai-platform-engineering/Chart.yaml"
+                exit 1
+              else
+                echo "✅ ai-platform-engineering version bumped from $BASE_VERSION to $CURRENT_VERSION"
+              fi
+            else
+              echo "ℹ️  ai-platform-engineering is a new chart (doesn't exist in $BASE_BRANCH), skipping version bump check"
+            fi
+          fi
+
+          echo ""
+          echo "✅ All version checks passed!"
+
   publish:
-    name: Push Helm Chart to GHCR
+    name: Push Helm Charts to GHCR
     runs-on: ubuntu-latest
     # Publish only on merge to main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -75,6 +123,8 @@ jobs:
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: ⚙️ Set up Helm
         uses: azure/setup-helm@v4
@@ -85,30 +135,75 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: 📦 Package Helm Chart
+      - name: 🔍 Detect Changed Charts
+        id: detect
         run: |
-          helm dependency update helm/
-          helm package helm/ --destination ./
+          # Detect which charts have changes compared to previous commit
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          echo "Changed files in this push:"
+          echo "$CHANGED_FILES"
 
-      - name: 🚀 Push Chart to GHCR
-        run: |
-          CHART_FILE=$(ls ./*.tgz)
-          CHART_VERSION=$(helm show chart "$CHART_FILE" | grep '^version:' | awk '{print $2}')
-          CHART_NAME=$(helm show chart "$CHART_FILE" | grep '^name:' | awk '{print $2}')
-          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/helm-charts"
-          
-          echo "Chart file: $CHART_FILE"
-          echo "Chart name: $CHART_NAME"
-          echo "Version: $CHART_VERSION"
-          echo "Registry: $REGISTRY"
-          
-          # Check if this version already exists
-          if helm pull $REGISTRY/$CHART_NAME --version $CHART_VERSION --destination /tmp 2>/dev/null; then
-            echo "⚠️  Chart version $CHART_VERSION already exists in registry, skipping push"
-            echo "If you intended to update the chart, please bump the version in helm/Chart.yaml"
-            exit 1
-          else
-            echo "✅ Version $CHART_VERSION does not exist, proceeding with push"
-            helm push "$CHART_FILE" $REGISTRY
-            echo "🎉 Successfully pushed $CHART_NAME:$CHART_VERSION to $REGISTRY"
+          # Check which charts changed
+          RAG_STACK_CHANGED=false
+          AI_PLATFORM_CHANGED=false
+
+          if echo "$CHANGED_FILES" | grep -q "^charts/rag-stack/"; then
+            RAG_STACK_CHANGED=true
+            echo "✅ rag-stack chart has changes"
           fi
+
+          if echo "$CHANGED_FILES" | grep -q "^charts/ai-platform-engineering/"; then
+            AI_PLATFORM_CHANGED=true
+            echo "✅ ai-platform-engineering chart has changes"
+          fi
+
+          echo "rag-stack-changed=$RAG_STACK_CHANGED" >> $GITHUB_OUTPUT
+          echo "ai-platform-changed=$AI_PLATFORM_CHANGED" >> $GITHUB_OUTPUT
+
+      - name: 📦 Package rag-stack Chart
+        if: steps.detect.outputs.rag-stack-changed == 'true'
+        run: |
+          echo "📦 Packaging rag-stack..."
+
+          mkdir -p ./packaged-charts
+          helm dependency update charts/rag-stack/
+          helm package charts/rag-stack/ --destination ./packaged-charts/
+
+          echo "✅ rag-stack packaged successfully"
+
+      - name: 📦 Package ai-platform-engineering Chart
+        if: steps.detect.outputs.ai-platform-changed == 'true'
+        run: |
+          echo "📦 Packaging ai-platform-engineering..."
+
+          mkdir -p ./packaged-charts
+          helm dependency update charts/ai-platform-engineering/
+          helm package charts/ai-platform-engineering/ --destination ./packaged-charts/
+
+          echo "✅ ai-platform-engineering packaged successfully"
+
+      - name: 🚀 Push Charts to GHCR
+        run: |
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/helm-charts"
+
+          echo "📦 Pushing charts to $REGISTRY"
+
+          for CHART_FILE in ./packaged-charts/*.tgz; do
+            if [ -f "$CHART_FILE" ]; then
+              CHART_NAME=$(helm show chart "$CHART_FILE" | grep '^name:' | awk '{print $2}')
+              CHART_VERSION=$(helm show chart "$CHART_FILE" | grep '^version:' | awk '{print $2}')
+
+              echo ""
+              echo "Processing $CHART_NAME:$CHART_VERSION"
+
+              # Check if this version already exists
+              if helm pull $REGISTRY/$CHART_NAME --version $CHART_VERSION --destination /tmp 2>/dev/null; then
+                echo "⚠️  $CHART_NAME:$CHART_VERSION already exists in registry, skipping push"
+                echo "If you intended to update the chart, please bump the version in charts/$CHART_NAME/Chart.yaml"
+              else
+                echo "✅ $CHART_NAME:$CHART_VERSION does not exist, proceeding with push"
+                helm push "$CHART_FILE" $REGISTRY
+                echo "🎉 Successfully pushed $CHART_NAME:$CHART_VERSION to $REGISTRY"
+              fi
+            fi
+          done

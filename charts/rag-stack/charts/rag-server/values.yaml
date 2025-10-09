@@ -1,0 +1,47 @@
+nameOverride: ""
+fullnameOverride: "rag-server"
+
+logLevel: DEBUG
+cleanupInterval: 86400 # 24 hours
+
+image:
+  # Prefer the prebuilt image; if building in-cluster is needed, adjust CI
+  repository: "ghcr.io/cnoe-io/caipe-rag-server"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+serviceAccount:
+  create: false
+  name: ""
+  automount: false
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 9446
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
+
+imagePullSecrets: []
+
+env: {}
+
+# For now, we rely on the secret to be created by rag-agent subchart.
+# Thus, we only need the name of the secret here.
+# TODO: move to rag-stack parent chart.
+llmSecrets:
+  secretName: "llm-secret"
+
+livenessProbe: {}
+readinessProbe: {}
