@@ -15,7 +15,16 @@ DURATION_HOUR = 60 * 60
 DURATION_MINUTE = 60
 
 class ObjEncoder(JSONEncoder):
+    def __init__(self, *args, **argv):
+        super().__init__(*args, **argv)
+        self.proc_objs = []
+        
     def default(self, o):
+        # Check for circular reference
+        obj_id = id(o)
+        if obj_id in self.proc_objs:
+            return f"<CircularRef:{type(o).__name__}>"
+        
         if isinstance(o, set):
             return list(o)
         elif isinstance(o, frozenset):
@@ -24,7 +33,12 @@ class ObjEncoder(JSONEncoder):
             return list(o)
         else:
             try:
-                return o.__dict__
+                # Add object to processed list before processing its attributes
+                self.proc_objs.append(obj_id)
+                result = o.__dict__
+                # Remove object from processed list after processing
+                self.proc_objs.remove(obj_id)
+                return result
             except AttributeError:
                 return str(o)
 
@@ -32,8 +46,44 @@ def json_encode(obj, **kwargs):
     """
     Encodes an object to JSON using the custom encoder.
     """
-    return json.dumps(obj, cls=ObjEncoder, **kwargs)
+    return json.dumps(remove_circular_refs(obj), cls=ObjEncoder, check_circular=False,  **kwargs)
 
+def remove_circular_refs(ob, _seen=None):
+    if _seen is None:
+        _seen = set()
+    if id(ob) in _seen:
+        return f"<CircularRef:{type(ob).__name__}>"
+    _seen.add(id(ob))
+    try:
+        if isinstance(ob, dict):
+            res = {
+                remove_circular_refs(key, _seen): remove_circular_refs(value, _seen)
+                for key, value in ob.items()
+            }
+        elif isinstance(ob, list):
+            res = [remove_circular_refs(v, _seen) for v in ob]
+        elif isinstance(ob, tuple):
+            res = tuple(remove_circular_refs(v, _seen) for v in ob)
+        elif isinstance(ob, set):
+            res = {remove_circular_refs(v, _seen) for v in ob}
+        elif isinstance(ob, frozenset):
+            res = frozenset(remove_circular_refs(v, _seen) for v in ob)
+        elif hasattr(ob, '__dict__'):
+            # For objects with __dict__, convert to dict to avoid constructor issues
+            res = {
+                key: remove_circular_refs(value, _seen)
+                for key, value in ob.__dict__.items()
+            }
+        else:
+            # For all other types (primitives, objects, etc.), return as-is
+            res = ob
+    except Exception:
+        # If any error occurs during processing, return string representation
+        res = str(ob)
+    finally:
+        _seen.remove(id(ob))
+    
+    return res
 
 class CustomFormatter(logging.Formatter):
     """
@@ -65,7 +115,7 @@ def get_logger(name) -> logging.Logger:
     logger = logging.getLogger("rag")
     logger.propagate = False
     logger = logging.getLogger(f"rag.{name}")
-    logger.setLevel(os.getenv("LOG_LEVEL", "DEBUG").upper())
+    logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
 
     formatter = CustomFormatter()
     handler = logging.StreamHandler()
@@ -130,7 +180,7 @@ def get_uuid():
     """
     return str(uuid.uuid4())
 
-def retry_function(func, retries=10, delay=10, *args, **kwargs):
+def retry_function(func, retries=20, delay=5, *args, **kwargs):
     """
     Tries to execute the given function up to `max_retries` times.
     If the function raises an exception, it waits `delay` seconds before retrying.

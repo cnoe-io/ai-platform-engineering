@@ -5,8 +5,8 @@ from common.key_value.redis.key_value_store import RedisKVStore
 import pytest
 from core.models import RelationCandidate
 from core.graph_db.neo4j.graph_db import Neo4jDB
-from agent_graph_gen.relation_manager import RelationCandidateManager
-from agent_graph_gen.agent import OntologyAgent
+from agent_ontology.relation_manager import RelationCandidateManager
+from agent_ontology.agent import OntologyAgent
 from core.utils import get_default_fresh_until
 from core.models import Entity
 from core.key_value.base import KVStore
@@ -70,7 +70,7 @@ async def test_each_evaluation():
             acceptance_threshold=rc.acceptance_threshold, 
             rejection_threshold=rc.rejection_threshold, 
             min_count_for_eval=1, 
-            percent_change_for_eval=0.2, 
+            count_change_threshold_ratio=0.2, 
             max_concurrent_processing=30, 
             max_concurrent_evaluation=5)
         logging.info("Running heuristics processing...")

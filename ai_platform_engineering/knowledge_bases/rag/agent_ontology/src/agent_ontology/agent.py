@@ -3,7 +3,6 @@ import traceback
 
 from common.graph_db.base import GraphDB
 from langgraph.prebuilt import create_react_agent
-
 from common.agent.tools import fetch_entity
 from agent_ontology.heuristics import HeuristicsProcessor
 from agent_ontology.relation_manager import RelationCandidateManager
@@ -30,7 +29,7 @@ class OntologyAgent:
     """
 
     def __init__(self, graph_db: GraphDB, ontology_graph_db: GraphDB, redis : redis.Redis, acceptance_threshold: float, rejection_threshold: float, 
-        min_count_for_eval: int, percent_change_for_eval: float, max_concurrent_processing: int, max_concurrent_evaluation: int, agent_recursion_limit: int = 5):
+        min_count_for_eval: int, count_change_threshold_ratio: float, max_concurrent_processing: int, max_concurrent_evaluation: int, agent_recursion_limit: int = 5):
         """
         Initializes the OntologyAgent with the given parameters.
         Args:
@@ -39,7 +38,7 @@ class OntologyAgent:
             acceptance_threshold (float): The confidence threshold for accepting a relation.
             rejection_threshold (float): The confidence threshold for rejecting a relation.
             min_count_for_eval (int): The minimum count of matches to consider the heuristic for evaluation.
-            percent_change_for_eval (float): The percentage change in count needed to trigger re-evaluation.
+            count_change_threshold_ratio (float): The ratio of count change needed to trigger re-evaluation (0.0-1.0, e.g., 0.1 = 10% change).
             max_concurrent_processing (int): The maximum number of concurrent processing tasks.
             max_concurrent_evaluation (int): The maximum number of concurrent evaluation tasks.
             agent_recursion_limit (int): The maximum number of recursive calls to the agent.
@@ -51,7 +50,7 @@ class OntologyAgent:
         self.acceptance_threshold = acceptance_threshold
         self.rejection_threshold = rejection_threshold
         self.min_count_for_eval = min_count_for_eval
-        self.percent_change_for_eval = percent_change_for_eval
+        self.count_change_threshold_ratio = count_change_threshold_ratio
         self.max_concurrent_processing = max_concurrent_processing
         self.max_concurrent_evaluation = max_concurrent_evaluation
         self.agent_recursion_limit = agent_recursion_limit
@@ -79,7 +78,7 @@ class OntologyAgent:
 
     async def process_and_evaluate_all(self):
         self.logger.info("Running heuristics processing and the evaluation...")
-        
+
         # create a new heuristics version
         new_heuristics_version_id = utils.get_uuid()
         self.logger.info(f"Created new heuristics version: {new_heuristics_version_id}")
@@ -87,20 +86,27 @@ class OntologyAgent:
         # use the new heuristics version for processing and evaluation
         rc_manager_new_version = RelationCandidateManager(self.graph_db, self.ontology_graph_db, self.acceptance_threshold, self.rejection_threshold, new_heuristics_version_id)
 
+        # fetch the current heuristics version
+        current_heuristics_version_id = await self.redis.get(constants.KV_HEURISTICS_VERSION_ID_KEY)
+        current_heuristics_version_id = current_heuristics_version_id.decode('utf-8') if current_heuristics_version_id else None
+        rc_manager_current_version = None
+        if current_heuristics_version_id:
+            rc_manager_current_version = RelationCandidateManager(self.graph_db, self.ontology_graph_db, self.acceptance_threshold, self.rejection_threshold, current_heuristics_version_id)
+
         await self.process_all(rc_manager_new_version)
         if new_heuristics_version_id is None:
             self.logger.warning("Heuristics processing failed, skipping evaluation")
             return
 
         # Evaluate the new heuristics version
-        await self.evaluate_all(rc_manager_new_version)
+        await self.evaluate_all(rc_manager_current_version, rc_manager_new_version)
 
         # set the new heuristics version as the current heuristics version
         self.logger.info(f"Setting new heuristics version: {new_heuristics_version_id}")
         await self.redis.set(constants.KV_HEURISTICS_VERSION_ID_KEY, new_heuristics_version_id)
 
-        await rc_manager_new_version.cleanup()
         await self.sync_all_relations(rc_manager_new_version) # sync all relations with the graph database, just in case some relations were not updated
+        await rc_manager_new_version.cleanup() # Clear previous ontology
 
     async def process_all(self, rc_manager: RelationCandidateManager) -> str|None:
         """
@@ -147,13 +153,13 @@ class OntologyAgent:
         self.is_processing = False
     
 
-    async def evaluate_all(self, rc_manager: RelationCandidateManager):
+    async def evaluate_all(self, rc_manager_current: RelationCandidateManager|None, rc_manager_new: RelationCandidateManager):
         """
         Evaluates all relations in the database.
         :param rc_manager: The relation candidate manager to use. 
         This is meant to be run periodically to update the relations based on the heuristics.
         """        
-        self.logger.info("Evaluating all relations for heuristics_version_id: %s", rc_manager.heuristics_version_id)
+        self.logger.info("Evaluating all relations for heuristics_version_id: %s", rc_manager_new.heuristics_version_id)
         if self.is_evaluating:
             self.logger.warning("Evaluation is already in progress, skipping this run")
             return
@@ -162,26 +168,61 @@ class OntologyAgent:
         self.evaluation_tasks_total = 0
         self.evaluated_tasks_count = 0
 
-        # Get all relation candidates
-        relation_candidates = await rc_manager.fetch_all_candidates()
-        self.evaluation_tasks_total = len(relation_candidates)
-        self.logger.info(f"Found {len(relation_candidates)} relation candidates to evaluate")
-        
-        async def evaluation_task_with_tracking(task_id, rc_manager, relation_id, force=False):
+        # Create a wrapper function for doing the evaluation (with progress update)
+        async def evaluation_task_with_tracking(task_id, rc_manager, relation_id):
             """Wrapper function to track evaluation task completion"""
             try:
-                await self.evaluation_task(task_id, rc_manager, relation_id, force)
+                await self.evaluation_task(task_id, rc_manager, relation_id)
             except Exception as e:
                 self.logger.error(traceback.format_exc())
                 self.logger.error(f"Error evaluating relation {relation_id}: {e}")
             finally:
                 self.evaluated_tasks_count += 1
 
-        # Create tasks for each relation candidate
+        # Fetch the current relation candidates if available
+        if rc_manager_current:
+            current_relation_candidates = await rc_manager_current.fetch_all_candidates()
+
+        # Get all new relation candidates
+        new_relation_candidates = await rc_manager_new.fetch_all_candidates()
+        self.evaluation_tasks_total = len(new_relation_candidates)
+        self.logger.info(f"Found {len(new_relation_candidates)} relation candidates to evaluate")
+        
+        # Create tasks for each relation candidate if they pass requirements
         tasks = []
         index = 0
-        for _, candidate in relation_candidates.items():
-            tasks.append(evaluation_task_with_tracking(index, rc_manager, candidate.relation_id))
+        for rel_id, new_candidate in new_relation_candidates.items():
+            
+            # Check if there is an existing relation candidate
+            current_relation = None
+            if rc_manager_current:
+                current_relation = current_relation_candidates.get(rel_id, None)
+            
+            # Check if an existing relation exists and has an evaluation
+            if current_relation and current_relation.evaluation:
+                # Check if heurisitics changed from last evaluation
+                if (helpers.is_accepted(current_relation.evaluation.relation_confidence, self.acceptance_threshold)):
+                    # If the heuristic is already evaluated, we can skip it
+                    self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, already accepted with confidence {current_relation.evaluation.relation_confidence}.")
+                    continue
+                if helpers.is_rejected(current_relation.evaluation.relation_confidence, self.rejection_threshold):
+                    # If the heuristic is already evaluated, we can skip it
+                    self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, already rejected with confidence {current_relation.evaluation.relation_confidence}.")
+                    continue
+
+                 # If the heuristic count changed less than the threshold ratio, we ignore it
+                if current_relation.heuristic.count > 0:
+                    count_distance = abs(current_relation.heuristic.count - new_candidate.heuristic.count) / abs(current_relation.heuristic.count)
+                    if count_distance < self.count_change_threshold_ratio:
+                        self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count change ratio {count_distance:.3f} is below threshold {self.count_change_threshold_ratio}.")
+                        continue
+            
+            # Skip if the absolute count is less than the min required
+            if new_candidate.heuristic.count < self.min_count_for_eval:
+                self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count is {new_candidate.heuristic.count} which is below the minimum count for evaluation.")
+                continue
+
+            tasks.append(evaluation_task_with_tracking(index, rc_manager_new, new_candidate.relation_id))
             index += 1
 
         # Run the evaluation tasks concurrently
@@ -200,7 +241,7 @@ class OntologyAgent:
             return
         await heuristics_processor.process(entity, rc_manager)
 
-    async def evaluation_task(self, task_id, rc_manager: RelationCandidateManager, relation_id, force=False):
+    async def evaluation_task(self, task_id, rc_manager: RelationCandidateManager, relation_id):
         """
         A worker that picks up entities from the queue and computes heuristics.
         """
@@ -212,35 +253,14 @@ class OntologyAgent:
                 logger.warning(f"Candidate for relation {relation_id} not found, skipping evaluation.")
                 return
 
-            if not force and candidate.evaluation is not None:
-                if (helpers.is_accepted(candidate.evaluation.relation_confidence, self.acceptance_threshold)):
-                    # If the heuristic is already evaluated, we can skip it
-                    self.logger.info(f"Skipping evaluation for {candidate.relation_id}, already accepted with confidence {candidate.evaluation.relation_confidence}.")
-                    return
-                if candidate.evaluation.relation_confidence is not None and (helpers.is_rejected(candidate.evaluation.relation_confidence, self.rejection_threshold)):
-                    # If the heuristic is already evaluated, we can skip it
-                    self.logger.info(f"Skipping evaluation for {candidate.relation_id}, already rejected with confidence {candidate.evaluation.relation_confidence}.")
-                    return
-                if candidate.heuristic.count < self.min_count_for_eval:
-                    self.logger.info(f"Skipping evaluation for {candidate.relation_id}, count is {candidate.heuristic.count} which is below the minimum count for evaluation.")
-                    return
-                if candidate.evaluation.last_evaluation_count is None:
-                    candidate.evaluation.last_evaluation_count = 0
-
-                # If the heuristic count changed less than 20% than previous count, we ignore it
-                if candidate.evaluation.last_evaluation_count > 0:
-                    count_distance = abs( - candidate.heuristic.count) / abs(candidate.heuristic.count)
-                    if count_distance < self.percent_change_for_eval: # type: ignore
-                        self.logger.info(f"Skipping evaluation for {candidate.relation_id}, previous count is less than 20% of current count.")
-                        return
-            else:
-                self.logger.info(f"Evaluating {candidate.relation_id} with count {candidate.heuristic.count}. force={force}, never evaluated={candidate.evaluation is None}")
-                c = await rc_manager.fetch_candidate(relation_id)
-                if c is None:
-                    self.logger.warning(f"Relation candidate {relation_id} not found, skipping evaluation.")
-                    return
-                await self.evaluate(rc_manager=rc_manager, candidate=c)
-                await rc_manager.sync_relation(AGENT_NAME, relation_id)
+           
+            self.logger.info(f"Evaluating {candidate.relation_id} with count {candidate.heuristic.count}.")
+            c = await rc_manager.fetch_candidate(relation_id)
+            if c is None:
+                self.logger.warning(f"Relation candidate {relation_id} not found, skipping evaluation.")
+                return
+            await self.evaluate(rc_manager=rc_manager, candidate=c)
+            await rc_manager.sync_relation(AGENT_NAME, relation_id)
         except Exception as e:
             self.logger.error(traceback.format_exc())
             self.logger.error(f"Error evaluating relation {relation_id}: {e}")
@@ -336,7 +356,7 @@ class OntologyAgent:
                 candidate_str += f"(count: {rel_candidate.heuristic.count}, confidence (if already evaluated): {eval_confidence})"
                 entity_a_relation_candidates.append(candidate_str)
 
-        logger.info("Evaluating with agent")
+        logger.info(f"Evaluating rel_id={candidate.relation_id} with agent")
         prompt_tpl = PromptTemplate.from_template(RELATION_PROMPT)
         prompt = prompt_tpl.format(
             entity_a=candidate.heuristic.entity_a_type,
@@ -349,7 +369,7 @@ class OntologyAgent:
             entity_a_relation_candidates=utils.json_encode(entity_a_relation_candidates, indent=2),
         )
 
-        logger.info(prompt)
+        logger.debug(prompt)
         if not self.debug:
             # Invoke the agent with the prompt
             resp = await self.agent.ainvoke(
@@ -368,7 +388,8 @@ class OntologyAgent:
             fkey_agent_response_raw = resp["structured_response"].model_dump_json()
             fkey_agent_response: AgentOutputFKeyRelation = AgentOutputFKeyRelation.model_validate_json(fkey_agent_response_raw)
 
-            logger.info(f"Agent response: {fkey_agent_response_raw}")
+            logger.info(f"Agent response: confidence={fkey_agent_response.relation_confidence}, ")
+            logger.debug(f"Agent response raw: {fkey_agent_response_raw}")
         else:
             # For debugging purposes, we can use a static response instead to save time and cost
             fkey_agent_response = AgentOutputFKeyRelation(
@@ -382,30 +403,6 @@ class OntologyAgent:
         if fkey_agent_response.relation_confidence is None: # Assume rejection if no confidence is given
             fkey_agent_response.relation_confidence = 0.0
 
-        # # Check if the confidence is high enough
-        # if float(fkey_agent_response.relation_confidence) > float(self.acceptance_threshold):
-        #     # Determine what other properties are in the composite key
-        #     # If the relation is a composite key, we need to set the additional property mappings
-        #     # TODO: Give this to the agent to decide in the future
-        #     if candidate.heuristic.is_entity_b_idkey_composite:
-        #         # If the relation is a composite key, we need to set the additional property mappings
-        #         # Check if there are composite key mappings, which have the same count as the heuristic count
-        #         property_mappings = [mapping for mapping in candidate.heuristic.composite_idkey_mappings if mapping.count == candidate.heuristic.count]
-                
-        #         # Now search for the composite key mappings that match the remaining entity_b's composite key
-        #         properties_in_composite_idkey = set(candidate.heuristic.properties_in_composite_idkey)
-        #         properties_in_composite_idkey.remove(candidate.heuristic.entity_b_idkey_property)
-        #         for prop_in_idkey in properties_in_composite_idkey:
-        #             matched_mapping = next(iter([mapping for mapping in property_mappings if mapping.entity_b_idkey_property == prop_in_idkey]), None)
-        #             if matched_mapping is None:
-        #                 # If there is no mapping for the property, we cannot accept the relation
-        #                 error_message = f"No appropriate mapping found for property {prop_in_idkey} in composite key, cannot accept relation."
-        #                 logger.error(error_message)
-        #                 await self.rc_manager.update_evaluation_error(candidate.relation_id, error_message)
-        #                 return  # Update the evaluation error message and return, as we cannot accept the relation
-        #             else:
-        #                 # Set this additional property has accepted for the relation
-        #                 matched_mapping.is_accepted = True
 
         await rc_manager.update_evaluation(
             relation_id=candidate.relation_id,
@@ -415,5 +412,5 @@ class OntologyAgent:
             thought=ai_thought,
             entity_a_property_values=property_values,
             entity_a_property_counts=property_counts,
-            evaluation_count=candidate.heuristic.count
+            evaluation_heuristic_count=candidate.heuristic.count
         )
