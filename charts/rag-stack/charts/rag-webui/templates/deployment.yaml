@@ -27,15 +27,15 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "rag-webui.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automount | default false }}
-      env:
-        - name: RAG_SERVER_URL
-          value: {{ include "rag-webui.ragServerUrl" . }}
-        - name: NGINX_ENVSUBST_TEMPLATE_SUFFIX
-          value: {{ .Values.nginxEnvsubstTemplateSuffix }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: RAG_SERVER_URL
+              value: {{ include "rag-webui.ragServerUrl" . }}
+            - name: NGINX_ENVSUBST_TEMPLATE_SUFFIX
+              value: {{ .Values.nginxEnvsubstTemplateSuffix }}
           ports:
             - name: http
               containerPort: 80
