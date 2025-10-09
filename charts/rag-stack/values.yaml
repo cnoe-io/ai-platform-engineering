@@ -3,8 +3,11 @@
 # Declare variables to be passed into your templates.
 
 global:
-  enableGraphRag: true
   rag:
+    enableGraphRag: true
+    ragServer:
+      host: "rag-server"
+      port: 9446
     ontologyAgentRestapi:
       host: "agent-ontology"
       port: 8098
@@ -156,6 +159,8 @@ rag-webui:
   service:
     type: ClusterIP
     port: 80
+
+  nginxEnvsubstTemplateSuffix: ".conf"
 
   ingress:
     enabled: true
