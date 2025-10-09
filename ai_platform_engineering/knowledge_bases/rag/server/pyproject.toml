@@ -29,7 +29,6 @@ dependencies = [
     "aiohttp>=3.12.15",
     "beautifulsoup4>=4.12.3",
     "cnoe-agent-utils>=0.1.4",
-    "common",
     "fastapi[standard]>=0.116.1",
     "httpx>=0.28.1",
     "langchain>=0.1.0",
@@ -43,6 +42,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "redis>=5.0.0",
     "uvicorn>=0.35.0",
+    "common",
 ]
 
 [project.scripts]

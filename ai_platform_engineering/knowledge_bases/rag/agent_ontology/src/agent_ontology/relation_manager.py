@@ -9,6 +9,7 @@ from common.models.ontology import PropertyMapping, ExampleEntityMatch, FkeyEval
 from common.models.graph import Entity, Relation
 from common.graph_db.base import GraphDB
 
+CLIENT_NAME="relation_manager"
 
 class RelationCandidateManager:
     """
@@ -29,12 +30,13 @@ class RelationCandidateManager:
 
     async def cleanup(self):
         """
-        Deletes all relation candidates that are not from the current heuristics version.
-        This is used to reset the relation candidates, e.g. when starting a new dataset.
+        Deletes all relation candidates that are not from the current heuristics version, as well as any applied relations.
+        TODO: Move to the GraphDB class
         """
         self.logger.info("Cleaning up relation candidates from the database")
         await self.ontology_graph_db.raw_query(f"MATCH ()-[r]->() WHERE r.heuristics_version_id <> '{self.heuristics_version_id}' DELETE r")
         await self.ontology_graph_db.raw_query(f"MATCH (n) WHERE n.heuristics_version_id <> '{self.heuristics_version_id}' DETACH DELETE n")
+        await self.data_graph_db.raw_query(f"MATCH ()-[r]-() WHERE r.{constants.UPDATED_BY_KEY}={CLIENT_NAME} AND r.{constants.HEURISTICS_VERSION_ID_KEY} <> '{self.heuristics_version_id}' DELETE r")
 
 
     async def _set_heuristic(self, relation_id: str, candidate: RelationCandidate, recreate: bool = False):
@@ -52,7 +54,7 @@ class RelationCandidateManager:
                 constants.ENTITY_TYPE_NAME_KEY: candidate.heuristic.entity_a_type,
                 constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id
             })
-        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_a_type, [entity_a], fresh_until=utils.get_default_fresh_until(), client_name="relation_manager")
+        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_a_type, [entity_a], fresh_until=utils.get_default_fresh_until(), client_name=CLIENT_NAME)
         entity_b = Entity(
             primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.HEURISTICS_VERSION_ID_KEY],
             entity_type=candidate.heuristic.entity_b_type,
@@ -60,7 +62,7 @@ class RelationCandidateManager:
                 constants.ENTITY_TYPE_NAME_KEY: candidate.heuristic.entity_b_type,
                 constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id
             })
-        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_b_type, [entity_b], fresh_until=utils.get_default_fresh_until(), client_name="relation_manager")
+        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_b_type, [entity_b], fresh_until=utils.get_default_fresh_until(), client_name=CLIENT_NAME)
 
         # Use the evaluation relation name if available (and accepted)
         relation_name = constants.PLACEHOLDER_RELATION_NAME
@@ -110,7 +112,6 @@ class RelationCandidateManager:
                     "evaluation_last_evaluated": candidate.evaluation.last_evaluated if candidate.evaluation else 0,
                     "evaluation_entity_a_property_values":  utils.json_encode(candidate.evaluation.entity_a_property_values) if candidate.evaluation else None,
                     "evaluation_entity_a_property_counts":  utils.json_encode(candidate.evaluation.entity_a_property_counts) if candidate.evaluation else None,
-                    "evaluation_last_evaluation_count": candidate.evaluation.last_evaluation_count if candidate.evaluation else 0,
     
     
                     "is_applied": candidate.is_applied,
@@ -119,7 +120,7 @@ class RelationCandidateManager:
                 }
             ),
             fresh_until=utils.get_default_fresh_until(),
-            client_name="relation_manager"
+            client_name=CLIENT_NAME
         )
 
 
@@ -155,7 +156,6 @@ class RelationCandidateManager:
                 "last_evaluated": relation_properties.get("evaluation_last_evaluated", 0),
                 "entity_a_property_values": json.loads(relation_properties.get("evaluation_entity_a_property_values", "{}")),
                 "entity_a_property_counts": json.loads(relation_properties.get("evaluation_entity_a_property_counts", "{}")),
-                "last_evaluation_count": relation_properties.get("evaluation_last_evaluation_count", 0)
             }
             evaluation = FkeyEvaluation.model_validate(evaluation_data)
         
@@ -310,7 +310,7 @@ class RelationCandidateManager:
                                 thought: str,
                                 entity_a_property_values: dict[str, List[str]],
                                 entity_a_property_counts: dict[str, int],
-                                evaluation_count: int):
+                                evaluation_heuristic_count: int):
         """
         Updates the evaluation for the given relation_id.
         :param relation_id: The ID of the relation to update.
@@ -320,7 +320,7 @@ class RelationCandidateManager:
         :param thought: The agent's thoughts about the relation.
         :param entity_a_property_values: The values of the properties of entity_a that were used to evaluate the relation.
         :param entity_a_property_counts: The counts of the properties of entity_a that were used to evaluate the relation.
-        :param evaluation_count: The count of the evaluation.
+        :param evaluation_heuristic_count: The count in heuristics when evaluating.
         """
         self.logger.debug(f"Updating evaluation for {relation_id}")
         # Acquire a lock for the relation_id to avoid concurrent updates to the same heuristic
@@ -336,7 +336,7 @@ class RelationCandidateManager:
             entity_a_property_values=entity_a_property_values,
             entity_a_property_counts=entity_a_property_counts,
             last_evaluated=int(time.time()),
-            last_evaluation_count=evaluation_count
+            evaluation_heuristic_count=evaluation_heuristic_count
         )
 
         await self._set_heuristic(relation_id, candidate, recreate=True)
@@ -373,7 +373,7 @@ class RelationCandidateManager:
         if candidate.evaluation is None:
             self.logger.warning(f"Relation {relation_id} has no evaluation, cannot apply relation.")
             return
-        self.logger.info(f"Applying relation {relation_id}, {candidate.model_dump_json()}")
+        self.logger.debug(f"Applying relation {relation_id}, {candidate.model_dump_json()}")
         if candidate.evaluation.relation_name is None or candidate.evaluation.relation_name == "":
             self.logger.error(f"Relation {relation_id} has no relation name, cannot apply.")
             return
@@ -422,7 +422,7 @@ class RelationCandidateManager:
         if candidate.evaluation is None:
             self.logger.warning(f"Relation {relation_id} has no evaluation, cannot unapply relation.")
             return
-        self.logger.info(f"Unapplying relation {relation_id}, {candidate.model_dump_json()}")
+        self.logger.debug(f"Unapplying relation {relation_id}, {candidate.model_dump_json()}")
 
         if candidate.evaluation.relation_name is None or candidate.evaluation.relation_name == "":
             self.logger.error(f"Relation {relation_id} has no relation name, cannot undo.")
