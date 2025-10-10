@@ -65,7 +65,7 @@ class ExploreRelationsRequest(BaseModel):
 class QueryRequest(BaseModel):
     query: str = Field(..., description="Query string to search for")
     limit: int = Field(3, description="Maximum number of results to return", ge=1, le=100)
-    similarity_threshold: float = Field(0.7, description="Minimum similarity score", ge=0.0, le=1.0)
+    similarity_threshold: float = Field(0.5, description="Minimum similarity score", ge=0.0, le=1.0)
     datasource_id: Optional[str] = Field(None, description="Filter by specific datasource id (For documents)")
     connector_id: Optional[str] = Field(None, description="Filter by specific connector id (For graph entities)")
     graph_entity_type: Optional[str] = Field(None, description="Filter by specific graph entity type (For graph entities)")
