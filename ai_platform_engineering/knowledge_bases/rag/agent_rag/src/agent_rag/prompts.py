@@ -21,7 +21,7 @@ You have access to:
 - Try to put in full questions (rather than single word), as its a semantic search
 - You can filter with either `graph_entity_type` for graph entities or `datasource_id` for specific data sources.
 - For example, if you're asked "how to do I do setup a nexus deployment", and there is a document source who's path or description is similar "nexus", you can specify that datasource_id in your search to filter.
-- If no results are found consider removing the filters (if applied) or lowering the similarity threshold gradually (no lower than 0.3).
+- If no results are found consider removing the filters (if applied).
 
 ## How to use the graph database tools:
 1. Find the properties of entity types using `get_entity_properties` tool.
@@ -71,7 +71,7 @@ You have access to a **Vector database** for semantic similarity search.
 - Try to put in full questions (rather than single word), as its a semantic search
 - You can filter with either `graph_entity_type` for graph entities or `datasource_id` for specific data sources.
 - For example, if you're asked "how to do I do setup a nexus deployment", and there is a document source who's path or description is similar "nexus", you can specify that datasource_id in your search to filter.
-- If no results are found consider removing the filters (if applied) or lowering the similarity threshold gradually (no lower than 0.3).
+- If no results are found consider removing the filters (if applied).
 
 ## Answer Format
   - ALWAYS provide references to the documents you used to answer the question. Provide them in a "References" section at the end of your answer.
