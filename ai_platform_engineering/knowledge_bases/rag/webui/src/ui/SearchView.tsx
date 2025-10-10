@@ -12,7 +12,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     // Query state
     const [query, setQuery] = useState('');
     const [limit, setLimit] = useState(3);
-    const [similarity, setSimilarity] = useState(0.7);
+    const [similarity, setSimilarity] = useState(0.5);
     const [results, setResults] = useState<QueryResponse | null>(null);
     const [loadingQuery, setLoadingQuery] = useState(false);
     const [expandedDocResults, setExpandedDocResults] = useState<Set<number>>(new Set());
