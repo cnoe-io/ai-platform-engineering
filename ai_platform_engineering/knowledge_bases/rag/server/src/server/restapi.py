@@ -317,6 +317,8 @@ async def query_documents(query_request: QueryRequest):
             docs = await vector_db_docs.asimilarity_search_with_score(
                 query_request.query,
                 k=query_request.limit,
+                ranker_type="weighted",
+                ranker_params={"weights": [0.7, 0.3]},
                 expr=docs_filter_expr if docs_filter_expr else None
             )
             # filter out based on similarity threshold
@@ -344,6 +346,8 @@ async def query_documents(query_request: QueryRequest):
             graph_entities = await vector_db_graph.asimilarity_search_with_score(
                 query_request.query,
                 k=query_request.limit,
+                ranker_type="weighted",
+                ranker_params={"weights": [0.4, 0.6]}, # more weight to sparse for graph entities
                 expr=graph_filter_expr if graph_filter_expr else None
             )
             # filter out based on similarity threshold
