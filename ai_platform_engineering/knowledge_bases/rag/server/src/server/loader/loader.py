@@ -16,7 +16,7 @@ import uuid
 import datetime
 from server.metadata_storage import MetadataStorage
 from common.job_manager import JobManager, JobStatus
-from common.models.rag import DataSourceInfo
+from common.models.rag import DataSourceInfo, VectorDBDocsMetadata
 from common.utils import get_logger
 import traceback
 from common.task_scheduler import TaskScheduler
@@ -297,30 +297,30 @@ class Loader:
             for i, chunk_doc in enumerate(doc_chunks):
                 chunk_id = doc.id + "_chunk_" + str(i)
                 # Add comprehensive metadata to each chunk
-                chunk_doc.metadata.update({
-                    "id": chunk_id,
-                    "datasource_id": self.datasourceinfo.datasource_id,
-                    "document_id": document_id,
-                    "chunk_index": i,
-                    "total_chunks": len(doc_chunks),
-                })
-                
+
+                chunk_doc.metadata.update(VectorDBDocsMetadata(
+                    id=chunk_id,
+                    datasource_id=self.datasourceinfo.datasource_id,
+                    document_id=document_id,
+                    chunk_index=i,
+                    total_chunks=len(doc_chunks)
+                ).model_dump())
+
                 chunks.append(chunk_doc)
         else:
             # Process as single document (one chunk)
             self.logger.debug(f"Embedding & adding document: {source}")
             document_info.chunk_count = 1
             chunk_id = doc.id + "_chunk_0"
-            
-            # Add metadata for single chunk
-            doc.metadata.update({
-                "id": chunk_id,
-                "datasource_id": self.datasourceinfo.datasource_id,
-                "document_id": document_id,
-                "chunk_index": 0,
-                "total_chunks": 1,
-            })
-            
+
+            doc.metadata.update(VectorDBDocsMetadata(
+                id=chunk_id,
+                datasource_id=self.datasourceinfo.datasource_id,
+                document_id=document_id,
+                chunk_index=0,
+                total_chunks=1
+            ).model_dump())
+
             chunks.append(doc)
         
         # Add chunks to vector store
