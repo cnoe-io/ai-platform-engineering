@@ -4,6 +4,19 @@ from typing import Optional, Dict, Any
 import datetime
 import hashlib
 
+class VectorDBDocsMetadata(BaseModel):
+    id: str = Field(..., description="Unique identifier for the vector DB record")
+    datasource_id: str = Field(..., description="Datasource ID this record belongs to")
+    document_id: str = Field(..., description="Document ID this record belongs to")
+    chunk_index: int = Field(..., description="Index of the chunk within the document")
+    total_chunks: int = Field(..., description="Total number of chunks in the document")
+
+class VectorDBGraphMetadata(BaseModel):
+    hash: str = Field(..., description="Hash of the entity data")
+    connector_id: str = Field(..., description="Connector ID this record belongs to")
+    entity_type: str = Field(..., description="Type of the entity")
+    entity_primary_key: str = Field(..., description="Primary key of the entity")
+
 class GraphConnectorInfo(BaseModel):
     connector_id: str = Field(..., description="Unique identifier for the graph connector") # TODO: Implement ID generation
     name: str = Field(..., description="Name of the graph connector")
