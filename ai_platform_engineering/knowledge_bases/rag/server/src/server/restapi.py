@@ -98,6 +98,14 @@ async def setup():
     jobmanager = JobManager(redis_client=redis_client)
     embeddings = AzureOpenAIEmbeddings(model=embeddings_model)
 
+    # Do some inital tests to ensure the connections are all working
+    await init_tests(
+        logger=logger,
+        redis_client=redis_client,
+        embeddings=embeddings,
+        milvus_uri=milvus_uri
+    )
+
     # Setup vector db for document data
     vector_db_docs = Milvus(
         embedding_function=embeddings,
@@ -106,14 +114,6 @@ async def setup():
         index_params=[dense_index_params, sparse_index_params],
         builtin_function=BM25BuiltInFunction(output_field_names="sparse"),
         vector_field=["dense", "sparse"]
-    )
-
-    ## Do some inital tests to ensure the connections are working
-    await init_tests(
-        logger=logger,
-        redis_client=redis_client,
-        embeddings=embeddings,
-        milvus_uri=milvus_uri
     )
 
     if graph_rag_enabled:
@@ -749,12 +749,8 @@ async def init_tests(logger: logging.Logger,
     logger.info(f"Expected embedding dimension: {expected_dim}")
     
     # Required fields for each collection type
-    required_docs_fields = {
-        "id", "datasource_id", "document_id", "chunk_index", "total_chunks"
-    }
-    required_graph_fields = {
-        "hash", "connector_id", "entity_type", "entity_primary_key"
-    }
+    required_docs_fields = VectorDBDocsMetadata.model_fields.keys()
+    required_graph_fields = VectorDBGraphMetadata.model_fields.keys()
     
     collections_to_check = [default_collection_name_docs]
     if graph_rag_enabled:
