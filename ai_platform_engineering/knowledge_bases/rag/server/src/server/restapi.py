@@ -17,7 +17,7 @@ from langchain_core.documents import Document
 from server.metadata_storage import MetadataStorage
 from common.job_manager import JobManager, JobStatus
 from server.models import ExploreDataEntityRequest, ExploreEntityRequest, ExploreRelationsRequest, QueryRequest, QueryResult, ConfigResponse, IngestResponse, QueryResults, UrlIngest, FileIngest, EntityIngest
-from common.models.rag import DataSourceInfo, GraphConnectorInfo
+from common.models.rag import DataSourceInfo, GraphConnectorInfo, VectorDBGraphMetadata, VectorDBDocsMetadata
 from common.models.graph import Entity
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
@@ -25,9 +25,11 @@ from common.constants import HEURISTICS_VERSION_ID_KEY, KV_HEURISTICS_VERSION_ID
 import redis.asyncio as redis
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_milvus import BM25BuiltInFunction, Milvus
+from pymilvus import MilvusClient
 import os
 import httpx
 import asyncio
+
 
 metadata_storage: Optional[MetadataStorage] = None
 vector_db_docs: Optional[Milvus] = None
@@ -39,10 +41,25 @@ ontology_graph_db: Optional[GraphDB] = None
 # Initialize logger
 logger = utils.get_logger(__name__)
 logger.setLevel(os.getenv("LOG_LEVEL", logging.DEBUG))
+logging.warning(f"Log level set to {logger.level}")
+
+# Read configuration from environment variables
 clean_up_interval = int(os.getenv("CLEANUP_INTERVAL", 3 * 60 * 60))  # Default to 3 hours
 max_concurrent_ingest_jobs = int(os.getenv("MAX_CONCURRENT_INGEST_JOBS", 20))
 ontology_agent_client = httpx.AsyncClient(base_url=os.getenv("ONTOLOGY_AGENT_RESTAPI_ADDR", "http://localhost:8098"))
 graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1", "yes")
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+milvus_uri = os.getenv("MILVUS_URI", "http://localhost:19530")
+embeddings_model = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
+neo4j_addr = os.getenv("NEO4J_ADDR", "bolt://localhost:7687")
+ontology_neo4j_addr = os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688")
+
+default_collection_name_graph = "graph_rag_default"
+default_collection_name_docs = "rag_default"
+dense_index_params = {"index_type": "HNSW", "metric_type": "COSINE"}
+sparse_index_params = {"index_type": "SPARSE_INVERTED_INDEX", "metric_type": "BM25"}
+milvus_connection_args = {"uri": milvus_uri}
+
 if graph_rag_enabled:
     logger.info("Graph RAG is enabled.")
 else:
@@ -76,39 +93,40 @@ async def setup():
     global vector_db_graph
     global redis_client
     
-    redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+    redis_client = redis.from_url(redis_url)
     metadata_storage = MetadataStorage(redis_client=redis_client)
     jobmanager = JobManager(redis_client=redis_client)
-    embeddings = AzureOpenAIEmbeddings(model=os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small"))
-
-    # Setup Vector Databases
-    milvus_connection_args = {"uri": os.getenv("MILVUS_URI", "http://localhost:19530")}
-    DEFAULT_COLLECTION_NAME_GRAPH = "graph_rag_default"
-    DEFAULT_COLLECTION_NAME_DOCS = "rag_default"
-    dense_index_params = {"index_type": "HNSW", "metric_type": "COSINE"}
-    sparse_index_params = {"index_type": "SPARSE_INVERTED_INDEX", "metric_type": "BM25"}
+    embeddings = AzureOpenAIEmbeddings(model=embeddings_model)
 
     # Setup vector db for document data
     vector_db_docs = Milvus(
         embedding_function=embeddings,
-        collection_name=DEFAULT_COLLECTION_NAME_DOCS,
+        collection_name=default_collection_name_docs,
         connection_args=milvus_connection_args,
         index_params=[dense_index_params, sparse_index_params],
         builtin_function=BM25BuiltInFunction(output_field_names="sparse"),
         vector_field=["dense", "sparse"]
     )
 
+    ## Do some inital tests to ensure the connections are working
+    await init_tests(
+        logger=logger,
+        redis_client=redis_client,
+        embeddings=embeddings,
+        milvus_uri=milvus_uri
+    )
+
     if graph_rag_enabled:
         # Setup graph dbs
-        data_graph_db = Neo4jDB()
+        data_graph_db = Neo4jDB(uri=neo4j_addr)
         await data_graph_db.setup()
-        ontology_graph_db = Neo4jDB(uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
+        ontology_graph_db = Neo4jDB(uri=ontology_neo4j_addr)
         await ontology_graph_db.setup()
 
         # Setup vector db for graph data
         vector_db_graph = Milvus(
             embedding_function=embeddings,
-            collection_name=DEFAULT_COLLECTION_NAME_GRAPH,
+            collection_name=default_collection_name_graph,
             connection_args=milvus_connection_args,
             index_params=[dense_index_params, sparse_index_params],
             builtin_function=BM25BuiltInFunction(output_field_names="sparse"),
@@ -537,14 +555,16 @@ if graph_rag_enabled:
 
 @app.get("/healthz")
 async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
+    """Health check endpoint with comprehensive collection validation."""
+    health_status = "healthy"
+    response = {
+        "status": health_status,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "config": {
             "graph_rag_enabled": graph_rag_enabled,
         }
     }
+    return response
 
 
 # ============================================================================
@@ -628,12 +648,12 @@ async def run_graph_entity_ingestion(connector_name: str, entity_type: str, enti
         entity_text = json_encode(entity_properties)
         document = Document(
             page_content=entity_text,
-            metadata={
-                "hash": entity_hash,
-                "connector_id": connector_id,
-                "entity_type": entity.entity_type,
-                "entity_primary_key": primary_key
-            }
+            metadata=VectorDBGraphMetadata(
+                hash=entity_hash,
+                connector_id=connector_id,
+                entity_type=entity.entity_type,
+                entity_primary_key=primary_key
+            ).model_dump()
         )
         documents.append(document)
         ids.append(primary_key)
@@ -660,3 +680,137 @@ async def run_graph_entity_ingestion(connector_name: str, entity_type: str, enti
         connector_info.last_seen = current_time
 
     await metadata_storage.store_graphconnector_info(connector_info, ttl=utils.DURATION_DAY)
+
+
+async def init_tests(logger: logging.Logger, 
+               redis_client: redis.Redis,
+               embeddings: AzureOpenAIEmbeddings,
+               milvus_uri: str):
+    """
+    Run initial tests to ensure connections to check if deps are working.
+    Note: This does not check the graph db connection as its done in the init of the class.
+    """
+    logger.info("====== Running initialization tests ======")
+    logger.info(f"1. Testing connections to Redis: URI [{redis_url}]...")
+    resp = await redis_client.ping()
+    logger.info(f"Redis ping response: {resp}")
+
+    # Test embeddings endpoint
+    logger.info(f"2. Testing connections to Azure OpenAI embeddings [{embeddings_model}]...")
+    resp = embeddings.embed_documents(["Test document"])
+    logger.info(f"Azure OpenAI embeddings response: {resp}")
+
+    # Test vector DB connections
+    logger.info(f"3. Testing connections to Milvus: [{milvus_uri}]...")
+    client = MilvusClient(uri=milvus_uri)
+    logger.info("4. Listing Milvus collections")
+    collections = client.list_collections()
+    logger.info(f"Milvus collections: {collections}")
+    
+    test_collection_name = "test_collection"
+
+    # Setup vector db for graph data
+    vector_db_test = Milvus(
+        embedding_function=embeddings,
+        collection_name=test_collection_name,
+        connection_args=milvus_connection_args,
+        index_params=[dense_index_params, sparse_index_params],
+        builtin_function=BM25BuiltInFunction(output_field_names="sparse"),
+        vector_field=["dense", "sparse"]
+    )
+    
+    doc = Document(page_content="Test document", metadata={"source": "test"})
+    logger.info(f"5. Adding test document to Milvus {doc}")
+    resp = vector_db_test.add_documents(documents=[doc], ids=["test_doc_1"])
+    logger.info(f"Milvus add response: {resp}")
+
+    logger.info("6. Searching test document in Milvus")
+    docs_with_score = vector_db_test.similarity_search_with_score("Test", k=1)
+    logger.info(f"Milvus similarity search response: {docs_with_score}")
+
+    logger.info(f"7. Listing Milvus collections (again, should see {test_collection_name})")
+    collections = client.list_collections()
+    logger.info(f"Milvus collections: {collections}")
+
+    logger.info(f"8. Dropping {test_collection_name} collection in Milvus")
+    resp = client.drop_collection(collection_name=test_collection_name)
+    logger.info(f"Milvus drop collection response: {resp}")
+
+    logger.info(f"9. Listing Milvus collections (final - should not see {test_collection_name})")
+    collections = client.list_collections()
+    logger.info(f"Milvus collections: {collections}")
+
+    # Enhanced health checks for collections
+    logger.info("10. Running enhanced health checks on collections...")
+    
+    # Get embedding dimensions for validation
+    test_embedding = embeddings.embed_documents(["test"])
+    expected_dim = len(test_embedding[0])
+    logger.info(f"Expected embedding dimension: {expected_dim}")
+    
+    # Required fields for each collection type
+    required_docs_fields = {
+        "id", "datasource_id", "document_id", "chunk_index", "total_chunks"
+    }
+    required_graph_fields = {
+        "hash", "connector_id", "entity_type", "entity_primary_key"
+    }
+    
+    collections_to_check = [default_collection_name_docs]
+    if graph_rag_enabled:
+        collections_to_check.append(default_collection_name_graph)
+    
+    for collection_name in collections_to_check:
+        logger.info(f"11. Validating collection {collection_name} in Milvus")
+        
+        # Check if collection exists
+        if collection_name not in client.list_collections():
+            logger.warning(f"Collection {collection_name} does not exist in Milvus, it should be created upon first ingestion.")
+            continue
+        
+        # Get collection schema
+        collection_info = client.describe_collection(collection_name=collection_name)
+        logger.info(f"Collection {collection_name} info: {collection_info}")
+        
+        # Extract field information
+        fields = collection_info.get('fields', [])
+        field_names = {field['name'] for field in fields}
+        
+        # Check 1: Validate embedding dimensions
+        logger.info(f"11a. Validating embedding dimensions for collection {collection_name}...")
+        dense_field = next((field for field in fields if field['name'] == 'dense'), None)
+        if dense_field:
+            actual_dim = dense_field['params'].get('dim')
+            if actual_dim != expected_dim:
+                raise Exception(f"Collection {collection_name}: Dense vector dimension mismatch. Expected: {expected_dim}, Actual: {actual_dim}, Have you changed the embeddings model? Please delete and re-ingest the collection.")
+            logger.info(f"✓ Collection {collection_name}: Dense vector dimension correct ({actual_dim})")
+        else:
+            raise Exception(f"Collection {collection_name}: Dense vector field not found, please delete and re-ingest the collection.")
+        
+        # Check 2: Validate vector fields exists
+        logger.info(f"11b. Validating vector fields for collection {collection_name}...")
+        sparse_field = next((field for field in fields if field['name'] == 'sparse'), None)
+        if not sparse_field:
+            raise Exception(f"Collection {collection_name}: Sparse vector field not found")
+        
+        # Validate required vector fields exist
+        if 'dense' not in field_names or 'sparse' not in field_names:
+            raise Exception(f"Collection {collection_name}: Missing required vector fields (dense, sparse), please delete and re-ingest the collection.")
+        logger.info(f"✓ Collection {collection_name}: Vector fields present")
+        
+        # Check 3: Validate schema contains required metadata fields
+        logger.info(f"11c. Validating metadata fields (schema) for collection {collection_name}...")
+        if collection_name == default_collection_name_docs:
+            missing_fields = required_docs_fields - field_names
+            if missing_fields:
+                raise Exception(f"Collection {collection_name}: Missing required document fields: {missing_fields}, schema has likely changed, please delete and re-ingest the collection.")
+            logger.info(f"✓ Collection {collection_name}: All required document fields present")
+            
+        elif collection_name == default_collection_name_graph and graph_rag_enabled:
+            missing_fields = required_graph_fields - field_names
+            if missing_fields:
+                raise Exception(f"Collection {collection_name}: Missing required graph fields: {missing_fields}, schema has likely changed, please delete and re-ingest the collection.")
+            logger.info(f"✓ Collection {collection_name}: All required graph fields present")
+        
+    logger.info("====== Initialization tests completed successfully ======")
+    return

@@ -77,4 +77,4 @@ class QueryResult(BaseModel):
 class QueryResults(BaseModel):
     query: str
     results_docs: List[QueryResult] 
-    results_graph: List[QueryResult] 
+    results_graph: List[QueryResult]
