@@ -4,10 +4,48 @@
 """
 AI Platform Engineering Utilities
 
-This package contains common utility functions shared across the AI Platform Engineering codebase.
+This package contains common utilities, base classes, and shared functionality
+for AI Platform Engineering agents and applications.
 """
 
-# Note: get_enabled_agents has been moved to multi_agents.agent_registry
-# for better organization and integration with the AgentRegistry class.
+# A2A (Agent-to-Agent) utilities
+from .a2a import (
+  BaseAgent,
+  BaseAgentExecutor,
+  debug_print,
+  update_task_with_agent_response,
+  process_streaming_agent_response,
+  AgentState,
+  InputState,
+  Message,
+  MsgType
+)
 
-__all__ = []
+# Authentication utilities
+from .auth import *
+
+# Agntcy utilities
+from .agntcy import *
+
+# Miscellaneous utilities
+from .misc import *
+
+# Data models
+from .models import *
+
+# OAuth utilities
+from .oauth import *
+
+__all__ = [
+    # A2A exports
+    "BaseAgent",
+    "BaseAgentExecutor",
+    "debug_print",
+    "update_task_with_agent_response",
+    "process_streaming_agent_response",
+    "AgentState",
+    "InputState",
+    "Message",
+    "MsgType",
+    # Add other exports as needed
+]
