@@ -29,13 +29,13 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   agent_description,
   agent_skill_examples
 )
-from ai_platform_engineering.multi_agents import AgentRegistry
+from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 
 def get_agent_card(host: str, port: int, external_url: str = None):
   capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
   # Get enabled agents and add 'devops' as a base tag
-  tags = AgentRegistry.get_enabled_agents()
+  tags = platform_registry.AGENT_NAMES  # this is just a list of agent names
 
   skill = AgentSkill(
     id='ai_platform_engineer',
