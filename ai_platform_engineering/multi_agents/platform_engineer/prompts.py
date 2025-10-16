@@ -50,7 +50,7 @@ if agent_examples_from_config.get("general"):
 for agent_name, agent_card in agents.items():
     if agent_card is not None:
         try:
-            agent_eg = agent_examples_from_config.get(agent_name)
+            agent_eg = agent_examples_from_config.get(agent_name.lower())
             if agent_eg:
                 logger.info("Agent examples config found for agent: %s", agent_name)
                 agent_skill_examples.extend(agent_eg)
