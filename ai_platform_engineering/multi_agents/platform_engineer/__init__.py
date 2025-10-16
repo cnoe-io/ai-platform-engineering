@@ -21,20 +21,14 @@ logging.info("A2A tracing disabled for Platform Engineer")
 # =====================================================
 
 # Import after tracing is properly configured
-from ai_platform_engineering.multi_agents import AgentRegistry  # noqa: E402
+from ai_platform_engineering.multi_agents.agent_registry import AgentRegistry  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Get enabled agents using the class method
-AGENT_NAMES = AgentRegistry.get_enabled_agents()
+# Create the platform registry instance - it will automatically get enabled agents from env
+platform_registry = AgentRegistry()
 
-for agent_name in AGENT_NAMES:
+# Log enabled agents
+for agent_name in platform_registry.AGENT_NAMES:
     logger.info("🤖 Agent enabled: %s", agent_name)
-
-class PlatformRegistry(AgentRegistry):
-    """Registry for platform engineer multi-agent system."""
-    AGENT_NAMES = AGENT_NAMES
-
-# Create the platform registry instance
-platform_registry = PlatformRegistry()

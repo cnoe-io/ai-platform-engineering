@@ -6,7 +6,7 @@
 import os
 import logging
 
-from ai_platform_engineering.multi_agents import AgentRegistry
+from ai_platform_engineering.multi_agents.agent_registry import AgentRegistry
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -37,10 +37,5 @@ if BACKSTAGE_ENABLED:
 if WEBEX_AGENT_ENABLED:
     AGENT_NAMES.append("webex")
 
-class IncidentRegistry(AgentRegistry):
-    """Registry for incident engineer multi-agent system."""
-
-    AGENT_NAMES = AGENT_NAMES
-
-# Create the incident registry instance
-incident_registry = IncidentRegistry()
+# Create the incident registry instance with custom agent list
+incident_registry = AgentRegistry()

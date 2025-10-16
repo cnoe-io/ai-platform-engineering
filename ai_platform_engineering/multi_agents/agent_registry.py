@@ -9,27 +9,22 @@ across the platform, with integrated agent enablement logic.
 """
 
 import os
-import asyncio
 import logging
 import httpx
 import time
 import threading
 from typing import Dict, Any, Optional, Callable, List
-import importlib
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import AgntcySlimRemoteAgentConnectTool
-from ai_platform_engineering.utils.misc.misc import run_coroutine_sync
+from a2a.types import AgentCard
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 GENERIC_CLIENT = "generic_client"
-
-
-
 
 class AgentRegistry:
     """Centralized registry for transport-aware agent management."""
@@ -37,143 +32,8 @@ class AgentRegistry:
     # Comprehensive agent configuration with import paths
     # Environment variables follow the convention: ENABLE_{AGENT_NAME_UPPER}
     # e.g., "github" -> ENABLE_GITHUB, "pagerduty" -> ENABLE_PAGERDUTY
-    AGENT_CONFIG = {
-        "github": {
-            "slim": "ai_platform_engineering.agents.github.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.github.clients.a2a.agent"
-        },
-        "pagerduty": {
-            "slim": "ai_platform_engineering.agents.pagerduty.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.pagerduty.clients.a2a.agent"
-        },
-        "jira": {
-            "slim": "ai_platform_engineering.agents.jira.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.jira.clients.a2a.agent"
-        },
-        "backstage": {
-            "slim": "ai_platform_engineering.agents.backstage.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.backstage.clients.a2a.agent"
-        },
-        "confluence": {
-            "slim": "ai_platform_engineering.agents.confluence.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.confluence.clients.a2a.agent"
-        },
-        "argocd": {
-            "slim": "ai_platform_engineering.agents.argocd.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.argocd.clients.a2a.agent"
-        },
-        "aws": {
-            "slim": "ai_platform_engineering.agents.aws.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.aws.clients.a2a.agent"
-        },
-        "slack": {
-            "slim": "ai_platform_engineering.agents.slack.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.slack.clients.a2a.agent"
-        },
-        "komodor": {
-            "slim": "ai_platform_engineering.agents.komodor.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.komodor.clients.a2a.agent"
-        },
-        "weather": {
-            "slim": "ai_platform_engineering.agents.weather.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.weather.clients.a2a.agent"
-        },
-        "splunk": {
-            "slim": "ai_platform_engineering.agents.splunk.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.splunk.clients.a2a.agent"
-        },
-        "webex": {
-            "slim": "ai_platform_engineering.agents.webex.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.webex.clients.a2a.agent"
-        },
-        "petstore": {
-            "slim": "ai_platform_engineering.agents.template.clients.slim.agent",
-            "a2a": "ai_platform_engineering.agents.template.clients.a2a.agent"
-        },
-        "rag": {
-            "slim": "ai_platform_engineering.knowledge_bases.rag.agent_rag.src.agent_rag.clients.slim.agent",
-            "a2a": "ai_platform_engineering.knowledge_bases.rag.agent_rag.src.agent_rag.clients.a2a.agent"
-        },
-    }
 
-    @staticmethod
-    def get_env_var_name(agent_name: str) -> str:
-        """
-        Get the environment variable name for an agent using convention.
-
-        Convention: ENABLE_{AGENT_NAME_UPPER}
-        Examples:
-            "github" -> "ENABLE_GITHUB"
-            "pagerduty" -> "ENABLE_PAGERDUTY"
-            "argocd" -> "ENABLE_ARGOCD"
-
-        Args:
-            agent_name: The agent name in lowercase
-
-        Returns:
-            The environment variable name in uppercase
-        """
-        return f"ENABLE_{agent_name.upper()}"
-
-    # Backward compatibility: create AGENT_IMPORT_MAP from AGENT_CONFIG
-    @classmethod
-    def _get_import_map(cls):
-        """Get the import map for backward compatibility."""
-        return {agent: config for agent, config in cls.AGENT_CONFIG.items()}
-
-    # Property for backward compatibility
-    @property
-    def AGENT_IMPORT_MAP(self):
-        return self._get_import_map()
-
-    @classmethod
-    def get_enabled_agents(cls, validate_imports: bool = True) -> List[str]:
-        """
-        Get list of enabled agents based on environment variables.
-
-        This method checks various environment variables to determine which agents
-        are enabled in the current deployment. It can optionally validate that
-        only agents with valid import mappings are included.
-
-        Args:
-            validate_imports: If True, only return agents that exist in AGENT_IMPORT_MAP
-
-        Returns:
-            List[str]: A list of agent names that are currently enabled based on
-                      environment variable configuration.
-
-        Environment Variables:
-            ENABLE_ARGOCD: Enable ArgoCD agent
-            ENABLE_AWS: Enable AWS agent
-            ENABLE_BACKSTAGE: Enable Backstage agent
-            ENABLE_CONFLUENCE: Enable Confluence agent
-            ENABLE_GITHUB: Enable GitHub agent
-            ENABLE_JIRA: Enable Jira agent
-            ENABLE_PAGERDUTY: Enable PagerDuty agent
-            ENABLE_SLACK: Enable Slack agent
-            ENABLE_SPLUNK: Enable Splunk agent
-            ENABLE_WEBEX: Enable Webex agent
-            ENABLE_KOMODOR: Enable Komodor agent (optional)
-            ENABLE_WEATHER: Enable Weather agent (optional)
-            ENABLE_PETSTORE: Enable Petstore agent (optional)
-            ENABLE_RAG: Enable RAG agent (optional)
-        """
-        agent_names = []
-
-        # Check each agent configuration using the ENABLE_{AGENT_NAME} convention
-        for agent_name in cls.AGENT_CONFIG.keys():
-            env_var = cls.get_env_var_name(agent_name)
-            if os.getenv(env_var, "false").lower() == "true":
-                # Validate that the agent exists in import map if requested
-                if validate_imports and agent_name not in cls._get_import_map():
-                    logger.warning(f"Agent '{agent_name}' is enabled via {env_var} but not found in AGENT_CONFIG, skipping...")
-                    continue
-                agent_names.append(agent_name)
-
-        logger.debug(f"Enabled agents: {agent_names}")
-        return agent_names
-
-    def __init__(self, agent_names: Optional[List[str]] = None, validate_imports: bool = True):
+    def __init__(self):
         """
         Initialize the AgentRegistry.
 
@@ -192,20 +52,8 @@ class AgentRegistry:
         # Initial startup delay before starting connectivity checks
         self._startup_delay = float(os.getenv("AGENT_CONNECTIVITY_STARTUP_DELAY", "0.0"))
 
-        # Use provided agent names or get from environment variables
-        if agent_names is not None:
-            # Validate provided agent names if requested
-            if validate_imports:
-                import_map = self._get_import_map()
-                valid_agents = [name for name in agent_names if name in import_map]
-                invalid_agents = [name for name in agent_names if name not in import_map]
-                if invalid_agents:
-                    logger.warning(f"Invalid agents provided (not in AGENT_CONFIG): {invalid_agents}")
-                self.AGENT_NAMES = valid_agents
-            else:
-                self.AGENT_NAMES = agent_names
-        else:
-            self.AGENT_NAMES = self.get_enabled_agents(validate_imports=validate_imports)
+        self.AGENT_NAMES = self.get_enabled_agents_from_env()
+        self.AGENT_ADDRESS_MAPPING = self.get_agent_address_mapping(self.AGENT_NAMES)
 
         self._agents: Dict[str, Any] = {}  # Will be populated by _load_agents
         self._tools: Dict[str, Any] = {}  # Will be populated by _load_agents
@@ -220,6 +68,42 @@ class AgentRegistry:
                        self._connectivity_timeout, self._max_retries, self._retry_delay, self._startup_delay)
         logger.info("Loaded agents: %s", list(self._agents.keys()))
 
+    def get_enabled_agents_from_env(self) -> List[str]:
+        """Get all environment variables that start with ENABLE_*."""
+        enabled_agents = []
+        for k, v in os.environ.items():
+            if k.startswith('ENABLE_'):
+                logger.info(f"Found env var: {k} = {v}")
+                if v.lower() == "true":
+                    logger.info(f"Env var {k} is enabled")
+                    enabled_agents.append(k.split('ENABLE_')[1])
+        logger.info(f"Enabled agents: {enabled_agents}")
+        return enabled_agents
+
+    def get_agent_address_mapping(self, agnet_names: List[str]) -> Dict[str, str]:
+        """Get the address mapping for all enabled agents."""
+        address_mapping = {}
+        for agent in agnet_names:
+            host = os.getenv(f"{agent.upper()}_AGENT_HOST", "localhost")
+            port = os.getenv(f"{agent.upper()}_AGENT_PORT", "8000")
+            address_mapping[agent] = f"http://{host}:{port}"
+        return address_mapping
+
+    def generate_subagents(self, agent_prompts) -> List[Dict[str, Any]]:
+        """Generate the subagents for all enabled agents."""
+        subagents = []
+        for agent in self._agents:
+            system_prompt_override = agent_prompts.get(agent, {}).get("system_prompt")
+            agent_card = self._agents[agent]
+            description = agent_card['description']
+            prompt = system_prompt_override or description
+            subagents.append({
+                "name": agent_card['name'],
+                "description": description,
+                "prompt": prompt
+            })
+        return subagents
+
     @property
     def agents(self) -> Dict[str, Any]:
         """Get all available agents."""
@@ -229,6 +113,13 @@ class AgentRegistry:
     def transport(self) -> str:
         """Get the current transport mode."""
         return self._transport
+
+    def get_agent_examples(self, name: str) -> List[str]:
+        """Get the examples for a specific agent."""
+        if name not in self._agents:
+            raise ValueError(f"Agent '{name}' not found. Available: {list(self.agents.keys())}")
+        agent_card = self._agents[name]
+        return agent_card["skills"][0]["examples"]
 
     def get_agent(self, name: str) -> Any:
         """Get a specific agent by name."""
@@ -240,7 +131,8 @@ class AgentRegistry:
         return name in self.agents
 
     def get_all_agents(self):
-        return list(self.agents.values())
+        """Get all agent tools (not agent cards)."""
+        return list(self._tools.values())
 
     def get_examples(self):
         """
@@ -251,25 +143,52 @@ class AgentRegistry:
             examples.extend(agent.get_examples())
         return examples
 
-    def _create_generic_a2a_client(self, name: str, transport: str):
+    def _create_generic_a2a_client(self, name: str, transport: str, agent_url: Optional[str] = None, agent_card: Optional[Dict[str, Any]] = None):
         """
-        Creates a generic A2A client for a remote agent. Infers the agent card URL from environment variables.
+        Creates a generic A2A client for a remote agent.
 
         Args:
             name: Name of the remote agent
             transport: Transport mode ("p2p" or "slim")
+            agent_url: Optional URL of the agent (if not provided, infers from env vars)
+            agent_card: Optional agent card dict (if provided, tool won't need to fetch it again)
 
         Returns:
             A2ARemoteAgentConnectTool: The created A2A client
         """
         if transport == "p2p":
-            agent_url = self._infer_agent_url_from_env_var(name)
-            return A2ARemoteAgentConnectTool(
-                name=name,
-                remote_agent_card=agent_url,
-                skill_id="",
-                description=""
-            )
+            if agent_url is None:
+                agent_url = self._infer_agent_url_from_env_var(name)
+
+            # If we have the agent card, pass it directly to avoid re-fetching
+            # Otherwise, pass the URL and the tool will fetch it
+            if agent_card:
+                # Convert dict to AgentCard object
+                try:
+                    # Override the URL in agent_card with the correct URL from AGENT_ADDRESS_MAPPING
+                    agent_card_with_url = {**agent_card, 'url': agent_url}
+                    agent_card_obj = AgentCard(**agent_card_with_url)
+                    return A2ARemoteAgentConnectTool(
+                        name=name,
+                        remote_agent_card=agent_card_obj,
+                        skill_id="",
+                        description=""
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to convert agent card to AgentCard object for {name}: {e}, using URL instead")
+                    return A2ARemoteAgentConnectTool(
+                        name=name,
+                        remote_agent_card=agent_url,
+                        skill_id="",
+                        description=""
+                    )
+            else:
+                return A2ARemoteAgentConnectTool(
+                    name=name,
+                    remote_agent_card=agent_url,
+                    skill_id="",
+                    description=""
+                )
         elif transport == "slim":
             return AgntcySlimRemoteAgentConnectTool(
                 endpoint=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357"),
@@ -279,10 +198,10 @@ class AgentRegistry:
         else:
             raise ValueError(f"Unknown transport mode: {transport}")
 
-    def _check_agent_connectivity(self, agent_name: str, agent_url: str) -> bool:
+    def _check_agent_connectivity(self, agent_name: str, agent_url: str) -> tuple[bool, Optional[Dict[str, Any]]]:
         """
         Check if an agent is reachable and has correct identity.
-        For A2A transport: tests HTTP agent card endpoint.
+        For A2A transport: tests HTTP agent card endpoint and returns agent card.
         For SLIM transport: currently no connectivity check is performed.
 
         Args:
@@ -290,20 +209,22 @@ class AgentRegistry:
             agent_url: URL of the agent to test
 
         Returns:
-            bool: True if agent is reachable and valid, False otherwise
+            Tuple of (is_reachable: bool, agent_card: Optional[Dict]).
+            Returns (True, agent_card) if successful, (True, None) for SLIM/disabled checks,
+            (False, None) if unreachable.
         """
         if not self._check_connectivity:
             logger.debug(f"Connectivity checks disabled, assuming {agent_name} is reachable")
-            return True
+            return (True, None)
 
         if self.transport == "slim":
             # For SLIM transport, we currently do not perform any connectivity checks.
-            return True
+            return (True, None)
         else:
-            # For A2A transport, use HTTP connectivity check
+            # For A2A transport, use HTTP connectivity check which returns agent card
             return self._check_http_agent_connectivity(agent_name, agent_url)
 
-    def _check_http_agent_connectivity(self, agent_name: str, agent_url: str) -> bool:
+    def _check_http_agent_connectivity(self, agent_name: str, agent_url: str) -> tuple[bool, Optional[Dict[str, Any]]]:
         """
         Check A2A agent connectivity by testing the agent card endpoint. Only for P2P transport.
 
@@ -312,7 +233,8 @@ class AgentRegistry:
             agent_url: URL of the agent to test
 
         Returns:
-            bool: True if agent is reachable and valid
+            Tuple of (is_reachable: bool, agent_card: Optional[Dict]).
+            Returns (True, agent_card) if successful, (False, None) otherwise.
         """
         last_exception = None
 
@@ -357,7 +279,7 @@ class AgentRegistry:
                         if not name_matches:
                             logger.warning(f"❌ Agent {agent_name} at {agent_url} returned wrong agent card (got '{card_name}', expected '{expected_name}')")
                             logger.debug(f"🌐 Full agent card response: {agent_card}")
-                            return False
+                            return (False, None)
 
                         # Also check skills for additional validation
                         skills = agent_card.get('skills', [])
@@ -369,20 +291,20 @@ class AgentRegistry:
                             agent_in_skills = any(expected_name in skill or skill in expected_name for skill in skill_names + skill_ids)
                             if not agent_in_skills and not name_matches:
                                 logger.warning(f"❌ Agent {agent_name} at {agent_url} has no matching skills: {skill_names}")
-                                return False
+                                return (False, None)
 
                         logger.debug(f"✓ Agent {agent_name} identity validated: card_name='{card_name}'")
 
                     except (ValueError, KeyError) as e:
                         logger.warning(f"❌ Agent {agent_name} at {agent_url} returned invalid agent card JSON: {e}")
                         logger.debug(f"🌐 Raw response content: {response.text[:500]}...")
-                        return False
+                        return (False, None)
 
                     if attempt > 0:
                         logger.info(f"✅ Agent {agent_name} is reachable at {agent_url} (succeeded on attempt {attempt + 1})")
                     else:
                         logger.info(f"✅ Agent {agent_name} is reachable at {agent_url}")
-                    return True
+                    return (True, agent_card)
 
             except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as e:
                 last_exception = e
@@ -393,7 +315,7 @@ class AgentRegistry:
             except Exception as e:
                 # Non-retryable exception
                 logger.warning(f"❌ Agent {agent_name} at {agent_url} connectivity check failed: {e}")
-                return False
+                return (False, None)
 
         # All attempts failed
         if isinstance(last_exception, httpx.TimeoutException):
@@ -405,7 +327,7 @@ class AgentRegistry:
         else:
             logger.warning(f"❌ Agent {agent_name} at {agent_url} connectivity check failed after {self._max_retries + 1} attempts: {last_exception}")
 
-        return False
+        return (False, None)
 
     def _infer_agent_url_from_env_var(self, agent_name: str) -> str:
         return os.getenv(f"{agent_name.replace('-', '_').upper()}_AGENT_URL", "http://localhost:8000")
@@ -448,21 +370,20 @@ class AgentRegistry:
             logger.debug(f"🔍 Using final fallback for {agent_name}: {final_url}")
             return final_url
 
-    def _run_connectivity_checks(self, connectivity_tasks) -> Dict[str, bool]:
+    def _run_connectivity_checks(self) -> tuple[Dict[str, bool], Dict[str, Dict[str, Any]]]:
         """
         Run connectivity checks in parallel using thread pool.
 
-        Args:
-            connectivity_tasks: List of (agent_name, agent_url) tuples to check
-            loaded_modules: Dict of loaded agent modules (for slim transport validation)
-
         Returns:
-            Dict[str, bool]: Mapping of agent_name to connectivity status
+            Tuple of (connectivity_results, agent_cards):
+            - connectivity_results: Dict[str, bool] mapping agent_name to connectivity status
+            - agent_cards: Dict[str, Dict] mapping agent_name to agent card JSON
         """
         connectivity_results = {}
+        agent_cards = {}
 
         # Use thread pool for parallel connectivity checks
-        max_workers = min(len(connectivity_tasks), 10)  # Limit concurrent connections
+        max_workers = min(len(self.AGENT_ADDRESS_MAPPING), 10)  # Limit concurrent connections
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all connectivity check tasks
@@ -472,65 +393,41 @@ class AgentRegistry:
                     agent_name,
                     agent_url,
                 ): agent_name
-                for agent_name, agent_url in connectivity_tasks
+                for agent_name, agent_url in self.AGENT_ADDRESS_MAPPING.items()
             }
 
             # Collect results as they complete
             for future in as_completed(future_to_agent):
                 agent_name = future_to_agent[future]
                 try:
-                    is_reachable = future.result()
+                    is_reachable, agent_card = future.result()
                     connectivity_results[agent_name] = is_reachable
+                    if agent_card:
+                        agent_cards[agent_name] = agent_card
                 except Exception as e:
                     logger.error(f"Connectivity check for {agent_name} raised exception: {e}")
                     connectivity_results[agent_name] = False
 
-        return connectivity_results
+        return connectivity_results, agent_cards
 
     def _load_agents(self) -> None:
         """Load the appropriate agent implementations based on transport mode with connectivity checks."""
         logger.info("Loading agents with connectivity verification...")
 
-        # Step 1: Load all agent modules first
-        loaded_modules = {}
         logger.debug(f"Configured agents: {self.AGENT_NAMES}")
-        for agent_name in self.AGENT_NAMES:
-            if agent_name not in self.AGENT_CONFIG:
-                logger.warning(f"Unknown agent: {agent_name}")
-                continue
 
-            try:
-                transport_key = "slim" if self.transport == "slim" else "a2a"
-                module_path = self.AGENT_CONFIG[agent_name][transport_key]
-
-                # Load the module if it's not the generic client
-                if module_path != GENERIC_CLIENT:
-                    logger.debug(f"🔧 Loading {agent_name} module: {module_path}")
-                    module = importlib.import_module(module_path)
-                    loaded_modules[agent_name] = module
-                    logger.debug(f"✅ Successfully loaded module for {agent_name}")
-                else:
-                    logger.debug(f"🔧 Loading {agent_name} with generic client")
-                    loaded_modules[agent_name] = GENERIC_CLIENT
-
-            except ModuleNotFoundError as e:
-                logger.warning(f"⚠️ Agent {agent_name} does not have {transport_key.upper()} client implementation: {e}")
-                continue
-            except Exception as e:
-                logger.error(f"❌ Failed to load module for {agent_name}: {e}")
-                continue
-
-        # Step 2: Apply startup delay if configured (helps with Docker Compose race conditions)
+        # Step 1: Apply startup delay if configured (helps with Docker Compose race conditions)
         if self._startup_delay > 0:
             logger.info(f"Waiting {self._startup_delay}s for services to start up before connectivity checks...")
             time.sleep(self._startup_delay)
 
-        # Step 3: Check connectivity and build registry using extracted methods
-        connectivity_results = self._check_connectivity_for_modules(loaded_modules)
-        agents = self._build_registry_from_modules(loaded_modules, connectivity_results)
+        # Step 2: Check connectivity and get agent cards, then build registry
+        connectivity_results, agent_cards = self._check_connectivity_for_modules()
+        agents, tools = self._build_registry_from_active_agents(connectivity_results, agent_cards)
 
         # Compute stats for logging
         reachable_count = len(agents)
+        total_configured = len(self.AGENT_NAMES)
         unreachable_agents = [name for name, is_reachable in connectivity_results.items() if not is_reachable]
 
         # Log results
@@ -540,109 +437,94 @@ class AgentRegistry:
             logger.warning(f"❌ Excluded {agent_name} from registry (unreachable)")
 
         # Log summary
-        logger.info(f"Agent loading complete: {reachable_count}/{len(loaded_modules)} agents reachable")
+        logger.info(f"Agent loading complete: {reachable_count}/{total_configured} agents reachable")
         if unreachable_agents:
             logger.warning(f"Unreachable agents excluded: {', '.join(unreachable_agents)}")
             logger.info("To skip connectivity checks, set SKIP_AGENT_CONNECTIVITY_CHECK=true")
 
         self._agents = agents
-        self._loaded_modules = loaded_modules  # Cache modules for efficient refresh
+        self._tools = tools
+        self._loaded_modules = {}  # No longer using loaded modules
 
-    def _check_connectivity_for_modules(self, loaded_modules: Dict[str, Any]) -> Dict[str, bool]:
+    def _check_connectivity_for_modules(self) -> tuple[Dict[str, bool], Dict[str, Dict[str, Any]]]:
         """Check connectivity for a set of loaded modules."""
-        connectivity_tasks = []
-        if self.transport != "slim" and self._check_connectivity:
-            for agent_name, module in loaded_modules.items():
-                agent_url = self._get_agent_url_from_module(agent_name, module)
-                connectivity_tasks.append((agent_name, agent_url))
+        if self.transport == "slim":
+            logger.info("Skipping connectivity checks for SLIM transport")
+            return {name: True for name in self.AGENT_NAMES}, {}
 
-        if connectivity_tasks:
-            logger.info(f"Running connectivity checks for {len(connectivity_tasks)} agents (max {self._max_retries + 1} attempts per agent)...")
-            return self._run_connectivity_checks(connectivity_tasks)
-        else:
-            # If no connectivity checks, assume all loaded modules are reachable
-            logger.debug(f"Skipping connectivity checks for {len(loaded_modules)} agents (SLIM transport or disabled)")
-            return {name: True for name in loaded_modules.keys()}
+        logger.info(f"Running connectivity checks for {len(self.AGENT_ADDRESS_MAPPING)} agents (max {self._max_retries + 1} attempts per agent)...")
+        return self._run_connectivity_checks()
 
-    def _build_registry_from_modules(self, loaded_modules: Dict[str, Any], connectivity_results: Dict[str, bool]) -> Dict[str, Any]:
-        """Build agents and tools registry from loaded modules and connectivity results."""
+    def _build_registry_from_active_agents(self, connectivity_results: Dict[str, bool], agent_cards: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Build agents registry using connectivity results and cached agent cards."""
         agents = {}
+        tools = {}
 
-        for agent_name, module in loaded_modules.items():
+        for agent_name in self.AGENT_NAMES:
             reachable = connectivity_results.get(agent_name, True)
             if not reachable:
                 logger.warning(f"Agent {agent_name} is unreachable, skipping registration...")
                 continue
 
-            try:
-                logger.debug(f"Registering agent {agent_name}...")
-                # Use a bounded timeout for the connect call to avoid startup hangs
-                connect_timeout_env = os.getenv("AGENT_CONNECT_TIMEOUT")
-                connect_timeout = float(connect_timeout_env) if connect_timeout_env else self._connectivity_timeout
+            # Use the cached agent card from connectivity check
+            agent_card = agent_cards.get(agent_name)
 
-                if isinstance(module, str) and module == GENERIC_CLIENT:
-                    agent_client = self._create_generic_a2a_client(agent_name, self.transport)
-                    try:
-                        # Attempt to connect but do not block startup indefinitely
-                        run_coroutine_sync(agent_client.connect(), timeout=connect_timeout)
-                        logger.debug(f"Connected {agent_name} within {connect_timeout}s")
-                    except (asyncio.TimeoutError, FuturesTimeoutError, TimeoutError) as te:
-                        logger.warning(f"Connect timeout for {agent_name} after {connect_timeout}s; proceeding with lazy connection: {te}")
-                    except Exception as e:
-                        logger.error(f"Failed to register agent {agent_name}: {e}, skipping...")
-                        continue
-                    # Add the agent to the registry regardless; it can lazy-connect on first use
-                    agents[agent_name] = agent_client
-                else:
-                    try:
-                        # Attempt to connect module client with bounded timeout
-                        run_coroutine_sync(module.a2a_remote_agent.connect(), timeout=connect_timeout)
-                        logger.debug(f"Connected {agent_name} within {connect_timeout}s")
-                    except (asyncio.TimeoutError, FuturesTimeoutError, TimeoutError) as te:
-                        logger.warning(f"Connect timeout for {agent_name} after {connect_timeout}s; proceeding with lazy connection: {te}")
-                    except Exception as e:
-                        logger.error(f"Failed to register agent {agent_name}: {e}, skipping...")
-                        continue
-                    # Add the agent to the registry regardless; it can lazy-connect on first use
-                    agents[agent_name] = module.a2a_remote_agent
-            except Exception as e:
-                logger.error(f"Unexpected error while registering {agent_name}: {e}, skipping...")
+            if not agent_card:
+                logger.warning(f"No agent card available for {agent_name}, skipping registration...")
                 continue
 
-        return agents
+            logger.debug(f"Registering agent {agent_name} with cached agent card")
+            agents[agent_name] = agent_card
+
+            # Create tool object from agent card
+            # Use the agent card's name (not the registry key) for the tool name
+            # to ensure it matches the subagent name
+            tool_name = agent_card.get('name', agent_name)
+            agent_url = self.AGENT_ADDRESS_MAPPING.get(agent_name)
+
+            try:
+                # Pass the actual agent_url and agent_card from connectivity check
+                tool = self._create_generic_a2a_client(agent_name, self._transport, agent_url, agent_card)
+                # Override the tool's name to match agent card name
+                tool.name = tool_name
+                tool.description = agent_card.get('description', '')
+                tools[agent_name] = tool
+                logger.debug(f"Created tool for agent {agent_name} with name '{tool_name}' using URL {agent_url}")
+            except Exception as e:
+                logger.error(f"Failed to create tool for agent {agent_name}: {e}")
+                # Remove the agent card if tool creation fails
+                del agents[agent_name]
+                continue
+
+        return agents, tools
 
     def _refresh_connectivity_only(self) -> bool:
         """Efficiently refresh agent connectivity without reloading modules."""
-        if not self._loaded_modules:
-            logger.debug("No cached modules available, falling back to full reload")
-            self._load_agents()
-            return True
-
-        logger.debug(f"Refreshing connectivity for {len(self._loaded_modules)} cached modules...")
+        logger.debug(f"Refreshing connectivity for {len(self.AGENT_NAMES)} agents...")
 
         # Store current state
-        old_agent_versions = ""
-        for agent_name, agent in self._agents.items():
-            old_agent_versions += f"{agent_name}={agent.version}\n"
+        old_agent_names = set(self._agents.keys())
 
         # Check connectivity and rebuild registry
-        connectivity_results = self._check_connectivity_for_modules(self._loaded_modules)
-        agents = self._build_registry_from_modules(self._loaded_modules, connectivity_results)
+        connectivity_results, agent_cards = self._check_connectivity_for_modules()
+        agents, tools = self._build_registry_from_active_agents(connectivity_results, agent_cards)
 
         # Update registry
         self._agents = agents
+        self._tools = tools
 
         # Check for changes
-        new_agent_versions = ""
-        for agent_name, agent in self._agents.items():
-            new_agent_versions += f"{agent_name}={agent.version}\n"
+        new_agent_names = set(self._agents.keys())
 
-        has_changes = old_agent_versions != new_agent_versions
-        logger.debug(f"Old agent versions: {old_agent_versions}")
-        logger.debug(f"New agent versions: {new_agent_versions}")
+        has_changes = old_agent_names != new_agent_names
 
         if has_changes:
-            logger.debug("Connectivity refresh: Changes detected")
+            added = new_agent_names - old_agent_names
+            removed = old_agent_names - new_agent_names
+            if added:
+                logger.debug(f"Connectivity refresh: Agents added: {', '.join(added)}")
+            if removed:
+                logger.debug(f"Connectivity refresh: Agents removed: {', '.join(removed)}")
         else:
             logger.debug("Connectivity refresh: No changes detected")
 
