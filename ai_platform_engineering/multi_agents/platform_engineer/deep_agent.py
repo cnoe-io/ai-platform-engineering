@@ -12,8 +12,7 @@ from cnoe_agent_utils import LLMFactory
 
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
-
-from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt, subagents
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
 from deepagents import async_create_deep_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -94,9 +93,17 @@ class AIPlatformEngineerMAS:
 
     base_model = LLMFactory().get_llm()
 
+    # Get fresh tools from registry
     all_agents = platform_registry.get_all_agents()
 
-    logger.info(f'sub_agents: {subagents}')
+    # Dynamically generate system prompt and subagents from current registry
+    current_agents = platform_registry.agents
+    system_prompt = generate_system_prompt(current_agents)
+    subagents = platform_registry.generate_subagents(agent_prompts)
+
+    logger.info(f'🔧 Rebuilding with {len(all_agents)} tools and {len(subagents)} sub_agents')
+    logger.info(f'📦 Tools: {[t.name for t in all_agents]}')
+    logger.info(f'🤖 Subagents: {[s["name"] for s in subagents]}')
 
     # Create the Deep Agent
     deep_agent = async_create_deep_agent(
@@ -122,7 +129,7 @@ class AIPlatformEngineerMAS:
     self._graph_generation += 1
 
     logger.debug(f"Deep agent created successfully (generation {self._graph_generation})")
-    logger.info(f"Deep agent updated with {len(subagents)} subagents")
+    logger.info(f"✅ Deep agent updated with {len(all_agents)} tools and {len(subagents)} subagents")
 
 
   async def serve(self, prompt: str):
