@@ -446,13 +446,13 @@ class TestConvenienceFunction(unittest.TestCase):
 
     def test_convenience_function_exists(self):
         """Test that get_enabled_agents convenience function exists."""
-        from ai_platform_engineering.multi_agents import get_enabled_agents
-        self.assertIsNotNone(get_enabled_agents)
+        from ai_platform_engineering.multi_agents.agent_registry import AgentRegistry
+        self.assertIsNotNone(AgentRegistry.get_enabled_agents)
         print("✓ Convenience function exists")
 
     def test_convenience_function_works(self):
         """Test that convenience function works correctly."""
-        from ai_platform_engineering.multi_agents import get_enabled_agents
+        from ai_platform_engineering.multi_agents.agent_registry import AgentRegistry
 
         # Clear all
         for key in list(os.environ.keys()):
@@ -460,7 +460,7 @@ class TestConvenienceFunction(unittest.TestCase):
                 del os.environ[key]
 
         os.environ['ENABLE_GITHUB'] = 'true'
-        enabled = get_enabled_agents()
+        enabled = AgentRegistry.get_enabled_agents()
 
         self.assertIn('github', enabled)
         print("✓ Convenience function works correctly")

@@ -13,7 +13,7 @@ from cnoe_agent_utils import LLMFactory
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 
-from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt, generate_subagents
+from ai_platform_engineering.multi_agents.platform_engineer.prompts import system_prompt, subagents
 from deepagents import async_create_deep_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -95,8 +95,6 @@ class AIPlatformEngineerMAS:
     base_model = LLMFactory().get_llm()
 
     all_agents = platform_registry.get_all_agents()
-
-    subagents = generate_subagents()
 
     logger.info(f'sub_agents: {subagents}')
 

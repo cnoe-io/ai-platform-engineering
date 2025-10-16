@@ -47,16 +47,16 @@ if agent_examples_from_config.get("general"):
     agent_skill_examples.extend(agent_examples_from_config.get("general"))
 
 # Include sub-agent examples from config ONLY IF the sub-agent is enabled
-for agent_name, agent in agents.items():
-    if agent is not None:
+for agent_name, agent_card in agents.items():
+    if agent_card is not None:
         try:
             agent_eg = agent_examples_from_config.get(agent_name)
             if agent_eg:
-                logger.info("Agent examples config found for agent:", agent_name)
+                logger.info("Agent examples config found for agent: %s", agent_name)
                 agent_skill_examples.extend(agent_eg)
             else: # If no examples are provided in the config, use the agent's own examples
-                logger.info("Agent examples config not found for agent:", agent_name)
-                agent_skill_examples.extend(agent.get_skill_examples())
+                logger.info("Agent examples config not found for agent: %s", agent_name)
+                agent_skill_examples.extend(platform_registry.get_agent_examples(agent_name))
         except Exception as e:
             logger.warning(f"Error getting skill examples from agent: {e}")
             continue
@@ -69,46 +69,26 @@ skills_prompt = PromptTemplate(
     )
 )
 
-def generate_subagents():
-    """
-    Build DeepAgents-compatible subagent definitions (without tools) from the platform registry.
-    Each subagent contains: name, description, and prompt.
-    The 'tools' field is intentionally omitted so DeepAgents can populate access later.
-    """
-    subagents = []
-    for agent_key, agent in agents.items():
-        # Prefer system_prompt override from prompt config; fallback to agent description
-        system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt")
-        description = getattr(agent.agent_card(), "description", agent_key)
-        prompt = system_prompt_override or description
-        sub_agent = {
-            "name": agent_key,
-            "description": description,
-            "prompt": prompt
-            # "tool": agent
-        }
-        logger.info(f'sub_agent: {sub_agent}')
-        subagents.append(sub_agent)
-    return subagents
+subagents = platform_registry.generate_subagents(agent_prompts)
 
 # Generate system prompt dynamically based on tools and their tasks
 def generate_system_prompt(agents: Dict[str, Any]):
   tool_instructions = []
-  for agent_key, agent in agents.items():
+  for agent_key, agent_card in agents.items():
 
     logger.info(f"Generating tool instruction for agent_key: {agent_key}")
 
     # Check if agent and agent_card are available
-    if agent is None:
+    if agent_card is None:
       logger.warning(f"Agent {agent_key} is None, skipping...")
       continue
 
     try:
-      agent_card = agent.agent_card()
       if agent_card is None:
         logger.warning(f"Agent {agent_key} has no agent card, skipping...")
         continue
-      description = agent_card.description
+      print(f"agent_card 1: {agent_card}")
+      description = agent_card['description']
     except AttributeError as e:
       logger.warning(f"Agent {agent_key} does not have agent_card method or description: {e}, skipping...")
       continue
