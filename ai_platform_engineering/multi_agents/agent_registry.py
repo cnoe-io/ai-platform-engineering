@@ -9,19 +9,16 @@ across the platform, with integrated agent enablement logic.
 """
 
 import os
-import asyncio
 import logging
 import httpx
 import time
 import threading
 from typing import Dict, Any, Optional, Callable, List
-import importlib
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import AgntcySlimRemoteAgentConnectTool
-from ai_platform_engineering.utils.misc.misc import run_coroutine_sync
 from a2a.types import AgentCard
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -452,7 +449,7 @@ class AgentRegistry:
     def _check_connectivity_for_modules(self) -> tuple[Dict[str, bool], Dict[str, Dict[str, Any]]]:
         """Check connectivity for a set of loaded modules."""
         if self.transport == "slim":
-            logger.info(f"Skipping connectivity checks for SLIM transport")
+            logger.info("Skipping connectivity checks for SLIM transport")
             return {name: True for name in self.AGENT_NAMES}, {}
 
         logger.info(f"Running connectivity checks for {len(self.AGENT_ADDRESS_MAPPING)} agents (max {self._max_retries + 1} attempts per agent)...")
