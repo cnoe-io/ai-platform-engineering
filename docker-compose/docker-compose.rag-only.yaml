@@ -45,6 +45,7 @@ services:
     - ENABLE_WEBEX_AGENT=false
     - ENABLE_PETSTORE_AGENT=false
     - ENABLE_RAG=true
+    - RAG_AGENT_PORT=8099
     depends_on:
     - agent-rag-rag-only-p2p
     command: platform-engineer
