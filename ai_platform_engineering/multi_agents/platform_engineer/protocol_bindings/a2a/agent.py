@@ -105,10 +105,27 @@ class AIPlatformEngineerA2ABinding:
                       "content": "",
                   }
               elif isinstance(message, AIMessageChunk):
+                  # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
+                  content = message.content
+                  if isinstance(content, list):
+                      # If content is a list (AWS Bedrock), extract text from content blocks
+                      text_parts = []
+                      for item in content:
+                          if isinstance(item, dict):
+                              # Extract text from Bedrock content block: {"type": "text", "text": "..."}
+                              text_parts.append(item.get('text', ''))
+                          elif isinstance(item, str):
+                              text_parts.append(item)
+                          else:
+                              text_parts.append(str(item))
+                      content = ''.join(text_parts)
+                  elif not isinstance(content, str):
+                      content = str(content) if content else ''
+
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
-                      "content": message.content,
+                      "content": content,
                   }
 
       except Exception as e:
