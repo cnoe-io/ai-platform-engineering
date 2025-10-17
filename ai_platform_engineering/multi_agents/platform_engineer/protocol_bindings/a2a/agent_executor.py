@@ -135,6 +135,24 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     logger.debug("Executor: Received A2A Task event; enqueuing.")
                     await self._safe_enqueue_event(event_queue, event)
                     continue
+                # Normalize content to string (handle cases where AWS Bedrock returns list)
+                # This is due to AWS Bedrock having a different format for the content for streaming compared to Azure OpenAI.
+                content = event.get('content', '')
+                if isinstance(content, list):
+                    # If content is a list (AWS Bedrock), extract text from content blocks
+                    text_parts = []
+                    for item in content:
+                        if isinstance(item, dict):
+                            # Extract text from Bedrock content block: {"type": "text", "text": "..."}
+                            text_parts.append(item.get('text', ''))
+                        elif isinstance(item, str):
+                            text_parts.append(item)
+                        else:
+                            text_parts.append(str(item))
+                    content = ''.join(text_parts)
+                elif not isinstance(content, str):
+                    content = str(content) if content else ''
+
                 if event['is_task_complete']:
                   logger.info("Task complete event received. Enqueuing TaskArtifactUpdateEvent and TaskStatusUpdateEvent.")
                   await self._safe_enqueue_event(
@@ -147,7 +165,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                       artifact=new_text_artifact(
                         name='current_result',
                         description='Result of request to agent.',
-                        text=event['content'],
+                        text=content,
                       ),
                     )
                   )
@@ -169,7 +187,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                       status=TaskStatus(
                         state=TaskState.input_required,
                         message=new_agent_text_message(
-                          event['content'],
+                          content,
                           task.context_id,
                           task.id,
                         ),
@@ -188,7 +206,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                       status=TaskStatus(
                         state=TaskState.working,
                         message=new_agent_text_message(
-                          event['content'],
+                          content,
                           task.context_id,
                           task.id,
                         ),
