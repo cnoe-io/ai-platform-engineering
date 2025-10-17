@@ -29,6 +29,9 @@ services:
     ports:
     - 8000:8000
     environment:
+    - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true
+    - AGENT_PROTOCOL=a2a
+    - SKIP_AGENT_CONNECTIVITY_CHECK=false
     - A2A_TRANSPORT=p2p
     - ARGOCD_AGENT_HOST=agent-argocd-caipe-complete-with-tracing-p2p
     - AWS_AGENT_HOST=agent-aws-caipe-complete-with-tracing-p2p
@@ -116,24 +119,9 @@ services:
     - MCP_MODE=http
     - MCP_HOST=mcp-aws
     - MCP_PORT=8000
-    depends_on:
-    - mcp-aws
     profiles:
     - a2a-p2p
-  mcp-aws:
-    image: ghcr.io/cnoe-io/mcp-aws:${IMAGE_TAG:-stable}
-    container_name: mcp-aws
-    env_file:
-    - ../.env
-    ports:
-    - 18031:8000
-    environment:
-    - MCP_MODE=http
-    - MCP_HOST=0.0.0.0
-    - MCP_PORT=8000
-    profiles:
-    - a2a-p2p
-    - a2a-over-slim
+  # No mcp-aws as aws only supports stdio transport currently.
   agent-backstage-caipe-complete-with-tracing-p2p:
     image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
     container_name: agent-backstage-caipe-complete-with-tracing-p2p
@@ -509,7 +497,6 @@ services:
     - MCP_HOST=mcp-aws
     - MCP_PORT=8000
     depends_on:
-    - mcp-aws
     - slim-dataplane
     profiles:
     - a2a-over-slim
@@ -893,7 +880,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     ports:
-    - 127.0.0.1:5432:5432
+    - 127.0.0.1:15432:5432 # 5432 is often taken in the local machine, so we use 15432 as a different port
     volumes:
     - langfuse_postgres_data:/var/lib/postgresql/data
 volumes:
