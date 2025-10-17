@@ -89,6 +89,32 @@ class AgentRegistry:
             address_mapping[agent] = f"http://{host}:{port}"
         return address_mapping
 
+    @staticmethod
+    def _sanitize_tool_name(name: str) -> str:
+        r"""
+        Sanitize tool name to match OpenAI's pattern requirement: ^[a-zA-Z0-9_\.-]+$
+
+        Args:
+            name: Original name (may contain spaces and special characters)
+
+        Returns:
+            Sanitized name with only allowed characters
+        """
+        if not name:
+            return "unknown_agent"
+
+        # Replace spaces with underscores
+        sanitized = name.replace(' ', '_')
+        # Keep only alphanumeric characters, underscores, dots, and hyphens
+        sanitized = ''.join(c for c in sanitized if c.isalnum() or c in ('_', '.', '-'))
+
+        # Ensure we have at least some valid characters
+        if not sanitized:
+            logger.warning(f"Tool name '{name}' sanitized to empty string, using 'unknown_agent'")
+            return "unknown_agent"
+
+        return sanitized
+
     def generate_subagents(self, agent_prompts) -> List[Dict[str, Any]]:
         """Generate the subagents for all enabled agents."""
         subagents = []
@@ -97,8 +123,17 @@ class AgentRegistry:
             agent_card = self._agents[agent]
             description = agent_card['description']
             prompt = system_prompt_override or description
+
+            # Sanitize agent name to match OpenAI's tool name pattern
+            agent_name = agent_card['name']
+            sanitized_name = self._sanitize_tool_name(agent_name)
+
+            # Log if sanitization changed the name
+            if sanitized_name != agent_name:
+                logger.warning(f"Subagent: Sanitized name from '{agent_name}' to '{sanitized_name}' to match OpenAI pattern requirements")
+
             subagents.append({
-                "name": agent_card['name'],
+                "name": sanitized_name,
                 "description": description,
                 "prompt": prompt
             })
@@ -143,19 +178,23 @@ class AgentRegistry:
             examples.extend(agent.get_examples())
         return examples
 
-    def _create_generic_a2a_client(self, name: str, transport: str, agent_url: Optional[str] = None, agent_card: Optional[Dict[str, Any]] = None):
+    def _create_generic_a2a_client(self, name: str, transport: str, agent_url: Optional[str] = None, agent_card: Optional[Dict[str, Any]] = None, tool_name: Optional[str] = None):
         """
         Creates a generic A2A client for a remote agent.
 
         Args:
-            name: Name of the remote agent
+            name: Name of the remote agent (registry key, used for URL inference)
             transport: Transport mode ("p2p" or "slim")
             agent_url: Optional URL of the agent (if not provided, infers from env vars)
             agent_card: Optional agent card dict (if provided, tool won't need to fetch it again)
+            tool_name: Optional tool name to use (if not provided, uses name parameter)
 
         Returns:
             A2ARemoteAgentConnectTool: The created A2A client
         """
+        # Use provided tool_name or fall back to name
+        final_tool_name = tool_name if tool_name else name
+
         if transport == "p2p":
             if agent_url is None:
                 agent_url = self._infer_agent_url_from_env_var(name)
@@ -169,7 +208,7 @@ class AgentRegistry:
                     agent_card_with_url = {**agent_card, 'url': agent_url}
                     agent_card_obj = AgentCard(**agent_card_with_url)
                     return A2ARemoteAgentConnectTool(
-                        name=name,
+                        name=final_tool_name,
                         remote_agent_card=agent_card_obj,
                         skill_id="",
                         description=""
@@ -177,14 +216,14 @@ class AgentRegistry:
                 except Exception as e:
                     logger.warning(f"Failed to convert agent card to AgentCard object for {name}: {e}, using URL instead")
                     return A2ARemoteAgentConnectTool(
-                        name=name,
+                        name=final_tool_name,
                         remote_agent_card=agent_url,
                         skill_id="",
                         description=""
                     )
             else:
                 return A2ARemoteAgentConnectTool(
-                    name=name,
+                    name=final_tool_name,
                     remote_agent_card=agent_url,
                     skill_id="",
                     description=""
@@ -192,7 +231,7 @@ class AgentRegistry:
         elif transport == "slim":
             return AgntcySlimRemoteAgentConnectTool(
                 endpoint=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357"),
-                name=name,
+                name=final_tool_name,
                 remote_agent_card=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
             )
         else:
@@ -480,16 +519,29 @@ class AgentRegistry:
             # Use the agent card's name (not the registry key) for the tool name
             # to ensure it matches the subagent name
             tool_name = agent_card.get('name', agent_name)
+
+            # Sanitize tool name to match OpenAI's pattern: ^[a-zA-Z0-9_\.-]+$
+            sanitized_tool_name = self._sanitize_tool_name(tool_name)
+
+            # Log if sanitization changed the name
+            if sanitized_tool_name != tool_name:
+                logger.warning(f"Agent {agent_name}: Sanitized tool name from '{tool_name}' to '{sanitized_tool_name}' to match OpenAI pattern requirements")
+
             agent_url = self.AGENT_ADDRESS_MAPPING.get(agent_name)
 
             try:
                 # Pass the actual agent_url and agent_card from connectivity check
-                tool = self._create_generic_a2a_client(agent_name, self._transport, agent_url, agent_card)
-                # Override the tool's name to match agent card name
-                tool.name = tool_name
+                # Pass sanitized_tool_name to the constructor so it's set correctly from the start
+                tool = self._create_generic_a2a_client(
+                    agent_name,
+                    self._transport,
+                    agent_url,
+                    agent_card,
+                    tool_name=sanitized_tool_name
+                )
                 tool.description = agent_card.get('description', '')
                 tools[agent_name] = tool
-                logger.debug(f"Created tool for agent {agent_name} with name '{tool_name}' using URL {agent_url}")
+                logger.debug(f"Created tool for agent {agent_name} with name '{sanitized_tool_name}' (original: '{tool_name}') using URL {agent_url}")
             except Exception as e:
                 logger.error(f"Failed to create tool for agent {agent_name}: {e}")
                 # Remove the agent card if tool creation fails
