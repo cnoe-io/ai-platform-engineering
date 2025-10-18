@@ -1,0 +1,81 @@
+# --- Python virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Python cache files ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.cache
+
+# --- Testing ---
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# --- Linting / formatting ---
+.ruff_cache/
+.flake8
+.pylintrc
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Git ---
+.git/
+.gitignore
+
+# --- Documentation ---
+docs/
+!docs/README.md   # keep only if needed
+docs/_build/
+
+# --- Logs ---
+*.log
+
+# --- Environment variables ---
+.env
+.env.local
+.env.*.local
+
+# --- Project-specific ---
+# If mcp/ is your only build target, ignore unrelated folders at root
+tests/
+examples/
+scripts/
+notebooks/
+.github/
+.gitlab/
+ci/

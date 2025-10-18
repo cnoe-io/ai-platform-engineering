@@ -1,0 +1,27 @@
+tests:
+  argocd_agent_1:
+    input: |
+      show argocd version
+    reference_trajectory:
+      solution_1: __start__;agent_argocd
+    metadata:
+      comments: |
+        Shows the version of the ArgoCD Server Version.
+
+  argocd_agent_2:
+    input: |
+      show argocd app health status in project jarvis-agent-dev
+    reference_trajectory:
+      solution_1: __start__;agent_argocd
+    metadata:
+      comments: |
+        Shows the health status of all applications in the jarvis-agent-dev project.
+
+  argocd_agent_3:
+    input: |
+      show argocd unhealthy apps in project jarvis-agent-dev
+    reference_trajectory:
+      solution_1: __start__;agent_argocd
+    metadata:
+      comments: |
+        Lists all unhealthy applications in the jarvis-agent-dev project.
