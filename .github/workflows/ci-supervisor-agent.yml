@@ -1,4 +1,4 @@
-name: "[CI][Supervisor] Supervisor Agent Docker Build and Push"
+name: "[Supervisor][CI] Supervisor Agent Docker Build and Push"
 description: "Build and push Supervisor Agent Docker image"
 
 on:
@@ -40,6 +40,7 @@ jobs:
           filters: |
             core:
               - 'build/**'
+              - '.github/**'
               - 'ai_platform_engineering/multi_agents/**'
               - 'ai_platform_engineering/utils/**'
               - 'ai_platform_engineering/common/**'

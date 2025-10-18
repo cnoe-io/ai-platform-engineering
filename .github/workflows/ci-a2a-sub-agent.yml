@@ -57,6 +57,7 @@ jobs:
             let filters = 'shared:\n';
             filters += '  - \'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py\'\n';
             filters += '  - \'ai_platform_engineering/utils/agntcy/agntcy_remote_agent_connect.py\'\n';
+            filters += '  - \'.github/**\'\n';
             agents.forEach(agent => {
               filters += `${agent}:\n`;
               filters += `  - 'ai_platform_engineering/agents/${agent}/**'\n`;
@@ -75,7 +76,7 @@ jobs:
         id: set-matrix
         uses: actions/github-script@v8
         env:
-          BUILD_ALL: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+          BUILD_ALL: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' }}
           CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
           CHANGED_AWS: ${{ steps.filter.outputs.aws }}
           CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
