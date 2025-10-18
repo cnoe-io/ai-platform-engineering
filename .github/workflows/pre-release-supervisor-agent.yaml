@@ -13,7 +13,7 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
       - 'ai_platform_engineering/__init__.py'
-
+      - '.github/**'
 env:
   IMAGE_NAME: cnoe-io/prebuild/ai-platform-engineering
 
