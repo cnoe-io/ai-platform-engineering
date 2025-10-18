@@ -1,4 +1,5 @@
-name: Agent A2A Docker Build and Push
+name: "[CI][MCP] Sub-Agents MCP Docker Build and Push"
+description: "Build and push MCP Docker images for sub-agents"
 
 on:
   push:
@@ -11,7 +12,6 @@ on:
     branches:
       - main
     paths:
-      - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/agents/**'
   workflow_dispatch:
     inputs:
@@ -22,7 +22,7 @@ on:
         type: boolean
 
 env:
-  ALL_AGENTS: '["argocd","aws","backstage","confluence","github","jira","komodor","pagerduty","slack","splunk","template","webex","weather"]'
+  ALL_AGENTS: '["argocd","backstage","confluence","jira","komodor","pagerduty","slack","splunk","webex"]'
 
 jobs:
   set-all-agents:
@@ -54,42 +54,34 @@ jobs:
         with:
           script: |
             const agents = JSON.parse(process.env.ALL_AGENTS);
-            let filters = 'shared:\n';
-            filters += '  - \'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py\'\n';
-            filters += '  - \'ai_platform_engineering/utils/agntcy/agntcy_remote_agent_connect.py\'\n';
+            let filters = '';
             agents.forEach(agent => {
               filters += `${agent}:\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/**'\n`;
-              filters += `  - '!ai_platform_engineering/agents/${agent}/mcp/**'\n`;
-              filters += `  - '!ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+              filters += `  - 'ai_platform_engineering/agents/${agent}/mcp/**'\n`;
+              filters += `  - 'ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
             });
             core.setOutput('filters', filters);
 
-      - name: Detect changed paths
+      - name: Detect changed paths (MCP)
         id: filter
         uses: dorny/paths-filter@v3
         with:
           filters: ${{ steps.generate-filters.outputs.filters }}
-
-      - name: Set matrix based on changes
+      - name: Set matrix based on changes (MCP)
         id: set-matrix
         uses: actions/github-script@v8
         env:
           BUILD_ALL: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
           CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
-          CHANGED_AWS: ${{ steps.filter.outputs.aws }}
           CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
           CHANGED_CONFLUENCE: ${{ steps.filter.outputs.confluence }}
-          CHANGED_GITHUB: ${{ steps.filter.outputs.github }}
           CHANGED_JIRA: ${{ steps.filter.outputs.jira }}
           CHANGED_KOMODOR: ${{ steps.filter.outputs.komodor }}
           CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
           CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
           CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
-          CHANGED_TEMPLATE: ${{ steps.filter.outputs.template }}
-          CHANGED_WEBEX: ${{ steps.filter.outputs.webex }}
-          CHANGED_WEATHER: ${{ steps.filter.outputs.weather }}
           CHANGED_LITELLM: ${{ steps.filter.outputs.litellm }}
+          CHANGED_WEBEX: ${{ steps.filter.outputs.webex }}
         with:
           script: |
             const allAgents = JSON.parse(process.env.ALL_AGENTS);
@@ -119,7 +111,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
+      IMAGE_NAME: cnoe-io/mcp-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -155,11 +147,11 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Build and Push A2A Docker image
+      - name: Build and Push MCP Docker image
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.AGENT_DIR }}
-          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
+          file: ${{ env.AGENT_DIR }}/build/Dockerfile.mcp
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
