@@ -1,5 +1,5 @@
 ---
-name: Ruff Linter
+name: "[Lint] Ruff Linter"
 
 on:
   push:
