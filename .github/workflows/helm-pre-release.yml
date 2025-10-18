@@ -1,4 +1,5 @@
-name: 🔬 Pre-release Helm Chart Publishing
+name: "[Pre-Release] Helm Chart"
+description: "Publish pre-release Helm charts"
 
 on:
   pull_request:

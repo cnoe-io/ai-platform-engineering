@@ -1,5 +1,6 @@
 # Workflow for building and deploying a Docusaurus site to GitHub Pages
-name: Publish Docs
+name: "[Publish][Docs] GH Pages"
+description: "Publish Docusaurus site to GitHub Pages"
 
 on:
   # Runs on pushes targeting the default branch

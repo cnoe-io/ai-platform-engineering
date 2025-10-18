@@ -1,4 +1,5 @@
-name: 📦 Publish Helm Chart to GHCR
+name: "[Publish][Helm] Charts to GHCR"
+description: "Publish Helm charts to GHCR"
 
 on:
   push:
