@@ -1,15 +1,13 @@
-name: "Latest Tag - Quick Sanity Integration Tests"
+name: "[Tests][Dev] Quick Sanity Integration"
+description: "Run quick sanity integration tests"
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-  schedule:
-    # Run nightly at 2 AM UTC
-    - cron: '0 2 * * *'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   quick-sanity:
@@ -107,7 +105,7 @@ jobs:
       - name: Start services
         run: |
           set -euo pipefail
-          IMAGE_TAG=latest docker compose -f docker-compose.yaml --profile=p2p up -d
+          docker compose -f docker-compose.dev.yaml --profile=p2p up -d
 
       - name: Stream service logs (background)
         run: |
@@ -116,7 +114,7 @@ jobs:
           echo "::group::Service logs"
 
           # Stream logs to console AND file for artifact upload
-          ( IMAGE_TAG=latest docker compose -f docker-compose.yaml --profile=p2p logs -f --no-color --timestamps \
+          ( docker compose -f docker-compose.dev.yaml --profile=p2p logs -f --no-color --timestamps \
               | tee -a compose-live.log ) &
           echo $! > logs.pid
         shell: bash
@@ -156,7 +154,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: compose-logs-latest
+          name: compose-logs
           path: compose-live.log
           if-no-files-found: warn
 
@@ -164,67 +162,6 @@ jobs:
         if: always()
         run: |
           echo "::group::Clean-up workspace"
-          IMAGE_TAG=latest docker compose -f docker-compose.yaml --profile=p2p down -v --remove-orphans || true
+          docker compose -f docker-compose.dev.yaml --profile=p2p down -v --remove-orphans || true
           docker rmi -f $(docker images -aq) || true
           echo "::endgroup::"
-
-  create-stable-tag-and-test:
-    runs-on: ubuntu-latest
-    needs: quick-sanity
-    if: success()
-    permissions:
-      contents: write
-      actions: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure Git
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-      - name: Check if stable tag already exists
-        id: check-tag
-        run: |
-          if git rev-parse "stable" >/dev/null 2>&1; then
-            echo "stable tag already exists"
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "stable tag does not exist"
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create or update stable tag
-        run: |
-          # Force update the stable tag to point to current commit
-          git tag -f stable
-          git push origin stable --force
-          echo "Stable tag created/updated to point to commit: $(git rev-parse HEAD)"
-
-      - name: Trigger stable integration tests
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const { data: workflowRuns } = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'quick-sanity-integration-tests-stable.yml',
-              status: 'in_progress',
-              per_page: 1
-            });
-
-            // Only trigger if no stable tests are currently running
-            if (workflowRuns.workflow_runs.length === 0) {
-              await github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: 'quick-sanity-integration-tests-stable.yml',
-                ref: 'main'
-              });
-              console.log('Triggered stable integration tests workflow');
-            } else {
-              console.log('Stable integration tests are already running, skipping trigger');
-            }

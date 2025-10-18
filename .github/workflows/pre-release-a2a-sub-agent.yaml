@@ -1,4 +1,5 @@
-name: Pre-Release Agent A2A Docker Build and Push
+name: "[Pre-Release][A2A] Sub-Agents A2A Docker Build and Push"
+description: "Build and push A2A Docker images for sub-agents"
 
 on:
   pull_request:
@@ -6,6 +7,7 @@ on:
     paths:
       - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/agents/**'
+      - '.github/**'
 
 jobs:
   determine-agents:
@@ -32,6 +34,7 @@ jobs:
             shared:
               - 'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py'
               - 'ai_platform_engineering/utils/agntcy/agntcy_remote_agent_connect.py'
+              - '.github/**'
             argocd:
               - 'ai_platform_engineering/agents/argocd/**'
               - '!ai_platform_engineering/agents/argocd/mcp/**'

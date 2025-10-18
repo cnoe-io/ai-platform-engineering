@@ -1,27 +1,19 @@
-name: Supervisor Agent Docker Build and Push
+name: "[CI][A2A] Supervisor Agent Docker Build and Push"
+description: "Build and push A2A Supervisor Agent Docker image"
 
 on:
   push:
     branches:
-      - '*'
+      - main
     tags:
-      - '*'
+      - '**'
+    paths:
+      - '**'
   pull_request:
     branches:
-      - 'main'
+      - main
     paths:
-      - 'build/**'
-      - 'ai_platform_engineering/multi_agents/**'
-      - 'ai_platform_engineering/utils/**'
-      - 'ai_platform_engineering/common/**'
-      - 'ai_platform_engineering/knowledge_bases/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'ai_platform_engineering/__init__.py'
-
-env:
-  IMAGE_NAME: cnoe-io/ai-platform-engineering
-
+      - '**'
 jobs:
   determine-changes:
     runs-on: ubuntu-latest
@@ -38,15 +30,7 @@ jobs:
         with:
           filters: |
             core:
-              - 'build/**'
-              - 'ai_platform_engineering/multi_agents/**'
-              - 'ai_platform_engineering/utils/**'
-              - 'ai_platform_engineering/common/**'
-              - 'ai_platform_engineering/knowledge_bases/**'
-              - 'pyproject.toml'
-              - 'uv.lock'
-              - 'ai_platform_engineering/__init__.py'
-
+              - '**'
   build-and-push:
     runs-on: ubuntu-latest
     needs: determine-changes

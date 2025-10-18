@@ -1,4 +1,5 @@
-name: "Dev - Quick Sanity Integration Tests"
+name: "[Tests][Stable Tag] Quick Sanity Integration"
+description: "Run quick sanity integration tests on stable tag"
 
 on:
   push:
@@ -104,7 +105,7 @@ jobs:
       - name: Start services
         run: |
           set -euo pipefail
-          docker compose -f docker-compose.dev.yaml --profile=p2p up -d
+          IMAGE_TAG=stable docker compose -f docker-compose.yaml --profile=p2p up -d
 
       - name: Stream service logs (background)
         run: |
@@ -113,7 +114,7 @@ jobs:
           echo "::group::Service logs"
 
           # Stream logs to console AND file for artifact upload
-          ( docker compose -f docker-compose.dev.yaml --profile=p2p logs -f --no-color --timestamps \
+          ( IMAGE_TAG=stable docker compose -f docker-compose.yaml --profile=p2p logs -f --no-color --timestamps \
               | tee -a compose-live.log ) &
           echo $! > logs.pid
         shell: bash
@@ -153,7 +154,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: compose-logs
+          name: compose-logs-stable
           path: compose-live.log
           if-no-files-found: warn
 
@@ -161,6 +162,6 @@ jobs:
         if: always()
         run: |
           echo "::group::Clean-up workspace"
-          docker compose -f docker-compose.dev.yaml --profile=p2p down -v --remove-orphans || true
+          IMAGE_TAG=stable docker compose -f docker-compose.yaml --profile=p2p down -v --remove-orphans || true
           docker rmi -f $(docker images -aq) || true
           echo "::endgroup::"

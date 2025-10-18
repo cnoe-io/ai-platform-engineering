@@ -1,5 +1,6 @@
 ---
-name: Unit Tests
+name: "[Tests] Unit Tests"
+description: "Run unit tests"
 
 # This workflow runs three independent test suites:
 # 1. run-tests: General project tests (excludes RAG and ArgoCD MCP tests)
@@ -47,9 +48,11 @@ jobs:
           echo "Running tests with coverage..."
           source .venv/bin/activate && uv run pytest \
             --ignore=integration \
+            --ignore=evals \
             --ignore=ai_platform_engineering/knowledge_bases/rag/tests \
             --ignore=ai_platform_engineering/agents/argocd/mcp/tests \
             --ignore=volumes \
+            --ignore=docker-compose \
             --cov=ai_platform_engineering \
             --cov-report=xml \
             --cov-report=html
