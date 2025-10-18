@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened, closed]
     paths:
       - 'ai_platform_engineering/agents/**'
-
+      - '.github/**'
 jobs:
   determine-agents:
     runs-on: ubuntu-latest
