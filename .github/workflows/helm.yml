@@ -1,5 +1,5 @@
-name: "[Publish][Helm] Charts to GHCR"
-description: "Publish Helm charts to GHCR"
+name: "[CI][Helm] Publish Helm Charts to GHCR"
+description: "Publish Helm charts to GitHub Container Registry"
 
 on:
   push:
