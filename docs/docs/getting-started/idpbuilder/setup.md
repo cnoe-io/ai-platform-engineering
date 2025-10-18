@@ -24,8 +24,16 @@ For a complete development environment with i3 desktop and VNC access on a vanil
 
 > Setup Ubuntu Pre-requisities
 
+```
+git clone https://github.com/sriaradhyula/stacks/tree/main
+```
+
+```
+cd stacks
+```
+
 ```bash
-curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/caipe/scripts/setup-ubuntu-prerequisites.sh -o /tmp/setup-ubuntu-prerequisites.sh && chmod +x /tmp/setup-ubuntu-prerequisites.sh && /tmp/setup-ubuntu-prerequisites.sh
+./caipe/scripts/setup-ubuntu-prerequisites.sh
 ```
 
 This script will:
@@ -154,7 +162,7 @@ IDPBuilder supports different profiles as listed above:
 # Create cluster with CAIPE basic-p2p profile
 idpbuilder create \
   --use-path-routing \
-  --package https://github.com/cnoe-io/stacks//ref-implementation \
+  --package https://github.com/sriaradhyula/stacks//ref-implementation \
   --package https://github.com/sriaradhyula/stacks//caipe/base
 ```
 
@@ -164,7 +172,7 @@ idpbuilder create \
 # Create cluster with CAIPE complete-p2p profile
 idpbuilder create \
   --use-path-routing \
-  --package https://github.com/cnoe-io/stacks//ref-implementation \
+  --package https://github.com/sriaradhyula/stacks//ref-implementation \
   --package https://github.com/sriaradhyula/stacks//caipe/base \
   --package https://github.com/sriaradhyula/stacks//caipe/complete
 ```
@@ -175,7 +183,7 @@ idpbuilder create \
 # Create cluster with CAIPE complete-slim profile
 idpbuilder create \
   --use-path-routing \
-  --package https://github.com/cnoe-io/stacks//ref-implementation \
+  --package https://github.com/sriaradhyula/stacks//ref-implementation \
   --package https://github.com/sriaradhyula/stacks//caipe/base \
   --package https://github.com/sriaradhyula/stacks//caipe/complete-slim
 ```
@@ -242,101 +250,21 @@ After Vault application syncs successfully on ArgoCD, configure your LLM provide
 
 ### Run setup-secrets.sh (Recommended)
 
+```
+git clone https://github.com/sriaradhyula/stacks/tree/main
+```
+
+```
+cd stacks
+```
+
 ```bash
-# Download, make executable, and run in one command
-curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/caipe/scripts/setup-secrets.sh -o /tmp/setup-secrets.sh && chmod +x /tmp/setup-secrets.sh && /tmp/setup-secrets.sh
+./caipe/scripts/setup-all.sh
 ```
 
 > This script will prompt you to select your LLM provider. Collect the required credentials securely and store them in cluster local Vault automatically
 
-### Sample Output
-
-Here's what you can expect when running the setup script:
-
-```bash
-ubuntu@ip-10-175-49-111:~$ curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/caipe/scripts/setup-secrets.sh -o /tmp/setup-secrets.sh && chmod +x /tmp/setup-secrets.sh && /tmp/setup-secrets.sh
-[2025-09-24 05:11:17] 🔧 Setting up LLM credentials and agent secrets
-[2025-09-24 05:11:17] 🔗 Starting Vault port forward...
-Forwarding from 127.0.0.1:8200 -> 8200
-Forwarding from [::1]:8200 -> 8200
-[2025-09-24 05:11:20] 🔍 Checking active agents...
-NAME                                   READY   UP-TO-DATE   AVAILABLE   AGE
-ai-platform-engineering-agent-github   1/1     1            1           3h10m
-[2025-09-24 05:11:20] ✅ GitHub agent detected
-NAME                                   READY   UP-TO-DATE   AVAILABLE   AGE
-ai-platform-engineering-agent-argocd   1/1     1            1           3h10m
-[2025-09-24 05:11:21] ✅ ArgoCD agent detected
-NAME                                      READY   UP-TO-DATE   AVAILABLE   AGE
-ai-platform-engineering-agent-backstage   1/1     1            1           3h10m
-[2025-09-24 05:11:21] ✅ Backstage agent detected
-[2025-09-24 05:11:22] 📝 Configuring secrets for agents: github argocd backstage
-
-
-Supported LLM Providers:
-1) azure-openai
-2) openai
-3) aws-bedrock
-4) google-gemini
-5) gcp-vertex
-
-Select LLM provider (1-5): 3
-[2025-09-24 05:11:27] 📝 Selected provider: aws-bedrock
-
-[2025-09-24 05:11:27] 🔒 Note: Sensitive credentials will not be displayed on screen
-[2025-09-24 05:11:27] 🤖 Configuring LLM credentials...
-
-AWS Access Key ID:
-AWS Secret Access Key:
-AWS Region:
-AWS Bedrock Model ID:
-AWS Bedrock Provider:
-
-[2025-09-24 05:12:04] 🐙 Configuring GitHub agent secrets...
-GitHub Personal Access Token:
-
-[2025-09-24 05:12:18] 🚀 Populating ArgoCD secrets with local ArgoCD set up and grab following values:
-[2025-09-24 05:12:18] 1. ARGOCD_TOKEN will be from k8s secret argocd-admin-token in namespace vault, key: token
-[2025-09-24 05:12:18] 2. ARGOCD_API_URL will be from the same k8s secret but key: apiUrl
-[2025-09-24 05:12:18] 3. ARGOCD_VERIFY_SSL set to 'false'
-[2025-09-24 05:12:18] ✅ ARGOCD_TOKEN retrieved from Kubernetes secret
-[2025-09-24 05:12:18] ✅ ARGOCD_API_URL retrieved from Kubernetes secret: http://argocd-server.argocd.svc:443
-[2025-09-24 05:12:18] ✅ ARGOCD_VERIFY_SSL set to: false
-
-[2025-09-24 05:12:18] 🎭 Populating Backstage secrets with local Backstage set up and grab following values:
-[2025-09-24 05:12:18] 1. BACKSTAGE_API_TOKEN from k8s secret backstage-auth-secrets in namespace backstage, key: AUTH_API_TOKEN_TEST
-[2025-09-24 05:12:18] 2. BACKSTAGE_URL set to http://backstage.backstage.svc.cluster.local:7007
-[2025-09-24 05:12:18] ✅ BACKSTAGE_API_TOKEN retrieved from Kubernetes secret
-[2025-09-24 05:12:18] ✅ BACKSTAGE_URL set to: http://backstage.backstage.svc.cluster.local:7007
-[2025-09-24 05:12:18] 💾 Storing secrets in Vault...
-[2025-09-24 05:12:18] 🤖 Storing global LLM credentials in Vault...
-Handling connection for 8200
-[2025-09-24 05:12:18] ✅ Global LLM credentials stored
-Handling connection for 8200
-[2025-09-24 05:12:19] ✅ GitHub secrets stored
-Handling connection for 8200
-[2025-09-24 05:12:19] ✅ ArgoCD secrets stored
-Handling connection for 8200
-[2025-09-24 05:12:19] ✅ Backstage secrets stored
-[2025-09-24 05:12:19] ✅ Agent secrets successfully stored in Vault
-
-[2025-09-24 05:12:19] 🔍 You can verify individual agent secrets at:
-[2025-09-24 05:12:19]   🐙 GitHub: https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/ai-platform-engineering%2Fgithub-secret
-[2025-09-24 05:12:19]   🚀 ArgoCD: https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/ai-platform-engineering%2Fargocd-secret
-[2025-09-24 05:12:19]   🎭 Backstage: https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/ai-platform-engineering%2Fbackstage-secret
-[2025-09-24 05:12:19]   🤖 Global LLM: https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/ai-platform-engineering%2Fglobal
-[2025-09-24 05:12:19] 🔄 Creating Kubernetes secret for agents...
-secret/agent-secrets created
-[2025-09-24 05:12:19] ✅ Kubernetes secret created/updated
-
-[2025-09-24 05:12:19] 📊 Configuration Summary:
-[2025-09-24 05:12:19]   🤖 Global LLM: aws-bedrock credentials configured
-[2025-09-24 05:12:19]   🐙 GitHub: Personal Access Token configured
-[2025-09-24 05:12:19]   🚀 ArgoCD: Token and API URL configured
-[2025-09-24 05:12:19]   🎭 Backstage: API Token and URL configured
-[2025-09-24 05:12:19] 🎉 Combined secrets setup complete!
-```
-
-
+## Optional
 
 ### Refresh Secrets
 
