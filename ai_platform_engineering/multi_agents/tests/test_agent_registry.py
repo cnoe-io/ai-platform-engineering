@@ -15,7 +15,7 @@ This test suite covers:
 
 import os
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 # Import the module to test
 from ai_platform_engineering.multi_agents.agent_registry import AgentRegistry
@@ -85,7 +85,7 @@ class TestEnvironmentVariableParsing(unittest.TestCase):
         self.assertIn('GITHUB', registry.AGENT_NAMES)
         self.assertIn('JIRA', registry.AGENT_NAMES)
         self.assertIn('SLACK', registry.AGENT_NAMES)
-        print(f"✓ Multiple agent enablement works (3 agents)")
+        print("✓ Multiple agent enablement works (3 agents)")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
     def test_case_insensitive_env_var_values(self, mock_load):
@@ -174,7 +174,7 @@ class TestRegistryInitialization(unittest.TestCase):
         with patch.dict(os.environ, {'A2A_TRANSPORT': 'slim'}, clear=True):
             registry = AgentRegistry()
             self.assertEqual(registry.transport, 'slim')
-            print(f"✓ SLIM transport mode can be set")
+            print("✓ SLIM transport mode can be set")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
     def test_connectivity_check_config(self, mock_load):
@@ -294,7 +294,7 @@ class TestUtilityMethods(unittest.TestCase):
         mock_load.return_value = None
 
         with patch.dict(os.environ, {}, clear=True):
-            registry = AgentRegistry()
+            _ = AgentRegistry()
 
         # Test basic sanitization
         result = AgentRegistry._sanitize_tool_name("Test Agent Name")
