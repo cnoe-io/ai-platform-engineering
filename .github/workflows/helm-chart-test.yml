@@ -1,4 +1,5 @@
-name: Helm Chart Test
+name: "[Tests][Helm] Helm Chart"
+description: "Test Helm charts"
 
 on:
   push:

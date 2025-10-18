@@ -1,5 +1,6 @@
 ---
-name: stale
+name: "[Maintenance] Stale"
+description: "Mark issues as stale"
 
 on:
   schedule:

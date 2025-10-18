@@ -1,4 +1,5 @@
-name: CAIPE RAG Build and Push
+name: "[CI][A2A] CAIPE RAG Build and Push"
+description: "Build and push CAIPE RAG Docker image"
 
 on:
   push:

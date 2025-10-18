@@ -1,5 +1,5 @@
 ---
-name: Conventional Commits
+name: "[Lint] Conventional Commits"
 
 on:
   push:
