@@ -1,4 +1,5 @@
-name: Detailed Integration Tests
+name: "[Tests] Detailed Integration Tests"
+description: "Run detailed integration tests"
 
 on:
   workflow_dispatch:

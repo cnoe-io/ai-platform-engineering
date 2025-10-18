@@ -59,7 +59,7 @@ services:
     - ENABLE_WEATHER_AGENT=true
     - ENABLE_WEBEX_AGENT=true
     - ENABLE_PETSTORE_AGENT=true
-    - ENABLE_RAG=false
+    - ENABLE_RAG=true
     depends_on:
     - agent-argocd-caipe-complete-with-tracing-p2p
     - agent-aws-caipe-complete-with-tracing-p2p
