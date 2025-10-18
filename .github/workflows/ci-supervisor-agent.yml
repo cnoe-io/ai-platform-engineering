@@ -40,6 +40,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE_NAME: cnoe-io/ai-platform-engineering
 
     steps:
       - name: 🔒 harden runner
