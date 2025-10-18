@@ -16,55 +16,30 @@ services:
     # Each agent is marked with 'required: false', so platform-engineer will start even if the agent is missing.
     # 'condition: service_started' means Docker Compose will wait until the service has started (not necessarily healthy) before starting platform-engineer.
     depends_on:
-      agent-argocd-p2p:
-        condition: service_started
-        required: false
-      agent-aws-p2p:
-        condition: service_started
-        required: false
-      agent-backstage-p2p:
-        condition: service_started
-        required: false
-      agent-confluence-p2p:
-        condition: service_started
-        required: false
-      agent-github-p2p:
-        condition: service_started
-        required: false
-      agent-jira-p2p:
-        condition: service_started
-        required: false
-      agent-komodor-p2p:
-        condition: service_started
-        required: false
-      agent-pagerduty-p2p:
-        condition: service_started
-        required: false
-      agent-slack-p2p:
-        condition: service_started
-        required: false
-      agent-splunk-p2p:
-        condition: service_started
-        required: false
-      agent-weather-p2p:
-        condition: service_started
-        required: false
-      agent-webex-p2p:
-        condition: service_started
-        required: false
-      agent-petstore-p2p:
-        condition: service_started
-        required: false
-      agent_rag:
-        condition: service_started
-        required: false
+      - agent-argocd-p2p
+      - agent-aws-p2p
+      - agent-backstage-p2p
+      - agent-confluence-p2p
+      - agent-github-p2p
+      - agent-jira-p2p
+      - agent-komodor-p2p
+      - agent-pagerduty-p2p
+      - agent-petstore-p2p
+      - agent_rag
+      - agent-slack-p2p
+      - agent-splunk-p2p
+      - agent-weather-p2p
+      - agent-webex-p2p
     env_file:
       - .env
     ports:
       # Expose the AI Platform Engineer agent on port 8000
       - "8000:8000"
     environment:
-      - A2A_TRANSPORT=p2p
+      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true # Routinely checks each subagent connectivity to add or remove any from existing tools list.
+      - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
+      - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
+
       # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
       - AWS_AGENT_HOST=agent-aws-p2p
@@ -81,19 +56,20 @@ services:
       - WEATHER_AGENT_HOST=agent-weather-p2p
       - WEBEX_AGENT_HOST=agent-webex-p2p
       # Enable agents
-      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-true}
-      - ENABLE_AWS=${ENABLE_AWS:-true}
-      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-true}
-      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-true}
-      - ENABLE_GITHUB=${ENABLE_GITHUB:-true}
-      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-false}
-      - ENABLE_JIRA=${ENABLE_JIRA:-true}
-      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-true}
-      - ENABLE_PETSTORE_AGENT=${ENABLE_PETSTORE_AGENT:-true}
-      - ENABLE_RAG=${ENABLE_RAG:-true}
-      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-true}
-      - ENABLE_WEATHER_AGENT=${ENABLE_WEATHER_AGENT:-true}
-      - ENABLE_WEBEX_AGENT=${ENABLE_WEBEX_AGENT:-true}
+      - ENABLE_ARGOCD=true
+      - ENABLE_AWS=true
+      - ENABLE_BACKSTAGE=true
+      - ENABLE_CONFLUENCE=true
+      - ENABLE_GITHUB=true
+      - ENABLE_JIRA=true
+      - ENABLE_KOMODOR=true
+      - ENABLE_PAGERDUTY=true
+      - ENABLE_SLACK=true
+      - ENABLE_SPLUNK=true
+      - ENABLE_WEATHER_AGENT=true
+      - ENABLE_WEBEX_AGENT=true
+      - ENABLE_PETSTORE_AGENT=true
+      - ENABLE_RAG=true
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -211,7 +187,7 @@ services:
       - "18000:8000"
     environment:
       - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
+      - MCP_HOST=mcp-argocd
       - MCP_PORT=8000
 
   ####################################################################################################
