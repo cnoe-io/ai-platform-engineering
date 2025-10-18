@@ -34,6 +34,7 @@ jobs:
             shared:
               - 'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py'
               - 'ai_platform_engineering/utils/agntcy/agntcy_remote_agent_connect.py'
+              - '.github/**'
             argocd:
               - 'ai_platform_engineering/agents/argocd/**'
               - '!ai_platform_engineering/agents/argocd/mcp/**'

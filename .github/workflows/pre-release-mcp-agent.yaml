@@ -31,6 +31,7 @@ jobs:
             argocd:
               - 'ai_platform_engineering/agents/argocd/mcp/**'
               - 'ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
+              - '.github/**'
             backstage:
               - 'ai_platform_engineering/agents/backstage/mcp/**'
               - 'ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
