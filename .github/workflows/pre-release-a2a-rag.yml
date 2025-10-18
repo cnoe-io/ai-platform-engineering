@@ -1,4 +1,4 @@
-name: "[Pre-Release][RAG] CAIPE RAG Build and Push"
+name: "[Pre-Release][A2A] CAIPE RAG Build and Push"
 description: "Build and push CAIPE RAG Docker image"
 
 on:
@@ -6,6 +6,7 @@ on:
     types: [opened, synchronize, reopened, closed]
     paths:
       - 'ai_platform_engineering/knowledge_bases/rag/**'
+      - '.github/**'
   workflow_dispatch:
 
 jobs:
@@ -32,6 +33,7 @@ jobs:
             shared:
               - 'ai_platform_engineering/knowledge_bases/rag/common/**'
               - 'ai_platform_engineering/knowledge_bases/rag/requirements.txt'
+              - '.github/**'
             agent-rag:
               - 'ai_platform_engineering/knowledge_bases/rag/agent_rag/**'
               - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.agent-rag'
@@ -44,6 +46,7 @@ jobs:
             webui:
               - 'ai_platform_engineering/knowledge_bases/rag/webui/**'
               - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.webui'
+
 
       - name: Set matrix based on changes
         id: set-matrix
