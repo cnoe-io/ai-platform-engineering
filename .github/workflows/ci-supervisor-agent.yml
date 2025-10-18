@@ -1,20 +1,19 @@
-name: "[Supervisor][CI] Supervisor Agent Docker Build and Push"
-description: "Build and push Supervisor Agent Docker image"
+name: "[CI][A2A] Supervisor Agent Docker Build and Push"
+description: "Build and push A2A Supervisor Agent Docker image"
 
 on:
   push:
     branches:
-      - '*'
+      - main
     tags:
-      - '*'
-  pull_request:
-    branches:
-      - 'main'
+      - '**'
     paths:
       - '**'
-env:
-  IMAGE_NAME: cnoe-io/ai-platform-engineering
-
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '**'
 jobs:
   determine-changes:
     runs-on: ubuntu-latest
