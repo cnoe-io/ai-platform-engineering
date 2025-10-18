@@ -1,10 +1,10 @@
-name: Pre-Release Agent A2A Docker Build and Push
+name: "[Pre-Release][MCP] Sub-Agents MCP Docker Build and Push"
+description: "Build and push MCP Docker images for sub-agents"
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
-      - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/agents/**'
 
 jobs:
@@ -23,95 +23,56 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect changed paths
+      - name: Detect changed paths (MCP)
         id: filter
         uses: dorny/paths-filter@v3
         with:
-          predicate-quantifier: 'every'
           filters: |
-            shared:
-              - 'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py'
-              - 'ai_platform_engineering/utils/agntcy/agntcy_remote_agent_connect.py'
             argocd:
-              - 'ai_platform_engineering/agents/argocd/**'
-              - '!ai_platform_engineering/agents/argocd/mcp/**'
-              - '!ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
-            aws:
-              - 'ai_platform_engineering/agents/aws/**'
-              - '!ai_platform_engineering/agents/aws/mcp/**'
-              - '!ai_platform_engineering/agents/aws/build/Dockerfile.mcp'
+              - 'ai_platform_engineering/agents/argocd/mcp/**'
+              - 'ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
             backstage:
-              - 'ai_platform_engineering/agents/backstage/**'
-              - '!ai_platform_engineering/agents/backstage/mcp/**'
-              - '!ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
+              - 'ai_platform_engineering/agents/backstage/mcp/**'
+              - 'ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
             confluence:
-              - 'ai_platform_engineering/agents/confluence/**'
-              - '!ai_platform_engineering/agents/confluence/mcp/**'
-              - '!ai_platform_engineering/agents/confluence/build/Dockerfile.mcp'
-            github:
-              - 'ai_platform_engineering/agents/github/**'
-              - '!ai_platform_engineering/agents/github/mcp/**'
-              - '!ai_platform_engineering/agents/github/build/Dockerfile.mcp'
+              - 'ai_platform_engineering/agents/confluence/mcp/**'
+              - 'ai_platform_engineering/agents/confluence/build/Dockerfile.mcp'
             jira:
-              - 'ai_platform_engineering/agents/jira/**'
-              - '!ai_platform_engineering/agents/jira/mcp/**'
-              - '!ai_platform_engineering/agents/jira/build/Dockerfile.mcp'
+              - 'ai_platform_engineering/agents/jira/mcp/**'
+              - 'ai_platform_engineering/agents/jira/build/Dockerfile.mcp'
             komodor:
-              - 'ai_platform_engineering/agents/komodor/**'
-              - '!ai_platform_engineering/agents/komodor/mcp/**'
-              - '!ai_platform_engineering/agents/komodor/build/Dockerfile.mcp'
+              - 'ai_platform_engineering/agents/komodor/mcp/**'
+              - 'ai_platform_engineering/agents/komodor/build/Dockerfile.mcp'
             pagerduty:
-              - 'ai_platform_engineering/agents/pagerduty/**'
-              - '!ai_platform_engineering/agents/pagerduty/mcp/**'
-              - '!ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp'
+              - 'ai_platform_engineering/agents/pagerduty/mcp/**'
+              - 'ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp'
             slack:
-              - 'ai_platform_engineering/agents/slack/**'
-              - '!ai_platform_engineering/agents/slack/mcp/**'
-              - '!ai_platform_engineering/agents/slack/build/Dockerfile.mcp'
+              - 'ai_platform_engineering/agents/slack/mcp/**'
+              - 'ai_platform_engineering/agents/slack/build/Dockerfile.mcp'
             splunk:
-              - 'ai_platform_engineering/agents/splunk/**'
-              - '!ai_platform_engineering/agents/splunk/mcp/**'
-              - '!ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
-            template:
-              - 'ai_platform_engineering/agents/template/**'
-              - '!ai_platform_engineering/agents/template/mcp/**'
-              - '!ai_platform_engineering/agents/template/build/Dockerfile.mcp'
-            webex:
-              - 'ai_platform_engineering/agents/webex/**'
-              - '!ai_platform_engineering/agents/webex/mcp/**'
-              - '!ai_platform_engineering/agents/webex/build/Dockerfile.mcp'
-            weather:
-              - 'ai_platform_engineering/agents/weather/**'
-              - '!ai_platform_engineering/agents/weather/mcp/**'
-              - '!ai_platform_engineering/agents/weather/build/Dockerfile.mcp'
+              - 'ai_platform_engineering/agents/splunk/mcp/**'
+              - 'ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
             litellm:
-              - 'ai_platform_engineering/agents/litellm/**'
-              - '!ai_platform_engineering/agents/litellm/mcp/**'
-              - '!ai_platform_engineering/agents/litellm/build/Dockerfile.mcp'
-
-      - name: Set matrix based on changes
+              - 'ai_platform_engineering/agents/litellm/mcp/**'
+              - 'ai_platform_engineering/agents/litellm/build/Dockerfile.mcp'
+      - name: Set matrix based on changes (MCP)
         id: set-matrix
         uses: actions/github-script@v8
         env:
-          BUILD_ALL: ${{ steps.filter.outputs.shared == 'true' }}
+          BUILD_ALL: 'false'
           CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
-          CHANGED_AWS: ${{ steps.filter.outputs.aws }}
           CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
           CHANGED_CONFLUENCE: ${{ steps.filter.outputs.confluence }}
-          CHANGED_GITHUB: ${{ steps.filter.outputs.github }}
           CHANGED_JIRA: ${{ steps.filter.outputs.jira }}
           CHANGED_KOMODOR: ${{ steps.filter.outputs.komodor }}
           CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
           CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
           CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
-          CHANGED_TEMPLATE: ${{ steps.filter.outputs.template }}
-          CHANGED_WEBEX: ${{ steps.filter.outputs.webex }}
-          CHANGED_WEATHER: ${{ steps.filter.outputs.weather }}
           CHANGED_LITELLM: ${{ steps.filter.outputs.litellm }}
         with:
           script: |
             const allAgents = [
-              'argocd','aws','backstage','confluence','github','jira','komodor','pagerduty','slack','splunk','template','webex','weather','litellm'
+              'argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk','litellm'
             ];
             const buildAll = process.env.BUILD_ALL === 'true';
             let selected;
@@ -141,10 +102,9 @@ jobs:
         agent: ${{ fromJson(needs.determine-agents.outputs.agents) }}
       fail-fast: false
 
-
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/prebuild/agent-${{ matrix.agent }}
+      IMAGE_NAME: cnoe-io/prebuild/mcp-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -191,11 +151,11 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Build and Push A2A Docker image
+      - name: Build and Push MCP Docker image
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.AGENT_DIR }}
-          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
+          file: ${{ env.AGENT_DIR }}/build/Dockerfile.mcp
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -241,11 +201,11 @@ jobs:
       packages: write
     strategy:
       matrix:
-        agent: ['argocd','aws','backstage','confluence','github','jira','komodor','pagerduty','slack','splunk','template','webex','weather','litellm']
+        agent: ['argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk']
       fail-fast: false
     env:
       OWNER: ${{ github.repository_owner }}
-      PACKAGE_NAME: prebuild/agent-${{ matrix.agent }}
+      PACKAGE_NAME: prebuild/mcp-${{ matrix.agent }}
     steps:
       - name: Delete prebuild images for branch
         uses: actions/github-script@v8

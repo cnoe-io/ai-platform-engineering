@@ -1,4 +1,5 @@
-name: Supervisor Agent Docker Build and Push
+name: "[CI][Supervisor] Supervisor Agent Docker Build and Push"
+description: "Build and push Supervisor Agent Docker image"
 
 on:
   push:

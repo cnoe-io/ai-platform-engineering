@@ -1,5 +1,6 @@
 ---
-name: Unit Tests
+name: "[Tests] Unit Tests"
+description: "Run unit tests"
 
 # This workflow runs three independent test suites:
 # 1. run-tests: General project tests (excludes RAG and ArgoCD MCP tests)

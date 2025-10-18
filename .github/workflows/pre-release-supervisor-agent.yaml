@@ -1,4 +1,5 @@
-name: Pre-Release Supervisor Agent Docker Build and Push
+name: "[Pre-Release][Supervisor] Supervisor Agent Docker Build and Push"
+description: "Build and push Supervisor Agent Docker image"
 
 on:
   pull_request:
