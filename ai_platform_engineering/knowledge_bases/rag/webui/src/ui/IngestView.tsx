@@ -9,6 +9,9 @@ export default function IngestView() {
 	const [url, setUrl] = useState('')
 	const [chunkSize, setChunkSize] = useState(10000)
 	const [chunkOverlap, setChunkOverlap] = useState(2000)
+	const [checkForSiteMap, setCheckForSiteMap] = useState(true)
+	const [sitemapMaxUrls, setSitemapMaxUrls] = useState(2000)
+	const [description, setDescription] = useState('')
 
 	// DataSources state
 	const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
@@ -145,8 +148,6 @@ export default function IngestView() {
 		})
 	}
 
-
-
 	const handleIngest = async () => {
 		if (!url) return
 		
@@ -155,9 +156,15 @@ export default function IngestView() {
 				url,
 				default_chunk_size: chunkSize,
 				default_chunk_overlap: chunkOverlap,
+				check_for_site_map: checkForSiteMap,
+				sitemap_max_urls: sitemapMaxUrls,
+				description: description,
 			})
 			const { job_id } = response.data
 			fetchDataSources(job_id)
+			// Clear the form after successful ingestion
+			setUrl('')
+			setDescription('')
 		} catch (error: any) {
 			console.error('Error ingesting data:', error)
 			alert(`❌ Ingestion failed: ${error?.response?.data?.detail || error?.message || 'unknown error'}`)
@@ -177,13 +184,36 @@ export default function IngestView() {
 
 	const handleDeleteGraphConnector = async (connectorId: string) => {
 		try {
-			await api.delete(`/v1/graph/connector/${connectorId}`)
+			await api.delete(`/v1/graph/connector/delete?connector_id=${connectorId}`)
 			fetchGraphConnectors() // Refresh the list
 		} catch (error: any) {
 			console.error('Error deleting graph connector:', error)
 			alert(`Failed to delete graph connector: ${error?.message || 'unknown error'}`)
 		}
 		setShowDeleteConnectorConfirm(null)
+	}
+
+	const handleReloadDataSource = async (datasourceId: string) => {
+		try {
+			const response = await api.post(`/v1/datasource/reload?datasource_id=${datasourceId}`)
+			const { job_id } = response.data
+			fetchDataSources(job_id)
+			alert('🔄 Datasource submitted for reloading...')
+		} catch (error: any) {
+			console.error('Error reloading data source:', error)
+			alert(`❌ Reload failed: ${error?.response?.data?.detail || error?.message || 'unknown error'}`)
+		}
+	}
+
+	const handleTerminateJob = async (jobId: string) => {
+		try {
+			await api.post(`/v1/job/${jobId}/terminate`)
+			pollDataSourceJob(jobId) // Immediately check the job status
+			alert('⏹️ Job termination requested...')
+		} catch (error: any) {
+			console.error('Error terminating job:', error)
+			alert(`❌ Termination failed: ${error?.response?.data?.detail || error?.message || 'unknown error'}`)
+		}
 	}
 
 	return (
@@ -209,11 +239,34 @@ export default function IngestView() {
 							Ingest
 						</button>
 					</div>
+					<div className="mt-2 ml-2">
+						<label className="flex items-center gap-2">
+							<input
+								type="checkbox"
+								checked={checkForSiteMap}
+								onChange={(e) => setCheckForSiteMap(e.target.checked)}
+								className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+							/>
+							<span className="text-sm text-slate-600">Check for sitemap</span>
+						</label>
+					</div>
 				</div>
 
 				{/* Optional Configuration */}
 				<details className="mb-4 rounded-lg bg-slate-50 p-4">
 					<summary className="cursor-pointer text-sm font-semibold text-slate-700">Optional Configuration</summary>
+					<div className="md:col-span-2">
+							<label className="block text-sm font-medium text-slate-600 mb-1">
+								Description
+							</label>
+							<textarea
+								placeholder="A short description, this may help agents to glance at what this source is about"
+								value={description}
+								onChange={(e) => setDescription(e.target.value)}
+								className="input bg-gray-50 text-gray-600 resize-none"
+								rows={2}
+							/>
+					</div>
 					<div className="grid gap-4 md:grid-cols-2 mt-3">
 						<div>
 							<label className="block text-sm font-medium text-slate-600 mb-1">
@@ -243,6 +296,25 @@ export default function IngestView() {
 								className="input bg-gray-50 text-gray-600"
 							/>
 						</div>
+						{checkForSiteMap && (
+							<div>
+								<label className="block text-sm font-medium text-slate-600 mb-1">
+									Sitemap Max URLs
+								</label>
+								<input
+									type="number"
+									min={0}
+									placeholder="2000"
+									value={sitemapMaxUrls}
+									onChange={(e) => setSitemapMaxUrls(Number(e.target.value))}
+									className="input bg-gray-50 text-gray-600"
+								/>
+								<p className="mt-1 text-xs text-slate-500">
+									Maximum number of URLs to fetch from sitemap (0 = no limit)
+								</p>
+							</div>
+						)}
+						
 					</div>
 					<p className="mt-2 text-xs text-slate-500">
 						Custom values will be saved for this source URL.
@@ -278,19 +350,44 @@ export default function IngestView() {
 								{dataSources.filter(ds => ds.source_type !== 'graph_connector').map(ds => {
 									const isExpanded = expandedRows.has(ds.datasource_id)
 									const job = ds.job_id ? dataSourceJobs[ds.job_id] : null
-									const isIngesting = job && job.status !== 'completed' && job.status !== 'failed'
-									const progress = job && job.total > 0 ? (job.completed_counter / job.total) * 100 : 0
+									const jobFetched = !ds.job_id || job // No job ID means no job, or job has been fetched
+									const isIngesting = job && job.status !== 'completed' && job.status !== 'completed_with_errors' && job.status !== 'failed' && job.status !== 'terminated'
+									const progress = job && job.total > 0 ? (job.processed_counter / job.total) * 100 : 0
 
 									return (
 										<React.Fragment key={ds.datasource_id}>
-											<tr className="bg-white border-b hover:bg-slate-50 cursor-pointer" onClick={() => toggleRow(ds.datasource_id)}>
-												<td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap" title={ds.datasource_id}>
+											<tr className="bg-white border-b hover:bg-slate-100 cursor-pointer" onClick={() => toggleRow(ds.datasource_id)}>
+												<td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap flex items-center gap-2" title={ds.datasource_id}>
+													<span className="text-slate-400 font-mono text-sm select-none">
+														{isExpanded ? '−' : '+'}
+													</span>
 													{ds.path}
 												</td>
 												<td className="px-4 py-3">{isIngesting ? '⏳' : ds.total_documents}</td>
 												<td className="px-4 py-3">{new Date(ds.last_updated).toLocaleString()}</td>
 												<td className="px-4 py-3">
-													<button onClick={(e) => { e.stopPropagation(); setShowDeleteDataSourceConfirm(ds.datasource_id); }} className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs">Delete</button>
+													{jobFetched ? (
+														<div className="flex gap-2">
+															<button 
+																onClick={(e) => { e.stopPropagation(); handleReloadDataSource(ds.datasource_id); }} 
+																className="bg-orange-500 hover:bg-orange-700 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+																disabled={isIngesting || false}
+															>
+																Reload
+															</button>
+															<button 
+																onClick={(e) => { e.stopPropagation(); setShowDeleteDataSourceConfirm(ds.datasource_id); }} 
+																className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+																disabled={isIngesting || false}
+															>
+																Delete
+															</button>
+														</div>
+													) : (
+														<div className="flex gap-2">
+															<span className="text-xs text-slate-400">Loading...</span>
+														</div>
+													)}
 												</td>
 											</tr>
 											{isExpanded && (
@@ -305,7 +402,7 @@ export default function IngestView() {
 															<div><strong>Job ID:</strong> {ds.job_id}</div>
 															{job && (
 																<>
-																	<div><strong>Documents Processed:</strong> {job.completed_counter}</div>
+																	<div><strong>Documents Processed:</strong> {job.processed_counter}</div>
 																	<div><strong>Documents Failed:</strong> {job.failed_counter}</div>
 																</>
 															)}
@@ -321,18 +418,49 @@ export default function IngestView() {
 																				<div className="bg-blue-500 h-2 rounded-full" style={{ width: `${progress}%` }}></div>
 																			</div>
 																			<span className="text-xs font-medium text-slate-600">{Math.round(progress)}%</span>
+																			<button
+																				onClick={(e) => { e.stopPropagation(); handleTerminateJob(job.job_id); }}
+																				className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs"
+																				title="Stop this job"
+																			>
+																				Stop
+																			</button>
 																		</div>
-																		<p className="text-xs text-slate-600">{job.message} ({job.completed_counter}/{job.total})</p>
+																		<p className="text-xs text-slate-600">{job.message} ({job.processed_counter}/{job.total})</p>
 																	</div>
 																) : (
-																	<p className={`text-xs ${job.status === 'failed' ? 'text-red-600' : 'text-green-600'}`}>
-																		{job.status === 'failed' ? `Failed - ${job.error}` : 'Completed'}
+																	<p className={`text-xs ${
+																		job.status === 'failed' ? 'text-red-600' : 
+																		job.status === 'terminated' ? 'text-red-600' :
+																		job.status === 'completed_with_errors' ? 'text-orange-600' : 
+																		'text-green-600'
+																	}`}>
+																		{job.status === 'failed' ? `Failed${job.message ? ` - ${job.message}` : ''}` :
+																		 job.status === 'completed_with_errors' ? `Completed with errors${job.message ? ` - ${job.message}` : ''}` :
+																		 job.status === 'terminated' ? `Terminated${job.message ? ` - ${job.message}` : ''}` :
+																		 'Completed'}
 																	</p>
 																)
 															) : (
 																<p className="text-xs text-slate-500">Pending</p>
 															)}
 														</div>
+														{job && job.errors && job.errors.length > 0 && (
+															<div className="mt-4">
+																<details className="rounded-lg bg-red-50 p-3">
+																	<summary className="cursor-pointer text-sm font-semibold text-red-700 hover:text-red-800">
+																		Errors ({job.errors.length})
+																	</summary>
+																	<div className="mt-2 space-y-1">
+																		{job.errors.map((error: string, index: number) => (
+																			<div key={index} className="text-xs text-red-600 bg-red-100 p-2 rounded border-l-2 border-red-300">
+																				{error}
+																			</div>
+																		))}
+																	</div>
+																</details>
+															</div>
+														)}
 													</td>
 												</tr>
 											)}
@@ -349,8 +477,8 @@ export default function IngestView() {
 
 
 			{/* Graph Connectors Section */}
-			{graphConnectors.length > 0 ? (
-				<section className="card mb-6 p-5">
+			<section className="card mb-6 p-5">
+				{graphConnectors.length > 0 || loadingGraphConnectors ? (
 					<details className="group">
 						<summary className="cursor-pointer text-base font-semibold text-slate-900 hover:text-slate-700 flex items-center justify-between">
 							<span>Graph Connectors ({graphConnectors.length})</span>
@@ -364,7 +492,7 @@ export default function IngestView() {
 							</div>
 							{loadingGraphConnectors ? (
 								<p className="text-slate-500 text-xs">Loading graph connectors...</p>
-							) : (
+							) : graphConnectors.length > 0 ? (
 								<div className="overflow-x-auto max-h-96 overflow-y-auto">
 									<table className="min-w-full text-xs text-left text-slate-500">
 										<thead className="text-xs text-slate-600 uppercase bg-slate-25">
@@ -380,9 +508,12 @@ export default function IngestView() {
 
 												return (
 													<React.Fragment key={connector.connector_id}>
-														<tr className="bg-white border-b hover:bg-slate-25 cursor-pointer text-xs" onClick={() => toggleGraphConnector(connector.connector_id)}>
-															<td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap" title={connector.connector_id}>
-																{connector.name}
+														<tr className="bg-white border-b hover:bg-slate-100 cursor-pointer text-xs" onClick={() => toggleGraphConnector(connector.connector_id)}>
+															<td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap flex items-center gap-2" title={connector.connector_id}>
+																<span className="text-slate-400 font-mono text-sm select-none">
+																	{isExpanded ? '−' : '+'}
+																</span>
+																🔌 {connector.name}
 															</td>
 															<td className="px-3 py-2">{connector.last_seen ? new Date(connector.last_seen).toLocaleString() : 'Never'}</td>
 															<td className="px-3 py-2">
@@ -390,7 +521,7 @@ export default function IngestView() {
 															</td>
 														</tr>
 														{isExpanded && (
-															<tr className="bg-slate-25">
+															<tr className="bg-slate-50">
 																<td colSpan={3} className="p-3">
 																	<div className="grid grid-cols-2 gap-3 text-xs">
 																		<div><strong>ID:</strong> <span className="font-mono text-xs">{connector.connector_id}</span></div>
@@ -407,21 +538,23 @@ export default function IngestView() {
 										</tbody>
 									</table>
 								</div>
+							) : (
+								<p className="text-slate-500 text-xs">No graph connectors found.</p>
 							)}
 						</div>
 					</details>
-				</section>
-			) : !loadingGraphConnectors && (
-				<section className="card mb-6 p-5">
-					<div className="flex items-center justify-between mb-3">
-						<h3 className="text-base font-semibold text-slate-900">Graph Connectors</h3>
-						<button onClick={() => fetchGraphConnectors()} disabled={loadingGraphConnectors} className="btn-secondary">
-							{loadingGraphConnectors ? 'Refreshing...' : 'Refresh'}
-						</button>
+				) : (
+					<div>
+						<div className="flex items-center justify-between mb-3">
+							<h3 className="text-base font-semibold text-slate-900">Graph Connectors</h3>
+							<button onClick={() => fetchGraphConnectors()} disabled={loadingGraphConnectors} className="btn-secondary">
+								{loadingGraphConnectors ? 'Refreshing...' : 'Refresh'}
+							</button>
+						</div>
+						<p className="text-slate-500">No graph connectors found. You can import graph entities using connectors.</p>
 					</div>
-					<p className="text-slate-500">No graph connectors found. You can import graph entities using connectors.</p>
-				</section>
-			)}
+				)}
+			</section>
 
 			{/* Delete Data Source Confirmation Dialog */}
 			{showDeleteDataSourceConfirm && (

@@ -42,6 +42,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "redis>=5.0.0",
     "uvicorn>=0.35.0",
+    "fastmcp>=2.12.4",
     "common",
 ]
 

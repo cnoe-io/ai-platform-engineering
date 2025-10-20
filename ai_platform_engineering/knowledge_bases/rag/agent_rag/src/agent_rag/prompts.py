@@ -28,7 +28,9 @@ You have access to:
 2. Once the entity_types and its properties are established, and the query does not ask for specific entities or relations, use `raw_query` directly.
 3. If query has multiple entity types, Use the `get_relation_path_between_entity_types` tool to find both direct AND indirect relations between the entity types.
 4. If `get_relation_path_between_entity_types` returns no/empty relations, check if the ontology is generated using `check_if_ontology_generated` tool. If not, inform the user that the graph ontology is not yet generated, and try your best to answer using only the vector database.
-5. Use `raw_query` and `fetch_entity_details` to traverse the graph with information from the previous steps.
+5. Reason about the relation paths, argue whether its heirarchical, or hub/spoke, or simple DAG. 
+   a. Be careful when inferring indirect relations. Especially when going against the direction of the relation. Notify the user if the relation is indirect.
+6. Use `raw_query` and `fetch_entity_details` to traverse the graph with information from the previous steps.
 
 ## Important Notes when using `raw_query` tool:
 a. ALWAYS ensure property and relation names exist using `get_entity_properties` and `get_relation_path_between_entity_types` tool. Be carefuly especially with `name` property, as the server may not raise warnings if it doesnt exist.

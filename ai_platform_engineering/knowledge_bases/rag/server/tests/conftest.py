@@ -4,6 +4,7 @@ Test configuration and fixtures for RAG server tests.
 import os
 from common.graph_db.neo4j.graph_db import GraphDB
 from common.job_manager import JobManager
+from server.query_service import VectorDBQueryService
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
@@ -21,6 +22,8 @@ os.environ.setdefault("AZURE_OPENAI_API_KEY", "mock-test-key")
 os.environ.setdefault("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com/")
 os.environ.setdefault("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
 os.environ.setdefault("EMBEDDINGS_MODEL", "text-embedding-3-large")
+os.environ.setdefault("SKIP_INIT_TESTS", "true")  # Skip connection tests in testing
+os.environ.setdefault("ENABLE_MCP", "false")  # Disable MCP
 
 from server.loader.loader import Loader
 from server.metadata_storage import MetadataStorage
@@ -76,6 +79,10 @@ def mock_metadata_storage(mock_redis):
     mock_metadata_storage = MagicMock(spec=MetadataStorage, redis_client=mock_redis)
     return mock_metadata_storage
 
+@pytest.fixture
+def mock_query_service(mock_vector_db):
+    """Mock query service for testing."""
+    return VectorDBQueryService(vector_db=mock_vector_db)
 
 @pytest.fixture
 def mock_loader(mock_vector_db, mock_metadata_storage, mock_job_manager):
@@ -103,18 +110,21 @@ def mock_loader(mock_vector_db, mock_metadata_storage, mock_job_manager):
 
 
 @pytest.fixture
-def test_client(mock_metadata_storage, mock_job_manager, mock_vector_db, mock_graph_db):
+def test_client(mock_metadata_storage, mock_job_manager, mock_vector_db, mock_graph_db, mock_query_service):
     """Test client for FastAPI app."""
     with ExitStack() as stack:
-        stack.enter_context(patch('server.restapi.metadata_storage', mock_metadata_storage))
-        stack.enter_context(patch('server.restapi.jobmanager', mock_job_manager))
-        stack.enter_context(patch('server.restapi.vector_db_docs', mock_vector_db))
-        stack.enter_context(patch('server.restapi.vector_db_graph', mock_vector_db))
-        stack.enter_context(patch('server.restapi.data_graph_db', mock_graph_db))
-        stack.enter_context(patch('server.restapi.ontology_graph_db', mock_graph_db))
-        # The mock_loader fixture already patches the Loader class
-        stack.enter_context(patch('server.restapi.setup', AsyncMock()))
-
+        # Mock external dependencies to prevent actual connections during lifespan
+        stack.enter_context(patch('langchain_milvus.Milvus', return_value=mock_vector_db))
+        stack.enter_context(patch('server.restapi.Neo4jDB', return_value=mock_graph_db))
+        stack.enter_context(patch('server.restapi.JobManager', return_value=mock_job_manager))
+        stack.enter_context(patch('server.restapi.MetadataStorage', return_value=mock_metadata_storage))
+        stack.enter_context(patch('server.restapi.VectorDBQueryService', return_value=mock_query_service))
+        stack.enter_context(patch('redis.from_url', return_value=mock_metadata_storage.redis_client))
+        stack.enter_context(patch('langchain_openai.AzureOpenAIEmbeddings', return_value=MagicMock()))
+        
+        # Mock MCP components
+        stack.enter_context(patch('server.restapi.FastMCP', return_value=MagicMock()))
+        
         from server.restapi import app
         with TestClient(app) as client:
             yield client

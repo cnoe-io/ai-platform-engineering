@@ -8,20 +8,20 @@ export type QueryResult = {
 
 export type QueryResponse = {
 	query: string
-	results_docs: Array<QueryResult>
-	results_graph: Array<QueryResult>
+	results: Array<QueryResult>
 }
 
 export type IngestionJob = {
 	job_id: string
-	status: 'pending' | 'in_progress' | 'completed' | 'failed'
+	status: 'pending' | 'in_progress' | 'completed' | 'completed_with_errors' | 'failed' | 'terminated'
 	message: string
-	completed_counter: number
+	processed_counter: number
 	failed_counter: number
 	total: number
 	created_at: string
 	completed_at?: string
 	error?: string
+	errors?: string[]
 }
 
 export type DataSourceInfo = {

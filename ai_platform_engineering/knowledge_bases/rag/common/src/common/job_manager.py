@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 import redis.asyncio as redis
 import redis.exceptions as redis_exceptions
 from common.utils import get_logger
@@ -13,18 +13,20 @@ class JobStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+    COMPLETED_WITH_ERRORS = "completed_with_errors"
+    TERMINATED = "terminated"
     FAILED = "failed"
 
 class JobInfo(BaseModel):
     job_id: str = Field(description="Job ID")
     status: JobStatus = Field(description="Job status")
     message: Optional[str] = Field(description="Current message")
-    completed_counter: Optional[int] = Field(description="Completed counter")
+    processed_counter: Optional[int] = Field(description="Processed counter")
     failed_counter: Optional[int] = Field(description="Failed counter")
-    total: Optional[int] = Field(description="Total counter should be completed_counter + failed_counter")
     created_at: datetime.datetime = Field(description="Created at")
     completed_at: Optional[datetime.datetime] = Field(description="Completed at")
-    error: Optional[str] = Field(description="Error message")
+    total: Optional[int] = Field(description="Total items to process")
+    errors: Optional[List[str]] = Field(description="Error messages if any")
 
 class JobManager:
     """Manages job status updates in Redis with locking to prevent race conditions."""
@@ -53,6 +55,13 @@ class JobManager:
         if not job_data:
             return None
         return JobInfo.model_validate_json(job_data)
+    
+    async def is_job_terminated(self, job_id: str) -> bool:
+        """Checks if a job is in a terminated state."""
+        job_info = await self.get_job(job_id)
+        if not job_info:
+            return False
+        return job_info.status == JobStatus.TERMINATED
 
     async def update_job(
         self,
@@ -60,12 +69,12 @@ class JobManager:
         *,
         status: Optional[JobStatus] = None,
         message: Optional[str] = None,
-        completed_counter: Optional[int] = None,
-        completed_increment: Optional[int] = None,
+        processed_counter: Optional[int] = None,
+        processed_increment: Optional[int] = None,
         failed_counter: Optional[int] = None,
         failed_increment: Optional[int] = None,
         total: Optional[int] = None,
-        error: Optional[str] = None,
+        errors: Optional[List[str]] = None,
     ) -> bool:
         """
         Atomically updates a job's information in Redis.
@@ -77,12 +86,11 @@ class JobManager:
         :param job_id: The ID of the job to update.
         :param status: The new status of the job.
         :param message: The new message for the job.
-        :param completed_counter: The counter for the job.
-        :param completed_increment: The increment for the counter. If provided, the counter is incremented by this value.
-        :param failed_counter: The counter for the job.
-        :param failed_increment: The increment for the counter. If provided, the counter is incremented by this value.
-        :param total: The total for the job.
-        :param error: An error message if the job failed.
+        :param processed_counter: The processed counter for the job (absolute value).
+        :param processed_increment: The increment for the counter. If provided, the processed_counter is incremented by this value.
+        :param failed_counter: The failed counter for the job (absolute value).
+        :param failed_increment: The increment for the counter. If provided, the failed_counter is incremented by this value.
+        :param errors: A list of error messages if the job failed.
         :return: True if the update was successful, False otherwise.
         """
         lock_key = self._get_lock_key(job_id)
@@ -94,14 +102,12 @@ class JobManager:
             updates["status"] = status
         if message is not None:
             updates["message"] = message
-        if completed_counter is not None:
-            updates["completed_counter"] = completed_counter
+        if processed_counter is not None:
+            updates["processed_counter"] = processed_counter
         if failed_counter is not None:
             updates["failed_counter"] = failed_counter
         if total is not None:
             updates["total"] = total
-        if error is not None:
-            updates["error"] = error
 
         if status is not None and (status == JobStatus.COMPLETED or status == JobStatus.FAILED):
             updates["completed_at"] = datetime.datetime.now()
@@ -115,36 +121,44 @@ class JobManager:
                 # Acquire a lock with a timeout to prevent deadlocks
                 async with self.redis_client.lock(lock_key, timeout=10, blocking_timeout=5):
                     job_data = await self.redis_client.get(job_key)
+                    
+                    # Job does not exist
                     if not job_data:
                         logger.warning(f"Job {job_id} not found in Redis. Creating new job.")
+                        
                         job_info = JobInfo(
                             job_id=job_id,
                             status=JobStatus.PENDING,
                             created_at=datetime.datetime.now(datetime.timezone.utc),
                             completed_at=None,
-                            error=None,
-                            completed_counter=0,
+                            errors=[],
+                            processed_counter=0,
                             failed_counter=0,
                             total=0,
                             message=""
                         )
                         await self.redis_client.set(job_key, job_info.model_dump_json())
-                        return False
+                    else:
+                        job_info = JobInfo.model_validate_json(job_data)
 
-                    job_info = JobInfo.model_validate_json(job_data)
-                    
                     # Apply the valid updates
                     updated_job_info = job_info.model_copy(update=updates)
 
                     # Apply the incrementors
-                    if completed_increment is not None:
-                        if updated_job_info.completed_counter is None:
-                            updated_job_info.completed_counter = 0
-                        updated_job_info.completed_counter += completed_increment
+                    if processed_increment is not None:
+                        if updated_job_info.processed_counter is None:
+                            updated_job_info.processed_counter = 0
+                        updated_job_info.processed_counter += processed_increment
                     if failed_increment is not None:
                         if updated_job_info.failed_counter is None:
                             updated_job_info.failed_counter = 0
                         updated_job_info.failed_counter += failed_increment
+
+                    # Increment errors
+                    if errors:
+                        if updated_job_info.errors is None:
+                            updated_job_info.errors = []
+                        updated_job_info.errors.extend(errors)
 
                     # Write the updated data back to Redis
                     await self.redis_client.set(job_key, updated_job_info.model_dump_json())
@@ -153,8 +167,8 @@ class JobManager:
                     return True
 
             except redis_exceptions.LockError:
-                logger.warning(f"Could not acquire lock for job {job_id}. Retrying in 1 second... (Attempt {attempt + 1}/10)")
+                logger.debug(f"Could not acquire lock for job {job_id}. Will retry in 1 second... (Attempt {attempt + 1}/30)")
                 await asyncio.sleep(1)
 
-        logger.error(f"Failed to acquire lock for job {job_id} after 10 attempts. Update skipped.")
+        logger.warning(f"Failed to acquire lock for job {job_id} after 30 attempts. Update skipped.")
         return False
