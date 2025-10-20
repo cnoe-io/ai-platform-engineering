@@ -10,16 +10,16 @@ import uuid
 class TestHealthCheck:
     """Test health check endpoint."""
 
-    def test_health_check_success(self, test_client, mock_redis):
+    def test_health_check_success(self, test_client, mock_redis, mock_vector_db, mock_metadata_storage, mock_job_manager, mock_query_service):
         """Test successful health check."""
-        mock_redis.ping.return_value = True
 
-        response = test_client.get("/healthz")
+        with patch("server.restapi.vector_db", mock_vector_db):
+            response = test_client.get("/healthz")
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "healthy"
-        assert "timestamp" in data
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "healthy"
+            assert "timestamp" in data
 
 
 class TestDatasourceEndpoints:
