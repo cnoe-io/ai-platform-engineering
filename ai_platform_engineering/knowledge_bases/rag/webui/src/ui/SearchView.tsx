@@ -9,16 +9,60 @@ interface SearchViewProps {
 }
 
 export default function SearchView({ onExploreEntity }: SearchViewProps) {
-    // Query state
+    // Query state - matching QueryRequest model
     const [query, setQuery] = useState('');
-    const [limit, setLimit] = useState(3);
-    const [similarity, setSimilarity] = useState(0.5);
+    const [limit, setLimit] = useState(5);
+    const [similarity, setSimilarity] = useState(0.3);
+    const [filters, setFilters] = useState<Record<string, string>>({});
+    const [rankerType] = useState('weighted'); // Only weighted ranker supported
+    const [semanticsWeight, setSemanticsWeight] = useState(0.7); // Slider for weights
     const [results, setResults] = useState<QueryResponse | null>(null);
     const [loadingQuery, setLoadingQuery] = useState(false);
-    const [expandedDocResults, setExpandedDocResults] = useState<Set<number>>(new Set());
-    const [expandedGraphResults, setExpandedGraphResults] = useState<Set<number>>(new Set());
+    const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set());
+    
+    // Filter configuration
+    const [validFilterKeys, setValidFilterKeys] = useState<string[]>([]);
+    const [supportedDocTypes, setSupportedDocTypes] = useState<string[]>([]);
+    const [selectedFilterKey, setSelectedFilterKey] = useState('');
+    const [filterValue, setFilterValue] = useState('');
 
     const api = useMemo(() => axios.create({ baseURL: apiBase || undefined }), []);
+
+    // Fetch valid filter keys and supported doc types on component mount
+    React.useEffect(() => {
+        const fetchFilterConfig = async () => {
+            try {
+                const response = await api.get('/healthz');
+                const filterKeys = response.data?.config?.search?.keys || [];
+                const docTypes = response.data?.config?.search?.supported_doc_types || [];
+                setValidFilterKeys(filterKeys);
+                setSupportedDocTypes(docTypes);
+            } catch (error) {
+                console.error('Failed to fetch filter configuration:', error);
+            }
+        };
+        fetchFilterConfig();
+    }, [api]);
+
+    // Filter management functions
+    const addFilter = () => {
+        if (selectedFilterKey && filterValue.trim()) {
+            setFilters(prev => ({
+                ...prev,
+                [selectedFilterKey]: filterValue.trim()
+            }));
+            setSelectedFilterKey('');
+            setFilterValue('');
+        }
+    };
+
+    const removeFilter = (key: string) => {
+        setFilters(prev => {
+            const newFilters = { ...prev };
+            delete newFilters[key];
+            return newFilters;
+        });
+    };
 
     const handleExploreClick = (metadata: Record<string, unknown>) => {
         console.log('Explore clicked', metadata);
@@ -40,20 +84,8 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
         }
     };
 
-    const toggleDocResult = (index: number) => {
-        setExpandedDocResults(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(index)) {
-                newSet.delete(index);
-            } else {
-                newSet.add(index);
-            }
-            return newSet;
-        });
-    };
-
-    const toggleGraphResult = (index: number) => {
-        setExpandedGraphResults(prev => {
+    const toggleResult = (index: number) => {
+        setExpandedResults(prev => {
             const newSet = new Set(prev);
             if (newSet.has(index)) {
                 newSet.delete(index);
@@ -68,10 +100,17 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
         if (!query) return;
         setLoadingQuery(true);
         try {
+            // Calculate text search weight (complement of semantics weight)
+            const textWeight = 1 - semanticsWeight;
+            const weights = [semanticsWeight, textWeight];
+
             const { data } = await api.post<QueryResponse>('/v1/query', {
                 query,
                 limit,
                 similarity_threshold: similarity,
+                filters: Object.keys(filters).length > 0 ? filters : undefined,
+                ranker_type: rankerType,
+                ranker_params: { weights }
             });
             setResults(data);
         } catch (e: any) {
@@ -83,6 +122,25 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
 
     return (
         <div className="h-full bg-slate-100 p-6 pt-20">
+            <style>{`
+                .slider::-webkit-slider-thumb {
+                    appearance: none;
+                    height: 20px;
+                    width: 20px;
+                    border-radius: 50%;
+                    cursor: pointer;
+                    border: 2px solid white;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                }
+                .slider::-moz-range-thumb {
+                    height: 20px;
+                    width: 20px;
+                    border-radius: 50%;
+                    cursor: pointer;
+                    border: 2px solid white;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                }
+            `}</style>
             <div className="max-w-4xl mx-auto">
                 <div className="text-center mb-8">
                     <div className="text-4xl mb-4">🔍</div>
@@ -112,32 +170,130 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         </button>
                     </div>
                     
-                    {/* Search Options */}
-                    <div className="flex items-center gap-6 text-sm">
-                        <label>
-                            Similarity:
-                            <input
-                                type="number"
-                                min={0.1}
-                                max={1.0}
-                                step={0.1}
-                                value={similarity}
-                                onChange={(e) => setSimilarity(parseFloat(e.target.value))}
-                                className="ml-2 w-20 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                            />
-                        </label>
-                        <label>
-                            Limit:
-                            <input
-                                type="number"
-                                min={1}
-                                max={100}
-                                value={limit}
-                                onChange={(e) => setLimit(parseInt(e.target.value, 10))}
-                                className="ml-2 w-28 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                            />
-                        </label>
-                    </div>
+                    {/* Advanced Options */}
+                    <details className="mb-4 rounded-lg bg-slate-50 p-4">
+                        <summary className="cursor-pointer text-sm font-semibold text-slate-700">Advanced Options</summary>
+
+                        {/* Search Options */}
+                        <div className="space-y-4 text-sm">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <label>
+                                    Similarity Threshold:
+                                    <input
+                                        type="number"
+                                        min={0.0}
+                                        max={1.0}
+                                        step={0.1}
+                                        value={similarity}
+                                        onChange={(e) => setSimilarity(parseFloat(e.target.value))}
+                                        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                                    />
+                                </label>
+                                <label>
+                                    Result Limit:
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={100}
+                                        value={limit}
+                                        onChange={(e) => setLimit(parseInt(e.target.value, 10))}
+                                        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                                    />
+                                </label>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Search Weight Balance</label>
+                                <div className="relative">
+                                    <div className="flex bg-gray-200 rounded-full h-5 overflow-hidden">
+                                        <div 
+                                            className="bg-brand-600 flex items-center justify-center text-xs text-white font-medium transition-all duration-15"
+                                            style={{ width: `${semanticsWeight * 100}%` }}
+                                        >
+                                            {semanticsWeight > 0.15 && `Semantic (${(semanticsWeight * 100).toFixed(0)}%)`}
+                                        </div>
+                                        <div 
+                                            className="flex items-center justify-center text-xs text-white font-medium transition-all duration-15"
+                                            style={{ width: `${(1 - semanticsWeight) * 100}%`, backgroundColor: '#00C799' }}
+                                        >
+                                            {(1 - semanticsWeight) > 0.15 && `Keyword (${((1 - semanticsWeight) * 100).toFixed(0)}%)`}
+                                        </div>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={1}
+                                        step={0.05}
+                                        value={semanticsWeight}
+                                        onChange={(e) => setSemanticsWeight(parseFloat(e.target.value))}
+                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                    />
+                                </div>
+                                <span className="text-xs text-gray-500 italic mt-1 block">(Slide to change)</span>
+                            </div>
+                        </div>
+                         {/* Filters Section */}
+                        <div className="mt-4 mb-4 p-4 border border-gray-200 rounded-md bg-gray-50">
+                            <h4 className="text-sm font-semibold mb-3">Filters</h4>
+                            
+                            {/* Add Filter Controls */}
+                            <div className="flex gap-2 mb-3">
+                                <select
+                                    value={selectedFilterKey}
+                                    onChange={(e) => setSelectedFilterKey(e.target.value)}
+                                    className="rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                                >
+                                    <option value="">Select filter key...</option>
+                                    {validFilterKeys.map(key => (
+                                        <option key={key} value={key}>{key}</option>
+                                    ))}
+                                </select>
+                                <input
+                                    type="text"
+                                    placeholder="Filter value"
+                                    value={filterValue}
+                                    onChange={(e) => setFilterValue(e.target.value)}
+                                    className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                                    onKeyDown={(e) => e.key === 'Enter' && addFilter()}
+                                />
+                                <button
+                                    onClick={addFilter}
+                                    disabled={!selectedFilterKey || !filterValue.trim()}
+                                    className="px-3 py-1 bg-brand-600 text-white rounded-md text-sm hover:bg-brand-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                >
+                                    Add
+                                </button>
+                            </div>
+                            
+                            {/* Hint for doc_type filter */}
+                            {selectedFilterKey === 'doc_type' && supportedDocTypes.length > 0 && (
+                                <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                                    <p className="text-xs text-blue-700">
+                                        <strong>Hint:</strong> Supported values: {supportedDocTypes.join(', ')}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Active Filters */}
+                            {Object.keys(filters).length > 0 && (
+                                <div className="flex flex-wrap gap-2">
+                                    {Object.entries(filters).map(([key, value]) => (
+                                        <span
+                                            key={key}
+                                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs"
+                                        >
+                                            {key}: {value}
+                                            <button
+                                                onClick={() => removeFilter(key)}
+                                                className="text-blue-600 hover:text-blue-800"
+                                            >
+                                                ×
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </details>
                 </div>
                 
                 {/* Results Section */}
@@ -153,21 +309,56 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         <div>
                             <div className="mb-3 text-sm text-slate-600">Query: {results.query}</div>
                             <ul className="grid list-none gap-3 p-0 mr-2 max-w-full">
-
-                            {/* Document Results (white tinted) */}
-                            {results.results_docs.map((r, i) => {
-                                const isExpanded = expandedDocResults.has(i);
+                            {results.results.map((r, i) => {
+                                const isExpanded = expandedResults.has(i);
                                 const pageContent = String(r.document.page_content || '');
                                 const summary = pageContent.replace(/\n/g, ' ').substring(0, 150);
+                                const docType = r.document.metadata?.doc_type as string;
+                                const isGraphEntity = docType === 'graph_entity';
+                                
+                                // For graph entities, extract entity info
+                                const entityType = r.document.metadata?.graph_entity_type as string || 'Unknown';
+                                const primaryKey = r.document.metadata?.graph_entity_primary_key as string || 'Unknown';
 
                                 return (
-                                    <li key={i} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm cursor-pointer mr-2 max-w-full overflow-hidden" onClick={() => toggleDocResult(i)}>
+                                    <li 
+                                        key={i} 
+                                        className={`rounded-lg p-3 shadow-sm cursor-pointer mr-2 max-w-full overflow-hidden ${
+                                            isGraphEntity 
+                                                ? 'border border-blue-200 bg-blue-50' 
+                                                : 'border border-slate-200 bg-white'
+                                        }`}
+                                        onClick={() => toggleResult(i)}
+                                    >
                                         {isExpanded ? (
                                             <pre className="m-0 whitespace-pre-wrap text-sm leading-relaxed break-words">{pageContent}</pre>
                                         ) : (
                                             <div className="flex items-center gap-2 min-w-0">
-                                                <p className="m-0 flex-1 truncate text-sm leading-relaxed min-w-0">{summary}...</p>
-                                                <span className="text-xs font-mono text-slate-500 flex-shrink-0">{r.score.toFixed(3)}</span>
+                                                {isGraphEntity ? (
+                                                    <p className="m-0 flex-1 truncate text-sm leading-relaxed min-w-0">
+                                                        🔌 <strong>{entityType}</strong>: {primaryKey}
+                                                    </p>
+                                                ) : (
+                                                    <p className="m-0 flex-1 truncate text-sm leading-relaxed min-w-0">{summary}...</p>
+                                                )}
+                                                <div className="flex items-center gap-2 flex-shrink-0">
+                                                    <span className={`text-xs font-mono flex-shrink-0 ${
+                                                        isGraphEntity ? 'text-blue-500' : 'text-slate-500'
+                                                    }`}>
+                                                        {r.score.toFixed(3)}
+                                                    </span>
+                                                    {isGraphEntity && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleExploreClick(r.document.metadata!)
+                                                            }}
+                                                            className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 transition-colors"
+                                                        >
+                                                            Explore
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         )}
                                         {isExpanded && r.document.metadata && (
@@ -175,47 +366,6 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                                 <summary className="cursor-pointer select-none text-sm text-slate-700">Metadata</summary>
                                                 <pre className="whitespace-pre-wrap text-xs text-slate-600">{JSON.stringify(r.document.metadata, null, 2)}</pre>
                                             </details>
-                                        )}
-                                    </li>
-                                );
-                            })}
-
-                            {/* Graph Entity Results (blue tinted) */}
-                            {results.results_graph.map((r, i) => {
-                                const isExpanded = expandedGraphResults.has(i);
-                                const pageContent = String(r.document.page_content || '');
-                                const entityType = r.document.metadata?.entity_type as string || 'Unknown';
-                                const primaryKey = r.document.metadata?.entity_primary_key as string || 'Unknown';
-
-                                return (
-                                    <li key={i} className="rounded-lg border border-blue-200 bg-blue-50 p-3 shadow-sm cursor-pointer mr-2 max-w-full overflow-hidden" onClick={() => toggleGraphResult(i)}>
-                                        {isExpanded ? (
-                                            <pre className="m-0 whitespace-pre-wrap text-sm leading-relaxed break-words">{pageContent}</pre>
-                                        ) : (
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <p className="m-0 flex-1 truncate text-sm leading-relaxed min-w-0">
-                                                    🔌 <strong>{entityType}</strong>: {primaryKey}
-                                                </p>
-                                                <div className="flex items-center gap-2 flex-shrink-0">
-                                                    <span className="text-xs font-mono text-blue-500">{r.score.toFixed(3)}</span>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleExploreClick(r.document.metadata!)
-                                                        }}
-                                                        className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 transition-colors">
-                                                        Explore
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-                                        {isExpanded && r.document.metadata && (
-                                            <div className="flex justify-between items-start mt-2">
-                                            <details className="flex-grow" onClick={(e) => e.stopPropagation()}>
-                                                <summary className="cursor-pointer select-none text-sm text-slate-700">Metadata</summary>
-                                                <pre className="whitespace-pre-wrap text-xs text-slate-600">{JSON.stringify(r.document.metadata, null, 2)}</pre>
-                                            </details>
-                                        </div>
                                         )}
                                     </li>
                                 );

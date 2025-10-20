@@ -43,7 +43,9 @@ class TestLoader:
         """Mock DataSourceInfo for testing."""
         return DataSourceInfo(
             datasource_id=f"ds_{uuid.uuid4().hex}",
-            source_type="url",
+            check_for_site_map=True,
+            sitemap_max_urls=2000,
+            source_type="web",
             path="https://example.com",
             default_chunk_size=512,
             default_chunk_overlap=50,
@@ -59,7 +61,7 @@ class TestLoader:
     @pytest.fixture
     def loader(self, mock_vector_db, mock_metadata_storage, mock_datasource_info, mock_job_manager):
         """Create Loader instance for testing."""
-        return Loader(mock_vector_db, mock_metadata_storage, mock_datasource_info, mock_job_manager)
+        return Loader(mock_vector_db, mock_metadata_storage, mock_datasource_info, mock_job_manager, 10)
 
     def test_loader_initialization(self, loader, mock_vector_db, mock_metadata_storage, mock_datasource_info, mock_job_manager):
         """Test Loader initialization."""
@@ -190,7 +192,7 @@ class TestLoader:
              patch.object(loader, 'get_urls_from_sitemap', return_value=page_urls), \
              patch.object(loader, 'process_url', new_callable=AsyncMock) as mock_process_url:
 
-            await loader.load_url(url, mock_datasource_info.job_id)
+            await loader.load_url(url, mock_datasource_info.job_id, check_for_site_map=True)
 
             # Verify process_url was called for each URL from the sitemap
             assert mock_process_url.call_count == len(page_urls)

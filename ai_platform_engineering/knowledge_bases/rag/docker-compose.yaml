@@ -1,4 +1,36 @@
 services:
+  caipe-p2p:
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
+    container_name: caipe-p2p
+    volumes:
+    - ../../../prompt_config.yaml:/app/prompt_config.yaml
+    - ../../../persona.yaml:/app/persona.yaml
+    env_file:
+    - ../../../.env
+    ports:
+    - 8000:8000
+    environment:
+    - A2A_TRANSPORT=p2p
+    - ENABLE_ARGOCD=false
+    - ENABLE_AWS=false
+    - ENABLE_BACKSTAGE=false
+    - ENABLE_CONFLUENCE=false
+    - ENABLE_GITHUB=false
+    - ENABLE_JIRA=false
+    - ENABLE_KOMODOR=false
+    - ENABLE_PAGERDUTY=false
+    - ENABLE_SLACK=false
+    - ENABLE_SPLUNK=false
+    - ENABLE_WEATHER_AGENT=false
+    - ENABLE_WEBEX_AGENT=false
+    - ENABLE_PETSTORE_AGENT=false
+    - RAG_AGENT_HOST=agent_rag
+    - ENABLE_RAG=true
+    depends_on:
+    - agent_rag
+    command: platform-engineer
+    profiles:
+    - caipe
 
   rag_server:
     ports:
@@ -219,3 +251,17 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+  
+  # dex:
+  #     image: ghcr.io/dexidp/dex:latest
+  #     container_name: dex
+  #     restart: unless-stopped
+  #     volumes:
+  #       - ./dex/config.yaml:/etc/dex/config.yaml:ro
+  #       - ./dex/data:/etc/dex  # for sqlite database file persistence
+  #     ports:
+  #       - 5556:5556
+  #     command:
+  #       - dex
+  #       - serve
+  #       - /etc/dex/config.yaml

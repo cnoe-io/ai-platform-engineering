@@ -29,7 +29,7 @@ MAX_RESULTS=100
 MAX_QUERY_TOKENS=80000
 
 @tool
-async def search(query: str, graph_entity_type: Optional[str] = "", datasource_id: Optional[str] = "", limit: int = 5, similarity_threshold: float = 0.5, thought: str = "") -> str:
+async def search(query: str, graph_entity_type: Optional[str] = "", datasource_id: Optional[str] = "", limit: int = 5, similarity_threshold: float = 0.3, thought: str = "") -> str:
     """
     Search for relevant documents and graph entities using semantic search in the vector databases.
     The scores for graph entity and documents are separate
@@ -38,7 +38,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
         query (str): The search query
         graph_entity_type (str): (Optional) Filter for the type of graph entity to search, doesnt affect documents 
         limit (int): Maximum number of results to return (default: 5)
-        similarity_threshold (float): Minimum similarity score threshold (default: 0.5)
+        similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
         thought (str): Your thoughts for choosing this tool
 
     Returns:
@@ -106,8 +106,12 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
     logger.info(f"search results: total_documents {len(results.get('documents', []))}, total_graph_entities {len(results.get('graph_entities', []))}")
     return json_encode(results)
 
+#####################
+# Graph query tools #
+#####################
+
 @tool
-async def get_entity_types(thought: str) -> str:
+async def graph_get_entity_types(thought: str) -> str:
     """
     Get all entity types in the graph database. Useful to understand what data is available to query.
 
@@ -127,7 +131,7 @@ async def get_entity_types(thought: str) -> str:
         return f"Error getting entity types: {e}"
 
 @tool
-async def get_entity_properties(entity_type: str, thought: str) -> str:
+async def graph_get_entity_properties(entity_type: str, thought: str) -> str:
     """
     Get all properties for a given entity type in the graph database.
 
@@ -148,7 +152,7 @@ async def get_entity_properties(entity_type: str, thought: str) -> str:
         return f"Error getting entity properties for {entity_type}: {e}"
 
 @tool
-async def fetch_entity(entity_type: str, primary_key_id: str, thought: str) -> str:
+async def graph_fetch_entity(entity_type: str, primary_key_id: str, thought: str) -> str:
     """
     Fetches a single entity and returns all its properties from the graph database.
     Args:
@@ -171,7 +175,7 @@ async def fetch_entity(entity_type: str, primary_key_id: str, thought: str) -> s
         return f"Error fetching entity {entity_type} with primary_key_id {primary_key_id}: {e}"
 
 @tool
-async def fetch_entity_details(entity_type: str, primary_key_id: str, thought: str) -> str:
+async def graph_fetch_entity_details(entity_type: str, primary_key_id: str, thought: str) -> str:
     """
     Fetch details of a single entity and returns all its properties, as well as relations from the graph database.
     You need the primary key id for the entity first (use fuzzy_search).
@@ -211,7 +215,7 @@ async def fetch_entity_details(entity_type: str, primary_key_id: str, thought: s
 
 
 @tool
-async def check_if_ontology_generated(thought: str) -> str:
+async def graph_check_if_ontology_generated(thought: str) -> str:
     """
     Check if the ontology is generated and available for querying
 
@@ -244,7 +248,7 @@ async def check_if_ontology_generated(thought: str) -> str:
         return f"Error checking if ontology is generated: {e}"
 
 @tool
-async def get_relation_path_between_entity_types(entity_type_1: str, entity_type_2: str, thought: str) -> str:
+async def graph_get_relation_path_between_entity_types(entity_type_1: str, entity_type_2: str, thought: str) -> str:
     """
     Find relationship paths (indirect or direct) (if any) between any two entity types in the graph database.
     Args:
@@ -316,7 +320,7 @@ async def get_relation_path_between_entity_types(entity_type_1: str, entity_type
         return f"Error getting relation path between {entity_type_1} and {entity_type_2}: {e}"
 
 @tool
-async def raw_graph_query(query: str, thought: str) -> str:
+async def graph_raw_query(query: str, thought: str) -> str:
     """
     Does a raw query on the graph database
 
