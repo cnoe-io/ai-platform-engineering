@@ -32,6 +32,11 @@ global:
   rag:
     enableGraphRag: true
 
+# Optional: Override the default prompt_config.yaml
+# If not set, uses the default from data/prompt_config.yaml
+# You can provide your custom prompt configuration here
+promptConfig: ""
+
 ######### Supervisor agent configuration #########
 supervisor-agent:
   nameOverride: "supervisor-agent"

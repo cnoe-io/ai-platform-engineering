@@ -10,4 +10,8 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 data:
   prompt_config.yaml: |
+{{- if .Values.promptConfig }}
+{{ .Values.promptConfig | nindent 4 }}
+{{- else }}
 {{ .Files.Get "data/prompt_config.yaml" | nindent 4 }}
+{{- end }}
