@@ -53,7 +53,7 @@ services:
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - PETSTORE_AGENT_HOST=agent-petstore-p2p
-      - RAG_AGENT_HOST=agent_rag
+      - RAG_AGENT_PORT=8099
       - SLACK_AGENT_HOST=agent-slack-p2p
       - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
@@ -268,8 +268,8 @@ services:
   ####################################################################################################
   agent-aws-slim:
     build:
-      context: ./ai_platform_engineering/agents/aws
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-slim
     profiles:
       - slim
@@ -281,6 +281,7 @@ services:
     volumes:
       - ./ai_platform_engineering/agents/aws/agent_aws:/app/agent_aws
       - ./ai_platform_engineering/agents/aws/clients:/app/clients
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8002:8000"
     environment:
@@ -325,8 +326,8 @@ services:
   ####################################################################################################
   agent-aws-p2p:
     build:
-      context: ./ai_platform_engineering/agents/aws
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-p2p
     profiles:
       - p2p
@@ -336,6 +337,7 @@ services:
     volumes:
       - ./ai_platform_engineering/agents/aws/agent_aws:/app/agent_aws
       - ./ai_platform_engineering/agents/aws/clients:/app/clients
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8002:8000"
     environment:
@@ -1338,9 +1340,9 @@ services:
     environment:
       NEO4J_AUTH: neo4j/dummy_password
       NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
 
   neo4j-ontology:
     image: neo4j:latest
@@ -1356,9 +1358,9 @@ services:
     environment:
       NEO4J_AUTH: neo4j/dummy_password
       NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
     profiles:
       - rag_p2p
       - p2p
@@ -1372,7 +1374,7 @@ services:
       - -c
       - redis-server
     ports:
-      - ":6379"
+      - "6379:6379"
     restart: unless-stopped
     profiles:
       - rag_p2p
@@ -1405,8 +1407,8 @@ services:
       timeout: 20s
       retries: 3
     ports:
-      - ":19530"
-      - ":9091"
+      - "19530:19530"
+      - "9091:9091"
     depends_on:
       - etcd
       - milvus-minio
@@ -1445,8 +1447,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     ports:
-      - ":9001"
-      - ":9000"
+      - "9001:9001"
+      - "9000:9000"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
