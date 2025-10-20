@@ -18,14 +18,14 @@ from a2a.types import (
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
 
-from ai_platform_engineering.utils.a2a.base_agent import BaseAgent
+from .base_langgraph_agent import BaseLangGraphAgent
 
 logger = logging.getLogger(__name__)
 
 
-class BaseAgentExecutor(AgentExecutor, ABC):
+class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
     """
-    Abstract base class for AgentExecutor implementations.
+    Abstract base class for LangGraph AgentExecutor implementations.
 
     Provides common A2A protocol handling with streaming support.
     Manages task state transitions (working → input_required → completed).
@@ -35,12 +35,12 @@ class BaseAgentExecutor(AgentExecutor, ABC):
     2. Optionally override execute() for custom behavior
     """
 
-    def __init__(self, agent: BaseAgent):
+    def __init__(self, agent: BaseLangGraphAgent):
         """
         Initialize the executor with an agent.
 
         Args:
-            agent: Instance of a BaseAgent subclass
+            agent: Instance of a BaseLangGraphAgent subclass
         """
         self.agent = agent
 

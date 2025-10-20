@@ -7,7 +7,7 @@ from ai_platform_engineering.agents.splunk.agent_splunk.agentcard import (
     agent_skill,
     create_agent_card,
 )
-from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
+from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 

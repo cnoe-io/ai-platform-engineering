@@ -20,6 +20,8 @@ dependencies = [
     "PyJWT>=2.0.0",
     "httpx>=0.24.0",
     "agntcy-app-sdk==0.1.4",
+    "strands-agents>=0.1.0",
+    "mcp>=1.12.2",
 ]
 
 [tool.hatch.build.targets.wheel]

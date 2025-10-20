@@ -7,7 +7,7 @@ import os
 from typing import Literal
 from pydantic import BaseModel
 
-from ai_platform_engineering.utils.a2a import BaseAgent
+from ai_platform_engineering.utils.a2a_common.base_agent import BaseLangGraphAgent
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -18,7 +18,7 @@ class ResponseFormat(BaseModel):
     message: str
 
 
-class KomodorAgent(BaseAgent):
+class KomodorAgent(BaseLangGraphAgent):
     """Komodor Agent for Kubernetes operations."""
 
     SYSTEM_INSTRUCTION = """
