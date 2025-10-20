@@ -44,22 +44,42 @@ jobs:
           echo "Changes detected in charts directory:"
           echo "$CHART_CHANGES"
 
-          # Detect which charts have changes
+          # Detect which charts have changes (excluding Chart.lock only changes)
           RAG_STACK_CHANGED=false
           AI_PLATFORM_CHANGED=false
+          RAG_STACK_NEEDS_VERSION_BUMP=false
+          AI_PLATFORM_NEEDS_VERSION_BUMP=false
 
+          # Check rag-stack changes
           if echo "$CHART_CHANGES" | grep -q "^charts/rag-stack/"; then
             RAG_STACK_CHANGED=true
             echo "✅ rag-stack chart has changes"
+
+            # Check if changes are more than just Chart.lock
+            if echo "$CHART_CHANGES" | grep "^charts/rag-stack/" | grep -qv "Chart.lock$"; then
+              RAG_STACK_NEEDS_VERSION_BUMP=true
+              echo "  → Substantive changes detected (not just Chart.lock), version bump required"
+            else
+              echo "  → Only Chart.lock changed, version bump not required"
+            fi
           fi
 
+          # Check ai-platform-engineering changes
           if echo "$CHART_CHANGES" | grep -q "^charts/ai-platform-engineering/"; then
             AI_PLATFORM_CHANGED=true
             echo "✅ ai-platform-engineering chart has changes"
+
+            # Check if changes are more than just Chart.lock
+            if echo "$CHART_CHANGES" | grep "^charts/ai-platform-engineering/" | grep -qv "Chart.lock$"; then
+              AI_PLATFORM_NEEDS_VERSION_BUMP=true
+              echo "  → Substantive changes detected (not just Chart.lock), version bump required"
+            else
+              echo "  → Only Chart.lock changed, version bump not required"
+            fi
           fi
 
-          # Check version bump for rag-stack
-          if [ "$RAG_STACK_CHANGED" = true ]; then
+          # Check version bump for rag-stack (only if substantive changes)
+          if [ "$RAG_STACK_NEEDS_VERSION_BUMP" = true ]; then
             echo ""
             echo "Checking rag-stack version bump..."
             CURRENT_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
@@ -85,8 +105,8 @@ jobs:
             fi
           fi
 
-          # Check version bump for ai-platform-engineering
-          if [ "$AI_PLATFORM_CHANGED" = true ]; then
+          # Check version bump for ai-platform-engineering (only if substantive changes)
+          if [ "$AI_PLATFORM_NEEDS_VERSION_BUMP" = true ]; then
             echo ""
             echo "Checking ai-platform-engineering version bump..."
             CURRENT_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
@@ -166,6 +186,19 @@ jobs:
         run: |
           echo "📦 Packaging rag-stack..."
 
+          # Check if version changed
+          CURRENT_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
+          echo "Current version: $CURRENT_VERSION"
+
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/helm-charts"
+          if helm pull $REGISTRY/rag-stack --version $CURRENT_VERSION --destination /tmp 2>/dev/null; then
+            echo "⏭️  rag-stack:$CURRENT_VERSION already published, skipping"
+            echo "rag-stack-skip=true" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          echo "✅ Version $CURRENT_VERSION not published yet, proceeding with package"
+
           mkdir -p ./packaged-charts
           helm dependency update charts/rag-stack/
           helm package charts/rag-stack/ --destination ./packaged-charts/
@@ -178,10 +211,35 @@ jobs:
           echo "📦 Packaging ai-platform-engineering..."
 
           mkdir -p ./packaged-charts
+
+          # CRITICAL: Always update rag-stack dependencies first
+          # ai-platform-engineering depends on rag-stack, which depends on neo4j and milvus
+          # These external dependencies must be downloaded regardless of path changes
+          echo "Updating rag-stack dependencies..."
+          helm dependency update charts/rag-stack/
+
+          echo "Updating ai-platform-engineering dependencies..."
           helm dependency update charts/ai-platform-engineering/
+
           helm package charts/ai-platform-engineering/ --destination ./packaged-charts/
 
-          echo "✅ ai-platform-engineering packaged successfully"
+          # Verify dependencies are packaged correctly
+          echo "🔍 Verifying rag-stack dependencies..."
+          if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/neo4j/Chart.yaml"; then
+            echo "✅ neo4j dependency verified"
+          else
+            echo "❌ ERROR: neo4j missing from rag-stack package"
+            exit 1
+          fi
+          
+          if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/milvus/Chart.yaml"; then
+            echo "✅ milvus dependency verified"
+          else
+            echo "❌ ERROR: milvus missing from rag-stack package"
+            exit 1
+          fi
+
+          echo "✅ ai-platform-engineering packaged successfully with all dependencies"
 
       - name: 🚀 Push Charts to GHCR
         run: |
