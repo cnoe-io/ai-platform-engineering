@@ -32,10 +32,21 @@ global:
   rag:
     enableGraphRag: true
 
-# Optional: Override the default prompt_config.yaml
-# If not set, uses the default from data/prompt_config.yaml
-# You can provide your custom prompt configuration here
-promptConfig: ""
+# Prompt Configuration
+# Choose between predefined prompt configurations or provide your own custom configuration
+#
+# Option 1: Use a predefined prompt configuration type
+# promptConfigType: "default"       # Uses data/prompt_config.yaml (standard orchestrator)
+# promptConfigType: "deep_agent"    # Uses data/prompt_config.deep_agent.yaml (strict zero-hallucination mode)
+#
+# Option 2: Provide custom prompt configuration (overrides promptConfigType)
+# promptConfig: |
+#   agent_name: "My Custom Agent"
+#   system_prompt_template: |
+#     ...
+#
+promptConfigType: "default"  # Options: "default" or "deep_agent"
+promptConfig: ""              # Custom prompt config (overrides promptConfigType if set)
 
 ######### Supervisor agent configuration #########
 supervisor-agent:

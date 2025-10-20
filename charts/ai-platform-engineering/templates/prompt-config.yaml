@@ -11,7 +11,12 @@ metadata:
 data:
   prompt_config.yaml: |
 {{- if .Values.promptConfig }}
+{{- /* Custom prompt config provided - use it directly */ -}}
 {{ .Values.promptConfig | nindent 4 }}
+{{- else if eq .Values.promptConfigType "deep_agent" }}
+{{- /* Use Deep Agent prompt configuration */ -}}
+{{ .Files.Get "data/prompt_config.deep_agent.yaml" | nindent 4 }}
 {{- else }}
+{{- /* Use default prompt configuration */ -}}
 {{ .Files.Get "data/prompt_config.yaml" | nindent 4 }}
 {{- end }}
