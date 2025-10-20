@@ -16,8 +16,8 @@ import logging
 from langchain_core.documents import Document
 from server.metadata_storage import MetadataStorage
 from common.job_manager import JobManager, JobStatus
-from server.models import ExploreDataEntityRequest, ExploreEntityRequest, ExploreRelationsRequest, QueryRequest, QueryResult, ConfigResponse, IngestResponse, QueryResults, UrlIngest, FileIngest, EntityIngest
-from common.models.rag import DataSourceInfo, GraphConnectorInfo, VectorDBGraphMetadata, VectorDBDocsMetadata
+from server.models import ExploreDataEntityRequest, ExploreEntityRequest, ExploreRelationsRequest, QueryRequest, ConfigResponse, IngestResponse, QueryResults, UrlIngest, FileIngest, EntityIngest
+from common.models.rag import DataSourceInfo, GraphConnectorInfo
 from common.models.graph import Entity
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
@@ -28,12 +28,10 @@ from langchain_milvus import BM25BuiltInFunction, Milvus
 from pymilvus import MilvusClient
 import os
 import httpx
-import asyncio
 
 
 metadata_storage: Optional[MetadataStorage] = None
-vector_db_docs: Optional[Milvus] = None
-vector_db_graph: Optional[Milvus] = None
+vector_db: Optional[Milvus] = None
 jobmanager: Optional[JobManager] = None
 data_graph_db: Optional[GraphDB] = None
 ontology_graph_db: Optional[GraphDB] = None
@@ -47,6 +45,8 @@ logging.warning(f"Log level set to {logger.level}")
 clean_up_interval = int(os.getenv("CLEANUP_INTERVAL", 3 * 60 * 60))  # Default to 3 hours
 max_concurrent_ingest_jobs = int(os.getenv("MAX_CONCURRENT_INGEST_JOBS", 20))
 ontology_agent_client = httpx.AsyncClient(base_url=os.getenv("ONTOLOGY_AGENT_RESTAPI_ADDR", "http://localhost:8098"))
+dense_index_params = {"index_type": "HNSW", "metric_type": "COSINE"}
+sparse_index_params = {"index_type": "SPARSE_INVERTED_INDEX", "metric_type": "BM25"}
 graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1", "yes")
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 milvus_uri = os.getenv("MILVUS_URI", "http://localhost:19530")
@@ -89,8 +89,7 @@ async def setup():
     global jobmanager
     global data_graph_db
     global ontology_graph_db
-    global vector_db_docs
-    global vector_db_graph
+    global vector_db
     global redis_client
     
     redis_client = redis.from_url(redis_url)
@@ -107,7 +106,7 @@ async def setup():
     )
 
     # Setup vector db for document data
-    vector_db_docs = Milvus(
+    vector_db = Milvus(
         embedding_function=embeddings,
         collection_name=default_collection_name_docs,
         connection_args=milvus_connection_args,
@@ -123,15 +122,6 @@ async def setup():
         ontology_graph_db = Neo4jDB(uri=ontology_neo4j_addr)
         await ontology_graph_db.setup()
 
-        # Setup vector db for graph data
-        vector_db_graph = Milvus(
-            embedding_function=embeddings,
-            collection_name=default_collection_name_graph,
-            connection_args=milvus_connection_args,
-            index_params=[dense_index_params, sparse_index_params],
-            builtin_function=BM25BuiltInFunction(output_field_names="sparse"),
-            vector_field=["dense", "sparse"]
-        )
 
 # ============================================================================
 # Datasources Endpoints
@@ -162,14 +152,14 @@ async def get_datasource_info(datasource_id: str):
 @app.delete("/v1/datasource/delete", status_code=status.HTTP_200_OK)
 async def delete_datasource(datasource_id: str):
     """Dlete datasource from vector storage and metadata."""
-    if not vector_db_docs or not vector_db_graph or not metadata_storage or not data_graph_db:
+    if not vector_db or not metadata_storage or not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized")
     # Fetch datasource info
     datasource_info = await metadata_storage.get_datasource_info(datasource_id)
     if not datasource_info:
         raise HTTPException(status_code=404, detail="Datasource not found")
     
-    await vector_db_docs.adelete(expr=f"datasource_id == '{datasource_id}'")
+    await vector_db.adelete(expr=f"datasource_id == '{datasource_id}'")
     await metadata_storage.delete_datasource_info(datasource_id) # remove metadata
     
     return status.HTTP_200_OK
@@ -320,97 +310,6 @@ async def get_ingestion_status(job_id: str):
 async def query_documents(query_request: QueryRequest):
     """Query for relevant documents using semantic search in the unified collection."""
 
-    # Build filter expressions for filtering if specified
-    docs_filter_expr = None
-    graph_filter_expr = None
-    
-    # Build document filter expression
-    if query_request.datasource_id:
-        docs_filter_expr = f"datasource_id == '{query_request.datasource_id}'"
-    
-    # Define async functions for concurrent execution
-    async def search_docs(vector_db_docs: Milvus):
-        logger.info(f"Searching docs vector db with filters - datasource_id: {query_request.datasource_id}, query: {query_request.query}")
-        try:
-            docs = await vector_db_docs.asimilarity_search_with_score(
-                query_request.query,
-                k=query_request.limit,
-                ranker_type="weighted",
-                ranker_params={"weights": [0.7, 0.3]},
-                expr=docs_filter_expr if docs_filter_expr else None
-            )
-            # filter out based on similarity threshold
-            return [(doc, score) for doc, score in docs if score >= query_request.similarity_threshold]
-        except Exception as e:
-            logger.error(f"Error querying docs vector db: {e}")
-            return []
-
-     # Build graph filter expression
-    graph_filter_parts = []
-    if query_request.connector_id:
-        graph_filter_parts.append(f"connector_id == '{query_request.connector_id}'")
-    if query_request.graph_entity_type:
-        graph_filter_parts.append(f"entity_type == '{query_request.graph_entity_type}'")
-    
-    if graph_filter_parts:
-        graph_filter_expr = " AND ".join(graph_filter_parts)
-
-    async def search_graph(vector_db_graph: Milvus):
-        logger.info(f"Searching graph vector db with filters - connector_id: {query_request.connector_id}, entity_type: {query_request.graph_entity_type}, query: {query_request.query}")
-        if vector_db_graph is None:
-            logger.warning("Graph vector DB is not initialized.")
-            return []
-        try:
-            graph_entities = await vector_db_graph.asimilarity_search_with_score(
-                query_request.query,
-                k=query_request.limit,
-                ranker_type="weighted",
-                ranker_params={"weights": [0.4, 0.6]}, # more weight to sparse for graph entities
-                expr=graph_filter_expr if graph_filter_expr else None
-            )
-            # filter out based on similarity threshold
-            return [(entity, score) for entity, score in graph_entities if score >= query_request.similarity_threshold]
-        except Exception as e:
-            logger.error(f"Error querying graph vector db: {e}")
-            return []
-    
-    if graph_rag_enabled:
-        if not vector_db_graph or not vector_db_docs:
-            raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-        # Execute both searches concurrently
-        docs, graph_entities = await asyncio.gather(search_docs(vector_db_docs), search_graph(vector_db_graph))
-    else:
-        if not vector_db_docs:
-            raise HTTPException(status_code=500, detail="Server not initialized")
-        # Only search documents
-        docs = await search_docs(vector_db_docs)
-        graph_entities = []
-
-    # Format results for response
-    doc_results: List[QueryResult] = []
-    graph_results: List[QueryResult] = []
-    for doc, score in docs:
-        doc_results.append(
-            QueryResult(
-                document=doc,
-                score=score
-            )
-        )
-    
-    for entity, score in graph_entities:
-        graph_results.append(
-            QueryResult(
-                document=entity,
-                score=score
-            )
-        )
-    
-    return QueryResults(
-            query=query_request.query,
-            results_docs=doc_results,
-            results_graph=graph_results,
-        )
-
 # ============================================================================
 # Knowledge Graph Endpoints
 # ============================================================================
@@ -428,7 +327,7 @@ async def list_graph_connectors():
 
 @app.delete("/v1/graph/connector/{connector_id}")
 async def delete_connector(connector_id: str):
-    if not metadata_storage or not vector_db_graph or not data_graph_db:
+    if not vector_db or not metadata_storage or not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
     connector_info =  await metadata_storage.get_graphconnector_info(connector_id)
     
@@ -437,7 +336,7 @@ async def delete_connector(connector_id: str):
     
     logger.info(f"Deleting graph connector: {connector_id}")
     await data_graph_db.remove_entity(None, {UPDATED_BY_KEY: connector_id}) # remove from graph db
-    await vector_db_graph.adelete(expr=f"connector_id == '{connector_id}'") # remove from vector db
+    await vector_db.adelete(expr=f"connector_id == '{connector_id}'") # remove from vector db
     await metadata_storage.delete_graphconnector_info(connector_id) # remove metadata
 
 
@@ -573,7 +472,7 @@ async def health_check():
 
 async def run_url_ingestion_with_progress(url: str, job_id: str, default_chunk_size: int, default_chunk_overlap: int):
     """Function to run ingestion with proper job tracking and ID management"""
-    if not vector_db_docs or not metadata_storage or not jobmanager:
+    if not vector_db or not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
     try:
         # Generate the datasource id from the url
@@ -606,7 +505,7 @@ async def run_url_ingestion_with_progress(url: str, job_id: str, default_chunk_s
         
         # Create a new loader and run ingestion
         logger.debug(f"Creating loader for datasource: datasource_id={datasource_id}")
-        async with Loader(vector_db_docs, metadata_storage, datasource_info, jobmanager) as loader:
+        async with Loader(vector_db, metadata_storage, datasource_info, jobmanager) as loader:
             await loader.load_url(url, job_id)
 
         # Update source statistics after ingestion
@@ -619,7 +518,7 @@ async def run_url_ingestion_with_progress(url: str, job_id: str, default_chunk_s
 
 async def run_graph_entity_ingestion(connector_name: str, entity_type: str, entities: List[Entity], fresh_until: int):
     """Function to ingest a graph entity"""
-    if not vector_db_graph or not metadata_storage or not ontology_graph_db or not data_graph_db:
+    if not vector_db or not metadata_storage or not ontology_graph_db or not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized")
     connector_id = connector_name
     current_time = datetime.datetime.now(datetime.timezone.utc)
@@ -632,7 +531,7 @@ async def run_graph_entity_ingestion(connector_name: str, entity_type: str, enti
 
         # Check if the entity with the same primary key already exists
         try:
-            existing_data = await vector_db_graph.aget_by_ids([primary_key])
+            existing_data = await vector_db.aget_by_ids([primary_key])
             if existing_data:
                 # If it exists, check the hash
                 if existing_data[0].metadata.get("hash") == entity_hash:
@@ -659,7 +558,7 @@ async def run_graph_entity_ingestion(connector_name: str, entity_type: str, enti
         ids.append(primary_key)
 
     # Add the document to the vector database
-    await vector_db_graph.aadd_documents(documents, ids=ids)
+    await vector_db.aadd_documents(documents, ids=ids)
     logger.info(f"Successfully ingested {len(entities)} entities into the vector database.")
 
     # Update data graph with the new entities
