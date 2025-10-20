@@ -34,9 +34,9 @@ def debug_print(message: str, banner: bool = True):
 memory = MemorySaver()
 
 
-class BaseAgent(ABC):
+class BaseLangGraphAgent(ABC):
     """
-    Abstract base class for A2A agents with streaming support.
+    Abstract base class for LangGraph-based A2A agents with streaming support.
 
     Provides common functionality for:
     - LLM initialization

@@ -70,7 +70,7 @@ To integrate these tests into the main test suite:
 
 1. **Fix the dependency issue**:
    - Complete the `ai_platform_engineering.utils.a2a` module
-   - Ensure `BaseAgent` is properly exported
+   - Ensure `BaseLangGraphAgent` is properly exported
    - Update the `a2a` package to not require this import during test collection
 
 2. **Alternative: Mock the import**:

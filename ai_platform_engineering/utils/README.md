@@ -9,8 +9,8 @@ This package contains common utilities and base classes shared across all AI Pla
 Common A2A (Agent-to-Agent) protocol bindings with streaming support. See [a2a/README.md](a2a/README.md) for details.
 
 **Key Features:**
-- `BaseAgent` - Abstract base class for agents with streaming support
-- `BaseAgentExecutor` - Abstract base class for A2A protocol handling
+- `BaseLangGraphAgent` - Abstract base class for agents with streaming support
+- `BaseLangGraphAgentExecutor` - Abstract base class for A2A protocol handling
 - Common state definitions and helper functions
 - Built-in tracing and LLM integration
 

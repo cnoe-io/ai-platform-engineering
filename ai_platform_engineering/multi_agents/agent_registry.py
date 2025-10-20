@@ -15,7 +15,7 @@ import time
 import threading
 from typing import Dict, Any, Optional, Callable, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
+from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import AgntcySlimRemoteAgentConnectTool

@@ -3,11 +3,11 @@
 
 """Komodor AgentExecutor implementation using common base class."""
 
-from ai_platform_engineering.utils.a2a import BaseAgentExecutor
+from ai_platform_engineering.utils.a2a_common.base_agent_executor import BaseLangGraphAgentExecutor
 from agent_komodor.protocol_bindings.a2a_server.agent import KomodorAgent
 
 
-class KomodorAgentExecutor(BaseAgentExecutor):
+class KomodorAgentExecutor(BaseLangGraphAgentExecutor):
     """Komodor AgentExecutor implementation."""
 
     def __init__(self):
