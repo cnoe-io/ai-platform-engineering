@@ -2,8 +2,10 @@
 from pymilvus import MilvusClient
 import redis.asyncio as redis
 from common.graph_db.neo4j.graph_db import Neo4jDB
-from server.restapi import milvus_uri, default_collection_name_docs, default_collection_name_graph, graph_rag_enabled, redis_url, neo4j_addr, ontology_neo4j_addr
+from server.restapi import milvus_uri, default_collection_name_docs, graph_rag_enabled, redis_url, neo4j_addr, ontology_neo4j_addr
 redis_client = redis.from_url(redis_url)
+
+legacy_default_collection_name_graph = "graph_rag_default"
 
 async def clear_all():
     print("🛑 WARNING 🛑 This will DELETE ALL DATA in the Vector databases, Graph databases, and Redis. 🛑 Proceed with caution!🛑")
@@ -29,8 +31,8 @@ async def clear_all():
     print(f"🛑 Deleting collection {default_collection_name_docs}...")
     client.drop_collection(collection_name=default_collection_name_docs)
 
-    print(f"🛑 Deleting collection {default_collection_name_graph}...")
-    client.drop_collection(collection_name=default_collection_name_graph)
+    print(f"🛑 Deleting legacy collection {legacy_default_collection_name_graph}...")
+    client.drop_collection(collection_name=legacy_default_collection_name_graph)
 
     print("🛑 Flushing Redis ...")
     await redis_client.flushall()
