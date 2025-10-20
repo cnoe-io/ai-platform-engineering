@@ -166,6 +166,19 @@ jobs:
         run: |
           echo "📦 Packaging rag-stack..."
 
+          # Check if version changed
+          CURRENT_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
+          echo "Current version: $CURRENT_VERSION"
+          
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/helm-charts"
+          if helm pull $REGISTRY/rag-stack --version $CURRENT_VERSION --destination /tmp 2>/dev/null; then
+            echo "⏭️  rag-stack:$CURRENT_VERSION already published, skipping"
+            echo "rag-stack-skip=true" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "✅ Version $CURRENT_VERSION not published yet, proceeding with package"
+
           mkdir -p ./packaged-charts
           helm dependency update charts/rag-stack/
           helm package charts/rag-stack/ --destination ./packaged-charts/
