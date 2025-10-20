@@ -318,6 +318,17 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Changes & Features',
+      items: [
+        {
+          type: 'doc',
+          id: 'changes/PROMPT_CONFIGURATION',
+          label: 'Prompt Configuration',
+        }
+      ],
+    },
+    {
+      type: 'category',
       label: 'Workshop - Mars Colony',
       items: [
         {

@@ -74,6 +74,107 @@ cp values-external-secrets.yaml.example values-external-secrets.yaml
 
 Then modify it to work with your preferred secret store.
 
+## Prompt Configuration
+
+The AI Platform Engineering chart supports multiple prompt configurations to control agent behavior and orchestration style.
+
+### Available Configurations
+
+#### 1. Default Configuration (Recommended for General Use)
+
+The **default** prompt configuration provides a balanced orchestrator that routes requests across specialized agents while maintaining strict provenance and source attribution.
+
+```yaml
+promptConfigType: "default"
+```
+
+**Use cases:**
+- Standard multi-agent orchestration
+- General platform engineering tasks
+- Balanced between flexibility and control
+
+#### 2. Deep Agent Configuration (Strict Zero-Hallucination Mode)
+
+The **deep_agent** prompt configuration enforces the strictest zero-hallucination policies, ensuring all responses originate exclusively from connected tools or the RAG knowledge base.
+
+```yaml
+promptConfigType: "deep_agent"
+```
+
+**Use cases:**
+- Mission-critical operations requiring absolute accuracy
+- Compliance-sensitive environments
+- Production systems where hallucinations cannot be tolerated
+- Strict audit trails and provenance tracking
+
+**Key differences:**
+- Stricter enforcement of tool-only responses
+- Enhanced provenance tracking
+- More explicit source attribution
+- Stronger safeguards against inferred knowledge
+
+#### 3. Custom Configuration (Advanced)
+
+You can provide your own custom prompt configuration by setting the `promptConfig` value directly:
+
+```yaml
+promptConfig: |
+  agent_name: "My Custom Platform Agent"
+  agent_description: |
+    Custom description...
+  system_prompt_template: |
+    Custom system prompt...
+  agent_prompts:
+    argocd:
+      system_prompt: "Custom ArgoCD routing..."
+    # ... additional configuration
+```
+
+**Note:** Custom configuration takes precedence over `promptConfigType`.
+
+### Configuration Examples
+
+#### Example 1: Use Default Configuration
+```bash
+helm install ai-platform-engineering . \
+  --values values-secrets.yaml \
+  --set promptConfigType=default
+```
+
+#### Example 2: Use Deep Agent Configuration
+```bash
+helm install ai-platform-engineering . \
+  --values values-secrets.yaml \
+  --set promptConfigType=deep_agent
+```
+
+#### Example 3: Use Custom Configuration via File
+```bash
+# Create custom-prompt.yaml
+cat <<EOF > custom-prompt.yaml
+promptConfig: |
+  agent_name: "My Custom Agent"
+  agent_description: |
+    Custom agent configuration
+  system_prompt_template: |
+    You are a custom platform engineer...
+  # ... rest of configuration
+EOF
+
+# Deploy with custom configuration
+helm install ai-platform-engineering . \
+  --values values-secrets.yaml \
+  --values custom-prompt.yaml
+```
+
+### Choosing the Right Configuration
+
+| Configuration | Best For | Hallucination Risk | Strictness |
+|--------------|----------|-------------------|------------|
+| **default** | General use, development, testing | Low | Medium |
+| **deep_agent** | Production, compliance, mission-critical | Minimal | High |
+| **custom** | Specialized use cases, custom workflows | Depends on config | Custom |
+
 ## Deployment Options
 
 ### Option 1: Simple Deployment (Port-Forward Access)
