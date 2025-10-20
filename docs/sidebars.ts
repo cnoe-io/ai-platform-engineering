@@ -84,6 +84,16 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
+          label: 'Helm',
+          items: [
+            {
+              type: 'doc',
+              id: 'getting-started/helm/setup',
+            },
+          ],
+        },
+        {
+          type: 'category',
           label: 'IDP Builder',
           items: [
             {

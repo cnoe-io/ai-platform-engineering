@@ -71,12 +71,244 @@ kubectl describe secret llm-secret -n ai-platform-engineering
 
 ## External Secrets Management
 
-🚧 This section is still under construction 🚧
+For production environments, it's recommended to use external secret management solutions instead of storing secrets directly in Kubernetes. The ai-platform-engineering helm chart integrates with the [External Secrets Operator](https://external-secrets.io/) to sync secrets from external providers like:
 
-For production environments, consider using external secret management solutions like:
-- AWS Secrets Manager with External Secrets Operator
-- HashiCorp Vault
-- Azure Key Vault
-- Google Secret Manager
+- **HashiCorp Vault**
+- **AWS Secrets Manager**
+- **Azure Key Vault**
+- **Google Secret Manager**
 
-Refer to the [External Secrets Operator documentation](https://external-secrets.io/) for more information on setting up external secret management.
+### Prerequisites
+
+1. **Install External Secrets Operator** in your cluster:
+   ```bash
+   helm repo add external-secrets https://charts.external-secrets.io
+   helm install external-secrets external-secrets/external-secrets -n external-secrets-system --create-namespace
+   ```
+
+2. **Configure a SecretStore or ClusterSecretStore** that connects to your secret backend (e.g., Vault, AWS Secrets Manager). Refer to the [External Secrets Operator documentation](https://external-secrets.io/latest/provider/aws-secrets-manager/) for provider-specific setup.
+
+### Global Configuration
+
+Enable external secrets globally in your `values.yaml`:
+
+```yaml
+global:
+  externalSecrets:
+    enabled: true
+    secretStoreRef:            # this is the secret store used for all sub-agent secrets
+      name: "vault-store"      # Name of your SecretStore or ClusterSecretStore
+      kind: ClusterSecretStore # Or SecretStore for namespace-scoped
+
+    agentSecrets:
+      create: true             # enable sub-agent secrets creation globally using external secrets
+```
+
+### Configuring LLM Secrets with External Secrets
+
+The LLM secret is required by all agents and should be configured globally:
+
+```yaml
+global:                          # Put this under the same global section as above
+  llmSecrets:
+    create: false                # Only create LLM secret in the parent chart and use the same secret in subcharts
+    secretName: "llm-secret"
+    externalSecrets:
+      secretStoreRef:
+        name: "vault-store"      # this is the secret store used for the LLM secret
+        kind: ClusterSecretStore # Or SecretStore for namespace-scoped
+      data:
+      - secretKey: LLM_PROVIDER
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: projects/your-project/llm-provider
+          property: LLM_PROVIDER
+
+      # Azure OpenAI configuration
+      - secretKey: AZURE_OPENAI_API_KEY
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AZURE_OPENAI_API_KEY
+      - secretKey: AZURE_OPENAI_ENDPOINT
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AZURE_OPENAI_ENDPOINT
+      - secretKey: AZURE_OPENAI_API_VERSION
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AZURE_OPENAI_API_VERSION
+      - secretKey: OPENAI_API_VERSION
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AZURE_OPENAI_API_VERSION
+      - secretKey: AZURE_OPENAI_DEPLOYMENT
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AZURE_OPENAI_DEPLOYMENT
+      # OpenAI configuration
+      - secretKey: OPENAI_API_KEY
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: OPENAI_API_KEY
+      - secretKey: OPENAI_ENDPOINT
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: OPENAI_ENDPOINT
+      - secretKey: OPENAI_MODEL_NAME
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: OPENAI_MODEL_NAME
+      # AWS Bedrock configuration
+      - secretKey: AWS_ACCESS_KEY_ID
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AWS_ACCESS_KEY_ID
+      - secretKey: AWS_SECRET_ACCESS_KEY
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AWS_SECRET_ACCESS_KEY
+      - secretKey: AWS_REGION
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AWS_REGION
+      - secretKey: AWS_BEDROCK_MODEL_ID
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AWS_BEDROCK_MODEL_ID
+      - secretKey: AWS_BEDROCK_PROVIDER
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: secret/ai-platform-engineering/global
+          property: AWS_BEDROCK_PROVIDER
+```
+
+**NOTE**: You can delete the keys of the providers you don't need. Supported `LLM_PROVIDER` values are: `azure-openai`, `openai`, `aws-bedrock`.
+
+#### External Secret Configuration Fields
+
+- `secretKey`: The key name in the Kubernetes secret
+- `remoteRef.key`: Path to the secret in your external secret store
+- `remoteRef.property`: Specific property/field within the secret
+- `conversionStrategy`: How to convert the secret value (Default, Unicode, Base64, etc.)
+- `decodingStrategy`: How to decode the secret value (None, Base64, Auto, etc.)
+
+### Configuring Agent-Specific Secrets
+
+Now configure external secrets for individual agents:
+
+#### Example: ArgoCD Agent
+
+```yaml
+agent-argocd:
+  agentSecrets:
+    secretName: "agent-argocd-secret"
+    externalSecrets:
+      data:
+      - secretKey: ARGOCD_TOKEN
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: projects/your-project/argocd
+          property: ARGOCD_TOKEN
+
+      - secretKey: ARGOCD_API_URL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: projects/your-project/argocd
+          property: ARGOCD_API_URL
+
+      - secretKey: ARGOCD_VERIFY_SSL
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: projects/your-project/argocd
+          property: ARGOCD_VERIFY_SSL
+```
+
+#### Example: GitHub Agent
+
+```yaml
+agent-github:
+  agentSecrets:
+    secretName: "agent-github-secret"
+    externalSecrets:
+      data:
+      - secretKey: GITHUB_PERSONAL_ACCESS_TOKEN
+        remoteRef:
+          conversionStrategy: Default
+          decodingStrategy: None
+          key: projects/your-project/github
+          property: GITHUB_PERSONAL_ACCESS_TOKEN
+```
+
+You can find the required secret keys for each agent in the [repo's .env.example file](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.env.example).
+
+### Organizing Secrets in Your Secret Store
+
+It's recommended to organize your secrets hierarchically in your external secret store:
+
+```
+projects/
+  └── your-project/
+      ├── llm-provider          # LLM configuration
+      ├── azure-openai          # Azure OpenAI credentials
+      ├── argocd                # ArgoCD credentials
+      ├── github                # GitHub credentials
+      ├── slack                 # Slack credentials
+      ├── aws                   # AWS credentials
+      ├── atlassian             # Shared for Jira & Confluence
+      ├── pagerduty             # PagerDuty credentials
+      └── ...                   # Other agent credentials
+```
+
+### Troubleshooting
+
+If secrets are not syncing properly:
+
+1. **Check ExternalSecret status**:
+   ```bash
+   kubectl get externalsecret -n ai-platform-engineering
+   ```
+
+2. **Check ExternalSecret events**:
+   ```bash
+   kubectl describe externalsecret <secret-name> -n ai-platform-engineering
+   ```
+
+3. **Verify SecretStore connectivity**:
+   ```bash
+   kubectl get secretstore -n ai-platform-engineering
+   kubectl get clustersecretstore
+   ```
+
+4. **Check External Secrets Operator logs**:
+   ```bash
+   kubectl logs -n external-secrets-system -l app.kubernetes.io/name=external-secrets
+   ```
