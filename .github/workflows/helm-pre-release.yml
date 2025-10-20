@@ -162,22 +162,22 @@ jobs:
           # These external dependencies must be downloaded regardless of path changes
           echo "Updating rag-stack dependencies..."
           helm dependency update charts/rag-stack/
-          
+
           echo "Updating ai-platform-engineering dependencies..."
           helm dependency update charts/ai-platform-engineering/
-          
+
           helm package charts/ai-platform-engineering/ --destination ./packaged-charts/
-          
+
           # Verify dependencies are packaged correctly
           echo "🔍 Verifying rag-stack dependencies..."
-          if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "neo4j.*\.tgz"; then
+          if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/neo4j/Chart.yaml"; then
             echo "✅ neo4j dependency verified"
           else
             echo "❌ ERROR: neo4j missing from rag-stack package"
             exit 1
           fi
-          
-          if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "milvus.*\.tgz"; then
+
+          if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/milvus/Chart.yaml"; then
             echo "✅ milvus dependency verified"
           else
             echo "❌ ERROR: milvus missing from rag-stack package"
