@@ -94,10 +94,12 @@ def scale_loader(mock_redis_scale, mock_vector_db_scale, mock_metadata_storage):
         datasourceinfo=DataSourceInfo(
             datasource_id="test_datasource_id",
             description="test_collection",
-            source_type="url",
+            source_type="web",
             path="https://example.com",
             default_chunk_size=1000,
             default_chunk_overlap=200,
+            check_for_site_map=True,
+            sitemap_max_urls=2000,
             created_at=datetime.datetime.now(),
             last_updated=datetime.datetime.now(),
             total_documents=0,
@@ -106,6 +108,7 @@ def scale_loader(mock_redis_scale, mock_vector_db_scale, mock_metadata_storage):
             total_chunks=0,
         ),
         jobmanager=jobmanager,
+        max_concurrency=20
     )
 
 
@@ -132,7 +135,7 @@ async def test_scale_ingestion_ruff_docs(scale_loader, memory_monitor):
 
     # The `load_url` method will find and process the sitemap
     async with scale_loader as loader:
-        await loader.load_url(target_url, job_id)
+        await loader.load_url(target_url, job_id, check_for_site_map=True, sitemap_max_urls=1000)
 
     end_time = time.time()
     memory_monitor.measure('after_ingestion')

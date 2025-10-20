@@ -4,6 +4,7 @@ Test configuration and fixtures for RAG server tests.
 import os
 from common.graph_db.neo4j.graph_db import GraphDB
 from common.job_manager import JobManager
+from server.query_service import VectorDBQueryService
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
@@ -76,6 +77,10 @@ def mock_metadata_storage(mock_redis):
     mock_metadata_storage = MagicMock(spec=MetadataStorage, redis_client=mock_redis)
     return mock_metadata_storage
 
+@pytest.fixture
+def mock_query_service(mock_vector_db):
+    """Mock query service for testing."""
+    return VectorDBQueryService(vector_db=mock_vector_db)
 
 @pytest.fixture
 def mock_loader(mock_vector_db, mock_metadata_storage, mock_job_manager):
@@ -108,12 +113,12 @@ def test_client(mock_metadata_storage, mock_job_manager, mock_vector_db, mock_gr
     with ExitStack() as stack:
         stack.enter_context(patch('server.restapi.metadata_storage', mock_metadata_storage))
         stack.enter_context(patch('server.restapi.jobmanager', mock_job_manager))
-        stack.enter_context(patch('server.restapi.vector_db_docs', mock_vector_db))
-        stack.enter_context(patch('server.restapi.vector_db_graph', mock_vector_db))
+        stack.enter_context(patch('server.restapi.vector_db', mock_vector_db))
         stack.enter_context(patch('server.restapi.data_graph_db', mock_graph_db))
         stack.enter_context(patch('server.restapi.ontology_graph_db', mock_graph_db))
-        # The mock_loader fixture already patches the Loader class
-        stack.enter_context(patch('server.restapi.setup', AsyncMock()))
+        stack.enter_context(patch('server.restapi.mcp_app', MagicMock()))
+        stack.enter_context(patch('server.restapi.skip_init_tests', True))
+        stack.enter_context(patch('server.restapi.mcp_enabled', False))
 
         from server.restapi import app
         with TestClient(app) as client:
