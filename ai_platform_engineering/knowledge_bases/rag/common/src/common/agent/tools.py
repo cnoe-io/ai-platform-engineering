@@ -29,7 +29,7 @@ MAX_RESULTS=100
 MAX_QUERY_TOKENS=80000
 
 @tool
-async def search(query: str, graph_entity_type: Optional[str] = "", datasource_id: Optional[str] = "", limit: int = 5, similarity_threshold: float = 0.5, thought: str = "") -> str:
+async def search(query: str, graph_entity_type: Optional[str] = "", datasource_id: Optional[str] = "", limit: int = 5, similarity_threshold: float = 0.3, thought: str = "") -> str:
     """
     Search for relevant documents and graph entities using semantic search in the vector databases.
     The scores for graph entity and documents are separate
@@ -38,7 +38,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
         query (str): The search query
         graph_entity_type (str): (Optional) Filter for the type of graph entity to search, doesnt affect documents 
         limit (int): Maximum number of results to return (default: 5)
-        similarity_threshold (float): Minimum similarity score threshold (default: 0.5)
+        similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
         thought (str): Your thoughts for choosing this tool
 
     Returns:
