@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from fastapi import UploadFile
 from langchain_core.documents import Document
-from common.models.rag import DataSourceInfo
 from common.models.graph import Entity
 
 # ============================================================================

@@ -424,7 +424,7 @@ class Loader:
         """
         await self.jobmanager.update_job(job_id,
             status=JobStatus.IN_PROGRESS,
-            message=f"Loading URL..."
+            message="Loading URL..."
         )
         try:
             urls = [] # URLs to process
