@@ -7,7 +7,7 @@ import asyncio
 import hashlib
 import time
 import uuid
-
+from urllib.parse import urlparse
 from common.models.graph import Entity
 
 DURATION_DAY = 60 * 60 * 24
@@ -84,6 +84,18 @@ def remove_circular_refs(ob, _seen=None):
         _seen.remove(id(ob))
     
     return res
+
+def sanitize_url(url: str) -> str:
+    url = url.strip()
+    parsed = urlparse(url) # Parse the URL
+    if not parsed.scheme:  # Add default scheme if missing
+        parsed = urlparse("https://" + url)
+    if parsed.scheme not in ('http', 'https'):  # Validate scheme is http or https
+        raise ValueError(f"Invalid URL scheme. Only HTTP and HTTPS are supported, got: {parsed.scheme}")
+    if not parsed.netloc: # Validate that we have a netloc (domain)
+        raise ValueError("Invalid URL: missing domain name")
+    url = parsed.geturl() # Reconstruct the URL to ensure it's properly formatted
+    return url
 
 class CustomFormatter(logging.Formatter):
     """
