@@ -172,3 +172,74 @@ class AIPlatformEngineerMAS:
       logger.error(f"Error in serve method: {e}")
       raise Exception(str(e))
 
+  async def serve_stream(self, prompt: str):
+    """
+    Processes the input prompt and streams responses from the graph.
+    This allows the UI to show the todo list as it's created, before tool calls are made.
+
+    Args:
+        prompt (str): The input prompt to be processed by the graph.
+    Yields:
+        dict: Streaming events from the graph including agent responses and tool calls.
+    """
+    try:
+      logger.debug(f"Received streaming prompt: {prompt}")
+      if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("Prompt must be a non-empty string.")
+
+      graph = self.get_graph()
+      thread_id = str(uuid.uuid4())
+
+      # Stream events from the graph
+      async for event in graph.astream_events(
+          {
+              "messages": [
+                  {
+                      "role": "user",
+                      "content": prompt
+                  }
+              ],
+          },
+          {"configurable": {"thread_id": thread_id}},
+          version="v2"
+      ):
+        # Stream agent response chunks (includes todo list planning)
+        if event["event"] == "on_chat_model_stream":
+          chunk = event.get("data", {}).get("chunk")
+          if chunk and hasattr(chunk, "content") and chunk.content:
+            yield {
+              "type": "content",
+              "data": chunk.content
+            }
+
+        # Stream tool call start events
+        elif event["event"] == "on_tool_start":
+          tool_name = event.get("name", "unknown")
+          yield {
+            "type": "tool_start",
+            "tool": tool_name,
+            "data": f"\n\n🔧 Calling {tool_name}...\n"
+          }
+
+        # Stream tool results
+        elif event["event"] == "on_tool_end":
+          tool_name = event.get("name", "unknown")
+          yield {
+            "type": "tool_end",
+            "tool": tool_name,
+            "data": f"✅ {tool_name} completed\n"
+          }
+
+    except ValueError as ve:
+      logger.error(f"ValueError in serve_stream method: {ve}")
+      yield {
+        "type": "error",
+        "data": str(ve)
+      }
+    except Exception as e:
+      logger.error(f"Error in serve_stream method: {e}")
+      yield {
+        "type": "error",
+        "data": str(e)
+      }
+
