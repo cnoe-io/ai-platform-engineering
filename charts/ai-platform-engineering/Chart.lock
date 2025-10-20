@@ -47,5 +47,5 @@ dependencies:
 - name: backstage-plugin-agent-forge
   repository: ""
   version: 0.1.0
-digest: sha256:e02d568ddcb165ada5b9ef33091dc777411b723440929bb87d6a89d710061b48
-generated: "2025-10-08T16:29:50.42541278Z"
+digest: sha256:0bb0ae712cf7adcd0d75e957895ce1d3d608cabd63e59d43da40ed2004a10892
+generated: "2025-10-20T14:49:03.407133-05:00"
