@@ -51,6 +51,7 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - PETSTORE_AGENT_HOST=agent-petstore-p2p
       - RAG_AGENT_HOST=agent_rag
+      - RAG_AGENT_PORT=8099
       - SLACK_AGENT_HOST=agent-slack-p2p
       - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
@@ -69,7 +70,7 @@ services:
       - ENABLE_WEATHER_AGENT=true
       - ENABLE_WEBEX_AGENT=true
       - ENABLE_PETSTORE_AGENT=true
-      - ENABLE_RAG=true
+      - ENABLE_RAG_AGENT=true
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}

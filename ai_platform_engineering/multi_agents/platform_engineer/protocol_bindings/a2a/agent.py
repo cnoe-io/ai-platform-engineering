@@ -71,6 +71,56 @@ class AIPlatformEngineerA2ABinding:
       logging.info(f"Created tracing config: {config}")
 
       try:
+          # Use astream_events for token-level streaming
+          # This allows the todo list to stream character-by-character BEFORE tool calls
+          async for event in self.graph.astream_events(inputs, config, version="v2"):
+              event_type = event.get("event")
+
+              # Stream LLM tokens (includes todo list planning)
+              if event_type == "on_chat_model_stream":
+                  chunk = event.get("data", {}).get("chunk")
+                  if chunk and hasattr(chunk, "content"):
+                      content = chunk.content
+                      # Normalize content (handle both string and list formats)
+                      if isinstance(content, list):
+                          text_parts = []
+                          for item in content:
+                              if isinstance(item, dict):
+                                  text_parts.append(item.get('text', ''))
+                              elif isinstance(item, str):
+                                  text_parts.append(item)
+                              else:
+                                  text_parts.append(str(item))
+                          content = ''.join(text_parts)
+                      elif not isinstance(content, str):
+                          content = str(content) if content else ''
+
+                      if content:  # Only yield if there's actual content
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "content": content,
+                          }
+
+              # Stream tool call indicators
+              elif event_type == "on_tool_start":
+                  tool_name = event.get("name", "unknown")
+                  logging.info(f"Tool call started: {tool_name}")
+                  # Optionally yield tool start indicator
+                  # yield {
+                  #     "is_task_complete": False,
+                  #     "require_user_input": False,
+                  #     "content": f"\n🔧 Calling {tool_name}...\n",
+                  # }
+
+              # Stream tool completion
+              elif event_type == "on_tool_end":
+                  tool_name = event.get("name", "unknown")
+                  logging.info(f"Tool call completed: {tool_name}")
+
+          # Fallback to old method if astream_events doesn't work
+      except Exception as e:
+          logging.warning(f"Token-level streaming failed, falling back to message-level: {e}")
           async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
 
               # Handle custom A2A event payloads emitted via get_stream_writer()
