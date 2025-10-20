@@ -42,25 +42,37 @@ jobs:
       - name: 🔍 Detect Changed Charts
         id: detect
         run: |
-          # Detect which charts have changes
+          # Detect which charts have changes (excluding Chart.lock only changes)
           git fetch origin main
 
           CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # Check which charts changed
+          # Check which charts changed (excluding Chart.lock only changes)
           RAG_STACK_CHANGED=false
           AI_PLATFORM_CHANGED=false
 
+          # Check rag-stack changes
           if echo "$CHANGED_FILES" | grep -q "^charts/rag-stack/"; then
-            RAG_STACK_CHANGED=true
-            echo "✅ rag-stack chart has changes"
+            # Check if changes are more than just Chart.lock
+            if echo "$CHANGED_FILES" | grep "^charts/rag-stack/" | grep -qv "Chart.lock$"; then
+              RAG_STACK_CHANGED=true
+              echo "✅ rag-stack chart has substantive changes"
+            else
+              echo "ℹ️  rag-stack only has Chart.lock changes, skipping pre-release"
+            fi
           fi
 
+          # Check ai-platform-engineering changes
           if echo "$CHANGED_FILES" | grep -q "^charts/ai-platform-engineering/"; then
-            AI_PLATFORM_CHANGED=true
-            echo "✅ ai-platform-engineering chart has changes"
+            # Check if changes are more than just Chart.lock
+            if echo "$CHANGED_FILES" | grep "^charts/ai-platform-engineering/" | grep -qv "Chart.lock$"; then
+              AI_PLATFORM_CHANGED=true
+              echo "✅ ai-platform-engineering chart has substantive changes"
+            else
+              echo "ℹ️  ai-platform-engineering only has Chart.lock changes, skipping pre-release"
+            fi
           fi
 
           echo "rag-stack-changed=$RAG_STACK_CHANGED" >> $GITHUB_OUTPUT
