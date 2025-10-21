@@ -36,17 +36,6 @@ export default function ExploreView() {
     }, [activeView]);
 
     const fetchAgentStatus = useCallback(async () => {
-        // BUG FIX: Only fetch agent status if Graph RAG is enabled
-        //
-        // Previously, this code unconditionally polled the ontology agent status endpoint
-        // every 5 seconds, even when Graph RAG was disabled (ENABLE_GRAPH_RAG=false).
-        //
-        // This caused:
-        // - Continuous 404 errors in browser console (endpoint doesn't exist when Graph RAG is off)
-        // - Unnecessary network traffic and server load
-        // - Confusing error messages for users running without Graph RAG
-        //
-        // Now we check graphRagEnabled before making the request, preventing these issues.
         if (!graphRagEnabled) {
             return;
         }
@@ -105,16 +94,6 @@ export default function ExploreView() {
         fetchConfig();
     }, [fetchConfig]);
 
-    // BUG FIX: Set up status polling only when Graph RAG is enabled
-    //
-    // This useEffect hook controls the periodic polling of the ontology agent status.
-    // Previously, the polling happened unconditionally, causing continuous 404 errors
-    // when Graph RAG was disabled.
-    //
-    // Now we check graphRagEnabled and skip setting up the interval if it's false.
-    // The dependency array [graphRagEnabled, fetchAgentStatus] ensures that:
-    // - Polling starts if Graph RAG is enabled later
-    // - Polling stops if Graph RAG is disabled
     useEffect(() => {
         if (!graphRagEnabled) {
             return;  // Skip polling when Graph RAG is disabled

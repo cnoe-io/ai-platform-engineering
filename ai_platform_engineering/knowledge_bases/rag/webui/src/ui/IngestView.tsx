@@ -235,7 +235,7 @@ export default function IngestView() {
 							onChange={(e) => setUrl(e.target.value)}
 							className="input flex-1"
 						/>
-						<button onClick={handleIngest} className="btn">
+						<button onClick={handleIngest} className="btn bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white">
 							Ingest
 						</button>
 					</div>
