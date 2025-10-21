@@ -73,7 +73,9 @@ services:
       - SLACK_AGENT_HOST=agent-slack-p2p
       - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
+      - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
+      - WEBEX_AGENT_PORT=8000
       # Enable agents
       - ENABLE_ARGOCD=true
       - ENABLE_AWS=true
@@ -964,7 +966,7 @@ services:
       - ./ai_platform_engineering/agents/webex/agent_webex:/app/ai_platform_engineering/agents/webex/agent_webex
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
-      - "8013:8000"
+      - "8014:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
