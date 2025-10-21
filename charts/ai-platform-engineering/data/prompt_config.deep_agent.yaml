@@ -175,7 +175,7 @@ agent_prompts:
   confluence:
     system_prompt: |
       Handle Confluence operations:
-      - create, update, or search documentation pages
+      - create, update, or search confluence pages
   github:
     system_prompt: |
       Handle GitHub repository operations:

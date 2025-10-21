@@ -7,7 +7,7 @@ import os
 from typing import Literal
 from pydantic import BaseModel
 
-from ai_platform_engineering.utils.a2a_common.base_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 

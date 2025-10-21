@@ -80,10 +80,10 @@ class AgentRegistry:
         logger.info(f"Enabled agents: {enabled_agents}")
         return enabled_agents
 
-    def get_agent_address_mapping(self, agnet_names: List[str]) -> Dict[str, str]:
+    def get_agent_address_mapping(self, agent_names: List[str]) -> Dict[str, str]:
         """Get the address mapping for all enabled agents."""
         address_mapping = {}
-        for agent in agnet_names:
+        for agent in agent_names:
             host = os.getenv(f"{agent.upper()}_AGENT_HOST", "localhost")
             port = os.getenv(f"{agent.upper()}_AGENT_PORT", "8000")
             address_mapping[agent] = f"http://{host}:{port}"

@@ -106,6 +106,8 @@ class AIPlatformEngineerMAS:
     logger.info(f'🤖 Subagents: {[s["name"] for s in subagents]}')
 
     # Create the Deep Agent
+    # NOTE: Sub-agents are A2A tools, not Deep Agent subagents
+    # Streaming is handled via A2ARemoteAgentConnectTool's streaming implementation
     deep_agent = async_create_deep_agent(
       tools=all_agents,
       instructions=system_prompt,
