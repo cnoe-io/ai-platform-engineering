@@ -85,9 +85,9 @@ services:
       - ENABLE_PAGERDUTY=true
       - ENABLE_SLACK=true
       - ENABLE_SPLUNK=true
-      - ENABLE_WEATHER_AGENT=true
-      - ENABLE_WEBEX_AGENT=true
-      - ENABLE_PETSTORE_AGENT=true
+      - ENABLE_WEATHER=true
+      - ENABLE_WEBEX=true
+      - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -952,8 +952,8 @@ services:
   ####################################################################################################
   agent-webex-p2p:
     build:
-      context: ai_platform_engineering/agents/webex
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/webex/build/Dockerfile.a2a
     container_name: agent-webex-p2p
     profiles:
       - p2p
@@ -961,9 +961,10 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/webex/agent_webex:/app/agent_webex
+      - ./ai_platform_engineering/agents/webex/agent_webex:/app/ai_platform_engineering/agents/webex/agent_webex
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
-      - "8017:8000"
+      - "8013:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -1144,8 +1145,8 @@ services:
   ####################################################################################################
   agent-weather-p2p:
     build:
-      context: ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/weather/build/Dockerfile.a2a
     container_name: agent-weather-p2p
     profiles:
       - p2p
@@ -1155,9 +1156,10 @@ services:
       - .env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/ai_platform_engineering/agents/weather/agent_weather
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
-      - "8021:8000"
+      - "8012:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
