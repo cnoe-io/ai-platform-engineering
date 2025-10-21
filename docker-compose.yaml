@@ -6,7 +6,7 @@ services:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
     container_name: platform-engineer-p2p
     volumes:
-      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     profiles:
       - p2p
       - p2p-basic
@@ -87,7 +87,7 @@ services:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
     container_name: platform-engineer-slim
     volumes:
-      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     profiles:
       - slim
       - slim-tracing

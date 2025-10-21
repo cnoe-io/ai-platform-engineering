@@ -31,14 +31,14 @@ class AWSAgent(BaseStrandsAgent):
             config: Optional agent configuration. If not provided, uses environment variables.
         """
         self.agent_config = config or AgentConfig.from_env()
-        
+
         # Set up logging
         log_level = self.agent_config.log_level
         logging.getLogger("strands").setLevel(getattr(logging, log_level, logging.INFO))
-        
+
         config_str = f"model_provider={self.agent_config.model_provider}, model_name={self.agent_config.model_name}"
         logger.info(f"Initialized AWS Agent with config: {config_str}")
-        
+
         # Initialize parent class (which will call abstract methods)
         super().__init__(config=self.agent_config)
 

@@ -21,7 +21,7 @@ services:
   caipe-komodor-p2p:
     container_name: caipe-komodor-p2p
     volumes:
-    - ../prompt_config.yaml:/app/prompt_config.yaml
+    - ../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     - ../persona.yaml:/app/persona.yaml
     - ../ai_platform_engineering:/app/ai_platform_engineering
     env_file:
@@ -96,7 +96,7 @@ services:
   caipe-komodor-slim:
     container_name: caipe-komodor-slim
     volumes:
-    - ../prompt_config.yaml:/app/prompt_config.yaml
+    - ../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     - ../persona.yaml:/app/persona.yaml
     - ../ai_platform_engineering:/app/ai_platform_engineering
     env_file:
