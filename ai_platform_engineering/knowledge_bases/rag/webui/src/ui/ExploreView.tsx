@@ -25,7 +25,7 @@ export default function ExploreView() {
             const { config } = response.data;
             const graphRagEnabled = config?.graph_rag_enabled ?? true;
             setGraphRagEnabled(graphRagEnabled);
-            
+
             // If graph RAG is disabled and user is on a graph tab, redirect to search
             if (!graphRagEnabled && (activeView === 'ontology' || activeView === 'data')) {
                 setActiveView('search');
@@ -36,17 +36,32 @@ export default function ExploreView() {
     }, [activeView]);
 
     const fetchAgentStatus = useCallback(async () => {
+        // BUG FIX: Only fetch agent status if Graph RAG is enabled
+        //
+        // Previously, this code unconditionally polled the ontology agent status endpoint
+        // every 5 seconds, even when Graph RAG was disabled (ENABLE_GRAPH_RAG=false).
+        //
+        // This caused:
+        // - Continuous 404 errors in browser console (endpoint doesn't exist when Graph RAG is off)
+        // - Unnecessary network traffic and server load
+        // - Confusing error messages for users running without Graph RAG
+        //
+        // Now we check graphRagEnabled before making the request, preventing these issues.
+        if (!graphRagEnabled) {
+            return;
+        }
+
         try {
             const response = await axios.get('/v1/graph/ontology/agent/status');
-            const { 
-                is_processing, 
+            const {
+                is_processing,
                 is_evaluating,
                 processing_tasks_total,
                 processed_tasks_count,
                 evaluation_tasks_total,
                 evaluated_tasks_count,
-                candidate_acceptance_threshold, 
-                candidate_rejection_threshold 
+                candidate_acceptance_threshold,
+                candidate_rejection_threshold
             } = response.data;
             setIsAgentProcessing(is_processing);
             setIsAgentEvaluating(is_evaluating);
@@ -57,7 +72,7 @@ export default function ExploreView() {
         } catch (error) {
             console.error('Failed to fetch agent status:', error);
         }
-    }, []);
+    }, [graphRagEnabled]);
 
     const handleRegenerateOntology = async () => {
         setIsLoading(true);
@@ -81,14 +96,30 @@ export default function ExploreView() {
     const handleExploreComplete = () => {
         setExploreEntityData(null);
     };
-    
+
 
 
     // Initial config and status fetching
     useEffect(() => {
         // Fetch config once on component mount
         fetchConfig();
-        
+    }, [fetchConfig]);
+
+    // BUG FIX: Set up status polling only when Graph RAG is enabled
+    //
+    // This useEffect hook controls the periodic polling of the ontology agent status.
+    // Previously, the polling happened unconditionally, causing continuous 404 errors
+    // when Graph RAG was disabled.
+    //
+    // Now we check graphRagEnabled and skip setting up the interval if it's false.
+    // The dependency array [graphRagEnabled, fetchAgentStatus] ensures that:
+    // - Polling starts if Graph RAG is enabled later
+    // - Polling stops if Graph RAG is disabled
+    useEffect(() => {
+        if (!graphRagEnabled) {
+            return;  // Skip polling when Graph RAG is disabled
+        }
+
         // Initial status check
         fetchAgentStatus();
 
@@ -98,7 +129,7 @@ export default function ExploreView() {
         return () => {
             clearInterval(statusInterval);
         };
-    }, [fetchConfig, fetchAgentStatus]);
+    }, [graphRagEnabled, fetchAgentStatus]);
 
     const isAgentActive = isAgentProcessing || isAgentEvaluating;
 
@@ -109,7 +140,7 @@ export default function ExploreView() {
                 <div className="absolute top-0 left-0 right-0 bg-blue-500 text-white px-4 py-2 text-center text-sm font-medium z-30">
                     <div className="flex items-center justify-center gap-4">
                         <span>
-                            Agent is currently {isAgentProcessing && isAgentEvaluating ? 'processing and evaluating' : 
+                            Agent is currently {isAgentProcessing && isAgentEvaluating ? 'processing and evaluating' :
                                               isAgentProcessing ? 'processing' : 'evaluating'} the ontology...
                         </span>
                         {isAgentProcessing && processingProgress.total > 0 && (
