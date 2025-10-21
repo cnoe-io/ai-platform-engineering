@@ -59,11 +59,11 @@ class WeatherAgent(BaseLangGraphAgent):
         """Initialize Weather agent."""
         self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
         self.mcp_api_url = os.getenv("WEATHER_MCP_API_URL")
-        
+
         # Defaults for HTTP transport mode
         if not self.mcp_api_url and self.mcp_mode != "stdio":
             self.mcp_api_url = "https://weather.outshift.io/mcp"
-        
+
         # Call parent constructor
         super().__init__()
 
@@ -86,7 +86,7 @@ class WeatherAgent(BaseLangGraphAgent):
     def get_mcp_config(self, server_path: str | None = None) -> Dict[str, Any]:
         """
         Return MCP configuration for stdio mode.
-        
+
         This is used when MCP_MODE is 'stdio' (default).
         """
         if self.mcp_mode != "stdio":
@@ -94,26 +94,26 @@ class WeatherAgent(BaseLangGraphAgent):
                 f"Weather agent in {self.mcp_mode} mode should use get_mcp_http_config(). "
                 "This method is only for stdio mode."
             )
-        
+
         logger.info("Using Docker-in-Docker for Weather MCP client")
-        
+
         # Prepare environment variables for Weather MCP server
         env_vars = []
-        
+
         # Add optional Weather host if provided
         weather_host = os.getenv("WEATHER_HOST")
         if weather_host:
             env_vars.extend(["-e", f"WEATHER_HOST={weather_host}"])
-        
+
         # Add toolsets configuration if provided
         toolsets = os.getenv("WEATHER_TOOLSETS")
         if toolsets:
             env_vars.extend(["-e", f"WEATHER_TOOLSETS={toolsets}"])
-        
+
         # Add dynamic toolsets if enabled
         if os.getenv("WEATHER_DYNAMIC_TOOLSETS"):
             env_vars.extend(["-e", "WEATHER_DYNAMIC_TOOLSETS=true"])
-        
+
         return {
             "weather": {
                 "command": "docker",

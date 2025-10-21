@@ -43,7 +43,7 @@ class WebexAgent(BaseLangGraphAgent):
         self.mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
         self.mcp_host = os.getenv("MCP_HOST")
         self.mcp_port = os.getenv("MCP_PORT")
-        
+
         # Call parent constructor
         super().__init__()
 
@@ -56,7 +56,7 @@ class WebexAgent(BaseLangGraphAgent):
         Return custom HTTP MCP configuration for Webex API if in HTTP mode.
         """
         if self.mcp_mode in ("http", "streamable_http") and self.mcp_host and self.mcp_port:
-            mcp_url = f"http://{self.mcp_host}:{self.mcp_port}"
+            mcp_url = f"http://{self.mcp_host}:{self.mcp_port}/mcp"
             logger.info(f"Using HTTP transport for Webex MCP: {mcp_url}")
             return {
                 "url": mcp_url,
@@ -67,7 +67,7 @@ class WebexAgent(BaseLangGraphAgent):
     def get_mcp_config(self, server_path: str | None = None) -> Dict[str, Any]:
         """
         Return MCP configuration for stdio mode.
-        
+
         This is used when MCP_MODE is 'stdio' (default).
         """
         if self.mcp_mode != "stdio":
@@ -75,18 +75,18 @@ class WebexAgent(BaseLangGraphAgent):
                 f"Webex agent in {self.mcp_mode} mode should use get_mcp_http_config(). "
                 "This method is only for stdio mode."
             )
-        
+
         logger.info("Using stdio for Webex MCP client")
-        
+
         # Get Webex token
         webex_token = os.getenv("WEBEX_TOKEN")
         if not webex_token:
             raise ValueError("WEBEX_TOKEN must be set as an environment variable.")
-        
+
         # Default server path if not provided
         if not server_path:
             server_path = "./mcp/mcp_server_webex/"
-        
+
         return {
             "webex": {
                 "command": "uv",
