@@ -1,0 +1,96 @@
+# Prompt Configuration Examples for AI Platform Engineering
+# =========================================================
+#
+# This file demonstrates different ways to configure prompt behavior
+# for the AI Platform Engineering orchestrator.
+
+# ============================================
+# Example 1: Use Default Configuration
+# ============================================
+# Balanced orchestrator for general use
+# Recommended for: Development, testing, general platform operations
+#
+# Uncomment to use:
+# promptConfigType: "default"
+
+# ============================================
+# Example 2: Use Deep Agent Configuration
+# ============================================
+# Strict zero-hallucination mode with enhanced provenance
+# Recommended for: Production, compliance, mission-critical systems
+#
+# Uncomment to use:
+# promptConfigType: "deep_agent"
+
+# ============================================
+# Example 3: Custom Prompt Configuration
+# ============================================
+# Provide your own custom agent configuration
+# This overrides promptConfigType if both are set
+#
+# Uncomment and customize to use:
+# promptConfig: |
+#   agent_name: "My Custom Platform Agent"
+#   agent_description: |
+#     Custom agent description for specialized use cases.
+#     This agent is configured for specific organizational needs.
+#
+#   system_prompt_template: |
+#     ## ROLE
+#     You are a custom platform engineer configured for specific tasks.
+#
+#     ## BEHAVIORAL CONSTRAINTS
+#     - Define your custom behavioral rules here
+#     - Set tool interaction policies
+#     - Establish response formatting standards
+#
+#     {tool_instructions}
+#
+#   agent_prompts:
+#     argocd:
+#       system_prompt: "Custom ArgoCD operations routing"
+#     aws:
+#       system_prompt: "Custom AWS operations routing"
+#     backstage:
+#       system_prompt: "Custom Backstage operations routing"
+#     github:
+#       system_prompt: "Custom GitHub operations routing"
+#     jira:
+#       system_prompt: "Custom Jira operations routing"
+#     pagerduty:
+#       system_prompt: "Custom PagerDuty operations routing"
+#     slack:
+#       system_prompt: "Custom Slack operations routing"
+#     splunk:
+#       system_prompt: "Custom Splunk operations routing"
+#     komodor:
+#       system_prompt: "Custom Komodor operations routing"
+#     webex:
+#       system_prompt: "Custom Webex operations routing"
+#     rag:
+#       system_prompt: |
+#         Custom RAG knowledge base routing and response synthesis.
+#
+#   agent_skill_examples:
+#     general:
+#       - "Custom skill example 1"
+#       - "Custom skill example 2"
+#     argocd:
+#       - "Custom ArgoCD skill"
+
+# ============================================
+# Quick Start Examples
+# ============================================
+#
+# Deploy with default configuration:
+#   helm install ai-platform . --set promptConfigType=default
+#
+# Deploy with deep agent configuration:
+#   helm install ai-platform . --set promptConfigType=deep_agent
+#
+# Deploy with this examples file:
+#   helm install ai-platform . --values values-prompt-examples.yaml
+
+# Default: Use standard configuration
+promptConfigType: "default"
+
