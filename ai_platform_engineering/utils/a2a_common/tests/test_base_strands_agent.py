@@ -4,7 +4,7 @@
 """Tests for BaseStrandsAgent."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from typing import List, Tuple
 
 from ai_platform_engineering.utils.a2a_common.base_strands_agent import BaseStrandsAgent

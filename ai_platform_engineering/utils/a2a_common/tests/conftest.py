@@ -5,7 +5,6 @@
 
 import pytest
 from unittest.mock import Mock, MagicMock
-from typing import List, Tuple
 
 
 @pytest.fixture

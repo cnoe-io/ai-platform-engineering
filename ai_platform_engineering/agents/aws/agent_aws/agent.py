@@ -51,7 +51,6 @@ class AWSAgent(BaseStrandsAgent):
         # Check which capabilities are enabled
         enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
         enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
-        enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "true").lower() == "true"
         enable_terraform_mcp = os.getenv("ENABLE_TERRAFORM_MCP", "false").lower() == "true"
         enable_aws_documentation_mcp = os.getenv("ENABLE_AWS_DOCUMENTATION_MCP", "false").lower() == "true"
         enable_cloudtrail_mcp = os.getenv("ENABLE_CLOUDTRAIL_MCP", "false").lower() == "true"
@@ -222,7 +221,12 @@ class AWSAgent(BaseStrandsAgent):
         enable_cdk_mcp = os.getenv("ENABLE_CDK_MCP", "false").lower() == "true"
         enable_aws_knowledge_mcp = os.getenv("ENABLE_AWS_KNOWLEDGE_MCP", "false").lower() == "true"
 
-        logger.info(f"MCP Configuration - EKS: {enable_eks_mcp}, Cost Explorer: {enable_cost_explorer_mcp}, IAM: {enable_iam_mcp}, Terraform: {enable_terraform_mcp}, AWS Docs: {enable_aws_documentation_mcp}, CloudTrail: {enable_cloudtrail_mcp}, CloudWatch: {enable_cloudwatch_mcp}, Postgres: {enable_postgres_mcp}, AWS Support: {enable_aws_support_mcp}, CDK: {enable_cdk_mcp}, AWS Knowledge: {enable_aws_knowledge_mcp}")
+        logger.info(
+            f"MCP Configuration - EKS: {enable_eks_mcp}, Cost Explorer: {enable_cost_explorer_mcp}, IAM: {enable_iam_mcp}, "
+            f"Terraform: {enable_terraform_mcp}, AWS Docs: {enable_aws_documentation_mcp}, CloudTrail: {enable_cloudtrail_mcp}, "
+            f"CloudWatch: {enable_cloudwatch_mcp}, Postgres: {enable_postgres_mcp}, AWS Support: {enable_aws_support_mcp}, "
+            f"CDK: {enable_cdk_mcp}, AWS Knowledge: {enable_aws_knowledge_mcp}"
+        )
 
         env_vars = {
             "AWS_REGION": os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-west-2")),

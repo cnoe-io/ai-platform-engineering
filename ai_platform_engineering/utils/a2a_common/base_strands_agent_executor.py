@@ -3,9 +3,7 @@
 
 """Base executor class for Strands-based agents with A2A protocol support."""
 
-import asyncio
 import logging
-from typing import Any
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
@@ -67,7 +65,6 @@ class BaseStrandsAgentExecutor(AgentExecutor):
 
         query = context.get_user_input()
         task = context.current_task
-        context_id = context.message.contextId if context.message else None
 
         if not context.message:
             raise Exception('No message provided')
