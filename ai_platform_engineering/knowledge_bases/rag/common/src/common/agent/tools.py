@@ -33,10 +33,10 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
     """
     Search for relevant documents and graph entities using semantic search in the vector databases.
     The scores for graph entity and documents are separate
-    
+
     Args:
         query (str): The search query
-        graph_entity_type (str): (Optional) Filter for the type of graph entity to search, doesnt affect documents 
+        graph_entity_type (str): (Optional) Filter for the type of graph entity to search, doesnt affect documents
         limit (int): Maximum number of results to return (default: 5)
         similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
         thought (str): Your thoughts for choosing this tool
@@ -45,7 +45,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
         str: JSON encoded search results containing both documents and graph entities
     """
     logger.info(f"Search query: {query}, Limit: {limit}, Similarity Threshold: {similarity_threshold}, graph_entity_type: {graph_entity_type}, datasource_id: {datasource_id}, Thought: {thought}")
-    
+
     try:
         # Prepare the request payload for the REST API
         api_payload = {
@@ -55,7 +55,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
             "graph_entity_type": graph_entity_type if graph_entity_type else None,
             "datasource_id": datasource_id if datasource_id else None,
         }
-        
+
         # Call the query endpoint
         async with httpx.AsyncClient() as client:
             response = await client.post(server_url + "/v1/query",
@@ -64,17 +64,30 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
             )
             response.raise_for_status()
             api_results = response.json()
-        
+
         # Transform API response to match the expected format
+        #
+        # BUG FIX: Changed from api_results.get("results_docs", []) to api_results.get("results", [])
+        #
+        # The RAG server API returns document results in a "results" array, not "results_docs".
+        # Previously, this code was looking for "results_docs" which doesn't exist in the API response,
+        # causing the agent to always return 0 results even when the RAG server found matching documents.
+        #
+        # API Response Structure:
+        # {
+        #   "query": "...",
+        #   "results": [{"document": {...}, "score": 0.95}, ...],      # ← Document results
+        #   "results_graph": [{"document": {...}, "score": 0.90}, ...] # ← Graph entity results (when Graph RAG enabled)
+        # }
         doc_results = []
-        for result in api_results.get("results_docs", []):
+        for result in api_results.get("results", []):  # Fixed: was "results_docs"
             doc_results.append({
                 "type": "document",
                 "content": result["document"]["page_content"],
                 "metadata": result["document"]["metadata"],
                 "score": result["score"]
             })
-        
+
         graph_results = []
         for result in api_results.get("results_graph", []):
             graph_results.append({
@@ -83,7 +96,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
                 "metadata": result["document"]["metadata"],
                 "score": result["score"]
             })
-        
+
         if graph_rag_enabled:
             results = {
                 "query": query,
@@ -236,7 +249,7 @@ async def graph_check_if_ontology_generated(thought: str) -> str:
         relation = await ontology_graphdb.find_relations(None, None, None, {
             HEURISTICS_VERSION_ID_KEY: heuristics_version_id
         }, 1)
-        
+
         if len(relation) > 0:
             return "true"
 
@@ -278,17 +291,17 @@ async def graph_get_relation_path_between_entity_types(entity_type_1: str, entit
         )
         if not paths:
             return "none"
-        
+
         # Convert paths to cypher notation
         relation_paths = []
         for entities, relations in paths:
             cypher_path_parts = []
-            
+
             # Iterate through entities and relations to build the path
             for i, entity in enumerate(entities):
                 # Add entity type in parentheses
                 cypher_path_parts.append(f"({entity.entity_type})")
-                
+
                 # Add relation in brackets (except for the last entity)
                 if i < len(relations):
                     relation = relations[i]
@@ -298,7 +311,7 @@ async def graph_get_relation_path_between_entity_types(entity_type_1: str, entit
                         # discard the path if any relation is not applied
                         cypher_path_parts = []
                         break
-                    
+
                     # check the direction of the relation
                     if relation.from_entity.entity_type == entity.entity_type:
                         cypher_path_parts.append(f"-[{relation.relation_name}]->")
@@ -341,13 +354,13 @@ async def graph_raw_query(query: str, thought: str) -> str:
         if "warning" in notifications.lower() or "error" in notifications.lower():
             logger.warning(f"Query returned warnings/errors: {notifications}")
             return f"Query has warnings/errors, PLEASE FIX your query: {notifications}"
-        
+
         # Check the size of the results, if too large return an error message instead
         tokens = count_tokens_approximately(results)
         if tokens > MAX_QUERY_TOKENS:
             logger.warning(f"Raw query result is too large ({tokens} tokens), returning error message instead.")
             return "Raw query result is too large, please refine your query to return less data. Try to search for specific entities or properties, or use filters to narrow down the results, or use other tools"
-        
+
         output = {
             "results" : results,
             "notifications": notifications
