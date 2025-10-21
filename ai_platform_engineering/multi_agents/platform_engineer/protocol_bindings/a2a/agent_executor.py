@@ -240,6 +240,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             # Stream chunks from sub-agent
             accumulated_text = []
             chunk_count = 0
+            first_artifact_sent = False  # Track if we've sent the initial artifact
             async for response_wrapper in client.send_message_streaming(streaming_request):
                 chunk_count += 1
                 wrapper_type = type(response_wrapper).__name__
@@ -270,11 +271,20 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             logger.info(f"📝 Extracted {len(combined_text)} chars from artifact")
                             accumulated_text.append(combined_text)
 
+                            # A2A protocol: first artifact must have append=False to create it
+                            # Subsequent artifacts use append=True to append to existing artifact
+                            use_append = first_artifact_sent
+                            if not first_artifact_sent:
+                                first_artifact_sent = True
+                                logger.info(f"📝 Sending FIRST artifact (append=False) to create artifact")
+                            else:
+                                logger.info(f"📝 Appending to existing artifact (append=True)")
+
                             # Forward chunk immediately to client (streaming!)
                             await self._safe_enqueue_event(
                                 event_queue,
                                 TaskArtifactUpdateEvent(
-                                    append=True,  # ← Key: append mode for streaming
+                                    append=use_append,  # First: False (create), subsequent: True (append)
                                     context_id=task.context_id,
                                     task_id=task.id,
                                     lastChunk=False,
@@ -310,11 +320,19 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             logger.info(f"📝 Extracted {len(combined_text)} chars from status message")
                             accumulated_text.append(combined_text)
 
+                            # A2A protocol: first artifact must have append=False to create it
+                            use_append = first_artifact_sent
+                            if not first_artifact_sent:
+                                first_artifact_sent = True
+                                logger.info(f"📝 Sending FIRST artifact (append=False) from status message")
+                            else:
+                                logger.info(f"📝 Appending status content to artifact (append=True)")
+
                             # Forward status message content to client
                             await self._safe_enqueue_event(
                                 event_queue,
                                 TaskArtifactUpdateEvent(
-                                    append=True,
+                                    append=use_append,  # First: False (create), subsequent: True (append)
                                     context_id=task.context_id,
                                     task_id=task.id,
                                     lastChunk=False,
