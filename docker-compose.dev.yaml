@@ -8,7 +8,7 @@ services:
       dockerfile: build/Dockerfile
     container_name: platform-engineer-p2p
     volumes:
-      - ./prompt_config.deeyaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
     profiles:
       - p2p
