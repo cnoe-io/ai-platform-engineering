@@ -10,12 +10,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy the entire project structure first since uv sync needs it to build
-COPY --chown=root:root . /app/
+# Copy only the necessary directories for the backstage agent
+COPY --chown=root:root utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root agents/backstage /app/ai_platform_engineering/agents/backstage/
+
+# Set working directory to the backstage agent
+WORKDIR /app/ai_platform_engineering/agents/backstage
 
 # Install dependencies into venv (no dev deps)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev
+    uv sync --no-dev
 
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
@@ -28,15 +32,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
-WORKDIR /app
+WORKDIR /app/ai_platform_engineering/agents/backstage
 
 # Set env vars for uv & PATH
-ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
-    PATH="/app/.venv/bin:${PATH}" \
+ENV UV_PROJECT_ENVIRONMENT=/app/ai_platform_engineering/agents/backstage/.venv \
+    PATH="/app/ai_platform_engineering/agents/backstage/.venv/bin:${PATH}" \
+    PYTHONPATH="/app:${PYTHONPATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Copy venv & code from builder
+# Copy venv & code from builder (maintain directory structure)
 COPY --from=builder --chown=appuser:appuser /app /app
 
 USER appuser
