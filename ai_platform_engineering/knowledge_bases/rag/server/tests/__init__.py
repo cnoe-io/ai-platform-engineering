@@ -1,1 +1,1 @@
-# Test package for RAG server
+# End-to-End tests for RAG Server
