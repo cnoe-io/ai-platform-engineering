@@ -4,11 +4,9 @@
 """Base agent class for Strands-based agents with A2A protocol support."""
 
 import logging
-import os
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, Tuple
 
-from mcp import stdio_client, StdioServerParameters
 from strands import Agent
 from strands.tools.mcp import MCPClient
 

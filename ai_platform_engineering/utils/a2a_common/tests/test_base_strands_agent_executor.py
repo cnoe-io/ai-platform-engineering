@@ -5,7 +5,7 @@
 
 import pytest
 import asyncio
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import Mock, AsyncMock
 
 from ai_platform_engineering.utils.a2a_common.base_strands_agent_executor import BaseStrandsAgentExecutor
 from ai_platform_engineering.utils.a2a_common.base_strands_agent import BaseStrandsAgent
