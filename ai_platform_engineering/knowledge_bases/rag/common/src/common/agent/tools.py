@@ -65,20 +65,6 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
             response.raise_for_status()
             api_results = response.json()
 
-        # Transform API response to match the expected format
-        #
-        # BUG FIX: Changed from api_results.get("results_docs", []) to api_results.get("results", [])
-        #
-        # The RAG server API returns document results in a "results" array, not "results_docs".
-        # Previously, this code was looking for "results_docs" which doesn't exist in the API response,
-        # causing the agent to always return 0 results even when the RAG server found matching documents.
-        #
-        # API Response Structure:
-        # {
-        #   "query": "...",
-        #   "results": [{"document": {...}, "score": 0.95}, ...],      # ← Document results
-        #   "results_graph": [{"document": {...}, "score": 0.90}, ...] # ← Graph entity results (when Graph RAG enabled)
-        # }
         doc_results = []
         for result in api_results.get("results", []):  # Fixed: was "results_docs"
             doc_results.append({

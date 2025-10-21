@@ -345,7 +345,7 @@ export default function DataGraph({ isLoading, error, exploreEntityData, onExplo
             <div className="w-full h-full flex flex-col p-5">
                 <div className="flex justify-end items-center mb-4 gap-2">
                     <button
-                        className="btn"
+                        className="btn bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white"
                         disabled={isLoading}
                         onClick={fetchEntityTypes}
                         title="Refresh Data View">
@@ -440,14 +440,14 @@ export default function DataGraph({ isLoading, error, exploreEntityData, onExplo
                                 <button
                                     onClick={handleExploreEntity}
                                     disabled={!entityPrimaryKey.trim() || !selectedEntityType.trim() || isSearching}
-                                    className="btn bg-blue-500 hover:bg-blue-600 text-white disabled:bg-gray-400"
+                                    className="btn bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white disabled:bg-gray-400"
                                     title="Explore Data">
                                     {isSearching ? 'Exploring...' : 'Explore'}
                                 </button>
                                 {exploredEntity && (
                                     <button
                                         onClick={handleClearExploration}
-                                        className="btn bg-gray-500 hover:bg-gray-600 text-white"
+                                        className="btn bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white text-white"
                                         title="Clear Exploration">
                                         Clear
                                     </button>

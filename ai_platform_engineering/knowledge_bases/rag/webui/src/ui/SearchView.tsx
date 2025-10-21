@@ -67,9 +67,9 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     const handleExploreClick = (metadata: Record<string, unknown>) => {
         console.log('Explore clicked', metadata);
         
-        // Extract entity information from metadata
-        const entityType = metadata.entity_type as string;
-        const primaryKey = metadata.entity_primary_key as string;
+        // Extract entity information from metadata - using the correct keys
+        const entityType = metadata.graph_entity_type as string || metadata.entity_type as string;
+        const primaryKey = metadata.graph_entity_primary_key as string || metadata.entity_primary_key as string;
         
         if (entityType && primaryKey) {
             if (onExploreEntity) {
@@ -80,6 +80,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
             }
         } else {
             console.warn('Missing entity_type or primary_key in metadata:', metadata);
+            console.warn('Available keys:', Object.keys(metadata));
             alert('Cannot explore: Missing entity information in metadata');
         }
     };
@@ -164,7 +165,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         <button 
                             onClick={handleQuery} 
                             disabled={!query || loadingQuery}
-                            className="px-6 py-2 bg-brand-600 text-white rounded-md hover:bg-brand-700 transition-colors disabled:bg-gray-400"
+                            className="px-6 py-2 btn bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white rounded-md transition-colors disabled:bg-gray-400"
                         >
                             {loadingQuery ? 'Searching…' : 'Search'}
                         </button>
@@ -323,11 +324,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                 return (
                                     <li 
                                         key={i} 
-                                        className={`rounded-lg p-3 shadow-sm cursor-pointer mr-2 max-w-full overflow-hidden ${
-                                            isGraphEntity 
-                                                ? 'border border-blue-200 bg-blue-50' 
-                                                : 'border border-slate-200 bg-white'
-                                        }`}
+                                        className={`rounded-lg p-3 shadow-sm cursor-pointer mr-2 max-w-full overflow-hidden border border-slate-200 bg-white`}
                                         onClick={() => toggleResult(i)}
                                     >
                                         {isExpanded ? (
@@ -343,7 +340,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                                 )}
                                                 <div className="flex items-center gap-2 flex-shrink-0">
                                                     <span className={`text-xs font-mono flex-shrink-0 ${
-                                                        isGraphEntity ? 'text-blue-500' : 'text-slate-500'
+                                                        isGraphEntity ? 'text-brand-500' : 'text-slate-500'
                                                     }`}>
                                                         {r.score.toFixed(3)}
                                                     </span>
@@ -353,7 +350,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                                                 e.stopPropagation();
                                                                 handleExploreClick(r.document.metadata!)
                                                             }}
-                                                            className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 transition-colors"
+                                                            className="px-2 py-1 btn text-white rounded text-xs hover:bg-brand-400 transition-colors"
                                                         >
                                                             Explore
                                                         </button>

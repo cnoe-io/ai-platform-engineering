@@ -58,7 +58,7 @@ export default function App() {
 						onClick={() => setActiveTab('ingest')}
 						className={`shrink-0 border-b-2 px-1 pb-4 text-lg font-medium ${
 							activeTab === 'ingest'
-								? 'border-sky-500 text-sky-600'
+								? 'border-brand-500 text-brand-600'
 								: 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
 						}`}>
 						🗃️ Ingest
@@ -67,7 +67,7 @@ export default function App() {
 						onClick={() => setActiveTab('explore')}
 						className={`shrink-0 border-b-2 px-1 pb-4 text-lg font-medium ${
 							activeTab === 'explore'
-								? 'border-sky-500 text-sky-600'
+								? 'border-brand-500 text-brand-600'
 								: 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
 						}`}>
 						🔍︎ Explore

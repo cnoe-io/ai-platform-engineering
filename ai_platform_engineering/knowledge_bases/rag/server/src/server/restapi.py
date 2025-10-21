@@ -113,19 +113,6 @@ async def app_lifespan(app: FastAPI):
         enable_dynamic_field=True, # allow for dynamic metadata fields
     )
 
-    # Ensure Milvus collection is loaded (warm-up after restarts)
-    try:
-        from pymilvus import connections, utility
-        connections.connect(uri=milvus_uri)
-        if utility.has_collection(default_collection_name_docs):
-            utility.load_collection(default_collection_name_docs)
-            logger.info(f"✓ Milvus collection '{default_collection_name_docs}' loaded successfully")
-        else:
-            logger.info(f"Collection '{default_collection_name_docs}' does not exist yet (will be created on first ingestion)")
-        connections.disconnect("default")
-    except Exception as e:
-        logger.warning(f"Could not pre-load Milvus collection: {e}")
-
     vector_db_query_service = VectorDBQueryService(vector_db=vector_db)
 
     if graph_rag_enabled:
@@ -193,18 +180,6 @@ else:
 @app.delete("/v1/datasource/delete", status_code=status.HTTP_200_OK)
 async def delete_datasource(datasource_id: str):
     """Delete datasource from vector storage and metadata."""
-    # BUG FIX: Removed data_graph_db from initialization check
-    #
-    # Previously: if not vector_db or not metadata_storage or not data_graph_db or not jobmanager:
-    #
-    # The data_graph_db is only initialized when Graph RAG is enabled (ENABLE_GRAPH_RAG=true).
-    # When Graph RAG is disabled, data_graph_db remains None, causing all delete operations to fail
-    # with "Server not initialized" error even though the required components (vector_db,
-    # metadata_storage, jobmanager) are available.
-    #
-    # This fix allows datasource deletion to work regardless of Graph RAG configuration,
-    # since the delete operation only requires access to vector storage and metadata,
-    # not the graph database.
     if not vector_db or not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
     # Fetch datasource info
@@ -573,33 +548,19 @@ async def get_rag_prompt_endpoint():
 
 @app.get("/healthz")
 async def health_check():
-    """Health check endpoint with vector store queryability verification."""
+    """Health check endpoint."""
     health_status = "healthy"
     health_details = {}
 
     # Check if services are initialized
-    if not metadata_storage or not vector_db or not jobmanager or not redis_client or (graph_rag_enabled and (not data_graph_db or not ontology_graph_db)):
+    if not metadata_storage or \
+        not vector_db or \
+        not jobmanager or \
+        not redis_client or \
+        (graph_rag_enabled and (not data_graph_db or not ontology_graph_db)):
         health_status = "unhealthy"
         health_details["error"] = "One or more services are not initialized"
         logger.error("healthz: One or more services are not initialized")
-    else:
-        # Verify vector store is actually queryable by performing a test search
-        try:
-            # Try a simple query to ensure the vector store connection is working
-            # This catches the "warm-up period" issue after Milvus restarts
-            test_results = await vector_db.asimilarity_search_with_score(
-                "health check test query",
-                k=1,
-                ranker_type="weighted",
-                ranker_params={"weights": [0.7, 0.3]}
-            )
-            health_details["vector_store_queryable"] = True
-            health_details["vector_store_test_results_count"] = len(test_results)
-        except Exception as e:
-            health_status = "unhealthy"
-            health_details["vector_store_queryable"] = False
-            health_details["vector_store_error"] = str(e)
-            logger.error(f"healthz: Vector store not queryable: {e}")
 
     config = {
             "graph_rag_enabled": graph_rag_enabled,
@@ -727,6 +688,7 @@ async def run_graph_entity_ingestion(connector_name: str, entity_type: str, enti
         entity_properties = entity.get_external_properties()
         entity_properties["entity_type"] = entity.entity_type
         entity_text = utils.json_encode(entity_properties)
+        global_id = f"{entity_type}_{primary_key}" # create a global id for the entity document which includes the entity type
         document = Document(
             page_content=entity_text,
             metadata=VectorDBGraphMetadata(
@@ -734,7 +696,7 @@ async def run_graph_entity_ingestion(connector_name: str, entity_type: str, enti
                 chunk_index=0,
                 total_chunks=1,
                 datasource_id=connector_id, # use connector_id as datasource_id
-                id=primary_key,
+                id=global_id,
                 graph_entity_hash=entity_hash,
                 graph_connector_id=connector_id,
                 graph_entity_type=entity.entity_type,

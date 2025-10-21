@@ -409,7 +409,7 @@ export default function OntologyGraph({
             {/* --- Toggle Button --- */}
             <button 
                 onClick={() => setIsPanelOpen(!isPanelOpen)} 
-                className={`absolute top-4 left-4 btn btn-sm z-20 ${focusedNodeId ? 'disabled:bg-gray-400 disabled:cursor-not-allowed' : ''}`}
+                className={`absolute top-4 left-4 btn btn-sm z-20 bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white ${focusedNodeId ? 'disabled:bg-gray-400 disabled:cursor-not-allowed' : ''}`}
                 disabled={!!focusedNodeId}
                 title={focusedNodeId ? "Filters are disabled when focusing on a specific node" : "Open filters panel"}
             >
@@ -521,24 +521,24 @@ export default function OntologyGraph({
                     {focusedNodeId && (
                         <button
                             onClick={handleClearFocus}
-                            className="btn bg-orange-500 hover:bg-orange-600 text-white"
+                            className="btn bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white"
                             title="Clear node focus and show all filtered nodes">
                             Clear Focus
                         </button>
                     )}
                     <button
                         onClick={() => setShowClearConfirm(true)}
-                        className="btn bg-red-500 hover:bg-red-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        className="btn bg-red-500 hover:bg-red-600 active:bg-red-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
                         disabled={isLoading || isAgentActive}
                         title={isAgentActive ? "Agent is currently active - please wait" : "Clear all ontology data"}>
                         Clear
                     </button>
                     <button
                         onClick={() => setShowRegenerateConfirm(true)}
-                        className="btn bg-yellow-500 hover:bg-yellow-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        className="btn bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
                         disabled={isLoading || isAgentActive}
-                        title={isAgentActive ? "Agent is currently active - please wait" : nodes.length === 0 ? "Detect Ontology" : "Re-Detect the Ontology"}>
-                        {isLoading ? 'Processing...' : nodes.length === 0 ? 'Detect Ontology' : 'Re-detect Ontology'}
+                        title={isAgentActive ? "Agent is currently active - please wait" : nodes.length === 0 ? "Analyse Ontology" : "Re-analyse the Ontology"}>
+                        {isLoading ? 'Processing...' : nodes.length === 0 ? 'Analyse Ontology' : 'Re-analyse'}
                     </button>
                 </div>
                 {error && <p className="text-red-500 mt-2">{error}</p>}
@@ -659,12 +659,12 @@ export default function OntologyGraph({
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
                         <h3 className="text-lg font-bold text-gray-900 mb-4">
-                            {nodes.length === 0 ? 'Detect Ontology' : 'Re-detect Ontology'}
+                            {nodes.length === 0 ? 'Analyse Ontology' : 'Re-analyse Ontology'}
                         </h3>
                         <p className="text-gray-600 mb-6">
                             {nodes.length === 0 
-                                ? 'This will detect and create relations between entities by analyzing the graph data and inferring relationships. This process may take some time.'
-                                : 'This will detect and re-create relations between entities by analyzing the graph data and inferring relationships. Existing relations will be updated. This process may take some time.'
+                                ? 'This will analyse and create relations between entities by analyzing the graph data and inferring relationships. This process may take some time.'
+                                : 'This will analyse and re-create relations between entities by analyzing the graph data and inferring relationships. Existing relations will be updated. This process may take some time.'
                             }
                         </p>
                         <div className="flex justify-end gap-3">
@@ -676,7 +676,7 @@ export default function OntologyGraph({
                             <button
                                 onClick={handleRegenerateConfirm}
                                 className="btn bg-yellow-500 hover:bg-yellow-600 text-white">
-                                {nodes.length === 0 ? 'Detect' : 'Re-detect'} Ontology
+                                {nodes.length === 0 ? 'Analyse' : 'Re-analyse'} Ontology
                             </button>
                         </div>
                     </div>
