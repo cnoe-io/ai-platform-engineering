@@ -16,6 +16,7 @@ from a2a.types import (
     SendStreamingMessageRequest,
     MessageSendParams,
     TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
+    TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
 )
 
 from langchain_core.tools import BaseTool
@@ -203,26 +204,61 @@ class A2ARemoteAgentConnectTool(BaseTool):
             except Exception:
                 chunk_dump = str(chunk)
 
-            logger.info(f"Received A2A stream chunk: {chunk_dump}")
+            logger.debug(f"Received A2A stream chunk: {chunk_dump}")
             writer({"type": "a2a_event", "data": chunk_dump})
 
             try:
-                if isinstance(chunk, A2ATaskArtifactUpdateEvent):
-                    art = chunk.artifact
-                    if getattr(art, "parts", None):
-                        for part in art.parts:
-                            root = getattr(part, "root", None)
-                            text = getattr(root, "text", None) if root is not None else None
-                            if text:
-                                accumulated_text.append(text)
+                # The chunk is a SendStreamingMessageResponse Pydantic object
+                # The actual event data is in chunk.model_dump()['result']
+                # We already dumped it above as chunk_dump
+                result = chunk_dump.get('result') if isinstance(chunk_dump, dict) else None
+                if not result:
+                    logger.debug("No result in chunk, skipping")
+                    continue
+
+                # Get event kind
+                kind = result.get('kind')
+                if not kind:
+                    logger.debug("No kind in result, skipping")
+                    continue
+
+                # Extract text from artifact-update events
+                if kind == "artifact-update":
+                    artifact = result.get('artifact')
+                    if artifact and isinstance(artifact, dict):
+                        parts = artifact.get('parts', [])
+                        for part in parts:
+                            if isinstance(part, dict):
+                                text = part.get('text')
+                                if text:
+                                    accumulated_text.append(text)
+                                    logger.debug(f"✅ Accumulated text from artifact-update: {len(text)} chars")
+
+                # Extract text from status-update events (RAG agent streams via status messages)
+                elif kind == "status-update":
+                    status = result.get('status')
+                    if status and isinstance(status, dict):
+                        message = status.get('message')
+                        if message and isinstance(message, dict):
+                            parts = message.get('parts', [])
+                            for part in parts:
+                                if isinstance(part, dict):
+                                    text = part.get('text')
+                                    if text and not text.startswith(('🔧', '✅', '❌', '🔍')):
+                                        accumulated_text.append(text)
+                                        logger.debug(f"✅ Accumulated text from status-update: {len(text)} chars")
             except Exception as e:
                 logger.warning(f"Non-fatal error while handling stream chunk: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
 
-        final_response = " ".join(accumulated_text).strip()
+        # Concatenate tokens without adding extra spaces (tokens already include spaces)
+        final_response = "".join(accumulated_text).strip()
         if not final_response:
             logger.info("No accumulated artifact text; falling back to non-streaming send_message to get result.")
             final_response = await self.send_message(prompt, trace_id)
 
+        logger.info(f"Accumulated {len(accumulated_text)} tokens into {len(final_response)} char response")
         return Output(response=final_response)
 
     except Exception as e:
@@ -276,6 +312,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
       Tries multiple locations in order:
       1. artifacts[].parts[].root.text (for agents that return artifacts)
       2. status.message.parts[].root.text (for agents that return status messages)
+      3. history[] - last agent message (for agents that use message history)
       """
       texts = []
 
@@ -333,8 +370,44 @@ class A2ARemoteAgentConnectTool(BaseTool):
                     texts.append(text)
                     logging.info(f"Extracted text from status.message.part.text: {text[:100]}...")
 
+        # If still no texts found, try extracting from history (last agent message)
         if not texts:
-          logging.warning("No text found in either artifacts or status.message")
+          logging.info("No texts in artifacts or status.message, attempting to extract from history...")
+          history = getattr(result, 'history', None)
+          if history and isinstance(history, list):
+            logging.info(f"Found history with {len(history)} messages")
+            # Get the last agent message (reverse order to find most recent)
+            for message in reversed(history):
+              role = getattr(message, 'role', None)
+              # Look for agent messages (skip user messages and tool messages)
+              if role and str(role) == 'Role.agent':
+                parts = getattr(message, 'parts', None)
+                if parts:
+                  logging.info(f"Found {len(parts)} parts in last agent message from history")
+                  for part in parts:
+                    # Try to get the root attribute (for Part objects with TextPart inside)
+                    root = getattr(part, 'root', None)
+                    if root:
+                      text = getattr(root, 'text', None)
+                      if text:
+                        # Skip tool status messages (🔧, ✅)
+                        if not text.startswith('🔧') and not text.startswith('✅'):
+                          texts.append(text)
+                          logging.info(f"Extracted text from history.message.part.root.text: {text[:100]}...")
+
+                    # Fallback: check if part itself has text (for direct text parts)
+                    if not root:
+                      text = getattr(part, 'text', None)
+                      if text and not text.startswith('🔧') and not text.startswith('✅'):
+                        texts.append(text)
+                        logging.info(f"Extracted text from history.message.part.text: {text[:100]}...")
+
+                # If we found texts in this agent message, stop looking
+                if texts:
+                  break
+
+        if not texts:
+          logging.warning("No text found in artifacts, status.message, or history")
           logging.warning(f"Result structure: artifacts={artifacts}, status={getattr(result, 'status', None)}")
 
       except Exception as e:

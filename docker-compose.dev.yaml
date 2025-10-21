@@ -1286,6 +1286,8 @@ services:
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/agent_rag/src:/app/agent_rag/src
       - ./ai_platform_engineering/knowledge_bases/rag/common:/app/common
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+      - ./ai_platform_engineering/__init__.py:/app/ai_platform_engineering/__init__.py
     env_file:
       - .env
     environment:
@@ -1297,6 +1299,7 @@ services:
         NEO4J_PASSWORD: dummy_password
         RAG_SERVER_URL: http://rag_server:9446
         ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-false}
+        PYTHONPATH: /app
     restart: unless-stopped
     depends_on:
       neo4j:
@@ -1314,8 +1317,8 @@ services:
       retries: 5
       start_period: 30s
     build:
-      context: ai_platform_engineering/knowledge_bases/rag
-      dockerfile: ./build/Dockerfile.agent-rag
+      context: ai_platform_engineering
+      dockerfile: knowledge_bases/rag/build/Dockerfile.agent-rag
     profiles:
       - rag_p2p
       - rag_no_graph_p2p

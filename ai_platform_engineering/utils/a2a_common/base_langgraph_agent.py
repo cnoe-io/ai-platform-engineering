@@ -9,7 +9,14 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
 from typing import Any, Dict
 
-from langchain_mcp_adapters.client import MultiServerMCPClient
+# Make MCP optional - some agents (like RAG) don't use MCP
+try:
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+    MCP_AVAILABLE = True
+except ImportError:
+    MultiServerMCPClient = None
+    MCP_AVAILABLE = False
+
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langchain_core.runnables.config import RunnableConfig
 from cnoe_agent_utils import LLMFactory
@@ -21,6 +28,9 @@ from langgraph.prebuilt import create_react_agent
 
 
 logger = logging.getLogger(__name__)
+
+if not MCP_AVAILABLE:
+    logger.warning("langchain_mcp_adapters not available - MCP functionality will be disabled for agents using this base class")
 
 # Reduce verbosity of third-party libraries
 # Set this early before any imports use these loggers
@@ -145,6 +155,13 @@ class BaseLangGraphAgent(ABC):
         Args:
             config: Runnable configuration with server_path
         """
+        # Check if MCP is available
+        if not MCP_AVAILABLE:
+            raise RuntimeError(
+                f"MCP functionality not available for {self.get_agent_name()} agent. "
+                "Please install langchain_mcp_adapters or use an agent that doesn't require MCP."
+            )
+        
         args = config.get("configurable", {})
         server_path = args.get("server_path", f"./mcp/mcp_{self.get_agent_name()}/server.py")
         agent_name = self.get_agent_name()
@@ -391,7 +408,7 @@ class BaseLangGraphAgent(ABC):
                         yield {
                             'is_task_complete': False,
                             'require_user_input': False,
-                            'content': f"🔧 Calling tool: **{tool_name}**",
+                            'content': f"🔧 Calling tool: **{tool_name}**\n",
                         }
 
                 elif isinstance(message, ToolMessage):
@@ -413,7 +430,7 @@ class BaseLangGraphAgent(ABC):
                     yield {
                         'is_task_complete': False,
                         'require_user_input': False,
-                        'content': f"{icon} Tool **{tool_name}** {status}",
+                        'content': f"{icon} Tool **{tool_name}** {status}\n",
                     }
 
                 else:

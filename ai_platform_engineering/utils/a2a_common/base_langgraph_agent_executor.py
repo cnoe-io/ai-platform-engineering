@@ -153,7 +153,7 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                     # AI response content: accumulate for final artifact
                     if content:
                         accumulated_content.append(content)
-                        logger.info(f"{agent_name}: Accumulated AI response chunk ({len(content)} chars). Total chunks: {len(accumulated_content)}")
+                        logger.debug(f"{agent_name}: Accumulated AI response chunk ({len(content)} chars). Total chunks: {len(accumulated_content)}")
 
                 # Stream all content immediately (tool messages + AI responses)
                 if content:
