@@ -40,6 +40,7 @@ global:
 # Default values for rag-stack.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
+
 agentExports:
   data:
     enabled: true
@@ -59,6 +60,9 @@ rag-server:
 
   logLevel: DEBUG
   cleanupInterval: 86400 # 24 hours
+
+  # Pod annotations (Istio port exclusions automatically added when global.istio.enabled is true)
+  podAnnotations: {}
 
   resources:
     requests:
@@ -83,6 +87,9 @@ agent-rag:
     port: 8099
 
   logLevel: DEBUG
+
+  # Pod annotations (Istio port exclusions automatically added when global.istio.enabled is true)
+  podAnnotations: {}
 
   resources:
     requests:
@@ -127,6 +134,9 @@ agent-ontology:
   logLevel: DEBUG
   syncInterval: 86400 # 24 hours
 
+  # Pod annotations (Istio port exclusions automatically added when global.istio.enabled is true)
+  podAnnotations: {}
+
   resources:
     requests:
       cpu: 100m
@@ -167,6 +177,9 @@ rag-webui:
     port: 80
 
   nginxEnvsubstTemplateSuffix: ".conf"
+
+  # Pod annotations (Istio port exclusions automatically added when global.istio.enabled is true)
+  podAnnotations: {}
 
   ingress:
     enabled: true
@@ -209,6 +222,9 @@ neo4j:
       cpu: "1"
       memory: "2Gi"
 
+  # Pod annotations (Istio port exclusions automatically added when global.istio.enabled is true)
+  podAnnotations: {}
+
   volumes:
     data:
       mode: "dynamic"
@@ -237,6 +253,9 @@ neo4j-ontology:
       cpu: "1"
       memory: "2Gi"
 
+  # Pod annotations (Istio port exclusions automatically added when global.istio.enabled is true)
+  podAnnotations: {}
+
   volumes:
     data:
       mode: "dynamic"
@@ -255,6 +274,9 @@ rag-redis:
   service:
     type: ClusterIP
     port: 6379
+
+  # Pod annotations (Istio port exclusions automatically added when global.istio.enabled is true)
+  podAnnotations: {}
 
   persistence:
     enabled: true
@@ -284,15 +306,36 @@ milvus:
   woodpecker:
     enabled: true   # Default is false, we need true
 
-  # Performance overrides only for compute nodes
-  queryNode:
+  # Istio port exclusions are automatically added to Milvus components when global.istio.enabled is true
+  mixcoord:
+    podAnnotations: {}
+
+  proxy:
+    podAnnotations: {}
+
+  dataNode:
+    podAnnotations: {}
+    env:
+      # Disable AWS metadata service to prevent timeout errors
+      - name: AWS_EC2_METADATA_DISABLED
+        value: "true"
     resources:
       limits:
         cpu: 200m
         memory: 256Mi
 
-  dataNode:
+  queryNode:
+    podAnnotations: {}
     resources:
       limits:
         cpu: 200m
         memory: 256Mi
+
+  streamingnode:
+    podAnnotations: {}
+
+  etcd:
+    podAnnotations: {}
+
+  minio:
+    podAnnotations: {}

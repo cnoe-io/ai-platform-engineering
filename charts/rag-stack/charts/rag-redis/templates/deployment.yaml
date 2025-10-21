@@ -13,10 +13,13 @@ spec:
       {{- include "rag-redis.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        {{- if .Values.global.istio.enabled }}
+        traffic.sidecar.istio.io/excludeInboundPorts: "6379,15020"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         {{- include "rag-redis.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}

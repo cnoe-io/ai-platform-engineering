@@ -32,6 +32,33 @@ global:
   rag:
     enableGraphRag: true
 
+  # Istio configuration
+  # Enable this to add Istio port exclusion annotations to pods
+  # This is required when running in an Istio service mesh to bypass mTLS for internal component communication
+  istio:
+    enabled: false
+
+# Extra Kubernetes resources to deploy
+# Useful for adding VirtualServices, DestinationRules, or other custom resources
+# Example:
+# extraDeploy:
+#   - apiVersion: networking.istio.io/v1beta1
+#     kind: VirtualService
+#     metadata:
+#       name: rag-webui-vs
+#     spec:
+#       hosts:
+#         - rag-webui.example.com
+#       gateways:
+#         - istio-system/default-gateway
+#       http:
+#         - route:
+#             - destination:
+#                 host: rag-webui
+#                 port:
+#                   number: 80
+extraDeploy: []
+
 # Prompt Configuration
 # Choose between predefined prompt configurations or provide your own custom configuration
 #

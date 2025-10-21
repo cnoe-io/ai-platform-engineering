@@ -13,10 +13,14 @@ spec:
       {{- include "supervisorAgent.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        {{- if .Values.global.istio.enabled }}
+        traffic.sidecar.istio.io/excludeInboundPorts: "15020"
+        traffic.sidecar.istio.io/excludeOutboundPorts: "8098,8099,9446,19530,2379,2380,7687,7474,6379"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         {{- include "supervisorAgent.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
