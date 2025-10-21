@@ -21,7 +21,7 @@ services:
   caipe-caipe-complete-with-tracing-p2p:
     container_name: caipe-caipe-complete-with-tracing-p2p
     volumes:
-    - ../prompt_config.yaml:/app/prompt_config.yaml
+    - ../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     - ../persona.yaml:/app/persona.yaml
     - ../ai_platform_engineering:/app/ai_platform_engineering
     env_file:
@@ -502,7 +502,7 @@ services:
   caipe-caipe-complete-with-tracing-slim:
     container_name: caipe-caipe-complete-with-tracing-slim
     volumes:
-    - ../prompt_config.yaml:/app/prompt_config.yaml
+    - ../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     - ../persona.yaml:/app/persona.yaml
     - ../ai_platform_engineering:/app/ai_platform_engineering
     env_file:
