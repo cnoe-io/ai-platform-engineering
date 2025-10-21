@@ -1,0 +1,122 @@
+# Ultra-explicit prompts to trigger Deep Agent todo list feature
+# These emphasize multiple steps and complexity
+
+explicit_multi_step_prompts:
+
+  # Incident Response (5 clear steps)
+  - prompt: |
+      I need you to handle this incident response workflow step by step:
+      1. Check all critical incidents from PagerDuty in the last 24 hours
+      2. For each incident, identify the affected services
+      3. Create a tracking ticket in Jira for each incident
+      4. Determine who needs to be notified based on the on-call schedule
+      5. Send notifications to the appropriate teams via Slack
+
+      Please create a checklist and mark off each step as you complete it.
+
+  # Deployment Investigation (4 clear steps)
+  - prompt: |
+      We have deployment failures I need you to investigate systematically:
+      Step 1: Find all failed ArgoCD deployments from the past week
+      Step 2: For each failure, check the pod logs in Komodor
+      Step 3: Identify the root cause for each failure
+      Step 4: Document all findings in a Confluence page
+
+      Track your progress with a todo list and check things off as you go.
+
+  # Security Audit (multiple steps)
+  - prompt: |
+      Perform a comprehensive security audit of our production environment:
+      - Verify all clusters have proper RBAC configured
+      - Check for any pods running as root
+      - Identify resources with excessive permissions
+      - Validate network policies are in place
+      - Create remediation tasks in Jira for any issues
+      - Generate a summary report
+
+      Show me your progress with a checklist that updates as you work.
+
+  # Service Onboarding (detailed workflow)
+  - prompt: |
+      I need to onboard a new microservice called "payment-processor". Here's what needs to be done:
+      1. Create a new GitHub repository with the standard template
+      2. Set up ArgoCD to deploy it to the dev environment
+      3. Configure monitoring in Splunk with appropriate dashboards
+      4. Set up PagerDuty alerts for critical errors
+      5. Add the service to Backstage catalog with documentation
+      6. Create a runbook in Confluence for the on-call team
+
+      Create a task list and check off each item as you complete it.
+
+  # Multi-Environment Deployment (sequential steps)
+  - prompt: |
+      Deploy the auth-service v2.0 across all environments with these requirements:
+      1. First, sync to dev environment and verify it's healthy
+      2. Once dev is stable, deploy to staging
+      3. Run integration tests in staging
+      4. If tests pass, deploy to production
+      5. Monitor for 30 minutes and check error rates
+      6. If no issues, mark deployment as complete
+      7. Update the deployment tracking ticket
+
+      Use a todo list to track each environment and mark them complete.
+
+  # Incident Postmortem (investigation workflow)
+  - prompt: |
+      Create a comprehensive postmortem for yesterday's API gateway outage:
+      1. Get incident details from PagerDuty including timeline
+      2. Identify which services were affected using Komodor
+      3. Check recent deployments in ArgoCD that might have caused it
+      4. Analyze error logs in Splunk around the incident time
+      5. Correlate findings to determine root cause
+      6. Draft postmortem document with timeline, impact, and remediation
+      7. Share postmortem in Confluence and notify team via Slack
+
+      Track your investigation with a checklist.
+
+# Alternative: Single sentence but complex implications
+implicit_complexity_prompts:
+
+  - prompt: "Find all production incidents from yesterday, create tickets for each, and notify the relevant teams"
+    note: "3 distinct steps: find, create, notify"
+
+  - prompt: "Audit all failed deployments this week, investigate the causes, and document your findings"
+    note: "3 steps: audit, investigate, document"
+
+  - prompt: "Set up complete monitoring for the payment service including dashboards, alerts, and runbooks"
+    note: "3 components: dashboards, alerts, runbooks"
+
+# Pro tip: Add phrases that signal complexity
+complexity_signal_phrases:
+  - "step by step"
+  - "systematically"
+  - "comprehensive"
+  - "for each"
+  - "track your progress"
+  - "create a checklist"
+  - "mark off as you complete"
+  - "show me your progress"
+  - "one at a time"
+  - "in sequence"
+  - "workflow"
+
+# What you should see when it works:
+# ================================
+# The Deep Agent will output something like:
+#
+# I'll help you with this incident response workflow. Let me create a todo list to track progress:
+#
+# ✓ Check critical incidents from last 24h (in_progress)
+# ⏳ Identify affected services (pending)
+# ⏳ Create Jira tickets (pending)
+# ⏳ Determine notification recipients (pending)
+# ⏳ Send Slack notifications (pending)
+#
+# Starting with step 1...
+# [Tool call to PagerDuty]
+#
+# ✅ Check critical incidents from last 24h (completed)
+# ✓ Identify affected services (in_progress)
+# ⏳ Create Jira tickets (pending)
+# ...
+

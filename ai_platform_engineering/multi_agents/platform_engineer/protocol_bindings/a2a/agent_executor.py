@@ -102,7 +102,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 logger.info(f"🎯 Detected direct sub-agent query for: {agent_name}")
                 return (agent_name, agent_url)
 
-        logger.info(f"🔍 No sub-agent detected in query")
+        logger.info("🔍 No sub-agent detected in query")
         return None
 
     def _route_query(self, query: str) -> RoutingDecision:
@@ -113,33 +113,67 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             RoutingDecision with type (DIRECT/PARALLEL/COMPLEX) and target agents
 
         Examples:
-            - "show me komodor clusters" → DIRECT (komodor)
-            - "list github repos and komodor clusters" → PARALLEL (github, komodor)
-            - "analyze clusters and create jira tickets" → COMPLEX (needs Deep Agent)
+            - "show me komodor clusters" → DIRECT (komodor - explicit mention)
+            - "list github repos and komodor clusters" → PARALLEL (github + komodor - explicit mentions)
+            - "analyze clusters and create jira tickets" → COMPLEX (needs Deep Agent orchestration)
+            - "who is on call for SRE" → COMPLEX (no explicit agent - Deep Agent will route to PagerDuty + RAG)
         """
         query_lower = query.lower()
         available_agents = platform_registry.AGENT_ADDRESS_MAPPING
 
-        # Detect all mentioned agents in the query
+        # Check for documentation/knowledge base queries (direct to RAG)
+        # Only match explicit documentation requests, not operational queries
+        documentation_keywords = [
+            'documentation', 'docs',   # Documentation queries
+            'knowledge base', 'kb',    # Knowledge base queries
+            'what is', 'what are',     # Definition queries
+            'explain', 'define',       # Explanation queries
+        ]
+
+        is_documentation_query = any(keyword in query_lower for keyword in documentation_keywords)
+
+        if is_documentation_query:
+            # Direct route to RAG agent for documentation queries
+            rag_agent_url = available_agents.get('RAG')
+            if rag_agent_url:
+                logger.info("🎯 Documentation query detected, routing directly to RAG")
+                return RoutingDecision(
+                    type=RoutingType.DIRECT,
+                    agents=[('RAG', rag_agent_url)],
+                    reason="Documentation/knowledge base query - direct to RAG"
+                )
+
+        # Detect explicitly mentioned agents (by name only)
+        # Let Deep Agent handle semantic routing for all other cases
         mentioned_agents = []
+
+        # Check direct agent name mentions
         for agent_name, agent_url in available_agents.items():
             agent_name_lower = agent_name.lower()
             if agent_name_lower in query_lower:
-                mentioned_agents.append((agent_name, agent_url))
+                if (agent_name, agent_url) not in mentioned_agents:
+                    mentioned_agents.append((agent_name, agent_url))
+                    logger.info(f"🔍 Explicit agent mention: '{agent_name_lower}' → {agent_name}")
 
-        logger.info(f"🎯 Routing analysis: found {len(mentioned_agents)} agents in query")
+        logger.info(f"🎯 Routing analysis: found {len(mentioned_agents)} explicit agent mentions")
 
         # Routing logic
+        # - Documentation keywords → Direct to RAG (fast path)
+        # - No explicit agents → Deep Agent (handles semantic routing + RAG)
+        # - One explicit agent → Direct streaming (fast path)
+        # - Multiple explicit agents → Parallel or Deep Agent (depends on complexity)
+
         if len(mentioned_agents) == 0:
-            # No specific agents mentioned, needs Deep Agent for intelligent routing
+            # No explicit agents mentioned - use Deep Agent for intelligent routing
+            # Deep Agent will decide which agents/RAG to query based on the improved prompt
             return RoutingDecision(
                 type=RoutingType.COMPLEX,
                 agents=[],
-                reason="No specific agents detected, using Deep Agent for intelligent routing"
+                reason="No explicit agents mentioned, using Deep Agent for intelligent routing"
             )
 
         elif len(mentioned_agents) == 1:
-            # Single agent, use direct streaming (fast path)
+            # Single explicit agent mention, use direct streaming (fast path)
             agent_name, agent_url = mentioned_agents[0]
             return RoutingDecision(
                 type=RoutingType.DIRECT,
@@ -148,7 +182,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             )
 
         else:
-            # Multiple agents mentioned
+            # Multiple explicit agents mentioned
             # Check if query requires orchestration (keywords like "analyze", "compare", "if", "then")
             orchestration_keywords = ['analyze', 'compare', 'if', 'then', 'create', 'update',
                                      'based on', 'depending on', 'which', 'that have']
@@ -276,9 +310,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             use_append = first_artifact_sent
                             if not first_artifact_sent:
                                 first_artifact_sent = True
-                                logger.info(f"📝 Sending FIRST artifact (append=False) to create artifact")
+                                logger.info("📝 Sending FIRST artifact (append=False) to create artifact")
                             else:
-                                logger.info(f"📝 Appending to existing artifact (append=True)")
+                                logger.info("📝 Appending to existing artifact (append=True)")
 
                             # Forward chunk immediately to client (streaming!)
                             await self._safe_enqueue_event(
@@ -324,9 +358,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             use_append = first_artifact_sent
                             if not first_artifact_sent:
                                 first_artifact_sent = True
-                                logger.info(f"📝 Sending FIRST artifact (append=False) from status message")
+                                logger.info("📝 Sending FIRST artifact (append=False) from status message")
                             else:
-                                logger.info(f"📝 Appending status content to artifact (append=True)")
+                                logger.info("📝 Appending status content to artifact (append=True)")
 
                             # Forward status message content to client
                             await self._safe_enqueue_event(
@@ -428,7 +462,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         status=TaskStatus(
                             state=TaskState.working,
                             message=new_agent_text_message(
-                                f"Connection lost, falling back to alternative method...",
+                                "Connection lost, falling back to alternative method...",
                                 task.context_id,
                                 task.id,
                             ),
