@@ -5,14 +5,17 @@ Works with a chat model with tool calling support.
 import os
 
 import httpx
+# Updated imports to use standardized function names with graph_ prefix
+# These function names in tools.py were standardized to clearly distinguish
+# graph-related operations from document search operations.
 from common.agent.tools import (
-    fetch_entity_details,
-    search,
-    get_entity_properties,
-    get_entity_types,
-    get_relation_path_between_entity_types,
-    raw_graph_query,
-    check_if_ontology_generated
+    graph_fetch_entity_details,      # Renamed from: fetch_entity_details
+    search,                           # Unchanged - document search
+    graph_get_entity_properties,     # Renamed from: get_entity_properties
+    graph_get_entity_types,          # Renamed from: get_entity_types
+    graph_get_relation_path_between_entity_types,  # Renamed from: get_relation_path_between_entity_types
+    graph_raw_query,                 # Renamed from: raw_graph_query
+    graph_check_if_ontology_generated  # Renamed from: check_if_ontology_generated
 )
 from datetime import datetime, timezone
 from langchain_core.prompts import PromptTemplate
@@ -50,7 +53,7 @@ max_summary_tokens = int(max_llm_tokens * 0.1) # Use 10% of the LLM capacity for
 
 if graph_rag_enabled:
     logger.info("Graph RAG is enabled.")
-    DB_READ_TOOLS = [search, get_entity_types, get_entity_properties, fetch_entity_details, get_relation_path_between_entity_types, check_if_ontology_generated, raw_graph_query]
+    DB_READ_TOOLS = [search, graph_get_entity_types, graph_get_entity_properties, graph_fetch_entity_details, graph_get_relation_path_between_entity_types, graph_check_if_ontology_generated, graph_raw_query]
     ui_url = str(os.getenv("RAG_UI_URL", "http://localhost:9447/explore/entity"))
 else:
     logger.info("Graph RAG is disabled.")
@@ -98,7 +101,7 @@ class QnAAgent:
             )
             response.raise_for_status()
             document_sources = response.json().get("datasources", [])
-        
+
         if graph_rag_enabled:
             entity_types = await self.graphdb.get_all_entity_types()
             system_prompt = PromptTemplate.from_template(SYSTEM_PROMPT_COMBINED).format(
@@ -113,7 +116,7 @@ class QnAAgent:
             system_prompt = PromptTemplate.from_template(SYSTEM_PROMPT_RAG_ONLY).format(
                 document_sources=document_sources
             )
-        
+
         logger.debug("\n\n=====PROMPT=====\n"+system_prompt+"\n=============\n\n")
         return [{"role": "system", "content": system_prompt}] + state["messages"]
 
@@ -148,8 +151,8 @@ class QnAAgent:
                                 thoughts.append(thought)
                         else:
                             logger.debug(f"No args found in tool_call: {tool_call}")
-                    
-                    
+
+
                     # Use the extracted thoughts or fall back to a generic message
                     if thoughts:
                         content = "\n".join(thoughts) + "...\n"

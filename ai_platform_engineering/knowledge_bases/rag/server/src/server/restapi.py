@@ -87,7 +87,7 @@ async def app_lifespan(app: FastAPI):
     global vector_db
     global redis_client
     global vector_db_query_service
-    
+
     redis_client = redis.from_url(redis_url)
     metadata_storage = MetadataStorage(redis_client=redis_client)
     jobmanager = JobManager(redis_client=redis_client)
@@ -112,6 +112,19 @@ async def app_lifespan(app: FastAPI):
         vector_field=["dense", "sparse"],
         enable_dynamic_field=True, # allow for dynamic metadata fields
     )
+
+    # Ensure Milvus collection is loaded (warm-up after restarts)
+    try:
+        from pymilvus import connections, utility
+        connections.connect(uri=milvus_uri)
+        if utility.has_collection(default_collection_name_docs):
+            utility.load_collection(default_collection_name_docs)
+            logger.info(f"✓ Milvus collection '{default_collection_name_docs}' loaded successfully")
+        else:
+            logger.info(f"Collection '{default_collection_name_docs}' does not exist yet (will be created on first ingestion)")
+        connections.disconnect("default")
+    except Exception as e:
+        logger.warning(f"Could not pre-load Milvus collection: {e}")
 
     vector_db_query_service = VectorDBQueryService(vector_db=vector_db)
 
@@ -154,7 +167,7 @@ async def combined_lifespan(app: FastAPI):
             # Register MCP app lifespan
             async with mcp_app.lifespan(app):
                 yield
-        
+
 
 # Initialize FastAPI app
 if mcp_enabled:
@@ -180,13 +193,25 @@ else:
 @app.delete("/v1/datasource/delete", status_code=status.HTTP_200_OK)
 async def delete_datasource(datasource_id: str):
     """Delete datasource from vector storage and metadata."""
-    if not vector_db or not metadata_storage or not data_graph_db or not jobmanager:
+    # BUG FIX: Removed data_graph_db from initialization check
+    #
+    # Previously: if not vector_db or not metadata_storage or not data_graph_db or not jobmanager:
+    #
+    # The data_graph_db is only initialized when Graph RAG is enabled (ENABLE_GRAPH_RAG=true).
+    # When Graph RAG is disabled, data_graph_db remains None, causing all delete operations to fail
+    # with "Server not initialized" error even though the required components (vector_db,
+    # metadata_storage, jobmanager) are available.
+    #
+    # This fix allows datasource deletion to work regardless of Graph RAG configuration,
+    # since the delete operation only requires access to vector storage and metadata,
+    # not the graph database.
+    if not vector_db or not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
     # Fetch datasource info
     datasource_info = await metadata_storage.get_datasource_info(datasource_id)
     if not datasource_info:
         raise HTTPException(status_code=404, detail="Datasource not found")
-    
+
     # Check if any jobs are running for this datasource
     if datasource_info.job_id:
         job_info = await jobmanager.get_job(datasource_info.job_id)
@@ -198,7 +223,7 @@ async def delete_datasource(datasource_id: str):
 
     await vector_db.adelete(expr=f"datasource_id == '{datasource_id}'")
     await metadata_storage.delete_datasource_info(datasource_id) # remove metadata
-    
+
     return status.HTTP_200_OK
 
 @app.get("/v1/datasources")
@@ -208,7 +233,7 @@ async def list_datasources():
         raise HTTPException(status_code=500, detail="Server not initialized")
     try:
         datasources = await metadata_storage.fetch_all_datasource_info()
-        
+
         return {
             "success": True,
             "datasources": datasources,
@@ -254,7 +279,7 @@ async def ingest_datasource_url(
     # Create job and update job status
     job_id = str(uuid.uuid4())
     await jobmanager.update_job(job_id, status=JobStatus.PENDING, message="Starting ingestion...")
-    
+
     # Start background task
     background_tasks.add_task(
         run_url_ingestion_with_progress,
@@ -318,7 +343,7 @@ async def get_job_status(job_id: str):
     job_info = await jobmanager.get_job(job_id)
     if not job_info:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     logger.info(f"Returning job status for {job_id}: {job_info.status}")
     return {
         "job_id": job_id,
@@ -340,10 +365,10 @@ async def terminate_job(job_id: str):
     job_info = await jobmanager.get_job(job_id)
     if not job_info:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     if job_info.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.TERMINATED):
         raise HTTPException(status_code=400, detail="Job is already completed or terminated")
-    
+
     await jobmanager.update_job(job_id, status=JobStatus.TERMINATED, message="Job has been terminated by user.")
     logger.info(f"Job {job_id} has been terminated.")
     return {"message": f"Job {job_id} has been terminated."}
@@ -395,10 +420,10 @@ async def delete_graph_connector(connector_id: str):
     if not vector_db or not metadata_storage or not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
     connector_info =  await metadata_storage.get_graphconnector_info(connector_id)
-    
+
     if not connector_info:
         raise HTTPException(status_code=404, detail="Connector not found")
-    
+
     logger.info(f"Deleting graph connector: {connector_id}")
     await data_graph_db.remove_entity(None, {UPDATED_BY_KEY: connector_id}) # remove from graph db
     await vector_db.adelete(expr=f"graph_connector_id == '{connector_id}'") # remove from vector db
@@ -462,7 +487,7 @@ async def explore_ontology_relations(explore_relations_request: ExploreRelations
     """
     if not ontology_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    
+
     # Fetch the current heuristics version id
     heuristics_version_id = await redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
     if heuristics_version_id is None:
@@ -527,7 +552,7 @@ async def get_rag_prompt_endpoint():
     document_sources = await metadata_storage.fetch_all_datasource_info() if metadata_storage else []
     document_sources = [{"datasource_id": ds.datasource_id, "description": ds.description, "path": ds.path} for ds in document_sources]
     entities = await data_graph_db.get_all_entity_types()
-    
+
     resp = {
         "graph_rag_enabled": graph_rag_enabled,
         "available_filters": available_filters,
@@ -548,12 +573,34 @@ async def get_rag_prompt_endpoint():
 
 @app.get("/healthz")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint with vector store queryability verification."""
     health_status = "healthy"
+    health_details = {}
+
+    # Check if services are initialized
     if not metadata_storage or not vector_db or not jobmanager or not redis_client or (graph_rag_enabled and (not data_graph_db or not ontology_graph_db)):
         health_status = "unhealthy"
+        health_details["error"] = "One or more services are not initialized"
         logger.error("healthz: One or more services are not initialized")
-    
+    else:
+        # Verify vector store is actually queryable by performing a test search
+        try:
+            # Try a simple query to ensure the vector store connection is working
+            # This catches the "warm-up period" issue after Milvus restarts
+            test_results = await vector_db.asimilarity_search_with_score(
+                "health check test query",
+                k=1,
+                ranker_type="weighted",
+                ranker_params={"weights": [0.7, 0.3]}
+            )
+            health_details["vector_store_queryable"] = True
+            health_details["vector_store_test_results_count"] = len(test_results)
+        except Exception as e:
+            health_status = "unhealthy"
+            health_details["vector_store_queryable"] = False
+            health_details["vector_store_error"] = str(e)
+            logger.error(f"healthz: Vector store not queryable: {e}")
+
     config = {
             "graph_rag_enabled": graph_rag_enabled,
             "search" : {
@@ -593,6 +640,7 @@ async def health_check():
     response = {
         "status": health_status,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "details": health_details,
         "config": config
     }
     return response
@@ -636,7 +684,7 @@ async def run_url_ingestion_with_progress(url: str, job_id: str, description: st
 
         logger.info(f"Ingesting datasource: datasource_id={datasource_id}")
         logger.debug(f"Datasource info: {datasource_info.model_dump()}")
-        
+
         # Create a new loader and run ingestion
         logger.debug(f"Creating loader for datasource: datasource_id={datasource_id}")
         async with Loader(vector_db, metadata_storage, datasource_info, jobmanager, max_ingestion_concurrency) as loader:
@@ -720,7 +768,7 @@ async def run_graph_entity_ingestion(connector_name: str, entity_type: str, enti
     await metadata_storage.store_graphconnector_info(connector_info, ttl=utils.DURATION_DAY)
 
 
-async def init_tests(logger: logging.Logger, 
+async def init_tests(logger: logging.Logger,
                redis_client: redis.Redis,
                embeddings: AzureOpenAIEmbeddings,
                milvus_uri: str):
@@ -744,7 +792,7 @@ async def init_tests(logger: logging.Logger,
     logger.info("4. Listing Milvus collections")
     collections = client.list_collections()
     logger.info(f"Milvus collections: {collections}")
-    
+
     test_collection_name = "test_collection"
 
     # Setup vector db for graph data
@@ -756,7 +804,7 @@ async def init_tests(logger: logging.Logger,
         builtin_function=BM25BuiltInFunction(output_field_names="sparse"),
         vector_field=["dense", "sparse"]
     )
-    
+
     doc = Document(page_content="Test document", metadata={"source": "test"})
     logger.info(f"5. Adding test document to Milvus {doc}")
     resp = vector_db_test.add_documents(documents=[doc], ids=["test_doc_1"])
@@ -780,30 +828,30 @@ async def init_tests(logger: logging.Logger,
 
     # Enhanced health checks for collections
     logger.info("10. Running enhanced health checks on collections...")
-    
+
     # Get embedding dimensions for validation
     test_embedding = embeddings.embed_documents(["test"])
     expected_dim = len(test_embedding[0])
     logger.info(f"Expected embedding dimension: {expected_dim}")
-    
+
     collections_to_check = [default_collection_name_docs]
-    
+
     for collection_name in collections_to_check:
         logger.info(f"11. Validating collection {collection_name} in Milvus")
-        
+
         # Check if collection exists
         if collection_name not in client.list_collections():
             logger.warning(f"Collection {collection_name} does not exist in Milvus, it should be created upon first ingestion.")
             continue
-        
+
         # Get collection schema
         collection_info = client.describe_collection(collection_name=collection_name)
         logger.info(f"Collection {collection_name} info: {collection_info}")
-        
+
         # Extract field information
         fields = collection_info.get('fields', [])
         field_names = {field['name'] for field in fields}
-        
+
         # Check 1: Validate embedding dimensions
         logger.info(f"11a. Validating embedding dimensions for collection {collection_name}...")
         dense_field = next((field for field in fields if field['name'] == 'dense'), None)
@@ -814,13 +862,13 @@ async def init_tests(logger: logging.Logger,
             logger.info(f"✓ Collection {collection_name}: Dense vector dimension correct ({actual_dim})")
         else:
             raise Exception(f"Collection {collection_name}: Dense vector field not found, please delete and re-ingest the collection.")
-        
+
         # Check 2: Validate vector fields exists
         logger.info(f"11b. Validating vector fields for collection {collection_name}...")
         sparse_field = next((field for field in fields if field['name'] == 'sparse'), None)
         if not sparse_field:
             raise Exception(f"Collection {collection_name}: Sparse vector field not found")
-        
+
         # Validate required vector fields exist
         if 'dense' not in field_names or 'sparse' not in field_names:
             raise Exception(f"Collection {collection_name}: Missing required vector fields (dense, sparse), please delete and re-ingest the collection.")
@@ -828,8 +876,9 @@ async def init_tests(logger: logging.Logger,
 
         if not collection_info.get("enable_dynamic_field"):
             raise Exception(f"Collection {collection_name}: Dynamic fields not enabled, please delete and re-ingest the collection.")
-            
+
         logger.info(f"✓ Collection {collection_name}: Dynamic fields enabled")
-        
+        logger.info(f"✓ Collection {collection_name}: Metadata fields will be stored dynamically")
+
     logger.info("====== Initialization tests completed successfully ======")
     return
