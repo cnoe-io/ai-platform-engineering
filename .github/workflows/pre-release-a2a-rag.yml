@@ -94,7 +94,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: cnoe-io/prebuild/caipe-rag-${{ matrix.component }}
-      BUILD_CTX: ai_platform_engineering/knowledge_bases/rag
+      BUILD_CTX: .
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
