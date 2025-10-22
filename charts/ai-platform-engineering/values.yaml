@@ -32,6 +32,9 @@ global:
   rag:
     enableGraphRag: true
 
+# Extra Kubernetes resources to deploy
+extraDeploy: []
+
 # Prompt Configuration
 # Choose between predefined prompt configurations or provide your own custom configuration
 #

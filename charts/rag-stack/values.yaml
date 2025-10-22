@@ -40,6 +40,7 @@ global:
 # Default values for rag-stack.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
+
 agentExports:
   data:
     enabled: true
@@ -51,7 +52,7 @@ rag-server:
   image:
     repository: "ghcr.io/cnoe-io/caipe-rag-server"
     tag: "latest"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
 
   service:
     type: ClusterIP
@@ -59,6 +60,8 @@ rag-server:
 
   logLevel: DEBUG
   cleanupInterval: 86400 # 24 hours
+
+  podAnnotations: {}
 
   resources:
     requests:
@@ -83,6 +86,8 @@ agent-rag:
     port: 8099
 
   logLevel: DEBUG
+
+  podAnnotations: {}
 
   resources:
     requests:
@@ -127,6 +132,8 @@ agent-ontology:
   logLevel: DEBUG
   syncInterval: 86400 # 24 hours
 
+  podAnnotations: {}
+
   resources:
     requests:
       cpu: 100m
@@ -160,13 +167,15 @@ rag-webui:
   image:
     repository: "ghcr.io/cnoe-io/caipe-rag-webui"
     tag: "latest"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
 
   service:
     type: ClusterIP
     port: 80
 
   nginxEnvsubstTemplateSuffix: ".conf"
+
+  podAnnotations: {}
 
   ingress:
     enabled: true
@@ -209,6 +218,9 @@ neo4j:
       cpu: "1"
       memory: "2Gi"
 
+  podSpec:
+    annotations: {}
+
   volumes:
     data:
       mode: "dynamic"
@@ -237,6 +249,9 @@ neo4j-ontology:
       cpu: "1"
       memory: "2Gi"
 
+  podSpec:
+    annotations: {}
+
   volumes:
     data:
       mode: "dynamic"
@@ -255,6 +270,8 @@ rag-redis:
   service:
     type: ClusterIP
     port: 6379
+
+  podAnnotations: {}
 
   persistence:
     enabled: true
@@ -284,15 +301,28 @@ milvus:
   woodpecker:
     enabled: true   # Default is false, we need true
 
-  # Performance overrides only for compute nodes
-  queryNode:
+  mixCoordinator:
+    annotations: {}
+
+  proxy:
+    annotations: {}
+
+  dataNode:
+    annotations: {}
     resources:
       limits:
         cpu: 200m
         memory: 256Mi
 
-  dataNode:
+  queryNode:
+    annotations: {}
     resources:
       limits:
         cpu: 200m
         memory: 256Mi
+
+  etcd:
+    podAnnotations: {}
+
+  minio:
+    podAnnotations: {}
