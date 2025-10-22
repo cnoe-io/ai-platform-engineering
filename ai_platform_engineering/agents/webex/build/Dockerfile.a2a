@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy only the necessary directories for the webex agent
-COPY --chown=root:root utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root agents/webex /app/ai_platform_engineering/agents/webex/
+COPY --chown=root:root ai_platform_engineering/utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root ai_platform_engineering/agents/webex /app/ai_platform_engineering/agents/webex/
 
 # Set working directory to the webex agent
 WORKDIR /app/ai_platform_engineering/agents/webex
