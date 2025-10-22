@@ -4,8 +4,9 @@
 
 """Model for Pagerdutynotification"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Pagerdutynotification(BaseModel):
 class PagerdutynotificationResponse(APIResponse):
     """Response model for Pagerdutynotification"""
 
-    data: Optional[Pagerdutynotification] = None
+    data: Pagerdutynotification | None = None
 
 
 class PagerdutynotificationListResponse(APIResponse):
     """List response model for Pagerdutynotification"""
 
-    data: List[Pagerdutynotification] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Pagerdutynotification] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

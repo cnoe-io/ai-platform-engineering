@@ -4,8 +4,9 @@
 
 """Model for Updatedetectorresponse"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Updatedetectorresponse(BaseModel):
 class UpdatedetectorresponseResponse(APIResponse):
     """Response model for Updatedetectorresponse"""
 
-    data: Optional[Updatedetectorresponse] = None
+    data: Updatedetectorresponse | None = None
 
 
 class UpdatedetectorresponseListResponse(APIResponse):
     """List response model for Updatedetectorresponse"""
 
-    data: List[Updatedetectorresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Updatedetectorresponse] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

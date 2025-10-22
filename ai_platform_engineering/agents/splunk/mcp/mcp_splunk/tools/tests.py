@@ -5,8 +5,9 @@
 """Tools for /tests operations"""
 
 import logging
-from typing import Any, List
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,11 +21,11 @@ async def get_tests(
     param_orderby: str = None,
     param_search: str = None,
     param_locationId: str = None,
-    param_customProperties: List[str] = None,
-    param_testTypes: List[str] = None,
-    param_frequencies: List[int] = None,
-    param_locationIds: List[str] = None,
-    param_lastRunStatus: List[str] = None,
+    param_customProperties: list[str] = None,
+    param_testTypes: list[str] = None,
+    param_frequencies: list[int] = None,
+    param_locationIds: list[str] = None,
+    param_lastRunStatus: list[str] = None,
     param_schedulingStragety: str = None,
     param_active: bool = False,
 ) -> Any:

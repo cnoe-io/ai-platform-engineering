@@ -4,8 +4,9 @@
 
 """Model for Mtsmetadata"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Mtsmetadata(BaseModel):
 class MtsmetadataResponse(APIResponse):
     """Response model for Mtsmetadata"""
 
-    data: Optional[Mtsmetadata] = None
+    data: Mtsmetadata | None = None
 
 
 class MtsmetadataListResponse(APIResponse):
     """List response model for Mtsmetadata"""
 
-    data: List[Mtsmetadata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Mtsmetadata] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

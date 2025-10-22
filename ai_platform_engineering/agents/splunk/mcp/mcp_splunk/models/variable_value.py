@@ -4,8 +4,9 @@
 
 """Model for Variablevalue"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Variablevalue(BaseModel):
 class VariablevalueResponse(APIResponse):
     """Response model for Variablevalue"""
 
-    data: Optional[Variablevalue] = None
+    data: Variablevalue | None = None
 
 
 class VariablevalueListResponse(APIResponse):
     """List response model for Variablevalue"""
 
-    data: List[Variablevalue] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Variablevalue] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

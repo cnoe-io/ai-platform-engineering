@@ -4,8 +4,9 @@
 
 """Model for Teamresponsebody"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Teamresponsebody(BaseModel):
 class TeamresponsebodyResponse(APIResponse):
     """Response model for Teamresponsebody"""
 
-    data: Optional[Teamresponsebody] = None
+    data: Teamresponsebody | None = None
 
 
 class TeamresponsebodyListResponse(APIResponse):
     """List response model for Teamresponsebody"""
 
-    data: List[Teamresponsebody] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Teamresponsebody] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None
