@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy only the necessary directories for the github agent
-COPY --chown=root:root utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root agents/github /app/ai_platform_engineering/agents/github/
+COPY --chown=root:root ai_platform_engineering/utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root ai_platform_engineering/agents/github /app/ai_platform_engineering/agents/github/
 
 # Set working directory to the github agent
 WORKDIR /app/ai_platform_engineering/agents/github
