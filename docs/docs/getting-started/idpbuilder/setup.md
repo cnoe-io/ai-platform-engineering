@@ -328,19 +328,19 @@ Open https://rag-webui.cnoe.localtest.me:8443/ to access the RAG WebUI Portal.
 
 Use the ingestion interface to add documents, websites, and other knowledge sources to your RAG system:
 
-![RAG Ingestion Interface](./images/rag-ingestion.png)
+![RAG Ingestion Interface](./images/rag-ingestion.svg)
 
 ### RAG Querying Interface
 
 Query your ingested knowledge bases to test retrieval and get insights from your documents:
 
-![RAG Querying Interface](./images/rag-querying.png)
+![RAG Querying Interface](./images/rag-querying.svg)
 
 ### Advanced RAG Search
 
 Perform advanced searches with filters, similarity thresholds, and custom parameters:
 
-![RAG Advanced Search](./images/rag-search-advanced.png)
+![RAG Advanced Search](./images/rag-querying-advanced)
 
 The RAG WebUI allows you to:
 - **Ingest Documents**: Upload PDFs, text files, and web content
