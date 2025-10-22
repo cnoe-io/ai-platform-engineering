@@ -25,20 +25,21 @@ For a complete development environment with i3 desktop and VNC access on a vanil
 > Setup Ubuntu Pre-requisities
 
 ```
-git clone https://github.com/sriaradhyula/stacks/tree/main
+curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/caipe/scripts/setup-ubuntu-prerequisites.sh -o /tmp/setup-ubuntu-prerequisites.sh && chmod +x /tmp/setup-ubuntu-prerequisites.sh && /tmp/setup-ubuntu-prerequisites.sh
 ```
 
 ```
-cd stacks
+git clone https://github.com/sriaradhyula/stacks
 ```
 
-```bash
-./caipe/scripts/setup-ubuntu-prerequisites.sh
 ```
+cd ~/stacks
+```
+
 
 This script will:
 
-- Install all prerequisites (Docker, kubectl, Vault, etc.)
+- Install all prerequisites (idpbuilder, docker, kubectl, vault cli, etc.)
 - Set up i3 desktop environment with VNC
 
 ### Option 2: Manual Setup
@@ -156,17 +157,7 @@ CAIPE (Community AI Platform Engineering) offers multiple runtime/deployment pro
 
 IDPBuilder supports different profiles as listed above:
 
-#### Option 1: CAIPE Basic A2A P2P Profile (for learning)
-
-```bash
-# Create cluster with CAIPE basic-p2p profile
-idpbuilder create \
-  --use-path-routing \
-  --package https://github.com/sriaradhyula/stacks//ref-implementation \
-  --package https://github.com/sriaradhyula/stacks//caipe/base
-```
-
-#### Option 2: CAIPE Complete A2A P2P Profile (recommended)
+#### Option 1: CAIPE Complete A2A P2P Profile (recommended)
 
 ```bash
 # Create cluster with CAIPE complete-p2p profile
@@ -177,7 +168,18 @@ idpbuilder create \
   --package https://github.com/sriaradhyula/stacks//caipe/complete
 ```
 
-#### Option 3: CAIPE Complete A2A over Slim Profile
+#### Option 2: CAIPE Basic A2A P2P Profile (for learning)
+
+```bash
+# Create cluster with CAIPE basic-p2p profile
+idpbuilder create \
+  --use-path-routing \
+  --package https://github.com/sriaradhyula/stacks//ref-implementation \
+  --package https://github.com/sriaradhyula/stacks//caipe/base
+```
+
+
+<!-- #### Option 3: CAIPE Complete A2A over Slim Profile
 
 ```bash
 # Create cluster with CAIPE complete-slim profile
@@ -186,7 +188,7 @@ idpbuilder create \
   --package https://github.com/sriaradhyula/stacks//ref-implementation \
   --package https://github.com/sriaradhyula/stacks//caipe/base \
   --package https://github.com/sriaradhyula/stacks//caipe/complete-slim
-```
+``` -->
 
 Run your preferred runtime option. This process will:
 
@@ -248,18 +250,10 @@ After Vault application syncs on ArgoCD successfully:
 
 After Vault application syncs successfully on ArgoCD, configure your LLM provider credentials:
 
-### Run setup-secrets.sh (Recommended)
-
-```
-git clone https://github.com/sriaradhyula/stacks/tree/main
-```
-
-```
-cd stacks
-```
+### Run Setup Secrets using setup-all.sh (Recommended)
 
 ```bash
-./caipe/scripts/setup-all.sh
+cd ~/stacks && ./caipe/scripts/setup-all.sh
 ```
 
 > This script will prompt you to select your LLM provider. Collect the required credentials securely and store them in cluster local Vault automatically
@@ -272,7 +266,7 @@ After configuring your secrets in Vault, refresh the Kubernetes secrets to ensur
 
 ```bash
 # Download and run the refresh secrets script
-curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/caipe/scripts/refresh-secrets.sh -o /tmp/refresh-secrets.sh && chmod +x /tmp/refresh-secrets.sh && /tmp/refresh-secrets.sh
+cd ~/stacks && ./caipe/scripts/refresh-secrets.sh
 ```
 
 This script will:
@@ -452,3 +446,61 @@ kind delete cluster --name localdev
 vncserver -kill :1
 ```
 
+## Problem
+Kubernetes pod `ai-platform-engineering-supervisor-agent-d8cffb7fb-vg4w4` failing with:
+```
+to create fsnotify watcher: too many open files
+```
+
+## Root Cause
+Default system limit of 1024 file descriptors insufficient for applications creating multiple file watchers.
+
+## Solution 1: Pod-level Fix (Recommended)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-platform-engineering-supervisor-agent
+  namespace: ai-platform-engineering
+spec:
+  template:
+    spec:
+      securityContext:
+        sysctls:
+        - name: fs.inotify.max_user_instances
+          value: "8192"
+        - name: fs.inotify.max_user_watches
+          value: "524288"
+      containers:
+      - name: supervisor-agent
+        securityContext:
+          capabilities:
+            add:
+            - SYS_RESOURCE
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+```
+
+## Solution 2: System-wide Fix
+
+```bash
+# Increase inotify limits
+echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+
+# Restart the pod
+kubectl delete pod ai-platform-engineering-supervisor-agent-d8cffb7fb-vg4w4 -n ai-platform-engineering
+```
+
+## Verification
+
+```bash
+# Check current limits
+ulimit -n
+cat /proc/sys/fs/inotify/max_user_watches
+```
+
+Apply the deployment changes and the pod will automatically restart with increased file descriptor limits.
