@@ -340,7 +340,7 @@ Query your ingested knowledge bases to test retrieval and get insights from your
 
 Perform advanced searches with filters, similarity thresholds, and custom parameters:
 
-![RAG Advanced Search](./images/rag-querying-advanced)
+![RAG Advanced Search](./images/rag-querying-advanced.svg)
 
 The RAG WebUI allows you to:
 - **Ingest Documents**: Upload PDFs, text files, and web content
