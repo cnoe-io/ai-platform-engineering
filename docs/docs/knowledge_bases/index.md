@@ -16,7 +16,7 @@ Both Vector based system and Graph based system are combined under a unified RAG
 
 CAIPE RAG uses vector search to retrieve relevant unstructured documents such as platform runbooks and documentation. It also uses vector search to locate relevant nodes within the knowledge graph generated from structured data sources. By integrating these two approaches, CAIPE RAG can provide comprehensive and contextually relevant information to enhance its reasoning and decision-making capabilities.
 
-<img src="images/unified-rag-architecture.png" alt="Unified RAG Architecture" width="600" />
+<img src="images/rag-arch.svg" alt="Unified RAG Architecture" width="600" />
 
 
 ## Getting Started
