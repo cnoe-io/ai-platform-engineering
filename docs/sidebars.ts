@@ -104,6 +104,11 @@ const sidebars: SidebarsConfig = {
               type: 'doc',
               id: 'getting-started/idpbuilder/ubuntu-prerequisites',
             },
+            {
+              type: 'doc',
+              id: 'getting-started/idpbuilder/manual-vault-secret-setup',
+              label: 'Manual Vault Secret Setup',
+            },
           ],
         },
         {
