@@ -175,7 +175,7 @@ CAIPE (Community AI Platform Engineering) offers multiple runtime/deployment pro
 | `caipe-complete-p2p` **(recommended)** | Full-featured platform with all AI agents and integrations | Production-like with complete with CAIPE + A2A Peer-to-Peer betwen agents |
 <!-- | `caipe-complete-slim` | Complete platform with SLIM pub/sub | Production-like with complete with CAIPE + A2A over AGNTCY SLIM  | -->
 
-## Step 2: Pick your runtime/deployment CAIPE profile
+## Step 3: Pick your runtime/deployment CAIPE profile
 
 IDPBuilder supports different profiles as listed above:
 
@@ -224,24 +224,11 @@ Run your preferred runtime option. This process will:
 This takes around 5-10 minutes. Feel free to grab a coffee while it's deploying :coffee:
 :::
 
-## Step 3: Verify Kubernetes Cluster
+:::note
+Before proceeding to configure secrets, you may want to access ArgoCD to monitor the deployment progress of platform components.
+:::
 
-```bash
-# Check cluster status
-kubectl get nodes
-```
-
-```bash
-# Verify all pods are running
-kubectl get pods --all-namespaces
-```
-
-```bash
-# Check ingress configuration
-kubectl get ingress --all-namespaces
-```
-
-## Step 4: Access ArgoCD and Monitor Deployments
+## Access ArgoCD and Monitor Deployments
 
 Once the cluster is created, IDPBuilder outputs the ArgoCD URL.
 
@@ -274,7 +261,7 @@ If you can't see Vault application in the ArgoCD UI, go to the 2nd page and chec
 
 </div>
 
-## Step 5: Configure Vault Secrets
+## Step 4: Configure Vault Secrets
 
 After Vault application syncs successfully on ArgoCD, configure your LLM provider credentials:
 
@@ -329,6 +316,39 @@ kubectl get secret vault-root-token -n vault -o jsonpath="{.data}" | \
   jq -r 'to_entries[] | "\(.key): \(.value | @base64d)"'
 ```
 
+## Step 5: Access RAG WebUI Portal (Optional)
+
+The RAG (Retrieval-Augmented Generation) WebUI provides a powerful interface for ingesting, querying, and managing knowledge bases that enhance your AI agents' capabilities.
+
+### Access RAG Ingestion WebUI
+
+Open https://rag-webui.cnoe.localtest.me:8443/ to access the RAG WebUI Portal.
+
+### RAG Ingestion Interface
+
+Use the ingestion interface to add documents, websites, and other knowledge sources to your RAG system:
+
+![RAG Ingestion Interface](./images/rag-ingestion.svg)
+
+### RAG Querying Interface
+
+Query your ingested knowledge bases to test retrieval and get insights from your documents:
+
+![RAG Querying Interface](./images/rag-querying.svg)
+
+### Advanced RAG Search
+
+Perform advanced searches with filters, similarity thresholds, and custom parameters:
+
+![RAG Advanced Search](./images/rag-querying-advanced.svg)
+
+The RAG WebUI allows you to:
+- **Ingest Documents**: Upload PDFs, text files, and web content
+- **Query Knowledge**: Search and retrieve relevant information
+- **Test Retrieval**: Validate your knowledge base responses
+- **Monitor Performance**: Track ingestion and query metrics
+- **Configure Settings**: Adjust embedding models and search parameters
+
 ## Step 6: Access Backstage Portal
 
 ### Get Backstage Credentials
@@ -376,8 +396,28 @@ Get my Github profile detatils # If running Github agent
 - Vault: https://vault.cnoe.localtest.me:8443/
 - Keycloak: https://cnoe.localtest.me:8443/keycloak/admin/master/console/
 - Gitea: https://cnoe.localtest.me:8443/gitea/
+- RAG Ingestion WebUI: https://rag-webui.cnoe.localtest.me:8443/
 
 ## Troubleshooting
+
+### Verify Kubernetes Cluster
+
+If you need to verify the cluster status and configuration:
+
+```bash
+# Check cluster status
+kubectl get nodes
+```
+
+```bash
+# Verify all pods are running
+kubectl get pods --all-namespaces
+```
+
+```bash
+# Check ingress configuration
+kubectl get ingress --all-namespaces
+```
 
 ### Manual Refresh Commands
 
