@@ -4,8 +4,9 @@
 
 """Model for Variabledescription"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Variabledescription(BaseModel):
 class VariabledescriptionResponse(APIResponse):
     """Response model for Variabledescription"""
 
-    data: Optional[Variabledescription] = None
+    data: Variabledescription | None = None
 
 
 class VariabledescriptionListResponse(APIResponse):
     """List response model for Variabledescription"""
 
-    data: List[Variabledescription] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Variabledescription] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

@@ -4,8 +4,9 @@
 
 """Model for Timestamp"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Timestamp(BaseModel):
 class TimestampResponse(APIResponse):
     """Response model for Timestamp"""
 
-    data: Optional[Timestamp] = None
+    data: Timestamp | None = None
 
 
 class TimestampListResponse(APIResponse):
     """List response model for Timestamp"""
 
-    data: List[Timestamp] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Timestamp] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

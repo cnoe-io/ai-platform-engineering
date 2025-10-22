@@ -4,8 +4,9 @@
 
 """Model for Servicenownotification"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Servicenownotification(BaseModel):
 class ServicenownotificationResponse(APIResponse):
     """Response model for Servicenownotification"""
 
-    data: Optional[Servicenownotification] = None
+    data: Servicenownotification | None = None
 
 
 class ServicenownotificationListResponse(APIResponse):
     """List response model for Servicenownotification"""
 
-    data: List[Servicenownotification] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Servicenownotification] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

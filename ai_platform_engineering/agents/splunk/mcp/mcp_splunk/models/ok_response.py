@@ -4,8 +4,9 @@
 
 """Model for Okresponse"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Okresponse(BaseModel):
 class OkresponseResponse(APIResponse):
     """Response model for Okresponse"""
 
-    data: Optional[Okresponse] = None
+    data: Okresponse | None = None
 
 
 class OkresponseListResponse(APIResponse):
     """List response model for Okresponse"""
 
-    data: List[Okresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Okresponse] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

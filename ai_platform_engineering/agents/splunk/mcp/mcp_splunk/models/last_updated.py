@@ -4,8 +4,9 @@
 
 """Model for Lastupdated"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Lastupdated(BaseModel):
 class LastupdatedResponse(APIResponse):
     """Response model for Lastupdated"""
 
-    data: Optional[Lastupdated] = None
+    data: Lastupdated | None = None
 
 
 class LastupdatedListResponse(APIResponse):
     """List response model for Lastupdated"""
 
-    data: List[Lastupdated] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Lastupdated] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

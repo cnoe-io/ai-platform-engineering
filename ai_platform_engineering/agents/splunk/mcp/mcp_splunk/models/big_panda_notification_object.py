@@ -4,8 +4,9 @@
 
 """Model for Bigpandanotificationobject"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Bigpandanotificationobject(BaseModel):
 class BigpandanotificationobjectResponse(APIResponse):
     """Response model for Bigpandanotificationobject"""
 
-    data: Optional[Bigpandanotificationobject] = None
+    data: Bigpandanotificationobject | None = None
 
 
 class BigpandanotificationobjectListResponse(APIResponse):
     """List response model for Bigpandanotificationobject"""
 
-    data: List[Bigpandanotificationobject] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Bigpandanotificationobject] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

@@ -4,8 +4,9 @@
 
 """Model for Customproperties"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Customproperties(BaseModel):
 class CustompropertiesResponse(APIResponse):
     """Response model for Customproperties"""
 
-    data: Optional[Customproperties] = None
+    data: Customproperties | None = None
 
 
 class CustompropertiesListResponse(APIResponse):
     """List response model for Customproperties"""
 
-    data: List[Customproperties] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Customproperties] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None
