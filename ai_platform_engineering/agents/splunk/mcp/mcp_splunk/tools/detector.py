@@ -5,8 +5,9 @@
 """Tools for /detector operations"""
 
 import logging
-from typing import Dict, Any, List, Literal
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any, Literal
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,21 +17,21 @@ logger = logging.getLogger("mcp_tools")
 async def create__single__detector(
     body_name: str,
     body_programText: str,
-    body_rules: List[Dict[str, Any]],
-    body_authorizedWriters__teams: List[str] = None,
-    body_authorizedWriters__users: List[str] = None,
-    body_customProperties: Dict[str, Any] = None,
+    body_rules: list[dict[str, Any]],
+    body_authorizedWriters__teams: list[str] = None,
+    body_authorizedWriters__users: list[str] = None,
+    body_customProperties: dict[str, Any] = None,
     body_description: str = None,
     body_detectorOrigin: Literal["Standard", "AutoDetect", "AutoDetectCustomization"] = None,
     body_maxDelay: int = None,
     body_minDelay: int = None,
     body_packageSpecifications: str = None,
     body_parentDetectorId: str = None,
-    body_tags: List[str] = None,
-    body_teams: List[str] = None,
+    body_tags: list[str] = None,
+    body_teams: list[str] = None,
     body_timezone: str = None,
     body_visualizationOptions__disableSampling: bool = None,
-    body_visualizationOptions__publishLabelOptions: List[Dict[str, Any]] = None,
+    body_visualizationOptions__publishLabelOptions: list[dict[str, Any]] = None,
     body_visualizationOptions__showDataMarkers: bool = None,
     body_visualizationOptions__showEventLines: bool = None,
     body_visualizationOptions__time__end: int = None,
@@ -191,8 +192,8 @@ async def retrieve__detectors__query(
     param_offset: int = None,
     param_orderBy: Literal["creator", "created", "description", "lastUpdated", "lastUpdatedBy", "name", "tags"] = None,
     param_tags: str = None,
-    param_prefixTags: List[str] = None,
-    param_prefixTagExclusions: List[str] = None,
+    param_prefixTags: list[str] = None,
+    param_prefixTagExclusions: list[str] = None,
 ) -> Any:
     """
         Retrieves detectors based on search criteria

@@ -4,8 +4,9 @@
 
 """Model for Tagqueryresponse"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Tagqueryresponse(BaseModel):
 class TagqueryresponseResponse(APIResponse):
     """Response model for Tagqueryresponse"""
 
-    data: Optional[Tagqueryresponse] = None
+    data: Tagqueryresponse | None = None
 
 
 class TagqueryresponseListResponse(APIResponse):
     """List response model for Tagqueryresponse"""
 
-    data: List[Tagqueryresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Tagqueryresponse] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

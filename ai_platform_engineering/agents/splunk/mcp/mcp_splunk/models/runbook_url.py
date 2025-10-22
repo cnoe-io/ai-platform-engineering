@@ -4,8 +4,9 @@
 
 """Model for Runbookurl"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Runbookurl(BaseModel):
 class RunbookurlResponse(APIResponse):
     """Response model for Runbookurl"""
 
-    data: Optional[Runbookurl] = None
+    data: Runbookurl | None = None
 
 
 class RunbookurlListResponse(APIResponse):
     """List response model for Runbookurl"""
 
-    data: List[Runbookurl] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Runbookurl] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

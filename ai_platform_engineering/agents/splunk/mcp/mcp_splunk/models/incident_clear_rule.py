@@ -4,8 +4,9 @@
 
 """Model for Incidentclearrule"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Incidentclearrule(BaseModel):
 class IncidentclearruleResponse(APIResponse):
     """Response model for Incidentclearrule"""
 
-    data: Optional[Incidentclearrule] = None
+    data: Incidentclearrule | None = None
 
 
 class IncidentclearruleListResponse(APIResponse):
     """List response model for Incidentclearrule"""
 
-    data: List[Incidentclearrule] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Incidentclearrule] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None
