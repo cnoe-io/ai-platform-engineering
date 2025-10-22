@@ -57,4 +57,4 @@ make generate-docker-compose PERSONAS="platform-engineer devops-engineer"
 - **devops-engineer**: DevOps-focused setup with ArgoCD, AWS, GitHub, Jira, Komodor, and PagerDuty agents
 - **caipe-basic**: Minimal setup with Weather and Petstore agents for getting started
 
-See the [docker-compose README](../../../docker-compose/README.md) for detailed information about all available personas.
+See the [docker-compose README](https://github.com/cnoe-io/ai-platform-engineering/blob/main/docker-compose/README.md) for detailed information about all available personas.
