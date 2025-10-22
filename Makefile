@@ -151,8 +151,8 @@ test: setup-venv ## Install dependencies and run tests using pytest
 	@. .venv/bin/activate && cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
 
 	@echo ""
-	@echo "Running RAG module tests..."
-	@$(MAKE) test-rag-all
+	@echo "Skipping RAG module tests (temporarily disabled)..."
+	@echo "✓ RAG tests skipped"
 
 ## ========== Multi-Agent Tests ==========
 

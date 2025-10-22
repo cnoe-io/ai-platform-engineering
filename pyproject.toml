@@ -25,6 +25,9 @@ dependencies = [
     "pyjwt>=2.10.1",
     "cryptography>=45.0.7",
     "langchain-mcp-adapters>=0.1.0",
+    "neo4j>=6.0.2",
+    "cymple>=0.12.0",
+    "redis>=6.4.0",
 ]
 
 [tool.pytest.ini_options]
@@ -77,6 +80,18 @@ dev = [
     "pyyaml>=6.0.2",
     "rich>=14.1.0",
     "ruff>=0.12.7",
+    # RAG testing dependencies
+    "neo4j>=5.28.1",
+    "cymple>=0.12.0",
+    "redis>=6.2.0",
+    "langchain-milvus>=0.2.1",
+    "pymilvus>=2.6.0",
+    "fastapi>=0.115.12,<0.116.0",
+    "beautifulsoup4>=4.12.3",
+    "lxml>=6.0.1",
+    "fastmcp>=2.11.1",
+    "aiofile>=3.9.0",
+    "aiohttp>=3.12.15",
 ]
 unittest = [
     "pytest-asyncio>=1.1.0",
