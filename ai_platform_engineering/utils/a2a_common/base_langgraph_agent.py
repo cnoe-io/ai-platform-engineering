@@ -161,7 +161,7 @@ class BaseLangGraphAgent(ABC):
                 f"MCP functionality not available for {self.get_agent_name()} agent. "
                 "Please install langchain_mcp_adapters or use an agent that doesn't require MCP."
             )
-        
+
         args = config.get("configurable", {})
         server_path = args.get("server_path", f"./mcp/mcp_{self.get_agent_name()}/server.py")
         agent_name = self.get_agent_name()
@@ -396,7 +396,7 @@ class BaseLangGraphAgent(ABC):
                     for tool_call in message.tool_calls:
                         tool_id = tool_call.get("id", "")
                         tool_name = tool_call.get("name", "unknown")
-                        tool_args = tool_call.get("args", {})
+                        _ = tool_call.get("args", {})
 
                         # Avoid duplicate tool call messages
                         if tool_id and tool_id in seen_tool_calls:

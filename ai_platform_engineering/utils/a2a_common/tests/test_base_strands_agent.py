@@ -73,16 +73,20 @@ class TestBaseStrandsAgent:
         client1 = Mock()
         client1.__enter__ = Mock(return_value=client1)
         client1.__exit__ = Mock(return_value=None)
-        client1.list_tools_sync = Mock(return_value=[
-            Mock(name="tool1", tool_name="tool1")
-        ])
+
+        tool1 = Mock()
+        tool1.name = "tool1"
+        tool1.tool_name = "tool1"
+        client1.list_tools_sync = Mock(return_value=[tool1])
 
         client2 = Mock()
         client2.__enter__ = Mock(return_value=client2)
         client2.__exit__ = Mock(return_value=None)
-        client2.list_tools_sync = Mock(return_value=[
-            Mock(name="tool2", tool_name="tool2")
-        ])
+
+        tool2 = Mock()
+        tool2.name = "tool2"
+        tool2.tool_name = "tool2"
+        client2.list_tools_sync = Mock(return_value=[tool2])
 
         mock_clients = [("server1", client1), ("server2", client2)]
         agent = TestStrandsAgent(mock_clients=mock_clients)
@@ -97,10 +101,18 @@ class TestBaseStrandsAgent:
         client.__enter__ = Mock(return_value=client)
         client.__exit__ = Mock(return_value=None)
 
-        # Create duplicate tools
-        tool1 = Mock(name="duplicate_tool", tool_name="duplicate_tool")
-        tool2 = Mock(name="duplicate_tool", tool_name="duplicate_tool")
-        tool3 = Mock(name="unique_tool", tool_name="unique_tool")
+        # Create duplicate tools - set tool_name as an attribute
+        tool1 = Mock()
+        tool1.name = "duplicate_tool"
+        tool1.tool_name = "duplicate_tool"
+
+        tool2 = Mock()
+        tool2.name = "duplicate_tool"
+        tool2.tool_name = "duplicate_tool"
+
+        tool3 = Mock()
+        tool3.name = "unique_tool"
+        tool3.tool_name = "unique_tool"
 
         client.list_tools_sync = Mock(return_value=[tool1, tool2, tool3])
 
@@ -110,7 +122,7 @@ class TestBaseStrandsAgent:
         # Should only have 2 unique tools
         assert len(agent._tools) == 2
 
-    @patch('ai_platform_engineering.utils.a2a.base_strands_agent.Agent')
+    @patch('ai_platform_engineering.utils.a2a_common.base_strands_agent.Agent')
     def test_chat_method(self, mock_agent_class, mock_mcp_client):
         """Test chat method."""
         mock_strands_agent = Mock()
@@ -127,21 +139,27 @@ class TestBaseStrandsAgent:
         assert "metadata" in result
         assert result["metadata"]["agent_name"] == "test_agent"
 
-    @patch('ai_platform_engineering.utils.a2a.base_strands_agent.Agent')
-    def test_stream_chat_method(self, mock_agent_class, mock_mcp_client):
+    @patch('ai_platform_engineering.utils.a2a_common.base_strands_agent.Agent')
+    @pytest.mark.asyncio
+    async def test_stream_chat_method(self, mock_agent_class, mock_mcp_client):
         """Test stream_chat method."""
         mock_strands_agent = Mock()
-        mock_strands_agent.stream_async = Mock(return_value=[
-            {"data": "Hello "},
-            {"data": "world!"}
-        ])
+        
+        # Create an async generator for stream_async
+        async def mock_stream_async(message):
+            yield {"data": "Hello "}
+            yield {"data": "world!"}
+        
+        mock_strands_agent.stream_async = mock_stream_async
         mock_agent_class.return_value = mock_strands_agent
 
         mock_clients = [("test", mock_mcp_client)]
         agent = TestStrandsAgent(mock_clients=mock_clients)
         agent._agent = mock_strands_agent
 
-        events = list(agent.stream_chat("Test message"))
+        events = []
+        async for event in agent.stream_chat("Test message"):
+            events.append(event)
 
         assert len(events) == 2
         assert events[0]["data"] == "Hello "

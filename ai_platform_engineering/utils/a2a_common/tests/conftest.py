@@ -13,11 +13,21 @@ def mock_mcp_client():
     client = Mock()
     client.__enter__ = Mock(return_value=client)
     client.__exit__ = Mock(return_value=None)
-    client.list_tools_sync = Mock(return_value=[
-        Mock(name="tool1", tool_name="tool1"),
-        Mock(name="tool2", tool_name="tool2"),
-        Mock(name="tool3", tool_name="tool3")
-    ])
+
+    # Create tools with proper name attributes
+    tool1 = Mock()
+    tool1.name = "tool1"
+    tool1.tool_name = "tool1"
+
+    tool2 = Mock()
+    tool2.name = "tool2"
+    tool2.tool_name = "tool2"
+
+    tool3 = Mock()
+    tool3.name = "tool3"
+    tool3.tool_name = "tool3"
+
+    client.list_tools_sync = Mock(return_value=[tool1, tool2, tool3])
     return client
 
 
@@ -65,9 +75,17 @@ async def mock_a2a_event_queue():
 @pytest.fixture
 def sample_tools():
     """Create sample tools for testing."""
-    return [
-        Mock(name="list_clusters", tool_name="list_clusters"),
-        Mock(name="create_cluster", tool_name="create_cluster"),
-        Mock(name="delete_cluster", tool_name="delete_cluster")
-    ]
+    tool1 = Mock()
+    tool1.name = "list_clusters"
+    tool1.tool_name = "list_clusters"
+
+    tool2 = Mock()
+    tool2.name = "create_cluster"
+    tool2.tool_name = "create_cluster"
+
+    tool3 = Mock()
+    tool3.name = "delete_cluster"
+    tool3.tool_name = "delete_cluster"
+
+    return [tool1, tool2, tool3]
 
