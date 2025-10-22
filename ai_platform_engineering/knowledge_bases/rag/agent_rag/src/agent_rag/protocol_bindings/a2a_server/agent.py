@@ -155,7 +155,7 @@ class QnAAgent:
                                 continue
 
                             seen_tool_calls.add(tool_call_id)
-                            content = f"🔍 Searching knowledge base..."
+                            content = "🔍 Searching knowledge base..."
                             logger.info(f"Search initiated: {tool_call_id}")
                             yield {
                                 'is_task_complete': False,

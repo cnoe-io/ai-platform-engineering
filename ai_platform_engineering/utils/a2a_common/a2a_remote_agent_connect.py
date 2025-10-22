@@ -15,8 +15,6 @@ from a2a.types import (
     SendMessageRequest,
     SendStreamingMessageRequest,
     MessageSendParams,
-    TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
-    TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
 )
 
 from langchain_core.tools import BaseTool

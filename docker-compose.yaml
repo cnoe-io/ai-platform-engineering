@@ -6,30 +6,44 @@ services:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-p2p
     volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
     profiles:
       - p2p
       - p2p-basic
       - p2p-tracing
       - rag_only
-    # The following block uses the extended 'depends_on' syntax to specify that these agent services are not strictly required for the platform-engineer container to start.
-    # Each agent is marked with 'required: false', so platform-engineer will start even if the agent is missing.
-    # 'condition: service_started' means Docker Compose will wait until the service has started (not necessarily healthy) before starting platform-engineer.
+    # The following block uses the extended 'depends_on' syntax to wait for agents to be healthy.
+    # 'condition: service_healthy' waits for health checks to pass (with start_period + retries timeout).
+    # 'condition: service_started' just waits for the container to start (faster but less reliable).
     depends_on:
-      - agent-argocd-p2p
-      # - agent-aws-p2p  # temporarily disabled due to errors in the agent-aws-p2p service
-      - agent-backstage-p2p
-      - agent-confluence-p2p
-      - agent-github-p2p
-      - agent-jira-p2p
-      - agent-komodor-p2p
-      - agent-pagerduty-p2p
-      - agent-petstore-p2p
-      - agent_rag
-      - agent-slack-p2p
-      - agent-splunk-p2p
-      - agent-weather-p2p
-      - agent-webex-p2p
+      agent-argocd-p2p:
+        condition: service_started
+      agent-aws-p2p:
+        condition: service_started
+      agent-backstage-p2p:
+        condition: service_started
+      agent-confluence-p2p:
+        condition: service_started
+      agent-github-p2p:
+        condition: service_started
+      agent-jira-p2p:
+        condition: service_started
+      agent-komodor-p2p:
+        condition: service_started
+      agent-pagerduty-p2p:
+        condition: service_started
+      agent-petstore-p2p:
+        condition: service_started
+      agent_rag:
+        condition: service_healthy
+      agent-slack-p2p:
+        condition: service_started
+      agent-splunk-p2p:
+        condition: service_started
+      agent-weather-p2p:
+        condition: service_started
+      agent-webex-p2p:
+        condition: service_started
     env_file:
       - .env
     ports:
@@ -40,6 +54,7 @@ services:
       - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
       - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
       - A2A_TRANSPORT=p2p # Use A2A protocol for agent-to-agent communication.
+      - ENABLE_ENHANCED_STREAMING=${ENABLE_ENHANCED_STREAMING:-true} # Enable enhanced streaming with intelligent routing (DIRECT/PARALLEL/COMPLEX modes)
 
       # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
@@ -71,10 +86,10 @@ services:
       - ENABLE_PAGERDUTY=true
       - ENABLE_SLACK=true
       - ENABLE_SPLUNK=true
-      - ENABLE_WEATHER_AGENT=true
-      - ENABLE_WEBEX_AGENT=true
-      - ENABLE_PETSTORE_AGENT=true
-      - ENABLE_RAG_AGENT=true
+      - ENABLE_WEATHER=true
+      - ENABLE_WEBEX=true
+      - ENABLE_PETSTORE=true
+      - ENABLE_RAG=true
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -276,6 +291,20 @@ services:
       - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
       - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+      - ENABLE_TERRAFORM_MCP=${ENABLE_TERRAFORM_MCP:-false}
+      - ENABLE_AWS_DOCUMENTATION_MCP=${ENABLE_AWS_DOCUMENTATION_MCP:-false}
+      - ENABLE_CLOUDTRAIL_MCP=${ENABLE_CLOUDTRAIL_MCP:-false}
+      - ENABLE_CLOUDWATCH_MCP=${ENABLE_CLOUDWATCH_MCP:-false}
+      - ENABLE_POSTGRES_MCP=${ENABLE_POSTGRES_MCP:-false}
+      - ENABLE_AWS_SUPPORT_MCP=${ENABLE_AWS_SUPPORT_MCP:-false}
+      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-false}
+      - ENABLE_AWS_KNOWLEDGE_MCP=${ENABLE_AWS_KNOWLEDGE_MCP:-false}
+      - AWS_DOCUMENTATION_PARTITION=${AWS_DOCUMENTATION_PARTITION:-aws}
+      # Optional Postgres configuration (only needed if ENABLE_POSTGRES_MCP=true)
+      - POSTGRES_RESOURCE_ARN=${POSTGRES_RESOURCE_ARN:-}
+      - POSTGRES_SECRET_ARN=${POSTGRES_SECRET_ARN:-}
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-}
+      - POSTGRES_HOSTNAME=${POSTGRES_HOSTNAME:-}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
       - LLM_PROVIDER=${LLM_PROVIDER}
@@ -288,31 +317,56 @@ services:
   ####################################################################################################
   #                                      AGENT AWS A2A P2P                                           #
   ####################################################################################################
-  # agent-aws-p2p:
-  #   image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-stable}
-  #   container_name: agent-aws-p2p
-  #   profiles:
-  #     - p2p
-  #     - p2p-tracing
-  #   env_file:
-  #     - .env
-  #   ports:
-  #     - "8002:8000"
-  #   environment:
-  #     - A2A_TRANSPORT=p2p
-  #     - MCP_MODE=http
-  #     - MCP_PORT=8000
-  #     - ENABLE_TRACING=${ENABLE_TRACING:-false}
-  #     - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-  #     - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-  #     - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-  #     # MCP Configuration
-  #     # - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
-  #     # - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
-  #     # - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
-  #     # - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
-  #     # - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
-  #     # - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
+  agent-aws-p2p:
+    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-latest}
+    container_name: agent-aws-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    env_file:
+      - .env
+    volumes:
+      - ./ai_platform_engineering/agents/aws/agent_aws:/app/agent_aws
+      - ./ai_platform_engineering/agents/aws/clients:/app/clients
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+    ports:
+      - "8002:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # AWS Configuration
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      # MCP Configuration
+      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
+      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
+      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
+      - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+      - ENABLE_TERRAFORM_MCP=${ENABLE_TERRAFORM_MCP:-false}
+      - ENABLE_AWS_DOCUMENTATION_MCP=${ENABLE_AWS_DOCUMENTATION_MCP:-false}
+      - ENABLE_CLOUDTRAIL_MCP=${ENABLE_CLOUDTRAIL_MCP:-false}
+      - ENABLE_CLOUDWATCH_MCP=${ENABLE_CLOUDWATCH_MCP:-false}
+      - ENABLE_POSTGRES_MCP=${ENABLE_POSTGRES_MCP:-false}
+      - ENABLE_AWS_SUPPORT_MCP=${ENABLE_AWS_SUPPORT_MCP:-false}
+      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-false}
+      - ENABLE_AWS_KNOWLEDGE_MCP=${ENABLE_AWS_KNOWLEDGE_MCP:-false}
+      - AWS_DOCUMENTATION_PARTITION=${AWS_DOCUMENTATION_PARTITION:-aws}
+      # Optional Postgres configuration (only needed if ENABLE_POSTGRES_MCP=true)
+      - POSTGRES_RESOURCE_ARN=${POSTGRES_RESOURCE_ARN:-}
+      - POSTGRES_SECRET_ARN=${POSTGRES_SECRET_ARN:-}
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-}
+      - POSTGRES_HOSTNAME=${POSTGRES_HOSTNAME:-}
+      - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
+      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
 
   ####################################################################################################
   #                                      AGENT BACKSTAGE A2A over SLIM                               #
@@ -490,8 +544,6 @@ services:
       - p2p-tracing
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    env_file:
-      - .env
     ports:
       - "8007:8000"
     environment:
@@ -831,8 +883,6 @@ services:
     image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-stable}
     container_name: mcp-webex
     profiles:
-      - webex
-      - webex-slim
       - p2p
       - p2p-tracing
     env_file:
@@ -1044,8 +1094,18 @@ services:
     env_file:
       - .env
     depends_on:
-      - rag-redis
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
+      rag-redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:9446/healthz').read()\" || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 60s
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.server
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-latest}
     profiles:
       - rag_p2p
       - rag_no_graph_p2p
@@ -1066,15 +1126,35 @@ services:
         NEO4J_USERNAME: neo4j
         NEO4J_PASSWORD: dummy_password
         RAG_SERVER_URL: http://rag_server:9446
-        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
+        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-false}
+        PYTHONPATH: /app
     restart: unless-stopped
-    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-latest}
+    depends_on:
+      neo4j:
+        condition: service_started
+      neo4j-ontology:
+        condition: service_started
+      rag-redis:
+        condition: service_started
+      rag_server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8099/.well-known/agent.json').read()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    build:
+      context: ai_platform_engineering
+      dockerfile: knowledge_bases/rag/build/Dockerfile.agent-rag
     profiles:
       - rag_p2p
       - rag_no_graph_p2p
       - p2p
       - p2p-tracing
   agent_ontology:
+    container_name: agent_ontology
     ports:
       - "8098:8098"
     environment:
