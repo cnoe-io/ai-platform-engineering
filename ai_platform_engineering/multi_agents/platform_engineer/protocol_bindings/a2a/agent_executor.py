@@ -381,7 +381,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                         if state == 'completed':
                             logger.info(f"🎉 Sub-agent completed! Total chunks: {chunk_count}")
-                            # Send final completion marker (content already streamed, don't duplicate)
+                            # Send final artifact with complete accumulated text
+                            # For streaming clients: redundant but safe (they already got chunks)
+                            # For non-streaming clients: essential (only way to get complete text)
+                            final_text = ''.join(accumulated_text)
+                            logger.info(f"📦 Sending final artifact with {len(final_text)} chars")
                             await self._safe_enqueue_event(
                                 event_queue,
                                 TaskArtifactUpdateEvent(
@@ -392,7 +396,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                     artifact=new_text_artifact(
                                         name='final_result',
                                         description='Complete result from sub-agent',
-                                        text='',  # Empty - content already streamed above
+                                        text=final_text,  # Complete accumulated text for non-streaming clients
                                     ),
                                 )
                             )

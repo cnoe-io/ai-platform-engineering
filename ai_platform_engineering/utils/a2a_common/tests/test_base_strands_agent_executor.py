@@ -33,7 +33,7 @@ class MockStrandsAgent(BaseStrandsAgent):
     def get_model_config(self):
         return None
 
-    def stream_chat(self, message: str):
+    async def stream_chat(self, message: str):
         """Mock streaming."""
         yield {"data": "Hello "}
         yield {"data": "world!"}
@@ -60,8 +60,11 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
+        task.contextId = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
+        context.get_user_input = Mock(return_value="Test query")
+        context.message = Mock()
 
         event_queue = AsyncMock()
 
@@ -69,9 +72,9 @@ class TestBaseStrandsAgentExecutor:
         await executor.execute(context, event_queue)
 
         # Verify events were sent
-        assert event_queue.put.called
+        assert event_queue.enqueue_event.called
         # Should have status updates and artifact updates
-        assert event_queue.put.call_count >= 2
+        assert event_queue.enqueue_event.call_count >= 2
 
     @pytest.mark.asyncio
     async def test_execute_with_chunking(self):
@@ -79,7 +82,7 @@ class TestBaseStrandsAgentExecutor:
         agent = MockStrandsAgent()
 
         # Override stream_chat to produce more data for chunking
-        def long_stream(message):
+        async def long_stream(message):
             for i in range(10):
                 yield {"data": "word " * 10}  # 10 words per chunk
 
@@ -90,8 +93,11 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
+        task.contextId = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
+        context.get_user_input = Mock(return_value="Test query")
+        context.message = Mock()
 
         event_queue = AsyncMock()
 
@@ -99,7 +105,7 @@ class TestBaseStrandsAgentExecutor:
 
         # Should have multiple artifact updates due to chunking
         artifact_calls = [
-            call for call in event_queue.put.call_args_list
+            call for call in event_queue.enqueue_event.call_args_list
             if hasattr(call[0][0], '__class__') and
             'ArtifactUpdate' in call[0][0].__class__.__name__
         ]
@@ -111,7 +117,7 @@ class TestBaseStrandsAgentExecutor:
         agent = MockStrandsAgent()
 
         # Override stream_chat to raise error
-        def error_stream(message):
+        async def error_stream(message):
             yield {"error": "Something went wrong"}
 
         agent.stream_chat = error_stream
@@ -121,15 +127,18 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
+        task.contextId = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
+        context.get_user_input = Mock(return_value="Test query")
+        context.message = Mock()
 
         event_queue = AsyncMock()
 
         await executor.execute(context, event_queue)
 
         # Should have sent error status
-        status_calls = [str(call) for call in event_queue.put.call_args_list]
+        status_calls = [str(call) for call in event_queue.enqueue_event.call_args_list]
         error_sent = any("error" in str(call).lower() for call in status_calls)
         assert error_sent
 
@@ -139,22 +148,31 @@ class TestBaseStrandsAgentExecutor:
         agent = MockStrandsAgent()
 
         # Make stream_chat raise an exception
-        agent.stream_chat = Mock(side_effect=Exception("Test exception"))
+        async def failing_stream(message):
+            raise Exception("Test exception")
+            yield  # Make it a generator
+
+        agent.stream_chat = failing_stream
 
         executor = BaseStrandsAgentExecutor(agent)
 
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
+        task.contextId = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
+        context.get_user_input = Mock(return_value="Test query")
+        context.message = Mock()
 
         event_queue = AsyncMock()
 
-        with pytest.raises(Exception) as exc_info:
-            await executor.execute(context, event_queue)
+        await executor.execute(context, event_queue)
 
-        assert "Test exception" in str(exc_info.value)
+        # Should have sent error artifact and status
+        calls = event_queue.enqueue_event.call_args_list
+        error_sent = any("Test exception" in str(call) or "error" in str(call).lower() for call in calls)
+        assert error_sent
 
     @pytest.mark.asyncio
     async def test_cancel(self):
@@ -165,6 +183,7 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
+        task.contextId = "test-context-123"
         context.current_task = task
 
         event_queue = AsyncMock()
@@ -172,8 +191,8 @@ class TestBaseStrandsAgentExecutor:
         await executor.cancel(context, event_queue)
 
         # Should have sent cancelled status
-        assert event_queue.put.called
-        status_calls = [str(call) for call in event_queue.put.call_args_list]
+        assert event_queue.enqueue_event.called
+        status_calls = [str(call) for call in event_queue.enqueue_event.call_args_list]
         cancelled_sent = any("cancel" in str(call).lower() for call in status_calls)
         assert cancelled_sent
 
@@ -186,15 +205,18 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
+        task.contextId = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
+        context.get_user_input = Mock(return_value="Test query")
+        context.message = Mock()
 
         event_queue = AsyncMock()
 
         await executor.execute(context, event_queue)
 
         # Check that we got expected status updates
-        calls = event_queue.put.call_args_list
+        calls = event_queue.enqueue_event.call_args_list
         assert len(calls) > 0
 
         # First call should be initial status
@@ -212,15 +234,18 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-123"
+        task.contextId = "test-context-123"
         task.instruction = "Query with instruction"
         context.current_task = task
+        context.get_user_input = Mock(return_value="Query with instruction")
+        context.message = Mock()
 
         event_queue = AsyncMock()
 
         await executor.execute(context, event_queue)
 
         # Should complete without error
-        assert event_queue.put.called
+        assert event_queue.enqueue_event.called
 
     @pytest.mark.asyncio
     async def test_empty_response_handling(self):
@@ -228,7 +253,7 @@ class TestBaseStrandsAgentExecutor:
         agent = MockStrandsAgent()
 
         # Override stream_chat to produce no data
-        def empty_stream(message):
+        async def empty_stream(message):
             return
             yield  # Make it a generator
 
@@ -239,15 +264,18 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
+        task.contextId = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
+        context.get_user_input = Mock(return_value="Test query")
+        context.message = Mock()
 
         event_queue = AsyncMock()
 
         await executor.execute(context, event_queue)
 
         # Should still complete and send status
-        assert event_queue.put.called
+        assert event_queue.enqueue_event.called
 
     def test_agent_reference(self):
         """Test that executor maintains reference to agent."""
@@ -267,12 +295,15 @@ class TestBaseStrandsAgentExecutor:
             context = Mock()
             task = Mock()
             task.id = task_id
+            task.contextId = f"context-{task_id}"
             task.instruction = f"Query {task_id}"
             context.current_task = task
+            context.get_user_input = Mock(return_value=f"Query {task_id}")
+            context.message = Mock()
 
             event_queue = AsyncMock()
             await executor.execute(context, event_queue)
-            return event_queue.put.called
+            return event_queue.enqueue_event.called
 
         # Run multiple executions concurrently
         results = await asyncio.gather(
