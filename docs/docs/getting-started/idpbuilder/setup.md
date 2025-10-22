@@ -25,16 +25,17 @@ For a complete development environment with i3 desktop and VNC access on a vanil
 > Setup Ubuntu Pre-requisities
 
 ```
+curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/caipe/scripts/setup-ubuntu-prerequisites.sh -o /tmp/setup-ubuntu-prerequisites.sh && chmod +x /tmp/setup-ubuntu-prerequisites.sh && /tmp/setup-ubuntu-prerequisites.sh
+```
+
+```
 git clone https://github.com/sriaradhyula/stacks
 ```
 
 ```
-cd stacks
+cd ~/stacks
 ```
 
-```bash
-./caipe/scripts/setup-ubuntu-prerequisites.sh
-```
 
 This script will:
 
@@ -252,7 +253,7 @@ After Vault application syncs successfully on ArgoCD, configure your LLM provide
 ### Run Setup Secrets using setup-all.sh (Recommended)
 
 ```bash
-./caipe/scripts/setup-all.sh
+cd ~/stacks && ./caipe/scripts/setup-all.sh
 ```
 
 > This script will prompt you to select your LLM provider. Collect the required credentials securely and store them in cluster local Vault automatically
@@ -265,7 +266,7 @@ After configuring your secrets in Vault, refresh the Kubernetes secrets to ensur
 
 ```bash
 # Download and run the refresh secrets script
-./caipe/scripts/refresh-secrets.sh
+cd ~/stacks && ./caipe/scripts/refresh-secrets.sh
 ```
 
 This script will:
