@@ -233,21 +233,6 @@ const sidebars: SidebarsConfig = {
           id: 'knowledge_bases/index',
           label: 'Overview',
         },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/ragingestion',
-          label: 'RAG Ingestion',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/rag',
-          label: 'RAG',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/graph_rag',
-          label: 'Graph RAG',
-        },
       ],
 
     },
