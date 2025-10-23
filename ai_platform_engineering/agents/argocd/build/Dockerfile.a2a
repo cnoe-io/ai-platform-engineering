@@ -17,6 +17,9 @@ COPY --chown=root:root ai_platform_engineering/agents/argocd /app/ai_platform_en
 # Set working directory to the argocd agent
 WORKDIR /app/ai_platform_engineering/agents/argocd
 
+# Create README.md if not present (due to .dockerignore)
+RUN [ ! -f "README.md" ] && echo "# ArgoCD Agent" > README.md || true
+
 # Install dependencies into venv (no dev deps)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev

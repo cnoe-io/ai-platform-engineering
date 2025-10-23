@@ -17,6 +17,9 @@ COPY --chown=root:root ai_platform_engineering/agents/backstage /app/ai_platform
 # Set working directory to the backstage agent
 WORKDIR /app/ai_platform_engineering/agents/backstage
 
+# Create README.md if not present (due to .dockerignore)
+RUN [ ! -f "README.md" ] && echo "# Backstage Agent" > README.md || true
+
 # Install dependencies into venv (no dev deps)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev
