@@ -4,6 +4,7 @@ from common import utils
 from server.loader.url.docsaurus_scraper import scrape_docsaurus
 from server.loader.url.mkdocs_scraper import scrape_mkdocs
 import aiohttp
+from aiohttp_retry import RetryClient, ExponentialRetry
 from bs4 import BeautifulSoup
 import gzip
 import os
@@ -55,7 +56,21 @@ class Loader:
         )
 
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10), headers={"User-Agent": self.user_agent}) # 10 seconds timeout
+        # Configure retry policy for rate limiting and transient errors
+        retry_options = ExponentialRetry(
+            attempts=4,         # 3 retries + 1 initial attempt
+            start_timeout=1.0,  # Start with 1 second delay
+            max_timeout=60.0,   # Cap at 60 seconds
+            factor=2.0,         # Double delay each time
+            statuses={429, 502, 503, 504},  # Retry on rate limit and server errors
+            exceptions={aiohttp.ClientError, aiohttp.ServerTimeoutError}
+        )
+        
+        base_session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=30), 
+            headers={"User-Agent": self.user_agent}
+        )
+        self.session = RetryClient(client_session=base_session, retry_options=retry_options)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
