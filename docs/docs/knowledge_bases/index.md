@@ -31,6 +31,9 @@ CAIPE RAG uses vector search to retrieve relevant unstructured documents such as
 ### 2️⃣ Start all services
 
 ```bash
+# Change to the rag directory
+cd ai-platform-engineering/knowledge_bases/rag
+
 # Start all services using Docker Compose
 docker compose --profile apps up
 ```
@@ -42,9 +45,6 @@ Interfaces:
   - API Docs: [http://localhost:9446/docs](http://localhost:9446/docs)
   - (Advanced) Neo4j Browser: [http://localhost:7474](http://localhost:7474)
   - (Advanced) Milvus Studio: [http://localhost:9091](http://localhost:9091)
-For detailed architecture information, see [Architecture.md](Architecture.md).
-
-
 
 ## Features
 
