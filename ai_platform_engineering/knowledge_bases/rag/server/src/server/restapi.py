@@ -27,6 +27,7 @@ import redis.asyncio as redis
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_milvus import BM25BuiltInFunction, Milvus
 from pymilvus import MilvusClient
+import time
 import os
 import httpx
 from server.query_service import VectorDBQueryService
@@ -58,6 +59,7 @@ skip_init_tests = os.getenv("SKIP_INIT_TESTS", "false").lower() in ("true", "1",
 max_ingestion_concurrency = int(os.getenv("MAX_INGESTION_CONCURRENCY", 30)) # max concurrent tasks during ingestion for one datasource
 ui_url = os.getenv("UI_URL", "http://localhost:9447")
 mcp_enabled = os.getenv("ENABLE_MCP", "true").lower() in ("true", "1", "yes")
+sleep_on_init_failure = int(os.getenv("SLEEP_ON_INIT_FAILURE_SECONDS", 180)) # seconds to sleep on init failure before shutdown
 
 default_collection_name_docs = "rag_default"
 dense_index_params = {"index_type": "HNSW", "metric_type": "COSINE"}
@@ -93,14 +95,22 @@ async def app_lifespan(app: FastAPI):
     jobmanager = JobManager(redis_client=redis_client)
     embeddings = AzureOpenAIEmbeddings(model=embeddings_model)
 
+    logger.info("SKIP_INIT_TESTS=" + str(skip_init_tests))
     if not skip_init_tests:
-        # Do some inital tests to ensure the connections are all working
-        await init_tests(
-            logger=logger,
-            redis_client=redis_client,
-            embeddings=embeddings,
-            milvus_uri=milvus_uri
-        )
+        try:
+            # Do some inital tests to ensure the connections are all working
+            await init_tests(
+                logger=logger,
+                redis_client=redis_client,
+                embeddings=embeddings,
+                milvus_uri=milvus_uri
+            )
+        except Exception as e:
+            logger.error(traceback.format_exc())
+            logger.error("Initial connection tests failed, shutting down the app.")
+            logger.error(f"Error in init test, sleeping {sleep_on_init_failure} seconds before shutdown...")
+            time.sleep(sleep_on_init_failure)
+            raise e
 
     # Setup vector db for document data
     vector_db = Milvus(
@@ -269,6 +279,7 @@ async def ingest_datasource_url(
 
     return IngestResponse(
         job_id=job_id,
+        datasource_id=datasource_id
     )
 
 @app.post("/v1/datasource/reload")
@@ -330,6 +341,7 @@ async def get_job_status(job_id: str):
         "created_at": job_info.created_at.isoformat(),
         "completed_at": job_info.completed_at.isoformat() if job_info.completed_at else None,
         "errors": job_info.errors
+
     }
 
 @app.post("/v1/job/{job_id}/terminate", status_code=status.HTTP_200_OK)
@@ -543,7 +555,7 @@ async def get_rag_prompt_endpoint():
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(resp))
 
 # ============================================================================
-# Health Check
+# Health Check and Configuration Endpoint
 # ============================================================================
 
 @app.get("/healthz")
@@ -582,20 +594,25 @@ async def health_check():
                 "redis": {
                     "url": redis_url
                 }
-            }
+            },
+            "ui_url": ui_url,
+            "datasources": await metadata_storage.fetch_all_datasource_info() if metadata_storage else []
     }
 
     if graph_rag_enabled:
         if data_graph_db and ontology_graph_db:
             config["graph_db"] = {
                 "data_graph": {
-                    "type": "neo4j",
+                    "type": data_graph_db.database_type,
+                    "query_language": data_graph_db.query_language,
                     "uri": neo4j_addr
                 },
                 "ontology_graph": {
-                    "type": "neo4j",
+                    "type": ontology_graph_db.database_type,
+                    "query_language": ontology_graph_db.query_language,
                     "uri": ontology_neo4j_addr
-                }
+                },
+                "graph_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else []
             }
 
     response = {

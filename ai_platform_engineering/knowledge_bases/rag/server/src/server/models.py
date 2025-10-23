@@ -35,6 +35,7 @@ class FileIngest(BaseModel):
 
 class IngestResponse(BaseModel):
     job_id: str
+    datasource_id: str
 
 # Graph Explorations models
 class EntityIngest(BaseModel):

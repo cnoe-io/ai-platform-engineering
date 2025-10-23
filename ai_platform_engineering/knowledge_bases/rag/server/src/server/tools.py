@@ -84,6 +84,9 @@ class AgentTools:
         
         logger.info(f"Registered MCP tools: {await mcp.get_tools()}")
        
+    ####################
+    # Search tool     #
+    ####################
 
     async def search(self, query: str, filters: Optional[dict]=None, limit: int = 5, similarity_threshold: float = 0.3, thought: str = "") -> str:
         """
