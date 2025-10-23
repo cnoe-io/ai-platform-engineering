@@ -21,6 +21,8 @@ dependencies = [
     "cnoe-agent-utils==0.3.2",
     "agntcy-app-sdk==0.1.4",
     "a2a-sdk==0.2.16",
+    "langchain-mcp-adapters>=0.1.11",
+    "mcp>=1.16.0",
     "common",
 ]
 
@@ -33,3 +35,12 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 common = { path = "../common" }
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "pytest-timeout>=2.1.0",
+]
