@@ -4,10 +4,10 @@
 
 Knowledge base systems are designed to store, manage, and retrieve information efficiently. They play a crucial role in enabling CAIPE to access relevant knowledge quickly, and also assist in reasoning when executing complex tasks. There are currently two primary types of Knowledge base systems:
 
-1. **[Vector based system](rag.md)**
+1. **Vector based system**
   Vector based system is tailored for working with platform runbooks and other forms of unstructured data. The system embeds documents into vector representations, allowing for similarity searches.
 
-2. **[Graph based system](graph_rag.md)**
+2. **Graph based system**
   Graph based system focus on generating knowledge graphs from structured data sources like databases and APIs. This AI agent generates queries on-the-fly to extract relevant information from the knowledge graph, enabling complex reasoning and understanding data relationships.
 
 ### Unified RAG Architecture (CAIPE RAG)
