@@ -41,6 +41,8 @@ class QnAAgentExecutor(AgentExecutor):
             task = new_task(context.message)
             await event_queue.enqueue_event(task)
 
+        await self.agent.setup()
+
         # Extract trace_id from A2A context - THIS IS A SUB-AGENT, should NEVER generate trace_id
         trace_id = extract_trace_id_from_context(context)
         if not trace_id:
