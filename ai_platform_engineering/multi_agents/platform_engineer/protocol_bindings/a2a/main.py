@@ -111,7 +111,7 @@ app = a2a_server.build()
 ################################################################################
 A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
 
-A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY', 'false').lower() == 'true'
+A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY')
 
 # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
 app.add_middleware(
