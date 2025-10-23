@@ -56,7 +56,9 @@ services:
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true # Routinely checks each subagent connectivity to add or remove any from existing tools list.
       - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
       - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
-      - ENABLE_ENHANCED_STREAMING=${ENABLE_ENHANCED_STREAMING:-true} # Enable enhanced streaming with intelligent routing (DIRECT/PARALLEL/COMPLEX modes)
+      - ENABLE_ENHANCED_STREAMING=${ENABLE_ENHANCED_STREAMING:-false} # Enable enhanced streaming with intelligent routing (DIRECT/PARALLEL/COMPLEX modes)
+      - FORCE_DEEP_AGENT_ORCHESTRATION=${FORCE_DEEP_AGENT_ORCHESTRATION:-true} # Force all queries through Deep Agent with parallel orchestration hints (DEFAULT - best performance)
+      - ENABLE_ENHANCED_ORCHESTRATION=${ENABLE_ENHANCED_ORCHESTRATION:-false} # EXPERIMENTAL: Smart routing + orchestration hints (4th mode for comparison)
 
       # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
@@ -217,7 +219,7 @@ services:
       - "18000:8000"
     environment:
       - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
+      - MCP_HOST=mcp-argocd
       - MCP_PORT=8000
 
   ####################################################################################################

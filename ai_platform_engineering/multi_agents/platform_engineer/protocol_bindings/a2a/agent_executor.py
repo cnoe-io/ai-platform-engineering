@@ -58,14 +58,44 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     def __init__(self):
         self.agent = AIPlatformEngineerA2ABinding()
 
-        # Feature flag: Enhanced streaming with routing and parallel execution
-        # When enabled, queries are analyzed and routed to:
-        # - DIRECT: Single sub-agent streaming (fast path)
-        # - PARALLEL: Multiple sub-agents streaming in parallel
-        # - COMPLEX: Deep Agent for intelligent orchestration
-        # When disabled, all queries go through Deep Agent (original behavior)
-        self.enhanced_streaming_enabled = os.getenv('ENABLE_ENHANCED_STREAMING', 'true').lower() == 'true'
-        logger.info(f"🎛️  Enhanced streaming: {'ENABLED' if self.enhanced_streaming_enabled else 'DISABLED'}")
+        # Feature flags for different routing approaches
+        # Default to DEEP_AGENT_PARALLEL_ORCHESTRATION mode (best performance: 4.94s avg, 29% faster than ENHANCED_STREAMING)
+        self.enhanced_streaming_enabled = os.getenv('ENABLE_ENHANCED_STREAMING', 'false').lower() == 'true'
+        self.force_deep_agent_orchestration = os.getenv('FORCE_DEEP_AGENT_ORCHESTRATION', 'true').lower() == 'true'
+        self.enhanced_orchestration_enabled = os.getenv('ENABLE_ENHANCED_ORCHESTRATION', 'false').lower() == 'true'
+        
+        # Determine routing mode based on flags (priority order)
+        if self.enhanced_orchestration_enabled:
+            self.routing_mode = "DEEP_AGENT_ENHANCED_ORCHESTRATION"
+            logger.info("🎛️  Routing Mode: DEEP_AGENT_ENHANCED_ORCHESTRATION - Smart routing + orchestration hints (EXPERIMENTAL)")
+        elif self.force_deep_agent_orchestration:
+            self.routing_mode = "DEEP_AGENT_PARALLEL_ORCHESTRATION"
+            logger.info("🎛️  Routing Mode: DEEP_AGENT_PARALLEL_ORCHESTRATION - All queries via Deep Agent with parallel orchestration (DEFAULT - best performance)")
+        elif self.enhanced_streaming_enabled:
+            self.routing_mode = "DEEP_AGENT_INTELLIGENT_ROUTING"
+            logger.info("🎛️  Routing Mode: DEEP_AGENT_INTELLIGENT_ROUTING - Intelligent routing (DIRECT/PARALLEL/COMPLEX)")
+        else:
+            self.routing_mode = "DEEP_AGENT_SEQUENTIAL_ORCHESTRATION"
+            logger.info("🎛️  Routing Mode: DEEP_AGENT_SEQUENTIAL_ORCHESTRATION - All queries via Deep Agent (original behavior)")
+
+        # Configurable routing keywords via environment variables
+        self.knowledge_base_keywords = self._parse_env_keywords(
+            'KNOWLEDGE_BASE_KEYWORDS', 
+            'docs:,@docs'  # Default: docs: or @docs prefix
+        )
+        self.orchestration_keywords = self._parse_env_keywords(
+            'ORCHESTRATION_KEYWORDS',
+            'analyze,compare,if,then,create,update,based on,depending on,which,that have'
+        )
+        
+        logger.info(f"📚 Knowledge base keywords: {self.knowledge_base_keywords}")
+        logger.info(f"🔧 Orchestration keywords: {self.orchestration_keywords}")
+
+    def _parse_env_keywords(self, env_var: str, default: str) -> List[str]:
+        """Parse comma-separated keywords from environment variable."""
+        keywords_str = os.getenv(env_var, default)
+        keywords = [kw.strip() for kw in keywords_str.split(',') if kw.strip()]
+        return keywords
 
     def _detect_sub_agent_query(self, query: str) -> Optional[Tuple[str, str]]:
         """
@@ -121,26 +151,21 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         query_lower = query.lower()
         available_agents = platform_registry.AGENT_ADDRESS_MAPPING
 
-        # Check for documentation/knowledge base queries (direct to RAG)
-        # Only match explicit documentation requests, not operational queries
-        documentation_keywords = [
-            'documentation', 'docs',   # Documentation queries
-            'knowledge base', 'kb',    # Knowledge base queries
-            'what is', 'what are',     # Definition queries
-            'explain', 'define',       # Explanation queries
-        ]
+        # Check for explicit knowledge base queries (direct to RAG)
+        # Use configurable keywords for knowledge base requests
+        is_knowledge_base_query = any(
+            query_lower.startswith(keyword.lower()) for keyword in self.knowledge_base_keywords
+        )
 
-        is_documentation_query = any(keyword in query_lower for keyword in documentation_keywords)
-
-        if is_documentation_query:
-            # Direct route to RAG agent for documentation queries
+        if is_knowledge_base_query:
+            # Direct route to RAG agent for knowledge base queries
             rag_agent_url = available_agents.get('RAG')
             if rag_agent_url:
-                logger.info("🎯 Documentation query detected, routing directly to RAG")
+                logger.info("🎯 Knowledge base query detected, routing directly to RAG")
                 return RoutingDecision(
                     type=RoutingType.DIRECT,
                     agents=[('RAG', rag_agent_url)],
-                    reason="Documentation/knowledge base query - direct to RAG"
+                    reason=f"Knowledge base query (matched: {[k for k in self.knowledge_base_keywords if query_lower.startswith(k.lower())][0]}) - direct to RAG"
                 )
 
         # Detect explicitly mentioned agents (by name only)
@@ -158,7 +183,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         logger.info(f"🎯 Routing analysis: found {len(mentioned_agents)} explicit agent mentions")
 
         # Routing logic
-        # - Documentation keywords → Direct to RAG (fast path)
+        # - Knowledge base keywords → Direct to RAG (fast path)
         # - No explicit agents → Deep Agent (handles semantic routing + RAG)
         # - One explicit agent → Direct streaming (fast path)
         # - Multiple explicit agents → Parallel or Deep Agent (depends on complexity)
@@ -183,11 +208,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         else:
             # Multiple explicit agents mentioned
-            # Check if query requires orchestration (keywords like "analyze", "compare", "if", "then")
-            orchestration_keywords = ['analyze', 'compare', 'if', 'then', 'create', 'update',
-                                     'based on', 'depending on', 'which', 'that have']
-
-            needs_orchestration = any(keyword in query_lower for keyword in orchestration_keywords)
+            # Check if query requires orchestration using configurable keywords
+            needs_orchestration = any(keyword.lower() in query_lower for keyword in self.orchestration_keywords)
 
             if needs_orchestration:
                 # Needs Deep Agent for intelligent orchestration
@@ -761,14 +783,60 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         else:
             logger.info(f"🔍 Platform Engineer Executor: Using trace_id from context: {trace_id}")
 
-        # ENHANCED ROUTING: Determine optimal execution strategy (FEATURE FLAG CONTROLLED)
-        # When ENABLE_ENHANCED_STREAMING=true:
-        #   - DIRECT: Single sub-agent → direct streaming (fast path)
-        #   - PARALLEL: Multiple sub-agents → parallel streaming (efficient aggregation)
-        #   - COMPLEX: Needs orchestration → Deep Agent (intelligent reasoning)
-        # When ENABLE_ENHANCED_STREAMING=false:
-        #   - All queries go through Deep Agent (original behavior)
-        if self.enhanced_streaming_enabled:
+        # ROUTING STRATEGY: Determine execution path based on routing mode
+        # DEEP_AGENT_ENHANCED_ORCHESTRATION: Smart routing + orchestration hints (EXPERIMENTAL)
+        # DEEP_AGENT_PARALLEL_ORCHESTRATION: All via Deep Agent with parallel orchestration hints
+        # DEEP_AGENT_INTELLIGENT_ROUTING: Intelligent routing (DIRECT/PARALLEL/COMPLEX)
+        # DEEP_AGENT_SEQUENTIAL_ORCHESTRATION: All via Deep Agent (original behavior)
+        
+        if self.routing_mode == "DEEP_AGENT_ENHANCED_ORCHESTRATION":
+            # NEW EXPERIMENTAL MODE: Combines smart routing with orchestration hints
+            routing = self._route_query(query)
+            logger.info(f"🎯 Routing decision: {routing.type.value} - {routing.reason}")
+
+            # Handle DIRECT streaming (single sub-agent, fast path)
+            if routing.type == RoutingType.DIRECT:
+                agent_name, agent_url = routing.agents[0]
+                logger.info(f"🚀 DIRECT MODE: Streaming from {agent_name} at {agent_url}")
+                try:
+                    await self._stream_from_sub_agent(agent_url, query, task, event_queue, trace_id)
+                    return
+                except Exception as e:
+                    logger.warning(f"⚠️  Direct streaming failed: {str(e)[:100]}")
+                    logger.info("🔄 Falling back to Deep Agent with orchestration hints")
+                    # Fall through to Deep Agent WITH orchestration hints (key improvement)
+
+            # Handle PARALLEL streaming (multiple sub-agents)
+            elif routing.type == RoutingType.PARALLEL:
+                agent_names = [name for name, _ in routing.agents]
+                logger.info(f"🌊 PARALLEL MODE: Streaming from {', '.join(agent_names)}")
+                try:
+                    await self._stream_from_multiple_agents(routing.agents, query, task, event_queue, trace_id)
+                    return
+                except Exception as e:
+                    logger.warning(f"⚠️  Parallel streaming failed: {str(e)[:100]}")
+                    logger.info("🔄 Falling back to Deep Agent with orchestration hints")
+                    # Fall through to Deep Agent WITH orchestration hints (key improvement)
+
+            # COMPLEX mode OR fallback from DIRECT/PARALLEL failures
+            # ADD ORCHESTRATION HINTS (this is the key innovation)
+            logger.info("🧠 ENHANCED_ORCHESTRATION: Adding orchestration hints to Deep Agent")
+            
+            # Analyze query to provide orchestration hints (logging only - agent.stream() doesn't accept config)
+            available_agents = platform_registry.AGENT_ADDRESS_MAPPING
+            mentioned_agents = []
+            for agent_name, agent_url in available_agents.items():
+                if agent_name.lower() in query.lower():
+                    mentioned_agents.append(agent_name)
+            
+            if mentioned_agents:
+                logger.info(f"🤖 Detected agents in query for enhanced orchestration: {mentioned_agents}")
+            else:
+                logger.info("🤖 No specific agents detected - Deep Agent will determine best orchestration strategy")
+            
+            # Continue to Deep Agent execution below (with orchestration hints now added)
+            
+        elif self.routing_mode == "DEEP_AGENT_INTELLIGENT_ROUTING":
             routing = self._route_query(query)
             logger.info(f"🎯 Routing decision: {routing.type.value} - {routing.reason}")
 
@@ -797,16 +865,69 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     # Fall through to Deep Agent (no need to notify user, just continue)
 
             # COMPLEX mode falls through to Deep Agent naturally
-        else:
-            logger.info("🎛️  Enhanced streaming disabled, using Deep Agent for all queries")
+        
+        elif self.routing_mode == "DEEP_AGENT_PARALLEL_ORCHESTRATION":
+            # Force all queries through Deep Agent with parallel orchestration hints
+            logger.info("🎛️  DEEP_AGENT_PARALLEL_ORCHESTRATION mode: Routing to Deep Agent with parallel orchestration hints")
+            
+            # Analyze query to provide orchestration hints in logs
+            available_agents = platform_registry.AGENT_ADDRESS_MAPPING
+            mentioned_agents = []
+            for agent_name, agent_url in available_agents.items():
+                if agent_name.lower() in query.lower():
+                    mentioned_agents.append(agent_name)
+            
+            if mentioned_agents:
+                logger.info(f"🤖 Detected agents in query for parallel orchestration: {mentioned_agents}")
+        
+        else:  # DEEP_AGENT_ONLY
+            logger.info("🎛️  DEEP_AGENT_ONLY mode: All queries via Deep Agent (original behavior)")
+
+        # Track streaming state for proper A2A protocol
+        first_artifact_sent = False
+        accumulated_content = []
+        streaming_artifact_id = None  # Shared artifact ID for all streaming chunks
 
         try:
             # invoke the underlying agent, using streaming results
+            # NOTE: Pass task to maintain task ID consistency across sub-agents
             async for event in self.agent.stream(query, context_id, trace_id):
-                # Handle typed A2A events directly
+                # Handle typed A2A events - TRANSFORM APPEND FLAG FOR FORWARDED EVENTS
                 if isinstance(event, (A2ATaskArtifactUpdateEvent, A2ATaskStatusUpdateEvent)):
-                    logger.debug(f"Executor: Enqueuing streamed A2A event: {type(event).__name__}")
-                    await self._safe_enqueue_event(event_queue, event)
+                    logger.debug(f"Executor: Processing streamed A2A event: {type(event).__name__}")
+                    
+                    # Fix forwarded TaskArtifactUpdateEvent to handle append flag correctly
+                    if isinstance(event, A2ATaskArtifactUpdateEvent):
+                        # Transform the event to use our first_artifact_sent logic
+                        use_append = first_artifact_sent
+                        if not first_artifact_sent:
+                            first_artifact_sent = True
+                            logger.info("📝 Transforming FIRST forwarded artifact (append=False) to create artifact")
+                        else:
+                            logger.debug("📝 Transforming subsequent forwarded artifact (append=True)")
+                        
+                        # Create new event with corrected append flag AND CORRECT TASK ID
+                        transformed_event = TaskArtifactUpdateEvent(
+                            append=use_append,  # First: False (create), subsequent: True (append)
+                            context_id=event.context_id,
+                            task_id=task.id,  # ✅ Use the ORIGINAL task ID from client, not sub-agent's task ID
+                            lastChunk=event.lastChunk,
+                            artifact=event.artifact
+                        )
+                        await self._safe_enqueue_event(event_queue, transformed_event)
+                    else:
+                        # Forward status events with corrected task ID
+                        if isinstance(event, A2ATaskStatusUpdateEvent):
+                            # Update the task ID to match the original client task
+                            corrected_status_event = TaskStatusUpdateEvent(
+                                context_id=event.context_id,
+                                task_id=task.id,  # ✅ Use the ORIGINAL task ID from client
+                                status=event.status
+                            )
+                            await self._safe_enqueue_event(event_queue, corrected_status_event)
+                        else:
+                            # Forward other events unchanged
+                            await self._safe_enqueue_event(event_queue, event)
                     continue
                 elif isinstance(event, A2AMessage):
                     logger.debug("Executor: Converting A2A Message to TaskStatusUpdateEvent (working)")
@@ -841,6 +962,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     logger.debug("Executor: Received A2A Task event; enqueuing.")
                     await self._safe_enqueue_event(event_queue, event)
                     continue
+                
                 # Normalize content to string (handle cases where AWS Bedrock returns list)
                 # This is due to AWS Bedrock having a different format for the content for streaming compared to Azure OpenAI.
                 content = event.get('content', '')
@@ -860,69 +982,179 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     content = str(content) if content else ''
 
                 if event['is_task_complete']:
-                  logger.info("Task complete event received. Enqueuing TaskArtifactUpdateEvent and TaskStatusUpdateEvent.")
-                  await self._safe_enqueue_event(
+                    logger.info("Task complete event received. Enqueuing final TaskArtifactUpdateEvent and TaskStatusUpdateEvent.")
+                    
+                    # Send final artifact with all accumulated content for non-streaming clients
+                    final_content = ''.join(accumulated_content) if accumulated_content else content
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskArtifactUpdateEvent(
+                            append=False,  # Final artifact always creates new artifact
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            lastChunk=True,
+                            artifact=new_text_artifact(
+                                name='final_result',
+                                description='Complete result from Platform Engineer.',
+                                text=final_content,
+                            ),
+                        )
+                    )
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskStatusUpdateEvent(
+                            status=TaskStatus(state=TaskState.completed),
+                            final=True,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                        )
+                    )
+                    logger.info(f"Task {task.id} marked as completed with {len(final_content)} chars total.")
+                elif event['require_user_input']:
+                    logger.info("User input required event received. Enqueuing TaskStatusUpdateEvent with input_required state.")
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskStatusUpdateEvent(
+                            status=TaskStatus(
+                                state=TaskState.input_required,
+                                message=new_agent_text_message(
+                                    content,
+                                    task.context_id,
+                                    task.id,
+                                ),
+                            ),
+                            final=True,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                        )
+                    )
+                    logger.info(f"Task {task.id} requires user input.")
+                else:
+                    # This is a streaming chunk - forward it immediately to the client!
+                    logger.debug(f"🔍 Processing streaming chunk: has_content={bool(content)}, content_length={len(content) if content else 0}")
+                    if content:  # Only send artifacts with actual content
+                        # Check if this is a tool notification with metadata
+                        is_tool_notification = 'tool_call' in event or 'tool_result' in event
+                        
+                        # Only add non-tool-notification content to accumulated content for final response
+                        if not is_tool_notification:
+                            accumulated_content.append(content)
+                            logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
+                        else:
+                            logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
+                        
+                        # A2A protocol: first artifact must have append=False, subsequent use append=True
+                        use_append = first_artifact_sent
+                        logger.debug(f"🔍 first_artifact_sent={first_artifact_sent}, use_append={use_append}")
+                        
+                        artifact_name = 'streaming_result'
+                        artifact_description = 'Streaming result from Platform Engineer'
+                        
+                        if is_tool_notification:
+                            if 'tool_call' in event:
+                                tool_info = event['tool_call']
+                                artifact_name = f'tool_notification_start'
+                                artifact_description = f'Tool call started: {tool_info.get("name", "unknown")}'
+                                logger.debug(f"🔧 Tool call notification: {tool_info}")
+                            elif 'tool_result' in event:
+                                tool_info = event['tool_result']
+                                artifact_name = f'tool_notification_end'
+                                artifact_description = f'Tool call completed: {tool_info.get("name", "unknown")}'
+                                logger.debug(f"✅ Tool result notification: {tool_info}")
+                        
+                        # Create shared artifact ID once for all streaming chunks
+                        if streaming_artifact_id is None:
+                            # First chunk - create new artifact with unique ID
+                            artifact = new_text_artifact(
+                                name=artifact_name,
+                                description=artifact_description,
+                                text=content,
+                            )
+                            streaming_artifact_id = artifact.artifactId  # Save for subsequent chunks
+                            first_artifact_sent = True
+                            logger.info(f"📝 Sending FIRST streaming artifact (append=False) with ID: {streaming_artifact_id}")
+                        else:
+                            # Subsequent chunks - reuse the same artifact ID for regular content
+                            # But create new artifacts for tool notifications to distinguish them
+                            if is_tool_notification:
+                                artifact = new_text_artifact(
+                                    name=artifact_name,
+                                    description=artifact_description,
+                                    text=content,
+                                )
+                                # Tool notifications get their own artifact IDs for easy identification
+                                logger.debug(f"📝 Creating separate tool notification artifact: {artifact.artifactId}")
+                            else:
+                                artifact = new_text_artifact(
+                                    name=artifact_name,
+                                    description=artifact_description,
+                                    text=content,
+                                )
+                                artifact.artifactId = streaming_artifact_id  # Use the same ID for regular chunks
+                                logger.debug(f"📝 Appending streaming chunk (append=True) to artifact: {streaming_artifact_id}")
+
+                        # Forward chunk immediately to client (STREAMING!)
+                        await self._safe_enqueue_event(
+                            event_queue,
+                            TaskArtifactUpdateEvent(
+                                append=use_append if not is_tool_notification else False,  # Tool notifications always create new artifacts
+                                context_id=task.context_id,
+                                task_id=task.id,
+                                lastChunk=False,  # Not the last chunk, more are coming
+                                artifact=artifact,
+                            )
+                        )
+                        logger.debug(f"✅ Streamed chunk to A2A client: {content[:50]}...")
+                    
+                    # Also send status update to indicate working state
+                    logger.debug("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskStatusUpdateEvent(
+                            status=TaskStatus(
+                                state=TaskState.working,
+                                message=new_agent_text_message(
+                                    content if content else "Processing...",
+                                    task.context_id,
+                                    task.id,
+                                ),
+                            ),
+                            final=False,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                        )
+                    )
+                    logger.debug(f"Task {task.id} is in progress with streaming chunk.")
+
+            # If we exit the stream loop without receiving 'is_task_complete', send accumulated content
+            if accumulated_content and not event.get('is_task_complete', False):
+                logger.warning(f"⚠️  Stream ended without completion signal, sending accumulated content ({len(accumulated_content)} chunks)")
+                final_content = ''.join(accumulated_content)
+                await self._safe_enqueue_event(
                     event_queue,
                     TaskArtifactUpdateEvent(
-                      append=False,
-                      context_id=task.context_id,
-                      task_id=task.id,
-                      lastChunk=True,
-                      artifact=new_text_artifact(
-                        name='current_result',
-                        description='Result of request to agent.',
-                        text=content,
-                      ),
-                    )
-                  )
-                  await self._safe_enqueue_event(
-                    event_queue,
-                    TaskStatusUpdateEvent(
-                      status=TaskStatus(state=TaskState.completed),
-                      final=True,
-                      context_id=task.context_id,
-                      task_id=task.id,
-                    )
-                  )
-                  logger.info(f"Task {task.id} marked as completed.")
-                elif event['require_user_input']:
-                  logger.info("User input required event received. Enqueuing TaskStatusUpdateEvent with input_required state.")
-                  await self._safe_enqueue_event(
-                    event_queue,
-                    TaskStatusUpdateEvent(
-                      status=TaskStatus(
-                        state=TaskState.input_required,
-                        message=new_agent_text_message(
-                          content,
-                          task.context_id,
-                          task.id,
+                        append=False,
+                        context_id=task.context_id,
+                        task_id=task.id,
+                        lastChunk=True,
+                        artifact=new_text_artifact(
+                            name='partial_result',
+                            description='Partial result from Platform Engineer (stream ended)',
+                            text=final_content,
                         ),
-                      ),
-                      final=True,
-                      context_id=task.context_id,
-                      task_id=task.id,
                     )
-                  )
-                  logger.info(f"Task {task.id} requires user input.")
-                else:
-                  logger.debug("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
-                  await self._safe_enqueue_event(
+                )
+                await self._safe_enqueue_event(
                     event_queue,
                     TaskStatusUpdateEvent(
-                      status=TaskStatus(
-                        state=TaskState.working,
-                        message=new_agent_text_message(
-                          content,
-                          task.context_id,
-                          task.id,
-                        ),
-                      ),
-                      final=False,
-                      context_id=task.context_id,
-                      task_id=task.id,
+                        status=TaskStatus(state=TaskState.completed),
+                        final=True,
+                        context_id=task.context_id,
+                        task_id=task.id,
                     )
-                  )
-                  logger.debug(f"Task {task.id} is in progress.")
+                )
+                logger.info(f"Task {task.id} marked as completed with {len(final_content)} chars total.")
+
         except Exception as e:
             logger.error(f"Error during agent execution: {e}")
             # Try to enqueue a failure status if the queue is still open

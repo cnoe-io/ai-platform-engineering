@@ -71,10 +71,9 @@ services:
       - SLACK_AGENT_HOST=agent-slack-p2p
       - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
+      - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
-      - PETSTORE_AGENT_HOST=agent-petstore-p2p
-      - RAG_AGENT_HOST=agent_rag
-
+      - WEBEX_AGENT_PORT=8000
       # Enable agents
       - ENABLE_ARGOCD=true
       # - ENABLE_AWS=true # temporarily disabled due to errors in the agent-aws-p2p service
@@ -495,7 +494,6 @@ services:
       - p2p
       - p2p-tracing
       - slim
-
       - slim-tracing
     env_file:
       - .env
@@ -542,6 +540,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+    env_file:
+      - .env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
@@ -837,13 +837,12 @@ services:
     image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-stable}
     container_name: agent-webex-p2p
     profiles:
-      - webex
       - p2p
       - p2p-tracing
     env_file:
       - .env
     ports:
-      - "8017:8000"
+      - "8014:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -860,7 +859,8 @@ services:
     image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-stable}
     container_name: agent-webex-slim
     profiles:
-      - webex-slim
+      - slim
+      - slim-tracing
     env_file:
       - .env
     depends_on:
@@ -885,6 +885,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - slim
+      - slim-tracing
     env_file:
       - .env
     ports:
@@ -905,6 +907,7 @@ services:
       - slim
       - p2p
       - p2p-tracing
+      - slim
       - slim-tracing
     env_file:
       - .env
@@ -966,7 +969,6 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
-
   ####################################################################################################
   #                                      AGENT WEATHER A2A over SLIM                                 #
   ####################################################################################################
@@ -974,7 +976,6 @@ services:
     image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
     container_name: agent-weather-slim
     profiles:
-      - weather
       - slim
       - slim-tracing
     depends_on:
@@ -1006,7 +1007,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8021:8000"
+      - "8012:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -1218,9 +1219,9 @@ services:
     environment:
       NEO4J_AUTH: neo4j/dummy_password
       NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
 
   neo4j-ontology:
     image: neo4j:latest
@@ -1246,10 +1247,13 @@ services:
 
   rag-redis:
     image: redis
+    container_name: rag-redis
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rag-redis:/data
     command:
       - /bin/sh
       - -c
-      - redis-server
+      - redis-server --save 60 1 --appendonly yes
     ports:
       - "6379:6379"
     restart: unless-stopped
