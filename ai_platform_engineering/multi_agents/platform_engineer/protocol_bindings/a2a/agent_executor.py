@@ -1033,78 +1033,90 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     # This is a streaming chunk - forward it immediately to the client!
                     logger.debug(f"🔍 Processing streaming chunk: has_content={bool(content)}, content_length={len(content) if content else 0}")
                     if content:  # Only send artifacts with actual content
-                        # Check if this is a tool notification with metadata
-                        is_tool_notification = 'tool_call' in event or 'tool_result' in event
+                       # Check if this is a tool notification with metadata
+                       is_tool_notification = 'tool_call' in event or 'tool_result' in event
+                       
+                       # Check if this is an execution plan
+                       is_execution_plan = '## 📋 Execution Plan' in content or '**Task:**' in content or '**Approach:**' in content
+                       
+                       # Only add non-notification content to accumulated content for final response
+                       if not is_tool_notification and not is_execution_plan:
+                           accumulated_content.append(content)
+                           logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
+                       elif is_tool_notification:
+                           logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
+                       elif is_execution_plan:
+                           logger.debug(f"📋 Skipping execution plan from final response: {content.strip()}")
+                       
+                       # A2A protocol: first artifact must have append=False, subsequent use append=True
+                       use_append = first_artifact_sent
+                       logger.debug(f"🔍 first_artifact_sent={first_artifact_sent}, use_append={use_append}")
+                       
+                       artifact_name = 'streaming_result'
+                       artifact_description = 'Streaming result from Platform Engineer'
+                       
+                       if is_tool_notification:
+                           if 'tool_call' in event:
+                               tool_info = event['tool_call']
+                               artifact_name = f'tool_notification_start'
+                               artifact_description = f'Tool call started: {tool_info.get("name", "unknown")}'
+                               logger.debug(f"🔧 Tool call notification: {tool_info}")
+                           elif 'tool_result' in event:
+                               tool_info = event['tool_result']
+                               artifact_name = f'tool_notification_end'
+                               artifact_description = f'Tool call completed: {tool_info.get("name", "unknown")}'
+                               logger.debug(f"✅ Tool result notification: {tool_info}")
+                       elif is_execution_plan:
+                           artifact_name = 'execution_plan'
+                           artifact_description = 'Execution plan from Platform Engineer'
+                           logger.debug(f"📋 Execution plan detected: {content[:50]}...")
                         
-                        # Only add non-tool-notification content to accumulated content for final response
-                        if not is_tool_notification:
-                            accumulated_content.append(content)
-                            logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
-                        else:
-                            logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
-                        
-                        # A2A protocol: first artifact must have append=False, subsequent use append=True
-                        use_append = first_artifact_sent
-                        logger.debug(f"🔍 first_artifact_sent={first_artifact_sent}, use_append={use_append}")
-                        
-                        artifact_name = 'streaming_result'
-                        artifact_description = 'Streaming result from Platform Engineer'
-                        
-                        if is_tool_notification:
-                            if 'tool_call' in event:
-                                tool_info = event['tool_call']
-                                artifact_name = f'tool_notification_start'
-                                artifact_description = f'Tool call started: {tool_info.get("name", "unknown")}'
-                                logger.debug(f"🔧 Tool call notification: {tool_info}")
-                            elif 'tool_result' in event:
-                                tool_info = event['tool_result']
-                                artifact_name = f'tool_notification_end'
-                                artifact_description = f'Tool call completed: {tool_info.get("name", "unknown")}'
-                                logger.debug(f"✅ Tool result notification: {tool_info}")
-                        
-                        # Create shared artifact ID once for all streaming chunks
-                        if streaming_artifact_id is None:
-                            # First chunk - create new artifact with unique ID
-                            artifact = new_text_artifact(
-                                name=artifact_name,
-                                description=artifact_description,
-                                text=content,
-                            )
-                            streaming_artifact_id = artifact.artifactId  # Save for subsequent chunks
-                            first_artifact_sent = True
-                            logger.info(f"📝 Sending FIRST streaming artifact (append=False) with ID: {streaming_artifact_id}")
-                        else:
-                            # Subsequent chunks - reuse the same artifact ID for regular content
-                            # But create new artifacts for tool notifications to distinguish them
-                            if is_tool_notification:
-                                artifact = new_text_artifact(
-                                    name=artifact_name,
-                                    description=artifact_description,
-                                    text=content,
-                                )
-                                # Tool notifications get their own artifact IDs for easy identification
-                                logger.debug(f"📝 Creating separate tool notification artifact: {artifact.artifactId}")
-                            else:
-                                artifact = new_text_artifact(
-                                    name=artifact_name,
-                                    description=artifact_description,
-                                    text=content,
-                                )
-                                artifact.artifactId = streaming_artifact_id  # Use the same ID for regular chunks
-                                logger.debug(f"📝 Appending streaming chunk (append=True) to artifact: {streaming_artifact_id}")
+                       # Create shared artifact ID once for all streaming chunks
+                       if streaming_artifact_id is None:
+                           # First chunk - create new artifact with unique ID
+                           artifact = new_text_artifact(
+                               name=artifact_name,
+                               description=artifact_description,
+                               text=content,
+                           )
+                           streaming_artifact_id = artifact.artifactId  # Save for subsequent chunks
+                           first_artifact_sent = True
+                           logger.info(f"📝 Sending FIRST streaming artifact (append=False) with ID: {streaming_artifact_id}")
+                       else:
+                           # Subsequent chunks - reuse the same artifact ID for regular content
+                           # But create new artifacts for tool notifications and execution plans to distinguish them
+                           if is_tool_notification or is_execution_plan:
+                               artifact = new_text_artifact(
+                                   name=artifact_name,
+                                   description=artifact_description,
+                                   text=content,
+                               )
+                               # Tool notifications and execution plans get their own artifact IDs for easy identification
+                               if is_tool_notification:
+                                   logger.debug(f"📝 Creating separate tool notification artifact: {artifact.artifactId}")
+                               else:
+                                   logger.debug(f"📝 Creating separate execution plan artifact: {artifact.artifactId}")
+                           else:
+                               artifact = new_text_artifact(
+                                   name=artifact_name,
+                                   description=artifact_description,
+                                   text=content,
+                               )
+                               artifact.artifactId = streaming_artifact_id  # Use the same ID for regular chunks
+                               logger.debug(f"📝 Appending streaming chunk (append=True) to artifact: {streaming_artifact_id}")
 
-                        # Forward chunk immediately to client (STREAMING!)
-                        await self._safe_enqueue_event(
-                            event_queue,
-                            TaskArtifactUpdateEvent(
-                                append=use_append if not is_tool_notification else False,  # Tool notifications always create new artifacts
-                                context_id=task.context_id,
-                                task_id=task.id,
-                                lastChunk=False,  # Not the last chunk, more are coming
-                                artifact=artifact,
-                            )
-                        )
-                        logger.debug(f"✅ Streamed chunk to A2A client: {content[:50]}...")
+                       # Forward chunk immediately to client (STREAMING!)
+                       await self._safe_enqueue_event(
+                           event_queue,
+                           TaskArtifactUpdateEvent(
+                               append=use_append if not (is_tool_notification or is_execution_plan) else False,  # Special artifacts always create new ones
+                               context_id=task.context_id,
+                               task_id=task.id,
+                               lastChunk=False,  # Not the last chunk, more are coming
+                               artifact=artifact,
+                           )
+                       )
+                       logger.debug(f"✅ Streamed chunk to A2A client: {content[:50]}...")
                     
                     # Also send status update to indicate working state
                     logger.debug("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
