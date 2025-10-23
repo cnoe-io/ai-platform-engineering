@@ -1,13 +1,72 @@
-# Knowledge Base Agents
+# Knowledge Base Systems
 
-## Knowledge Base Agents Overview
+## Knowledge Base Systems Overview
 
-Knowledge Base Agents are designed to harness the power of structured and unstructured data to provide intelligent insights and solutions. These agents specialize in utilizing knowledge bases to enhance decision-making and problem-solving capabilities.
+Knowledge base systems are designed to store, manage, and retrieve information efficiently. They play a crucial role in enabling CAIPE to access relevant knowledge quickly, and also assist in reasoning when executing complex tasks. There are currently two primary types of Knowledge base systems:
 
-### Types of Knowledge Base Agents
+1. **[Vector based system](rag.md)**
+  Vector based system is tailored for working with platform runbooks and other forms of unstructured data. The system embeds documents into vector representations, allowing for similarity searches.
 
-1. **[RAG Agents](rag.md)**
-  RAG (Retrieval-Augmented Generation) Agents are tailored for working with platform runbooks and other forms of unstructured data. They excel at retrieving relevant information and generating contextually accurate responses, making them ideal for scenarios where quick access to critical knowledge is required.
+2. **[Graph based system](graph_rag.md)**
+  Graph based system focus on generating knowledge graphs from structured data sources like databases and APIs. This AI agent generates queries on-the-fly to extract relevant information from the knowledge graph, enabling complex reasoning and understanding data relationships.
 
-2. **[Graph RAG-based Agents](graph_rag.md)**
-  Graph RAG-based Agents focus on correlating and navigating knowledge graphs. By leveraging the interconnected nature of graph data, these agents provide deeper insights and uncover relationships between entities, enabling more comprehensive understanding and analysis.
+### Unified RAG Architecture (CAIPE RAG)
+
+Both Vector based system and Graph based system are combined under a unified RAG (Retrieval-Augmented Generation) architecture combining the strengths of both systems. 
+
+CAIPE RAG uses vector search to retrieve relevant unstructured documents such as platform runbooks and documentation. It also uses vector search to locate relevant nodes within the knowledge graph generated from structured data sources. By integrating these two approaches, CAIPE RAG can provide comprehensive and contextually relevant information to enhance its reasoning and decision-making capabilities.
+
+<img src="images/rag-arch.svg" alt="Unified RAG Architecture" width="600" />
+
+
+## Getting Started
+
+![Getting Started](images/rag_gif.gif)
+
+### 1️⃣ Prerequisites
+
+- Docker and Docker Compose
+- Environment variables configured in `.env`
+
+### 2️⃣ Start all services
+
+```bash
+# Start all services using Docker Compose
+docker compose --profile apps up
+```
+### 3️⃣ Access the Interface
+
+Interfaces:
+
+  - Web UI: [http://localhost:9447](http://localhost:9447)
+  - API Docs: [http://localhost:9446/docs](http://localhost:9446/docs)
+  - (Advanced) Neo4j Browser: [http://localhost:7474](http://localhost:7474)
+  - (Advanced) Milvus Studio: [http://localhost:9091](http://localhost:9091)
+For detailed architecture information, see [Architecture.md](Architecture.md).
+
+
+
+## Features
+
+### Ontology Agent
+- Automatic relationship discovery using heuristics
+- LLM-powered evaluation of relationship candidates
+- Progress tracking with real-time status updates
+- Configurable acceptance/rejection thresholds
+- Background processing with concurrent task management
+
+### RAG System
+- Document ingestion and chunking
+- Vector embeddings with Milvus storage
+- Semantic search and retrieval
+- LLM-powered question answering
+
+### Web Interface
+- Interactive graph visualization
+- Real-time agent status with progress indicators
+- Search functionality across all data
+- Entity exploration and relationship browsing
+
+
+### Further Reading
+- [Unified RAG Github discussion](https://github.com/cnoe-io/ai-platform-engineering/discussions/196)
