@@ -106,17 +106,33 @@ class AIPlatformEngineerA2ABinding:
               elif event_type == "on_tool_start":
                   tool_name = event.get("name", "unknown")
                   logging.info(f"Tool call started: {tool_name}")
-                  # Optionally yield tool start indicator
-                  # yield {
-                  #     "is_task_complete": False,
-                  #     "require_user_input": False,
-                  #     "content": f"\n🔧 Calling {tool_name}...\n",
-                  # }
+                  # Stream tool start notification to client with metadata
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": f"\n🔧 Calling {tool_name}...\n",
+                      "tool_call": {
+                          "name": tool_name,
+                          "status": "started",
+                          "type": "notification"
+                      }
+                  }
 
               # Stream tool completion
               elif event_type == "on_tool_end":
                   tool_name = event.get("name", "unknown")
                   logging.info(f"Tool call completed: {tool_name}")
+                  # Stream tool completion notification to client with metadata
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": f"✅ {tool_name} completed\n",
+                      "tool_result": {
+                          "name": tool_name,
+                          "status": "completed",
+                          "type": "notification"
+                      }
+                  }
 
           # Fallback to old method if astream_events doesn't work
       except Exception as e:

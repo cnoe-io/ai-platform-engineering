@@ -95,12 +95,47 @@ class BaseStrandsAgentExecutor(AgentExecutor):
 
             # Stream the response from Strands agent (async generator)
             full_response = ""
+            first_chunk = True
+            streaming_artifact_id = None
 
             # Process events and send to A2A event queue
             async for event in self.agent.stream_chat(query):
                 if "data" in event:
                     chunk = event["data"]
                     full_response += chunk
+
+                    # Stream each chunk immediately!
+                    if streaming_artifact_id is None:
+                        # First chunk - create new artifact
+                        artifact = new_text_artifact(
+                            name='streaming_result',
+                            description=f'Streaming result from {agent_name}',
+                            text=chunk,
+                        )
+                        streaming_artifact_id = artifact.artifactId
+                        use_append = False
+                        logger.debug(f"🚀 {agent_name}: Sending FIRST streaming chunk (append=False)")
+                    else:
+                        # Subsequent chunks - reuse artifact ID
+                        artifact = new_text_artifact(
+                            name='streaming_result', 
+                            description=f'Streaming result from {agent_name}',
+                            text=chunk,
+                        )
+                        artifact.artifactId = streaming_artifact_id
+                        use_append = True
+                        logger.debug(f"🚀 {agent_name}: Streaming chunk (append=True)")
+
+                    await event_queue.enqueue_event(
+                        TaskArtifactUpdateEvent(
+                            append=use_append,
+                            contextId=task.contextId,
+                            taskId=task.id,
+                            lastChunk=False,
+                            artifact=artifact,
+                        )
+                    )
+                    first_chunk = False
 
                 elif "error" in event:
                     logger.error(f"Error from agent: {event['error']}")
@@ -121,7 +156,7 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                     )
                     return
 
-            # Send final artifact with full response
+            # Send final complete artifact as backup (for non-streaming clients)
             await event_queue.enqueue_event(
                 TaskArtifactUpdateEvent(
                     append=False,
@@ -129,8 +164,8 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                     taskId=task.id,
                     lastChunk=False,
                     artifact=new_text_artifact(
-                        name='current_result',
-                        description='Result of request to agent.',
+                        name='complete_result',
+                        description=f'Complete result from {agent_name}',
                         text=full_response,
                     ),
                 )

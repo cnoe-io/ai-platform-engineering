@@ -21,7 +21,7 @@ services:
   caipe-caipe-complete-with-tracing-p2p:
     container_name: caipe-caipe-complete-with-tracing-p2p
     volumes:
-    - ../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
+    - ../charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
     - ../persona.yaml:/app/persona.yaml
     - ../ai_platform_engineering:/app/ai_platform_engineering
     env_file:
@@ -132,8 +132,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/aws:/app/ai_platform_engineering/agents/aws
     build:
-      context: ../ai_platform_engineering/agents/aws
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/aws/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   # No mcp-aws as aws only supports stdio transport currently.
@@ -153,8 +153,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/backstage:/app/ai_platform_engineering/agents/backstage
     build:
-      context: ../ai_platform_engineering/agents/backstage
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/backstage/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   mcp-backstage:
@@ -191,8 +191,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/confluence:/app/ai_platform_engineering/agents/confluence
     build:
-      context: ../ai_platform_engineering/agents/confluence
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/confluence/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   mcp-confluence:
@@ -229,8 +229,8 @@ services:
     - /var/run/docker.sock:/var/run/docker.sock
     - ../ai_platform_engineering/agents/github:/app/ai_platform_engineering/agents/github
     build:
-      context: ../ai_platform_engineering/agents/github
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/github/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   agent-jira-caipe-complete-with-tracing-p2p:
@@ -249,8 +249,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/jira:/app/ai_platform_engineering/agents/jira
     build:
-      context: ../ai_platform_engineering/agents/jira
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/jira/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   mcp-jira:
@@ -287,8 +287,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/komodor:/app/ai_platform_engineering/agents/komodor
     build:
-      context: ../ai_platform_engineering/agents/komodor
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/komodor/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   mcp-komodor:
@@ -325,8 +325,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/pagerduty:/app/ai_platform_engineering/agents/pagerduty
     build:
-      context: ../ai_platform_engineering/agents/pagerduty
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/pagerduty/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   mcp-pagerduty:
@@ -363,8 +363,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/slack:/app/ai_platform_engineering/agents/slack
     build:
-      context: ../ai_platform_engineering/agents/slack
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/slack/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   mcp-slack:
@@ -401,8 +401,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/splunk:/app/ai_platform_engineering/agents/splunk
     build:
-      context: ../ai_platform_engineering/agents/splunk
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/splunk/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   mcp-splunk:
@@ -438,8 +438,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/weather:/app/ai_platform_engineering/agents/weather
     build:
-      context: ../ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/weather/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   agent-webex-caipe-complete-with-tracing-p2p:
@@ -458,8 +458,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/webex:/app/ai_platform_engineering/agents/webex
     build:
-      context: ../ai_platform_engineering/agents/webex
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/webex/build/Dockerfile.a2a
     profiles:
     - a2a-p2p
   mcp-webex:
@@ -723,8 +723,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/pagerduty:/app/ai_platform_engineering/agents/pagerduty
     build:
-      context: ../ai_platform_engineering/agents/pagerduty
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/pagerduty/build/Dockerfile.a2a
     profiles:
     - a2a-over-slim
   agent-slack-caipe-complete-with-tracing-slim:
@@ -744,8 +744,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/slack:/app/ai_platform_engineering/agents/slack
     build:
-      context: ../ai_platform_engineering/agents/slack
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/slack/build/Dockerfile.a2a
     profiles:
     - a2a-over-slim
   agent-splunk-caipe-complete-with-tracing-slim:
@@ -765,8 +765,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/splunk:/app/ai_platform_engineering/agents/splunk
     build:
-      context: ../ai_platform_engineering/agents/splunk
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/splunk/build/Dockerfile.a2a
     profiles:
     - a2a-over-slim
   agent-weather-caipe-complete-with-tracing-slim:
@@ -785,8 +785,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/weather:/app/ai_platform_engineering/agents/weather
     build:
-      context: ../ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/weather/build/Dockerfile.a2a
     profiles:
     - a2a-over-slim
   agent-webex-caipe-complete-with-tracing-slim:
@@ -806,8 +806,8 @@ services:
     volumes:
     - ../ai_platform_engineering/agents/webex:/app/ai_platform_engineering/agents/webex
     build:
-      context: ../ai_platform_engineering/agents/webex
-      dockerfile: build/Dockerfile.a2a
+      context: ../ai_platform_engineering
+      dockerfile: agents/webex/build/Dockerfile.a2a
     profiles:
     - a2a-over-slim
   agent-petstore-caipe-complete-with-tracing-slim:
