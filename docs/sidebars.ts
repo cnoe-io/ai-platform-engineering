@@ -104,6 +104,11 @@ const sidebars: SidebarsConfig = {
               type: 'doc',
               id: 'getting-started/idpbuilder/ubuntu-prerequisites',
             },
+            {
+              type: 'doc',
+              id: 'getting-started/idpbuilder/manual-vault-secret-setup',
+              label: 'Manual Vault Secret Setup',
+            },
           ],
         },
         {
@@ -227,21 +232,6 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'knowledge_bases/index',
           label: 'Overview',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/ragingestion',
-          label: 'RAG Ingestion',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/rag',
-          label: 'RAG',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/graph_rag',
-          label: 'Graph RAG',
         },
       ],
 

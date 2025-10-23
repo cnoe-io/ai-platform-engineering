@@ -1,3 +1,95 @@
+## 0.1.19 (2025-10-22)
+
+### Feat
+
+- **helm**: Add flexible prompt configuration with default and deep agent modes
+- up to date helm and external secrets doc
+- **helm**: add promptConfig override support
+- adding job termination, reload and search weights
+- add mcp server for RAG
+- add Claude Agent SDK template with A2A and MCP protocol bindings
+- add dev version of complete
+- allow supervisor agent to work with any remote agent
+- add condition to rag-stack and fix webui;
+- new rag-stack chart
+- add agent_skill_examples in prompt_config
+- add ENABLE_<agent> to supervisor cm
+- use skills example config
+- agent-rag can now filter
+- dynamic docker-compose generation with persona-based profiles
+- add dynamic docker-compose generator and persona configuration
+- add agent-aws-slim and agent-petstore-slim services
+
+### Fix
+
+- better idpbuilder docs;
+- **docs**: gh pages
+- RAG ingestion and retrieval bug fixes
+- **ci**: Correct dependency verification pattern for helm packages
+- **ci**: Skip version check when only Chart.lock changes
+- **helm**: skip packaging if chart version already published
+- **helm**: ensure rag-stack dependencies always packaged in ai-platform-engineering
+- lint and tests
+- webui improvements
+- uv-lock
+- RAG tests; add url santization
+- **docs**: use idpbuilder scripts from git repo
+- **gha**: updates
+- **gha**: updates
+- **gha**: updates
+- **lint**: updates
+- **unit-tests**: updates
+- **unit-tests**: multi-agent tests
+- **gha**: update supervisor ci name
+- **unit tests**: clean-up
+- **gha**: build on .github changes
+- **gha**: build on .github changes
+- **gha**: build on .github changes
+- **gha**: update names
+- working docker-compose.caipe-complete-with-tracing
+- correctly handle aws bedrock streaming format
+- rufflint
+- make AWS agent to run in executor to prevent blocking
+- make supervisor agent work dynamically
+- rufflint
+- remove empty file
+- use fields from pydantic model
+- **rag**: add init tests, add delete_all function
+- **docker-compose**: use latest
+- remove unnecessary files
+- optimise search with weighted ranker
+- fix
+- delete ai.yaml
+- no rag name or
+- rag-stack needs agentExports
+- add rag to supervisor cm
+- wrong env place
+- fix
+- all neo4j hardcoded to port 7687
+- handle when chart does not exist in main yet
+- update chart version correctly for pre-release
+- **README.md**: re-trigger build
+- **README.md**: re-trigger the build
+- **.dockerignore**: include all rag sources
+- **README.md**: retrigger build
+- exclude from supervisor, but include clients
+- remove `knowledge-bases` .dockerignore
+- change to .gitleaksignore
+- add nosec to neo4j instantation
+- lint
+- **rag**: webui nginx; logging; prompt improvements
+- agent_rag footnote for filtering
+- code comments
+- lint errors
+- lint
+- change dense metric L2 -> COSINE
+- agent_rag now checks for graph ontology
+- lint
+
+### Refactor
+
+- **multi-agents**: consolidate agent registry with convention-based configuration
+
 ## 0.1.18 (2025-10-06)
 
 ### Fix

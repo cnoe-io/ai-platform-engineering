@@ -7,44 +7,6 @@
 </div>
 
 
-## Quick Start Options
-
-## Step 1: Install Pre-requisities (Recommended)
-
-> **Note:** These instructions are based on a Ubuntu/Debian VM
-
-For a complete development environment with i3 desktop and VNC access on a vanilla Ubuntu VM or Ubuntu EC2 instance:
-
-**System Requirements:**
-
-- 8 CPUs
-- 16 GB RAM
-- 80 GB Disk Space
-- Docker installed and ready
-
-> Setup Ubuntu Pre-requisities
-
-```
-git clone https://github.com/sriaradhyula/stacks/tree/main
-```
-
-```
-cd stacks
-```
-
-```bash
-./caipe/scripts/setup-ubuntu-prerequisites.sh
-```
-
-This script will:
-
-- Install all prerequisites (Docker, kubectl, Vault, etc.)
-- Set up i3 desktop environment with VNC
-
-### Option 2: Manual Setup
-
-For detailed manual installation and configuration steps, see [Manual Setup Guide](./ubuntu-prerequisites.md).
-
 ## Architecture Overview
 
 IDPBuilder creates a KIND cluster and deploys platform components via ArgoCD. The CAIPE (Community AI Platform Engineering) stack adds authentication, secret management, and multi-agent AI capabilities:
@@ -140,6 +102,67 @@ flowchart LR
 6. **AI Integration**: Agent-Forge plugin in Backstage connects to CAIPE MAS Agent
 7. **Multi-Agent System**: Orchestrator manages individual agents for different platform domains
 
+## Step 1: Install Pre-requisities (Recommended)
+
+### Option 1: Automated Setup from a fresh Ubuntu VM or Ubuntu EC2 instance
+
+> **Note:** These instructions are based on a Ubuntu/Debian VM
+
+For a complete development environment with i3 desktop and VNC access on a vanilla Ubuntu VM or Ubuntu EC2 instance:
+
+**System Requirements:**
+
+- 8 CPUs
+- 16 GB RAM
+- 80 GB Disk Space
+- Docker installed and ready
+
+:::warning IMPORTANT WARNING - READ BEFORE RUNNING 🚨
+This script makes SIGNIFICANT system changes and is ONLY intended for fresh Ubuntu VMs/EC2 instances. DO NOT run on your personal machine or production systems!
+:::
+
+#### What This Script Installs:
+
+- **Development Tools:** Docker, Kubernetes (kubectl, Kind, K9s), HashiCorp Vault, GitHub CLI, IDPBuilder
+- **Desktop Environment:** i3 window manager, TigerVNC server, Firefox, Terminator
+- **System Utilities:** git, vim, jq, curl, wget, and more
+
+#### ⚠️ Important Warnings:
+
+**This script will:**
+- **Remove GNOME desktop** if installed
+- Modify system configuration files
+- Add APT repositories and Docker group permissions
+
+**✅ Safe for:** Fresh Ubuntu VMs/EC2 instances and dedicated dev environments
+
+**❌ DO NOT use on:** Personal machines, production servers, or systems where you need GNOME
+
+```bash
+curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/caipe/scripts/setup-ubuntu-prerequisites.sh -o /tmp/setup-ubuntu-prerequisites.sh && chmod +x /tmp/setup-ubuntu-prerequisites.sh && /tmp/setup-ubuntu-prerequisites.sh
+```
+
+### Option 2: Manual Setup
+
+For detailed manual installation and configuration steps, see [Manual Setup Guide](./ubuntu-prerequisites.md).
+
+### Option 3: Existing Machine Setup
+
+If you're running on your existing machine, ensure you have the following prerequisites installed as well as ensureing it does meet the above system requirements.
+
+**Required:**
+- **Docker**: Container runtime ([Install Docker](https://docs.docker.com/engine/install/))
+- **kubectl**: Kubernetes CLI ([Install kubectl](https://kubernetes.io/docs/tasks/tools/))
+- **IDPBuilder**: Install [idpbuilder CLI](https://github.com/cnoe-io/idpbuilder?tab=readme-ov-file#installation)
+
+## Step 2: Clone CAIPE Stack
+
+Clone the CAIPE stack GitHub repository which contains the CAIPE platform and all the components to deploy the IDPBuilder cluster:
+
+```bash
+git clone https://github.com/sriaradhyula/stacks
+```
+
 ## CAIPE Runtime/Deployment Profiles
 
 CAIPE (Community AI Platform Engineering) offers multiple runtime/deployment profiles to suit different use cases:
@@ -150,34 +173,36 @@ CAIPE (Community AI Platform Engineering) offers multiple runtime/deployment pro
 |---------|-------------|----------|
 | `caipe-basic-p2p` | Basic peer-to-peer AI platform with essential components | Quick testing, minimal setup, *best for learning* |
 | `caipe-complete-p2p` **(recommended)** | Full-featured platform with all AI agents and integrations | Production-like with complete with CAIPE + A2A Peer-to-Peer betwen agents |
-| `caipe-complete-slim` | Complete platform with SLIM pub/sub | Production-like with complete with CAIPE + A2A over AGNTCY SLIM  |
+<!-- | `caipe-complete-slim` | Complete platform with SLIM pub/sub | Production-like with complete with CAIPE + A2A over AGNTCY SLIM  | -->
 
-## Step 2: Pick your runtime/deployment CAIPE profile
+## Step 3: Pick your runtime/deployment CAIPE profile
 
 IDPBuilder supports different profiles as listed above:
 
-#### Option 1: CAIPE Basic A2A P2P Profile (for learning)
+#### Option 1: CAIPE Complete A2A P2P Profile (recommended)
+
+```bash
+# From the dicrectory that the stacks repository is cloned to
+# Create cluster with CAIPE complete-p2p profile
+idpbuilder create \
+  --use-path-routing \
+  --package stacks/ref-implementation \
+  --package stacks/caipe/base \
+  --package stacks/caipe/complete
+```
+
+#### Option 2: CAIPE Basic A2A P2P Profile (for learning and quick start)
 
 ```bash
 # Create cluster with CAIPE basic-p2p profile
 idpbuilder create \
   --use-path-routing \
-  --package https://github.com/sriaradhyula/stacks//ref-implementation \
-  --package https://github.com/sriaradhyula/stacks//caipe/base
+  --package stacks/ref-implementation \
+  --package stacks/caipe/base
 ```
 
-#### Option 2: CAIPE Complete A2A P2P Profile (recommended)
 
-```bash
-# Create cluster with CAIPE complete-p2p profile
-idpbuilder create \
-  --use-path-routing \
-  --package https://github.com/sriaradhyula/stacks//ref-implementation \
-  --package https://github.com/sriaradhyula/stacks//caipe/base \
-  --package https://github.com/sriaradhyula/stacks//caipe/complete
-```
-
-#### Option 3: CAIPE Complete A2A over Slim Profile
+<!-- #### Option 3: CAIPE Complete A2A over Slim Profile
 
 ```bash
 # Create cluster with CAIPE complete-slim profile
@@ -186,7 +211,7 @@ idpbuilder create \
   --package https://github.com/sriaradhyula/stacks//ref-implementation \
   --package https://github.com/sriaradhyula/stacks//caipe/base \
   --package https://github.com/sriaradhyula/stacks//caipe/complete-slim
-```
+``` -->
 
 Run your preferred runtime option. This process will:
 
@@ -195,9 +220,189 @@ Run your preferred runtime option. This process will:
 * Deploy ArgoCD, Vault, and Backstage
 * Configure ingress with path-based routing
 
+:::note
 This takes around 5-10 minutes. Feel free to grab a coffee while it's deploying :coffee:
+:::
 
-## Step 3: Verify Kubernetes Cluster
+:::note
+Before proceeding to configure secrets, you may want to access ArgoCD to monitor the deployment progress of platform components.
+:::
+
+## Access ArgoCD and Monitor Deployments
+
+Once the cluster is created, IDPBuilder outputs the ArgoCD URL.
+
+### Get ArgoCD Credentials
+
+```bash
+# Get admin password
+idpbuilder get secrets -p argocd
+```
+
+### Access ArgoCD
+
+Open https://cnoe.localtest.me:8443/argocd/ and login with:
+- Username: `admin`
+- Password: From the command above
+
+Monitor application sync status for vault, ai-platform-engineering. Initial synchronization takes 3-5 minutes as the cluster will be pulling all the required images.
+
+### Verify Vault Application Sync Status
+
+Before proceeding to the next step, verify that the Vault application has synced successfully on ArgoCD like below:
+
+:::note
+If you can't see Vault application in the ArgoCD UI, go to the 2nd page and check if Vault application is listed.
+:::
+
+<div class="img-quarter-width">
+
+![ArgoCD Vault Sync](./images/argocd-vault-sync.svg)
+
+</div>
+
+## Step 4: Configure Vault Secrets
+
+After Vault application syncs successfully on ArgoCD, configure your LLM provider credentials:
+
+### Run Setup Secrets using setup-all.sh (Recommended)
+
+:::note
+If you prefer to configure secrets manually through the Vault UI, see [Manual Vault Secret Setup](./manual-vault-secret-setup.md).
+:::
+
+By default, ArgoCD and Backstage secrets are already populated in Vault using the local deployment credentials (if the sub-agents are running in your cluster). However, you can override these secrets if you want to run the sub-agents on your remote ArgoCD and Backstage deployments.
+
+The below script will do the following:
+- Prompt you to select your LLM provider. Collect the required credentials securely and store them in cluster local Vault automatically
+- Detect all sub-agents running in your cluster and populate thier secrets in Vault automatically
+- Refresh the Kubernetes secrets and restart the deployments to ensure all agents pick up the new credentials
+
+If you already have LLM credentials and other sub-agent secrets in `.env` file, you can run the setup-all.sh script to configure them automatically:
+
+:::info
+The below script will automatically detect all sub-agents running in your cluster and populate only those secrets in Vault. It will not overwrite any existing secrets in Vault by default (ArgoCD and Backstage). If you want to overwrite these secrets, you can add the `--override-all` flag to the command.
+:::
+
+:::note
+If any secret is missing in the `.env` file, the script will prompt you to enter it interactively.
+:::
+
+```bash
+stacks/caipe/scripts/setup-all.sh --envFile <path-to-your-env-file>
+```
+
+If you don't have a `.env` file, you can run the script without the `--envFile` option and it will prompt you to enter your credentials interactively:
+
+```bash
+stacks/caipe/scripts/setup-all.sh
+```
+
+Once the script is complete, you will see the following message:
+
+```
+✅ Cleanup process completed successfully!
+🎯 All secrets and pods have been refreshed in the ai-platform-engineering namespace
+✅ All done.
+```
+
+You can also verify the secrets are correctly configured in Vault by checking the Vault UI at https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/list/ai-platform-engineering/
+
+When asked for the token to access Vault, use the root token from the command below:
+
+```bash
+# Extract root token
+kubectl get secret vault-root-token -n vault -o jsonpath="{.data}" | \
+  jq -r 'to_entries[] | "\(.key): \(.value | @base64d)"'
+```
+
+## Step 5: Access RAG WebUI Portal (Optional)
+
+The RAG (Retrieval-Augmented Generation) WebUI provides a powerful interface for ingesting, querying, and managing knowledge bases that enhance your AI agents' capabilities.
+
+### Access RAG Ingestion WebUI
+
+Open https://rag-webui.cnoe.localtest.me:8443/ to access the RAG WebUI Portal.
+
+### RAG Ingestion Interface
+
+Use the ingestion interface to add documents, websites, and other knowledge sources to your RAG system:
+
+![RAG Ingestion Interface](./images/rag-ingestion.svg)
+
+### RAG Querying Interface
+
+Query your ingested knowledge bases to test retrieval and get insights from your documents:
+
+![RAG Querying Interface](./images/rag-querying.svg)
+
+### Advanced RAG Search
+
+Perform advanced searches with filters, similarity thresholds, and custom parameters:
+
+![RAG Advanced Search](./images/rag-querying-advanced.svg)
+
+The RAG WebUI allows you to:
+- **Ingest Documents**: Upload PDFs, text files, and web content
+- **Query Knowledge**: Search and retrieve relevant information
+- **Test Retrieval**: Validate your knowledge base responses
+- **Monitor Performance**: Track ingestion and query metrics
+- **Configure Settings**: Adjust embedding models and search parameters
+
+## Step 6: Access Backstage Portal
+
+### Get Backstage Credentials
+
+```bash
+# Get user1 password
+idpbuilder get secrets | grep USER_PASSWORD | sed 's/.*USER_PASSWORD=\([^,]*\).*/\1/'
+```
+
+### Login to Backstage
+
+Open https://cnoe.localtest.me:8443/ and login with:
+- Username: `user1`
+- Password: From the command above
+
+### Interact with the AI Platform Engineer Assistant
+
+Once logged into the Backstage portal, you can interact with the AI Platform Engineer assistant by clicking on the AI agent icon in the bottom-right corner.
+
+![Backstage AI Agent Icon](./images/backstage-main.svg)
+
+When you click on the AI agent icon, it will open up the AI Platform Engineer assistant UI where you will be able to interact directly with the agent.
+
+![Backstage AI Agent UI](./images/backstage-agent-interaction.svg)
+
+
+### Some example prompts to try out
+
+```
+What can you do?
+```
+
+```
+What ArgoCD version are you using? # If running ArgoCD agent
+```
+
+```
+Get my Github profile detatils # If running Github agent
+```
+
+## Useful Addresses for IDPBuilder Cluster
+
+- ArgoCD: https://cnoe.localtest.me:8443/argocd/
+- Backstage: https://cnoe.localtest.me:8443/
+- Vault: https://vault.cnoe.localtest.me:8443/
+- Keycloak: https://cnoe.localtest.me:8443/keycloak/admin/master/console/
+- Gitea: https://cnoe.localtest.me:8443/gitea/
+- RAG Ingestion WebUI: https://rag-webui.cnoe.localtest.me:8443/
+
+## Troubleshooting
+
+### Verify Kubernetes Cluster
+
+If you need to verify the cluster status and configuration:
 
 ```bash
 # Check cluster status
@@ -213,100 +418,6 @@ kubectl get pods --all-namespaces
 # Check ingress configuration
 kubectl get ingress --all-namespaces
 ```
-
-## Step 4. Access ArgoCD and Monitor Deployments
-
-Once the cluster is created, IDPBuilder outputs the ArgoCD URL.
-
-### Get ArgoCD Credentials
-
-```bash
-# Get admin password
-idpbuilder get secrets -p argocd
-```
-
-
-### Access ArgoCD
-
-Open https://cnoe.localtest.me:8443/argocd/ and login with:
-- Username: `admin`
-- Password: From the command above
-
-Monitor application sync status for vault, ai-platform-engineering. Initial synchronization takes 3-5 minutes.
-
-### Configure Vault Secrets
-
-After Vault application syncs on ArgoCD successfully:
-
-<div class="img-quarter-width">
-
-![ArgoCD Vault Sync](./images/argocd-vault-sync.svg)
-
-</div>
-
-## Step 5. Setup  Secrets
-
-After Vault application syncs successfully on ArgoCD, configure your LLM provider credentials:
-
-### Run setup-secrets.sh (Recommended)
-
-```
-git clone https://github.com/sriaradhyula/stacks/tree/main
-```
-
-```
-cd stacks
-```
-
-```bash
-./caipe/scripts/setup-all.sh
-```
-
-> This script will prompt you to select your LLM provider. Collect the required credentials securely and store them in cluster local Vault automatically
-
-## Optional
-
-### Refresh Secrets
-
-After configuring your secrets in Vault, refresh the Kubernetes secrets to ensure all agents pick up the new credentials:
-
-```bash
-# Download and run the refresh secrets script
-curl -sSL https://raw.githubusercontent.com/sriaradhyula/stacks/refs/heads/main/caipe/scripts/refresh-secrets.sh -o /tmp/refresh-secrets.sh && chmod +x /tmp/refresh-secrets.sh && /tmp/refresh-secrets.sh
-```
-
-This script will:
-- Delete all existing secrets in the ai-platform-engineering namespace
-- Wait for External Secrets to recreate them from Vault
-- Restart all deployments to pick up the new secrets
-- Verify that all pods are running and ready
-
-## Step 4: Access Backstage Portal
-
-### Get Backstage Credentials
-
-```bash
-# Get user1 password
-idpbuilder get secrets | grep USER_PASSWORD | sed 's/.*USER_PASSWORD=\([^,]*\).*/\1/'
-```
-
-### Login to Backstage
-
-Open https://cnoe.localtest.me:8443/ and login with:
-- Username: `user1`
-- Password: From the command above
-
-## Useful Addresses for IDPBuilder Cluster
-
-- ArgoCD: https://cnoe.localtest.me:8443/argocd/
-- Backstage: https://cnoe.localtest.me:8443/
-- Vault: https://vault.cnoe.localtest.me:8443/
-- Keycloak: https://cnoe.localtest.me:8443/keycloak/admin/master/console/
-- Gitea: https://cnoe.localtest.me:8443/gitea/
-
-
-
-## Troubleshooting
 
 ### Manual Refresh Commands
 
@@ -350,74 +461,6 @@ Common issues and solutions:
 - **Application startup time**: Some applications need more time to initialize
 - **Dependency issues**: Verify all required services are available
 
-## Manual Setup Secrets
-
-If you prefer to configure secrets manually instead of using the automated script:
-
-### Get Vault Token
-
-```bash
-# Extract root token
-kubectl get secret vault-root-token -n vault -o jsonpath="{.data}" | \
-  jq -r 'to_entries[] | "\(.key): \(.value | @base64d)"'
-```
-
-### Access Vault UI
-
-Open https://vault.cnoe.localtest.me:8443/. When you are asked to log in to the Vault UI, use the root token from the previous step.
-
-### Configure Global LLM Settings
-
-Navigate to `secrets/ai-platform-engineering` in Vault UI: https://vault.cnoe.localtest.me:8443/ui/vault/secrets/secret/kv/list/ai-platform-engineering/
-
-The `global` secret is required and contains LLM provider configuration shared across all agents:
-
-**For Azure OpenAI (`azure-openai`):**
-```yaml
-LLM_PROVIDER: "azure-openai"
-AZURE_OPENAI_API_KEY: <your-api-key>
-AZURE_OPENAI_ENDPOINT: <your-endpoint>
-AZURE_OPENAI_API_VERSION: <your-api-version>
-AZURE_OPENAI_DEPLOYMENT: <your-deployment-name>
-```
-
-**For OpenAI (`openai`):**
-```yaml
-LLM_PROVIDER: "openai"
-OPENAI_API_KEY: <your-api-key>
-OPENAI_ENDPOINT: <your-endpoint>
-OPENAI_MODEL_NAME: <your-model-name>
-```
-
-**For AWS Bedrock (`aws-bedrock`):**
-```yaml
-LLM_PROVIDER: "aws-bedrock"
-AWS_ACCESS_KEY_ID: <your-access-key>
-AWS_SECRET_ACCESS_KEY: <your-secret-key>
-AWS_REGION: <your-region>
-AWS_BEDROCK_MODEL_ID: <your-model-id>
-AWS_BEDROCK_PROVIDER: <your-provider>
-```
-
-**For Google Gemini (`google-gemini`):**
-```yaml
-LLM_PROVIDER: "google-gemini"
-GOOGLE_API_KEY: <your-api-key>
-GOOGLE_MODEL_NAME: <your-model-name>
-```
-
-**For GCP Vertex (`gcp-vertex`):**
-```yaml
-LLM_PROVIDER: "gcp-vertex"
-GCP_PROJECT_ID: <your-project-id>
-GCP_LOCATION: <your-location>
-GCP_MODEL_NAME: <your-model-name>
-```
-
-### Configure Agent-Specific Secrets
-
-For each agent you plan to use, populate all required fields in their respective secrets (e.g., `github-secret`, `pagerduty-secret`, `jira-secret`). All fields are required for the agent to function properly.
-
 ## VNC Management Commands
 
 ```bash
@@ -452,3 +495,61 @@ kind delete cluster --name localdev
 vncserver -kill :1
 ```
 
+## Problem
+Kubernetes pod `ai-platform-engineering-supervisor-agent-d8cffb7fb-vg4w4` failing with:
+```
+to create fsnotify watcher: too many open files
+```
+
+## Root Cause
+Default system limit of 1024 file descriptors insufficient for applications creating multiple file watchers.
+
+## Solution 1: Pod-level Fix (Recommended)
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-platform-engineering-supervisor-agent
+  namespace: ai-platform-engineering
+spec:
+  template:
+    spec:
+      securityContext:
+        sysctls:
+        - name: fs.inotify.max_user_instances
+          value: "8192"
+        - name: fs.inotify.max_user_watches
+          value: "524288"
+      containers:
+      - name: supervisor-agent
+        securityContext:
+          capabilities:
+            add:
+            - SYS_RESOURCE
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+```
+
+## Solution 2: System-wide Fix
+
+```bash
+# Increase inotify limits
+echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+
+# Restart the pod
+kubectl delete pod ai-platform-engineering-supervisor-agent-d8cffb7fb-vg4w4 -n ai-platform-engineering
+```
+
+## Verification
+
+```bash
+# Check current limits
+ulimit -n
+cat /proc/sys/fs/inotify/max_user_watches
+```
+
+Apply the deployment changes and the pod will automatically restart with increased file descriptor limits.

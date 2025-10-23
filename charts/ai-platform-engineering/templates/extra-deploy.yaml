@@ -1,0 +1,8 @@
+{{- /*
+Render additional Kubernetes resources from extraDeploy array.
+This allows users to add custom resources like VirtualServices, DestinationRules, etc.
+*/ -}}
+{{- range .Values.extraDeploy }}
+---
+{{- toYaml . }}
+{{- end }}
