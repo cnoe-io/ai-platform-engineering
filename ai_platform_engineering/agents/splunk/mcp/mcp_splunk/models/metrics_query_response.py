@@ -4,8 +4,9 @@
 
 """Model for Metricsqueryresponse"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Metricsqueryresponse(BaseModel):
 class MetricsqueryresponseResponse(APIResponse):
     """Response model for Metricsqueryresponse"""
 
-    data: Optional[Metricsqueryresponse] = None
+    data: Metricsqueryresponse | None = None
 
 
 class MetricsqueryresponseListResponse(APIResponse):
     """List response model for Metricsqueryresponse"""
 
-    data: List[Metricsqueryresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Metricsqueryresponse] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

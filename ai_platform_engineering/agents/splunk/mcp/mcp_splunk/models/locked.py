@@ -4,8 +4,9 @@
 
 """Model for Locked"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Locked(BaseModel):
 class LockedResponse(APIResponse):
     """Response model for Locked"""
 
-    data: Optional[Locked] = None
+    data: Locked | None = None
 
 
 class LockedListResponse(APIResponse):
     """List response model for Locked"""
 
-    data: List[Locked] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Locked] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

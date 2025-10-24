@@ -22,7 +22,7 @@ services:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: caipe-platform-engineer-p2p
     volumes:
-    - ../prompt_config.yaml:/app/prompt_config.yaml
+    - ../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     - ../persona.yaml:/app/persona.yaml
     env_file:
     - ../.env
@@ -425,7 +425,7 @@ services:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: caipe-platform-engineer-slim
     volumes:
-    - ../prompt_config.yaml:/app/prompt_config.yaml
+    - ../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     - ../persona.yaml:/app/persona.yaml
     env_file:
     - ../.env

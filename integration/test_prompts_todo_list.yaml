@@ -1,0 +1,114 @@
+# Test prompts for Deep Agent Todo List Feature
+# These prompts don't mention agent names explicitly, forcing Deep Agent orchestration
+# Expected: Deep Agent creates todo list and checks off tasks in real-time
+
+test_cases:
+  # ===== COMPLEX MULTI-STEP (SHOULD SHOW TODO LIST) =====
+
+  - name: "incident_triage_workflow"
+    description: "Multi-step incident response without agent names"
+    prompt: "check all critical production incidents from the last 24 hours, create tracking tickets for each, and notify the on-call team"
+    expected_behavior: |
+      - Should create todo list with 3 steps
+      - Step 1: Query incidents (in_progress)
+      - Step 2: Create tickets (pending → in_progress → completed)
+      - Step 3: Send notifications (pending → in_progress → completed)
+      - Should involve: PagerDuty, Jira, Slack (auto-detected by Deep Agent)
+
+  - name: "deployment_audit_workflow"
+    description: "Cross-platform audit without agent names"
+    prompt: "audit all failed deployments in the last week, investigate the root causes, and document the findings"
+    expected_behavior: |
+      - Should create todo list with 3-4 steps
+      - Step 1: Find failed deployments (in_progress)
+      - Step 2: Analyze logs for root causes (pending)
+      - Step 3: Document findings (pending)
+      - Should involve: ArgoCD, Komodor, Confluence (auto-detected)
+
+  - name: "security_compliance_check"
+    description: "Multi-cluster validation without agent names"
+    prompt: "verify all production clusters have proper security configurations, identify non-compliant resources, and create remediation tasks"
+    expected_behavior: |
+      - Should create todo list with 3 steps
+      - Step 1: Check cluster configurations (in_progress)
+      - Step 2: Identify non-compliant resources (pending)
+      - Step 3: Create remediation tasks (pending)
+      - Should involve: Komodor, AWS, Jira (auto-detected)
+
+  - name: "service_onboarding_workflow"
+    description: "Complete service setup without agent names"
+    prompt: "setup monitoring and alerting for the new payment service, create the incident response runbook, and add it to the service catalog"
+    expected_behavior: |
+      - Should create todo list with 3-4 steps
+      - Step 1: Configure monitoring (in_progress)
+      - Step 2: Setup alerting (pending)
+      - Step 3: Create runbook (pending)
+      - Step 4: Update catalog (pending)
+      - Should involve: Splunk, PagerDuty, Confluence, Backstage (auto-detected)
+
+  - name: "incident_postmortem_workflow"
+    description: "Post-incident analysis without agent names"
+    prompt: "analyze yesterday's production outage, identify all affected services, correlate with recent changes, and draft a postmortem"
+    expected_behavior: |
+      - Should create todo list with 4 steps
+      - Step 1: Get outage details (in_progress)
+      - Step 2: Identify affected services (pending)
+      - Step 3: Correlate with changes (pending)
+      - Step 4: Draft postmortem (pending)
+      - Should involve: PagerDuty, Komodor, ArgoCD, Confluence (auto-detected)
+
+  # ===== SIMPLE QUERIES (SHOULD NOT SHOW TODO LIST) =====
+
+  - name: "simple_on_call_query"
+    description: "Simple query, no agent names"
+    prompt: "who is on call this week?"
+    expected_behavior: |
+      - Should NOT create todo list (too simple)
+      - Direct parallel: PagerDuty + RAG
+      - Shows results immediately
+
+  - name: "simple_incident_count"
+    description: "Simple query, no agent names"
+    prompt: "how many critical incidents are open?"
+    expected_behavior: |
+      - Should NOT create todo list (single query)
+      - Direct parallel: PagerDuty + RAG
+
+  - name: "simple_cluster_status"
+    description: "Simple query, no agent names"
+    prompt: "what's the current status of production clusters?"
+    expected_behavior: |
+      - Should NOT create todo list (single query)
+      - Deep Agent routes to Komodor + RAG
+
+  - name: "simple_deployment_status"
+    description: "Simple query, no agent names"
+    prompt: "show me deployments that are out of sync"
+    expected_behavior: |
+      - Should NOT create todo list (single query)
+      - Deep Agent routes to ArgoCD + RAG
+
+  # ===== AMBIGUOUS (DEEP AGENT DECIDES) =====
+
+  - name: "ambiguous_troubleshooting"
+    description: "Could be simple or complex depending on results"
+    prompt: "why is the API gateway slow?"
+    expected_behavior: |
+      - Deep Agent might create todo list if investigation requires multiple steps
+      - Could involve: Splunk (logs), Komodor (pods), AWS (infrastructure)
+
+  - name: "ambiguous_resource_query"
+    description: "Could be simple lookup or complex audit"
+    prompt: "find all resources using outdated container images"
+    expected_behavior: |
+      - Might create todo if needs to scan multiple clusters/namespaces
+      - Could involve: Komodor, ArgoCD
+
+# How to test:
+# 1. Use the CLI client or web UI
+# 2. Send each "prompt" verbatim (without agent names)
+# 3. Watch for todo list creation (indicated by numbered task list with checkmarks)
+# 4. Observe tasks transitioning: pending → in_progress → completed
+# 5. Complex queries should show real-time task updates
+# 6. Simple queries should bypass todo list and show results directly
+

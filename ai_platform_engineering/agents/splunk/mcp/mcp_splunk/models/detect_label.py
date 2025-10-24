@@ -4,8 +4,9 @@
 
 """Model for Detectlabel"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Detectlabel(BaseModel):
 class DetectlabelResponse(APIResponse):
     """Response model for Detectlabel"""
 
-    data: Optional[Detectlabel] = None
+    data: Detectlabel | None = None
 
 
 class DetectlabelListResponse(APIResponse):
     """List response model for Detectlabel"""
 
-    data: List[Detectlabel] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Detectlabel] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

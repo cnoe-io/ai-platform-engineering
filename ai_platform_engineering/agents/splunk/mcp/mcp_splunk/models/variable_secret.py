@@ -4,8 +4,9 @@
 
 """Model for Variablesecret"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Variablesecret(BaseModel):
 class VariablesecretResponse(APIResponse):
     """Response model for Variablesecret"""
 
-    data: Optional[Variablesecret] = None
+    data: Variablesecret | None = None
 
 
 class VariablesecretListResponse(APIResponse):
     """List response model for Variablesecret"""
 
-    data: List[Variablesecret] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Variablesecret] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

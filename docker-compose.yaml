@@ -6,30 +6,44 @@ services:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
     container_name: platform-engineer-p2p
     volumes:
-      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
     profiles:
       - p2p
       - p2p-basic
       - p2p-tracing
       - rag_only
-    # The following block uses the extended 'depends_on' syntax to specify that these agent services are not strictly required for the platform-engineer container to start.
-    # Each agent is marked with 'required: false', so platform-engineer will start even if the agent is missing.
-    # 'condition: service_started' means Docker Compose will wait until the service has started (not necessarily healthy) before starting platform-engineer.
+    # The following block uses the extended 'depends_on' syntax to wait for agents to be healthy.
+    # 'condition: service_healthy' waits for health checks to pass (with start_period + retries timeout).
+    # 'condition: service_started' just waits for the container to start (faster but less reliable).
     depends_on:
-      - agent-argocd-p2p
-      - agent-aws-p2p
-      - agent-backstage-p2p
-      - agent-confluence-p2p
-      - agent-github-p2p
-      - agent-jira-p2p
-      - agent-komodor-p2p
-      - agent-pagerduty-p2p
-      - agent-petstore-p2p
-      - agent_rag
-      - agent-slack-p2p
-      - agent-splunk-p2p
-      - agent-weather-p2p
-      - agent-webex-p2p
+      agent-argocd-p2p:
+        condition: service_started
+      agent-aws-p2p:
+        condition: service_started
+      agent-backstage-p2p:
+        condition: service_started
+      agent-confluence-p2p:
+        condition: service_started
+      agent-github-p2p:
+        condition: service_started
+      agent-jira-p2p:
+        condition: service_started
+      agent-komodor-p2p:
+        condition: service_started
+      agent-pagerduty-p2p:
+        condition: service_started
+      agent-petstore-p2p:
+        condition: service_started
+      agent_rag:
+        condition: service_healthy
+      agent-slack-p2p:
+        condition: service_started
+      agent-splunk-p2p:
+        condition: service_started
+      agent-weather-p2p:
+        condition: service_started
+      agent-webex-p2p:
+        condition: service_started
     env_file:
       - .env
     ports:
@@ -39,6 +53,7 @@ services:
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true # Routinely checks each subagent connectivity to add or remove any from existing tools list.
       - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
       - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
+      - ENABLE_ENHANCED_STREAMING=${ENABLE_ENHANCED_STREAMING:-true} # Enable enhanced streaming with intelligent routing (DIRECT/PARALLEL/COMPLEX modes)
 
       # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
@@ -51,10 +66,13 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - PETSTORE_AGENT_HOST=agent-petstore-p2p
       - RAG_AGENT_HOST=agent_rag
+      - RAG_AGENT_PORT=8099
       - SLACK_AGENT_HOST=agent-slack-p2p
       - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
+      - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
+      - WEBEX_AGENT_PORT=8000
       # Enable agents
       - ENABLE_ARGOCD=true
       - ENABLE_AWS=true
@@ -66,9 +84,9 @@ services:
       - ENABLE_PAGERDUTY=true
       - ENABLE_SLACK=true
       - ENABLE_SPLUNK=true
-      - ENABLE_WEATHER_AGENT=true
-      - ENABLE_WEBEX_AGENT=true
-      - ENABLE_PETSTORE_AGENT=true
+      - ENABLE_WEATHER=true
+      - ENABLE_WEBEX=true
+      - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -86,7 +104,7 @@ services:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
     container_name: platform-engineer-slim
     volumes:
-      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     profiles:
       - slim
       - slim-tracing
@@ -271,6 +289,20 @@ services:
       - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
       - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+      - ENABLE_TERRAFORM_MCP=${ENABLE_TERRAFORM_MCP:-false}
+      - ENABLE_AWS_DOCUMENTATION_MCP=${ENABLE_AWS_DOCUMENTATION_MCP:-false}
+      - ENABLE_CLOUDTRAIL_MCP=${ENABLE_CLOUDTRAIL_MCP:-false}
+      - ENABLE_CLOUDWATCH_MCP=${ENABLE_CLOUDWATCH_MCP:-false}
+      - ENABLE_POSTGRES_MCP=${ENABLE_POSTGRES_MCP:-false}
+      - ENABLE_AWS_SUPPORT_MCP=${ENABLE_AWS_SUPPORT_MCP:-false}
+      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-false}
+      - ENABLE_AWS_KNOWLEDGE_MCP=${ENABLE_AWS_KNOWLEDGE_MCP:-false}
+      - AWS_DOCUMENTATION_PARTITION=${AWS_DOCUMENTATION_PARTITION:-aws}
+      # Optional Postgres configuration (only needed if ENABLE_POSTGRES_MCP=true)
+      - POSTGRES_RESOURCE_ARN=${POSTGRES_RESOURCE_ARN:-}
+      - POSTGRES_SECRET_ARN=${POSTGRES_SECRET_ARN:-}
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-}
+      - POSTGRES_HOSTNAME=${POSTGRES_HOSTNAME:-}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
       - LLM_PROVIDER=${LLM_PROVIDER}
@@ -290,6 +322,10 @@ services:
       - p2p-tracing
     env_file:
       - .env
+    volumes:
+      - ./ai_platform_engineering/agents/aws/agent_aws:/app/agent_aws
+      - ./ai_platform_engineering/agents/aws/clients:/app/clients
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8002:8000"
     environment:
@@ -307,6 +343,20 @@ services:
       - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
       - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+      - ENABLE_TERRAFORM_MCP=${ENABLE_TERRAFORM_MCP:-false}
+      - ENABLE_AWS_DOCUMENTATION_MCP=${ENABLE_AWS_DOCUMENTATION_MCP:-false}
+      - ENABLE_CLOUDTRAIL_MCP=${ENABLE_CLOUDTRAIL_MCP:-false}
+      - ENABLE_CLOUDWATCH_MCP=${ENABLE_CLOUDWATCH_MCP:-false}
+      - ENABLE_POSTGRES_MCP=${ENABLE_POSTGRES_MCP:-false}
+      - ENABLE_AWS_SUPPORT_MCP=${ENABLE_AWS_SUPPORT_MCP:-false}
+      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-false}
+      - ENABLE_AWS_KNOWLEDGE_MCP=${ENABLE_AWS_KNOWLEDGE_MCP:-false}
+      - AWS_DOCUMENTATION_PARTITION=${AWS_DOCUMENTATION_PARTITION:-aws}
+      # Optional Postgres configuration (only needed if ENABLE_POSTGRES_MCP=true)
+      - POSTGRES_RESOURCE_ARN=${POSTGRES_RESOURCE_ARN:-}
+      - POSTGRES_SECRET_ARN=${POSTGRES_SECRET_ARN:-}
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-}
+      - POSTGRES_HOSTNAME=${POSTGRES_HOSTNAME:-}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
       - LLM_PROVIDER=${LLM_PROVIDER}
@@ -442,7 +492,6 @@ services:
       - p2p
       - p2p-tracing
       - slim
-
       - slim-tracing
     env_file:
       - .env
@@ -489,10 +538,10 @@ services:
     profiles:
       - p2p
       - p2p-tracing
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8007:8000"
     environment:
@@ -786,13 +835,12 @@ services:
     image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-latest}
     container_name: agent-webex-p2p
     profiles:
-      - webex
       - p2p
       - p2p-tracing
     env_file:
       - .env
     ports:
-      - "8017:8000"
+      - "8014:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -809,7 +857,8 @@ services:
     image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-latest}
     container_name: agent-webex-slim
     profiles:
-      - webex-slim
+      - slim
+      - slim-tracing
     env_file:
       - .env
     depends_on:
@@ -832,10 +881,10 @@ services:
     image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-latest}
     container_name: mcp-webex
     profiles:
-      - webex
-      - webex-slim
       - p2p
       - p2p-tracing
+      - slim
+      - slim-tracing
     env_file:
       - .env
     ports:
@@ -856,6 +905,7 @@ services:
       - slim
       - p2p
       - p2p-tracing
+      - slim
       - slim-tracing
     env_file:
       - .env
@@ -917,7 +967,6 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
 
-
   ####################################################################################################
   #                                      AGENT WEATHER A2A over SLIM                                 #
   ####################################################################################################
@@ -925,7 +974,6 @@ services:
     image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-latest}
     container_name: agent-weather-slim
     profiles:
-      - weather
       - slim
       - slim-tracing
     depends_on:
@@ -957,7 +1005,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8021:8000"
+      - "8012:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -1039,13 +1087,23 @@ services:
         NEO4J_PASSWORD: dummy_password
         MILVUS_URI: http://milvus-standalone:19530
         ONTOLOGY_AGENT_RESTAPI_ADDR: http://agent_ontology:8098
-        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
+        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-false}
         CLEANUP_INTERVAL: 86400
     restart: unless-stopped
     env_file:
       - .env
     depends_on:
-      - rag-redis
+      rag-redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:9446/healthz').read()\" || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 60s
+    build:
+      context: ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.server
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-latest}
     profiles:
       - rag_p2p
@@ -1067,15 +1125,35 @@ services:
         NEO4J_USERNAME: neo4j
         NEO4J_PASSWORD: dummy_password
         RAG_SERVER_URL: http://rag_server:9446
-        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
+        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-false}
+        PYTHONPATH: /app
     restart: unless-stopped
     image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-latest}
+    depends_on:
+      neo4j:
+        condition: service_started
+      neo4j-ontology:
+        condition: service_started
+      rag-redis:
+        condition: service_started
+      rag_server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8099/.well-known/agent.json').read()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    build:
+      context: ai_platform_engineering
+      dockerfile: knowledge_bases/rag/build/Dockerfile.agent-rag
     profiles:
       - rag_p2p
       - rag_no_graph_p2p
       - p2p
       - p2p-tracing
   agent_ontology:
+    container_name: agent_ontology
     ports:
       - "8098:8098"
     environment:
@@ -1139,9 +1217,9 @@ services:
     environment:
       NEO4J_AUTH: neo4j/dummy_password
       NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
 
   neo4j-ontology:
     image: neo4j:latest
@@ -1157,9 +1235,9 @@ services:
     environment:
       NEO4J_AUTH: neo4j/dummy_password
       NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
     profiles:
       - rag_p2p
       - p2p
@@ -1167,12 +1245,15 @@ services:
 
   rag-redis:
     image: redis
+    container_name: rag-redis
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rag-redis:/data
     command:
       - /bin/sh
       - -c
-      - redis-server
+      - redis-server --save 60 1 --appendonly yes
     ports:
-      - ":6379"
+      - "6379:6379"
     restart: unless-stopped
     profiles:
       - rag_p2p
@@ -1205,8 +1286,8 @@ services:
       timeout: 20s
       retries: 3
     ports:
-      - ":19530"
-      - ":9091"
+      - "19530:19530"
+      - "9091:9091"
     depends_on:
       - etcd
       - milvus-minio
@@ -1245,8 +1326,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     ports:
-      - ":9001"
-      - ":9000"
+      - "9001:9001"
+      - "9000:9000"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"

@@ -4,9 +4,10 @@
 
 """API client for making requests to the service"""
 
-import os
 import logging
-from typing import Optional, Dict, Tuple, Any
+import os
+from typing import Any
+
 import httpx
 
 # Load environment variables
@@ -24,7 +25,7 @@ logger = logging.getLogger("mcp_splunk")
 
 
 
-def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
+def assemble_nested_body(flat_body: dict[str, Any]) -> dict[str, Any]:
     """
     Re-inflate the nested JSON structure expected by the API.
 
@@ -35,10 +36,9 @@ def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
     A single “_” is part of the original field name and MUST NOT create a
     new level.
     """
-    nested: Dict[str, Any] = {}
+    nested: dict[str, Any] = {}
     for key, value in flat_body.items():
-        if key.startswith("body_"):
-            key = key[5:]  # drop helper prefix
+        key = key.removeprefix("body_")  # drop helper prefix
         parts = key.split("__")  # only double underscore is a divider
         cursor = nested
         for part in parts[:-1]:
@@ -50,11 +50,11 @@ def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
 async def make_api_request(
     path: str,
     method: str = "GET",
-    token: Optional[str] = None,
-    params: Dict[str, Any] = {},
-    data: Dict[str, Any] = {},
+    token: str | None = None,
+    params: dict[str, Any] = {},
+    data: dict[str, Any] = {},
     timeout: int = 30,
-) -> Tuple[bool, Dict[str, Any]]:
+) -> tuple[bool, dict[str, Any]]:
     """
     Make a request to the API
 
@@ -83,7 +83,7 @@ async def make_api_request(
         )
 
     try:
-        headers_dict = {'Content-Type': 'application/json', 'X-SF-TOKEN': f'{token}'}
+        headers_dict = {"Content-Type": "application/json", "X-SF-TOKEN": f"{token}"}
         headers = {key: value for key, value in headers_dict.items()}
 
         logger.debug("Request headers prepared (Authorization header masked)")
@@ -147,8 +147,8 @@ async def make_api_request(
         logger.error(f"Request timed out after {timeout} seconds")
         return (False, {"error": f"Request timed out after {timeout} seconds"})
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error: {e.response.status_code} - {str(e)}")
-        return (False, {"error": f"HTTP error: {e.response.status_code} - {str(e)}"})
+        logger.error(f"HTTP error: {e.response.status_code} - {e!s}")
+        return (False, {"error": f"HTTP error: {e.response.status_code} - {e!s}"})
     except httpx.RequestError as e:
         error_message = str(e)
         if token and token in error_message:

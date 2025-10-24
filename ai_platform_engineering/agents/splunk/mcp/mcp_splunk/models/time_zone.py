@@ -4,8 +4,9 @@
 
 """Model for Timezone"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Timezone(BaseModel):
 class TimezoneResponse(APIResponse):
     """Response model for Timezone"""
 
-    data: Optional[Timezone] = None
+    data: Timezone | None = None
 
 
 class TimezoneListResponse(APIResponse):
     """List response model for Timezone"""
 
-    data: List[Timezone] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Timezone] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

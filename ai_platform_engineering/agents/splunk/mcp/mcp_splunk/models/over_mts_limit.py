@@ -4,8 +4,9 @@
 
 """Model for Overmtslimit"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Overmtslimit(BaseModel):
 class OvermtslimitResponse(APIResponse):
     """Response model for Overmtslimit"""
 
-    data: Optional[Overmtslimit] = None
+    data: Overmtslimit | None = None
 
 
 class OvermtslimitListResponse(APIResponse):
     """List response model for Overmtslimit"""
 
-    data: List[Overmtslimit] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Overmtslimit] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

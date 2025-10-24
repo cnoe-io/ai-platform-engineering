@@ -4,8 +4,9 @@
 
 """Model for Visualizationoptions"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Visualizationoptions(BaseModel):
 class VisualizationoptionsResponse(APIResponse):
     """Response model for Visualizationoptions"""
 
-    data: Optional[Visualizationoptions] = None
+    data: Visualizationoptions | None = None
 
 
 class VisualizationoptionsListResponse(APIResponse):
     """List response model for Visualizationoptions"""
 
-    data: List[Visualizationoptions] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Visualizationoptions] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

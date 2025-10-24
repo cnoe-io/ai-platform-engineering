@@ -5,8 +5,9 @@
 """Tools for /team operations"""
 
 import logging
-from typing import Any, List
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +15,7 @@ logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__teams_by__name(
-    param_limit: int = None, param_offset: float = None, param_name: str = None, param_order_by: str = None
+    param_limit: int = None, param_offset: float = None, param_name: str = None, param_order_by: str = None,
 ) -> Any:
     """
     Retrieves teams using a name search
@@ -74,14 +75,14 @@ async def retrieve__teams_by__name(
 
 async def create__single__team(
     body_description: str = None,
-    body_members: List[str] = None,
+    body_members: list[str] = None,
     body_name: str = None,
-    body_notificationLists__default: List[str] = None,
-    body_notificationLists__critical: List[str] = None,
-    body_notificationLists__warning: List[str] = None,
-    body_notificationLists__major: List[str] = None,
-    body_notificationLists__minor: List[str] = None,
-    body_notificationLists__info: List[str] = None,
+    body_notificationLists__default: list[str] = None,
+    body_notificationLists__critical: list[str] = None,
+    body_notificationLists__warning: list[str] = None,
+    body_notificationLists__major: list[str] = None,
+    body_notificationLists__minor: list[str] = None,
+    body_notificationLists__info: list[str] = None,
 ) -> Any:
     """
     Creates a team

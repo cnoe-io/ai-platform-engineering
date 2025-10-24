@@ -4,8 +4,9 @@
 
 """Model for Apitestjavascript"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Apitestjavascript(BaseModel):
 class ApitestjavascriptResponse(APIResponse):
     """Response model for Apitestjavascript"""
 
-    data: Optional[Apitestjavascript] = None
+    data: Apitestjavascript | None = None
 
 
 class ApitestjavascriptListResponse(APIResponse):
     """List response model for Apitestjavascript"""
 
-    data: List[Apitestjavascript] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Apitestjavascript] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

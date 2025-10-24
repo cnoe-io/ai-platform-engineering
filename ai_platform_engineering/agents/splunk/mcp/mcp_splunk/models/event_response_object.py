@@ -4,8 +4,9 @@
 
 """Model for Eventresponseobject"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Eventresponseobject(BaseModel):
 class EventresponseobjectResponse(APIResponse):
     """Response model for Eventresponseobject"""
 
-    data: Optional[Eventresponseobject] = None
+    data: Eventresponseobject | None = None
 
 
 class EventresponseobjectListResponse(APIResponse):
     """List response model for Eventresponseobject"""
 
-    data: List[Eventresponseobject] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Eventresponseobject] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

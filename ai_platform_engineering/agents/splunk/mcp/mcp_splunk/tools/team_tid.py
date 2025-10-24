@@ -5,8 +5,9 @@
 """Tools for /team/{tid} operations"""
 
 import logging
-from typing import Any, List
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -52,14 +53,14 @@ async def retrieve__team__using_id(path_tid: str) -> Any:
 async def update__team(
     path_tid: str,
     body_description: str = None,
-    body_members: List[str] = None,
+    body_members: list[str] = None,
     body_name: str = None,
-    body_notificationLists__default: List[str] = None,
-    body_notificationLists__critical: List[str] = None,
-    body_notificationLists__warning: List[str] = None,
-    body_notificationLists__major: List[str] = None,
-    body_notificationLists__minor: List[str] = None,
-    body_notificationLists__info: List[str] = None,
+    body_notificationLists__default: list[str] = None,
+    body_notificationLists__critical: list[str] = None,
+    body_notificationLists__warning: list[str] = None,
+    body_notificationLists__major: list[str] = None,
+    body_notificationLists__minor: list[str] = None,
+    body_notificationLists__info: list[str] = None,
 ) -> Any:
     """
     Updates the team specified in the {tid} path parameter

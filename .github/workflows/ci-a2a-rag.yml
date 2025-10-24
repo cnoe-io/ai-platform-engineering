@@ -29,7 +29,6 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: cnoe-io/caipe-rag-${{ matrix.component }}
-      BUILD_CTX: ai_platform_engineering/knowledge_bases/rag
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
@@ -103,7 +102,7 @@ jobs:
       - name: Build and Push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.BUILD_CTX }}
+          context: .
           file: ${{ env.DOCKERFILE }}
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}

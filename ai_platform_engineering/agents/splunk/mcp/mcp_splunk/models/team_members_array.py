@@ -4,8 +4,9 @@
 
 """Model for Teammembersarray"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Teammembersarray(BaseModel):
 class TeammembersarrayResponse(APIResponse):
     """Response model for Teammembersarray"""
 
-    data: Optional[Teammembersarray] = None
+    data: Teammembersarray | None = None
 
 
 class TeammembersarrayListResponse(APIResponse):
     """List response model for Teammembersarray"""
 
-    data: List[Teammembersarray] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Teammembersarray] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

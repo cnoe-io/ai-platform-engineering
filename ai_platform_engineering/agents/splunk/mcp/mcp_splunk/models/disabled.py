@@ -4,8 +4,9 @@
 
 """Model for Disabled"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Disabled(BaseModel):
 class DisabledResponse(APIResponse):
     """Response model for Disabled"""
 
-    data: Optional[Disabled] = None
+    data: Disabled | None = None
 
 
 class DisabledListResponse(APIResponse):
     """List response model for Disabled"""
 
-    data: List[Disabled] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Disabled] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

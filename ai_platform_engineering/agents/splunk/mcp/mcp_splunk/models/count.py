@@ -4,8 +4,9 @@
 
 """Model for Count"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Count(BaseModel):
 class CountResponse(APIResponse):
     """Response model for Count"""
 
-    data: Optional[Count] = None
+    data: Count | None = None
 
 
 class CountListResponse(APIResponse):
     """List response model for Count"""
 
-    data: List[Count] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Count] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

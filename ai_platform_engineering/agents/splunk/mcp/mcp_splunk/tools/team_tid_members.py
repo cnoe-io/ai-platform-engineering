@@ -5,15 +5,16 @@
 """Tools for /team/{tid}/members operations"""
 
 import logging
-from typing import Any, List
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def add__team__member__list(path_tid: str, body_members: List[str] = None) -> Any:
+async def add__team__member__list(path_tid: str, body_members: list[str] = None) -> Any:
     """
     Adds team members
 
@@ -54,7 +55,7 @@ async def add__team__member__list(path_tid: str, body_members: List[str] = None)
     return response
 
 
-async def delete__team__members__list(path_tid: str, body_members: List[str] = None) -> Any:
+async def delete__team__members__list(path_tid: str, body_members: list[str] = None) -> Any:
     """
     Deletes one or more members from a team
 

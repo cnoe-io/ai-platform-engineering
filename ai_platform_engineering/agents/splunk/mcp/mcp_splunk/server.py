@@ -12,75 +12,45 @@ allowing large language models and AI assistants to interact with the service.
 
 import logging
 import os
+
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-
-from mcp_splunk.tools import incident
-
-from mcp_splunk.tools import incident_id
-
-from mcp_splunk.tools import incident_clear
-
-from mcp_splunk.tools import incident_id_clear
-
-from mcp_splunk.tools import alertmuting
-
-from mcp_splunk.tools import alertmuting_id
-
-from mcp_splunk.tools import alertmuting_id_unmute
-
-from mcp_splunk.tools import team
-
-from mcp_splunk.tools import team_tid
-
-from mcp_splunk.tools import team_tid_members
-
-from mcp_splunk.tools import team_tid_member_uid
-
-from mcp_splunk.tools import detector
-
-from mcp_splunk.tools import detector_id
-
-from mcp_splunk.tools import detector_id_enable
-
-from mcp_splunk.tools import detector_id_disable
-
-from mcp_splunk.tools import detector_id_events
-
-from mcp_splunk.tools import detector_id_incidents
-
-from mcp_splunk.tools import detector_validate
-
-from mcp_splunk.tools import metric
-
-from mcp_splunk.tools import metric_name
-
-from mcp_splunk.tools import dimension
-
-from mcp_splunk.tools import dimension_key_value
-
-from mcp_splunk.tools import metrictimeseries
-
-from mcp_splunk.tools import metrictimeseries_id
-
-from mcp_splunk.tools import tag
-
-from mcp_splunk.tools import tag_name
-
-from mcp_splunk.tools import event
-
-from mcp_splunk.tools import event_find
-
-from mcp_splunk.tools import tests
-
-from mcp_splunk.tools import tests_id
-
-from mcp_splunk.tools import tests_bulk_delete
-
-from mcp_splunk.tools import tests_play
-
-from mcp_splunk.tools import tests_pause
+from mcp_splunk.tools import (
+    alertmuting,
+    alertmuting_id,
+    alertmuting_id_unmute,
+    detector,
+    detector_id,
+    detector_id_disable,
+    detector_id_enable,
+    detector_id_events,
+    detector_id_incidents,
+    detector_validate,
+    dimension,
+    dimension_key_value,
+    event,
+    event_find,
+    incident,
+    incident_clear,
+    incident_id,
+    incident_id_clear,
+    metric,
+    metric_name,
+    metrictimeseries,
+    metrictimeseries_id,
+    tag,
+    tag_name,
+    team,
+    team_tid,
+    team_tid_member_uid,
+    team_tid_members,
+    tests,
+    tests_bulk_delete,
+    tests_id,
+    tests_pause,
+    tests_play,
+)
 
 
 def main():

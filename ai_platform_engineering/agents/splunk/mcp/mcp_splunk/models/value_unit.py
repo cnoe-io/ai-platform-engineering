@@ -4,8 +4,9 @@
 
 """Model for Valueunit"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Valueunit(BaseModel):
 class ValueunitResponse(APIResponse):
     """Response model for Valueunit"""
 
-    data: Optional[Valueunit] = None
+    data: Valueunit | None = None
 
 
 class ValueunitListResponse(APIResponse):
     """List response model for Valueunit"""
 
-    data: List[Valueunit] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Valueunit] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

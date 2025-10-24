@@ -8,66 +8,58 @@ services:
       dockerfile: build/Dockerfile
     container_name: platform-engineer-p2p
     volumes:
-      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
     profiles:
       - p2p
       - p2p-basic
       - p2p-tracing
       - rag_only
-    # The following block uses the extended 'depends_on' syntax to specify that these agent services are not strictly required for the platform-engineer container to start.
-    # Each agent is marked with 'required: false', so platform-engineer will start even if the agent is missing.
-    # 'condition: service_started' means Docker Compose will wait until the service has started (not necessarily healthy) before starting platform-engineer.
+    # The following block uses the extended 'depends_on' syntax to wait for agents to be healthy.
+    # 'condition: service_healthy' waits for health checks to pass (with start_period + retries timeout).
+    # 'condition: service_started' just waits for the container to start (faster but less reliable).
     depends_on:
       agent-argocd-p2p:
         condition: service_started
-        required: false
       agent-aws-p2p:
         condition: service_started
-        required: false
       agent-backstage-p2p:
         condition: service_started
-        required: false
       agent-confluence-p2p:
         condition: service_started
-        required: false
       agent-github-p2p:
         condition: service_started
-        required: false
       agent-jira-p2p:
         condition: service_started
-        required: false
       agent-komodor-p2p:
         condition: service_started
-        required: false
       agent-pagerduty-p2p:
         condition: service_started
-        required: false
-      agent-slack-p2p:
-        condition: service_started
-        required: false
-      agent-splunk-p2p:
-        condition: service_started
-        required: false
-      agent-weather-p2p:
-        condition: service_started
-        required: false
-      agent-webex-p2p:
-        condition: service_started
-        required: false
       agent-petstore-p2p:
         condition: service_started
-        required: false
       agent_rag:
+        condition: service_healthy
+      agent-slack-p2p:
         condition: service_started
-        required: false
+      agent-splunk-p2p:
+        condition: service_started
+      agent-weather-p2p:
+        condition: service_started
+      agent-webex-p2p:
+        condition: service_started
     env_file:
       - .env
     ports:
       # Expose the AI Platform Engineer agent on port 8000
       - "8000:8000"
     environment:
-      - A2A_TRANSPORT=p2p
+      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true # Routinely checks each subagent connectivity to add or remove any from existing tools list.
+      - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
+      - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
+      - ENABLE_ENHANCED_STREAMING=${ENABLE_ENHANCED_STREAMING:-false} # Enable enhanced streaming with intelligent routing (DIRECT/PARALLEL/COMPLEX modes)
+      - FORCE_DEEP_AGENT_ORCHESTRATION=${FORCE_DEEP_AGENT_ORCHESTRATION:-true} # Force all queries through Deep Agent with parallel orchestration hints (DEFAULT - best performance)
+      - ENABLE_ENHANCED_ORCHESTRATION=${ENABLE_ENHANCED_ORCHESTRATION:-false} # EXPERIMENTAL: Smart routing + orchestration hints (4th mode for comparison)
+
       # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
       - AWS_AGENT_HOST=agent-aws-p2p
@@ -79,24 +71,28 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
       - PETSTORE_AGENT_HOST=agent-petstore-p2p
       - RAG_AGENT_HOST=agent_rag
+      - RAG_AGENT_PORT=8099
       - SLACK_AGENT_HOST=agent-slack-p2p
       - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
+      - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
+      - WEBEX_AGENT_PORT=8000
       # Enable agents
-      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-true}
-      - ENABLE_AWS=${ENABLE_AWS:-true}
-      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-true}
-      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-true}
-      - ENABLE_GITHUB=${ENABLE_GITHUB:-true}
-      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-false}
-      - ENABLE_JIRA=${ENABLE_JIRA:-true}
-      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-true}
-      - ENABLE_PETSTORE_AGENT=${ENABLE_PETSTORE_AGENT:-true}
-      - ENABLE_RAG=${ENABLE_RAG:-true}
-      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-true}
-      - ENABLE_WEATHER_AGENT=${ENABLE_WEATHER_AGENT:-true}
-      - ENABLE_WEBEX_AGENT=${ENABLE_WEBEX_AGENT:-true}
+      - ENABLE_ARGOCD=true
+      - ENABLE_AWS=true
+      - ENABLE_BACKSTAGE=true
+      - ENABLE_CONFLUENCE=true
+      - ENABLE_GITHUB=true
+      - ENABLE_JIRA=true
+      - ENABLE_KOMODOR=true
+      - ENABLE_PAGERDUTY=true
+      - ENABLE_SLACK=true
+      - ENABLE_SPLUNK=true
+      - ENABLE_WEATHER=true
+      - ENABLE_WEBEX=true
+      - ENABLE_PETSTORE=true
+      - ENABLE_RAG=true
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -115,7 +111,7 @@ services:
       dockerfile: build/Dockerfile
     container_name: platform-engineer-slim
     volumes:
-      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
       # Mount only code that changes during development
       - ./ai_platform_engineering/multi_agents:/app/ai_platform_engineering/multi_agents
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
@@ -223,7 +219,7 @@ services:
       - "18000:8000"
     environment:
       - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
+      - MCP_HOST=mcp-argocd
       - MCP_PORT=8000
 
   ####################################################################################################
@@ -262,8 +258,8 @@ services:
   ####################################################################################################
   agent-argocd-p2p:
     build:
-      context: ai_platform_engineering/agents/argocd
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/argocd/build/Dockerfile.a2a
     container_name: agent-argocd-p2p
     profiles:
       - p2p
@@ -273,8 +269,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/agent_argocd
-      - ./ai_platform_engineering/agents/argocd/clients:/app/clients
+      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/ai_platform_engineering/agents/argocd/agent_argocd
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8001:8000"
     environment:
@@ -292,8 +288,8 @@ services:
   ####################################################################################################
   agent-aws-slim:
     build:
-      context: ./ai_platform_engineering/agents/aws
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-slim
     profiles:
       - slim
@@ -305,6 +301,7 @@ services:
     volumes:
       - ./ai_platform_engineering/agents/aws/agent_aws:/app/agent_aws
       - ./ai_platform_engineering/agents/aws/clients:/app/clients
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8002:8000"
     environment:
@@ -315,13 +312,28 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # AWS Configuration
       - AWS_REGION=${AWS_REGION}
+      - AWS_DEFAULT_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      # MCP Configuration
+      # MCP Configuration - Enable ALL AWS MCP servers by default
       - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
       - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
       - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+      - ENABLE_TERRAFORM_MCP=${ENABLE_TERRAFORM_MCP:-true}
+      - ENABLE_AWS_DOCUMENTATION_MCP=${ENABLE_AWS_DOCUMENTATION_MCP:-true}
+      - ENABLE_CLOUDTRAIL_MCP=${ENABLE_CLOUDTRAIL_MCP:-true}
+      - ENABLE_CLOUDWATCH_MCP=${ENABLE_CLOUDWATCH_MCP:-true}
+      - ENABLE_POSTGRES_MCP=${ENABLE_POSTGRES_MCP:-false}
+      - ENABLE_AWS_SUPPORT_MCP=${ENABLE_AWS_SUPPORT_MCP:-true}
+      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-true}
+      - ENABLE_AWS_KNOWLEDGE_MCP=${ENABLE_AWS_KNOWLEDGE_MCP:-false}
+      - AWS_DOCUMENTATION_PARTITION=${AWS_DOCUMENTATION_PARTITION:-aws}
+      # Optional Postgres configuration (only needed if ENABLE_POSTGRES_MCP=true)
+      - POSTGRES_RESOURCE_ARN=${POSTGRES_RESOURCE_ARN:-}
+      - POSTGRES_SECRET_ARN=${POSTGRES_SECRET_ARN:-}
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-}
+      - POSTGRES_HOSTNAME=${POSTGRES_HOSTNAME:-}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
       - LLM_PROVIDER=${LLM_PROVIDER}
@@ -335,8 +347,8 @@ services:
   ####################################################################################################
   agent-aws-p2p:
     build:
-      context: ./ai_platform_engineering/agents/aws
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-p2p
     profiles:
       - p2p
@@ -346,6 +358,7 @@ services:
     volumes:
       - ./ai_platform_engineering/agents/aws/agent_aws:/app/agent_aws
       - ./ai_platform_engineering/agents/aws/clients:/app/clients
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8002:8000"
     environment:
@@ -358,11 +371,25 @@ services:
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      # MCP Configuration
+      # MCP Configuration - Enable ALL AWS MCP servers by default
       - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
       - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
       - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+      - ENABLE_TERRAFORM_MCP=${ENABLE_TERRAFORM_MCP:-true}
+      - ENABLE_AWS_DOCUMENTATION_MCP=${ENABLE_AWS_DOCUMENTATION_MCP:-true}
+      - ENABLE_CLOUDTRAIL_MCP=${ENABLE_CLOUDTRAIL_MCP:-true}
+      - ENABLE_CLOUDWATCH_MCP=${ENABLE_CLOUDWATCH_MCP:-true}
+      - ENABLE_POSTGRES_MCP=${ENABLE_POSTGRES_MCP:-false}
+      - ENABLE_AWS_SUPPORT_MCP=${ENABLE_AWS_SUPPORT_MCP:-true}
+      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-true}
+      - ENABLE_AWS_KNOWLEDGE_MCP=${ENABLE_AWS_KNOWLEDGE_MCP:-false}
+      - AWS_DOCUMENTATION_PARTITION=${AWS_DOCUMENTATION_PARTITION:-aws}
+      # Optional Postgres configuration (only needed if ENABLE_POSTGRES_MCP=true)
+      - POSTGRES_RESOURCE_ARN=${POSTGRES_RESOURCE_ARN:-}
+      - POSTGRES_SECRET_ARN=${POSTGRES_SECRET_ARN:-}
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-}
+      - POSTGRES_HOSTNAME=${POSTGRES_HOSTNAME:-}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
       - LLM_PROVIDER=${LLM_PROVIDER}
@@ -376,8 +403,8 @@ services:
   ####################################################################################################
   agent-backstage-slim:
     build:
-      context: ai_platform_engineering/agents/backstage
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/backstage/build/Dockerfile.a2a
     container_name: agent-backstage-slim
     profiles:
       - slim
@@ -406,8 +433,8 @@ services:
   ####################################################################################################
   agent-backstage-p2p:
     build:
-      context: ai_platform_engineering/agents/backstage
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/backstage/build/Dockerfile.a2a
     container_name: agent-backstage-p2p
     profiles:
       - p2p
@@ -415,8 +442,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/agent_backstage
-      - ./ai_platform_engineering/agents/backstage/clients:/app/clients
+      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/ai_platform_engineering/agents/backstage/agent_backstage
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8003:8000"
     environment:
@@ -458,8 +485,8 @@ services:
 
   agent-confluence-slim:
     build:
-      context: ai_platform_engineering/agents/confluence
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/confluence/build/Dockerfile.a2a
     container_name: agent-confluence-slim
     profiles:
       - slim
@@ -488,8 +515,8 @@ services:
   ####################################################################################################
   agent-confluence-p2p:
     build:
-      context: ai_platform_engineering/agents/confluence
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/confluence/build/Dockerfile.a2a
     container_name: agent-confluence-p2p
     profiles:
       - p2p
@@ -497,8 +524,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/agent_confluence
-      - ./ai_platform_engineering/agents/confluence/clients:/app/clients
+      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/ai_platform_engineering/agents/confluence/agent_confluence
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8005:8000"
     environment:
@@ -540,8 +567,8 @@ services:
   ####################################################################################################
   agent-github-slim:
     build:
-      context: ai_platform_engineering/agents/github
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/github/build/Dockerfile.a2a
     container_name: agent-github-slim
     profiles:
       - slim
@@ -571,8 +598,8 @@ services:
   ####################################################################################################
   agent-github-p2p:
     build:
-      context: ai_platform_engineering/agents/github
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/github/build/Dockerfile.a2a
     container_name: agent-github-p2p
     profiles:
       - p2p
@@ -580,8 +607,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/github/agent_github:/app/agent_github
-      - ./ai_platform_engineering/agents/github/clients:/app/clients
+      - ./ai_platform_engineering/agents/github/agent_github:/app/ai_platform_engineering/agents/github/agent_github
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8007:8000"
@@ -597,8 +624,8 @@ services:
   ####################################################################################################
   agent-jira-slim:
     build:
-      context: ai_platform_engineering/agents/jira
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/jira/build/Dockerfile.a2a
     container_name: agent-jira-slim
     profiles:
       - slim
@@ -629,8 +656,8 @@ services:
   ####################################################################################################
   agent-jira-p2p:
     build:
-      context: ai_platform_engineering/agents/jira
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/jira/build/Dockerfile.a2a
     container_name: agent-jira-p2p
     profiles:
       - p2p
@@ -638,8 +665,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/jira/agent_jira:/app/agent_jira
-      - ./ai_platform_engineering/agents/jira/clients:/app/clients
+      - ./ai_platform_engineering/agents/jira/agent_jira:/app/ai_platform_engineering/agents/jira/agent_jira
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8009:8000"
     environment:
@@ -712,8 +739,8 @@ services:
   ####################################################################################################
   agent-komodor-p2p:
     build:
-      context: ai_platform_engineering/agents/komodor
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/komodor/build/Dockerfile.a2a
     container_name: agent-komodor-p2p
     profiles:
       - p2p
@@ -764,8 +791,8 @@ services:
   ####################################################################################################
   agent-pagerduty-slim:
     build:
-      context: ai_platform_engineering/agents/pagerduty
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/pagerduty/build/Dockerfile.a2a
     container_name: agent-pagerduty-slim
     profiles:
       - slim
@@ -794,8 +821,8 @@ services:
   ####################################################################################################
   agent-pagerduty-p2p:
     build:
-      context: ai_platform_engineering/agents/pagerduty
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/pagerduty/build/Dockerfile.a2a
     container_name: agent-pagerduty-p2p
     profiles:
       - p2p
@@ -803,8 +830,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/agent_pagerduty
-      - ./ai_platform_engineering/agents/pagerduty/clients:/app/clients
+      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/ai_platform_engineering/agents/pagerduty/agent_pagerduty
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8013:8000"
     environment:
@@ -846,8 +873,8 @@ services:
   ####################################################################################################
   agent-slack-slim:
     build:
-      context: ai_platform_engineering/agents/slack
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/slack/build/Dockerfile.a2a
     container_name: agent-slack-slim
     profiles:
       - slim
@@ -878,8 +905,8 @@ services:
   ####################################################################################################
   agent-slack-p2p:
     build:
-      context: ai_platform_engineering/agents/slack
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/slack/build/Dockerfile.a2a
     container_name: agent-slack-p2p
     profiles:
       - p2p
@@ -887,8 +914,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/slack/agent_slack:/app/agent_slack
-      - ./ai_platform_engineering/agents/slack/clients:/app/clients
+      - ./ai_platform_engineering/agents/slack/agent_slack:/app/ai_platform_engineering/agents/slack/agent_slack
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8015:8000"
     environment:
@@ -930,8 +957,8 @@ services:
   ####################################################################################################
   agent-webex-p2p:
     build:
-      context: ai_platform_engineering/agents/webex
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/webex/build/Dockerfile.a2a
     container_name: agent-webex-p2p
     profiles:
       - p2p
@@ -939,9 +966,10 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/webex/agent_webex:/app/agent_webex
+      - ./ai_platform_engineering/agents/webex/agent_webex:/app/ai_platform_engineering/agents/webex/agent_webex
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
-      - "8017:8000"
+      - "8014:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -1032,8 +1060,8 @@ services:
   ####################################################################################################
   agent-splunk-slim:
     build:
-      context: ai_platform_engineering/agents/splunk
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/splunk/build/Dockerfile.a2a
     container_name: agent-splunk-slim
     profiles:
       - slim
@@ -1061,8 +1089,8 @@ services:
   ####################################################################################################
   agent-splunk-p2p:
     build:
-      context: ai_platform_engineering/agents/splunk
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/splunk/build/Dockerfile.a2a
     container_name: agent-splunk-p2p
     profiles:
       - p2p
@@ -1122,8 +1150,8 @@ services:
   ####################################################################################################
   agent-weather-p2p:
     build:
-      context: ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
+      context: ai_platform_engineering
+      dockerfile: agents/weather/build/Dockerfile.a2a
     container_name: agent-weather-p2p
     profiles:
       - p2p
@@ -1133,9 +1161,10 @@ services:
       - .env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/ai_platform_engineering/agents/weather/agent_weather
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
-      - "8021:8000"
+      - "8012:8000"
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -1218,6 +1247,9 @@ services:
   rag_server:
     ports:
       - "9446:9446"
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/server/src:/app/server/src
+      - ./ai_platform_engineering/knowledge_bases/rag/common:/app/common
     environment:
         LOG_LEVEL: DEBUG
         REDIS_URL: redis://rag-redis:6379/0
@@ -1227,13 +1259,20 @@ services:
         NEO4J_PASSWORD: dummy_password
         MILVUS_URI: http://milvus-standalone:19530
         ONTOLOGY_AGENT_RESTAPI_ADDR: http://agent_ontology:8098
-        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
+        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-false}
         CLEANUP_INTERVAL: 86400
     restart: unless-stopped
     env_file:
       - .env
     depends_on:
-      - rag-redis
+      rag-redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:9446/healthz').read()\" || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 60s
     build:
       context: ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.server
@@ -1247,29 +1286,54 @@ services:
     container_name: agent_rag
     ports:
       - "8099:8099"
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/agent_rag/src:/app/agent_rag/src
+      - ./ai_platform_engineering/knowledge_bases/rag/common:/app/common
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+      - ./ai_platform_engineering/__init__.py:/app/ai_platform_engineering/__init__.py
     env_file:
       - .env
     environment:
-        LOG_LEVEL: DEBUG
+        # LOG_LEVEL: DEBUG
         REDIS_URL: redis://rag-redis:6379/0
         NEO4J_ADDR: neo4j://neo4j:7687
         NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7688
         NEO4J_USERNAME: neo4j
         NEO4J_PASSWORD: dummy_password
         RAG_SERVER_URL: http://rag_server:9446
-        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
+        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-false}
+        PYTHONPATH: /app
     restart: unless-stopped
+    depends_on:
+      neo4j:
+        condition: service_started
+      neo4j-ontology:
+        condition: service_started
+      rag-redis:
+        condition: service_started
+      rag_server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8099/.well-known/agent.json').read()\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     build:
-      context: ai_platform_engineering/knowledge_bases/rag
-      dockerfile: ./build/Dockerfile.agent-rag
+      context: ai_platform_engineering
+      dockerfile: knowledge_bases/rag/build/Dockerfile.agent-rag
     profiles:
       - rag_p2p
       - rag_no_graph_p2p
       - p2p
       - p2p-tracing
   agent_ontology:
+    container_name: agent_ontology
     ports:
       - "8098:8098"
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/agent_ontology/src:/app/agent_ontology/src
+      - ./ai_platform_engineering/knowledge_bases/rag/common:/app/common
     environment:
         LOG_LEVEL: DEBUG
         REDIS_URL: redis://rag-redis:6379/0
@@ -1297,6 +1361,9 @@ services:
       context: ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.webui
     container_name: rag-webui
+    environment:
+      RAG_SERVER_URL: http://rag_server:9446
+      NGINX_ENVSUBST_TEMPLATE_SUFFIX: ".conf"
     depends_on:
       - rag_server
     ports:
@@ -1330,9 +1397,9 @@ services:
     environment:
       NEO4J_AUTH: neo4j/dummy_password
       NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
 
   neo4j-ontology:
     image: neo4j:latest
@@ -1348,9 +1415,9 @@ services:
     environment:
       NEO4J_AUTH: neo4j/dummy_password
       NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
     profiles:
       - rag_p2p
       - p2p
@@ -1358,12 +1425,15 @@ services:
 
   rag-redis:
     image: redis
+    container_name: rag-redis
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rag-redis:/data
     command:
       - /bin/sh
       - -c
-      - redis-server
+      - redis-server --save 60 1 --appendonly yes
     ports:
-      - ":6379"
+      - "6379:6379"
     restart: unless-stopped
     profiles:
       - rag_p2p
@@ -1396,8 +1466,8 @@ services:
       timeout: 20s
       retries: 3
     ports:
-      - ":19530"
-      - ":9091"
+      - "19530:19530"
+      - "9091:9091"
     depends_on:
       - etcd
       - milvus-minio
@@ -1436,8 +1506,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     ports:
-      - ":9001"
-      - ":9000"
+      - "9001:9001"
+      - "9000:9000"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"

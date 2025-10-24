@@ -4,8 +4,9 @@
 
 """Model for Victoropsnotification"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Victoropsnotification(BaseModel):
 class VictoropsnotificationResponse(APIResponse):
     """Response model for Victoropsnotification"""
 
-    data: Optional[Victoropsnotification] = None
+    data: Victoropsnotification | None = None
 
 
 class VictoropsnotificationListResponse(APIResponse):
     """List response model for Victoropsnotification"""
 
-    data: List[Victoropsnotification] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Victoropsnotification] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

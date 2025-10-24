@@ -4,8 +4,9 @@
 
 """Model for Porttestvalidaterequest"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Porttestvalidaterequest(BaseModel):
 class PorttestvalidaterequestResponse(APIResponse):
     """Response model for Porttestvalidaterequest"""
 
-    data: Optional[Porttestvalidaterequest] = None
+    data: Porttestvalidaterequest | None = None
 
 
 class PorttestvalidaterequestListResponse(APIResponse):
     """List response model for Porttestvalidaterequest"""
 
-    data: List[Porttestvalidaterequest] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Porttestvalidaterequest] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

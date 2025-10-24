@@ -4,8 +4,9 @@
 
 """Model for Authorizedwriters"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Authorizedwriters(BaseModel):
 class AuthorizedwritersResponse(APIResponse):
     """Response model for Authorizedwriters"""
 
-    data: Optional[Authorizedwriters] = None
+    data: Authorizedwriters | None = None
 
 
 class AuthorizedwritersListResponse(APIResponse):
     """List response model for Authorizedwriters"""
 
-    data: List[Authorizedwriters] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Authorizedwriters] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

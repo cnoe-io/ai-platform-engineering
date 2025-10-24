@@ -4,8 +4,9 @@
 
 """Model for Parameterizedsubject"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Parameterizedsubject(BaseModel):
 class ParameterizedsubjectResponse(APIResponse):
     """Response model for Parameterizedsubject"""
 
-    data: Optional[Parameterizedsubject] = None
+    data: Parameterizedsubject | None = None
 
 
 class ParameterizedsubjectListResponse(APIResponse):
     """List response model for Parameterizedsubject"""
 
-    data: List[Parameterizedsubject] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Parameterizedsubject] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

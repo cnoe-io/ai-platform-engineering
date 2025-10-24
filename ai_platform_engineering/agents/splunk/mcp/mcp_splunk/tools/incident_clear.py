@@ -5,15 +5,16 @@
 """Tools for /incident/clear operations"""
 
 import logging
-from typing import Dict, Any, List
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def clear__incidents(body_filters: List[Dict[str, Any]] = None) -> Any:
+async def clear__incidents(body_filters: list[dict[str, Any]] = None) -> Any:
     """
     Clears specified incidents
 

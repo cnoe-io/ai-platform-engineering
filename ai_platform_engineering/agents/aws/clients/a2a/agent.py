@@ -4,7 +4,7 @@
 import os
 from typing import List
 
-from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
+from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 from a2a.types import (

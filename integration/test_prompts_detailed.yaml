@@ -1,4 +1,32 @@
 prompts:
+  - id: "argocd_version"
+    messages:
+      - role: "user"
+        content: "show argocd version"
+    expected_keywords: ["argocd", "version"]
+    category: "argocd"
+
+  - id: "aws_documentation"
+    messages:
+      - role: "user"
+        content: "show documentation on eks cluster authentication"
+    expected_keywords: ["aws", "documentation", "eks", "cluster", "authentication"]
+    category: "aws"
+
+  - id: "backstage_info"
+    messages:
+      - role: "user"
+        content: "show all services in backstage"
+    expected_keywords: ["backstage", "service", "list", "information"]
+    category: "backstage"
+
+  - id: "confluence_info"
+    messages:
+      - role: "user"
+        content: "show caipe pages in confluence"
+    expected_keywords: ["confluence", "page", "list", "information"]
+    category: "confluence"
+
   - id: "github_info"
     messages:
       - role: "user"
@@ -6,19 +34,33 @@ prompts:
     expected_keywords: ["github", "ai-platform-engineering", "cnoe-io", "description", "repository", "multi-agent", "systems", "platform", "engineering"]
     category: "github"
 
+  - id: "jira_info"
+    messages:
+      - role: "user"
+        content: "show all jiras in opensd project"
+    expected_keywords: ["jira", "opensd", "project", "list", "information"]
+    category: "jira"
+
+  - id: "komodor_info"
+    messages:
+      - role: "user"
+        content: "show all clusters in komodor"
+    expected_keywords: ["komodor", "cluster", "list", "information"]
+    category: "komodor"
+
+  - id: "pagerduty_info"
+    messages:
+      - role: "user"
+        content: "show all pagerduty services"
+    expected_keywords: ["pagerduty", "service", "list", "information"]
+    category: "pagerduty"
+
   - id: "pagerduty_account"
     messages:
       - role: "user"
         content: "get Pagerduty services for with SRE filter"
     expected_keywords: ["pagerduty", "account", "service"]
     category: "pagerduty"
-
-  - id: "argocd_version"
-    messages:
-      - role: "user"
-        content: "show argocd version"
-    expected_keywords: ["argocd", "version"]
-    category: "argocd"
 
   - id: "slack_channels"
     messages:
@@ -54,13 +96,6 @@ prompts:
         content: "what incidents are currently open in pagerduty"
     expected_keywords: ["incident", "open", "pagerduty", "alert"]
     category: "pagerduty"
-
-  - id: "jira_issues"
-    messages:
-      - role: "user"
-        content: "show open jira issues assigned to me"
-    expected_keywords: ["jira", "issue", "assigned", "open"]
-    category: "jira"
 
   - id: "splunk_log_search"
     messages:

@@ -4,8 +4,9 @@
 
 """Model for Packagespecifications"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Packagespecifications(BaseModel):
 class PackagespecificationsResponse(APIResponse):
     """Response model for Packagespecifications"""
 
-    data: Optional[Packagespecifications] = None
+    data: Packagespecifications | None = None
 
 
 class PackagespecificationsListResponse(APIResponse):
     """List response model for Packagespecifications"""
 
-    data: List[Packagespecifications] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Packagespecifications] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

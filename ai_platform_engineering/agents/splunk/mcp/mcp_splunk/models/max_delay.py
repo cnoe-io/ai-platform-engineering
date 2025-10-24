@@ -4,8 +4,9 @@
 
 """Model for Maxdelay"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Maxdelay(BaseModel):
 class MaxdelayResponse(APIResponse):
     """Response model for Maxdelay"""
 
-    data: Optional[Maxdelay] = None
+    data: Maxdelay | None = None
 
 
 class MaxdelayListResponse(APIResponse):
     """List response model for Maxdelay"""
 
-    data: List[Maxdelay] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Maxdelay] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

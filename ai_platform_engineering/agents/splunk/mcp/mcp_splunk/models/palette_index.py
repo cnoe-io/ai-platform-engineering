@@ -4,8 +4,9 @@
 
 """Model for Paletteindex"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Paletteindex(BaseModel):
 class PaletteindexResponse(APIResponse):
     """Response model for Paletteindex"""
 
-    data: Optional[Paletteindex] = None
+    data: Paletteindex | None = None
 
 
 class PaletteindexListResponse(APIResponse):
     """List response model for Paletteindex"""
 
-    data: List[Paletteindex] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Paletteindex] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

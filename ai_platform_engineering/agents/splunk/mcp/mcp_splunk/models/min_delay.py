@@ -4,8 +4,9 @@
 
 """Model for Mindelay"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Mindelay(BaseModel):
 class MindelayResponse(APIResponse):
     """Response model for Mindelay"""
 
-    data: Optional[Mindelay] = None
+    data: Mindelay | None = None
 
 
 class MindelayListResponse(APIResponse):
     """List response model for Mindelay"""
 
-    data: List[Mindelay] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Mindelay] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

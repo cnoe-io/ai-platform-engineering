@@ -4,8 +4,9 @@
 
 """Model for Recurrence"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Recurrence(BaseModel):
 class RecurrenceResponse(APIResponse):
     """Response model for Recurrence"""
 
-    data: Optional[Recurrence] = None
+    data: Recurrence | None = None
 
 
 class RecurrenceListResponse(APIResponse):
     """List response model for Recurrence"""
 
-    data: List[Recurrence] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Recurrence] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

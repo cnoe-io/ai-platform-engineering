@@ -4,8 +4,9 @@
 
 """Model for Schedulingstrategy"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Schedulingstrategy(BaseModel):
 class SchedulingstrategyResponse(APIResponse):
     """Response model for Schedulingstrategy"""
 
-    data: Optional[Schedulingstrategy] = None
+    data: Schedulingstrategy | None = None
 
 
 class SchedulingstrategyListResponse(APIResponse):
     """List response model for Schedulingstrategy"""
 
-    data: List[Schedulingstrategy] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Schedulingstrategy] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

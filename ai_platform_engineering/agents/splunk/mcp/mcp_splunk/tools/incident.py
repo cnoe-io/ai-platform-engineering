@@ -6,7 +6,8 @@
 
 import logging
 from typing import Any
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +15,7 @@ logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__incidents(
-    param_includeResolved: bool = False, param_limit: int = None, param_offset: int = None, param_query: str = None
+    param_includeResolved: bool = False, param_limit: int = None, param_offset: int = None, param_query: str = None,
 ) -> Any:
     """
         Retrieves information for the latest incidents in an organization

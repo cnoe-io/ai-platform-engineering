@@ -4,8 +4,9 @@
 
 """Model for Validatehttptestresponse"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Validatehttptestresponse(BaseModel):
 class ValidatehttptestresponseResponse(APIResponse):
     """Response model for Validatehttptestresponse"""
 
-    data: Optional[Validatehttptestresponse] = None
+    data: Validatehttptestresponse | None = None
 
 
 class ValidatehttptestresponseListResponse(APIResponse):
     """List response model for Validatehttptestresponse"""
 
-    data: List[Validatehttptestresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Validatehttptestresponse] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

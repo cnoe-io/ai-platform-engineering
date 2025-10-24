@@ -4,8 +4,9 @@
 
 """Model for Dimensionupdaterequest"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Dimensionupdaterequest(BaseModel):
 class DimensionupdaterequestResponse(APIResponse):
     """Response model for Dimensionupdaterequest"""
 
-    data: Optional[Dimensionupdaterequest] = None
+    data: Dimensionupdaterequest | None = None
 
 
 class DimensionupdaterequestListResponse(APIResponse):
     """List response model for Dimensionupdaterequest"""
 
-    data: List[Dimensionupdaterequest] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Dimensionupdaterequest] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

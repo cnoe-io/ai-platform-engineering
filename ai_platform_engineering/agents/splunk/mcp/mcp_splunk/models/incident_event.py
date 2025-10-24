@@ -4,8 +4,9 @@
 
 """Model for Incidentevent"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Incidentevent(BaseModel):
 class IncidenteventResponse(APIResponse):
     """Response model for Incidentevent"""
 
-    data: Optional[Incidentevent] = None
+    data: Incidentevent | None = None
 
 
 class IncidenteventListResponse(APIResponse):
     """List response model for Incidentevent"""
 
-    data: List[Incidentevent] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Incidentevent] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

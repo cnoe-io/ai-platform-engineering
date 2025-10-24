@@ -4,8 +4,9 @@
 
 """Model for Notfound"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Notfound(BaseModel):
 class NotfoundResponse(APIResponse):
     """Response model for Notfound"""
 
-    data: Optional[Notfound] = None
+    data: Notfound | None = None
 
 
 class NotfoundListResponse(APIResponse):
     """List response model for Notfound"""
 
-    data: List[Notfound] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Notfound] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

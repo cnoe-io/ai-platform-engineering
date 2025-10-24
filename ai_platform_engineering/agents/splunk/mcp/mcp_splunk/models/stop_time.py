@@ -4,8 +4,9 @@
 
 """Model for Stoptime"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Stoptime(BaseModel):
 class StoptimeResponse(APIResponse):
     """Response model for Stoptime"""
 
-    data: Optional[Stoptime] = None
+    data: Stoptime | None = None
 
 
 class StoptimeListResponse(APIResponse):
     """List response model for Stoptime"""
 
-    data: List[Stoptime] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Stoptime] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

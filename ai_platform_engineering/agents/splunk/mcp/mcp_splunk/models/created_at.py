@@ -4,8 +4,9 @@
 
 """Model for Createdat"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Createdat(BaseModel):
 class CreatedatResponse(APIResponse):
     """Response model for Createdat"""
 
-    data: Optional[Createdat] = None
+    data: Createdat | None = None
 
 
 class CreatedatListResponse(APIResponse):
     """List response model for Createdat"""
 
-    data: List[Createdat] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Createdat] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

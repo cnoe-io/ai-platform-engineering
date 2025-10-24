@@ -47,16 +47,16 @@ if agent_examples_from_config.get("general"):
     agent_skill_examples.extend(agent_examples_from_config.get("general"))
 
 # Include sub-agent examples from config ONLY IF the sub-agent is enabled
-for agent_name, agent_card in agents.items():
+for sub_agent_name, agent_card in agents.items():
     if agent_card is not None:
         try:
-            agent_eg = agent_examples_from_config.get(agent_name.lower())
+            agent_eg = agent_examples_from_config.get(sub_agent_name.lower())
             if agent_eg:
-                logger.info("Agent examples config found for agent: %s", agent_name)
+                logger.info("Agent examples config found for agent: %s", sub_agent_name)
                 agent_skill_examples.extend(agent_eg)
             else: # If no examples are provided in the config, use the agent's own examples
-                logger.info("Agent examples config not found for agent: %s", agent_name)
-                agent_skill_examples.extend(platform_registry.get_agent_examples(agent_name))
+                logger.info("Agent examples config not found for agent: %s", sub_agent_name)
+                agent_skill_examples.extend(platform_registry.get_agent_examples(sub_agent_name))
         except Exception as e:
             logger.warning(f"Error getting skill examples from agent: {e}")
             continue
@@ -96,7 +96,7 @@ def generate_system_prompt(agents: Dict[str, Any]):
       logger.error(f"Error getting agent card for {agent_key}: {e}, skipping...")
       continue
 
-    # Check if there is a system_prompt override provided in the prompt config
+    # Check if there is a system_prompt override provided in the prompt config
     system_prompt_override = agent_prompts.get(agent_key, {}).get("system_prompt", None)
     if system_prompt_override:
       agent_system_prompt = system_prompt_override

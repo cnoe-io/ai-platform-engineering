@@ -4,8 +4,9 @@
 
 """Model for Emptyarray"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Emptyarray(BaseModel):
 class EmptyarrayResponse(APIResponse):
     """Response model for Emptyarray"""
 
-    data: Optional[Emptyarray] = None
+    data: Emptyarray | None = None
 
 
 class EmptyarrayListResponse(APIResponse):
     """List response model for Emptyarray"""
 
-    data: List[Emptyarray] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Emptyarray] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

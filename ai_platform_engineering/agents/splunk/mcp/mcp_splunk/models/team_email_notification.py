@@ -4,8 +4,9 @@
 
 """Model for Teamemailnotification"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Teamemailnotification(BaseModel):
 class TeamemailnotificationResponse(APIResponse):
     """Response model for Teamemailnotification"""
 
-    data: Optional[Teamemailnotification] = None
+    data: Teamemailnotification | None = None
 
 
 class TeamemailnotificationListResponse(APIResponse):
     """List response model for Teamemailnotification"""
 
-    data: List[Teamemailnotification] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Teamemailnotification] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

@@ -4,8 +4,9 @@
 
 """Model for Networkconnection"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Networkconnection(BaseModel):
 class NetworkconnectionResponse(APIResponse):
     """Response model for Networkconnection"""
 
-    data: Optional[Networkconnection] = None
+    data: Networkconnection | None = None
 
 
 class NetworkconnectionListResponse(APIResponse):
     """List response model for Networkconnection"""
 
-    data: List[Networkconnection] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Networkconnection] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

@@ -7,7 +7,7 @@ from ai_platform_engineering.knowledge_bases.rag.agent_rag.src.agent_rag.agentca
     create_agent_card,
     agent_skill,
 )
-from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
+from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 

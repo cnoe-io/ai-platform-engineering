@@ -4,8 +4,9 @@
 
 """Model for Webhooknotification"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Webhooknotification(BaseModel):
 class WebhooknotificationResponse(APIResponse):
     """Response model for Webhooknotification"""
 
-    data: Optional[Webhooknotification] = None
+    data: Webhooknotification | None = None
 
 
 class WebhooknotificationListResponse(APIResponse):
     """List response model for Webhooknotification"""
 
-    data: List[Webhooknotification] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Webhooknotification] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

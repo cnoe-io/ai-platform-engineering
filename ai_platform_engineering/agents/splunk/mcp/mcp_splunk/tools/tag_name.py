@@ -5,8 +5,9 @@
 """Tools for /tag/{name} operations"""
 
 import logging
-from typing import Dict, Any
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,7 +51,7 @@ async def retrieve__tag__metadata__using__name(path_name: str) -> Any:
 
 
 async def create__update__tag(
-    path_name: str, body_customProperties: Dict[str, Any] = None, body_description: str = None, body_name: str = None
+    path_name: str, body_customProperties: dict[str, Any] = None, body_description: str = None, body_name: str = None,
 ) -> Any:
     """
     Creates or updates a tag

@@ -4,8 +4,9 @@
 
 """Model for Xmattersnotificationobject"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Xmattersnotificationobject(BaseModel):
 class XmattersnotificationobjectResponse(APIResponse):
     """Response model for Xmattersnotificationobject"""
 
-    data: Optional[Xmattersnotificationobject] = None
+    data: Xmattersnotificationobject | None = None
 
 
 class XmattersnotificationobjectListResponse(APIResponse):
     """List response model for Xmattersnotificationobject"""
 
-    data: List[Xmattersnotificationobject] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Xmattersnotificationobject] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

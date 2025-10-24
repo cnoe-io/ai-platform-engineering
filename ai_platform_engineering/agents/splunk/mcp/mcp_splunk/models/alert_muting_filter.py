@@ -4,8 +4,9 @@
 
 """Model for Alertmutingfilter"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Alertmutingfilter(BaseModel):
 class AlertmutingfilterResponse(APIResponse):
     """Response model for Alertmutingfilter"""
 
-    data: Optional[Alertmutingfilter] = None
+    data: Alertmutingfilter | None = None
 
 
 class AlertmutingfilterListResponse(APIResponse):
     """List response model for Alertmutingfilter"""
 
-    data: List[Alertmutingfilter] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Alertmutingfilter] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

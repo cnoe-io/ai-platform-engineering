@@ -4,8 +4,9 @@
 
 """Model for Programtext"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Programtext(BaseModel):
 class ProgramtextResponse(APIResponse):
     """Response model for Programtext"""
 
-    data: Optional[Programtext] = None
+    data: Programtext | None = None
 
 
 class ProgramtextListResponse(APIResponse):
     """List response model for Programtext"""
 
-    data: List[Programtext] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Programtext] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

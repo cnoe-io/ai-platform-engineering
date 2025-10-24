@@ -22,21 +22,21 @@ AGENT_PKG_NAME ?= kb_$(shell echo $(AGENT_NAME))
 
 ## ========== Setup & Clean ==========
 
-setup-venv:        ## Create the Python virtual environment
-	@echo "Setting up virtual environment..."
-	@if [ ! -d ".venv" ]; then \
-		python3 -m venv .venv && echo "Virtual environment created."; \
+setup-venv:        ## Use main project's virtual environment
+	@echo "Using main project's virtual environment..."
+	@if [ ! -d "/home/sraradhy/ai-platform-engineering/.venv" ]; then \
+		echo "Main project venv not found. Please run make setup-venv from project root first."; \
+		exit 1; \
 	else \
-		echo "Virtual environment already exists."; \
+		echo "Main project virtual environment found."; \
 	fi
-	@echo "To activate manually, run: source .venv/bin/activate"
-	@. .venv/bin/activate
+	@echo "To activate manually, run: source /home/sraradhy/ai-platform-engineering/.venv/bin/activate"
 
 clean-pyc:         ## Remove Python bytecode and __pycache__
 	@find . -type d -name "__pycache__" -exec rm -rf {} + || echo "No __pycache__ directories found."
 
-clean-venv:        ## Remove the virtual environment
-	@rm -rf .venv && echo "Virtual environment removed." || echo "No virtual environment found."
+clean-venv:        ## Note: Using main project's virtual environment
+	@echo "Using main project's virtual environment. No local .venv to remove."
 
 clean-build-artifacts: ## Remove dist/, build/, egg-info/
 	@rm -rf dist $(AGENT_PKG_NAME).egg-info || echo "No build artifacts found."
@@ -54,7 +54,7 @@ check-env:         ## Check if .env file exists
 		echo "Error: .env file not found."; exit 1; \
 	fi
 
-venv-activate = . .venv/bin/activate
+venv-activate = . /home/sraradhy/ai-platform-engineering/.venv/bin/activate
 load-env = set -a && . .env && set +a
 venv-run = $(venv-activate) && $(load-env) &&
 
