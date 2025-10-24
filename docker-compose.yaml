@@ -3,7 +3,7 @@ services:
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-p2p
     volumes:
       - ./prompt_config.yaml:/app/prompt_config.yaml
@@ -17,7 +17,7 @@ services:
     # 'condition: service_started' means Docker Compose will wait until the service has started (not necessarily healthy) before starting platform-engineer.
     depends_on:
       - agent-argocd-p2p
-      - agent-aws-p2p
+      # - agent-aws-p2p  # temporarily disabled due to errors in the agent-aws-p2p service
       - agent-backstage-p2p
       - agent-confluence-p2p
       - agent-github-p2p
@@ -39,25 +39,27 @@ services:
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true # Routinely checks each subagent connectivity to add or remove any from existing tools list.
       - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
       - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
+      - A2A_TRANSPORT=p2p # Use A2A protocol for agent-to-agent communication.
 
       # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
-      - AWS_AGENT_HOST=agent-aws-p2p
+      # - AWS_AGENT_HOST=agent-aws-p2p # temporarily disabled due to errors in the agent-aws-p2p service
       - BACKSTAGE_AGENT_HOST=agent-backstage-p2p
       - CONFLUENCE_AGENT_HOST=agent-confluence-p2p
       - GITHUB_AGENT_HOST=agent-github-p2p
       - JIRA_AGENT_HOST=agent-jira-p2p
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
-      - PETSTORE_AGENT_HOST=agent-petstore-p2p
-      - RAG_AGENT_HOST=agent_rag
       - SLACK_AGENT_HOST=agent-slack-p2p
       - SPLUNK_AGENT_HOST=agent-splunk-p2p
       - WEATHER_AGENT_HOST=agent-weather-p2p
       - WEBEX_AGENT_HOST=agent-webex-p2p
+      - PETSTORE_AGENT_HOST=agent-petstore-p2p
+      - RAG_AGENT_HOST=agent_rag
+
       # Enable agents
       - ENABLE_ARGOCD=true
-      - ENABLE_AWS=true
+      # - ENABLE_AWS=true # temporarily disabled due to errors in the agent-aws-p2p service
       - ENABLE_BACKSTAGE=true
       - ENABLE_CONFLUENCE=true
       - ENABLE_GITHUB=true
@@ -66,10 +68,11 @@ services:
       - ENABLE_PAGERDUTY=true
       - ENABLE_SLACK=true
       - ENABLE_SPLUNK=true
-      - ENABLE_WEATHER_AGENT=true
-      - ENABLE_WEBEX_AGENT=true
-      - ENABLE_PETSTORE_AGENT=true
+      - ENABLE_WEATHER=true
+      - ENABLE_WEBEX=true
+      - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
+
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -83,7 +86,7 @@ services:
   #                                      PLATFORM ENGINEER A2A over SLIM                              #
   ####################################################################################################
   platform-engineer-slim:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-slim
     volumes:
       - ./prompt_config.yaml:/app/prompt_config.yaml
@@ -174,7 +177,7 @@ services:
   #                                           MCP ARGOCD                                            #
   ####################################################################################################
   mcp-argocd:
-    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-stable}
     container_name: mcp-argocd
     profiles:
       - p2p
@@ -194,7 +197,7 @@ services:
   #                                      AGENT ARGOCD A2A over SLIM                                  #
   ####################################################################################################
   agent-argocd-slim:
-    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
     container_name: agent-argocd-slim
     profiles:
       - slim
@@ -220,7 +223,7 @@ services:
   #                                      AGENT ARGOCD A2A P2P                                        #
   ####################################################################################################
   agent-argocd-p2p:
-    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
     container_name: agent-argocd-p2p
     profiles:
       - p2p
@@ -245,7 +248,7 @@ services:
   #                                      AGENT AWS A2A over SLIM                                     #
   ####################################################################################################
   agent-aws-slim:
-    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-stable}
     container_name: agent-aws-slim
     profiles:
       - slim
@@ -279,47 +282,41 @@ services:
       - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
 
+  # temporarily disabled due to errors in the agent-aws-p2p service
   ####################################################################################################
   #                                      AGENT AWS A2A P2P                                           #
   ####################################################################################################
-  agent-aws-p2p:
-    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-latest}
-    container_name: agent-aws-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8002:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      # AWS Configuration
-      - AWS_REGION=${AWS_REGION}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      # MCP Configuration
-      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
-      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
-      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
-      - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
-      - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
-      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
-      - LLM_PROVIDER=${LLM_PROVIDER}
-      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
-      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
-      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
-      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+  # agent-aws-p2p:
+  #   image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-stable}
+  #   container_name: agent-aws-p2p
+  #   profiles:
+  #     - p2p
+  #     - p2p-tracing
+  #   env_file:
+  #     - .env
+  #   ports:
+  #     - "8002:8000"
+  #   environment:
+  #     - A2A_TRANSPORT=p2p
+  #     - MCP_MODE=http
+  #     - MCP_PORT=8000
+  #     - ENABLE_TRACING=${ENABLE_TRACING:-false}
+  #     - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+  #     - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+  #     - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+  #     # MCP Configuration
+  #     # - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
+  #     # - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
+  #     # - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
+  #     # - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+  #     # - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
+  #     # - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
 
   ####################################################################################################
   #                                      AGENT BACKSTAGE A2A over SLIM                               #
   ####################################################################################################
   agent-backstage-slim:
-    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
     container_name: agent-backstage-slim
     profiles:
       - slim
@@ -344,7 +341,7 @@ services:
   #                                      AGENT BACKSTAGE A2A P2P                                     #
   ####################################################################################################
   agent-backstage-p2p:
-    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
     container_name: agent-backstage-p2p
     profiles:
       - p2p
@@ -367,7 +364,7 @@ services:
   #                                      MCP BACKSTAGE                                               #
   ####################################################################################################
   mcp-backstage:
-    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-stable}
     container_name: mcp-backstage
     profiles:
       - p2p
@@ -388,7 +385,7 @@ services:
   ####################################################################################################
 
   agent-confluence-slim:
-    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
     container_name: agent-confluence-slim
     profiles:
       - slim
@@ -413,7 +410,7 @@ services:
   #                                      AGENT CONFLUENCE A2A P2P                                    #
   ####################################################################################################
   agent-confluence-p2p:
-    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
     container_name: agent-confluence-p2p
     profiles:
       - p2p
@@ -436,7 +433,7 @@ services:
   #                                      MCP CONFLUENCE                                             #
   ####################################################################################################
   mcp-confluence:
-    image: ghcr.io/cnoe-io/mcp-confluence:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-confluence:${IMAGE_TAG:-stable}
     container_name: mcp-confluence
     profiles:
       - p2p
@@ -457,7 +454,7 @@ services:
   #                                      AGENT GITHUB A2A over SLIM                                  #
   ####################################################################################################
   agent-github-slim:
-    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-stable}
     container_name: agent-github-slim
     profiles:
       - slim
@@ -484,7 +481,7 @@ services:
   #                                      AGENT GITHUB A2A P2P                                        #
   ####################################################################################################
   agent-github-p2p:
-    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-stable}
     container_name: agent-github-p2p
     profiles:
       - p2p
@@ -506,7 +503,7 @@ services:
   #                                      AGENT JIRA SLIM                                             #
   ####################################################################################################
   agent-jira-slim:
-    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
     container_name: agent-jira-slim
     profiles:
       - slim
@@ -533,7 +530,7 @@ services:
   #                                      AGENT JIRA A2A P2P                                          #
   ####################################################################################################
   agent-jira-p2p:
-    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
     container_name: agent-jira-p2p
     profiles:
       - p2p
@@ -557,7 +554,7 @@ services:
   #                                      MCP JIRA                                                    #
   ####################################################################################################
   mcp-jira:
-    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-stable}
     container_name: mcp-jira
     profiles:
       - p2p
@@ -577,7 +574,7 @@ services:
   #                                      AGENT KOMODOR A2A over SLIM                                 #
   ####################################################################################################
   agent-komodor-slim:
-    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
     container_name: agent-komodor-slim
     profiles:
       - slim
@@ -602,7 +599,7 @@ services:
   #                                      AGENT KOMODOR A2A P2P                                       #
   ####################################################################################################
   agent-komodor-p2p:
-    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
     container_name: agent-komodor-p2p
     profiles:
       - p2p
@@ -625,7 +622,7 @@ services:
   #                                      MCP KOMODOR                                                 #
   ####################################################################################################
   mcp-komodor:
-    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-stable}
     container_name: mcp-komodor
     profiles:
       - p2p
@@ -645,7 +642,7 @@ services:
   #                                      AGENT PAGERDUTY A2A over SLIM                               #
   ####################################################################################################
   agent-pagerduty-slim:
-    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
     container_name: agent-pagerduty-slim
     profiles:
       - slim
@@ -670,7 +667,7 @@ services:
   #                                      AGENT PAGERDUTY A2A P2P                                     #
   ####################################################################################################
   agent-pagerduty-p2p:
-    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
     container_name: agent-pagerduty-p2p
     profiles:
       - p2p
@@ -693,7 +690,7 @@ services:
   #                                      MCP PAGERDUTY                                             #
   ####################################################################################################
   mcp-pagerduty:
-    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-stable}
     container_name: mcp-pagerduty
     profiles:
       - p2p
@@ -713,7 +710,7 @@ services:
   #                                      AGENT SLACK A2A over SLIM                                   #
   ####################################################################################################
   agent-slack-slim:
-    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
     container_name: agent-slack-slim
     profiles:
       - slim
@@ -740,7 +737,7 @@ services:
   #                                      AGENT SLACK A2A P2P                                         #
   ####################################################################################################
   agent-slack-p2p:
-    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
     container_name: agent-slack-p2p
     profiles:
       - p2p
@@ -763,7 +760,7 @@ services:
   #                                      MCP SLACK                                                   #
   ####################################################################################################
   mcp-slack:
-    image: ghcr.io/cnoe-io/mcp-slack:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-slack:${IMAGE_TAG:-stable}
     container_name: mcp-slack
     profiles:
       - p2p
@@ -783,7 +780,7 @@ services:
   #                                      AGENT WEBEX A2A P2P                                         #
   ####################################################################################################
   agent-webex-p2p:
-    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-stable}
     container_name: agent-webex-p2p
     profiles:
       - webex
@@ -806,7 +803,7 @@ services:
   #                                      AGENT WEBEX A2A over SLIM                                   #
   ####################################################################################################
   agent-webex-slim:
-    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-stable}
     container_name: agent-webex-slim
     profiles:
       - webex-slim
@@ -829,7 +826,7 @@ services:
   #                                      MCP WEBEX                                                   #
   ####################################################################################################
   mcp-webex:
-    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-stable}
     container_name: mcp-webex
     profiles:
       - webex
@@ -849,7 +846,7 @@ services:
   #                                      MCP SPLUNK                                                  #
   ####################################################################################################
   mcp-splunk:
-    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-stable}
 
     container_name: mcp-splunk
     profiles:
@@ -870,7 +867,7 @@ services:
   #                                      AGENT SPLUNK A2A over SLIM                                  #
   ####################################################################################################
   agent-splunk-slim:
-    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-stable}
     container_name: agent-splunk-slim
     profiles:
       - slim
@@ -895,7 +892,7 @@ services:
   #                                      AGENT SPLUNK A2A P2P                                        #
   ####################################################################################################
   agent-splunk-p2p:
-    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-stable}
 
     container_name: agent-splunk-p2p
     profiles:
@@ -922,7 +919,7 @@ services:
   #                                      AGENT WEATHER A2A over SLIM                                 #
   ####################################################################################################
   agent-weather-slim:
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
     container_name: agent-weather-slim
     profiles:
       - weather
@@ -948,7 +945,7 @@ services:
   #                                      AGENT WEATHER A2A P2P                                       #
   ####################################################################################################
   agent-weather-p2p:
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
     container_name: agent-weather-p2p
     profiles:
       - p2p
@@ -971,7 +968,7 @@ services:
   #                                      AGENT PETSTORE A2A over SLIM                                #
   ####################################################################################################
   agent-petstore-slim:
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
     container_name: agent-petstore-slim
     profiles:
       - slim
@@ -996,7 +993,7 @@ services:
   #                                      AGENT PETSTORE A2A P2P                                       #
   ####################################################################################################
   agent-petstore-p2p:
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
     container_name: agent-petstore-p2p
     profiles:
       - p2p
@@ -1046,7 +1043,7 @@ services:
       - .env
     depends_on:
       - rag-redis
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
     profiles:
       - rag_p2p
       - rag_no_graph_p2p
@@ -1069,7 +1066,7 @@ services:
         RAG_SERVER_URL: http://rag_server:9446
         ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
     restart: unless-stopped
-    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-stable}
     profiles:
       - rag_p2p
       - rag_no_graph_p2p
@@ -1094,7 +1091,7 @@ services:
       - neo4j
       - neo4j-ontology
       - rag-redis
-    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
     profiles:
       - rag_p2p
 
