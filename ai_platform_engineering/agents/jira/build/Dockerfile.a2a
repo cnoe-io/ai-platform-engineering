@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy only the necessary directories for the jira agent
-COPY --chown=root:root ai_platform_engineering/utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root ai_platform_engineering/agents/jira /app/ai_platform_engineering/agents/jira/
+COPY --chown=root:root utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root agents/jira /app/ai_platform_engineering/agents/jira/
 
 # Set working directory to the jira agent
 WORKDIR /app/ai_platform_engineering/agents/jira

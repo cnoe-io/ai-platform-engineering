@@ -245,14 +245,14 @@ class AWSAgent(BaseStrandsAgent):
             logger.info("Creating EKS MCP client...")
             if system == "windows":
                 eks_command_args = [
-                    "--from", "awslabs.eks-mcp-server@latest",
+                    "--from", "awslabs.eks-mcp-server@0.1.6",
                     "awslabs.eks-mcp-server.exe",
-                    "--allow-write", "--allow-sensitive-data-access"
+                    "--allow-write", "--no-allow-sensitive-data-access"
                 ]
             else:
                 eks_command_args = [
-                    "awslabs.eks-mcp-server@latest",
-                    "--allow-write", "--allow-sensitive-data-access"
+                    "awslabs.eks-mcp-server@0.1.6",
+                    "--allow-write", "--no-allow-sensitive-data-access"
                 ]
             eks_client = MCPClient(lambda: stdio_client(
                 StdioServerParameters(
@@ -487,9 +487,10 @@ class AWSAgent(BaseStrandsAgent):
             clients.append(("aws-knowledge", knowledge_client))
 
         if not clients:
-            raise ValueError("No MCP servers enabled. Set ENABLE_EKS_MCP, ENABLE_COST_EXPLORER_MCP, and/or ENABLE_IAM_MCP to true.")
-
-        logger.info(f"Prepared {len(clients)} MCP client definitions: {[name for name, _ in clients]}")
+            logger.warning("No MCP servers enabled. Agent will run without MCP capabilities.")
+        else:
+            logger.info(f"Prepared {len(clients)} MCP client definitions: {[name for name, _ in clients]}")
+        
         return clients
 
     def get_model_config(self) -> Any:

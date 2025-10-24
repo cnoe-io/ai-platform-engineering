@@ -1033,13 +1033,25 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     # This is a streaming chunk - forward it immediately to the client!
                     logger.debug(f"🔍 Processing streaming chunk: has_content={bool(content)}, content_length={len(content) if content else 0}")
                     if content:  # Only send artifacts with actual content
-                       # Check if this is a tool notification with metadata
-                       is_tool_notification = 'tool_call' in event or 'tool_result' in event
+                       # Check if this is a tool notification (both metadata-based and content-based)
+                       is_tool_notification = (
+                           # Metadata-based tool notifications (from tool_call/tool_result events)
+                           'tool_call' in event or 'tool_result' in event or
+                           # Content-based tool notifications (from streamed text)
+                           '🔍 Querying ' in content or
+                           '🔍 Checking ' in content or
+                           '🔧 Calling ' in content or
+                           ('✅ ' in content and 'completed' in content.lower()) or
+                           content.strip().startswith('🔍') or
+                           content.strip().startswith('🔧') or
+                           (content.strip().startswith('✅') and 'completed' in content.lower())
+                       )
                        
-                       # Check if this is an execution plan
-                       is_execution_plan = '## 📋 Execution Plan' in content or '**Task:**' in content or '**Approach:**' in content
+                       # Execution plan functionality REMOVED - no special detection needed
+                       is_execution_plan = False
                        
-                       # Only add non-notification content to accumulated content for final response
+                       # Accumulate non-notification content for final UI response
+                       # Streaming artifacts are for real-time display, final response for clean UI display
                        if not is_tool_notification and not is_execution_plan:
                            accumulated_content.append(content)
                            logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
@@ -1066,6 +1078,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                artifact_name = f'tool_notification_end'
                                artifact_description = f'Tool call completed: {tool_info.get("name", "unknown")}'
                                logger.debug(f"✅ Tool result notification: {tool_info}")
+                           else:
+                               # Content-based tool notification
+                               if ('✅' in content and 'completed' in content.lower()) or (content.strip().startswith('✅') and 'completed' in content.lower()):
+                                   artifact_name = 'tool_notification_end'
+                                   artifact_description = 'Tool operation completed'
+                                   logger.debug(f"✅ Tool completion notification: {content.strip()}")
+                               else:
+                                   # Assume it's a start notification (🔍 Querying, 🔍 Checking, 🔧 Calling)
+                                   artifact_name = 'tool_notification_start'
+                                   artifact_description = 'Tool operation started'
+                                   logger.debug(f"🔍 Tool start notification: {content.strip()}")
                        elif is_execution_plan:
                            artifact_name = 'execution_plan'
                            artifact_description = 'Execution plan from Platform Engineer'
@@ -1118,25 +1141,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                        )
                        logger.debug(f"✅ Streamed chunk to A2A client: {content[:50]}...")
                     
-                    # Also send status update to indicate working state
-                    logger.debug("Working event received. Enqueuing TaskStatusUpdateEvent with working state.")
-                    await self._safe_enqueue_event(
-                        event_queue,
-                        TaskStatusUpdateEvent(
-                            status=TaskStatus(
-                                state=TaskState.working,
-                                message=new_agent_text_message(
-                                    content if content else "Processing...",
-                                    task.context_id,
-                                    task.id,
-                                ),
-                            ),
-                            final=False,
-                            context_id=task.context_id,
-                            task_id=task.id,
-                        )
-                    )
-                    logger.debug(f"Task {task.id} is in progress with streaming chunk.")
+                    # Skip status updates for ALL streaming content to eliminate duplicates
+                    # Artifacts already provide the content, status updates are redundant during streaming
+                    logger.debug(f"Skipping status update for streaming content to avoid duplication - artifacts provide the content")
 
             # If we exit the stream loop without receiving 'is_task_complete', send accumulated content
             if accumulated_content and not event.get('is_task_complete', False):
