@@ -8,6 +8,10 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import (
+    AgentCapability, build_system_instruction, graceful_error_handling_template,
+    SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES
+)
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -21,49 +25,60 @@ class ResponseFormat(BaseModel):
 class KomodorAgent(BaseLangGraphAgent):
     """Komodor Agent for Kubernetes operations."""
 
-    SYSTEM_INSTRUCTION = """
-You are a Komodor AI agent designed to assist users by utilizing available tools to manage Kubernetes environments,
-monitor system health, and handle RBAC configurations. You are equipped to perform tasks such as searching services,
-jobs, and issues, managing Kubernetes events, configuring real-time monitors, fetching audit logs, handling user and
-role-based access control (RBAC) operations, analyzing cost allocations, and triggering RCA investigations.
-If the user asks about anything unrelated to Kubernetes or its resources, politely state that you can only assist
-with Kubernetes operations. Do not attempt to answer unrelated questions or use tools for other purposes.
+    KOMODOR_CAPABILITIES = [
+        AgentCapability(
+            title="Service and Job Management",
+            description="Manage Kubernetes services and jobs",
+            items=[
+                "Search for services or jobs based on criteria like cluster, namespace, type, status",
+                "Retrieve YAML configurations for services",
+                "Search for service-related issues or Kubernetes events"
+            ]
+        ),
+        AgentCapability(
+            title="Cluster and Event Management", 
+            description="Monitor and manage cluster operations",
+            items=[
+                "Search for cluster-level issues or Kubernetes events with specified time ranges",
+                "Fetch details of clusters or download kubeconfig files"
+            ]
+        ),
+        AgentCapability(
+            title="RBAC and User Management",
+            description="Role-based access control and user operations", 
+            items=[
+                "Manage roles, policies, and their associations",
+                "Query audit logs with filters, sort, and pagination options",
+                "Manage users and fetch effective permissions"
+            ]
+        ),
+        AgentCapability(
+            title="Health and Cost Analysis",
+            description="System monitoring and optimization",
+            items=[
+                "Analyze system health risks with filters",
+                "Provide cost allocation breakdowns and right-sizing recommendations",
+                "Trigger RCA investigations and retrieve results"
+            ]
+        ),
+        AgentCapability(
+            title="Configuration and Monitoring",
+            description="Real-time monitoring and event management",
+            items=[
+                "Configure, retrieve, update, or delete real-time monitor settings",
+                "Create custom events with associated details and severity levels",
+                "Validate API keys for operational readiness"
+            ]
+        )
+    ]
 
-# Tool Capabilities:
-
-## Service and Job Management:
-* Search for services or jobs based on criteria like cluster, namespace, type, status, or deployment status.
-* Retrieve YAML configurations for services.
-* Search for service-related issues or Kubernetes events.
-
-## Cluster and Event Management:
-* Search for cluster-level issues or Kubernetes events with specified time ranges.
-* Fetch details of clusters or download kubeconfig files.
-
-## Real-Time Monitor Configuration:
-* Configure, retrieve, update, or delete real-time monitor settings.
-* Fetch configurations for all monitors or specific ones by UUID.
-
-## Audit Logs and User Management:
-* Query audit logs with filters, sort, and pagination options.
-* Manage users, including creating, updating, retrieving, or deleting user accounts.
-* Fetch effective permissions for users.
-
-## RBAC (Role-Based Access Control):
-* Manage roles, policies, and their associations, including creating, updating, deleting, and assigning roles and policies.
-* Retrieve details of roles, policies, and user-role associations.
-
-## Health and Cost Analysis:
-* Analyze system health risks with filters like severity, resource type, and cluster.
-* Provide cost allocation breakdowns or right-sizing recommendations at the service or container level.
-
-## RCA (Root Cause Analysis):
-* Trigger RCA investigations and retrieve results for specific issues.
-
-## Custom Events and API Key Validation:
-* Create custom events with associated details and severity levels.
-* Validate API keys for operational readiness.
-"""
+    SYSTEM_INSTRUCTION = build_system_instruction(
+        agent_name="KOMODOR AGENT",
+        agent_purpose="You are a Komodor AI agent designed to assist users with Kubernetes environments, system health monitoring, and RBAC configurations.",
+        capabilities=KOMODOR_CAPABILITIES,
+        response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES,
+        graceful_error_handling=graceful_error_handling_template("Komodor")
+    )
 
     RESPONSE_FORMAT_INSTRUCTION: str = (
         'Select status as completed if the request is complete'

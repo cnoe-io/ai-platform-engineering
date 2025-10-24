@@ -229,4 +229,3 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                 )
             )
             logger.info(f"Task {task.id} cancelled")
-

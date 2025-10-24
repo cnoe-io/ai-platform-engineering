@@ -11,6 +11,10 @@ from typing import Dict, Any, Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import (
+    build_system_instruction, graceful_error_handling_template,
+    SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,29 +28,30 @@ class ResponseFormat(BaseModel):
 class WeatherAgent(BaseLangGraphAgent):
     """Weather Agent using BaseLangGraphAgent for consistent streaming."""
 
-    SYSTEM_INSTRUCTION = (
-        'You are an expert assistant for Weather integration and operations. '
-        'Your purpose is to help users get weather information. '
-        'Use the available Weather tools to interact with the Weather API and provide accurate, '
-        'actionable responses. If the user asks about anything unrelated to Weather, politely state '
-        'that you can only assist with Weather operations. Do not attempt to answer unrelated questions '
-        'or use tools for other purposes. Show weather in Fahrenheit for US cities and Celsius for European cities.\n\n'
+    WEATHER_TOOL_USAGE = {
+        "get_current_weather": 'Use for current weather conditions (e.g., "What\'s the weather like now in Paris?")',
+        "get_weather_by_datetime_range": 'Use for future or past weather within a date range (e.g., "Will it rain tomorrow?")',
+        "get_current_datetime": "Use to get the current time in any timezone when calculating relative dates"
+    }
 
-        'TOOL USAGE GUIDELINES:\n'
-        '1. get_current_weather: Use for current weather conditions (e.g., "What\'s the weather like now in Paris?")\n'
-        '2. get_weather_by_datetime_range: Use for future or past weather within a date range (e.g., "Will it rain tomorrow?", "Weather forecast for next week")\n'
-        '3. get_current_datetime: Use to get the current time in any timezone when you need to calculate relative dates\n\n'
+    WEATHER_ADDITIONAL_SECTIONS = {
+        "Handling Relative Dates": '''- For "tomorrow", "next week", "yesterday" queries, FIRST call get_current_datetime
+- Then calculate target date(s) and use get_weather_by_datetime_range
+- Always use YYYY-MM-DD format for dates in API calls
+- For "tomorrow" queries, set start_date and end_date to the same date''',
+        
+        "Examples": '''- "Will it rain tomorrow in Paris?" → get_current_datetime(timezone_name="Europe/Paris") → get_weather_by_datetime_range
+- "What's the weather now?" → get_current_weather(city="[location]")
+- "Weather forecast for this weekend?" → get_current_datetime → get_weather_by_datetime_range with weekend dates'''
+    }
 
-        'HANDLING RELATIVE DATES:\n'
-        '- For questions about "tomorrow", "next week", "yesterday", etc., FIRST call get_current_datetime to get the current date\n'
-        '- Then calculate the target date(s) and use get_weather_by_datetime_range\n'
-        '- Always use YYYY-MM-DD format for dates in API calls\n'
-        '- For "tomorrow" queries, set start_date and end_date to the same date (tomorrow\'s date)\n\n'
-
-        'EXAMPLES:\n'
-        '- "Will it rain tomorrow in Paris?" → get_current_datetime(timezone_name="Europe/Paris") → get_weather_by_datetime_range(city="Paris", start_date="2024-01-15", end_date="2024-01-15")\n'
-        '- "What\'s the weather now?" → get_current_weather(city="[location]")\n'
-        '- "Weather forecast for this weekend?" → get_current_datetime → get_weather_by_datetime_range with weekend dates'
+    SYSTEM_INSTRUCTION = build_system_instruction(
+        agent_name="WEATHER AGENT",
+        agent_purpose="You are an expert assistant for Weather integration and operations. Your purpose is to help users get weather information. Show weather in Fahrenheit for US cities and Celsius for European cities.",
+        tool_usage_guidelines=WEATHER_TOOL_USAGE,
+        response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES,
+        additional_sections=WEATHER_ADDITIONAL_SECTIONS,
+        graceful_error_handling=graceful_error_handling_template("Weather", "API")
     )
 
     RESPONSE_FORMAT_INSTRUCTION = (

@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy necessary directories for the build
-COPY --chown=root:root ai_platform_engineering/__init__.py /app/ai_platform_engineering/
-COPY --chown=root:root ai_platform_engineering/utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root ai_platform_engineering/agents/aws /app/ai_platform_engineering/agents/aws/
+COPY --chown=root:root __init__.py /app/ai_platform_engineering/
+COPY --chown=root:root utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root agents/aws /app/ai_platform_engineering/agents/aws/
 
 # Set working directory to the AWS agent
 WORKDIR /app/ai_platform_engineering/agents/aws
@@ -24,6 +24,20 @@ RUN [ ! -f "README.md" ] && echo "# AWS Agent" > README.md || true
 # Install dependencies into venv (no dev deps)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev
+
+# Patch EKS MCP server to fix Union type signature issue
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uvx awslabs.eks-mcp-server@0.1.6 --help > /dev/null 2>&1 && \
+    EKS_FILE=$(find /root/.cache/uv -name "eks_stack_handler.py" -path "*/lib/python*" 2>/dev/null | head -1) && \
+    if [ -n "$EKS_FILE" ]; then \
+        echo "Patching EKS MCP server at: $EKS_FILE" && \
+        sed -i '/from mcp.types import CallToolResult/d' "$EKS_FILE" && \
+        sed -i '39a from mcp.types import CallToolResult' "$EKS_FILE" && \
+        sed -i '/Union\[/,/\]:/c\    ) -> CallToolResult:' "$EKS_FILE" && \
+        echo "✅ EKS MCP server patched during build"; \
+    else \
+        echo "⚠️ EKS handler not found, skipping patch"; \
+    fi
 
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
@@ -48,8 +62,24 @@ ENV UV_PROJECT_ENVIRONMENT=/app/ai_platform_engineering/agents/aws/.venv \
 # Copy venv & code from builder (maintain directory structure)
 COPY --from=builder --chown=appuser:appuser /app /app
 
+# Create startup script that patches EKS MCP server before starting the agent (as root)
+RUN echo '#!/bin/sh\n\
+echo "Applying EKS MCP server patch..."\n\
+uvx awslabs.eks-mcp-server@0.1.6 --help > /dev/null 2>&1\n\
+EKS_FILE=$(find /home/appuser/.cache/uv -name "eks_stack_handler.py" -path "*/lib/python*" 2>/dev/null | head -1)\n\
+if [ -n "$EKS_FILE" ]; then\n\
+    echo "Patching EKS MCP server at: $EKS_FILE"\n\
+    sed -i "39a from mcp.types import CallToolResult" "$EKS_FILE"\n\
+    sed -i "132,134c\\    ) -> CallToolResult:" "$EKS_FILE"\n\
+    echo "✅ EKS MCP server patched successfully!"\n\
+else\n\
+    echo "⚠️ EKS handler not found, will patch when MCP initializes"\n\
+fi\n\
+echo "Starting AWS agent..."\n\
+exec python -m agent_aws --host 0.0.0.0 --port 8000' > /app/start-with-patch.sh && chmod +x /app/start-with-patch.sh
+
 USER appuser
 
 EXPOSE 8000
 
-CMD ["python", "-m", "agent_aws", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/start-with-patch.sh"]

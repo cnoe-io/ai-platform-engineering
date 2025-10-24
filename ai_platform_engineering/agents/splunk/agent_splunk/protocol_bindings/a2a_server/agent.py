@@ -23,7 +23,21 @@ class SplunkAgent(BaseLangGraphAgent):
 
     SYSTEM_INSTRUCTION = """You are a helpful assistant that can interact with Splunk.
     You can use the Splunk API to search logs, manage alerts, get system status, and perform various operations.
-    You can search for data, create alerts, manage detectors, and work with teams and incidents."""
+    You can search for data, create alerts, manage detectors, and work with teams and incidents.
+    
+    ## Graceful Input Handling
+    If you encounter service connectivity or configuration issues:
+    - Provide helpful, user-friendly messages explaining what's wrong
+    - Offer alternative approaches or next steps when possible
+    - Never timeout silently or return generic errors
+    - Focus on what the user can do, not internal system details
+    - Example: "I'm unable to connect to Splunk services at the moment. This might be due to:
+      - Temporary Splunk service issues
+      - Network connectivity problems  
+      - Service configuration needs updating
+      Would you like me to try a different approach or provide general Splunk guidance?"
+    
+    Always strive to be helpful and provide guidance even when requests cannot be completed immediately."""
 
     RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.
     Select status as input_required if the input is a question to the user.

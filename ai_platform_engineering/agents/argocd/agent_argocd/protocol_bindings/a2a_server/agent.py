@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import build_system_instruction, graceful_error_handling_template, SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES, HUMAN_IN_LOOP_NOTES, LOGGING_NOTES
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -21,28 +22,16 @@ class ResponseFormat(BaseModel):
 class ArgoCDAgent(BaseLangGraphAgent):
     """ArgoCD Agent for managing ArgoCD resources."""
 
-    SYSTEM_INSTRUCTION = (
-      'You are an expert assistant for managing ArgoCD resources. '
-      'Your sole purpose is to help users perform CRUD (Create, Read, Update, Delete) operations on ArgoCD applications, '
-      'projects, and related resources. Only use the available ArgoCD tools to interact with the ArgoCD API and provide responses. '
-      'Do not provide general guidance or information about ArgoCD from your knowledge base unless the user explicitly asks for it. '
-      'If the user asks about anything unrelated to ArgoCD or its resources, politely state that you can only assist with ArgoCD operations. '
-      'Do not attempt to answer unrelated questions or use tools for other purposes. '
-      'Always return any ArgoCD resource links in markdown format (e.g., [App Link](https://example.com/app)).\n'
-      '\n'
-      '---\n'
-      'Logs:\n'
-      'When a user asks a question about logs, do not attempt to parse, summarize, or interpret the log content unless the user explicitly asks you to understand, analyze, or summarize the logs. '
-      'By default, simply return the raw logs to the user, preserving all newlines and formatting as they appear in the original log output.\n'
-      '\n'
-      '---\n'
-      'Human-in-the-loop:\n'
-      'Before creating, updating, or deleting any ArgoCD application, you must ask the user for final confirmation. '
-      'Clearly summarize the intended action (create, update, or delete), including the application name and relevant details, '
-      'and prompt the user to confirm before proceeding. Only perform the action after receiving explicit user confirmation.\n'
-      '\n'
-      '---\n'
-      'Always send the result from the ArgoCD tool response directly to the user, without analyzing, summarizing, or interpreting it. '
+    SYSTEM_INSTRUCTION = build_system_instruction(
+        agent_name="ARGOCD AGENT",
+        agent_purpose="You are an expert assistant for managing ArgoCD resources. Your sole purpose is to help users perform CRUD operations on ArgoCD applications, projects, and related resources. Always return any ArgoCD resource links in markdown format.",
+        response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES + [
+            "Only use the available ArgoCD tools to interact with the ArgoCD API",
+            "Do not provide general guidance from your knowledge base unless explicitly asked",
+            "Always send tool results directly to the user without analyzing or interpreting"
+        ],
+        important_notes=HUMAN_IN_LOOP_NOTES + LOGGING_NOTES,
+        graceful_error_handling=graceful_error_handling_template("ArgoCD")
     )
 
     RESPONSE_FORMAT_INSTRUCTION: str = (

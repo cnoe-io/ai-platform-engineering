@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -21,9 +22,15 @@ class ResponseFormat(BaseModel):
 class BackstageAgent(BaseLangGraphAgent):
     """Backstage Agent for catalog and service management."""
 
-    SYSTEM_INSTRUCTION = """You are a helpful assistant that can interact with Backstage.
-    You can use the Backstage API to manage and query information about services, components, APIs, and resources.
-    You can perform actions like creating, updating, or deleting catalog entities, managing documentation, and handling plugin configurations."""
+    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
+        service_name="Backstage",
+        service_operations="manage and query information about services, components, APIs, and resources",
+        additional_guidelines=[
+            "Perform actions like creating, updating, or deleting catalog entities",
+            "Manage documentation and handle plugin configurations"
+        ],
+        include_error_handling=True  # Real Backstage API calls
+    )
 
     RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.
     Select status as input_required if the input is a question to the user.

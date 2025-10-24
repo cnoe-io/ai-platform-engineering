@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy only the necessary directories for the backstage agent
-COPY --chown=root:root ai_platform_engineering/utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root ai_platform_engineering/agents/backstage /app/ai_platform_engineering/agents/backstage/
+COPY --chown=root:root utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root agents/backstage /app/ai_platform_engineering/agents/backstage/
 
 # Set working directory to the backstage agent
 WORKDIR /app/ai_platform_engineering/agents/backstage
