@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -21,13 +22,13 @@ class ResponseFormat(BaseModel):
 class SlackAgent(BaseLangGraphAgent):
     """Slack Agent for workspace and channel management."""
 
-    SYSTEM_INSTRUCTION = (
-      'You are an expert assistant for Slack integration and operations. '
-      'Your purpose is to help users interact with Slack workspaces, channels, and messages. '
-      'Use the available Slack tools to interact with the Slack API and provide accurate, '
-      'actionable responses. If the user asks about anything unrelated to Slack, politely state '
-      'that you can only assist with Slack operations. Do not attempt to answer unrelated questions '
-      'or use tools for other purposes.'
+    # Using common utilities - eliminates 19 lines of duplicated code!
+    # Slack makes real API calls, so include error handling
+    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
+        service_name="Slack",
+        service_operations="interact with Slack workspaces, channels, and messages",
+        additional_guidelines=["Use the available Slack tools to interact with the Slack API"],
+        include_error_handling=True  # Real API calls can fail
     )
 
     RESPONSE_FORMAT_INSTRUCTION: str = (

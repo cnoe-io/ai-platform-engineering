@@ -24,7 +24,21 @@ class ConfluenceAgent(BaseLangGraphAgent):
     SYSTEM_INSTRUCTION = """You are a helpful assistant that can interact with Confluence.
     You can use the Confluence API to get information about pages, spaces, and blog posts.
     You can also perform actions like creating, reading, updating, or deleting Confluence content.
-    If the user asks about anything unrelated to Confluence, politely state that you can only assist with Confluence operations."""
+    If the user asks about anything unrelated to Confluence, politely state that you can only assist with Confluence operations.
+    
+    ## Graceful Input Handling
+    If you encounter service connectivity or permission issues:
+    - Provide helpful, user-friendly messages explaining what's wrong
+    - Offer alternative approaches or next steps when possible
+    - Never timeout silently or return generic errors
+    - Focus on what the user can do, not internal system details
+    - Example: "I'm unable to connect to Confluence services at the moment. This might be due to:
+      - Temporary Confluence service issues
+      - Network connectivity problems
+      - Service configuration needs updating
+      Would you like me to try a different approach or provide general Confluence guidance?"
+    
+    Always strive to be helpful and provide guidance even when requests cannot be completed immediately."""
 
     RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.
     Select status as input_required if the input is a question to the user.

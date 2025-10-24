@@ -11,6 +11,7 @@ from typing import Dict, Any, Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +25,11 @@ class ResponseFormat(BaseModel):
 class WebexAgent(BaseLangGraphAgent):
     """Webex Agent using BaseLangGraphAgent for consistent streaming."""
 
-    SYSTEM_INSTRUCTION = (
-        "You are an expert assistant for managing messaging with Webex. "
-        "Your sole purpose is to communicate via Webex to users. "
-        "Always use the available Webex tools to interact with users on Webex and provide "
-        "accurate, actionable responses. If the user asks about anything unrelated to Webex or its resources, politely state "
-        "that you can only assist with Webex operations. Do not attempt to answer unrelated questions or use tools for other purposes."
+    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
+        service_name="Webex",
+        service_operations="look up rooms, send messages to users or spaces or rooms",
+        additional_guidelines=["Always use the available Webex tools to interact with users on Webex"],
+        include_error_handling=True  # Real Webex API calls
     )
 
     RESPONSE_FORMAT_INSTRUCTION = (

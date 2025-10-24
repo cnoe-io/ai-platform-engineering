@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -21,9 +22,12 @@ class ResponseFormat(BaseModel):
 class PagerDutyAgent(BaseLangGraphAgent):
     """PagerDuty Agent for incident and schedule management."""
 
-    SYSTEM_INSTRUCTION = """You are a helpful assistant that can interact with PagerDuty.
-    You can use the PagerDuty API to get information about incidents, services, and schedules.
-    You can also perform actions like creating, updating, or resolving incidents."""
+    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
+        service_name="PagerDuty",
+        service_operations="get information about incidents, services, and schedules",
+        additional_guidelines=["Perform actions like creating, updating, or resolving incidents"],
+        include_error_handling=True  # Real PagerDuty API calls
+    )
 
     RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.
     Select status as input_required if the input is a question to the user.

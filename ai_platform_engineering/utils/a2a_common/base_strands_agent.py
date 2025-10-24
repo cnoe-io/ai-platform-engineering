@@ -149,14 +149,32 @@ class BaseStrandsAgent(ABC):
             mcp_clients_with_names = self.create_mcp_clients()
             self._mcp_clients = [client for _, client in mcp_clients_with_names]
 
+            # Handle case when no MCP clients are configured
+            if not mcp_clients_with_names:
+                logger.info(f"No MCP clients configured for {self.get_agent_name()} agent. Running without MCP tools.")
+                self._tools = []
+                # Create the Strands agent with no tools
+                self._agent = self._create_strands_agent(self._tools)
+                logger.info(f"{self.get_agent_name()} agent initialized successfully with {len(self._tools)} tools")
+                return
+
             # Enter each MCP client context and aggregate tools
             aggregated_tools = []
+            successful_clients = []
             for name, client in mcp_clients_with_names:
-                ctx = client.__enter__()
-                self._mcp_contexts.append(ctx)
-                tools = client.list_tools_sync()
-                logger.info(f"Retrieved {len(tools)} tools from MCP server '{name}'")
-                aggregated_tools.extend(tools)
+                try:
+                    ctx = client.__enter__()
+                    self._mcp_contexts.append(ctx)
+                    successful_clients.append((name, client))
+                    tools = client.list_tools_sync()
+                    logger.info(f"Retrieved {len(tools)} tools from MCP server '{name}'")
+                    aggregated_tools.extend(tools)
+                except Exception as e:
+                    logger.warning(f"Failed to initialize MCP server '{name}': {e}")
+                    logger.info(f"Continuing without MCP server '{name}'")
+            
+            # Update the client list to only include successful ones
+            self._mcp_clients = [client for _, client in successful_clients]
 
             # Deduplicate tools by name (last wins if duplicate)
             dedup = {}
@@ -168,7 +186,16 @@ class BaseStrandsAgent(ABC):
                     # Fallback: append if name not resolvable
                     dedup[id(t)] = t
             self._tools = list(dedup.values())
-            logger.info(f"Total aggregated tools: {len(self._tools)} (from {len(self._mcp_clients)} MCP servers)")
+            
+            # Handle case where all MCP servers failed to initialize
+            if not successful_clients:
+                logger.warning("No MCP servers could be initialized. Agent will run without MCP capabilities.")
+                self._tools = []
+                self._agent = self._create_strands_agent(self._tools)
+                logger.info(f"{self.get_agent_name()} agent initialized successfully with {len(self._tools)} tools")
+                return
+            
+            logger.info(f"Total aggregated tools: {len(self._tools)} (from {len(successful_clients)} successful MCP servers)")
 
             # Create the Strands agent with all tools
             self._agent = self._create_strands_agent(self._tools)

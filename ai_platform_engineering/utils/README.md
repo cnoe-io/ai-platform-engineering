@@ -4,11 +4,22 @@ This package contains common utilities and base classes shared across all AI Pla
 
 ## Modules
 
-### `a2a/` - Agent-to-Agent Protocol
+### `a2a_common/` - Agent-to-Agent Protocol
 
-Common A2A (Agent-to-Agent) protocol bindings with streaming support. See [a2a/README.md](a2a/README.md) for details.
+Common A2A (Agent-to-Agent) protocol bindings with streaming support. See [a2a_common/README.md](a2a_common/README.md) for details.
+
+### `prompt_templates.py` - Common Prompt Templates
+
+Reusable prompt templates and building blocks for creating consistent system instructions across agents. See [PROMPT_TEMPLATES_README.md](PROMPT_TEMPLATES_README.md) for details.
 
 **Key Features:**
+- Graceful error handling templates for all services
+- Response format templates (XML coordination, simple status)
+- System instruction builder with structured capabilities
+- Pre-defined guidelines and important notes
+- Utility functions for combining prompt components
+
+**A2A Key Features:**
 - `BaseLangGraphAgent` - Abstract base class for agents with streaming support
 - `BaseLangGraphAgentExecutor` - Abstract base class for A2A protocol handling
 - Common state definitions and helper functions

@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +32,15 @@ class ResponseFormat(BaseModel):
 class GitHubAgent(BaseLangGraphAgent):
     """GitHub Agent using BaseLangGraphAgent for consistent streaming."""
 
-    SYSTEM_INSTRUCTION = (
-      'You are an expert assistant for GitHub integration and operations. '
-      'Your purpose is to help users interact with GitHub repositories, issues, pull requests, and other GitHub features. '
-      'Use the available GitHub tools to interact with the GitHub API and provide accurate, '
-      'actionable responses. If the user asks about anything unrelated to GitHub, politely state '
-      'that you can only assist with GitHub operations. Do not attempt to answer unrelated questions '
-      'or use tools for other purposes.\n\n'
-      'IMPORTANT: Before executing any tool, ensure that all required parameters are provided. '
-      'If any required parameters are missing, ask the user to provide them. '
-      'Always use the most appropriate tool for the requested operation and validate that '
-      'the provided parameters match the expected format and requirements.'
+    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
+        service_name="GitHub",
+        service_operations="interact with GitHub repositories, issues, pull requests, and other GitHub features",
+        additional_guidelines=[
+            "Before executing any tool, ensure that all required parameters are provided",
+            "If any required parameters are missing, ask the user to provide them",
+            "Always use the most appropriate tool for the requested operation and validate parameters"
+        ],
+        include_error_handling=True  # Real GitHub API calls
     )
 
     RESPONSE_FORMAT_INSTRUCTION = (
