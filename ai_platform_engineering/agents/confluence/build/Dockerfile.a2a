@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy only the necessary directories for the confluence agent
-COPY --chown=root:root ai_platform_engineering/utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root ai_platform_engineering/agents/confluence /app/ai_platform_engineering/agents/confluence/
+COPY --chown=root:root utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root agents/confluence /app/ai_platform_engineering/agents/confluence/
 
 # Set working directory to the confluence agent
 WORKDIR /app/ai_platform_engineering/agents/confluence
