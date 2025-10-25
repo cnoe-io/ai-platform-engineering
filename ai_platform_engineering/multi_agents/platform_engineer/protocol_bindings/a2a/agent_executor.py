@@ -58,6 +58,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     def __init__(self):
         self.agent = AIPlatformEngineerA2ABinding()
 
+        # Execution plan streaming state
+        self._execution_plan_active = False
+        self._execution_plan_buffer = ""
+        self._execution_plan_complete = False
+
         # Feature flags for different routing approaches
         # Default to DEEP_AGENT_PARALLEL_ORCHESTRATION mode (best performance: 4.94s avg, 29% faster than ENHANCED_STREAMING)
         self.enhanced_streaming_enabled = os.getenv('ENABLE_ENHANCED_STREAMING', 'false').lower() == 'true'
@@ -96,6 +101,44 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         keywords_str = os.getenv(env_var, default)
         keywords = [kw.strip() for kw in keywords_str.split(',') if kw.strip()]
         return keywords
+
+    def _handle_execution_plan_detection(self, content: str) -> bool:
+        """
+        Detect and handle execution plan streaming using Unicode markers ⟦ and ⟧.
+        Returns True if this content is part of an execution plan.
+        """
+        # Check for start marker ⟦ (U+27E6)
+        if '⟦' in content:
+            self._execution_plan_active = True
+            self._execution_plan_buffer = content
+            self._execution_plan_complete = False
+            logger.debug(f"🎯 Execution plan START detected: {content[:50]}...")
+            return True
+        
+        # If we're in an active execution plan, accumulate content
+        elif self._execution_plan_active:
+            self._execution_plan_buffer += content
+            
+            # Check for end marker ⟧ (U+27E7)
+            if '⟧' in content:
+                self._execution_plan_active = False
+                self._execution_plan_complete = True
+                logger.debug(f"🎯 Execution plan END detected. Total length: {len(self._execution_plan_buffer)} chars")
+                # Note: The complete execution plan will be sent as an artifact in the main streaming logic
+            
+            return True
+        
+        return False
+
+    def _get_complete_execution_plan(self) -> str:
+        """Get the complete execution plan buffer and reset the state."""
+        if self._execution_plan_complete:
+            complete_plan = self._execution_plan_buffer
+            # Reset state for next execution plan
+            self._execution_plan_buffer = ""
+            self._execution_plan_complete = False
+            return complete_plan
+        return ""
 
     def _detect_sub_agent_query(self, query: str) -> Optional[Tuple[str, str]]:
         """
@@ -740,6 +783,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
+        # Reset execution plan state for new task
+        self._execution_plan_active = False
+        self._execution_plan_buffer = ""
+        self._execution_plan_complete = False
+        
         query = context.get_user_input()
         task = context.current_task
         context_id = context.message.context_id if context.message else None
@@ -1047,8 +1095,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                            (content.strip().startswith('✅') and 'completed' in content.lower())
                        )
                        
-                       # Execution plan functionality REMOVED - no special detection needed
-                       is_execution_plan = False
+                       # Execution plan detection using Unicode markers ⟦ and ⟧
+                       is_execution_plan = self._handle_execution_plan_detection(content)
                        
                        # Accumulate non-notification content for final UI response
                        # Streaming artifacts are for real-time display, final response for clean UI display
@@ -1090,9 +1138,19 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                    artifact_description = 'Tool operation started'
                                    logger.debug(f"🔍 Tool start notification: {content.strip()}")
                        elif is_execution_plan:
-                           artifact_name = 'execution_plan'
-                           artifact_description = 'Execution plan from Platform Engineer'
-                           logger.debug(f"📋 Execution plan detected: {content[:50]}...")
+                           # Check if execution plan is complete
+                           complete_plan = self._get_complete_execution_plan()
+                           if complete_plan:
+                               # Send complete execution plan as special artifact
+                               artifact_name = 'execution_plan_update'
+                               artifact_description = 'Complete execution plan streamed to user'
+                               content = complete_plan  # Use complete plan content
+                               logger.debug(f"📋 Complete execution plan ready: {len(complete_plan)} chars")
+                           else:
+                               # Still accumulating execution plan
+                               artifact_name = 'execution_plan_streaming'
+                               artifact_description = 'Execution plan streaming in progress'
+                               logger.debug(f"📋 Execution plan streaming: {content[:50]}...")
                         
                        # Create shared artifact ID once for all streaming chunks
                        if streaming_artifact_id is None:
