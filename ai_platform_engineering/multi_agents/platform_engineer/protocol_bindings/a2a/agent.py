@@ -96,17 +96,55 @@ class AIPlatformEngineerA2ABinding:
                           content = str(content) if content else ''
 
                       if content:  # Only yield if there's actual content
-                          yield {
-                              "is_task_complete": False,
-                              "require_user_input": False,
-                              "content": content,
-                          }
+                          # Check for querying announcements and emit as tool_update events
+                          import re
+                          querying_pattern = r'🔍\s+Querying\s+(\w+)\s+for\s+([^.]+?)\.\.\.'
+                          match = re.search(querying_pattern, content)
+                          
+                          if match:
+                              agent_name = match.group(1)
+                              purpose = match.group(2)
+                              logging.info(f"Tool update detected: {agent_name} - {purpose}")
+                              # Emit as tool_update event
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": content,
+                                  "tool_update": {
+                                      "name": agent_name.lower(),
+                                      "purpose": purpose,
+                                      "status": "querying",
+                                      "type": "update"
+                                  }
+                              }
+                          else:
+                              # Regular content - no special handling
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": content,
+                              }
 
               # Stream tool call indicators
               elif event_type == "on_tool_start":
                   tool_name = event.get("name", "unknown")
                   logging.info(f"Tool call started: {tool_name}")
-                  # Stream tool start notification to client with metadata
+                  
+                  # Generate querying announcement first
+                  purpose = self._get_tool_purpose(tool_name)
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": f"🔍 Querying {tool_name} for {purpose}...\n",
+                      "tool_update": {
+                          "name": tool_name.lower(),
+                          "purpose": purpose,
+                          "status": "querying",
+                          "type": "update"
+                      }
+                  }
+                  
+                  # Then stream tool start notification to client with metadata
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
