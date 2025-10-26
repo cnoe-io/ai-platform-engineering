@@ -322,9 +322,54 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'doc',
-          id: 'changes/PROMPT_CONFIGURATION',
-          label: 'Prompt Configuration',
-        }
+          id: 'changes/2024-10-25-sub-agent-tool-message-streaming',
+          label: '2024-10-25: Sub-Agent Tool Message Streaming',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2024-10-23-platform-engineer-streaming-architecture',
+          label: '2024-10-23: Platform Engineer Streaming Architecture',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2024-10-23-prompt-templates-readme',
+          label: '2024-10-23: Prompt Templates',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2024-10-22-enhanced-streaming-feature',
+          label: '2024-10-22: Enhanced Streaming Feature',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2024-10-22-implementation-summary',
+          label: '2024-10-22: Implementation Summary',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2024-10-22-base-agent-refactor',
+          label: '2024-10-22: Base Agent Refactor',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2024-10-22-agent-refactoring-summary',
+          label: '2024-10-22: Agent Refactoring Summary',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2024-10-22-streaming-architecture',
+          label: '2024-10-22: Streaming Architecture',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2024-10-22-a2a-intermediate-states',
+          label: '2024-10-22: A2A Intermediate States',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2024-10-22-prompt-configuration',
+          label: '2024-10-22: Prompt Configuration',
+        },
       ],
     },
     {

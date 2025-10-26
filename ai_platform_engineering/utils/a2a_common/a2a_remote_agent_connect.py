@@ -203,7 +203,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 chunk_dump = str(chunk)
 
             logger.debug(f"Received A2A stream chunk: {chunk_dump}")
-            writer({"type": "a2a_event", "data": chunk_dump})
+            # Don't stream raw chunk_dump - we'll stream extracted text only at line 251
 
             try:
                 # The chunk is a SendStreamingMessageResponse Pydantic object
@@ -216,12 +216,14 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
                 # Get event kind
                 kind = result.get('kind')
+                logger.info(f"Received event: {result}")
                 if not kind:
-                    logger.debug("No kind in result, skipping")
+                    logger.info(f"No kind in result, skipping: {result}")
                     continue
 
                 # Extract text from artifact-update events
                 if kind == "artifact-update":
+                    logger.info(f"Received artifact-update event: {result}")
                     artifact = result.get('artifact')
                     if artifact and isinstance(artifact, dict):
                         parts = artifact.get('parts', [])
@@ -234,6 +236,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
                 # Extract text from status-update events (RAG agent streams via status messages)
                 elif kind == "status-update":
+                    logger.info(f"Received status-update event: {result}")
                     status = result.get('status')
                     if status and isinstance(status, dict):
                         message = status.get('message')
@@ -242,9 +245,18 @@ class A2ARemoteAgentConnectTool(BaseTool):
                             for part in parts:
                                 if isinstance(part, dict):
                                     text = part.get('text')
-                                    if text and not text.startswith(('🔧', '✅', '❌', '🔍')):
+                                    if text:
                                         accumulated_text.append(text)
-                                        logger.debug(f"✅ Accumulated text from status-update: {len(text)} chars")
+                                        # Only stream tool progress messages (🔧, ✅), not full responses
+                                        # Full responses will be streamed token-by-token by supervisor
+                                        is_tool_message = '🔧' in text or '✅' in text
+                                        if is_tool_message:
+                                            # Remove markdown bold formatting (** **) from tool names
+                                            clean_text = text.replace('**', '')
+                                            writer({"type": "a2a_event", "data": clean_text})
+                                            logger.info(f"✅ Streamed tool progress from status-update: {len(clean_text)} chars")
+                                        else:
+                                            logger.info(f"⏭️  Skipped streaming content from status-update (not a tool message): {len(text)} chars")
             except Exception as e:
                 logger.warning(f"Non-fatal error while handling stream chunk: {e}")
                 import traceback

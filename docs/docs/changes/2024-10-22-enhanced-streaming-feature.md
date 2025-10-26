@@ -291,9 +291,8 @@ docker logs platform-engineer-p2p 2>&1 | grep "falling back"
 
 ## Related Documentation
 
-- [Streaming Architecture](./streaming-architecture.md) - Technical deep dive
-- [A2A Protocol](../a2a-protocol.md) - Agent-to-Agent communication
-- [Deep Agent](../deep-agent.md) - Orchestration engine
+- [Streaming Architecture](./2024-10-22-streaming-architecture.md) - Technical deep dive
+- [A2A Intermediate States](./2024-10-22-a2a-intermediate-states.md) - Tool visibility implementation
 
 ## Future Enhancements
 
