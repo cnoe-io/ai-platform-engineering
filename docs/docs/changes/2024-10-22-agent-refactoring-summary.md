@@ -250,9 +250,9 @@ docker logs agent-komodor-p2p 2>&1 | grep "🔧 Calling tool" | tail -3
 
 ## Related Documentation
 
-- [A2A Intermediate States](./a2a-intermediate-states.md) - Tool visibility implementation
-- [Enhanced Streaming Feature](./enhanced-streaming-feature.md) - Parallel streaming
-- [Streaming Architecture](./streaming-architecture.md) - Technical deep dive
+- [A2A Intermediate States](./2024-10-22-a2a-intermediate-states.md) - Tool visibility implementation
+- [Enhanced Streaming Feature](./2024-10-22-enhanced-streaming-feature.md) - Parallel streaming
+- [Streaming Architecture](./2024-10-22-streaming-architecture.md) - Technical deep dive
 
 ## Impact Summary
 

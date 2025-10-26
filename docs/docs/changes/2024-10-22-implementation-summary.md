@@ -282,8 +282,8 @@ Client → Router → COMPLEX → Deep Agent → Response
   - **Status**: ✅ Merged into `_stream_from_sub_agent()`
 
 ### Documentation
-- [Streaming Architecture](./streaming-architecture.md) - Technical deep dive
-- [Enhanced Streaming Feature](./enhanced-streaming-feature.md) - User guide
+- [Streaming Architecture](./2024-10-22-streaming-architecture.md) - Technical deep dive
+- [Enhanced Streaming Feature](./2024-10-22-enhanced-streaming-feature.md) - User guide
 
 ## Conclusion
 

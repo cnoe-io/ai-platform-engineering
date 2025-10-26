@@ -1,6 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterable
@@ -71,100 +72,145 @@ class AIPlatformEngineerA2ABinding:
       logging.info(f"Created tracing config: {config}")
 
       try:
-          # Use astream_events for token-level streaming
-          # This allows the todo list to stream character-by-character BEFORE tool calls
-          async for event in self.graph.astream_events(inputs, config, version="v2"):
-              event_type = event.get("event")
+          # Use astream with multiple stream modes to get both token-level streaming AND custom events
+          # stream_mode=['messages', 'custom'] enables:
+          # - 'messages': Token-level streaming via AIMessageChunk
+          # - 'custom': Custom events from sub-agents via get_stream_writer()
+          async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+              
+              # Handle custom A2A event payloads from sub-agents
+              if item_type == 'custom' and isinstance(item, dict) and item.get("type") == "a2a_event":
+                  custom_text = item.get("data", "")
+                  if custom_text:
+                      logging.info(f"Processing custom a2a_event from sub-agent: {len(custom_text)} chars")
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "content": custom_text,
+                      }
+                  continue
+              
+              # Process message stream
+              if item_type != 'messages':
+                  continue
+                  
+              message = item[0] if item else None
+              if not message:
+                  continue
 
-              # Stream LLM tokens (includes todo list planning)
-              if event_type == "on_chat_model_stream":
-                  chunk = event.get("data", {}).get("chunk")
-                  if chunk and hasattr(chunk, "content"):
-                      content = chunk.content
-                      # Normalize content (handle both string and list formats)
-                      if isinstance(content, list):
-                          text_parts = []
-                          for item in content:
-                              if isinstance(item, dict):
-                                  text_parts.append(item.get('text', ''))
-                              elif isinstance(item, str):
-                                  text_parts.append(item)
-                              else:
-                                  text_parts.append(str(item))
-                          content = ''.join(text_parts)
-                      elif not isinstance(content, str):
-                          content = str(content) if content else ''
+              # Check if this message has tool_calls (can be in AIMessageChunk or AIMessage)
+              has_tool_calls = hasattr(message, "tool_calls") and message.tool_calls
+              if has_tool_calls:
+                  logging.debug(f"Message with tool_calls detected: type={type(message).__name__}, tool_calls={message.tool_calls}")
 
-                      if content:  # Only yield if there's actual content
-                          # Check for querying announcements and emit as tool_update events
-                          import re
-                          querying_pattern = r'🔍\s+Querying\s+(\w+)\s+for\s+([^.]+?)\.\.\.'
-                          match = re.search(querying_pattern, content)
+              # Stream LLM tokens (includes execution plans and responses)
+              if isinstance(message, AIMessageChunk):
+                  # Check if this chunk has tool_calls (tool invocation)
+                  if hasattr(message, "tool_calls") and message.tool_calls:
+                      # This is a tool call chunk - emit tool start notifications
+                      for tool_call in message.tool_calls:
+                          tool_name = tool_call.get("name", "")
+                          # Skip tool calls with empty names (they're partial chunks being streamed)
+                          if not tool_name or not tool_name.strip():
+                              logging.debug(f"Skipping tool call with empty name (streaming chunk)")
+                              continue
+                              
+                          logging.info(f"Tool call started (from AIMessageChunk): {tool_name}")
                           
-                          if match:
-                              agent_name = match.group(1)
-                              purpose = match.group(2)
-                              logging.info(f"Tool update detected: {agent_name} - {purpose}")
-                              # Emit as tool_update event
-                              yield {
-                                  "is_task_complete": False,
-                                  "require_user_input": False,
-                                  "content": content,
-                                  "tool_update": {
-                                      "name": agent_name.lower(),
-                                      "purpose": purpose,
-                                      "status": "querying",
-                                      "type": "update"
-                                  }
+                          # Stream tool start notification to client with metadata
+                          tool_name_formatted = tool_name.title()
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "content": f"🔧 Supervisor: Calling {tool_name_formatted}...\n",
+                              "tool_call": {
+                                  "name": tool_name,
+                                  "status": "started",
+                                  "type": "notification"
                               }
+                          }
+                      # Don't process content for tool call chunks
+                      continue
+                  
+                  content = message.content
+                  # Normalize content (handle both string and list formats)
+                  if isinstance(content, list):
+                      text_parts = []
+                      for item in content:
+                          if isinstance(item, dict):
+                              text_parts.append(item.get('text', ''))
+                          elif isinstance(item, str):
+                              text_parts.append(item)
                           else:
-                              # Regular content - no special handling
-                              yield {
-                                  "is_task_complete": False,
-                                  "require_user_input": False,
-                                  "content": content,
+                              text_parts.append(str(item))
+                      content = ''.join(text_parts)
+                  elif not isinstance(content, str):
+                      content = str(content) if content else ''
+
+                  if content:  # Only yield if there's actual content
+                      # Check for querying announcements and emit as tool_update events
+                      import re
+                      querying_pattern = r'🔍\s+Querying\s+(\w+)\s+for\s+([^.]+?)\.\.\.'
+                      match = re.search(querying_pattern, content)
+                      
+                      if match:
+                          agent_name = match.group(1)
+                          purpose = match.group(2)
+                          logging.info(f"Tool update detected: {agent_name} - {purpose}")
+                          # Emit as tool_update event
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "content": content,
+                              "tool_update": {
+                                  "name": agent_name.lower(),
+                                  "purpose": purpose,
+                                  "status": "querying",
+                                  "type": "update"
                               }
+                          }
+                      else:
+                          # Regular content - no special handling
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "content": content,
+                          }
 
-              # Stream tool call indicators
-              elif event_type == "on_tool_start":
-                  tool_name = event.get("name", "unknown")
-                  logging.info(f"Tool call started: {tool_name}")
-                  
-                  # Generate querying announcement first
-                  purpose = self._get_tool_purpose(tool_name)
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": f"🔍 Querying {tool_name} for {purpose}...\n",
-                      "tool_update": {
-                          "name": tool_name.lower(),
-                          "purpose": purpose,
-                          "status": "querying",
-                          "type": "update"
+              # Handle AIMessage with tool calls (tool start indicators)
+              elif isinstance(message, AIMessage) and hasattr(message, "tool_calls") and message.tool_calls:
+                  for tool_call in message.tool_calls:
+                      tool_name = tool_call.get("name", "")
+                      # Skip tool calls with empty names
+                      if not tool_name or not tool_name.strip():
+                          logging.debug(f"Skipping tool call with empty name")
+                          continue
+                          
+                          logging.info(f"Tool call started: {tool_name}")
+                      
+                      # Stream tool start notification to client with metadata
+                      tool_name_formatted = tool_name.title()
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "content": f"🔧 Supervisor: Calling {tool_name_formatted}...\n",
+                          "tool_call": {
+                              "name": tool_name,
+                              "status": "started",
+                              "type": "notification"
+                          }
                       }
-                  }
-                  
-                  # Then stream tool start notification to client with metadata
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": f"\n🔧 Calling {tool_name}...\n",
-                      "tool_call": {
-                          "name": tool_name,
-                          "status": "started",
-                          "type": "notification"
-                      }
-                  }
 
-              # Stream tool completion
-              elif event_type == "on_tool_end":
-                  tool_name = event.get("name", "unknown")
+              # Handle ToolMessage (tool completion indicators)
+              elif isinstance(message, ToolMessage):
+                  tool_name = message.name if hasattr(message, 'name') else "unknown"
                   logging.info(f"Tool call completed: {tool_name}")
                   # Stream tool completion notification to client with metadata
+                  tool_name_formatted = tool_name.title()
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
-                      "content": f"✅ {tool_name} completed\n",
+                      "content": f"✅ Supervisor: {tool_name_formatted} completed\n",
                       "tool_result": {
                           "name": tool_name,
                           "status": "completed",
@@ -172,7 +218,10 @@ class AIPlatformEngineerA2ABinding:
                       }
                   }
 
-          # Fallback to old method if astream_events doesn't work
+      except asyncio.CancelledError:
+          logging.info("Primary stream cancelled by client disconnection")
+          return
+      # Fallback to old method if astream doesn't work
       except Exception as e:
           logging.warning(f"Token-level streaming failed, falling back to message-level: {e}")
           async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):

@@ -355,9 +355,8 @@ interface AgentEvent {
 
 ## Related Documentation
 
-- [A2A Protocol](../a2a-protocol.md)
-- [Enhanced Streaming Feature](./enhanced-streaming-feature.md)
-- [Streaming Architecture](./streaming-architecture.md)
+- [Enhanced Streaming Feature](./2024-10-22-enhanced-streaming-feature.md)
+- [Streaming Architecture](./2024-10-22-streaming-architecture.md)
 
 ## Conclusion
 
