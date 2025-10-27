@@ -48,7 +48,7 @@ help:
 .PHONY: build
 build:
 	@echo "Building petstore agent image..."
-	docker build -t $(IMAGE_NAME) -f $(DOCKERFILE) .
+	docker build -t $(IMAGE_NAME) -f $(DOCKERFILE) $$(git rev-parse --show-toplevel 2>/dev/null || echo "../..")
 
 # Run the container (attached mode - like docker compose up)
 .PHONY: run
