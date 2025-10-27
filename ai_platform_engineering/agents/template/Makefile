@@ -9,9 +9,9 @@ CONTAINER_PORT := 8000
 ENV_FILE := ../../../.env
 
 # Docker build and run settings
-DOCKERFILE := build/Dockerfile.a2a
-VOLUMES := -v $(PWD)/agent_petstore:/app/agent_petstore \
-           -v $(PWD)/clients:/app/clients \
+DOCKERFILE := ai_platform_engineering/agents/template/build/Dockerfile.a2a
+VOLUMES := -v $(PWD)/agent_petstore:/app/ai_platform_engineering/agents/template/agent_petstore \
+           -v $(PWD)/clients:/app/ai_platform_engineering/agents/template/clients \
            -v $(PWD)/$(ENV_FILE):/app/.env \
            -v /var/run/docker.sock:/var/run/docker.sock
 
@@ -185,8 +185,8 @@ show-env:
 	@echo "  ENABLE_TRACING=false"
 	@echo ""
 	@echo "Volumes that will be mounted (live code changes):"
-	@echo "  $(PWD)/agent_petstore -> /app/agent_petstore"
-	@echo "  $(PWD)/clients -> /app/clients"
+	@echo "  $(PWD)/agent_petstore -> /app/ai_platform_engineering/agents/template/agent_petstore"
+	@echo "  $(PWD)/clients -> /app/ai_platform_engineering/agents/template/clients"
 	@echo "  $(PWD)/$(ENV_FILE) -> /app/.env"
 	@echo "  /var/run/docker.sock -> /var/run/docker.sock"
 	@echo ""
