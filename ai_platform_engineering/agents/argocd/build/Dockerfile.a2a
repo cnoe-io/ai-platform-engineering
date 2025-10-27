@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy only the necessary directories for the argocd agent
-COPY --chown=root:root utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root agents/argocd /app/ai_platform_engineering/agents/argocd/
+COPY --chown=root:root ./ai_platform_engineering/utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root ./ai_platform_engineering/agents/argocd /app/ai_platform_engineering/agents/argocd/
 
 # Set working directory to the argocd agent
 WORKDIR /app/ai_platform_engineering/agents/argocd
