@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -21,24 +22,17 @@ class ResponseFormat(BaseModel):
 class ConfluenceAgent(BaseLangGraphAgent):
     """Confluence Agent for wiki and documentation management."""
 
-    SYSTEM_INSTRUCTION = """You are a helpful assistant that can interact with Confluence.
-    You can use the Confluence API to get information about pages, spaces, and blog posts.
-    You can also perform actions like creating, reading, updating, or deleting Confluence content.
-    If the user asks about anything unrelated to Confluence, politely state that you can only assist with Confluence operations.
-    
-    ## Graceful Input Handling
-    If you encounter service connectivity or permission issues:
-    - Provide helpful, user-friendly messages explaining what's wrong
-    - Offer alternative approaches or next steps when possible
-    - Never timeout silently or return generic errors
-    - Focus on what the user can do, not internal system details
-    - Example: "I'm unable to connect to Confluence services at the moment. This might be due to:
-      - Temporary Confluence service issues
-      - Network connectivity problems
-      - Service configuration needs updating
-      Would you like me to try a different approach or provide general Confluence guidance?"
-    
-    Always strive to be helpful and provide guidance even when requests cannot be completed immediately."""
+    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
+        service_name="Confluence",
+        service_operations="manage pages, spaces, and blog posts",
+        additional_guidelines=[
+            "Perform CRUD operations on Confluence content",
+            "When searching or filtering pages by date (created, modified), use the current date provided above as reference",
+            "Help users find recently updated or created documentation"
+        ],
+        include_error_handling=True,  # Real Confluence API calls
+        include_date_handling=True    # Enable date handling
+    )
 
     RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.
     Select status as input_required if the input is a question to the user.

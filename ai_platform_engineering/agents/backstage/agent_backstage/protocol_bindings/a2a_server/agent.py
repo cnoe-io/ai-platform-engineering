@@ -27,9 +27,11 @@ class BackstageAgent(BaseLangGraphAgent):
         service_operations="manage and query information about services, components, APIs, and resources",
         additional_guidelines=[
             "Perform actions like creating, updating, or deleting catalog entities",
-            "Manage documentation and handle plugin configurations"
+            "Manage documentation and handle plugin configurations",
+            "When searching or filtering catalog entities by date, use the current date provided above as reference"
         ],
-        include_error_handling=True  # Real Backstage API calls
+        include_error_handling=True,  # Real Backstage API calls
+        include_date_handling=True    # Enable date handling
     )
 
     RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.

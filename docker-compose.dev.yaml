@@ -38,7 +38,8 @@ services:
       agent-petstore-p2p:
         condition: service_started
       agent_rag:
-        condition: service_healthy
+        # condition: service_healthy
+        condition: service_started
       agent-slack-p2p:
         condition: service_started
       agent-splunk-p2p:
@@ -59,6 +60,8 @@ services:
       - ENABLE_ENHANCED_STREAMING=${ENABLE_ENHANCED_STREAMING:-false} # Enable enhanced streaming with intelligent routing (DIRECT/PARALLEL/COMPLEX modes)
       - FORCE_DEEP_AGENT_ORCHESTRATION=${FORCE_DEEP_AGENT_ORCHESTRATION:-true} # Force all queries through Deep Agent with parallel orchestration hints (DEFAULT - best performance)
       - ENABLE_ENHANCED_ORCHESTRATION=${ENABLE_ENHANCED_ORCHESTRATION:-false} # EXPERIMENTAL: Smart routing + orchestration hints (4th mode for comparison)
+      # Streaming Configuration
+      - STREAM_SUB_AGENT_TOOL_OUTPUT=${STREAM_SUB_AGENT_TOOL_OUTPUT:-false} # Stream intermediate tool outputs (📄) from sub-agents to end user (disabled by default to reduce verbosity)
 
       # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
@@ -282,6 +285,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - ENABLE_STREAMING=true
 
   ####################################################################################################
   #                                      AGENT AWS A2A over SLIM                                     #
@@ -363,10 +367,19 @@ services:
       - "8002:8000"
     environment:
       - A2A_TRANSPORT=p2p
+      - MCP_MODE=stdio
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # AWS Agent Backend Selection
+      # - "langgraph" (default): Tool notifications + token streaming
+      # - "strands": Original Strands-based implementation
+      - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
+      - ENABLE_STREAMING=${ENABLE_STREAMING:-true}
+      # Stream intermediate tool outputs to supervisor
+      - STREAM_TOOL_OUTPUT=${STREAM_TOOL_OUTPUT:-true}
+      - MAX_TOOL_OUTPUT_LENGTH=${MAX_TOOL_OUTPUT_LENGTH:-2000}
       # AWS Configuration
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
@@ -397,6 +410,9 @@ services:
       - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
       - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - ENABLE_ECS_MCP=${ENABLE_ECS_MCP:-true}
+      - ECS_MCP_ALLOW_WRITE=${ECS_MCP_ALLOW_WRITE:-false}
+      - ECS_MCP_ALLOW_SENSITIVE_DATA=${ECS_MCP_ALLOW_SENSITIVE_DATA:-false}
 
   ####################################################################################################
   #                                      AGENT BACKSTAGE A2A over SLIM                               #
@@ -1267,12 +1283,6 @@ services:
     depends_on:
       rag-redis:
         condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:9446/healthz').read()\" || exit 1"]
-      interval: 10s
-      timeout: 10s
-      retries: 12
-      start_period: 60s
     build:
       context: ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.server
@@ -1312,13 +1322,8 @@ services:
       rag-redis:
         condition: service_started
       rag_server:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8099/.well-known/agent.json').read()\" || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+        # condition: service_healthy
+        condition: service_started
     build:
       context: ai_platform_engineering
       dockerfile: knowledge_bases/rag/build/Dockerfile.agent-rag

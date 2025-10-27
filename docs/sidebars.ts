@@ -322,6 +322,36 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'doc',
+          id: 'changes/2025-10-27-a2a-event-flow-architecture',
+          label: '2025-10-27: A2A Event Flow Architecture',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2025-10-27-aws-ecs-mcp-integration',
+          label: '2025-10-27: AWS ECS MCP Integration',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2025-10-27-automatic-date-time-injection',
+          label: '2025-10-27: Automatic Date/Time Injection',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2025-10-27-agents-with-date-handling',
+          label: '2025-10-27: Agents with Date Handling',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2025-10-27-date-handling-guide',
+          label: '2025-10-27: Date Handling Guide',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2025-10-27-aws-backend-comparison',
+          label: '2025-10-27: AWS Backend Comparison',
+        },
+        {
+          type: 'doc',
           id: 'changes/2024-10-25-sub-agent-tool-message-streaming',
           label: '2024-10-25: Sub-Agent Tool Message Streaming',
         },

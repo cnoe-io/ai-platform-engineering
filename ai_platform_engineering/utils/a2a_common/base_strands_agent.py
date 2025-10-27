@@ -270,7 +270,11 @@ class BaseStrandsAgent(ABC):
             message: User's input message
 
         Yields:
-            Streaming events from the agent
+            Streaming events from the agent, including:
+            - {"data": "text"} for content chunks
+            - {"tool_call": {"name": "...", "id": "..."}} for tool start
+            - {"tool_result": {"name": "...", "is_error": bool}} for tool completion
+            - {"error": "..."} for errors
         """
         try:
             # Ensure agent is initialized
@@ -280,10 +284,50 @@ class BaseStrandsAgent(ABC):
             logger.info(f"Streaming response for message: {message[:100]}...")
 
             full_response = ""
+            current_tool = None
+            
             async for event in self._agent.stream_async(message):
-                if "data" in event:
+                # Log the raw event for debugging (debug level since it's verbose)
+                logger.debug(f"Raw Strands event: {event}")
+                
+                # Check for tool usage indicators in the event
+                # Strands SDK may emit events with tool information
+                if "tool" in event:
+                    tool_info = event["tool"]
+                    if "name" in tool_info:
+                        # Tool call started
+                        current_tool = tool_info.get("name")
+                        yield {
+                            "tool_call": {
+                                "name": current_tool,
+                                "id": tool_info.get("id", current_tool),
+                            }
+                        }
+                        logger.info(f"Tool call detected: {current_tool}")
+                
+                # Check for tool result indicators
+                elif "tool_result" in event:
+                    result_info = event["tool_result"]
+                    tool_name = result_info.get("name", current_tool or "unknown")
+                    is_error = result_info.get("error", False) or result_info.get("is_error", False)
+                    
+                    yield {
+                        "tool_result": {
+                            "name": tool_name,
+                            "is_error": is_error,
+                        }
+                    }
+                    logger.info(f"Tool result detected: {tool_name}, error={is_error}")
+                    current_tool = None
+                
+                # Pass through regular data events
+                elif "data" in event:
                     full_response += event["data"]
-                yield event
+                    yield event
+                
+                # Pass through other events
+                else:
+                    yield event
 
         except Exception as e:
             error_message = f"Error streaming message: {str(e)}"

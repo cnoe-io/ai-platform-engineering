@@ -186,17 +186,22 @@ class TestBaseStrandsAgent:
         # After exiting context, resources should be cleaned up
         assert len(agent._mcp_contexts) == 0
 
-    def test_error_handling_in_initialization(self):
-        """Test error handling during initialization."""
+    def test_error_handling_in_initialization(self, caplog):
+        """Test error handling during initialization - should log warning, not raise exception."""
         bad_client = Mock()
         bad_client.__enter__ = Mock(side_effect=Exception("Connection failed"))
 
         mock_clients = [("bad", bad_client)]
 
-        with pytest.raises(Exception) as exc_info:
-            TestStrandsAgent(mock_clients=mock_clients)
-
-        assert "Connection failed" in str(exc_info.value)
+        # Agent should handle errors gracefully and log warnings
+        agent = TestStrandsAgent(mock_clients=mock_clients)
+        
+        # Verify warning was logged
+        assert "Failed to initialize MCP server 'bad': Connection failed" in caplog.text
+        assert "No MCP servers could be initialized" in caplog.text
+        
+        # Agent should still be created
+        assert agent is not None
 
     def test_get_tool_working_message(self, mock_mcp_client):
         """Test get_tool_working_message method."""

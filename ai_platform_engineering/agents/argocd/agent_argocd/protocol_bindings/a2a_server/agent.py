@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.prompt_templates import build_system_instruction, graceful_error_handling_template, SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES, HUMAN_IN_LOOP_NOTES, LOGGING_NOTES
+from ai_platform_engineering.utils.prompt_templates import build_system_instruction, graceful_error_handling_template, SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES, HUMAN_IN_LOOP_NOTES, LOGGING_NOTES, DATE_HANDLING_NOTES
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -28,9 +28,10 @@ class ArgoCDAgent(BaseLangGraphAgent):
         response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES + [
             "Only use the available ArgoCD tools to interact with the ArgoCD API",
             "Do not provide general guidance from your knowledge base unless explicitly asked",
-            "Always send tool results directly to the user without analyzing or interpreting"
+            "Always send tool results directly to the user without analyzing or interpreting",
+            "When querying applications or resources with date-based filters, use the current date provided above as reference"
         ],
-        important_notes=HUMAN_IN_LOOP_NOTES + LOGGING_NOTES,
+        important_notes=HUMAN_IN_LOOP_NOTES + LOGGING_NOTES + DATE_HANDLING_NOTES,
         graceful_error_handling=graceful_error_handling_template("ArgoCD")
     )
 

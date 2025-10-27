@@ -112,7 +112,7 @@ class AIPlatformEngineerA2ABinding:
                           tool_name = tool_call.get("name", "")
                           # Skip tool calls with empty names (they're partial chunks being streamed)
                           if not tool_name or not tool_name.strip():
-                              logging.debug(f"Skipping tool call with empty name (streaming chunk)")
+                              logging.debug("Skipping tool call with empty name (streaming chunk)")
                               continue
                               
                           logging.info(f"Tool call started (from AIMessageChunk): {tool_name}")
@@ -122,7 +122,7 @@ class AIPlatformEngineerA2ABinding:
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
-                              "content": f"🔧 Supervisor: Calling {tool_name_formatted}...\n",
+                              "content": f"🔧 Supervisor: Calling Agent {tool_name_formatted}...\n",
                               "tool_call": {
                                   "name": tool_name,
                                   "status": "started",
@@ -183,7 +183,7 @@ class AIPlatformEngineerA2ABinding:
                       tool_name = tool_call.get("name", "")
                       # Skip tool calls with empty names
                       if not tool_name or not tool_name.strip():
-                          logging.debug(f"Skipping tool call with empty name")
+                          logging.debug("Skipping tool call with empty name")
                           continue
                           
                           logging.info(f"Tool call started: {tool_name}")
@@ -193,7 +193,7 @@ class AIPlatformEngineerA2ABinding:
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
-                          "content": f"🔧 Supervisor: Calling {tool_name_formatted}...\n",
+                          "content": f"🔧 Supervisor: Calling Agent {tool_name_formatted}...\n",
                           "tool_call": {
                               "name": tool_name,
                               "status": "started",
@@ -210,7 +210,7 @@ class AIPlatformEngineerA2ABinding:
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
-                      "content": f"✅ Supervisor: {tool_name_formatted} completed\n",
+                      "content": f"✅ Supervisor: Agent task {tool_name_formatted} completed\n",
                       "tool_result": {
                           "name": tool_name,
                           "status": "completed",

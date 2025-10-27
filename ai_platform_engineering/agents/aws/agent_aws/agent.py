@@ -50,6 +50,7 @@ class AWSAgent(BaseStrandsAgent):
         """Return the system prompt for the AWS agent."""
         # Check which capabilities are enabled
         enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
+        enable_ecs_mcp = os.getenv("ENABLE_ECS_MCP", "false").lower() == "true"
         enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
         enable_terraform_mcp = os.getenv("ENABLE_TERRAFORM_MCP", "false").lower() == "true"
         enable_aws_documentation_mcp = os.getenv("ENABLE_AWS_DOCUMENTATION_MCP", "false").lower() == "true"
@@ -96,6 +97,40 @@ class AWSAgent(BaseStrandsAgent):
                 "- Configure Kubernetes RBAC\n"
                 "- Handle service account permissions\n"
                 "- Implement security best practices\n\n"
+            ])
+
+        if enable_ecs_mcp:
+            system_prompt_parts.extend([
+                "**ECS Container Management:**\n"
+                "- Containerize web applications with best practices guidance\n"
+                "- Deploy containerized applications to Amazon ECS using Fargate\n"
+                "- Configure Application Load Balancers (ALBs) for web traffic\n"
+                "- Generate and apply CloudFormation templates for ECS infrastructure\n"
+                "- Manage VPC endpoints for secure AWS service access\n"
+                "- Implement deployment circuit breakers with automatic rollback\n"
+                "- Enable enhanced Container Insights for monitoring\n\n"
+
+                "**ECS Resource Operations:**\n"
+                "- List and describe ECS clusters, services, and tasks\n"
+                "- Manage task definitions and capacity providers\n"
+                "- View and manage ECR repositories and container images\n"
+                "- Create, update, and delete ECS resources\n"
+                "- Run tasks, start/stop tasks, and execute commands on containers\n"
+                "- Configure auto-scaling policies and health checks\n\n"
+
+                "**ECS Troubleshooting:**\n"
+                "- Diagnose ECS deployment issues and task failures\n"
+                "- Fetch CloudFormation stack status and service events\n"
+                "- Retrieve CloudWatch logs for application diagnostics\n"
+                "- Detect and resolve image pull failures\n"
+                "- Analyze network configurations (VPC, subnets, security groups)\n"
+                "- Get deployment status and ALB URLs\n\n"
+
+                "**Security & Best Practices:**\n"
+                "- Implement AWS security best practices for container deployments\n"
+                "- Manage IAM roles with least-privilege permissions\n"
+                "- Configure network security groups and VPC settings\n"
+                "- Access AWS Knowledge for ECS documentation and new features\n\n"
             ])
 
         if enable_cost_explorer_mcp:
@@ -210,6 +245,7 @@ class AWSAgent(BaseStrandsAgent):
     def create_mcp_clients(self) -> List[Tuple[str, MCPClient]]:
         """Create and configure MCP clients based on enabled features."""
         enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
+        enable_ecs_mcp = os.getenv("ENABLE_ECS_MCP", "false").lower() == "true"
         enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "true").lower() == "true"
         enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "true").lower() == "true"
         enable_terraform_mcp = os.getenv("ENABLE_TERRAFORM_MCP", "false").lower() == "true"
@@ -222,7 +258,7 @@ class AWSAgent(BaseStrandsAgent):
         enable_aws_knowledge_mcp = os.getenv("ENABLE_AWS_KNOWLEDGE_MCP", "false").lower() == "true"
 
         logger.info(
-            f"MCP Configuration - EKS: {enable_eks_mcp}, Cost Explorer: {enable_cost_explorer_mcp}, IAM: {enable_iam_mcp}, "
+            f"MCP Configuration - EKS: {enable_eks_mcp}, ECS: {enable_ecs_mcp}, Cost Explorer: {enable_cost_explorer_mcp}, IAM: {enable_iam_mcp}, "
             f"Terraform: {enable_terraform_mcp}, AWS Docs: {enable_aws_documentation_mcp}, CloudTrail: {enable_cloudtrail_mcp}, "
             f"CloudWatch: {enable_cloudwatch_mcp}, Postgres: {enable_postgres_mcp}, AWS Support: {enable_aws_support_mcp}, "
             f"CDK: {enable_cdk_mcp}, AWS Knowledge: {enable_aws_knowledge_mcp}"
@@ -245,13 +281,13 @@ class AWSAgent(BaseStrandsAgent):
             logger.info("Creating EKS MCP client...")
             if system == "windows":
                 eks_command_args = [
-                    "--from", "awslabs.eks-mcp-server@0.1.6",
+                    "--from", "awslabs.eks-mcp-server@0.1.15",
                     "awslabs.eks-mcp-server.exe",
                     "--allow-write", "--no-allow-sensitive-data-access"
                 ]
             else:
                 eks_command_args = [
-                    "awslabs.eks-mcp-server@0.1.6",
+                    "awslabs.eks-mcp-server@0.1.15",
                     "--allow-write", "--no-allow-sensitive-data-access"
                 ]
             eks_client = MCPClient(lambda: stdio_client(
@@ -262,6 +298,38 @@ class AWSAgent(BaseStrandsAgent):
                 )
             ))
             clients.append(("eks", eks_client))
+
+        if enable_ecs_mcp:
+            logger.info("Creating ECS MCP client...")
+            # ECS-specific environment variables
+            ecs_env = env_vars.copy()
+            
+            # Security controls for ECS MCP (default to safe values)
+            allow_write = os.getenv("ECS_MCP_ALLOW_WRITE", "false").lower() == "true"
+            allow_sensitive_data = os.getenv("ECS_MCP_ALLOW_SENSITIVE_DATA", "false").lower() == "true"
+            
+            ecs_env["ALLOW_WRITE"] = "true" if allow_write else "false"
+            ecs_env["ALLOW_SENSITIVE_DATA"] = "true" if allow_sensitive_data else "false"
+            
+            logger.info(f"ECS MCP security controls - ALLOW_WRITE: {allow_write}, ALLOW_SENSITIVE_DATA: {allow_sensitive_data}")
+            
+            if system == "windows":
+                ecs_command_args = [
+                    "--from", "awslabs.ecs-mcp-server@latest",
+                    "awslabs.ecs-mcp-server.exe"
+                ]
+            else:
+                ecs_command_args = [
+                    "awslabs.ecs-mcp-server@latest"
+                ]
+            ecs_client = MCPClient(lambda: stdio_client(
+                StdioServerParameters(
+                    command="uvx",
+                    args=ecs_command_args,
+                    env=ecs_env
+                )
+            ))
+            clients.append(("ecs", ecs_client))
 
         if enable_cost_explorer_mcp:
             logger.info("Creating Cost Explorer MCP client...")

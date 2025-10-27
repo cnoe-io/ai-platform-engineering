@@ -25,8 +25,13 @@ class PagerDutyAgent(BaseLangGraphAgent):
     SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
         service_name="PagerDuty",
         service_operations="get information about incidents, services, and schedules",
-        additional_guidelines=["Perform actions like creating, updating, or resolving incidents"],
-        include_error_handling=True  # Real PagerDuty API calls
+        additional_guidelines=[
+            "Perform actions like creating, updating, or resolving incidents",
+            "When querying incidents or on-call schedules, calculate date ranges based on the current date provided above",
+            "Always convert relative dates (today, tomorrow, this week) to absolute dates in YYYY-MM-DD format before calling API tools"
+        ],
+        include_error_handling=True,  # Real PagerDuty API calls
+        include_date_handling=True    # Enable date handling guidelines
     )
 
     RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.

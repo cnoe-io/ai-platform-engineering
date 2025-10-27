@@ -28,8 +28,12 @@ class WebexAgent(BaseLangGraphAgent):
     SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
         service_name="Webex",
         service_operations="look up rooms, send messages to users or spaces or rooms",
-        additional_guidelines=["Always use the available Webex tools to interact with users on Webex"],
-        include_error_handling=True  # Real Webex API calls
+        additional_guidelines=[
+            "Always use the available Webex tools to interact with users on Webex",
+            "When searching for messages or rooms by time, use the current date provided above as reference"
+        ],
+        include_error_handling=True,  # Real Webex API calls
+        include_date_handling=True    # Enable date handling
     )
 
     RESPONSE_FORMAT_INSTRUCTION = (

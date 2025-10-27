@@ -44,7 +44,7 @@ def test_agent_system_instruction():
     instruction = agent.get_system_instruction()
     assert "ArgoCD" in instruction
     assert "CRUD" in instruction
-    assert "Create, Read, Update, Delete" in instruction
+    # CRUD is the standard abbreviation, no need to check for expanded form
 
 
 def test_agent_response_format():

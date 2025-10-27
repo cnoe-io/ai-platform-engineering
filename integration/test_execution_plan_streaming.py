@@ -7,7 +7,6 @@ Purpose: Test the execution plan system prompt functionality with streaming toke
 import requests
 import json
 import time
-import sys
 from datetime import datetime
 
 # Configuration

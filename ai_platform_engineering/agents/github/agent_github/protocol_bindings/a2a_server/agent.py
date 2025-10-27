@@ -38,9 +38,11 @@ class GitHubAgent(BaseLangGraphAgent):
         additional_guidelines=[
             "Before executing any tool, ensure that all required parameters are provided",
             "If any required parameters are missing, ask the user to provide them",
-            "Always use the most appropriate tool for the requested operation and validate parameters"
+            "Always use the most appropriate tool for the requested operation and validate parameters",
+            "When filtering issues, pull requests, or commits by date, use the current date provided above as reference"
         ],
-        include_error_handling=True  # Real GitHub API calls
+        include_error_handling=True,  # Real GitHub API calls
+        include_date_handling=True    # Enable date handling
     )
 
     RESPONSE_FORMAT_INSTRUCTION = (

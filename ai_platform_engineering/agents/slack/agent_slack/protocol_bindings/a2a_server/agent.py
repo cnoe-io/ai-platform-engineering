@@ -27,8 +27,12 @@ class SlackAgent(BaseLangGraphAgent):
     SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
         service_name="Slack",
         service_operations="interact with Slack workspaces, channels, and messages",
-        additional_guidelines=["Use the available Slack tools to interact with the Slack API"],
-        include_error_handling=True  # Real API calls can fail
+        additional_guidelines=[
+            "Use the available Slack tools to interact with the Slack API",
+            "When searching for messages or filtering by time, use the current date provided above as reference"
+        ],
+        include_error_handling=True,  # Real API calls can fail
+        include_date_handling=True    # Enable date handling
     )
 
     RESPONSE_FORMAT_INSTRUCTION: str = (
