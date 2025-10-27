@@ -22,15 +22,20 @@ AGENT_PKG_NAME ?= kb_$(shell echo $(AGENT_NAME))
 
 ## ========== Setup & Clean ==========
 
-setup-venv:        ## Use main project's virtual environment
-	@echo "Using main project's virtual environment..."
-	@if [ ! -d "/home/sraradhy/ai-platform-engineering/.venv" ]; then \
-		echo "Main project venv not found. Please run make setup-venv from project root first."; \
-		exit 1; \
+setup-venv:        ## Use main project's virtual environment or create local one
+	@echo "Setting up virtual environment..."
+	@REPO_ROOT=$$(git rev-parse --show-toplevel 2>/dev/null || echo "../../../.."); \
+	if [ -d "$$REPO_ROOT/.venv" ]; then \
+		echo "Using main project virtual environment from $$REPO_ROOT/.venv"; \
+		echo "To activate manually, run: source $$REPO_ROOT/.venv/bin/activate"; \
+	elif [ -d ".venv" ]; then \
+		echo "Using local virtual environment from .venv"; \
+		echo "To activate manually, run: source .venv/bin/activate"; \
 	else \
-		echo "Main project virtual environment found."; \
+		echo "Creating local virtual environment..."; \
+		uv venv .venv; \
+		echo "Virtual environment created. To activate manually, run: source .venv/bin/activate"; \
 	fi
-	@echo "To activate manually, run: source /home/sraradhy/ai-platform-engineering/.venv/bin/activate"
 
 clean-pyc:         ## Remove Python bytecode and __pycache__
 	@find . -type d -name "__pycache__" -exec rm -rf {} + || echo "No __pycache__ directories found."
@@ -54,7 +59,10 @@ check-env:         ## Check if .env file exists
 		echo "Error: .env file not found."; exit 1; \
 	fi
 
-venv-activate = . /home/sraradhy/ai-platform-engineering/.venv/bin/activate
+# Dynamically find venv (prefer repo root, fallback to local)
+REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || echo "../../../..")
+VENV_PATH = $(shell [ -d "$(REPO_ROOT)/.venv" ] && echo "$(REPO_ROOT)/.venv" || echo ".venv")
+venv-activate = . $(VENV_PATH)/bin/activate
 load-env = set -a && . .env && set +a
 venv-run = $(venv-activate) && $(load-env) &&
 
