@@ -2,15 +2,18 @@
 ai_platform_engineering/agents/*/agent_*/**
 !ai_platform_engineering/agents/*/agent_*/agentcard.py
 !ai_platform_engineering/agents/*/agent_*/__init__.py
+!ai_platform_engineering/agents/*/agent_*/__main__.py
 
 # Exclude special client directories for weather/webex (they use different structure)
 ai_platform_engineering/agents/weather/agntcy_agent_client/**
 !ai_platform_engineering/agents/weather/agntcy_agent_client/agentcard.py
 !ai_platform_engineering/agents/weather/agntcy_agent_client/__init__.py
+!ai_platform_engineering/agents/weather/agntcy_agent_client/__main__.py
 !ai_platform_engineering/agents/weather/agntcy_agent_client/agent.py
 ai_platform_engineering/agents/webex/a2a_agent_client/**
 !ai_platform_engineering/agents/webex/a2a_agent_client/agentcard.py
 !ai_platform_engineering/agents/webex/a2a_agent_client/__init__.py
+!ai_platform_engineering/agents/webex/a2a_agent_client/__main__.py
 !ai_platform_engineering/agents/webex/a2a_agent_client/agent.py
 
 # Exclude heavy directories
@@ -31,7 +34,8 @@ ai_platform_engineering/agents/*/Makefile
 
 # Exclude main agent implementation files but keep __init__.py
 ai_platform_engineering/agents/*/main.py
-ai_platform_engineering/agents/*/__main__.py
+# NOTE: Don't exclude agent_*/__main__.py - it's needed for python -m execution
+# ai_platform_engineering/agents/*/__main__.py
 
 # Exclude other heavy directories
 ai_platform_engineering/evaluation/**
