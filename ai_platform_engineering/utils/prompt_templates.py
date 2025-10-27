@@ -355,6 +355,13 @@ LOGGING_NOTES = [
     "Do not parse, summarize, or interpret log content unless explicitly asked"
 ]
 
+DATE_HANDLING_NOTES = [
+    "The current date and time are provided at the top of these instructions",
+    "Use the provided current date as the reference point for all date calculations",
+    "For queries involving 'today', 'tomorrow', 'yesterday', or other relative dates, calculate from the provided current date",
+    "Convert relative dates to absolute dates (YYYY-MM-DD format) before calling API tools"
+]
+
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -394,7 +401,8 @@ def scope_limited_agent_instruction(
     service_operations: str,
     capabilities: Optional[List[AgentCapability]] = None,
     additional_guidelines: Optional[List[str]] = None,
-    include_error_handling: bool = True
+    include_error_handling: bool = True,
+    include_date_handling: bool = False
 ) -> str:
     """
     Create a scope-limited agent instruction for agents that only handle specific services.
@@ -406,6 +414,8 @@ def scope_limited_agent_instruction(
         additional_guidelines: Additional response guidelines
         include_error_handling: Whether to include graceful error handling (default: True)
                                Set to False for demo/template agents that don't make real API calls
+        include_date_handling: Whether to include date handling guidelines (default: False)
+                              Set to True for agents that handle time-sensitive queries
         
     Returns:
         Formatted system instruction for scope-limited agent
@@ -422,11 +432,17 @@ def scope_limited_agent_instruction(
     if additional_guidelines:
         guidelines.extend(additional_guidelines)
     
+    # Add date handling notes if requested
+    important_notes = None
+    if include_date_handling:
+        important_notes = DATE_HANDLING_NOTES
+    
     return build_system_instruction(
         agent_name=f"{service_name} AGENT",
         agent_purpose=purpose,
         capabilities=capabilities,
         response_guidelines=guidelines,
+        important_notes=important_notes,
         graceful_error_handling=graceful_error_handling_template(service_name) if include_error_handling else None
     )
 
@@ -455,6 +471,7 @@ __all__ = [
     "API_INTERACTION_GUIDELINES",
     "HUMAN_IN_LOOP_NOTES",
     "LOGGING_NOTES",
+    "DATE_HANDLING_NOTES",
     
     # Utility functions
     "combine_system_instruction_with_format",

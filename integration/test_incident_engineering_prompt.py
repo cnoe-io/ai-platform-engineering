@@ -5,12 +5,8 @@ This example demonstrates how incident engineering capabilities are now integrat
 into the deep agent system through the system_prompt_template rather than separate sub-agents.
 """
 
-import asyncio
-from deepagents import create_configurable_agent
 from ai_platform_engineering.utils.prompt_config import (
     get_prompt_config_loader,
-    get_agent_system_prompt,  
-    get_agent_skill_examples,
 )
 
 def main():

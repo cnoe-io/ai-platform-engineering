@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -21,23 +22,19 @@ class ResponseFormat(BaseModel):
 class SplunkAgent(BaseLangGraphAgent):
     """Splunk Agent for log search and alert management."""
 
-    SYSTEM_INSTRUCTION = """You are a helpful assistant that can interact with Splunk.
-    You can use the Splunk API to search logs, manage alerts, get system status, and perform various operations.
-    You can search for data, create alerts, manage detectors, and work with teams and incidents.
-    
-    ## Graceful Input Handling
-    If you encounter service connectivity or configuration issues:
-    - Provide helpful, user-friendly messages explaining what's wrong
-    - Offer alternative approaches or next steps when possible
-    - Never timeout silently or return generic errors
-    - Focus on what the user can do, not internal system details
-    - Example: "I'm unable to connect to Splunk services at the moment. This might be due to:
-      - Temporary Splunk service issues
-      - Network connectivity problems  
-      - Service configuration needs updating
-      Would you like me to try a different approach or provide general Splunk guidance?"
-    
-    Always strive to be helpful and provide guidance even when requests cannot be completed immediately."""
+    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
+        service_name="Splunk",
+        service_operations="search logs, manage alerts, and analyze data",
+        additional_guidelines=[
+            "Use Splunk Search Processing Language (SPL) for log queries",
+            "When searching logs with time-based queries (earliest, latest), calculate time ranges based on the current date provided above",
+            "Always convert relative time expressions (today, last hour, last 24h, this week) to absolute timestamps or proper Splunk time modifiers",
+            "For log searches, use earliest and latest parameters with ISO 8601 timestamps or Splunk time syntax (e.g., -24h@h, @d, -7d@d)",
+            "Remember that Splunk searches are time-range based - always specify meaningful time boundaries to avoid searching all historical data"
+        ],
+        include_error_handling=True,
+        include_date_handling=True  # Enable date handling for log queries
+    )
 
     RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.
     Select status as input_required if the input is a question to the user.

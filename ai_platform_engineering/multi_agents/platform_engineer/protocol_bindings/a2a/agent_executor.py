@@ -935,6 +935,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         first_artifact_sent = False
         accumulated_content = []
         streaming_artifact_id = None  # Shared artifact ID for all streaming chunks
+        execution_plan_artifact_id = None  # Separate artifact ID for execution plan streaming
+        execution_plan_first_chunk = True  # Track if this is the first execution plan chunk
 
         try:
             # invoke the underlying agent, using streaming results
@@ -1118,12 +1120,12 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                        if is_tool_notification:
                            if 'tool_call' in event:
                                tool_info = event['tool_call']
-                               artifact_name = f'tool_notification_start'
+                               artifact_name = 'tool_notification_start'
                                artifact_description = f'Tool call started: {tool_info.get("name", "unknown")}'
                                logger.debug(f"🔧 Tool call notification: {tool_info}")
                            elif 'tool_result' in event:
                                tool_info = event['tool_result']
-                               artifact_name = f'tool_notification_end'
+                               artifact_name = 'tool_notification_end'
                                artifact_description = f'Tool call completed: {tool_info.get("name", "unknown")}'
                                logger.debug(f"✅ Tool result notification: {tool_info}")
                            else:
@@ -1153,8 +1155,40 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                logger.debug(f"📋 Execution plan streaming: {content[:50]}...")
                         
                        # Create shared artifact ID once for all streaming chunks
-                       if streaming_artifact_id is None:
-                           # First chunk - create new artifact with unique ID
+                       if is_execution_plan:
+                           # Handle execution plan streaming separately
+                           if execution_plan_first_chunk:
+                               # First execution plan chunk - create new artifact
+                               artifact = new_text_artifact(
+                                   name=artifact_name,
+                                   description=artifact_description,
+                                   text=content,
+                               )
+                               execution_plan_artifact_id = artifact.artifactId  # Save for subsequent chunks
+                               execution_plan_first_chunk = False
+                               use_append = False
+                               logger.info(f"📝 Sending FIRST execution plan chunk (append=False) with ID: {execution_plan_artifact_id}")
+                           else:
+                               # Subsequent execution plan chunks - reuse the same artifact ID
+                               artifact = new_text_artifact(
+                                   name=artifact_name,
+                                   description=artifact_description,
+                                   text=content,
+                               )
+                               artifact.artifactId = execution_plan_artifact_id  # Reuse the same artifact ID
+                               use_append = True
+                               logger.debug(f"📝 Appending execution plan chunk (append=True) to artifact: {execution_plan_artifact_id}")
+                       elif is_tool_notification:
+                           # Tool notifications always get their own artifact IDs
+                           artifact = new_text_artifact(
+                               name=artifact_name,
+                               description=artifact_description,
+                               text=content,
+                           )
+                           use_append = False
+                           logger.debug(f"📝 Creating separate tool notification artifact: {artifact.artifactId}")
+                       elif streaming_artifact_id is None:
+                           # First regular content chunk - create new artifact with unique ID
                            artifact = new_text_artifact(
                                name=artifact_name,
                                description=artifact_description,
@@ -1162,35 +1196,24 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                            )
                            streaming_artifact_id = artifact.artifactId  # Save for subsequent chunks
                            first_artifact_sent = True
+                           use_append = False
                            logger.info(f"📝 Sending FIRST streaming artifact (append=False) with ID: {streaming_artifact_id}")
                        else:
-                           # Subsequent chunks - reuse the same artifact ID for regular content
-                           # But create new artifacts for tool notifications and execution plans to distinguish them
-                           if is_tool_notification or is_execution_plan:
-                               artifact = new_text_artifact(
-                                   name=artifact_name,
-                                   description=artifact_description,
-                                   text=content,
-                               )
-                               # Tool notifications and execution plans get their own artifact IDs for easy identification
-                               if is_tool_notification:
-                                   logger.debug(f"📝 Creating separate tool notification artifact: {artifact.artifactId}")
-                               else:
-                                   logger.debug(f"📝 Creating separate execution plan artifact: {artifact.artifactId}")
-                           else:
-                               artifact = new_text_artifact(
-                                   name=artifact_name,
-                                   description=artifact_description,
-                                   text=content,
-                               )
-                               artifact.artifactId = streaming_artifact_id  # Use the same ID for regular chunks
-                               logger.debug(f"📝 Appending streaming chunk (append=True) to artifact: {streaming_artifact_id}")
+                           # Subsequent regular content chunks - reuse the same artifact ID
+                           artifact = new_text_artifact(
+                               name=artifact_name,
+                               description=artifact_description,
+                               text=content,
+                           )
+                           artifact.artifactId = streaming_artifact_id  # Use the same ID for regular chunks
+                           use_append = True
+                           logger.debug(f"📝 Appending streaming chunk (append=True) to artifact: {streaming_artifact_id}")
 
                        # Forward chunk immediately to client (STREAMING!)
                        await self._safe_enqueue_event(
                            event_queue,
                            TaskArtifactUpdateEvent(
-                               append=use_append if not (is_tool_notification or is_execution_plan) else False,  # Special artifacts always create new ones
+                               append=use_append,
                                context_id=task.context_id,
                                task_id=task.id,
                                lastChunk=False,  # Not the last chunk, more are coming
@@ -1201,7 +1224,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     
                     # Skip status updates for ALL streaming content to eliminate duplicates
                     # Artifacts already provide the content, status updates are redundant during streaming
-                    logger.debug(f"Skipping status update for streaming content to avoid duplication - artifacts provide the content")
+                    logger.debug("Skipping status update for streaming content to avoid duplication - artifacts provide the content")
 
             # If we exit the stream loop without receiving 'is_task_complete', send accumulated content
             if accumulated_content and not event.get('is_task_complete', False):

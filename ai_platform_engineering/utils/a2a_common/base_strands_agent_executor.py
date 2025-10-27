@@ -95,12 +95,72 @@ class BaseStrandsAgentExecutor(AgentExecutor):
 
             # Stream the response from Strands agent (async generator)
             full_response = ""
-            first_chunk = True
             streaming_artifact_id = None
+            seen_tool_calls = set()  # Track tool calls to avoid duplicates
+            agent_name_formatted = agent_name.title()
 
             # Process events and send to A2A event queue
             async for event in self.agent.stream_chat(query):
-                if "data" in event:
+                # Handle tool call start events
+                if "tool_call" in event:
+                    tool_info = event["tool_call"]
+                    tool_name = tool_info.get("name", "unknown")
+                    tool_id = tool_info.get("id", "")
+                    
+                    # Avoid duplicate tool notifications
+                    if tool_id and tool_id in seen_tool_calls:
+                        continue
+                    if tool_id:
+                        seen_tool_calls.add(tool_id)
+                    
+                    tool_name_formatted = tool_name.title()
+                    tool_notification = f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n"
+                    logger.info(f"Tool call started: {tool_name}")
+                    
+                    # Send tool start notification
+                    await event_queue.enqueue_event(
+                        TaskArtifactUpdateEvent(
+                            append=False,
+                            contextId=task.contextId,
+                            taskId=task.id,
+                            lastChunk=False,
+                            artifact=new_text_artifact(
+                                name='tool_notification_start',
+                                description=f'Tool call started: {tool_name}',
+                                text=tool_notification,
+                            ),
+                        )
+                    )
+                    
+                # Handle tool completion events
+                elif "tool_result" in event:
+                    tool_info = event["tool_result"]
+                    tool_name = tool_info.get("name", "unknown")
+                    is_error = tool_info.get("is_error", False)
+                    
+                    icon = "❌" if is_error else "✅"
+                    status = "failed" if is_error else "completed"
+                    tool_name_formatted = tool_name.title()
+                    tool_notification = f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n"
+                    logger.info(f"Tool call {status}: {tool_name}")
+                    
+                    # Send tool completion notification
+                    await event_queue.enqueue_event(
+                        TaskArtifactUpdateEvent(
+                            append=False,
+                            contextId=task.contextId,
+                            taskId=task.id,
+                            lastChunk=False,
+                            artifact=new_text_artifact(
+                                name='tool_notification_end',
+                                description=f'Tool call {status}: {tool_name}',
+                                text=tool_notification,
+                            ),
+                        )
+                    )
+                    
+                # Handle regular data streaming
+                elif "data" in event:
                     chunk = event["data"]
                     full_response += chunk
 
@@ -135,8 +195,7 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                             artifact=artifact,
                         )
                     )
-                    first_chunk = False
-
+                # Handle error events
                 elif "error" in event:
                     logger.error(f"Error from agent: {event['error']}")
                     await event_queue.enqueue_event(

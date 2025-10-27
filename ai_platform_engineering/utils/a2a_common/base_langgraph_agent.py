@@ -17,11 +17,13 @@ except ImportError:
     MultiServerMCPClient = None
     MCP_AVAILABLE = False
 
-from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, HumanMessage
 from langchain_core.runnables.config import RunnableConfig
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 from pydantic import BaseModel
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
@@ -89,6 +91,30 @@ class BaseLangGraphAgent(ABC):
     def get_system_instruction(self) -> str:
         """Return the system instruction/prompt for the agent."""
         pass
+    
+    def _get_system_instruction_with_date(self) -> str:
+        """
+        Return the system instruction with current date/time injected.
+        
+        This method wraps get_system_instruction() and automatically prepends
+        the current date and time, so agents always have temporal context.
+        """
+        # Get current date/time in UTC
+        now_utc = datetime.now(ZoneInfo("UTC"))
+        
+        # Format date information
+        date_context = f"""## Current Date and Time
+
+Today's date: {now_utc.strftime("%A, %B %d, %Y")}
+Current time: {now_utc.strftime("%H:%M:%S UTC")}
+ISO format: {now_utc.isoformat()}
+
+Use this as the reference point for all date calculations. When users say "today", "tomorrow", "yesterday", or other relative dates, calculate from this date.
+
+"""
+        
+        # Combine with agent's system instruction
+        return date_context + self.get_system_instruction()
 
     @abstractmethod
     def get_response_format_instruction(self) -> str:
@@ -211,9 +237,21 @@ class BaseLangGraphAgent(ABC):
                 })
         else:
             logging.info(f"{agent_name}: Using STDIO transport for MCP client")
-            client = MultiServerMCPClient({
-                agent_name: self.get_mcp_config(server_path)
-            })
+            mcp_config = self.get_mcp_config(server_path)
+            
+            # Check if this is a multi-server config (dict of server configs)
+            # vs a single server config (dict with "command", "args", etc.)
+            if mcp_config and "command" not in mcp_config:
+                # Multi-server configuration (e.g., AWS with multiple MCP servers)
+                # The config already has the format: {"server1": {...}, "server2": {...}}
+                logging.info(f"{agent_name}: Multi-server MCP configuration detected with {len(mcp_config)} servers")
+                client = MultiServerMCPClient(mcp_config)
+            else:
+                # Single server configuration (e.g., ArgoCD, GitHub)
+                # Wrap it with agent name as key
+                client = MultiServerMCPClient({
+                    agent_name: mcp_config
+                })
 
         # Get tools from MCP client
         tools = await client.get_tools()
@@ -279,7 +317,7 @@ class BaseLangGraphAgent(ABC):
             self.model,
             tools,
             checkpointer=memory,
-            prompt=self.get_system_instruction(),
+            prompt=self._get_system_instruction_with_date(),
             response_format=(
                 self.get_response_format_instruction(),
                 self.get_response_format_class()
@@ -352,71 +390,68 @@ class BaseLangGraphAgent(ABC):
         await self._ensure_graph_initialized(config)
 
         # Track which messages we've already processed to avoid duplicates
-        # stream_mode='values' returns the full message list at each step,
-        # so we need to track the index to only process new messages
         seen_tool_calls = set()
-        processed_message_count = 0
+        
+        # Check if token-by-token streaming is enabled (default: false for backward compatibility)
+        enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
+        
+        if enable_streaming:
+            # Token-by-token streaming mode using 'messages'
+            logger.info(f"{agent_name}: Token-by-token streaming ENABLED")
+            processed_message_count = 0
+            async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages']):
+                # Process message stream
+                if item_type != 'messages':
+                    continue
+                    
+                message = item[0] if item else None
+                if not message:
+                    continue
 
-        # Stream using 'values' mode to get full state at each step
-        # This returns dicts with 'messages' key containing the message list
-        async for state in self.graph.astream(inputs, config, stream_mode='values'):
-            # Extract messages from the state
-            if not isinstance(state, dict) or 'messages' not in state:
-                continue
-
-            messages = state.get('messages', [])
-            if not messages:
-                continue
-
-            # Only process new messages we haven't seen yet
-            new_messages = messages[processed_message_count:]
-            if not new_messages:
-                continue
-
-            # Update the count of processed messages
-            processed_message_count = len(messages)
-
-            # Process each new message
-            for message in new_messages:
-                logger.info(f"📨 Received message type: {type(message).__name__}")
-                if hasattr(message, 'content'):
-                    logger.info(f"📝 Content: {str(message.content)[:200]}")
-                debug_print(f"Streamed message: {message}", banner=False)
-
-                # Skip HumanMessage - we don't want to echo the user's query back
+                logger.debug(f"📨 Received message type: {type(message).__name__}")
+                
+                # Skip HumanMessage
                 if isinstance(message, HumanMessage):
                     continue
 
-                if (
-                    isinstance(message, AIMessage)
-                    and getattr(message, "tool_calls", None)
-                    and len(message.tool_calls) > 0
-                ):
-                    # Agent is calling tools - provide detailed information
-                    for tool_call in message.tool_calls:
-                        tool_id = tool_call.get("id", "")
-                        tool_name = tool_call.get("name", "unknown")
-                        _ = tool_call.get("args", {})
-
-                        # Avoid duplicate tool call messages
-                        if tool_id and tool_id in seen_tool_calls:
-                            continue
-                        if tool_id:
-                            seen_tool_calls.add(tool_id)
-
-                        # Yield detailed tool call message
+                # Handle AIMessageChunk for token-by-token streaming
+                if isinstance(message, AIMessageChunk):
+                    # Check for tool calls
+                    if hasattr(message, "tool_calls") and message.tool_calls:
+                        for tool_call in message.tool_calls:
+                            tool_name = tool_call.get("name", "")
+                            tool_id = tool_call.get("id", "")
+                            
+                            if not tool_name or not tool_name.strip():
+                                continue
+                            
+                            if tool_id and tool_id in seen_tool_calls:
+                                continue
+                            if tool_id:
+                                seen_tool_calls.add(tool_id)
+                                
+                            agent_name_formatted = self.get_agent_name().title()
+                            tool_name_formatted = tool_name.title()
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
+                            }
+                        continue
+                    
+                    # Stream token content
+                    if message.content:
                         yield {
                             'is_task_complete': False,
                             'require_user_input': False,
-                            'content': f"🔧 Calling tool: **{tool_name}**\n",
+                            'content': str(message.content),
                         }
+                    continue
 
-                elif isinstance(message, ToolMessage):
-                    # Agent is processing tool results - show tool name and success/failure
+                # Handle ToolMessage
+                if isinstance(message, ToolMessage):
                     tool_name = getattr(message, "name", "unknown")
                     tool_content = getattr(message, "content", "")
-
-                    # Check if tool execution was successful
                     is_error = False
                     if hasattr(message, "status"):
                         is_error = getattr(message, "status", "") == "error"
@@ -426,27 +461,144 @@ class BaseLangGraphAgent(ABC):
                     icon = "❌" if is_error else "✅"
                     status = "failed" if is_error else "completed"
 
-                    # Yield detailed tool result message
+                    agent_name_formatted = self.get_agent_name().title()
+                    tool_name_formatted = tool_name.title()
                     yield {
                         'is_task_complete': False,
                         'require_user_input': False,
-                        'content': f"{icon} Tool **{tool_name}** {status}\n",
+                        'content': f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n",
                     }
-
-                else:
-                    # Regular message content (reasoning, thinking, or final response)
-                    content_text = None
-                    if hasattr(message, "content"):
-                        content_text = getattr(message, "content", None)
-                    elif isinstance(message, str):
-                        content_text = message
-
-                    if content_text:
+                    
+                    # Stream intermediate tool output if enabled
+                    stream_tool_output = os.getenv("STREAM_TOOL_OUTPUT", "false").lower() == "true"
+                    if stream_tool_output and tool_content:
+                        # Format tool output for readability
+                        tool_output_preview = str(tool_content)
+                        
+                        # Limit output size to avoid overwhelming the stream
+                        max_output_length = int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", "2000"))
+                        if len(tool_output_preview) > max_output_length:
+                            tool_output_preview = tool_output_preview[:max_output_length] + "...\n[Output truncated]"
+                        
                         yield {
                             'is_task_complete': False,
                             'require_user_input': False,
-                            'content': str(content_text),
+                            'content': f"📄 {agent_name_formatted}: Tool output:\n{tool_output_preview}\n\n",
                         }
+                    continue
+
+        else:
+            # Full message mode using 'values' (current behavior)
+            logger.info(f"{agent_name}: Token-by-token streaming DISABLED, using full message mode")
+            processed_message_count = 0
+            async for state in self.graph.astream(inputs, config, stream_mode='values'):
+                # Extract messages from the state
+                if not isinstance(state, dict) or 'messages' not in state:
+                    continue
+
+                messages = state.get('messages', [])
+                if not messages:
+                    continue
+
+                # Only process new messages we haven't seen yet
+                new_messages = messages[processed_message_count:]
+                if not new_messages:
+                    continue
+
+                # Update the count of processed messages
+                processed_message_count = len(messages)
+
+                # Process each new message
+                for message in new_messages:
+                    logger.info(f"📨 Received message type: {type(message).__name__}")
+                    if hasattr(message, 'content'):
+                        logger.info(f"📝 Content: {str(message.content)[:200]}")
+                    debug_print(f"Streamed message: {message}", banner=False)
+
+                    # Skip HumanMessage - we don't want to echo the user's query back
+                    if isinstance(message, HumanMessage):
+                        continue
+
+                    if (
+                        isinstance(message, AIMessage)
+                        and getattr(message, "tool_calls", None)
+                        and len(message.tool_calls) > 0
+                    ):
+                        # Agent is calling tools - provide detailed information
+                        for tool_call in message.tool_calls:
+                            tool_id = tool_call.get("id", "")
+                            tool_name = tool_call.get("name", "unknown")
+
+                            # Avoid duplicate tool call messages
+                            if tool_id and tool_id in seen_tool_calls:
+                                continue
+                            if tool_id:
+                                seen_tool_calls.add(tool_id)
+
+                            # Yield detailed tool call message with formatted names
+                            agent_name_formatted = self.get_agent_name().title()
+                            tool_name_formatted = tool_name.title()
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
+                            }
+
+                    elif isinstance(message, ToolMessage):
+                        # Agent is processing tool results - show tool name and success/failure
+                        tool_name = getattr(message, "name", "unknown")
+                        tool_content = getattr(message, "content", "")
+
+                        # Check if tool execution was successful
+                        is_error = False
+                        if hasattr(message, "status"):
+                            is_error = getattr(message, "status", "") == "error"
+                        elif "error" in str(tool_content).lower()[:100]:
+                            is_error = True
+
+                        icon = "❌" if is_error else "✅"
+                        status = "failed" if is_error else "completed"
+
+                        # Yield detailed tool result message with formatted names
+                        agent_name_formatted = self.get_agent_name().title()
+                        tool_name_formatted = tool_name.title()
+                        yield {
+                            'is_task_complete': False,
+                            'require_user_input': False,
+                            'content': f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n",
+                        }
+                        
+                        # Stream intermediate tool output if enabled
+                        stream_tool_output = os.getenv("STREAM_TOOL_OUTPUT", "false").lower() == "true"
+                        if stream_tool_output and tool_content:
+                            # Format tool output for readability
+                            tool_output_preview = str(tool_content)
+                            
+                            # Limit output size to avoid overwhelming the stream
+                            max_output_length = int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", "2000"))
+                            if len(tool_output_preview) > max_output_length:
+                                tool_output_preview = tool_output_preview[:max_output_length] + "...\n[Output truncated]"
+                            
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': f"📄 {agent_name_formatted}: Tool output:\n{tool_output_preview}\n\n",
+                            }
+
+                    else:
+                        # Regular message content (reasoning, thinking, or final response)
+                        content_text = None
+                        if hasattr(message, "content"):
+                            content_text = getattr(message, "content", None)
+                        elif isinstance(message, str):
+                            content_text = message
+
+                        if content_text:
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': str(content_text),
+                            }
 
         # Yield task completion marker
         yield {

@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -21,25 +22,28 @@ class ResponseFormat(BaseModel):
 class JiraAgent(BaseLangGraphAgent):
     """Jira Agent for issue and project management."""
 
-    SYSTEM_INSTRUCTION = (
-      'You are an expert assistant for managing Jira resources. '
-      'Your sole purpose is to help users perform CRUD (Create, Read, Update, Delete) operations on Jira applications, '
-      'projects, and related resources. Always use the available Jira tools to interact with the Jira API and provide '
-      'accurate, actionable responses. If the user asks about anything unrelated to Jira or its resources, politely state '
-      'that you can only assist with Jira operations. Do not attempt to answer unrelated questions or use tools for other purposes.\n\n'
-      
-      '## Graceful Input Handling\n'
-      'If you encounter service connectivity or permission issues:\n'
-      '- Provide helpful, user-friendly messages explaining what\'s wrong\n'
-      '- Offer alternative approaches or next steps when possible\n'
-      '- Never timeout silently or return generic errors\n'
-      '- Focus on what the user can do, not internal system details\n'
-      '- Example: "I\'m unable to connect to Jira services at the moment. This might be due to:\n'
-      '  - Temporary Jira service issues\n'
-      '  - Network connectivity problems\n'
-      '  - Service configuration needs updating\n'
-      '  Would you like me to try a different approach or provide general Jira guidance?"\n\n'
-      'Always strive to be helpful and provide guidance even when requests cannot be completed immediately.'
+    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
+        service_name="Jira",
+        service_operations="manage issues, projects, and workflows",
+        additional_guidelines=[
+            "Perform CRUD operations on Jira issues, projects, and related resources",
+            "When searching or filtering issues by date (created, updated, resolved), calculate date ranges based on the current date provided above",
+            "Always convert relative dates (today, this week, last month) to absolute dates in YYYY-MM-DD format for JQL queries",
+            "Use JQL (Jira Query Language) syntax for complex searches with proper date formatting",
+            "CRITICAL: If no date/time is specified in a Jira search query, assume 'now' (current date/time) as the default reference point",
+            "CRITICAL: Always format Jira issue links as browseable URLs: {JIRA_BASE_URL}/browse/{ISSUE_KEY} (e.g., https://example.atlassian.net/browse/CAIPE-67)",
+            "NEVER return API endpoint URLs like /rest/api/3/issue/{issue_id} - these are not user-friendly",
+            "Extract the issue key (e.g., CAIPE-67) from API responses and construct the proper browse URL",
+            
+            "CRITICAL: Do NOT add issueType filter to JQL queries unless the user explicitly specifies an issue type (Bug, Story, Task, Epic, etc.)",
+            "When searching for 'issues', return ALL issue types - do not default to issueType=Bug or any specific type",
+            
+            "CRITICAL: When JQL search results are paginated, retrieve ALL pages and process all results - do not stop after the first page",
+            "If the total result count exceeds 100 issues, show the first page results and ask the user if they want to continue fetching remaining pages",
+            "For queries with 100 or fewer total results, automatically fetch all pages without asking for confirmation",
+        ],
+        include_error_handling=True,
+        include_date_handling=True  # Enable date handling for issue queries
     )
 
     RESPONSE_FORMAT_INSTRUCTION: str = (

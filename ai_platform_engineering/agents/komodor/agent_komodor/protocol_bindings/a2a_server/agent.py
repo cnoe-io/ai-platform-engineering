@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from ai_platform_engineering.utils.prompt_templates import (
     AgentCapability, build_system_instruction, graceful_error_handling_template,
-    SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES
+    SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES, DATE_HANDLING_NOTES
 )
 from cnoe_agent_utils.tracing import trace_agent_stream
 
@@ -76,7 +76,11 @@ class KomodorAgent(BaseLangGraphAgent):
         agent_name="KOMODOR AGENT",
         agent_purpose="You are a Komodor AI agent designed to assist users with Kubernetes environments, system health monitoring, and RBAC configurations.",
         capabilities=KOMODOR_CAPABILITIES,
-        response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES,
+        response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES + [
+            "When searching for events, audit logs, or issues with time ranges, use the current date provided above as reference",
+            "For queries like 'today's issues' or 'last hour's events', calculate the time range from the current date/time"
+        ],
+        important_notes=DATE_HANDLING_NOTES,
         graceful_error_handling=graceful_error_handling_template("Komodor")
     )
 

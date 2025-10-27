@@ -19,7 +19,6 @@ import json
 import time
 from pathlib import Path
 from datetime import datetime
-from test_platform_engineer_streaming import test_platform_engineer_streaming
 import httpx
 from a2a.client import A2AClient, A2ACardResolver
 from a2a.types import SendStreamingMessageRequest, MessageSendParams
@@ -69,7 +68,7 @@ class RoutingModeTestRunner:
 
     def update_docker_compose_env(self, env_vars):
         """Update environment variables in docker-compose.dev.yaml"""
-        print(f"📝 Updating docker-compose.dev.yaml environment variables...")
+        print("📝 Updating docker-compose.dev.yaml environment variables...")
         
         with open(self.docker_compose_path, 'r') as f:
             compose_data = yaml.safe_load(f)
@@ -274,7 +273,7 @@ class RoutingModeTestRunner:
                 print(f"{mode_name:<20} {avg_duration:<15.2f} {avg_first_chunk:<18.2f} {avg_chunks:<12.1f} {avg_chars:<12.0f}")
         
         # Detailed comparison by query type
-        print(f"\n📋 Performance by Query Type:")
+        print("\n📋 Performance by Query Type:")
         print("-" * 80)
         
         for i, (query, description) in enumerate(self.quick_test_scenarios):
@@ -293,7 +292,7 @@ class RoutingModeTestRunner:
                     print(f"{mode_name:<20} {result['duration']:<12.2f} {result['time_to_first_chunk']:<12.2f} {result['chunk_count']:<8} {quality}")
         
         # Recommendations
-        print(f"\n🎯 RECOMMENDATIONS:")
+        print("\n🎯 RECOMMENDATIONS:")
         print("-" * 40)
         
         if 'ENHANCED_STREAMING' in self.test_results:
@@ -320,7 +319,7 @@ class RoutingModeTestRunner:
 
     async def run_all_tests(self):
         """Run tests for all routing modes"""
-        print(f"🚀 Starting comprehensive routing mode comparison")
+        print("🚀 Starting comprehensive routing mode comparison")
         print(f"Timestamp: {datetime.now().isoformat()}")
         print(f"Platform Engineer URL: {self.platform_engineer_url}")
         

@@ -9,7 +9,6 @@ Consolidates all prompt loading and processing logic from various prompts.py fil
 import yaml
 import os
 import logging
-from pathlib import Path
 from typing import Dict, List, Optional, Any
 # Note: PromptTemplate import removed - handled by individual prompts.py files
 
@@ -165,23 +164,23 @@ class PromptConfigLoader:
     def get_incident_engineering_agents(self) -> List[str]:
         """
         Get a list of incident engineering agent keys.
-        Since incident engineering is now built into system_prompt_template,
-        return the standard incident engineering capabilities.
-        
+
+        If incident engineering capabilities are detected in the system prompt template,
+        return all standard incident engineering agent keys *that are also present in the config*.
+
         Returns:
-            list: List of incident engineering capabilities
+            list: List of enabled incident engineering agent identifiers
         """
-        # These are the incident engineering capabilities now built into system_prompt_template
-        incident_capabilities = [
+        incident_agents = [
             'incident-investigator',
             'incident-documenter', 
             'mttr-analyst',
             'uptime-analyst'
         ]
-        
+
         # Check if incident engineering capabilities are available in system_prompt_template
         system_prompt = self.system_prompt_template.lower()
-        
+
         # Simple check for incident-related content in the system prompt
         incident_indicators = [
             'incident',  # Any mention of incidents
@@ -190,27 +189,12 @@ class PromptConfigLoader:
             'postmortem', # Documentation
             'root cause'  # Investigation
         ]
-        
-        # If any incident-related content is found, assume incident capabilities are available
+
+        # If any incident-related content is found, filter and return present incident agents.
         if any(indicator in system_prompt for indicator in incident_indicators):
-            return incident_capabilities
+            return [agent for agent in incident_agents if self.has_agent(agent)]
         else:
             return []
-    
-    def get_incident_engineering_agents(self) -> List[str]:
-        """
-        Get a list of incident engineering agent keys.
-        
-        Returns:
-            list: List of incident engineering agent identifiers
-        """
-        incident_agents = [
-            'incident-investigator',
-            'incident-documenter', 
-            'mttr-analyst',
-            'uptime-analyst'
-        ]
-        return [agent for agent in incident_agents if self.has_agent(agent)]
 
 
 # Global instance for easy access

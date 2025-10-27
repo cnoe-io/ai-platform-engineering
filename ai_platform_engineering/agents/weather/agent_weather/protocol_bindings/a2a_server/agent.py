@@ -30,19 +30,18 @@ class WeatherAgent(BaseLangGraphAgent):
 
     WEATHER_TOOL_USAGE = {
         "get_current_weather": 'Use for current weather conditions (e.g., "What\'s the weather like now in Paris?")',
-        "get_weather_by_datetime_range": 'Use for future or past weather within a date range (e.g., "Will it rain tomorrow?")',
-        "get_current_datetime": "Use to get the current time in any timezone when calculating relative dates"
+        "get_weather_by_datetime_range": 'Use for future or past weather within a date range (e.g., "Will it rain tomorrow?")'
     }
 
     WEATHER_ADDITIONAL_SECTIONS = {
-        "Handling Relative Dates": '''- For "tomorrow", "next week", "yesterday" queries, FIRST call get_current_datetime
-- Then calculate target date(s) and use get_weather_by_datetime_range
+        "Handling Relative Dates": '''- For "tomorrow", "next week", "yesterday" queries, use the current date/time provided at the top of your instructions
+- Calculate target date(s) based on the provided current date and use get_weather_by_datetime_range
 - Always use YYYY-MM-DD format for dates in API calls
 - For "tomorrow" queries, set start_date and end_date to the same date''',
         
-        "Examples": '''- "Will it rain tomorrow in Paris?" → get_current_datetime(timezone_name="Europe/Paris") → get_weather_by_datetime_range
+        "Examples": '''- "Will it rain tomorrow in Paris?" → Calculate tomorrow's date from provided current date → get_weather_by_datetime_range
 - "What's the weather now?" → get_current_weather(city="[location]")
-- "Weather forecast for this weekend?" → get_current_datetime → get_weather_by_datetime_range with weekend dates'''
+- "Weather forecast for this weekend?" → Calculate weekend dates from provided current date → get_weather_by_datetime_range'''
     }
 
     SYSTEM_INSTRUCTION = build_system_instruction(

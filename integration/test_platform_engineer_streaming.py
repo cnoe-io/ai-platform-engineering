@@ -112,7 +112,7 @@ async def test_query(client, query, description, collect_metrics=True):
         chars_per_second = total_chars / duration if duration > 0 else 0
         chunks_per_second = chunk_count / duration if duration > 0 else 0
         
-        print(f"\n\n📊 STREAMING METRICS:")
+        print("\n\n📊 STREAMING METRICS:")
         print(f"   ⏱️  Total time: {duration:.2f}s")
         print(f"   ⚡ Time to first chunk: {time_to_first_chunk:.2f}s")
         print(f"   📦 Total chunks: {chunk_count}")
@@ -162,10 +162,10 @@ async def test_platform_engineer_streaming(quick_mode=False):
 
     print(f"🔍 Testing Platform Engineer streaming at {platform_engineer_url}")
     if quick_mode:
-        print(f"⚡ Running in QUICK MODE - subset of tests for faster results")
+        print("⚡ Running in QUICK MODE - subset of tests for faster results")
     else:
-        print(f"📊 Running FULL TEST SUITE - comprehensive statistical analysis")
-    print(f"📊 Test will show routing mode and performance characteristics")
+        print("📊 Running FULL TEST SUITE - comprehensive statistical analysis")
+    print("📊 Test will show routing mode and performance characteristics")
 
     # Create A2A client
     async with httpx.AsyncClient(timeout=120.0) as http_client:
@@ -318,20 +318,20 @@ async def test_platform_engineer_streaming(quick_mode=False):
                 quality = result['quality'].split(' ')[1]  # Extract quality level
                 quality_counts[quality] = quality_counts.get(quality, 0) + 1
             
-            print(f"\n🎭 Quality Distribution:")
+            print("\n🎭 Quality Distribution:")
             for quality, count in sorted(quality_counts.items()):
                 percentage = (count / len(results)) * 100
                 print(f"   {quality}: {count} tests ({percentage:.1f}%)")
             
             # Top performers
             fastest_queries = sorted(results, key=lambda x: x['time_to_first_chunk'])[:3]
-            print(f"\n🏆 Fastest Response Times:")
+            print("\n🏆 Fastest Response Times:")
             for i, result in enumerate(fastest_queries, 1):
                 print(f"   {i}. {result['time_to_first_chunk']:.2f}s - {result['description']}")
             
             # Slowest queries
             slowest_queries = sorted(results, key=lambda x: x['time_to_first_chunk'], reverse=True)[:3]
-            print(f"\n🐌 Slowest Response Times:")
+            print("\n🐌 Slowest Response Times:")
             for i, result in enumerate(slowest_queries, 1):
                 print(f"   {i}. {result['time_to_first_chunk']:.2f}s - {result['description']}")
 

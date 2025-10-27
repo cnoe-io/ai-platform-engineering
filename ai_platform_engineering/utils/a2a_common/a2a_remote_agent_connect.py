@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import os
 from typing import Any, Optional, Union, List
 from uuid import uuid4
 from pydantic import PrivateAttr
@@ -216,9 +217,9 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
                 # Get event kind
                 kind = result.get('kind')
-                logger.info(f"Received event: {result}")
+                logger.debug(f"Received event: {result}")
                 if not kind:
-                    logger.info(f"No kind in result, skipping: {result}")
+                    logger.debug(f"No kind in result, skipping: {result}")
                     continue
 
                 # Extract text from artifact-update events
@@ -247,14 +248,26 @@ class A2ARemoteAgentConnectTool(BaseTool):
                                     text = part.get('text')
                                     if text:
                                         accumulated_text.append(text)
-                                        # Only stream tool progress messages (🔧, ✅), not full responses
+                                        # Check if tool output streaming is enabled
+                                        stream_tool_output = os.getenv("STREAM_SUB_AGENT_TOOL_OUTPUT", "false").lower() == "true"
+                                        
+                                        # Stream tool-related messages (🔧 calling, ✅ completed, and optionally 📄 output)
                                         # Full responses will be streamed token-by-token by supervisor
-                                        is_tool_message = '🔧' in text or '✅' in text
-                                        if is_tool_message:
+                                        is_tool_notification = '🔧' in text or '✅' in text
+                                        is_tool_output = '📄' in text
+                                        
+                                        should_stream = is_tool_notification or (is_tool_output and stream_tool_output)
+                                        
+                                        if should_stream:
                                             # Remove markdown bold formatting (** **) from tool names
                                             clean_text = text.replace('**', '')
                                             writer({"type": "a2a_event", "data": clean_text})
-                                            logger.info(f"✅ Streamed tool progress from status-update: {len(clean_text)} chars")
+                                            if is_tool_output:
+                                                logger.info(f"✅ Streamed tool output from status-update (STREAM_SUB_AGENT_TOOL_OUTPUT=true): {len(clean_text)} chars")
+                                            else:
+                                                logger.info(f"✅ Streamed tool notification from status-update: {len(clean_text)} chars")
+                                        elif is_tool_output:
+                                            logger.info(f"⏭️  Skipped streaming tool output (STREAM_SUB_AGENT_TOOL_OUTPUT=false): {len(text)} chars")
                                         else:
                                             logger.info(f"⏭️  Skipped streaming content from status-update (not a tool message): {len(text)} chars")
             except Exception as e:
