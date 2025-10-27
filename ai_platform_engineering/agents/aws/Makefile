@@ -120,7 +120,8 @@ test-gemini:       ## Run Gemini-specific evaluations
 ## ========== Docker ==========
 
 build-docker-a2a: ## Build A2A Docker image
-	@docker build -f ai_platform_engineering/agents/aws/build/Dockerfile.a2a -t $(AGENT_DIR_NAME):a2a-latest $$(git rev-parse --show-toplevel 2>/dev/null || echo "../../..")
+	@REPO_ROOT=$$(git rev-parse --show-toplevel 2>/dev/null || echo "../../.."); \
+	docker build -f $$REPO_ROOT/ai_platform_engineering/agents/aws/build/Dockerfile.a2a -t $(AGENT_DIR_NAME):a2a-latest $$REPO_ROOT
 
 build-docker-a2a-tag: ## Tag A2A Docker image
 	@docker tag $(AGENT_DIR_NAME):a2a-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-stable
