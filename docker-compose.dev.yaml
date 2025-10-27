@@ -206,8 +206,8 @@ services:
   ####################################################################################################
   mcp-argocd:
     build:
-      context: ai_platform_engineering/agents/argocd
-      dockerfile: build/Dockerfile.mcp
+      context: .
+      dockerfile: ai_platform_engineering/agents/argocd/build/Dockerfile.mcp
     container_name: mcp-argocd
     profiles:
       - p2p
@@ -230,8 +230,8 @@ services:
   ####################################################################################################
   agent-argocd-slim:
     build:
-      context: ai_platform_engineering/agents/argocd
-      dockerfile: build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/argocd/build/Dockerfile.a2a
     container_name: agent-argocd-slim
     profiles:
       - slim
@@ -261,8 +261,8 @@ services:
   ####################################################################################################
   agent-argocd-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/argocd/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/argocd/build/Dockerfile.a2a
     container_name: agent-argocd-p2p
     profiles:
       - p2p
@@ -292,8 +292,8 @@ services:
   ####################################################################################################
   agent-aws-slim:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/aws/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-slim
     profiles:
       - slim
@@ -351,8 +351,8 @@ services:
   ####################################################################################################
   agent-aws-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/aws/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-p2p
     profiles:
       - p2p
@@ -419,8 +419,8 @@ services:
   ####################################################################################################
   agent-backstage-slim:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/backstage/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/backstage/build/Dockerfile.a2a
     container_name: agent-backstage-slim
     profiles:
       - slim
@@ -449,8 +449,8 @@ services:
   ####################################################################################################
   agent-backstage-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/backstage/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/backstage/build/Dockerfile.a2a
     container_name: agent-backstage-p2p
     profiles:
       - p2p
@@ -477,8 +477,8 @@ services:
   ####################################################################################################
   mcp-backstage:
     build:
-      context: ai_platform_engineering/agents/backstage
-      dockerfile: build/Dockerfile.mcp
+      context: .
+      dockerfile: ai_platform_engineering/agents/backstage/build/Dockerfile.mcp
     container_name: mcp-backstage
     profiles:
       - p2p
@@ -501,8 +501,8 @@ services:
 
   agent-confluence-slim:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/confluence/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/confluence/build/Dockerfile.a2a
     container_name: agent-confluence-slim
     profiles:
       - slim
@@ -531,8 +531,8 @@ services:
   ####################################################################################################
   agent-confluence-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/confluence/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/confluence/build/Dockerfile.a2a
     container_name: agent-confluence-p2p
     profiles:
       - p2p
@@ -559,8 +559,8 @@ services:
   ####################################################################################################
   mcp-confluence:
     build:
-      context: ai_platform_engineering/agents/confluence
-      dockerfile: build/Dockerfile.mcp
+      context: .
+      dockerfile: ai_platform_engineering/agents/confluence/build/Dockerfile.mcp
     container_name: mcp-confluence
     profiles:
       - p2p
@@ -583,8 +583,8 @@ services:
   ####################################################################################################
   agent-github-slim:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/github/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/github/build/Dockerfile.a2a
     container_name: agent-github-slim
     profiles:
       - slim
@@ -614,8 +614,8 @@ services:
   ####################################################################################################
   agent-github-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/github/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/github/build/Dockerfile.a2a
     container_name: agent-github-p2p
     profiles:
       - p2p
@@ -640,8 +640,8 @@ services:
   ####################################################################################################
   agent-jira-slim:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/jira/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/jira/build/Dockerfile.a2a
     container_name: agent-jira-slim
     profiles:
       - slim
@@ -672,8 +672,8 @@ services:
   ####################################################################################################
   agent-jira-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/jira/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/jira/build/Dockerfile.a2a
     container_name: agent-jira-p2p
     profiles:
       - p2p
@@ -701,8 +701,8 @@ services:
   ####################################################################################################
   mcp-jira:
     build:
-      context: ai_platform_engineering/agents/jira
-      dockerfile: build/Dockerfile.mcp
+      context: .
+      dockerfile: ai_platform_engineering/agents/jira/build/Dockerfile.mcp
     container_name: mcp-jira
     profiles:
       - p2p
@@ -725,8 +725,8 @@ services:
   ####################################################################################################
   agent-komodor-slim:
     build:
-      context: ai_platform_engineering/agents/komodor
-      dockerfile: build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/komodor/build/Dockerfile.a2a
     container_name: agent-komodor-slim
     profiles:
       - slim
@@ -755,8 +755,8 @@ services:
   ####################################################################################################
   agent-komodor-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/komodor/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/komodor/build/Dockerfile.a2a
     container_name: agent-komodor-p2p
     profiles:
       - p2p
@@ -783,8 +783,8 @@ services:
   ####################################################################################################
   mcp-komodor:
     build:
-      context: ai_platform_engineering/agents/komodor
-      dockerfile: build/Dockerfile.mcp
+      context: .
+      dockerfile: ai_platform_engineering/agents/komodor/build/Dockerfile.mcp
     container_name: mcp-komodor
     profiles:
       - p2p
@@ -807,8 +807,8 @@ services:
   ####################################################################################################
   agent-pagerduty-slim:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/pagerduty/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/pagerduty/build/Dockerfile.a2a
     container_name: agent-pagerduty-slim
     profiles:
       - slim
@@ -837,8 +837,8 @@ services:
   ####################################################################################################
   agent-pagerduty-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/pagerduty/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/pagerduty/build/Dockerfile.a2a
     container_name: agent-pagerduty-p2p
     profiles:
       - p2p
@@ -865,8 +865,8 @@ services:
   ####################################################################################################
   mcp-pagerduty:
     build:
-      context: ai_platform_engineering/agents/pagerduty
-      dockerfile: build/Dockerfile.mcp
+      context: .
+      dockerfile: ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp
     container_name: mcp-pagerduty
     profiles:
       - p2p
@@ -889,8 +889,8 @@ services:
   ####################################################################################################
   agent-slack-slim:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/slack/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/slack/build/Dockerfile.a2a
     container_name: agent-slack-slim
     profiles:
       - slim
@@ -921,8 +921,8 @@ services:
   ####################################################################################################
   agent-slack-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/slack/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/slack/build/Dockerfile.a2a
     container_name: agent-slack-p2p
     profiles:
       - p2p
@@ -949,8 +949,8 @@ services:
   ####################################################################################################
   mcp-slack:
     build:
-      context: ai_platform_engineering/agents/slack
-      dockerfile: build/Dockerfile.mcp
+      context: .
+      dockerfile: ai_platform_engineering/agents/slack/build/Dockerfile.mcp
     container_name: mcp-slack
     profiles:
       - p2p
@@ -973,8 +973,8 @@ services:
   ####################################################################################################
   agent-webex-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/webex/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/webex/build/Dockerfile.a2a
     container_name: agent-webex-p2p
     profiles:
       - p2p
@@ -1000,8 +1000,8 @@ services:
   ####################################################################################################
   agent-webex-slim:
     build:
-      context: ai_platform_engineering/agents/webex
-      dockerfile: build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/webex/build/Dockerfile.a2a
     container_name: agent-webex-slim
     profiles:
       - slim
@@ -1029,8 +1029,8 @@ services:
   ####################################################################################################
   mcp-webex:
     build:
-      context: ai_platform_engineering/agents/webex
-      dockerfile: build/Dockerfile.mcp
+      context: .
+      dockerfile: ai_platform_engineering/agents/webex/build/Dockerfile.mcp
     container_name: mcp-webex
     profiles:
       - p2p
@@ -1053,8 +1053,8 @@ services:
   ####################################################################################################
   mcp-splunk:
     build:
-      context: ai_platform_engineering/agents/splunk
-      dockerfile: build/Dockerfile.mcp
+      context: .
+      dockerfile: ai_platform_engineering/agents/splunk/build/Dockerfile.mcp
     container_name: mcp-splunk
     profiles:
       - p2p
@@ -1076,8 +1076,8 @@ services:
   ####################################################################################################
   agent-splunk-slim:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/splunk/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/splunk/build/Dockerfile.a2a
     container_name: agent-splunk-slim
     profiles:
       - slim
@@ -1105,8 +1105,8 @@ services:
   ####################################################################################################
   agent-splunk-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/splunk/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/splunk/build/Dockerfile.a2a
     container_name: agent-splunk-p2p
     profiles:
       - p2p
@@ -1134,8 +1134,8 @@ services:
   ####################################################################################################
   agent-weather-slim:
     build:
-      context: ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/weather/build/Dockerfile.a2a
       cache_from: []
     container_name: agent-weather-slim
     profiles:
@@ -1166,8 +1166,8 @@ services:
   ####################################################################################################
   agent-weather-p2p:
     build:
-      context: ai_platform_engineering
-      dockerfile: agents/weather/build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/weather/build/Dockerfile.a2a
     container_name: agent-weather-p2p
     profiles:
       - p2p
@@ -1195,8 +1195,8 @@ services:
   ####################################################################################################
   agent-petstore-slim:
     build:
-      context: ai_platform_engineering/agents/template
-      dockerfile: build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/template/build/Dockerfile.a2a
     container_name: agent-petstore-slim
     profiles:
       - slim
@@ -1225,8 +1225,8 @@ services:
   ####################################################################################################
   agent-petstore-p2p:
     build:
-      context: ai_platform_engineering/agents/template
-      dockerfile: build/Dockerfile.a2a
+      context: .
+      dockerfile: ai_platform_engineering/agents/template/build/Dockerfile.a2a
     container_name: agent-petstore-p2p
     profiles:
       - p2p
@@ -1284,8 +1284,8 @@ services:
       rag-redis:
         condition: service_started
     build:
-      context: ai_platform_engineering/knowledge_bases/rag
-      dockerfile: ./build/Dockerfile.server
+      context: .
+      dockerfile: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.server
     profiles:
       - rag_p2p
       - rag_no_graph_p2p
@@ -1325,8 +1325,8 @@ services:
         # condition: service_healthy
         condition: service_started
     build:
-      context: ai_platform_engineering
-      dockerfile: knowledge_bases/rag/build/Dockerfile.agent-rag
+      context: .
+      dockerfile: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.agent-rag
     profiles:
       - rag_p2p
       - rag_no_graph_p2p
@@ -1356,15 +1356,15 @@ services:
       - neo4j-ontology
       - rag-redis
     build:
-      context: ai_platform_engineering/knowledge_bases/rag
-      dockerfile: ./build/Dockerfile.agent-ontology
+      context: .
+      dockerfile: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.agent-ontology
     profiles:
       - rag_p2p
 
   rag_webui:
     build:
-      context: ai_platform_engineering/knowledge_bases/rag
-      dockerfile: ./build/Dockerfile.webui
+      context: .
+      dockerfile: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.webui
     container_name: rag-webui
     environment:
       RAG_SERVER_URL: http://rag_server:9446
