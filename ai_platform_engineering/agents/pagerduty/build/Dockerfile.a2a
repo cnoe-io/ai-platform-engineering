@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy only the necessary directories for the pagerduty agent
-COPY --chown=root:root utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root agents/pagerduty /app/ai_platform_engineering/agents/pagerduty/
+COPY --chown=root:root ./ai_platform_engineering/utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root ./ai_platform_engineering/agents/pagerduty /app/ai_platform_engineering/agents/pagerduty/
 
 # Set working directory to the pagerduty agent
 WORKDIR /app/ai_platform_engineering/agents/pagerduty
