@@ -11,7 +11,7 @@ including date/time injection and system instruction generation.
 import pytest
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from typing import Dict, Any
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
@@ -102,7 +102,7 @@ class TestBaseLangGraphAgent:
         mock_datetime.now = mock_now
         
         agent = MockLangGraphAgent()
-        result = agent._get_system_instruction_with_date()
+        _ = agent._get_system_instruction_with_date()
         
         # Verify datetime.now was called with UTC timezone
         mock_now.assert_called_once()
@@ -146,7 +146,7 @@ class TestBaseLangGraphAgent:
         
         # First call
         result1 = agent._get_system_instruction_with_date()
-        time1 = datetime.now(ZoneInfo("UTC"))
+        _ = datetime.now(ZoneInfo("UTC"))
         
         # Small delay (in practice, time will advance)
         import time
@@ -154,7 +154,7 @@ class TestBaseLangGraphAgent:
         
         # Second call
         result2 = agent._get_system_instruction_with_date()
-        time2 = datetime.now(ZoneInfo("UTC"))
+        _ = datetime.now(ZoneInfo("UTC"))
         
         # Both should have date context
         assert "## Current Date and Time" in result1

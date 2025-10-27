@@ -157,7 +157,7 @@ evals: setup-venv ## Run agentevals with test cases
 ## ========== Docker A2A ==========
 
 build-docker-a2a:            ## Build A2A Docker image
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(AGENT_DIR_NAME):latest -f ai_platform_engineering/agents/$(AGENT_NAME)/build/Dockerfile.a2a $(REPO_ROOT)
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(AGENT_DIR_NAME):latest -f $(REPO_ROOT)/ai_platform_engineering/agents/$(AGENT_NAME)/build/Dockerfile.a2a $(REPO_ROOT)
 
 build-docker-a2a-tag:        ## Tag A2A Docker image
 	docker tag $(AGENT_DIR_NAME):latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):latest
@@ -191,7 +191,7 @@ run-local-docker-a2a: build-docker-a2a
 ## ========== Docker MCP ==========
 
 build-docker-mcp:            ## Build MCP Docker image
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(MCP_AGENT_DIR_NAME):latest -f ai_platform_engineering/agents/$(AGENT_NAME)/build/Dockerfile.mcp $(REPO_ROOT)
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(MCP_AGENT_DIR_NAME):latest -f $(REPO_ROOT)/ai_platform_engineering/agents/$(AGENT_NAME)/build/Dockerfile.mcp $(REPO_ROOT)
 
 build-docker-mcp-tag:        ## Tag MCP Docker image
 	docker tag $(MCP_AGENT_DIR_NAME):latest ghcr.io/cnoe-io/$(MCP_AGENT_DIR_NAME):latest

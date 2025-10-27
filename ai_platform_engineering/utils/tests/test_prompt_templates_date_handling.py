@@ -8,7 +8,6 @@ Tests the DATE_HANDLING_NOTES and include_date_handling parameter
 added for automatic date/time awareness in agents.
 """
 
-import pytest
 from ai_platform_engineering.utils.prompt_templates import (
     DATE_HANDLING_NOTES,
     scope_limited_agent_instruction,
