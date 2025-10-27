@@ -84,7 +84,9 @@ ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 
 run-a2a:           ## Run A2A agent with uvicorn
 	@$(MAKE) check-env
-	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
+	@REPO_ROOT=$$(git rev-parse --show-toplevel 2>/dev/null || echo "../../.."); \
+	export PYTHONPATH=$$REPO_ROOT:$$PYTHONPATH; \
+	A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
 	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_AGENT_PORT:-8000}
 
 run-mcp:           ## Run MCP server in SSE mode
