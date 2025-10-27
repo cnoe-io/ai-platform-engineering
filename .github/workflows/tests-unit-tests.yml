@@ -59,7 +59,7 @@ jobs:
 
       - name: Upload coverage reports
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-reports-main
           path: |
@@ -112,7 +112,7 @@ jobs:
 
       - name: Upload RAG coverage reports
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-reports-rag
           path: |
@@ -128,13 +128,13 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Download main coverage reports
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: coverage-reports-main
           path: ./main-coverage/
 
       - name: Download RAG coverage reports
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: coverage-reports-rag
           path: ./rag-coverage/
