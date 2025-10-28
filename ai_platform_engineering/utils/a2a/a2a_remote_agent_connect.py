@@ -15,7 +15,6 @@ from a2a.types import (
     SendMessageRequest,
     SendStreamingMessageRequest,
     MessageSendParams,
-    TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
 )
 
 from langchain_core.tools import BaseTool
@@ -207,16 +206,39 @@ class A2ARemoteAgentConnectTool(BaseTool):
             writer({"type": "a2a_event", "data": chunk_dump})
 
             try:
-                if isinstance(chunk, A2ATaskArtifactUpdateEvent):
-                    art = chunk.artifact
-                    if getattr(art, "parts", None):
-                        for part in art.parts:
-                            root = getattr(part, "root", None)
-                            text = getattr(root, "text", None) if root is not None else None
-                            if text:
-                                accumulated_text.append(text)
+              # Work with chunk_dump (dict) instead of chunk (Pydantic model)
+              # The chunk is a JSON-RPC wrapped response, not a direct A2ATaskArtifactUpdateEvent
+              if not isinstance(chunk_dump, dict):
+                continue
+
+              result = chunk_dump.get("result")
+              if result is None:
+                continue
+
+              # Check if this is an artifact-update event
+              kind = result.get("kind") if isinstance(result, dict) else None
+              if kind == "artifact-update":
+                art = result.get("artifact") if isinstance(result, dict) else None
+                if art:
+                  parts = art.get("parts") if isinstance(art, dict) else None
+                  if parts:
+                    for part in parts:
+                      text = None
+                      # Parts are dicts after model_dump()
+                      if isinstance(part, dict):
+                        text = part.get("text")
+                      else:
+                        # Fallback for object access
+                        text = getattr(part, "text", None)
+                        if not text:
+                          root = getattr(part, "root", None)
+                          if root:
+                            text = getattr(root, "text", None)
+                      if text:
+                        accumulated_text.append(text)
+                        logger.info(f"Accumulated artifact text chunk ({len(text)} chars)")
             except Exception as e:
-                logger.warning(f"Non-fatal error while handling stream chunk: {e}")
+              logger.warning(f"Non-fatal error while handling stream chunk: {e}", exc_info=True)
 
         final_response = " ".join(accumulated_text).strip()
         if not final_response:
