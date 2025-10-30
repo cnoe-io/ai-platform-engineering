@@ -3,6 +3,11 @@ ai_platform_engineering/agents/*/agent_*/**
 !ai_platform_engineering/agents/*/agent_*/agentcard.py
 !ai_platform_engineering/agents/*/agent_*/__init__.py
 !ai_platform_engineering/agents/*/agent_*/__main__.py
+!ai_platform_engineering/agents/*/agent_*/agent.py
+!ai_platform_engineering/agents/*/agent_*/agent_langgraph.py
+!ai_platform_engineering/agents/*/agent_*/models.py
+!ai_platform_engineering/agents/*/agent_*/state.py
+!ai_platform_engineering/agents/*/agent_*/protocol_bindings/**
 
 # Exclude special client directories for weather/webex (they use different structure)
 ai_platform_engineering/agents/weather/agntcy_agent_client/**

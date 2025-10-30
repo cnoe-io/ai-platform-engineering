@@ -322,6 +322,16 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'doc',
+          id: 'changes/2025-10-30-agent-forge-workflow-setup',
+          label: '2025-10-30: Agent Forge GitHub Action Workflow',
+        },
+        {
+          type: 'doc',
+          id: 'changes/2025-10-30-agent-forge-docker-build',
+          label: '2025-10-30: Agent Forge Docker Build Integration',
+        },
+        {
+          type: 'doc',
           id: 'changes/2025-10-27-a2a-event-flow-architecture',
           label: '2025-10-27: A2A Event Flow Architecture',
         },

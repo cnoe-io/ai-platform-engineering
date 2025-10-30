@@ -203,7 +203,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
             except Exception:
                 chunk_dump = str(chunk)
 
-            logger.debug(f"Received A2A stream chunk: {chunk_dump}")
+            logger.info(f"Received A2A stream chunk: {chunk_dump}")
             # Don't stream raw chunk_dump - we'll stream extracted text only at line 251
 
             try:
@@ -212,17 +212,17 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 # We already dumped it above as chunk_dump
                 result = chunk_dump.get('result') if isinstance(chunk_dump, dict) else None
                 if not result:
-                    logger.debug("No result in chunk, skipping")
+                    logger.info("No result in chunk, skipping")
                     continue
 
                 # Get event kind
                 kind = result.get('kind')
                 logger.debug(f"Received event: {result}")
                 if not kind:
-                    logger.debug(f"No kind in result, skipping: {result}")
+                    logger.info(f"No kind in result, skipping: {result}")
                     continue
 
-                # Extract text from artifact-update events
+                # Extract and stream text from artifact-update events
                 if kind == "artifact-update":
                     logger.info(f"Received artifact-update event: {result}")
                     artifact = result.get('artifact')
@@ -234,6 +234,11 @@ class A2ARemoteAgentConnectTool(BaseTool):
                                 if text:
                                     accumulated_text.append(text)
                                     logger.debug(f"✅ Accumulated text from artifact-update: {len(text)} chars")
+
+                                    # TODO: Uncomment this when we are ready to stream artifact-update content for real-time feedback
+                                    # Stream artifact-update content in real-time
+                                    # writer({"type": "a2a_event", "data": text})
+                                    # logger.info(f"✅ Streamed text from artifact-update: {len(text)} chars")
 
                 # Extract text from status-update events (RAG agent streams via status messages)
                 elif kind == "status-update":
@@ -248,6 +253,15 @@ class A2ARemoteAgentConnectTool(BaseTool):
                                     text = part.get('text')
                                     if text:
                                         accumulated_text.append(text)
+
+                                        # TODO: Uncomment this when we are ready to stream status-update content for real-time feedback
+
+                                        # # Stream all status-update content for real-time feedback
+                                        # clean_text = text.replace('**', '')
+                                        # writer({"type": "a2a_event", "data": clean_text})
+                                        # logger.info(f"✅ Streamed content from status-update: {len(clean_text)} chars")
+                                        
+                                        
                                         # Check if tool output streaming is enabled
                                         stream_tool_output = os.getenv("STREAM_SUB_AGENT_TOOL_OUTPUT", "false").lower() == "true"
                                         
