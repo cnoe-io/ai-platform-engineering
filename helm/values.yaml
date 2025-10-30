@@ -4,7 +4,7 @@ tags:
 # Global configuration shared across all subcharts
 global:
   slim:
-    enabled: true
+    enabled: false
 
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
