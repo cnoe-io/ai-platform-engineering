@@ -138,3 +138,21 @@ agent-komodor:
       tag: "a2a_stream_common_code-44"
   agentSecrets:
     secretName: "komodor-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
+
+kb-rag-stack:
+  rag-server:
+    image:
+      repository: "ghcr.io/cnoe-io/prebuild/caipe-rag-server"
+      tag: "a2a_stream_common_code-44"
+  agent-rag:
+    image:
+      repository: "ghcr.io/cnoe-io/prebuild/caipe-rag-agent-rag"
+      tag: "a2a_stream_common_code-44"
+  agent-ontology:
+    image:
+      repository: "ghcr.io/cnoe-io/prebuild/caipe-rag-agent-ontology"
+      tag: "a2a_stream_common_code-44"
+  rag-webui:
+    image:
+      repository: "ghcr.io/cnoe-io/prebuild/caipe-rag-webui"
+      tag: "a2a_stream_common_code-44"
