@@ -360,8 +360,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/aws/agent_aws:/app/agent_aws
-      - ./ai_platform_engineering/agents/aws/clients:/app/clients
+      - ./ai_platform_engineering/agents/aws/agent_aws:/app/ai_platform_engineering/agents/aws/agent_aws
+      - ./ai_platform_engineering/agents/aws/clients:/app/ai_platform_engineering/agents/aws/clients
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8002:8000"
@@ -377,6 +377,9 @@ services:
       # - "strands": Original Strands-based implementation
       - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
       - ENABLE_STREAMING=${ENABLE_STREAMING:-true}
+      # Timeout configurations
+      - A2A_TIMEOUT=${A2A_TIMEOUT:-600}
+      - MCP_TIMEOUT=${MCP_TIMEOUT:-120}
       # Stream intermediate tool outputs to supervisor
       - STREAM_TOOL_OUTPUT=${STREAM_TOOL_OUTPUT:-true}
       - MAX_TOOL_OUTPUT_LENGTH=${MAX_TOOL_OUTPUT_LENGTH:-2000}
@@ -1438,7 +1441,7 @@ services:
       - -c
       - redis-server --save 60 1 --appendonly yes
     ports:
-      - "6379:6379"
+      - "6380:6379"
     restart: unless-stopped
     profiles:
       - rag_p2p
@@ -1472,7 +1475,7 @@ services:
       retries: 3
     ports:
       - "19530:19530"
-      - "9091:9091"
+      - "9092:9091"
     depends_on:
       - etcd
       - milvus-minio
@@ -1511,8 +1514,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     ports:
-      - "9001:9001"
-      - "9000:9000"
+      - "9002:9001"
+      - "9003:9000"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"

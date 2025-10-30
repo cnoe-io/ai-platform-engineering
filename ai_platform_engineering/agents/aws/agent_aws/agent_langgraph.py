@@ -68,19 +68,37 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         if enable_eks_mcp:
             system_prompt_parts.append(
                 "\n\n**EKS & Kubernetes Management:**\n"
-                "- Create, describe, and delete EKS clusters\n"
+                "- List all EKS clusters in the configured region (use tools without cluster_name parameter)\n"
+                "- Create, describe, and delete specific EKS clusters\n"
                 "- Manage Kubernetes resources (deployments, services, pods)\n"
                 "- Deploy containerized applications\n"
-                "- Retrieve logs and monitor cluster health"
+                "- Retrieve logs and monitor cluster health\n"
+                "- When listing clusters, DO NOT pass a cluster name parameter - list all clusters first"
             )
 
         if enable_cost_explorer_mcp:
+            from datetime import datetime
+            current_month_start = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+            current_date = datetime.now().strftime('%Y-%m-%d')
+            
             system_prompt_parts.append(
                 "\n\n**Cost Management & FinOps:**\n"
                 "- Analyze AWS spending and costs\n"
                 "- Create cost forecasts and budgets\n"
                 "- Identify cost optimization opportunities\n"
-                "- Generate cost reports and breakdowns"
+                "- Generate cost reports and breakdowns\n\n"
+                f"**Default Cost Query Settings:**\n"
+                f"- Use date range: Start={current_month_start}, End={current_date} (current month)\n"
+                "- AWS Cost Explorer only allows queries within the past 14 months\n"
+                "- For dimension queries, end date MUST be the first day of a month if querying beyond 14 months\n"
+                "- Always use recent dates (current or previous month) unless user specifies otherwise\n\n"
+                "**Cost Query Strategies:**\n"
+                "- When user asks for cost of a specific resource name (e.g., 'comn-dev-use2-1', 'my-cluster'):\n"
+                "  * First try filtering by Tags (use tag keys like 'Name', 'kubernetes.io/cluster/*', 'aws:eks:cluster-name')\n"
+                "  * Or group by SERVICE and filter by resource-specific tags\n"
+                "  * Do NOT treat resource names as SERVICE names\n"
+                "- Common AWS services: EC2, S3, RDS, EKS, Lambda, VPC, CloudWatch\n"
+                "- Resource names are NOT service names - they are tag values or resource identifiers"
             )
 
         if enable_iam_mcp:
@@ -123,6 +141,16 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
                 "- Analyze application and infrastructure performance"
             )
 
+        # Get the configured AWS region
+        aws_region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-west-2"))
+        
+        system_prompt_parts.append(
+            f"\n\n**AWS Configuration:**\n"
+            f"- Current AWS Region: {aws_region}\n"
+            f"- All AWS operations will be performed in this region unless explicitly specified otherwise\n"
+            f"- When users mention a region name (like 'us-east-2', 'us-west-2'), understand it as context about the current region, not as a resource name"
+        )
+        
         system_prompt_parts.append(
             "\n\n**Important Guidelines:**\n"
             "- Always verify AWS region and account context\n"
@@ -159,6 +187,11 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "true").lower() == "true"
         enable_cloudtrail_mcp = os.getenv("ENABLE_CLOUDTRAIL_MCP", "true").lower() == "true"
         enable_cloudwatch_mcp = os.getenv("ENABLE_CLOUDWATCH_MCP", "true").lower() == "true"
+        enable_aws_knowledge_mcp = os.getenv("ENABLE_AWS_KNOWLEDGE_MCP", "false").lower() == "true"
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🔍 MCP Enable Flags: EKS={enable_eks_mcp}, ECS={enable_ecs_mcp}, Cost={enable_cost_explorer_mcp}, IAM={enable_iam_mcp}, CloudTrail={enable_cloudtrail_mcp}, CloudWatch={enable_cloudwatch_mcp}, Knowledge={enable_aws_knowledge_mcp}")
         
         # Build environment variables for AWS
         env_vars = {
@@ -195,7 +228,7 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
             
             mcp_servers["ecs"] = {
                 "command": "uvx",
-                "args": ["awslabs.ecs-mcp-server@latest"],
+                "args": ["--from", "awslabs.ecs-mcp-server@latest", "ecs-mcp-server"],
                 "env": ecs_env,
                 "transport": "stdio",
             }
@@ -241,8 +274,18 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
                 "transport": "stdio",
             }
         
+        # Add AWS Knowledge MCP server
+        if enable_aws_knowledge_mcp:
+            mcp_servers["aws-knowledge"] = {
+                "url": "https://knowledge-mcp.global.api.aws",
+                "type": "http"
+            }
+        
         # Return configuration for all enabled servers
         # Note: This returns a dict of server configs, not a single server config
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🔍 AWS Agent MCP servers configured: {list(mcp_servers.keys())}")
         return mcp_servers
 
     def get_tool_working_message(self) -> str:
@@ -275,38 +318,48 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         logger = logging.getLogger(__name__)
         
         agent_name = self.get_agent_name()
-        mcp_mode = os.getenv('MCP_MODE', 'http')
         
-        # Setup MCP client
-        if mcp_mode.lower() == 'http':
-            mcp_http_config = self.get_mcp_http_config()
-            if mcp_http_config is None:
-                mcp_http_config = {"url": "http://localhost:8000"}
-            
-            logger.info(f"{agent_name}: Using HTTP transport for MCP client")
-            user_jwt = os.getenv("USER_JWT", "")
-            client = MultiServerMCPClient({
-                agent_name: {
-                    "transport": "streamable_http",
-                    "url": mcp_http_config["url"],
-                    "headers": {
-                        "Authorization": f"Bearer {user_jwt}",
-                    },
-                }
-            })
+        # Setup MCP client with STDIO transport
+        logger.info(f"{agent_name}: Using STDIO transport for MCP client")
+        mcp_config = self.get_mcp_config("")
+        
+        if mcp_config and "command" not in mcp_config:
+            logger.info(f"{agent_name}: Multi-server MCP configuration detected with {len(mcp_config)} servers")
+            client = MultiServerMCPClient(mcp_config)
         else:
-            logger.info(f"{agent_name}: Using STDIO transport for MCP client")
-            mcp_config = self.get_mcp_config("")
-            
-            if mcp_config and "command" not in mcp_config:
-                logger.info(f"{agent_name}: Multi-server MCP configuration detected with {len(mcp_config)} servers")
-                client = MultiServerMCPClient(mcp_config)
-            else:
-                client = MultiServerMCPClient({agent_name: mcp_config})
+            client = MultiServerMCPClient({agent_name: mcp_config})
 
         # Get tools from MCP client
-        tools = await client.get_tools()
-        logger.info(f"✅ {agent_name}: Loaded {len(tools)} tools from MCP servers")
+        all_tools = await client.get_tools()
+        logger.info(f"✅ {agent_name}: Loaded {len(all_tools)} tools from MCP servers")
+        
+        # Filter out tools with invalid schemas (OpenAI requires 'properties' for object types)
+        valid_tools = []
+        invalid_tools = []
+        for tool in all_tools:
+            args_schema = tool.args_schema or {}
+            # Check if schema has object type without properties
+            if args_schema.get('type') == 'object' and not args_schema.get('properties'):
+                logger.warning(f"⚠️  Skipping tool '{tool.name}' - invalid schema: object type without properties")
+                invalid_tools.append(tool.name)
+                continue
+            # Check nested properties for invalid schemas
+            properties = args_schema.get('properties', {})
+            has_invalid_nested = False
+            for prop_name, prop_schema in properties.items():
+                if isinstance(prop_schema, dict) and prop_schema.get('type') == 'object' and not prop_schema.get('properties'):
+                    logger.warning(f"⚠️  Skipping tool '{tool.name}' - invalid nested schema in property '{prop_name}'")
+                    invalid_tools.append(tool.name)
+                    has_invalid_nested = True
+                    break
+            if has_invalid_nested:
+                continue
+            valid_tools.append(tool)
+        
+        tools = valid_tools
+        if invalid_tools:
+            logger.warning(f"🚫 Filtered out {len(invalid_tools)} tools with invalid schemas: {invalid_tools}")
+        logger.info(f"✅ {agent_name}: Using {len(tools)} valid tools")
 
         # Store tool info for later reference
         for tool in tools:

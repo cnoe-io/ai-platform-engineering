@@ -11,7 +11,7 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
     "a2a-sdk==0.2.16",
     "langchain-core>=0.3.60",
-    "langchain-mcp-adapters>=0.1.0",
+    "langchain-mcp-adapters==0.1.11",
     "langgraph==0.5.3",
     "cnoe-agent-utils==0.3.2",
     "pydantic>=2.0.0",
@@ -21,7 +21,7 @@ dependencies = [
     "httpx>=0.24.0",
     "agntcy-app-sdk==0.1.4",
     "strands-agents>=0.1.0",
-    "mcp>=1.12.2",
+    "mcp==1.12.2",
 ]
 
 [tool.hatch.build.targets.wheel]

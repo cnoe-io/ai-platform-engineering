@@ -13,9 +13,6 @@ maintainers = [
 requires-python = ">=3.13,<4.0"
 dependencies = [
     "strands-agents>=0.1.0",
-    "awslabs.eks-mcp-server>=0.1.0",
-    "awslabs.cost-explorer-mcp-server>=0.0.11",
-    "awslabs.iam-mcp-server>=0.1.0",
     "boto3>=1.35.0",
     "pydantic>=2.0.0",
     "click>=8.2.0",
@@ -32,7 +29,9 @@ dependencies = [
     "starlette>=0.47.2",
     "typing-extensions>=4.14.1",
     "requests>=2.32.4",
-    "mcp>=1.12.2",
+    "mcp==1.12.2",
+    "langchain-mcp-adapters==0.1.11",
+    "langgraph==0.5.3",
     "ai-platform-engineering-utils",
 ]
 
