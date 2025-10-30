@@ -14,6 +14,8 @@ services:
       - p2p
       - p2p-basic
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - rag_only
     # The following block uses the extended 'depends_on' syntax to wait for agents to be healthy.
     # 'condition: service_healthy' waits for health checks to pass (with start_period + retries timeout).
@@ -121,6 +123,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
         - slim-dataplane
         - agent-argocd-slim
@@ -191,6 +195,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     ports:
       - "50051:50051"
       - "50052:50052"
@@ -212,8 +218,12 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -236,6 +246,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
       - mcp-argocd
@@ -267,6 +279,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     depends_on:
       - mcp-argocd
     env_file:
@@ -298,6 +312,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -357,6 +373,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -428,6 +446,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     volumes:
       - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/agent_backstage
       - ./ai_platform_engineering/agents/backstage/clients:/app/clients
@@ -458,6 +478,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -488,6 +510,8 @@ services:
       - p2p-tracing
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -510,6 +534,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -540,6 +566,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -570,6 +598,8 @@ services:
       - p2p-tracing
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -592,6 +622,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -623,6 +655,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -649,6 +683,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -681,6 +717,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -712,6 +750,8 @@ services:
       - p2p-tracing
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -734,6 +774,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -764,6 +806,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -794,6 +838,8 @@ services:
       - p2p-tracing
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -815,7 +861,9 @@ services:
     container_name: agent-pagerduty-slim
     profiles:
       - slim
-      - slim-tracing
+      - slim-tracing  
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -846,6 +894,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -876,6 +926,8 @@ services:
       - p2p-tracing
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -898,6 +950,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -930,6 +984,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -960,6 +1016,8 @@ services:
       - p2p-tracing
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -982,6 +1040,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -1009,6 +1069,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -1062,8 +1124,12 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -1085,6 +1151,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -1114,6 +1182,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     depends_on:
       - mcp-splunk
     env_file:
@@ -1144,6 +1214,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -1176,6 +1248,8 @@ services:
       - p2p
       - p2p-basic
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -1204,6 +1278,8 @@ services:
     profiles:
       - slim
       - slim-tracing
+      - slim-no-rag
+      - slim-no-rag-tracing
     depends_on:
       - slim-dataplane
     env_file:
@@ -1235,6 +1311,8 @@ services:
       - p2p
       - p2p-basic
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
     env_file:
       - .env
     volumes:
@@ -1254,11 +1332,11 @@ services:
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                       #
   ####################################################################################################
-  backstage-agent-forge:
-    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
-    container_name: backstage-agent-forge
-    ports:
-      - "13000:3000"
+  # backstage-agent-forge:
+  #   image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+  #   container_name: backstage-agent-forge
+  #   ports:
+  #     - "13000:3000"
 
   ####################################################################################################
   #                                             RAG SERVICES                                         #
@@ -1294,7 +1372,9 @@ services:
       - rag_no_graph_p2p
       - p2p
       - p2p-tracing
-
+      - p2p-no-rag
+      - p2p-no-rag-tracing
+      - slim-no-rag-tracing
   agent_rag:
     container_name: agent_rag
     ports:
@@ -1363,7 +1443,6 @@ services:
       dockerfile: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.agent-ontology
     profiles:
       - rag_p2p
-
   rag_webui:
     build:
       context: .
@@ -1381,7 +1460,6 @@ services:
       - rag_no_graph_p2p
       - p2p
       - p2p-tracing
-
 
   ###########################################
   # Dependent services for RAG              #
@@ -1430,7 +1508,6 @@ services:
       - rag_p2p
       - p2p
       - p2p-tracing
-
   rag-redis:
     image: redis
     container_name: rag-redis
@@ -1447,8 +1524,7 @@ services:
       - rag_p2p
       - rag_no_graph_p2p
       - p2p
-      - p2p-tracing
-
+      - p2p-tracing 
   milvus-standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.6.0
@@ -1536,6 +1612,7 @@ services:
     profiles:
       - p2p-tracing
       - slim-tracing
+      - p2p-no-rag-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -1582,6 +1659,7 @@ services:
     profiles:
       - p2p-tracing
       - slim-tracing
+      - p2p-no-rag-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -1631,6 +1709,7 @@ services:
     profiles:
       - p2p-tracing
       - slim-tracing
+      - p2p-no-rag-tracing
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -1656,6 +1735,7 @@ services:
     profiles:
       - p2p-tracing
       - slim-tracing
+      - p2p-no-rag-tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
@@ -1680,6 +1760,7 @@ services:
     profiles:
       - p2p-tracing
       - slim-tracing
+      - p2p-no-rag-tracing
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
     ports:
@@ -1697,6 +1778,7 @@ services:
     profiles:
       - p2p-tracing
       - slim-tracing
+      - p2p-no-rag-tracing
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s
@@ -1724,6 +1806,7 @@ services:
       - slim-tracing
       - p2p-tracing
       - evaluation
+      - p2p-no-rag-tracing
     depends_on:
       langfuse-web:
         condition: service_started
