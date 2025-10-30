@@ -13,8 +13,8 @@ global:
 ######### Supervisor agent configuration #########
 supervisor-agent:
   image:
-    repository: "ghcr.io/cnoe-io/ai-platform-engineering"
-    tag: "latest"
+    repository: "ghcr.io/cnoe-io/prebuild/ai-platform-engineering"
+    tag: "a2a_stream_common_code-43"
     pullPolicy: "Always"
     args: ["platform-engineer"]
 
