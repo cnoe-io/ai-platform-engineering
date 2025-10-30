@@ -21,7 +21,7 @@ dependencies = [
     "httpx>=0.24.0",
     "agntcy-app-sdk==0.1.4",
     "strands-agents>=0.1.0",
-    "mcp==1.12.2",
+    "mcp>=1.12.3",
 ]
 
 [tool.hatch.build.targets.wheel]
