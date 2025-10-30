@@ -14,6 +14,7 @@ tags:
   agent-splunk: false
   agent-webex: false
   rag-stack: false
+  fake-tags: false
 
 # Global configuration shared across all subcharts
 global:
