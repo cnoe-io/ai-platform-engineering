@@ -43,9 +43,9 @@ dependencies:
   version: v0.1.3
 - name: rag-stack
   repository: file://../rag-stack
-  version: 0.0.1
+  version: 0.0.2
 - name: backstage-plugin-agent-forge
   repository: ""
   version: 0.1.0
-digest: sha256:0bb0ae712cf7adcd0d75e957895ce1d3d608cabd63e59d43da40ed2004a10892
-generated: "2025-10-20T14:49:03.407133-05:00"
+digest: sha256:1041221facb47d0b99a6cde082c6f7cf359644a314ff5ea4ccf337efec75f5a5
+generated: "2025-10-29T22:21:22.755456132Z"
