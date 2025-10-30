@@ -131,7 +131,7 @@ agent-webex:
 agent-komodor:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-komodor"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-43"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/mcp-komodor"
