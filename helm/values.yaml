@@ -14,7 +14,7 @@ global:
 supervisor-agent:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/ai-platform-engineering"
-    tag: "a2a_stream_common_code-43"
+    tag: "a2a_stream_common_code-45"
     pullPolicy: "Always"
     args: ["platform-engineer"]
   env:
