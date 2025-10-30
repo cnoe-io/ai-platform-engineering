@@ -23,40 +23,40 @@ supervisor-agent:
 agent-argocd:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-argocd"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/mcp-argocd"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agentSecrets:
     secretName: "argocd-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-backstage:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-backstage"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/mcp-backstage"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agentSecrets:
     secretName: "backstage-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-confluence:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-confluence"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/mcp-confluence"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agentSecrets:
     secretName: "agent-confluence-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-github:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-github"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     useRemoteMcpServer: true
   agentSecrets:
@@ -65,40 +65,40 @@ agent-github:
 agent-jira:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-jira"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/mcp-jira"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agentSecrets:
     secretName: "atlassian-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-pagerduty:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-pagerduty"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/mcp-pagerduty"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agentSecrets:
     secretName: "pagerduty-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-slack:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-slack"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/mcp-slack"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agentSecrets:
     secretName: "slack-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-aws:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-aws"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     mode: "stdio"
   agentSecrets:
@@ -109,18 +109,18 @@ agent-aws:
 agent-splunk:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-splunk"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/mcp-splunk"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agentSecrets:
     secretName: "splunk-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
 agent-webex:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-webex"
-    tag: "a2a_stream_common_code-44"
+    tag: "a2a_stream_common_code-45"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-webex"
@@ -131,11 +131,11 @@ agent-webex:
 agent-komodor:
   image:
     repository: "ghcr.io/cnoe-io/prebuild/agent-komodor"
-    tag: "a2a_stream_common_code-43"
+    tag: "a2a_stream_common_code-45"
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/mcp-komodor"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agentSecrets:
     secretName: "komodor-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
@@ -143,15 +143,15 @@ kb-rag-stack:
   rag-server:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/caipe-rag-server"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agent-rag:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/caipe-rag-agent-rag"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   agent-ontology:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/caipe-rag-agent-ontology"
-      tag: "a2a_stream_common_code-44"
+      tag: "a2a_stream_common_code-45"
   rag-webui:
     image:
       repository: "ghcr.io/cnoe-io/prebuild/caipe-rag-webui"
