@@ -3,10 +3,11 @@ description: "Publish pre-release Helm charts"
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - charts/**
   pull_request_target:
-    types: [closed]
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
     paths:
       - charts/**
 
@@ -20,14 +21,24 @@ jobs:
     name: Publish Pre-release Helm Chart
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'pull_request' &&
-      startsWith(github.head_ref, 'pre/') &&
-      github.event.action != 'closed'
+      github.event.action != 'closed' &&
+      (
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          startsWith(github.head_ref, 'pre/')
+        ) ||
+        (
+          github.event_name == 'pull_request_target' &&
+          contains(github.event.pull_request.labels.*.name, 'helm-prerelease')
+        )
+      )
 
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: ⚙️ Set up Helm
@@ -81,7 +92,7 @@ jobs:
       - name: 🏷️ Generate Pre-release Versions
         id: version
         run: |
-          # Get branch name without 'pre/' prefix and sanitize for version
+          # Get branch name and remove 'pre/' prefix if present
           BRANCH_NAME="${{ github.head_ref }}"
           CLEAN_BRANCH=$(echo "${BRANCH_NAME#pre/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
@@ -210,8 +221,14 @@ jobs:
             const registry = `ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts`;
             const ragStackChanged = '${{ steps.detect.outputs.rag-stack-changed }}' === 'true';
             const aiPlatformChanged = '${{ steps.detect.outputs.ai-platform-changed }}' === 'true';
+            const isFork = '${{ github.event.pull_request.head.repo.full_name }}' !== '${{ github.repository }}';
 
             let body = `## 📦 Pre-release Helm Charts Published\n\n`;
+
+            if (isFork) {
+              body += `> 🔀 **Fork PR** - Published via \`helm-prerelease\` label\n\n`;
+            }
+
             body += `**Registry:** \`${registry}\`\n\n`;
 
             if (ragStackChanged) {
@@ -232,7 +249,14 @@ jobs:
               body += `\`\`\`\n\n`;
             }
 
-            body += `> **Note:** These pre-release versions will be automatically cleaned up when the PR is closed or merged.`;
+            const isBranchTrigger = '${{ github.head_ref }}'.startsWith('pre/');
+            const isLabelTrigger = !isBranchTrigger;
+
+            body += `> **Note:** These pre-release versions will be automatically cleaned up when the PR is closed or merged.\n\n`;
+
+            if (isLabelTrigger) {
+              body += `> **Tip:** Remove the \`helm-prerelease\` label to immediately cleanup pre-release versions and stop publishing new ones.`;
+            }
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -246,8 +270,19 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'pull_request_target' &&
-      github.event.action == 'closed' &&
-      startsWith(github.event.pull_request.head.ref, 'pre/')
+      (
+        (
+          github.event.action == 'closed' &&
+          (
+            startsWith(github.event.pull_request.head.ref, 'pre/') ||
+            contains(github.event.pull_request.labels.*.name, 'helm-prerelease')
+          )
+        ) ||
+        (
+          github.event.action == 'unlabeled' &&
+          github.event.label.name == 'helm-prerelease'
+        )
+      )
 
     steps:
       - name: 🔐 Login to GHCR
@@ -256,7 +291,7 @@ jobs:
 
       - name: 🗑️ Delete Pre-release Chart Versions
         run: |
-          # Get branch name and sanitize
+          # Get branch name and remove 'pre/' prefix if present
           BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
           CLEAN_BRANCH=$(echo "${BRANCH_NAME#pre/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
