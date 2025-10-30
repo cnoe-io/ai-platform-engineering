@@ -123,8 +123,8 @@ agent-webex:
     tag: "a2a_stream_common_code-44"
   mcp:
     image:
-      repository: "ghcr.io/cnoe-io/prebuild/mcp-webex"
-      tag: "a2a_stream_common_code-44"
+      repository: "ghcr.io/cnoe-io/mcp-webex"
+      tag: "latest"
   agentSecrets:
     secretName: "webex-secret" # Specify an existing Kubernetes secret name, or leave empty to auto-generate from values-secrets.yaml
 
