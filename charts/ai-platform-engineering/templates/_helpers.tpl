@@ -59,6 +59,19 @@ Create chart name and version as used by the chart label.
 {{- end }}
 
 {{/*
+Get externalSecrets API version with fallback to v1 (most clusters have v1 installed)
+*/}}
+{{- define "ai-platform-engineering.externalSecrets.apiVersion" -}}
+    {{- if and (hasKey .Values "global") (hasKey .Values.global "externalSecrets") (hasKey .Values.global.externalSecrets "apiVersion") }}
+        {{- .Values.global.externalSecrets.apiVersion }}
+    {{- else if and (hasKey .Values "global") (hasKey .Values.global "llmSecrets") (hasKey .Values.global.llmSecrets "externalSecrets") (hasKey .Values.global.llmSecrets.externalSecrets "apiVersion") }}
+        {{- .Values.global.llmSecrets.externalSecrets.apiVersion }}
+    {{- else }}
+        {{- "v1" }}
+    {{- end }}
+{{- end }}
+
+{{/*
 Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 */}}
 {{- define "ai-platform-engineering.externalSecrets.secretStoreRef" -}}
