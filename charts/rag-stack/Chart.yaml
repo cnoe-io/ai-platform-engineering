@@ -3,8 +3,8 @@ name: rag-stack
 description: A complete RAG stack including web UI, server, agents, Redis, Neo4j and Milvus
 
 type: application
-version: 0.0.2
-appVersion: "0.0.1"
+version: 0.0.3
+appVersion: "0.0.3"
 
 dependencies:
   - name: rag-server
@@ -34,7 +34,7 @@ dependencies:
     alias: neo4j-ontology
     condition: neo4j-ontology.enabled
   - name: rag-redis
-    version: "0.0.1"
+    version: "0.0.2"
     repository: "file://./charts/rag-redis"
     condition: rag-redis.enabled
   - name: milvus

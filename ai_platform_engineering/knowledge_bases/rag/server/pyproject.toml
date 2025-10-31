@@ -43,6 +43,7 @@ dependencies = [
     "redis>=5.0.0",
     "uvicorn>=0.35.0",
     "fastmcp>=2.12.4",
+    "pandas>=2.0.0",
     "common",
 ]
 
