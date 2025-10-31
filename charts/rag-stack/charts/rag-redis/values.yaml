@@ -132,6 +132,18 @@ tolerations: []
 
 affinity: {}
 
+# Persistence configuration for Redis data
+persistence:
+  # Enable persistent storage
+  enabled: true
+  # Storage class to use for the PVC (if not set, uses the default storage class)
+  storageClass: ""
+  # Access modes for the volume
+  accessModes:
+    - ReadWriteOnce
+  # Size of the persistent volume
+  size: 8Gi
+
 # Export values for parent chart import-values
 exports:
   host: "rag-redis"
