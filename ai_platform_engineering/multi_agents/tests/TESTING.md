@@ -16,10 +16,10 @@ All 60 tests pass successfully when run in isolation:
 There is currently a dependency issue preventing the tests from running via `make test` or `make test-multi-agents`:
 
 ```
-ModuleNotFoundError: No module named 'ai_platform_engineering.common.a2a.base_agent'
+ModuleNotFoundError: No module named 'ai_platform_engineering.utils.a2a.base_agent'
 ```
 
-**Root Cause**: The installed `a2a` package is trying to import from `ai_platform_engineering.common.a2a.base_agent`, but the `common` module is currently under construction and doesn't have this module yet.
+**Root Cause**: The installed `a2a` package is trying to import from `ai_platform_engineering.utils.a2a.base_agent`, but the `common` module is currently under construction and doesn't have this module yet.
 
 **Impact**: This affects the import of the `agent_registry` module itself, not the test code.
 
@@ -69,8 +69,8 @@ All tests pass successfully! ✅
 To integrate these tests into the main test suite:
 
 1. **Fix the dependency issue**:
-   - Complete the `ai_platform_engineering.common.a2a` module
-   - Ensure `BaseAgent` is properly exported
+   - Complete the `ai_platform_engineering.utils.a2a` module
+   - Ensure `BaseLangGraphAgent` is properly exported
    - Update the `a2a` package to not require this import during test collection
 
 2. **Alternative: Mock the import**:

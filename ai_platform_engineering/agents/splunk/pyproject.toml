@@ -14,7 +14,8 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
     "a2a-sdk==0.2.16",
     "agentevals>=0.0.7",
-    "agntcy-app-sdk>=0.1.4",
+    "agntcy-app-sdk==0.1.4",
+    "slim-bindings==0.3.6",
     "click>=8.2.0",
     "langchain-anthropic>=0.3.13",
     "langchain-core>=0.3.60",

@@ -4,8 +4,9 @@
 
 """Model for Lastrunat"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Lastrunat(BaseModel):
 class LastrunatResponse(APIResponse):
     """Response model for Lastrunat"""
 
-    data: Optional[Lastrunat] = None
+    data: Lastrunat | None = None
 
 
 class LastrunatListResponse(APIResponse):
     """List response model for Lastrunat"""
 
-    data: List[Lastrunat] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Lastrunat] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

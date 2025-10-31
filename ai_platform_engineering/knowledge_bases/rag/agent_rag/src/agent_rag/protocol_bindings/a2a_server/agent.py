@@ -61,6 +61,11 @@ else:
 
 class QnAAgent:
     SUPPORTED_CONTENT_TYPES = ['text', 'text/plain']
+
+    def get_agent_name(self) -> str:
+        """Return the agent name for logging."""
+        return "RAG Agent"
+
     def __init__(self):
         if graph_rag_enabled:
             self.graphdb = Neo4jDB(readonly=True)
@@ -129,44 +134,56 @@ class QnAAgent:
         inputs = {'messages': [('user', query)]}
         config = {'configurable': {'thread_id': context_id}}
 
-        async for item in self.graph.astream(inputs, config, stream_mode='values'): # type: ignore
-            message = item['messages'][-1]
-            logger.info(f"Processing message of type: {type(message)}")
-            if isinstance(message, AIMessage):
-                if message.tool_calls and len(message.tool_calls) > 0:
-                    # Extract thoughts from tool calls to show user what the AI is thinking
-                    thoughts = []
-                    for tool_call in message.tool_calls:
-                        logger.debug(f"Processing tool call: {tool_call}")
-                        # Extract the thought parameter if it exists in the tool call args
-                        # Handle both dict and object formats
-                        args = None
-                        if hasattr(tool_call, 'args') and isinstance(tool_call.args, dict):
-                            args = tool_call.args
-                        elif isinstance(tool_call, dict) and 'args' in tool_call:
-                            args = tool_call['args']
-                        if args and isinstance(args, dict):
-                            thought = args.get('thought') # All rag tools have 'thought' param
-                            if thought:
-                                thoughts.append(thought)
-                        else:
-                            logger.debug(f"No args found in tool_call: {tool_call}")
+        # Track which tool calls we've already processed to avoid duplicates
+        seen_tool_calls = set()
 
+        # Use astream_events for token-by-token streaming
+        # Direct queries: Tokens streamed immediately to user (ChatGPT-like experience)
+        # Deep Agent: Tool collects all tokens via send_message_streaming, returns complete text
+        async for event in self.graph.astream_events(inputs, config, version='v2'): # type: ignore
+            event_type = event.get('event')
 
-                    # Use the extracted thoughts or fall back to a generic message
-                    if thoughts:
-                        content = "\n".join(thoughts) + "...\n"
-                    else:
-                        content = "Checking knowledge base...\n"
-                    logger.info(f"Thought from tool call: {content}")
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': content,
-                    }
-        response = self.get_agent_response(config)
-        logger.debug(f"Final agent response: {response}")
-        yield response
+            # Handle tool call events (show search indicator once per tool)
+            if event_type == 'on_chat_model_stream':
+                chunk_data = event.get('data', {}).get('chunk')
+                if chunk_data:
+                    # Check for tool calls - only yield once per tool call
+                    if hasattr(chunk_data, 'tool_call_chunks') and chunk_data.tool_call_chunks:
+                        for tool_call_chunk in chunk_data.tool_call_chunks:
+                            tool_call_id = getattr(tool_call_chunk, 'id', None)
+                            if not tool_call_id or tool_call_id in seen_tool_calls:
+                                continue
+
+                            seen_tool_calls.add(tool_call_id)
+                            content = "🔍 Searching knowledge base..."
+                            logger.info(f"Search initiated: {tool_call_id}")
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': content,
+                            }
+
+                    # Handle content tokens (stream each token immediately!)
+                    elif hasattr(chunk_data, 'content') and chunk_data.content:
+                        token = chunk_data.content
+                        if isinstance(token, str) and token:
+                            logger.debug(f"Token: '{token}' ({len(token)} chars)")
+
+                            # Yield each token immediately
+                            # Direct queries: User sees tokens in real-time
+                            # Deep Agent: Tool accumulates via send_message_streaming
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': token,
+                            }
+
+        # Send final completion marker
+        yield {
+            'is_task_complete': True,
+            'require_user_input': False,
+            'content': '',  # Empty - content already streamed above
+        }
 
     def get_agent_response(self, config):
         """

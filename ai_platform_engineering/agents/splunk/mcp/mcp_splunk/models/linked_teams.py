@@ -4,8 +4,9 @@
 
 """Model for Linkedteams"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -18,11 +19,11 @@ class Linkedteams(BaseModel):
 class LinkedteamsResponse(APIResponse):
     """Response model for Linkedteams"""
 
-    data: Optional[Linkedteams] = None
+    data: Linkedteams | None = None
 
 
 class LinkedteamsListResponse(APIResponse):
     """List response model for Linkedteams"""
 
-    data: List[Linkedteams] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Linkedteams] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

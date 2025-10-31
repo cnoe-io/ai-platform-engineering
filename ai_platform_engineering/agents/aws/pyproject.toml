@@ -10,12 +10,9 @@ authors = [
 maintainers = [
     { name = "Omar Sayed", email = "osayed@cisco.com" },
 ]
-requires-python = ">=3.11, <4.0"
+requires-python = ">=3.13,<4.0"
 dependencies = [
     "strands-agents>=0.1.0",
-    "awslabs.eks-mcp-server>=0.1.0",
-    "awslabs.cost-explorer-mcp-server>=0.0.11",
-    "awslabs.iam-mcp-server>=0.1.0",
     "boto3>=1.35.0",
     "pydantic>=2.0.0",
     "click>=8.2.0",
@@ -32,11 +29,20 @@ dependencies = [
     "starlette>=0.47.2",
     "typing-extensions>=4.14.1",
     "requests>=2.32.4",
-    "mcp>=1.12.2",
+    "mcp>=1.12.3",
+    "langchain-mcp-adapters==0.1.11",
+    "langgraph==0.5.3",
+    "ai-platform-engineering-utils",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.uv.sources]
+ai-platform-engineering-utils = { path = "../../utils" }
 
 [tool.poetry.scripts]
 agent_aws_a2a = "agent_aws.protocol_bindings.a2a_server:main"

@@ -10,15 +10,19 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 ENV UV_PYTHON_DOWNLOADS=0
 
 # Copy over the local dependencies
-COPY common /app/common
+COPY ./ai_platform_engineering/knowledge_bases/rag/common /app/common
+
+# Copy ai_platform_engineering utils for base agent classes
+COPY ./ai_platform_engineering/utils /app/ai_platform_engineering/utils
+COPY ./ai_platform_engineering/__init__.py /app/ai_platform_engineering/__init__.py
 
 WORKDIR /app/agent_rag
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=agent_rag/uv.lock,target=uv.lock \
-    --mount=type=bind,source=agent_rag/pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=./ai_platform_engineering/knowledge_bases/rag/agent_rag/uv.lock,target=uv.lock \
+    --mount=type=bind,source=./ai_platform_engineering/knowledge_bases/rag/agent_rag/pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-dev
 
-COPY agent_rag .
+COPY ./ai_platform_engineering/knowledge_bases/rag/agent_rag .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 
@@ -40,6 +44,9 @@ WORKDIR /app/agent_rag
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/agent_rag/.venv/bin:$PATH"
+
+# Add /app to PYTHONPATH so ai_platform_engineering module can be imported
+ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # Use a non-root user to run the application
 USER app
