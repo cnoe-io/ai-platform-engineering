@@ -22,6 +22,6 @@ RUN yarn install --immutable --network-timeout 600000
 
 EXPOSE 3000
 
-# Run from root to access yarn state files, specify workspace
+# Run yarn start from workspace directory using shell
 WORKDIR /app
-CMD ["yarn", "workspace", "@caipe/agent-forge-workspace", "start"]
+CMD ["/bin/sh", "-c", "cd workspaces/agent-forge && yarn start"]
