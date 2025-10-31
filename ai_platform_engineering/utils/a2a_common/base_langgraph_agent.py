@@ -396,11 +396,18 @@ Use this as the reference point for all date calculations. When users say "today
         enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
         
         if enable_streaming:
-            # Token-by-token streaming mode using 'messages'
+            # Token-by-token streaming mode using 'messages' and 'custom' (for writer() events from tools)
             logger.info(f"{agent_name}: Token-by-token streaming ENABLED")
             processed_message_count = 0
-            async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages']):
+            async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
                 # Process message stream
+                if item_type == 'custom':
+                    # Handle custom events from writer() (e.g., sub-agent streaming)
+                    logger.info(f"{agent_name}: Received custom event from writer(): {item}")
+                    # Yield custom events as-is for the executor to handle
+                    yield item
+                    continue
+                
                 if item_type != 'messages':
                     continue
                     

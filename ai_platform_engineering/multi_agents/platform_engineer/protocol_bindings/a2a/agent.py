@@ -79,16 +79,25 @@ class AIPlatformEngineerA2ABinding:
           async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
               
               # Handle custom A2A event payloads from sub-agents
-              if item_type == 'custom' and isinstance(item, dict) and item.get("type") == "a2a_event":
-                  custom_text = item.get("data", "")
-                  if custom_text:
-                      logging.info(f"Processing custom a2a_event from sub-agent: {len(custom_text)} chars")
-                      yield {
-                          "is_task_complete": False,
-                          "require_user_input": False,
-                          "content": custom_text,
-                      }
-                  continue
+              if item_type == 'custom' and isinstance(item, dict):
+                  # Handle different custom event types
+                  if item.get("type") == "a2a_event":
+                      # Legacy a2a_event format (text-based)
+                      custom_text = item.get("data", "")
+                      if custom_text:
+                          logging.info(f"Processing custom a2a_event from sub-agent: {len(custom_text)} chars")
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "content": custom_text,
+                          }
+                      continue
+                  elif item.get("type") == "artifact-update":
+                      # New artifact-update format from sub-agents (full A2A event)
+                      # Yield the entire event dict for the executor to handle
+                      logging.info(f"Received artifact-update custom event from sub-agent, forwarding to executor")
+                      yield item
+                      continue
               
               # Process message stream
               if item_type != 'messages':

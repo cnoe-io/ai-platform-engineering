@@ -132,6 +132,39 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                     )
                 )
             else:
+                # Check if this is a custom event from writer() (e.g., sub-agent streaming via artifact-update)
+                if 'type' in event and event.get('type') == 'artifact-update':
+                    # Custom artifact-update event from sub-agent - forward as TaskArtifactUpdateEvent
+                    result = event.get('result', {})
+                    artifact = result.get('artifact')
+                    
+                    if artifact:
+                        # Extract text length for logging
+                        parts = artifact.get('parts', [])
+                        text_len = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict))
+                        
+                        logger.info(f"{agent_name}: Forwarding artifact-update from sub-agent ({text_len} chars)")
+                        
+                        # Convert dict to proper Artifact object
+                        from a2a.types import Artifact, TextPart
+                        artifact_obj = Artifact(
+                            artifactId=artifact.get('artifactId'),
+                            name=artifact.get('name', 'streaming_result'),
+                            description=artifact.get('description', 'Streaming from sub-agent'),
+                            parts=[TextPart(text=p.get('text', '')) for p in parts if isinstance(p, dict) and p.get('text')]
+                        )
+                        
+                        await event_queue.enqueue_event(
+                            TaskArtifactUpdateEvent(
+                                append=result.get('append', True),
+                                contextId=task.contextId,
+                                taskId=task.id,
+                                lastChunk=result.get('lastChunk', False),
+                                artifact=artifact_obj,
+                            )
+                        )
+                    continue
+                
                 # Agent is still working - stream tool messages immediately, accumulate AI responses
                 content = event['content']
 
