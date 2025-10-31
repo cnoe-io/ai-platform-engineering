@@ -80,27 +80,10 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           path: community-plugins
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'yarn'
-          cache-dependency-path: community-plugins/yarn.lock
-
       - name: Copy custom Dockerfile
         run: |
           cp main-repo/build/agent-forge/Dockerfile community-plugins/Dockerfile
           echo "Using custom Dockerfile from build/agent-forge/"
-
-      - name: Install dependencies
-        working-directory: community-plugins
-        run: |
-          yarn install --frozen-lockfile
-
-      - name: Build project
-        working-directory: community-plugins
-        run: |
-          cd workspaces/agent-forge && yarn build:all
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
