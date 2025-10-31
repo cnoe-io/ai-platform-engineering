@@ -20,8 +20,8 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 # Install dependencies - yarn will handle the workspace setup
 RUN yarn install --immutable --network-timeout 600000
 
-WORKDIR /app/workspaces/agent-forge
-
 EXPOSE 3000
 
-CMD ["yarn", "start"]
+# Run from root to access yarn state files, specify workspace
+WORKDIR /app
+CMD ["yarn", "workspace", "@caipe/agent-forge-workspace", "start"]
