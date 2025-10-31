@@ -226,19 +226,28 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 if kind == "artifact-update":
                     logger.info(f"Received artifact-update event: {result}")
                     artifact = result.get('artifact')
+                    logger.info(f"🔍 artifact type: {type(artifact)}, is_dict: {isinstance(artifact, dict)}")
                     if artifact and isinstance(artifact, dict):
                         parts = artifact.get('parts', [])
+                        logger.info(f"🔍 parts count: {len(parts)}")
                         for part in parts:
+                            logger.info(f"🔍 part type: {type(part)}, is_dict: {isinstance(part, dict)}")
                             if isinstance(part, dict):
                                 text = part.get('text')
+                                logger.info(f"🔍 text extracted: '{text}', exists: {bool(text)}")
                                 if text:
                                     accumulated_text.append(text)
-                                    logger.debug(f"✅ Accumulated text from artifact-update: {len(text)} chars")
+                                    logger.info(f"✅ Accumulated text from artifact-update: {len(text)} chars")
 
-                                    # TODO: Uncomment this when we are ready to stream artifact-update content for real-time feedback
-                                    # Stream artifact-update content in real-time
-                                    # writer({"type": "a2a_event", "data": text})
-                                    # logger.info(f"✅ Streamed text from artifact-update: {len(text)} chars")
+                                    # Check if artifact streaming is enabled (for agents like AWS that use artifact-update for streaming)
+                                    enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
+                                    
+                                    if enable_artifact_streaming:
+                                        # Stream the entire artifact-update result as-is (preserves A2A event structure)
+                                        writer({"type": "artifact-update", "result": result})
+                                        logger.info(f"✅ Streamed artifact-update event (ENABLE_ARTIFACT_STREAMING=true): {len(text)} chars")
+                                    else:
+                                        logger.info(f"⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
 
                 # Extract text from status-update events (RAG agent streams via status messages)
                 elif kind == "status-update":

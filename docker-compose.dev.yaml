@@ -24,7 +24,7 @@ services:
       agent-argocd-p2p:
         condition: service_started
       agent-aws-p2p:
-        condition: service_started
+        condition: service_healthy
       agent-backstage-p2p:
         condition: service_started
       agent-confluence-p2p:
@@ -39,9 +39,9 @@ services:
         condition: service_started
       agent-petstore-p2p:
         condition: service_started
-      agent_rag:
-        # condition: service_healthy
-        condition: service_started
+      # agent_rag:
+      #   # condition: service_healthy
+      #   condition: service_started
       agent-slack-p2p:
         condition: service_started
       agent-splunk-p2p:
@@ -98,6 +98,17 @@ services:
       - ENABLE_WEBEX=true
       - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
+      # Structured response format with execution plan validation
+      # Set to "true" to enforce execution plans with Pydantic validation
+      - ENABLE_STRUCTURED_RESPONSE_FORMAT=false
+      # Metadata detection for user input requirements
+      # Set to "true" to automatically detect and extract input fields from agent responses
+      # When enabled, agent responses asking for user input are wrapped with structured metadata
+      - ENABLE_METADATA_DETECTION=false
+      # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
+      # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
+      # When enabled, the platform engineer will stream sub-agent responses token-by-token
+      - ENABLE_ARTIFACT_STREAMING=true
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -370,6 +381,12 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-p2p
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent.json', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -387,13 +404,17 @@ services:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=stdio
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      # Enable token streaming (artifact-update events)
+      - ENABLE_ARTIFACT_STREAMING=true
+      # 🆕 Add newline after each chunk
+      - STREAM_CHUNK_NEWLINES=true    # Default: false
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # AWS Agent Backend Selection
       # - "langgraph" (default): Tool notifications + token streaming
       # - "strands": Original Strands-based implementation
-      - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
+      - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-strands}
       - ENABLE_STREAMING=${ENABLE_STREAMING:-true}
       # Timeout configurations
       - A2A_TIMEOUT=${A2A_TIMEOUT:-600}
@@ -510,6 +531,8 @@ services:
       - p2p-tracing
       - slim
       - slim-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - slim-no-rag
       - slim-no-rag-tracing
     env_file:
@@ -596,6 +619,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - slim
       - slim-tracing
       - slim-no-rag
@@ -748,6 +773,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - slim
       - slim-tracing
       - slim-no-rag
@@ -836,6 +863,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - slim
       - slim-tracing
       - slim-no-rag
@@ -924,6 +953,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - slim
       - slim-tracing
       - slim-no-rag
@@ -1014,6 +1045,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - slim
       - slim-tracing
       - slim-no-rag
@@ -1100,6 +1133,8 @@ services:
     profiles:
       - p2p
       - p2p-tracing
+      - p2p-no-rag
+      - p2p-no-rag-tracing
       - slim
       - slim-tracing
     env_file:
@@ -1372,8 +1407,6 @@ services:
       - rag_no_graph_p2p
       - p2p
       - p2p-tracing
-      - p2p-no-rag
-      - p2p-no-rag-tracing
       - slim-no-rag-tracing
   agent_rag:
     container_name: agent_rag

@@ -1013,6 +1013,46 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     await self._safe_enqueue_event(event_queue, event)
                     continue
                 
+                # Check if this is a custom event from writer() (e.g., sub-agent streaming via artifact-update)
+                if isinstance(event, dict) and 'type' in event and event.get('type') == 'artifact-update':
+                    # Custom artifact-update event from sub-agent (via writer() in a2a_remote_agent_connect.py)
+                    result = event.get('result', {})
+                    artifact = result.get('artifact')
+                    
+                    if artifact:
+                        # Extract text length for logging
+                        parts = artifact.get('parts', [])
+                        text_len = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict))
+                        
+                        logger.info(f"🎯 Platform Engineer: Forwarding artifact-update from sub-agent ({text_len} chars)")
+                        
+                        # Convert dict to proper Artifact object
+                        from a2a.types import Artifact, TextPart
+                        artifact_obj = Artifact(
+                            artifactId=artifact.get('artifactId'),
+                            name=artifact.get('name', 'streaming_result'),
+                            description=artifact.get('description', 'Streaming from sub-agent'),
+                            parts=[TextPart(text=p.get('text', '')) for p in parts if isinstance(p, dict) and p.get('text')]
+                        )
+                        
+                        # Use first_artifact_sent logic for append flag
+                        use_append = first_artifact_sent
+                        if not first_artifact_sent:
+                            first_artifact_sent = True
+                            logger.info("📝 First sub-agent artifact chunk (append=False)")
+                        
+                        await self._safe_enqueue_event(
+                            event_queue,
+                            TaskArtifactUpdateEvent(
+                                append=use_append,
+                                context_id=task.context_id,
+                                task_id=task.id,
+                                lastChunk=result.get('lastChunk', False),
+                                artifact=artifact_obj,
+                            )
+                        )
+                    continue
+                
                 # Normalize content to string (handle cases where AWS Bedrock returns list)
                 # This is due to AWS Bedrock having a different format for the content for streaming compared to Azure OpenAI.
                 content = event.get('content', '')
