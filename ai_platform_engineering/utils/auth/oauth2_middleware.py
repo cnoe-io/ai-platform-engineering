@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 try:
     # Try absolute import (when run directly)
-    from ai_platform_engineering.common.auth.jwks_cache import JwksCache
+    from ai_platform_engineering.utils.auth.jwks_cache import JwksCache
 except ImportError:
     # Fall back to relative import (when run as module)
     from .jwks_cache import JwksCache

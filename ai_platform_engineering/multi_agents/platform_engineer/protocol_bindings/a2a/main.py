@@ -126,7 +126,7 @@ app.add_middleware(
 
 if A2A_AUTH_SHARED_KEY:
   logger.info("Using shared key authentication")
-  from ai_platform_engineering.common.auth.shared_key_middleware import SharedKeyMiddleware
+  from ai_platform_engineering.utils.auth.shared_key_middleware import SharedKeyMiddleware
   app.add_middleware(
     SharedKeyMiddleware,
     agent_card=get_agent_card(host, port, external_url),
@@ -134,7 +134,7 @@ if A2A_AUTH_SHARED_KEY:
   )
 elif A2A_AUTH_OAUTH2:
   logger.info("Using OAuth2 authentication")
-  from ai_platform_engineering.common.auth.oauth2_middleware import OAuth2Middleware
+  from ai_platform_engineering.utils.auth.oauth2_middleware import OAuth2Middleware
   app.add_middleware(
     OAuth2Middleware,
     agent_card=get_agent_card(host, port, external_url),

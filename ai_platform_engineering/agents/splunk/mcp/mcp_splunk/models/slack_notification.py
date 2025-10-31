@@ -4,8 +4,9 @@
 
 """Model for Slacknotification"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Slacknotification(BaseModel):
 class SlacknotificationResponse(APIResponse):
     """Response model for Slacknotification"""
 
-    data: Optional[Slacknotification] = None
+    data: Slacknotification | None = None
 
 
 class SlacknotificationListResponse(APIResponse):
     """List response model for Slacknotification"""
 
-    data: List[Slacknotification] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Slacknotification] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

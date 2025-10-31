@@ -4,8 +4,9 @@
 
 """Model for Mtsqueryresponse"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Mtsqueryresponse(BaseModel):
 class MtsqueryresponseResponse(APIResponse):
     """Response model for Mtsqueryresponse"""
 
-    data: Optional[Mtsqueryresponse] = None
+    data: Mtsqueryresponse | None = None
 
 
 class MtsqueryresponseListResponse(APIResponse):
     """List response model for Mtsqueryresponse"""
 
-    data: List[Mtsqueryresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Mtsqueryresponse] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

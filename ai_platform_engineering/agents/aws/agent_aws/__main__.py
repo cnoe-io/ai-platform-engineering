@@ -1,6 +1,7 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import click
 import httpx
 from dotenv import load_dotenv
@@ -22,10 +23,13 @@ load_dotenv()
 
 
 @click.command()
-@click.option('--host', 'host', default='localhost')
-@click.option('--port', 'port', default=8000)
-def main(host: str, port: int):
+@click.option('--host', 'host', default=None, help='Host to bind the server (default: A2A_HOST env or localhost)')
+@click.option('--port', 'port', default=None, type=int, help='Port to bind the server (default: A2A_PORT env or 8000)')
+def main(host: str | None, port: int | None):
     """Start the AWS A2A server with multi-MCP support."""
+    # Priority: CLI args > Environment variables > Defaults
+    host = host or os.getenv('A2A_HOST', 'localhost')
+    port = port or int(os.getenv('A2A_PORT', '8000'))
     client = httpx.AsyncClient()
     request_handler = DefaultRequestHandler(
         agent_executor=AWSAgentExecutor(),

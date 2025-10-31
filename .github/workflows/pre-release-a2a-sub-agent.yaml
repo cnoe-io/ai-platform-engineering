@@ -197,7 +197,7 @@ jobs:
       - name: Build and Push A2A Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.AGENT_DIR }}
+          context: .
           file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
           push: true
           tags: ${{ steps.meta.outputs.tags }}

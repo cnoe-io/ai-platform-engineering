@@ -4,8 +4,9 @@
 
 """Model for Publishlabeloption"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Publishlabeloption(BaseModel):
 class PublishlabeloptionResponse(APIResponse):
     """Response model for Publishlabeloption"""
 
-    data: Optional[Publishlabeloption] = None
+    data: Publishlabeloption | None = None
 
 
 class PublishlabeloptionListResponse(APIResponse):
     """List response model for Publishlabeloption"""
 
-    data: List[Publishlabeloption] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Publishlabeloption] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

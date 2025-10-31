@@ -1,4 +1,4 @@
-# 🚀 AWS EKS AI Agent
+# 🚀 AWS AI Agent
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python)](https://www.python.org/)
 [![Poetry](https://img.shields.io/badge/poetry-1.0%2B-blueviolet?logo=python)](https://python-poetry.org/)
@@ -40,10 +40,11 @@ ai-platform-engineering/
 
 ---
 
-- 🤖 **AWS EKS Agent** is an LLM-powered agent built using the [Strands Agents SDK](https://strandsagents.com/0.1.x/documentation/docs/) and the official [AWS EKS MCP Server](https://awslabs.github.io/mcp/servers/eks-mcp-server).
+- 🤖 **AWS Agent** is an LLM-powered agent built using the [Strands Agents SDK](https://strandsagents.com/0.1.x/documentation/docs/) and official AWS MCP Servers.
 - 🌐 **Protocol Support:** Compatible with [A2A](https://github.com/google/A2A) protocol for integration with external user clients.
 - 🛡️ **Secure by Design:** Enforces AWS IAM-based RBAC and supports external authentication for strong access control.
-- 🔌 **EKS Management:** Uses the official AWS EKS MCP server for comprehensive Amazon EKS cluster management and Kubernetes operations.
+- 🔌 **EKS Management:** Uses the official [AWS EKS MCP Server](https://awslabs.github.io/mcp/servers/eks-mcp-server) for comprehensive Amazon EKS cluster management and Kubernetes operations.
+- 📦 **ECS Management (Optional):** Integrate the [AWS ECS MCP Server](https://awslabs.github.io/mcp/servers/ecs-mcp-server) for containerizing applications, deploying to Amazon ECS, and managing containerized workloads.
 - 💰 **Cost Management (Optional):** Integrate the AWS Cost Explorer MCP Server for FinOps insights, cost breakdowns, comparisons, forecasting, and optimization recommendations.
 - 🔐 **IAM Security (Optional):** Integrate the AWS IAM MCP Server for comprehensive Identity and Access Management operations with read-only mode for safety.
 - 🏭 **Production Ready:** Built with Strands Agents SDK for lightweight, production-ready AI agent deployment.
@@ -75,14 +76,28 @@ AWS_SECRET_ACCESS_KEY=your-secret-access-key
 # Optional: Strands Agent Configuration
 STRANDS_LOG_LEVEL=INFO
 
-# Optional: EKS MCP Server Configuration
+# Optional: MCP Server Configuration
 FASTMCP_LOG_LEVEL=ERROR
 # Enable/Disable individual MCP servers
 ENABLE_EKS_MCP=true
+ENABLE_ECS_MCP=false
 ENABLE_COST_EXPLORER_MCP=false
 ENABLE_IAM_MCP=false
 # Run IAM MCP in read-only mode to block mutating operations (default: true)
 IAM_MCP_READONLY=true
+# ECS MCP security controls (default: both false for safety)
+ECS_MCP_ALLOW_WRITE=false
+ECS_MCP_ALLOW_SENSITIVE_DATA=false
+```
+
+To enable AWS ECS container management capabilities, set:
+
+```
+ENABLE_ECS_MCP=true
+# Optional: Enable write operations for ECS (create/delete infrastructure)
+ECS_MCP_ALLOW_WRITE=true
+# Optional: Enable access to sensitive data (logs, detailed resource info)
+ECS_MCP_ALLOW_SENSITIVE_DATA=true
 ```
 
 To enable AWS Cost Explorer capabilities, set:
@@ -98,6 +113,7 @@ ENABLE_IAM_MCP=true
 ```
 
 **Important Notes:**
+- **ECS**: By default, write operations and sensitive data access are disabled. Enable `ECS_MCP_ALLOW_WRITE` for infrastructure creation/deletion and `ECS_MCP_ALLOW_SENSITIVE_DATA` for logs and detailed resource information
 - **Cost Explorer**: API calls incur cost ($0.01 per request)
 - **IAM**: By default runs in read-only mode for safety. Set `IAM_MCP_READONLY=false` to enable write operations
 

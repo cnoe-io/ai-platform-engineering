@@ -5,8 +5,9 @@
 """Tools for /detector/validate operations"""
 
 import logging
-from typing import Dict, Any, List, Literal
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any, Literal
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +15,7 @@ logger = logging.getLogger("mcp_tools")
 
 
 async def validate__detector__definition(
-    body_customProperties: List[Dict[str, Any]] = None,
+    body_customProperties: list[dict[str, Any]] = None,
     body_description: str = None,
     body_detectorOrigin: Literal["Standard", "AutoDetect", "AutoDetectCustomization"] = None,
     body_maxDelay: int = None,
@@ -22,12 +23,12 @@ async def validate__detector__definition(
     body_name: str = None,
     body_parentDetectorId: str = None,
     body_programText: str = None,
-    body_rules: List[Dict[str, Any]] = None,
-    body_tags: List[str] = None,
-    body_teams: List[str] = None,
+    body_rules: list[dict[str, Any]] = None,
+    body_tags: list[str] = None,
+    body_teams: list[str] = None,
     body_timezone: str = None,
     body_visualizationOptions__disableSampling: bool = None,
-    body_visualizationOptions__publishLabelOptions: List[Dict[str, Any]] = None,
+    body_visualizationOptions__publishLabelOptions: list[dict[str, Any]] = None,
     body_visualizationOptions__showDataMarkers: bool = None,
     body_visualizationOptions__showEventLines: bool = None,
     body_visualizationOptions__time__end: int = None,
