@@ -1,27 +1,27 @@
-FROM node:20-bookworm-slim
+FROM node:20-bookworm
 
 WORKDIR /app
 
-# Install dependencies for both architectures
+# Install git and build dependencies for native modules
 RUN apt-get update && apt-get install -y \
     git \
     python3 \
     make \
     g++ \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy everything needed for yarn install
+# Install Rust toolchain for @swc/core
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 COPY . .
 
-# Set yarn configuration for better ARM64 compatibility
-ENV YARN_CACHE_FOLDER=/tmp/.yarn-cache
-ENV NODE_OPTIONS="--max-old-space-size=4096"
+WORKDIR /app/workspaces/agent-forge
 
-# Install dependencies - yarn will handle the workspace setup
-RUN yarn install --immutable --network-timeout 600000
+# Install dependencies
+RUN yarn install
 
 EXPOSE 3000
 
-# Run yarn start from workspace directory using shell
-WORKDIR /app
-CMD ["/bin/sh", "-c", "cd workspaces/agent-forge && yarn start"]
+CMD ["yarn", "start"]
