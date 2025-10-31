@@ -4,8 +4,9 @@
 
 """Model for Tags"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Tags(BaseModel):
 class TagsResponse(APIResponse):
     """Response model for Tags"""
 
-    data: Optional[Tags] = None
+    data: Tags | None = None
 
 
 class TagsListResponse(APIResponse):
     """List response model for Tags"""
 
-    data: List[Tags] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Tags] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import os
 from typing import Any, Optional, Union, List
 from uuid import uuid4
 from pydantic import PrivateAttr
@@ -15,7 +16,6 @@ from a2a.types import (
     SendMessageRequest,
     SendStreamingMessageRequest,
     MessageSendParams,
-    TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
 )
 
 from langchain_core.tools import BaseTool
@@ -204,25 +204,107 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 chunk_dump = str(chunk)
 
             logger.info(f"Received A2A stream chunk: {chunk_dump}")
-            writer({"type": "a2a_event", "data": chunk_dump})
+            # Don't stream raw chunk_dump - we'll stream extracted text only at line 251
 
             try:
-                if isinstance(chunk, A2ATaskArtifactUpdateEvent):
-                    art = chunk.artifact
-                    if getattr(art, "parts", None):
-                        for part in art.parts:
-                            root = getattr(part, "root", None)
-                            text = getattr(root, "text", None) if root is not None else None
-                            if text:
-                                accumulated_text.append(text)
+                # The chunk is a SendStreamingMessageResponse Pydantic object
+                # The actual event data is in chunk.model_dump()['result']
+                # We already dumped it above as chunk_dump
+                result = chunk_dump.get('result') if isinstance(chunk_dump, dict) else None
+                if not result:
+                    logger.info("No result in chunk, skipping")
+                    continue
+
+                # Get event kind
+                kind = result.get('kind')
+                logger.debug(f"Received event: {result}")
+                if not kind:
+                    logger.info(f"No kind in result, skipping: {result}")
+                    continue
+
+                # Extract and stream text from artifact-update events
+                if kind == "artifact-update":
+                    logger.info(f"Received artifact-update event: {result}")
+                    artifact = result.get('artifact')
+                    logger.info(f"🔍 artifact type: {type(artifact)}, is_dict: {isinstance(artifact, dict)}")
+                    if artifact and isinstance(artifact, dict):
+                        parts = artifact.get('parts', [])
+                        logger.info(f"🔍 parts count: {len(parts)}")
+                        for part in parts:
+                            logger.info(f"🔍 part type: {type(part)}, is_dict: {isinstance(part, dict)}")
+                            if isinstance(part, dict):
+                                text = part.get('text')
+                                logger.info(f"🔍 text extracted: '{text}', exists: {bool(text)}")
+                                if text:
+                                    accumulated_text.append(text)
+                                    logger.info(f"✅ Accumulated text from artifact-update: {len(text)} chars")
+
+                                    # Check if artifact streaming is enabled (for agents like AWS that use artifact-update for streaming)
+                                    enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
+                                    
+                                    if enable_artifact_streaming:
+                                        # Stream the entire artifact-update result as-is (preserves A2A event structure)
+                                        writer({"type": "artifact-update", "result": result})
+                                        logger.info(f"✅ Streamed artifact-update event (ENABLE_ARTIFACT_STREAMING=true): {len(text)} chars")
+                                    else:
+                                        logger.info("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
+
+                # Extract text from status-update events (RAG agent streams via status messages)
+                elif kind == "status-update":
+                    logger.info(f"Received status-update event: {result}")
+                    status = result.get('status')
+                    if status and isinstance(status, dict):
+                        message = status.get('message')
+                        if message and isinstance(message, dict):
+                            parts = message.get('parts', [])
+                            for part in parts:
+                                if isinstance(part, dict):
+                                    text = part.get('text')
+                                    if text:
+                                        accumulated_text.append(text)
+
+                                        # TODO: Uncomment this when we are ready to stream status-update content for real-time feedback
+
+                                        # # Stream all status-update content for real-time feedback
+                                        # clean_text = text.replace('**', '')
+                                        # writer({"type": "a2a_event", "data": clean_text})
+                                        # logger.info(f"✅ Streamed content from status-update: {len(clean_text)} chars")
+                                        
+                                        
+                                        # Check if tool output streaming is enabled
+                                        stream_tool_output = os.getenv("STREAM_SUB_AGENT_TOOL_OUTPUT", "false").lower() == "true"
+                                        
+                                        # Stream tool-related messages (🔧 calling, ✅ completed, and optionally 📄 output)
+                                        # Full responses will be streamed token-by-token by supervisor
+                                        is_tool_notification = '🔧' in text or '✅' in text
+                                        is_tool_output = '📄' in text
+                                        
+                                        should_stream = is_tool_notification or (is_tool_output and stream_tool_output)
+                                        
+                                        if should_stream:
+                                            # Remove markdown bold formatting (** **) from tool names
+                                            clean_text = text.replace('**', '')
+                                            writer({"type": "a2a_event", "data": clean_text})
+                                            if is_tool_output:
+                                                logger.info(f"✅ Streamed tool output from status-update (STREAM_SUB_AGENT_TOOL_OUTPUT=true): {len(clean_text)} chars")
+                                            else:
+                                                logger.info(f"✅ Streamed tool notification from status-update: {len(clean_text)} chars")
+                                        elif is_tool_output:
+                                            logger.info(f"⏭️  Skipped streaming tool output (STREAM_SUB_AGENT_TOOL_OUTPUT=false): {len(text)} chars")
+                                        else:
+                                            logger.info(f"⏭️  Skipped streaming content from status-update (not a tool message): {len(text)} chars")
             except Exception as e:
                 logger.warning(f"Non-fatal error while handling stream chunk: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
 
-        final_response = " ".join(accumulated_text).strip()
+        # Concatenate tokens without adding extra spaces (tokens already include spaces)
+        final_response = "".join(accumulated_text).strip()
         if not final_response:
             logger.info("No accumulated artifact text; falling back to non-streaming send_message to get result.")
             final_response = await self.send_message(prompt, trace_id)
 
+        logger.info(f"Accumulated {len(accumulated_text)} tokens into {len(final_response)} char response")
         return Output(response=final_response)
 
     except Exception as e:
@@ -276,6 +358,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
       Tries multiple locations in order:
       1. artifacts[].parts[].root.text (for agents that return artifacts)
       2. status.message.parts[].root.text (for agents that return status messages)
+      3. history[] - last agent message (for agents that use message history)
       """
       texts = []
 
@@ -333,8 +416,44 @@ class A2ARemoteAgentConnectTool(BaseTool):
                     texts.append(text)
                     logging.info(f"Extracted text from status.message.part.text: {text[:100]}...")
 
+        # If still no texts found, try extracting from history (last agent message)
         if not texts:
-          logging.warning("No text found in either artifacts or status.message")
+          logging.info("No texts in artifacts or status.message, attempting to extract from history...")
+          history = getattr(result, 'history', None)
+          if history and isinstance(history, list):
+            logging.info(f"Found history with {len(history)} messages")
+            # Get the last agent message (reverse order to find most recent)
+            for message in reversed(history):
+              role = getattr(message, 'role', None)
+              # Look for agent messages (skip user messages and tool messages)
+              if role and str(role) == 'Role.agent':
+                parts = getattr(message, 'parts', None)
+                if parts:
+                  logging.info(f"Found {len(parts)} parts in last agent message from history")
+                  for part in parts:
+                    # Try to get the root attribute (for Part objects with TextPart inside)
+                    root = getattr(part, 'root', None)
+                    if root:
+                      text = getattr(root, 'text', None)
+                      if text:
+                        # Skip tool status messages (🔧, ✅)
+                        if not text.startswith('🔧') and not text.startswith('✅'):
+                          texts.append(text)
+                          logging.info(f"Extracted text from history.message.part.root.text: {text[:100]}...")
+
+                    # Fallback: check if part itself has text (for direct text parts)
+                    if not root:
+                      text = getattr(part, 'text', None)
+                      if text and not text.startswith('🔧') and not text.startswith('✅'):
+                        texts.append(text)
+                        logging.info(f"Extracted text from history.message.part.text: {text[:100]}...")
+
+                # If we found texts in this agent message, stop looking
+                if texts:
+                  break
+
+        if not texts:
+          logging.warning("No text found in artifacts, status.message, or history")
           logging.warning(f"Result structure: artifacts={artifacts}, status={getattr(result, 'status', None)}")
 
       except Exception as e:

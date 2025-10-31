@@ -4,8 +4,9 @@
 
 """Model for Gettestsresponse"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Gettestsresponse(BaseModel):
 class GettestsresponseResponse(APIResponse):
     """Response model for Gettestsresponse"""
 
-    data: Optional[Gettestsresponse] = None
+    data: Gettestsresponse | None = None
 
 
 class GettestsresponseListResponse(APIResponse):
     """List response model for Gettestsresponse"""
 
-    data: List[Gettestsresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Gettestsresponse] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

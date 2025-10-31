@@ -4,8 +4,9 @@
 
 """Model for Createdby"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Createdby(BaseModel):
 class CreatedbyResponse(APIResponse):
     """Response model for Createdby"""
 
-    data: Optional[Createdby] = None
+    data: Createdby | None = None
 
 
 class CreatedbyListResponse(APIResponse):
     """List response model for Createdby"""
 
-    data: List[Createdby] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Createdby] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

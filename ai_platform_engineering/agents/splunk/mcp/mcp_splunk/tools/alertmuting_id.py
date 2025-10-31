@@ -5,8 +5,9 @@
 """Tools for /alertmuting/{id} operations"""
 
 import logging
-from typing import Dict, Any, List, Literal
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any, Literal
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -55,13 +56,13 @@ async def update__single__muting__rule(
     body_created: int = None,
     body_creator: str = None,
     body_description: str = None,
-    body_filters: List[Dict[str, Any]] = None,
+    body_filters: list[dict[str, Any]] = None,
     body_id: str = None,
     body_lastUpdated: int = None,
     body_lastUpdatedBy: str = None,
     body_recurrence__unit: Literal["d", "w"] = None,
     body_recurrence__value: int = None,
-    body_linkedTeams: List[str] = None,
+    body_linkedTeams: list[str] = None,
     body_sendAlertsOnceMutingPeriodHasEnded: bool = None,
     body_startTime: int = None,
     body_stopTime: int = None,

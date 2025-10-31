@@ -7,7 +7,7 @@ from ai_platform_engineering.agents.webex.agent_webex.agentcard import (
     create_agent_card,
     agent_skill,
 )
-from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
+from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 

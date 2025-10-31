@@ -4,8 +4,9 @@
 
 """Model for Valueprefix"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Valueprefix(BaseModel):
 class ValueprefixResponse(APIResponse):
     """Response model for Valueprefix"""
 
-    data: Optional[Valueprefix] = None
+    data: Valueprefix | None = None
 
 
 class ValueprefixListResponse(APIResponse):
     """List response model for Valueprefix"""
 
-    data: List[Valueprefix] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Valueprefix] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

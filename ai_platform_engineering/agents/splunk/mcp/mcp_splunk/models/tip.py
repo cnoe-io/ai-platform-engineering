@@ -4,8 +4,9 @@
 
 """Model for Tip"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Tip(BaseModel):
 class TipResponse(APIResponse):
     """Response model for Tip"""
 
-    data: Optional[Tip] = None
+    data: Tip | None = None
 
 
 class TipListResponse(APIResponse):
     """List response model for Tip"""
 
-    data: List[Tip] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Tip] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

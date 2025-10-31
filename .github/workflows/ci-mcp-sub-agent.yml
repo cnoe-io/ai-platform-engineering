@@ -151,7 +151,7 @@ jobs:
       - name: Build and Push MCP Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.AGENT_DIR }}
+          context: .
           file: ${{ env.AGENT_DIR }}/build/Dockerfile.mcp
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}

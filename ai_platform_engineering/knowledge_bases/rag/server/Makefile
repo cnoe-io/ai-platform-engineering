@@ -22,21 +22,26 @@ AGENT_PKG_NAME ?= kb_$(shell echo $(AGENT_NAME))
 
 ## ========== Setup & Clean ==========
 
-setup-venv:        ## Create the Python virtual environment
+setup-venv:        ## Use main project's virtual environment or create local one
 	@echo "Setting up virtual environment..."
-	@if [ ! -d ".venv" ]; then \
-		python3 -m venv .venv && echo "Virtual environment created."; \
-	else \
+	@REPO_ROOT=$$(git rev-parse --show-toplevel 2>/dev/null || echo "../../../.."); \
+	if [ -d "$$REPO_ROOT/.venv" ]; then \
+		echo "Using main project virtual environment from $$REPO_ROOT/.venv"; \
+		echo "To activate manually, run: source $$REPO_ROOT/.venv/bin/activate"; \
+	elif [ -d ".venv" ]; then \
 		echo "Virtual environment already exists."; \
+		echo "To activate manually, run: source .venv/bin/activate"; \
+	else \
+		echo "Creating local virtual environment..."; \
+		uv venv .venv; \
+		echo "Virtual environment created. To activate manually, run: source .venv/bin/activate"; \
 	fi
-	@echo "To activate manually, run: source .venv/bin/activate"
-	@. .venv/bin/activate
 
 clean-pyc:         ## Remove Python bytecode and __pycache__
 	@find . -type d -name "__pycache__" -exec rm -rf {} + || echo "No __pycache__ directories found."
 
-clean-venv:        ## Remove the virtual environment
-	@rm -rf .venv && echo "Virtual environment removed." || echo "No virtual environment found."
+clean-venv:        ## Note: Using main project's virtual environment
+	@echo "Using main project's virtual environment. No local .venv to remove."
 
 clean-build-artifacts: ## Remove dist/, build/, egg-info/
 	@rm -rf dist $(AGENT_PKG_NAME).egg-info || echo "No build artifacts found."
@@ -54,9 +59,12 @@ check-env:         ## Check if .env file exists
 		echo "Error: .env file not found."; exit 1; \
 	fi
 
-venv-activate = . .venv/bin/activate
+# Dynamically find venv at runtime (prefer repo root, fallback to local)
+REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || echo "../../../..")
+# Define venv-activate as a single-line shell command that resolves the path at runtime
+venv-activate = VENV_PATH=""; if [ -d "$(REPO_ROOT)/.venv" ]; then VENV_PATH="$(REPO_ROOT)/.venv"; elif [ -d ".venv" ]; then VENV_PATH=".venv"; else echo "Error: No virtual environment found. Run 'make setup-venv' first." >&2; exit 1; fi; . $$VENV_PATH/bin/activate
 load-env = set -a && . .env && set +a
-venv-run = $(venv-activate) && $(load-env) &&
+venv-run = $(venv-activate) && $(load-env)
 
 ## ========== Install ==========
 
@@ -121,14 +129,18 @@ run-docker-a2a: ## Run the A2A agent in Docker
 
 test-unit: setup-venv build ## Run unit tests using pytest and coverage
 	@$(venv-activate) && uv sync --dev
-	@$(venv-activate) && uv add pytest-asyncio pytest-cov --dev
+	@$(venv-activate) && uv pip install -e ../common
+	@$(venv-activate) && uv pip install -e .
+	@$(venv-activate) && uv pip install pytest-asyncio pytest-cov
 	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings --maxfail=1 --cov=server --cov-report=term --cov-report=xml
 
 test: test-all ## Run all tests (unit, scale, memory, coverage) - DEFAULT TARGET
 
 test-coverage: setup-venv ## Run tests with detailed coverage report
 	@$(venv-activate) && uv sync --dev
-	@$(venv-activate) && uv add pytest-asyncio pytest-cov --dev
+	@$(venv-activate) && uv pip install -e ../common
+	@$(venv-activate) && uv pip install -e .
+	@$(venv-activate) && uv pip install pytest-asyncio pytest-cov
 	@echo "Running tests with detailed coverage analysis..."
 	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings \
 		--cov=server --cov-report=term --cov-report=html --cov-report=xml \
@@ -136,7 +148,9 @@ test-coverage: setup-venv ## Run tests with detailed coverage report
 
 test-memory: setup-venv ## Run tests with memory profiling
 	@$(venv-activate) && uv sync --dev
-	@$(venv-activate) && uv add pytest-asyncio pytest-cov memory-profiler psutil --dev
+	@$(venv-activate) && uv pip install -e ../common
+	@$(venv-activate) && uv pip install -e .
+	@$(venv-activate) && uv pip install pytest-asyncio pytest-cov memory-profiler psutil
 	@echo "Running tests with memory profiling..."
 	@$(venv-activate) && pytest tests/ -v --tb=short --disable-warnings \
 		--cov=server --cov-report=term --cov-report=xml \
@@ -144,14 +158,19 @@ test-memory: setup-venv ## Run tests with memory profiling
 
 test-scale: setup-venv ## Run scale tests with memory monitoring
 	@$(venv-activate) && uv sync --dev
-	@$(venv-activate) && uv add pytest-asyncio pytest-cov psutil --dev
+	@$(venv-activate) && uv pip install -e ../common
+	@$(venv-activate) && uv pip install -e .
+	@$(venv-activate) && uv pip install pytest-asyncio pytest-cov psutil
 	@echo "Running scale tests with memory monitoring..."
 	@$(venv-activate) && pytest tests/test_scale_ingestion.py -v --tb=short \
 		--durations=10 --maxfail=1 -s
 
 test-all: setup-venv ## Run all tests with coverage, memory profiling, and scale tests
+	@echo "Installing RAG server dependencies including local 'common' module..."
 	@$(venv-activate) && uv sync --dev
-	@$(venv-activate) && uv add pytest-asyncio pytest-cov memory-profiler psutil --dev
+	@$(venv-activate) && uv pip install -e ../common
+	@$(venv-activate) && uv pip install -e .
+	@$(venv-activate) && uv pip install pytest-asyncio pytest-cov memory-profiler psutil
 	@echo "Running comprehensive test suite..."
 	@echo "==================================================================="
 	@echo "                      COMPREHENSIVE TEST SUITE                      "

@@ -18,6 +18,7 @@ import httpx
 import uvicorn
 import asyncio
 import os
+import logging
 from dotenv import load_dotenv
 from agntcy_app_sdk.factory import AgntcyFactory
 
@@ -90,7 +91,11 @@ async def async_main(host: str, port: int):
             allow_headers=["*"],  # Allow all headers
         )
 
-        config = uvicorn.Config(app, host=host, port=port)
+        # Configure uvicorn access log to DEBUG level for health checks
+        access_logger = logging.getLogger("uvicorn.access")
+        access_logger.setLevel(logging.DEBUG)
+        
+        config = uvicorn.Config(app, host=host, port=port, access_log=True)
         server = uvicorn.Server(config=config)
         await server.serve()
 

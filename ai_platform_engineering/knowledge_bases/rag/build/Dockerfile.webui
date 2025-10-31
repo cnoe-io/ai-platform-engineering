@@ -3,14 +3,14 @@ FROM node:20-alpine AS build
 WORKDIR /app/webui
 
 # Install dependencies with cache
-COPY webui/package.json webui/package-lock.json* webui/yarn.lock* webui/pnpm-lock.yaml* webui/.npmrc* ./
+COPY ./ai_platform_engineering/knowledge_bases/rag/webui/package.json ./ai_platform_engineering/knowledge_bases/rag/webui/package-lock.json* ./ai_platform_engineering/knowledge_bases/rag/webui/yarn.lock* ./ai_platform_engineering/knowledge_bases/rag/webui/pnpm-lock.yaml* ./ai_platform_engineering/knowledge_bases/rag/webui/.npmrc* ./
 RUN if [ -f package-lock.json ]; then npm ci; \
     elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
     elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
     else npm i; fi
 
 # Copy source and build
-COPY webui .
+COPY ./ai_platform_engineering/knowledge_bases/rag/webui .
 RUN npm run build
 
 # ---------- Stage 2: Serve with nginx ----------
@@ -19,7 +19,7 @@ FROM nginx:alpine
 COPY --from=build /app/webui/dist /usr/share/nginx/html
 
 # Copy to templates so envsubst can render it in /etc/nginx/conf.d/
-COPY webui/nginx.conf /etc/nginx/templates/default.conf.conf
+COPY ./ai_platform_engineering/knowledge_bases/rag/webui/nginx.conf /etc/nginx/templates/default.conf.conf
 
 
 EXPOSE 80
