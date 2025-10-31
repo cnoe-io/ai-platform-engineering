@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy the entire MCP directory structure first since uv sync needs it to build
-COPY --chown=root:root ./mcp ./
+COPY --chown=root:root ./ai_platform_engineering/agents/argocd/mcp ./
 
 # Install dependencies into venv (no dev deps)
 RUN --mount=type=cache,target=/root/.cache/uv \

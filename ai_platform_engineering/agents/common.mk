@@ -23,6 +23,9 @@ MCP_AGENT_DIR_NAME ?= mcp-$(AGENT_NAME)
 AGENT_PKG_NAME ?= agent_$(AGENT_NAME)
 MCP_SERVER_DIR ?= mcp_$(AGENT_NAME)
 
+# Repository root for Docker build context (agents are at ai_platform_engineering/agents/{agent}/)
+REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || echo "../../..")
+
 # Helper variables for virtual environment management
 venv-activate = . .venv/bin/activate
 load-env = set -a && . .env && set +a
@@ -129,6 +132,7 @@ run: run-a2a ## Run the agent application (default to A2A)
 
 run-a2a: setup-venv check-env uv-sync ## Run A2A agent with uvicorn
 	uv add ./mcp && uv sync
+	export PYTHONPATH=$(REPO_ROOT):$$PYTHONPATH; \
 	uv run python -m $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
 
 run-mcp: setup-venv check-env ## Run MCP server in HTTP mode
@@ -154,7 +158,7 @@ evals: setup-venv ## Run agentevals with test cases
 ## ========== Docker A2A ==========
 
 build-docker-a2a:            ## Build A2A Docker image
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(AGENT_DIR_NAME):latest -f build/Dockerfile.a2a .
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(AGENT_DIR_NAME):latest -f $(REPO_ROOT)/ai_platform_engineering/agents/$(AGENT_NAME)/build/Dockerfile.a2a $(REPO_ROOT)
 
 build-docker-a2a-tag:        ## Tag A2A Docker image
 	docker tag $(AGENT_DIR_NAME):latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):latest
@@ -188,7 +192,7 @@ run-local-docker-a2a: build-docker-a2a
 ## ========== Docker MCP ==========
 
 build-docker-mcp:            ## Build MCP Docker image
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(MCP_AGENT_DIR_NAME):latest -f build/Dockerfile.mcp .
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(MCP_AGENT_DIR_NAME):latest -f $(REPO_ROOT)/ai_platform_engineering/agents/$(AGENT_NAME)/build/Dockerfile.mcp $(REPO_ROOT)
 
 build-docker-mcp-tag:        ## Tag MCP Docker image
 	docker tag $(MCP_AGENT_DIR_NAME):latest ghcr.io/cnoe-io/$(MCP_AGENT_DIR_NAME):latest

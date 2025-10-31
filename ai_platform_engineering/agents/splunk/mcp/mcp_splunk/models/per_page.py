@@ -4,8 +4,9 @@
 
 """Model for Perpage"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Perpage(BaseModel):
 class PerpageResponse(APIResponse):
     """Response model for Perpage"""
 
-    data: Optional[Perpage] = None
+    data: Perpage | None = None
 
 
 class PerpageListResponse(APIResponse):
     """List response model for Perpage"""
 
-    data: List[Perpage] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Perpage] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

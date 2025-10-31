@@ -15,7 +15,7 @@ import time
 import threading
 from typing import Dict, Any, Optional, Callable, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
+from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import AgntcySlimRemoteAgentConnectTool
@@ -80,10 +80,10 @@ class AgentRegistry:
         logger.info(f"Enabled agents: {enabled_agents}")
         return enabled_agents
 
-    def get_agent_address_mapping(self, agnet_names: List[str]) -> Dict[str, str]:
+    def get_agent_address_mapping(self, agent_names: List[str]) -> Dict[str, str]:
         """Get the address mapping for all enabled agents."""
         address_mapping = {}
-        for agent in agnet_names:
+        for agent in agent_names:
             host = os.getenv(f"{agent.upper()}_AGENT_HOST", "localhost")
             port = os.getenv(f"{agent.upper()}_AGENT_PORT", "8000")
             address_mapping[agent] = f"http://{host}:{port}"

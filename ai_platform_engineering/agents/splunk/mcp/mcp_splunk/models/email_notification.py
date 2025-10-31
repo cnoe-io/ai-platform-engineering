@@ -4,8 +4,9 @@
 
 """Model for Emailnotification"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Emailnotification(BaseModel):
 class EmailnotificationResponse(APIResponse):
     """Response model for Emailnotification"""
 
-    data: Optional[Emailnotification] = None
+    data: Emailnotification | None = None
 
 
 class EmailnotificationListResponse(APIResponse):
     """List response model for Emailnotification"""
 
-    data: List[Emailnotification] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Emailnotification] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

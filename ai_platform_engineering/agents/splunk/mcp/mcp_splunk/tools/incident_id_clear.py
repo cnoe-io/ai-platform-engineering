@@ -6,7 +6,8 @@
 
 import logging
 from typing import Any
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

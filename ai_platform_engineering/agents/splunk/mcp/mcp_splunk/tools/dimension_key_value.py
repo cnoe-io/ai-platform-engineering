@@ -5,8 +5,9 @@
 """Tools for /dimension/{key}/{value} operations"""
 
 import logging
-from typing import Dict, Any, List
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -55,11 +56,11 @@ async def retrieve__dimension__metadata__name__value(path_key: str, path_value: 
 async def update__dimension__metadata(
     path_key: str,
     path_value: str,
-    body_customProperties: Dict[str, Any] = None,
+    body_customProperties: dict[str, Any] = None,
     body_description: str = None,
     body_key: str = None,
     body_value: str = None,
-    body_tags: List[str] = None,
+    body_tags: list[str] = None,
 ) -> Any:
     """
     Overwrites metadata for the specified dimension

@@ -5,15 +5,16 @@
 """Tools for /tests/play operations"""
 
 import logging
-from typing import Any, List
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def play_multiple_tests(body_testIds: List[int] = None) -> Any:
+async def play_multiple_tests(body_testIds: list[int] = None) -> Any:
     """
         Activates the tests specified in `requestBody`. Maximum of 500 test IDs in one request.
 
