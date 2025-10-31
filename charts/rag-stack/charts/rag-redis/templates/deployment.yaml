@@ -46,10 +46,12 @@ spec:
             - "yes"
             - --save
             - "60 1"
+            {{- if not .Values.persistence.enabled }}
             - --maxmemory
             - "256mb"
             - --maxmemory-policy
             - "allkeys-lru"
+            {{- end }}
           ports:
             - name: redis
               containerPort: {{ .Values.service.port }}
@@ -66,12 +68,21 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.volumeMounts }}
           volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: redis-data
+              mountPath: /data
+            {{- end }}
+          {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- with .Values.volumes }}
       volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: {{ include "rag-redis.fullname" . }}-data
+        {{- end }}
+      {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.nodeSelector }}

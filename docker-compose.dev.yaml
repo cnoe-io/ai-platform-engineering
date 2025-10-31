@@ -2,21 +2,131 @@ services:
   ####################################################################################################
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
-  platform-engineer-p2p:
+  caipe-p2p-with-rag:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: platform-engineer-p2p
+    container_name: caipe-p2p-with-rag
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
     profiles:
       - p2p
-      - p2p-basic
       - p2p-tracing
+    # The following block uses the extended 'depends_on' syntax to wait for agents to be healthy.
+    # 'condition: service_healthy' waits for health checks to pass (with start_period + retries timeout).
+    # 'condition: service_started' just waits for the container to start (faster but less reliable).
+    depends_on:
+      agent-argocd-p2p:
+        condition: service_healthy
+      agent-aws-p2p:
+        condition: service_healthy
+      agent-backstage-p2p:
+        condition: service_healthy
+      agent-confluence-p2p:
+        condition: service_healthy
+      agent-github-p2p:
+        condition: service_healthy
+      agent-jira-p2p:
+        condition: service_healthy
+      agent-komodor-p2p:
+        condition: service_healthy
+      agent-pagerduty-p2p:
+        condition: service_healthy
+      agent-petstore-p2p:
+        condition: service_healthy
+      agent_rag:
+        condition: service_healthy
+      agent-slack-p2p:
+        condition: service_healthy
+      agent-splunk-p2p:
+        condition: service_healthy
+      agent-weather-p2p:
+        condition: service_healthy
+      agent-webex-p2p:
+        condition: service_healthy
+    env_file:
+      - .env
+    ports:
+      # Expose the AI Platform Engineer agent on port 8000
+      - "8000:8000"
+    environment:
+      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true # Routinely checks each subagent connectivity to add or remove any from existing tools list.
+      - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
+      - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
+      - ENABLE_ENHANCED_STREAMING=${ENABLE_ENHANCED_STREAMING:-false} # Enable enhanced streaming with intelligent routing (DIRECT/PARALLEL/COMPLEX modes)
+      - FORCE_DEEP_AGENT_ORCHESTRATION=${FORCE_DEEP_AGENT_ORCHESTRATION:-true} # Force all queries through Deep Agent with parallel orchestration hints (DEFAULT - best performance)
+      - ENABLE_ENHANCED_ORCHESTRATION=${ENABLE_ENHANCED_ORCHESTRATION:-false} # EXPERIMENTAL: Smart routing + orchestration hints (4th mode for comparison)
+      # Streaming Configuration
+      - STREAM_SUB_AGENT_TOOL_OUTPUT=${STREAM_SUB_AGENT_TOOL_OUTPUT:-false} # Stream intermediate tool outputs (📄) from sub-agents to end user (disabled by default to reduce verbosity)
+
+      # Agent hosts
+      - ARGOCD_AGENT_HOST=agent-argocd-p2p
+      - AWS_AGENT_HOST=agent-aws-p2p
+      - BACKSTAGE_AGENT_HOST=agent-backstage-p2p
+      - CONFLUENCE_AGENT_HOST=agent-confluence-p2p
+      - GITHUB_AGENT_HOST=agent-github-p2p
+      - JIRA_AGENT_HOST=agent-jira-p2p
+      - KOMODOR_AGENT_HOST=agent-komodor-p2p
+      - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
+      - PETSTORE_AGENT_HOST=agent-petstore-p2p
+      - RAG_AGENT_HOST=agent_rag
+      - RAG_AGENT_PORT=8099
+      - SLACK_AGENT_HOST=agent-slack-p2p
+      - SPLUNK_AGENT_HOST=agent-splunk-p2p
+      - WEATHER_AGENT_HOST=agent-weather-p2p
+      - WEATHER_AGENT_PORT=8000
+      - WEBEX_AGENT_HOST=agent-webex-p2p
+      - WEBEX_AGENT_PORT=8000
+      # Enable agents
+      - ENABLE_ARGOCD=true
+      - ENABLE_AWS=true
+      - ENABLE_BACKSTAGE=true
+      - ENABLE_CONFLUENCE=true
+      - ENABLE_GITHUB=true
+      - ENABLE_JIRA=true
+      - ENABLE_KOMODOR=true
+      - ENABLE_PAGERDUTY=true
+      - ENABLE_SLACK=true
+      - ENABLE_SPLUNK=true
+      - ENABLE_WEATHER=true
+      - ENABLE_WEBEX=true
+      - ENABLE_PETSTORE=true
+      - ENABLE_RAG=true
+      # Structured response format with execution plan validation
+      # Set to "true" to enforce execution plans with Pydantic validation
+      - ENABLE_STRUCTURED_RESPONSE_FORMAT=false
+      # Metadata detection for user input requirements
+      # Set to "true" to automatically detect and extract input fields from agent responses
+      # When enabled, agent responses asking for user input are wrapped with structured metadata
+      - ENABLE_METADATA_DETECTION=false
+      # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
+      # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
+      # When enabled, the platform engineer will stream sub-agent responses token-by-token
+      - ENABLE_ARTIFACT_STREAMING=true
+      # Tracing
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+    command: platform-engineer
+
+  ####################################################################################################
+  #                                 AI Platform Engineer A2A P2P No RAG                              #
+  ####################################################################################################
+  caipe-p2p-no-rag:
+    build:
+      context: .
+      dockerfile: build/Dockerfile
+    container_name: caipe-no-rag-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
+      - ./ai_platform_engineering:/app/ai_platform_engineering
+    profiles:
       - p2p-no-rag
       - p2p-no-rag-tracing
-      - rag_only
     # The following block uses the extended 'depends_on' syntax to wait for agents to be healthy.
     # 'condition: service_healthy' waits for health checks to pass (with start_period + retries timeout).
     # 'condition: service_started' just waits for the container to start (faster but less reliable).
@@ -39,9 +149,7 @@ services:
         condition: service_started
       agent-petstore-p2p:
         condition: service_started
-      # agent_rag:
-      #   # condition: service_healthy
-      #   condition: service_started
+
       agent-slack-p2p:
         condition: service_started
       agent-splunk-p2p:
@@ -121,7 +229,7 @@ services:
   ####################################################################################################
   #                                      PLATFORM ENGINEER A2A over SLIM                              #
   ####################################################################################################
-  platform-engineer-slim:
+  caipe-slim:
     build:
       context: .
       dockerfile: build/Dockerfile
@@ -890,7 +998,7 @@ services:
     container_name: agent-pagerduty-slim
     profiles:
       - slim
-      - slim-tracing  
+      - slim-tracing
       - slim-no-rag
       - slim-no-rag-tracing
     depends_on:
@@ -1557,7 +1665,7 @@ services:
       - rag_p2p
       - rag_no_graph_p2p
       - p2p
-      - p2p-tracing 
+      - p2p-tracing
   milvus-standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.6.0

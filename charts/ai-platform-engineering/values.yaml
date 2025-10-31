@@ -23,6 +23,7 @@ global:
     secretName: "llm-secret"
   externalSecrets:
     enabled: false
+    # apiVersion: "v1"  # API version for ExternalSecret resources. Options: "v1" or "v1beta1". Defaults to "v1" if not specified.
   slim:
     enabled: false
     endpoint: "http://ai-platform-engineering-slim:46357"

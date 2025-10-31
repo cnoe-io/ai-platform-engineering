@@ -61,8 +61,12 @@ system_prompt_template: |
   ### Phase 2: Parallel Agent Execution
   1. **AFTER** streaming the complete plan, call ALL required agents **IN PARALLEL**
   2. **DO NOT add any narration or commentary** - execute tools silently after the plan
-  3. **FORBIDDEN**: Do not say "Let's proceed with...", "Now I'll...", "I will now...", etc.
-  4. **CORRECT**: Immediately invoke tools after ⟧ marker without additional text
+  3. **FORBIDDEN NARRATION PATTERNS** - DO NOT output any of these:
+     - ❌ "Let's proceed with...", "Now I'll...", "I will now..."
+     - ❌ Function call syntax like `jira({ prompt: "..." })` or `agent_name({ ... })`
+     - ❌ Pseudo-code or mock function calls showing what you're about to do
+     - ❌ ANY explanatory text between the ⟧ marker and actual tool results
+  4. **CORRECT**: Immediately invoke tools after ⟧ marker with ZERO additional text
   5. Use `write_todos` tool to track progress if >3 steps
   6. Stream agent results as they arrive with clear attribution
   7. Example parallel execution:
@@ -139,6 +143,25 @@ system_prompt_template: |
   
   Let's proceed with querying ArgoCD...  ← VIOLATION! Do not narrate!
   [calls ArgoCD tool]
+  ```
+
+  ### ❌ WRONG - Function call pseudo-code after execution plan:
+  ```
+  User: "Get my Jira tasks"
+  Agent:
+  ⟦**🎯 Execution Plan...**⟧
+  
+  jira({ prompt: "Retrieve tasks..." })  ← VIOLATION! No pseudo-code!
+  [actual results from tool]
+  ```
+
+  ### ✅ CORRECT - No text between plan and results:
+  ```
+  User: "Get my Jira tasks"
+  Agent:
+  ⟦**🎯 Execution Plan...**⟧
+  🔧 Supervisor: Calling Agent Jira...
+  ✅ Jira: Here are your tasks: [results]
   ```
 
   ## Meta Prompts
