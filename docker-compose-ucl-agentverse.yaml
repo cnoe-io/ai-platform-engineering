@@ -3,7 +3,7 @@ services:
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:0.1.19
+    image: ghcr.io/cnoe-io/ai-platform-engineering:0.2.0
     container_name: platform-engineer-p2p
     volumes:
       - ./prompt_config.yaml:/app/prompt_config.deep_agent.yaml
@@ -58,7 +58,7 @@ services:
   #                                      AGENT GITHUB A2A P2P                                        #
   ####################################################################################################
   agent-github-p2p:
-    image: ghcr.io/cnoe-io/agent-github:0.1.19
+    image: ghcr.io/cnoe-io/agent-github:0.2.0
     container_name: agent-github-p2p
     profiles:
       - p2p
@@ -80,7 +80,7 @@ services:
   #                                      AGENT SLACK A2A P2P                                         #
   ####################################################################################################
   agent-slack-p2p:
-    image: ghcr.io/cnoe-io/agent-slack:0.1.19
+    image: ghcr.io/cnoe-io/agent-slack:0.2.0
     container_name: agent-slack-p2p
     profiles:
       - p2p
@@ -103,7 +103,7 @@ services:
   #                                      MCP SLACK                                                   #
   ####################################################################################################
   mcp-slack:
-    image: ghcr.io/cnoe-io/mcp-slack:0.1.19
+    image: ghcr.io/cnoe-io/mcp-slack:0.2.0
     container_name: mcp-slack
     profiles:
       - p2p
@@ -121,7 +121,7 @@ services:
   #                                      AGENT WEATHER A2A P2P                                       #
   ####################################################################################################
   agent-weather-p2p:
-    image: ghcr.io/cnoe-io/agent-weather:0.1.19
+    image: ghcr.io/cnoe-io/agent-weather:0.2.0
     container_name: agent-weather-p2p
     profiles:
       - p2p
@@ -143,7 +143,7 @@ services:
   #                                      AGENT PETSTORE A2A P2P                                       #
   ####################################################################################################
   agent-petstore-p2p:
-    image: ghcr.io/cnoe-io/agent-template:0.1.19
+    image: ghcr.io/cnoe-io/agent-template:0.2.0
     container_name: agent-petstore-p2p
     profiles:
       - p2p
@@ -165,7 +165,7 @@ services:
   #                                      BACKSTAGE AGENT FORGE                                       #
   ####################################################################################################
   backstage-agent-forge:
-    image: ghcr.io/cnoe-io/prebuild/backstage-plugin-agent-forge:a2a_stream_common_code-55
+    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
     ports:
       - "13000:3000"
@@ -192,7 +192,7 @@ services:
       - .env
     depends_on:
       - rag-redis
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-server:0.2.0
     profiles:
       - p2p
       - p2p-tracing
@@ -213,7 +213,7 @@ services:
         RAG_SERVER_URL: http://rag_server:9446
         ENABLE_GRAPH_RAG: false
     restart: unless-stopped
-    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:0.1.19
+    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:0.2.0
     profiles:
       - p2p
       - p2p-tracing
