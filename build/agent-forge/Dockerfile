@@ -10,22 +10,15 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy package files first for better caching
-COPY package.json yarn.lock .yarnrc.yml ./
-COPY .yarn ./.yarn
-COPY workspaces/agent-forge/package.json ./workspaces/agent-forge/
+# Copy everything needed for yarn install
+COPY . .
 
 # Set yarn configuration for better ARM64 compatibility
 ENV YARN_CACHE_FOLDER=/tmp/.yarn-cache
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
-# Install dependencies with ARM64 optimizations
-RUN yarn install --frozen-lockfile --network-timeout 600000 || \
-    (yarn config set supportedArchitectures.cpu "current" && \
-     yarn install --network-timeout 600000)
-
-# Copy the rest of the application
-COPY . .
+# Install dependencies - yarn will handle the workspace setup
+RUN yarn install --immutable --network-timeout 600000
 
 WORKDIR /app/workspaces/agent-forge
 
