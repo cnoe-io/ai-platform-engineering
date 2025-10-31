@@ -95,7 +95,7 @@ class AIPlatformEngineerA2ABinding:
                   elif item.get("type") == "artifact-update":
                       # New artifact-update format from sub-agents (full A2A event)
                       # Yield the entire event dict for the executor to handle
-                      logging.info(f"Received artifact-update custom event from sub-agent, forwarding to executor")
+                      logging.info("Received artifact-update custom event from sub-agent, forwarding to executor")
                       yield item
                       continue
               
