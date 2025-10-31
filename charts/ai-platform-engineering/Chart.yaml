@@ -1,12 +1,12 @@
 apiVersion: v2
 # pyproject.toml version
-appVersion: 0.1.11 # Do NOT bump this unless actually bumping pyproject.toml version
+appVersion: 0.2.0 # Do NOT bump this unless actually bumping pyproject.toml version
 name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.4.0
+version: 0.4.1
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
@@ -125,7 +125,7 @@ dependencies:
     repository: oci://ghcr.io/agntcy/slim/helm
     condition: global.slim.enabled
   - name: rag-stack
-    version: 0.0.2
+    version: 0.0.3
     repository: file://../rag-stack # TODO: might be changed to be separate
     tags:
       - rag-stack
