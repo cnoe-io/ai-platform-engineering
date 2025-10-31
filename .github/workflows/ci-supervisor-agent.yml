@@ -41,7 +41,7 @@ jobs:
       contents: read
       packages: write
     env:
-      IMAGE_NAME: cnoe-io/ai-platform-engineering
+      IMAGE_NAME: ${{ github.repository_owner }}/ai-platform-engineering
 
     steps:
       - name: 🔒 harden runner

@@ -154,7 +154,14 @@ evals: setup-venv ## Run agentevals with test cases
 ## ========== Docker A2A ==========
 
 build-docker-a2a:            ## Build A2A Docker image
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(AGENT_DIR_NAME):latest -f build/Dockerfile.a2a .
+	@if [ -f "build/Dockerfile.a2a" ]; then \
+		echo "Using agent-specific Dockerfile"; \
+		dockerfile_path="build/Dockerfile.a2a"; \
+	else \
+		echo "Using common agent Dockerfile"; \
+		dockerfile_path="../../common/build/Dockerfile.a2a"; \
+	fi; \
+	docker buildx build --build-arg agent_package="$(AGENT_PKG_NAME)" --platform linux/amd64,linux/arm64 -t $(AGENT_DIR_NAME):latest -f $${dockerfile_path} .
 
 build-docker-a2a-tag:        ## Tag A2A Docker image
 	docker tag $(AGENT_DIR_NAME):latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):latest
@@ -188,7 +195,14 @@ run-local-docker-a2a: build-docker-a2a
 ## ========== Docker MCP ==========
 
 build-docker-mcp:            ## Build MCP Docker image
-	docker buildx build --platform linux/amd64,linux/arm64 -t $(MCP_AGENT_DIR_NAME):latest -f build/Dockerfile.mcp .
+	@if [ -f "build/Dockerfile.a2a" ]; then \
+		echo "Using MCP-specific Dockerfile"; \
+		dockerfile_path="build/Dockerfile.mcp"; \
+	else \
+		echo "Using common MCP Dockerfile"; \
+		dockerfile_path="../../common/build/Dockerfile.mcp"; \
+	fi; \
+	docker buildx build --build-arg mcp_directory="$(MCP_AGENT_DIR_NAME)" --platform linux/amd64,linux/arm64 -t $(MCP_AGENT_DIR_NAME):latest -f $${dockerfile_path} .
 
 build-docker-mcp-tag:        ## Tag MCP Docker image
 	docker tag $(MCP_AGENT_DIR_NAME):latest ghcr.io/cnoe-io/$(MCP_AGENT_DIR_NAME):latest

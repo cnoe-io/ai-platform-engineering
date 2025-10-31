@@ -208,7 +208,9 @@ services:
   mcp-argocd:
     build:
       context: ai_platform_engineering/agents/argocd
-      dockerfile: build/Dockerfile.mcp
+      dockerfile: ../../common/build/Dockerfile.mcp
+      args:
+      - mcp_directory=mcp_argocd
     container_name: mcp-argocd
     profiles:
       - p2p
@@ -217,8 +219,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/argocd/mcp/mcp_argocd:/app/mcp_argocd
     ports:
       - "18000:8000"
     environment:
@@ -232,7 +232,9 @@ services:
   agent-argocd-slim:
     build:
       context: ai_platform_engineering/agents/argocd
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_argocd
     container_name: agent-argocd-slim
     profiles:
       - slim
@@ -242,9 +244,6 @@ services:
       - mcp-argocd
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/agent_argocd
-      - ./ai_platform_engineering/agents/argocd/clients:/app/clients
     ports:
       - "8001:8000"
     environment:
@@ -263,7 +262,9 @@ services:
   agent-argocd-p2p:
     build:
       context: ai_platform_engineering/agents/argocd
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_argocd
     container_name: agent-argocd-p2p
     profiles:
       - p2p
@@ -272,9 +273,6 @@ services:
       - mcp-argocd
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/agent_argocd
-      - ./ai_platform_engineering/agents/argocd/clients:/app/clients
     ports:
       - "8001:8000"
     environment:
@@ -302,9 +300,6 @@ services:
       - slim-dataplane
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/aws/agent_aws:/app/agent_aws
-      - ./ai_platform_engineering/agents/aws/clients:/app/clients
     ports:
       - "8002:8000"
     environment:
@@ -343,9 +338,6 @@ services:
       - p2p-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/aws/agent_aws:/app/agent_aws
-      - ./ai_platform_engineering/agents/aws/clients:/app/clients
     ports:
       - "8002:8000"
     environment:
@@ -377,14 +369,13 @@ services:
   agent-backstage-slim:
     build:
       context: ai_platform_engineering/agents/backstage
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_backstage
     container_name: agent-backstage-slim
     profiles:
       - slim
       - slim-tracing
-    volumes:
-      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/agent_backstage
-      - ./ai_platform_engineering/agents/backstage/clients:/app/clients
     env_file:
       - .env
     depends_on:
@@ -407,16 +398,15 @@ services:
   agent-backstage-p2p:
     build:
       context: ai_platform_engineering/agents/backstage
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_backstage
     container_name: agent-backstage-p2p
     profiles:
       - p2p
       - p2p-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/agent_backstage
-      - ./ai_platform_engineering/agents/backstage/clients:/app/clients
     ports:
       - "8003:8000"
     environment:
@@ -435,7 +425,9 @@ services:
   mcp-backstage:
     build:
       context: ai_platform_engineering/agents/backstage
-      dockerfile: build/Dockerfile.mcp
+      dockerfile: ../../common/build/Dockerfile.mcp
+      args:
+      - mcp_directory=mcp_backstage
     container_name: mcp-backstage
     profiles:
       - p2p
@@ -444,8 +436,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/backstage/mcp/mcp_backstage:/app/mcp_backstage
     ports:
       - "18001:8000"
     environment:
@@ -459,7 +449,9 @@ services:
   agent-confluence-slim:
     build:
       context: ai_platform_engineering/agents/confluence
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_confluence
     container_name: agent-confluence-slim
     profiles:
       - slim
@@ -468,9 +460,6 @@ services:
       - slim-dataplane
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/agent_confluence
-      - ./ai_platform_engineering/agents/confluence/clients:/app/clients
     ports:
       - "8005:8000"
     environment:
@@ -489,16 +478,15 @@ services:
   agent-confluence-p2p:
     build:
       context: ai_platform_engineering/agents/confluence
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_confluence
     container_name: agent-confluence-p2p
     profiles:
       - p2p
       - p2p-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/agent_confluence
-      - ./ai_platform_engineering/agents/confluence/clients:/app/clients
     ports:
       - "8005:8000"
     environment:
@@ -517,7 +505,9 @@ services:
   mcp-confluence:
     build:
       context: ai_platform_engineering/agents/confluence
-      dockerfile: build/Dockerfile.mcp
+      dockerfile: ../../common/build/Dockerfile.mcp
+      args:
+      - mcp_directory=mcp_confluence
     container_name: mcp-confluence
     profiles:
       - p2p
@@ -526,8 +516,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/confluence/mcp/mcp_confluence:/app/mcp_confluence
     ports:
       - "18002:8000"
     environment:
@@ -541,7 +529,9 @@ services:
   agent-github-slim:
     build:
       context: ai_platform_engineering/agents/github
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_github
     container_name: agent-github-slim
     profiles:
       - slim
@@ -552,8 +542,6 @@ services:
       - .env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./ai_platform_engineering/agents/github/agent_github:/app/agent_github
-      - ./ai_platform_engineering/agents/github/clients:/app/clients
     ports:
       - "8007:8000"
     environment:
@@ -572,7 +560,9 @@ services:
   agent-github-p2p:
     build:
       context: ai_platform_engineering/agents/github
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_github
     container_name: agent-github-p2p
     profiles:
       - p2p
@@ -580,8 +570,6 @@ services:
     env_file:
       - .env
     volumes:
-      - ./ai_platform_engineering/agents/github/agent_github:/app/agent_github
-      - ./ai_platform_engineering/agents/github/clients:/app/clients
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8007:8000"
@@ -598,7 +586,9 @@ services:
   agent-jira-slim:
     build:
       context: ai_platform_engineering/agents/jira
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_jira
     container_name: agent-jira-slim
     profiles:
       - slim
@@ -607,9 +597,6 @@ services:
       - slim-dataplane
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/jira/agent_jira:/app/agent_jira
-      - ./ai_platform_engineering/agents/jira/clients:/app/clients
     ports:
       - "8009:8000"
     environment:
@@ -630,16 +617,15 @@ services:
   agent-jira-p2p:
     build:
       context: ai_platform_engineering/agents/jira
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_jira
     container_name: agent-jira-p2p
     profiles:
       - p2p
       - p2p-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/jira/agent_jira:/app/agent_jira
-      - ./ai_platform_engineering/agents/jira/clients:/app/clients
     ports:
       - "8009:8000"
     environment:
@@ -659,7 +645,9 @@ services:
   mcp-jira:
     build:
       context: ai_platform_engineering/agents/jira
-      dockerfile: build/Dockerfile.mcp
+      dockerfile: ../../common/build/Dockerfile.mcp
+      args:
+      - mcp_directory=mcp_jira
     container_name: mcp-jira
     profiles:
       - p2p
@@ -668,8 +656,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/mcp_jira
     ports:
       - "18003:8000"
     environment:
@@ -683,7 +669,9 @@ services:
   agent-komodor-slim:
     build:
       context: ai_platform_engineering/agents/komodor
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_komodor
     container_name: agent-komodor-slim
     profiles:
       - slim
@@ -692,9 +680,6 @@ services:
       - slim-dataplane
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/agent_komodor
-      - ./ai_platform_engineering/agents/komodor/clients:/app/clients
     ports:
       - "8011:8000"
     environment:
@@ -713,16 +698,15 @@ services:
   agent-komodor-p2p:
     build:
       context: ai_platform_engineering/agents/komodor
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_komodor
     container_name: agent-komodor-p2p
     profiles:
       - p2p
       - p2p-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/agent_komodor
-      - ./ai_platform_engineering/agents/komodor/clients:/app/clients
     ports:
       - "8011:8000"
     environment:
@@ -741,7 +725,9 @@ services:
   mcp-komodor:
     build:
       context: ai_platform_engineering/agents/komodor
-      dockerfile: build/Dockerfile.mcp
+      dockerfile: ../../common/build/Dockerfile.mcp
+      args:
+      - mcp_directory=mcp_komodor
     container_name: mcp-komodor
     profiles:
       - p2p
@@ -750,8 +736,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/komodor/mcp/mcp_komodor:/app/mcp_komodor
     ports:
       - "18004:8000"
     environment:
@@ -765,7 +749,9 @@ services:
   agent-pagerduty-slim:
     build:
       context: ai_platform_engineering/agents/pagerduty
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_pagerduty
     container_name: agent-pagerduty-slim
     profiles:
       - slim
@@ -774,9 +760,6 @@ services:
       - slim-dataplane
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/agent_pagerduty
-      - ./ai_platform_engineering/agents/pagerduty/clients:/app/clients
     ports:
       - "8013:8000"
     environment:
@@ -795,16 +778,15 @@ services:
   agent-pagerduty-p2p:
     build:
       context: ai_platform_engineering/agents/pagerduty
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_pagerduty
     container_name: agent-pagerduty-p2p
     profiles:
       - p2p
       - p2p-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/agent_pagerduty
-      - ./ai_platform_engineering/agents/pagerduty/clients:/app/clients
     ports:
       - "8013:8000"
     environment:
@@ -823,7 +805,9 @@ services:
   mcp-pagerduty:
     build:
       context: ai_platform_engineering/agents/pagerduty
-      dockerfile: build/Dockerfile.mcp
+      dockerfile: ../../common/build/Dockerfile.mcp
+      args:
+      - mcp_directory=mcp_pagerduty
     container_name: mcp-pagerduty
     profiles:
       - p2p
@@ -832,8 +816,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/pagerduty/mcp/mcp_pagerduty:/app/mcp_pagerduty
     ports:
       - "18005:8000"
     environment:
@@ -847,7 +829,9 @@ services:
   agent-slack-slim:
     build:
       context: ai_platform_engineering/agents/slack
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_slack
     container_name: agent-slack-slim
     profiles:
       - slim
@@ -856,9 +840,6 @@ services:
       - slim-dataplane
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/slack/agent_slack:/app/agent_slack
-      - ./ai_platform_engineering/agents/slack/clients:/app/clients
     ports:
       - "8015:8000"
     environment:
@@ -879,16 +860,15 @@ services:
   agent-slack-p2p:
     build:
       context: ai_platform_engineering/agents/slack
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_slack
     container_name: agent-slack-p2p
     profiles:
       - p2p
       - p2p-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/slack/agent_slack:/app/agent_slack
-      - ./ai_platform_engineering/agents/slack/clients:/app/clients
     ports:
       - "8015:8000"
     environment:
@@ -907,7 +887,9 @@ services:
   mcp-slack:
     build:
       context: ai_platform_engineering/agents/slack
-      dockerfile: build/Dockerfile.mcp
+      dockerfile: ../../common/build/Dockerfile.mcp
+      args:
+      - mcp_directory=mcp_slack
     container_name: mcp-slack
     profiles:
       - p2p
@@ -916,8 +898,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/slack/mcp/mcp_slack:/app/mcp_slack
     ports:
       - "18006:8000"
     environment:
@@ -931,15 +911,15 @@ services:
   agent-webex-p2p:
     build:
       context: ai_platform_engineering/agents/webex
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_webex
     container_name: agent-webex-p2p
     profiles:
       - p2p
       - p2p-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/webex/agent_webex:/app/agent_webex
     ports:
       - "8017:8000"
     environment:
@@ -957,16 +937,15 @@ services:
   agent-webex-slim:
     build:
       context: ai_platform_engineering/agents/webex
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_webex
     container_name: agent-webex-slim
     profiles:
       - slim
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/webex/agent_webex:/app/agent_webex
-
     depends_on:
       - slim-dataplane
     ports:
@@ -986,7 +965,9 @@ services:
   mcp-webex:
     build:
       context: ai_platform_engineering/agents/webex
-      dockerfile: build/Dockerfile.mcp
+      dockerfile: ../../common/build/Dockerfile.mcp
+      args:
+      - mcp_directory=mcp_webex
     container_name: mcp-webex
     profiles:
       - p2p
@@ -995,8 +976,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/webex/mcp/mcp_webex:/app/mcp_webex
     ports:
       - "18007:8000"
     environment:
@@ -1010,7 +989,9 @@ services:
   mcp-splunk:
     build:
       context: ai_platform_engineering/agents/splunk
-      dockerfile: build/Dockerfile.mcp
+      dockerfile: ../../common/build/Dockerfile.mcp
+      args:
+      - mcp_directory=mcp_splunk
     container_name: mcp-splunk
     profiles:
       - p2p
@@ -1019,8 +1000,6 @@ services:
       - slim-tracing
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/splunk/mcp/mcp_splunk:/app/mcp_splunk
     ports:
       - "18008:8000"
     environment:
@@ -1033,7 +1012,9 @@ services:
   agent-splunk-slim:
     build:
       context: ai_platform_engineering/agents/splunk
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_splunk
     container_name: agent-splunk-slim
     profiles:
       - slim
@@ -1042,8 +1023,6 @@ services:
       - slim-dataplane
     env_file:
       - .env
-    volumes:
-      - ./ai_platform_engineering/agents/splunk/agent_splunk:/app/agent_splunk
     ports:
       - "8019:8000"
     environment:
@@ -1062,7 +1041,9 @@ services:
   agent-splunk-p2p:
     build:
       context: ai_platform_engineering/agents/splunk
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_splunk
     container_name: agent-splunk-p2p
     profiles:
       - p2p
@@ -1071,8 +1052,6 @@ services:
       - mcp-splunk
     env_file:
       - .env
-    volumes:
-    - ./ai_platform_engineering/agents/splunk/agent_splunk:/app/agent_splunk
     ports:
       - "8019:8000"
     environment:
@@ -1091,8 +1070,9 @@ services:
   agent-weather-slim:
     build:
       context: ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
-      cache_from: []
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_weather
     container_name: agent-weather-slim
     profiles:
       - slim
@@ -1103,8 +1083,6 @@ services:
       - .env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
-      - ./ai_platform_engineering/agents/weather/clients:/app/clients
     ports:
       - "8021:8000"
     environment:
@@ -1123,7 +1101,9 @@ services:
   agent-weather-p2p:
     build:
       context: ai_platform_engineering/agents/weather
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_weather
     container_name: agent-weather-p2p
     profiles:
       - p2p
@@ -1133,7 +1113,6 @@ services:
       - .env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./ai_platform_engineering/agents/weather/agent_weather:/app/agent_weather
     ports:
       - "8021:8000"
     environment:
@@ -1151,7 +1130,9 @@ services:
   agent-petstore-slim:
     build:
       context: ai_platform_engineering/agents/template
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_petstore
     container_name: agent-petstore-slim
     profiles:
       - slim
@@ -1162,7 +1143,6 @@ services:
       - .env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
     ports:
       - "8023:8000"
     environment:
@@ -1181,7 +1161,9 @@ services:
   agent-petstore-p2p:
     build:
       context: ai_platform_engineering/agents/template
-      dockerfile: build/Dockerfile.a2a
+      dockerfile: ../../common/build/Dockerfile.a2a
+      args:
+      - agent_package=agent_petstore
     container_name: agent-petstore-p2p
     profiles:
       - p2p
@@ -1191,7 +1173,6 @@ services:
       - .env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
     ports:
       - "8023:8000"
     environment:

@@ -13,6 +13,7 @@ on:
     paths:
       - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/common/build/Dockerfile.a2a'
   workflow_dispatch:
     inputs:
       build_all:
@@ -63,6 +64,7 @@ jobs:
               filters += `  - 'ai_platform_engineering/agents/${agent}/**'\n`;
               filters += `  - '!ai_platform_engineering/agents/${agent}/mcp/**'\n`;
               filters += `  - '!ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+              filters += `  - 'ai_platform_engineering/common/build/Dockerfile.a2a'\n`;
             });
             core.setOutput('filters', filters);
 
@@ -120,7 +122,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
+      IMAGE_NAME: ${{ github.repository_owner }}/agent-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -156,14 +158,25 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
+      - name: Determine Dockerfile path
+        id: dockerfile
+        run: |
+          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.a2a" ]; then
+            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.a2a" >> $GITHUB_OUTPUT
+          else
+            echo "path=${{ env.AGENT_DIR }}/../../common/build/Dockerfile.a2a" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and Push A2A Docker image
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.AGENT_DIR }}
-          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
+          file: ${{ steps.dockerfile.outputs.path }}
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            agent_package=agent_${{ matrix.agent }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max

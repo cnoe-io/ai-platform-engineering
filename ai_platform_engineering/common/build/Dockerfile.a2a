@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy the entire MCP directory structure first since uv sync needs it to build
-COPY --chown=root:root ./mcp ./
+# Copy the entire project structure first since uv sync needs it to build
+COPY --chown=root:root . /app/
 
 # Install dependencies into venv (no dev deps)
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -19,6 +19,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
+
+ARG agent_package
 
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -34,7 +36,8 @@ WORKDIR /app
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
     PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    AGENT_PACKAGE=${agent_package}
 
 # Copy venv & code from builder
 COPY --from=builder --chown=appuser:appuser /app /app
@@ -43,5 +46,4 @@ USER appuser
 
 EXPOSE 8000
 
-# Run the HTTP/SSE MCP server
-CMD ["python", "mcp_confluence/server.py"]
+CMD ["sh", "-c", "exec python -m ${AGENT_PACKAGE} --host 0.0.0.0 --port 8000"]
