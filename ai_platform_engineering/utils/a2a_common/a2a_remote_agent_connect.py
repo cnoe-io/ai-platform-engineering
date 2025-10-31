@@ -247,7 +247,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
                                         writer({"type": "artifact-update", "result": result})
                                         logger.info(f"✅ Streamed artifact-update event (ENABLE_ARTIFACT_STREAMING=true): {len(text)} chars")
                                     else:
-                                        logger.info(f"⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
+                                        logger.info("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
 
                 # Extract text from status-update events (RAG agent streams via status messages)
                 elif kind == "status-update":
