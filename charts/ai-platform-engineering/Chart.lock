@@ -1,40 +1,40 @@
 dependencies:
 - name: supervisor-agent
   repository: ""
-  version: 0.1.1
+  version: 0.2.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: agent
   repository: ""
-  version: 0.2.2
+  version: 0.3.0
 - name: slim
   repository: oci://ghcr.io/agntcy/slim/helm
   version: v0.1.8
@@ -47,5 +47,5 @@ dependencies:
 - name: backstage-plugin-agent-forge
   repository: ""
   version: 0.1.0
-digest: sha256:1041221facb47d0b99a6cde082c6f7cf359644a314ff5ea4ccf337efec75f5a5
-generated: "2025-10-29T22:21:22.755456132Z"
+digest: sha256:18f2bb9311e7b5c87d372e33137383a1ddb9760e79591ca1bac5d73d43bdefc3
+generated: "2025-10-31T16:51:23.837712974Z"
