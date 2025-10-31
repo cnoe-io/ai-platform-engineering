@@ -3,11 +3,10 @@ description: "Build and push Agent Forge Plugin"
 
 on:
   push:
+    branches:
+      - main
     tags:
       - '**'
-  workflow_dispatch:
-  schedule:
-    - cron: '0 2 * * *'  # Runs daily at 2:00 AM UTC
 
 env:
   REGISTRY: ghcr.io
