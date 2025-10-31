@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy package files first for better caching
 COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn ./.yarn
 COPY workspaces/agent-forge/package.json ./workspaces/agent-forge/
 
 # Set yarn configuration for better ARM64 compatibility
