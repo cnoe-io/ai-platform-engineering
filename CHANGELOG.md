@@ -1,3 +1,83 @@
+## Unreleased
+
+### Feat
+
+- add info on PR template
+- allow helm pre-release on fork PRs using label
+- Use more standard pattern for Helm ingress
+- build agent-forge on push to main and remove cronjob
+- Support multi-platform Docker builds (AMD64 + ARM64)
+- Update agent-forge Dockerfile for AMD64 compatibility
+- refactor a2a stream with common code and fix agent-forge workflow
+- add prompt templates and agent integration improvements
+- Add execution plan markers and creation confirmation policy
+- Major streaming architecture improvements and prompt enhancements
+- update a2a streaming and agent improvements
+- implement A2A streaming and common code refactoring
+- refactor a2a_stream with common code
+- add istio support and extraDeploy for custom resources
+
+### Fix
+
+- **prompt_config.deep_agent.yaml**: updates
+- Logging of authentication configuration
+- agent-forge ci gh action
+- lint
+- Build agent-forge Docker image for AMD64 only
+- use shell to cd into workspace directory before starting
+- run yarn from workspace root to access state files
+- simplify Dockerfile to copy all files at once
+- copy .yarn directory to Docker container for Yarn 4.9.4 binary
+- remove unnecessary Node.js setup and build steps from workflow
+- resolve yarn workspace state file issue in agent-forge build
+- updates
+- **docker**: align docker-compose contexts with Dockerfile changes
+- **docker**: include __main__.py files in agent Docker builds
+- resolve RAG unit tests virtual environment and module import issues
+- **agents/template**: resolve Docker build failure in CI
+- **build**: export PYTHONPATH for all agent run targets
+- **build**: add PYTHONPATH and fix RAG server venv detection
+- **build**: correct Dockerfile paths in Makefiles to use absolute paths
+- **build**: update Makefiles to use repository root as Docker build context
+- **docker**: correct RAG Dockerfile paths and enable supervisor builds for prebuild branches
+- **docker**: correct A2A directory paths in agent Dockerfiles
+- **docker**: correct MCP directory path in agent Dockerfiles
+- update weather agent dockerfile
+- update rag agent dockerfile
+- update webex agent dockerfile
+- update confluence agent dockerfile
+- resolve Docker build context issues for RAG and A2A agents
+- **ci**: resolve RAG agent Docker build context issues
+- **ci**: resolve Docker build context issues for agent containers
+- **splunk**: apply automatic linting fixes
+- resolve test suite issues and enable linting
+- restore RAG direct routing and add streaming tests
+- Weather and Webex agent environment and MCP configuration
+- Update Weather and Webex agent Docker configurations
+- **async-streaming**: wip
+- **async-streaming**: wip
+- Fix linting issues and verify tests pass
+- lint and tests
+- better docker-compose and temporarily disable aws
+- **auth**: Fix shared key authentication not loading middleware
+- rag broken links
+- docs - broken links
+- docs sidebar - remove unused pages
+- rag-arch image
+- delete old docs
+- update rag docs
+- updates
+- updates
+- updates
+
+### Refactor
+
+- Weather and Webex agents to use BaseLangGraphAgent
+- GitHub agent to use BaseLangGraphAgent for consistent streaming
+- Move prompt_config.yaml to charts directory and relocate docs
+- Refactor AWS agent to use BaseStrandsAgent and BaseStrandsAgentExecutor
+- **a2a**: move a2a agent and bindings code to common library
+
 ## 0.1.19 (2025-10-22)
 
 ### Feat
