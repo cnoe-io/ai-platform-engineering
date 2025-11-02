@@ -3,7 +3,7 @@ services:
   #                                 AI Platform Engineer A2A P2P                                  #
   ####################################################################################################
   platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/prebuild/ai-platform-engineering:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-p2p
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
@@ -102,7 +102,7 @@ services:
   #                                      PLATFORM ENGINEER A2A over SLIM                              #
   ####################################################################################################
   platform-engineer-slim:
-    image: ghcr.io/cnoe-io/prebuild/ai-platform-engineering:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-slim
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
@@ -193,7 +193,7 @@ services:
   #                                           MCP ARGOCD                                            #
   ####################################################################################################
   mcp-argocd:
-    image: ghcr.io/cnoe-io/prebuild/mcp-argocd:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-stable}
     container_name: mcp-argocd
     profiles:
       - p2p
@@ -213,7 +213,7 @@ services:
   #                                      AGENT ARGOCD A2A over SLIM                                  #
   ####################################################################################################
   agent-argocd-slim:
-    image: ghcr.io/cnoe-io/prebuild/agent-argocd:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
     container_name: agent-argocd-slim
     profiles:
       - slim
@@ -239,7 +239,7 @@ services:
   #                                      AGENT ARGOCD A2A P2P                                        #
   ####################################################################################################
   agent-argocd-p2p:
-    image: ghcr.io/cnoe-io/prebuild/agent-argocd:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
     container_name: agent-argocd-p2p
     profiles:
       - p2p
@@ -371,7 +371,7 @@ services:
   #                                      AGENT BACKSTAGE A2A over SLIM                               #
   ####################################################################################################
   agent-backstage-slim:
-    image: ghcr.io/cnoe-io/prebuild/agent-backstage:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
     container_name: agent-backstage-slim
     profiles:
       - slim
@@ -396,7 +396,7 @@ services:
   #                                      AGENT BACKSTAGE A2A P2P                                     #
   ####################################################################################################
   agent-backstage-p2p:
-    image: ghcr.io/cnoe-io/prebuild/agent-backstage:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
     container_name: agent-backstage-p2p
     profiles:
       - p2p
@@ -419,7 +419,7 @@ services:
   #                                      MCP BACKSTAGE                                               #
   ####################################################################################################
   mcp-backstage:
-    image: ghcr.io/cnoe-io/prebuild/mcp-backstage:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-stable}
     container_name: mcp-backstage
     profiles:
       - p2p
@@ -440,7 +440,7 @@ services:
   ####################################################################################################
 
   agent-confluence-slim:
-    image: ghcr.io/cnoe-io/prebuild/agent-confluence:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
     container_name: agent-confluence-slim
     profiles:
       - slim
@@ -465,7 +465,7 @@ services:
   #                                      AGENT CONFLUENCE A2A P2P                                    #
   ####################################################################################################
   agent-confluence-p2p:
-    image: ghcr.io/cnoe-io/prebuild/agent-confluence:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
     container_name: agent-confluence-p2p
     profiles:
       - p2p
@@ -488,7 +488,7 @@ services:
   #                                      MCP CONFLUENCE                                             #
   ####################################################################################################
   mcp-confluence:
-    image: ghcr.io/cnoe-io/prebuild/mcp-confluence:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/mcp-confluence:${IMAGE_TAG:-stable}
     container_name: mcp-confluence
     profiles:
       - p2p
@@ -557,7 +557,7 @@ services:
   #                                      AGENT JIRA SLIM                                             #
   ####################################################################################################
   agent-jira-slim:
-    image: ghcr.io/cnoe-io/prebuild/agent-jira:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
     container_name: agent-jira-slim
     profiles:
       - slim
@@ -584,7 +584,7 @@ services:
   #                                      AGENT JIRA A2A P2P                                          #
   ####################################################################################################
   agent-jira-p2p:
-    image: ghcr.io/cnoe-io/prebuild/agent-jira:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
     container_name: agent-jira-p2p
     profiles:
       - p2p
@@ -608,7 +608,7 @@ services:
   #                                      MCP JIRA                                                    #
   ####################################################################################################
   mcp-jira:
-    image: ghcr.io/cnoe-io/prebuild/mcp-jira:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-stable}
     container_name: mcp-jira
     profiles:
       - p2p
@@ -628,7 +628,7 @@ services:
   #                                      AGENT KOMODOR A2A over SLIM                                 #
   ####################################################################################################
   agent-komodor-slim:
-    image: ghcr.io/cnoe-io/prebuild/agent-komodor:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
     container_name: agent-komodor-slim
     profiles:
       - slim
@@ -653,7 +653,7 @@ services:
   #                                      AGENT KOMODOR A2A P2P                                       #
   ####################################################################################################
   agent-komodor-p2p:
-    image: ghcr.io/cnoe-io/prebuild/agent-komodor:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
     container_name: agent-komodor-p2p
     profiles:
       - p2p
@@ -676,7 +676,7 @@ services:
   #                                      MCP KOMODOR                                                 #
   ####################################################################################################
   mcp-komodor:
-    image: ghcr.io/cnoe-io/prebuild/mcp-komodor:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-stable}
     container_name: mcp-komodor
     profiles:
       - p2p
@@ -696,7 +696,7 @@ services:
   #                                      AGENT PAGERDUTY A2A over SLIM                               #
   ####################################################################################################
   agent-pagerduty-slim:
-    image: ghcr.io/cnoe-io/prebuild/agent-pagerduty:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
     container_name: agent-pagerduty-slim
     profiles:
       - slim
@@ -721,7 +721,7 @@ services:
   #                                      AGENT PAGERDUTY A2A P2P                                     #
   ####################################################################################################
   agent-pagerduty-p2p:
-    image: ghcr.io/cnoe-io/prebuild/agent-pagerduty:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
     container_name: agent-pagerduty-p2p
     profiles:
       - p2p
@@ -744,7 +744,7 @@ services:
   #                                      MCP PAGERDUTY                                             #
   ####################################################################################################
   mcp-pagerduty:
-    image: ghcr.io/cnoe-io/prebuild/mcp-pagerduty:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-stable}
     container_name: mcp-pagerduty
     profiles:
       - p2p
@@ -764,7 +764,7 @@ services:
   #                                      AGENT SLACK A2A over SLIM                                   #
   ####################################################################################################
   agent-slack-slim:
-    image: ghcr.io/cnoe-io/prebuild/agent-slack:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
     container_name: agent-slack-slim
     profiles:
       - slim
@@ -791,7 +791,7 @@ services:
   #                                      AGENT SLACK A2A P2P                                         #
   ####################################################################################################
   agent-slack-p2p:
-    image: ghcr.io/cnoe-io/prebuild/agent-slack:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
     container_name: agent-slack-p2p
     profiles:
       - p2p
@@ -814,7 +814,7 @@ services:
   #                                      MCP SLACK                                                   #
   ####################################################################################################
   mcp-slack:
-    image: ghcr.io/cnoe-io/prebuild/mcp-slack:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/mcp-slack:${IMAGE_TAG:-stable}
     container_name: mcp-slack
     profiles:
       - p2p
@@ -900,7 +900,7 @@ services:
   #                                      MCP SPLUNK                                                  #
   ####################################################################################################
   mcp-splunk:
-    image: ghcr.io/cnoe-io/prebuild/mcp-splunk:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-stable}
 
     container_name: mcp-splunk
     profiles:
@@ -921,7 +921,7 @@ services:
   #                                      AGENT SPLUNK A2A over SLIM                                  #
   ####################################################################################################
   agent-splunk-slim:
-    image: ghcr.io/cnoe-io/prebuild/agent-splunk:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-stable}
     container_name: agent-splunk-slim
     profiles:
       - slim
@@ -946,7 +946,7 @@ services:
   #                                      AGENT SPLUNK A2A P2P                                        #
   ####################################################################################################
   agent-splunk-p2p:
-    image: ghcr.io/cnoe-io/prebuild/agent-splunk:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-stable}
 
     container_name: agent-splunk-p2p
     profiles:
@@ -1102,7 +1102,7 @@ services:
       timeout: 10s
       retries: 12
       start_period: 60s
-    image: ghcr.io/cnoe-io/prebuild/caipe-rag-server:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
     profiles:
       - rag_p2p
       - rag_no_graph_p2p
@@ -1126,7 +1126,7 @@ services:
         ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-false}
         PYTHONPATH: /app
     restart: unless-stopped
-    image: ghcr.io/cnoe-io/prebuild/caipe-rag-agent-rag:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-stable}
     depends_on:
       neo4j:
         condition: service_started
@@ -1167,12 +1167,12 @@ services:
       - neo4j
       - neo4j-ontology
       - rag-redis
-    image: ghcr.io/cnoe-io/prebuild/caipe-rag-agent-ontology:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
     profiles:
       - rag_p2p
 
   rag_webui:
-    image: ghcr.io/cnoe-io/prebuild/caipe-rag-webui:${IMAGE_TAG:-a2a_stream_common_code-43}
+    image: ghcr.io/cnoe-io/caipe-rag-webui:${IMAGE_TAG:-stable}
     container_name: rag-webui
     environment:
       RAG_SERVER_URL: http://rag_server:9446
