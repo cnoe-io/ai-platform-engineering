@@ -120,7 +120,7 @@ jobs:
 
       - name: Build and push prebuild Docker image
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: community-plugins
           file: community-plugins/Dockerfile
