@@ -1,8 +1,15 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
-import axios from 'axios'
 import type { IngestionJob, DataSourceInfo, GraphConnectorInfo } from './Models'
-
-const apiBase = import.meta.env.VITE_API_BASE?.toString() || ''
+import { 
+	getDataSources, 
+	getGraphConnectors, 
+	getJobStatus, 
+	ingestUrl, 
+	deleteDataSource, 
+	deleteGraphConnector, 
+	reloadDataSource, 
+	terminateJob 
+} from '../api'
 
 export default function IngestView() {
 	// Ingestion state
@@ -29,7 +36,7 @@ export default function IngestView() {
 	const [showDeleteDataSourceConfirm, setShowDeleteDataSourceConfirm] = useState<string | null>(null)
 	const [showDeleteConnectorConfirm, setShowDeleteConnectorConfirm] = useState<string | null>(null)
 
-	const api = useMemo(() => axios.create({ baseURL: apiBase || undefined }), [])
+
 
 	useEffect(() => {
 		fetchDataSources()
@@ -69,8 +76,7 @@ export default function IngestView() {
 
 	const pollDataSourceJob = async (jobId: string) => {
 		try {
-			const res = await api.get(`/v1/job/${jobId}`)
-			const job = res.data as IngestionJob
+			const job = await getJobStatus(jobId)
 			setDataSourceJobs(prevJobs => ({ ...prevJobs, [jobId]: job }))
 		} catch (error) {
 			console.error(`Error polling job status for ${jobId}:`, error)
@@ -85,12 +91,12 @@ export default function IngestView() {
 			const delay = 1000 // 1 second
 
 			while (attempt < maxAttempts) {
-				const response = await api.get<{ datasources: DataSourceInfo[] }>('/v1/datasources')
-				const datasources = response.data.datasources
+				const response = await getDataSources()
+				const datasources = response.datasources
 				setDataSources(datasources)
 
 				if (jobIdToFind) {
-					const sourceHasJobId = datasources.some(ds => ds.job_id === jobIdToFind)
+					const sourceHasJobId = datasources.some((ds: DataSourceInfo) => ds.job_id === jobIdToFind)
 					if (sourceHasJobId) {
 						break // Found the job_id, exit loop
 					} else {
@@ -115,8 +121,8 @@ export default function IngestView() {
 	const fetchGraphConnectors = async () => {
 		setLoadingGraphConnectors(true)
 		try {
-			const response = await api.get<GraphConnectorInfo[]>('/v1/graph/connectors')
-			setGraphConnectors(response.data)
+			const connectors = await getGraphConnectors()
+			setGraphConnectors(connectors)
 		} catch (error) {
 			console.error('Failed to fetch graph connectors', error)
 		} finally {
@@ -152,7 +158,7 @@ export default function IngestView() {
 		if (!url) return
 		
 		try {
-			const response = await api.post('/v1/datasource/ingest/url', {
+			const response = await ingestUrl({
 				url,
 				default_chunk_size: chunkSize,
 				default_chunk_overlap: chunkOverlap,
@@ -160,7 +166,7 @@ export default function IngestView() {
 				sitemap_max_urls: sitemapMaxUrls,
 				description: description,
 			})
-			const { job_id } = response.data
+			const { job_id } = response
 			fetchDataSources(job_id)
 			// Clear the form after successful ingestion
 			setUrl('')
@@ -173,7 +179,7 @@ export default function IngestView() {
 
 	const handleDeleteDataSource = async (datasourceId: string) => {
 		try {
-			await api.delete(`/v1/datasource/delete?datasource_id=${datasourceId}`)
+			await deleteDataSource(datasourceId)
 			fetchDataSources() // Refresh the list
 		} catch (error: any) {
 			console.error('Error deleting data source:', error)
@@ -184,7 +190,7 @@ export default function IngestView() {
 
 	const handleDeleteGraphConnector = async (connectorId: string) => {
 		try {
-			await api.delete(`/v1/graph/connector/delete?connector_id=${connectorId}`)
+			await deleteGraphConnector(connectorId)
 			fetchGraphConnectors() // Refresh the list
 		} catch (error: any) {
 			console.error('Error deleting graph connector:', error)
@@ -195,8 +201,8 @@ export default function IngestView() {
 
 	const handleReloadDataSource = async (datasourceId: string) => {
 		try {
-			const response = await api.post(`/v1/datasource/reload?datasource_id=${datasourceId}`)
-			const { job_id } = response.data
+			const response = await reloadDataSource(datasourceId)
+			const { job_id } = response
 			fetchDataSources(job_id)
 			alert('🔄 Datasource submitted for reloading...')
 		} catch (error: any) {
@@ -207,7 +213,7 @@ export default function IngestView() {
 
 	const handleTerminateJob = async (jobId: string) => {
 		try {
-			await api.post(`/v1/job/${jobId}/terminate`)
+			await terminateJob(jobId)
 			pollDataSourceJob(jobId) // Immediately check the job status
 			alert('⏹️ Job termination requested...')
 		} catch (error: any) {
@@ -513,7 +519,7 @@ export default function IngestView() {
 																<span className="text-slate-400 font-mono text-sm select-none">
 																	{isExpanded ? '−' : '+'}
 																</span>
-																🔌 {connector.name}
+																🔌 {connector.connector_id}
 															</td>
 															<td className="px-3 py-2">{connector.last_seen ? new Date(connector.last_seen).toLocaleString() : 'Never'}</td>
 															<td className="px-3 py-2">
@@ -525,7 +531,7 @@ export default function IngestView() {
 																<td colSpan={3} className="p-3">
 																	<div className="grid grid-cols-2 gap-3 text-xs">
 																		<div><strong>ID:</strong> <span className="font-mono text-xs">{connector.connector_id}</span></div>
-																		<div><strong>Name:</strong> {connector.name}</div>
+																		<div><strong>Name:</strong> {connector.connector_id}</div>
 																		<div><strong>Last Seen:</strong> {connector.last_seen ? new Date(connector.last_seen).toLocaleString() : 'Never'}</div>
 																		{connector.description && <div className="col-span-2"><strong>Description:</strong> {connector.description}</div>}
 																	</div>

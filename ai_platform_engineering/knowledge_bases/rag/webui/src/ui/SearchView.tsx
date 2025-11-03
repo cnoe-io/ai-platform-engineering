@@ -1,8 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import axios from 'axios';
 import type { QueryResult, QueryResponse } from './Models';
-
-const apiBase = import.meta.env.VITE_API_BASE?.toString() || '';
+import { searchDocuments, getHealthStatus } from '../api';
 
 interface SearchViewProps {
     onExploreEntity?: (entityType: string, primaryKey: string) => void;
@@ -26,15 +24,15 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     const [selectedFilterKey, setSelectedFilterKey] = useState('');
     const [filterValue, setFilterValue] = useState('');
 
-    const api = useMemo(() => axios.create({ baseURL: apiBase || undefined }), []);
+
 
     // Fetch valid filter keys and supported doc types on component mount
     React.useEffect(() => {
         const fetchFilterConfig = async () => {
             try {
-                const response = await api.get('/healthz');
-                const filterKeys = response.data?.config?.search?.keys || [];
-                const docTypes = response.data?.config?.search?.supported_doc_types || [];
+                const response = await getHealthStatus();
+                const filterKeys = response?.config?.search?.keys || [];
+                const docTypes = response?.config?.search?.supported_doc_types || [];
                 setValidFilterKeys(filterKeys);
                 setSupportedDocTypes(docTypes);
             } catch (error) {
@@ -42,7 +40,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
             }
         };
         fetchFilterConfig();
-    }, [api]);
+    }, []);
 
     // Filter management functions
     const addFilter = () => {
@@ -105,7 +103,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
             const textWeight = 1 - semanticsWeight;
             const weights = [semanticsWeight, textWeight];
 
-            const { data } = await api.post<QueryResponse>('/v1/query', {
+            const data = await searchDocuments({
                 query,
                 limit,
                 similarity_threshold: similarity,

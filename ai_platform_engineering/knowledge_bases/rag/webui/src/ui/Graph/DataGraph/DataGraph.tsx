@@ -14,7 +14,7 @@ import {
     MarkerType,
     Handle,
 } from '@xyflow/react';
-import axios from 'axios';
+import { getDataEntity, getEntityTypes } from '../../../api';
 import dagre from 'dagre';
 import DataEntityDetailsCard from './DataEntityDetailsCard';
 import DataRelationDetailsCard from './DataRelationDetailsCard';
@@ -24,8 +24,6 @@ import { colorMap, defaultColor, darkenColor, getColorForNode, getDataEdgeStyle 
 import '@xyflow/react/dist/style.css';
 
 interface DataGraphProps {
-    isLoading: boolean;
-    error: string | null;
     exploreEntityData?: { entityType: string; primaryKey: string } | null;
     onExploreComplete?: () => void;
 }
@@ -73,7 +71,7 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'LR') => 
 // Node styling is now handled internally by CustomGraphNode
 // Edge styling is now handled by shared functions in graphStyles
 
-export default function DataGraph({ isLoading, error, exploreEntityData, onExploreComplete }: DataGraphProps) {
+export default function DataGraph({ exploreEntityData, onExploreComplete }: DataGraphProps) {
     const [selectedElement, setSelectedElement] = useState<any>(null);
     const [selectedElementType, setSelectedElementType] = useState<'node' | 'edge' | null>(null);
     const [entityPrimaryKey, setEntityPrimaryKey] = useState<string>('');
@@ -92,12 +90,9 @@ export default function DataGraph({ isLoading, error, exploreEntityData, onExplo
         setIsSearching(true);
         try {
             // Use the actual API endpoint to explore data entity
-            const response = await axios.post('/v1/graph/explore/data/entity', {
-                entity_type: entityType,
-                entity_pk: primaryKey
-            });
+            const response = await getDataEntity(entityType, primaryKey);
 
-            const { entity, relations } = response.data;
+            const { entity, relations } = response;
             
             if (!entity) {
                 console.warn('No entity found');
@@ -250,8 +245,7 @@ export default function DataGraph({ isLoading, error, exploreEntityData, onExplo
 
     const fetchEntityTypes = useCallback(async () => {
         try {
-            const response = await axios.get('/v1/graph/explore/entity_type');
-            const types = response.data || [];
+            const types = await getEntityTypes();
             setEntityTypes(types.sort()); // Sort alphabetically
         } catch (err) {
             console.error('Failed to fetch entity types:', err);
@@ -346,14 +340,11 @@ export default function DataGraph({ isLoading, error, exploreEntityData, onExplo
                 <div className="flex justify-end items-center mb-4 gap-2">
                     <button
                         className="btn bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white"
-                        disabled={isLoading}
                         onClick={fetchEntityTypes}
                         title="Refresh Data View">
-                        {isLoading ? 'Loading...' : 'Refresh'}
+                        Refresh
                     </button>
                 </div>
-                
-                {error && <p className="text-red-500 mb-4">{error}</p>}
                 
                 {/* Main Content Area */}
                 {exploredEntity ? (
@@ -435,7 +426,7 @@ export default function DataGraph({ isLoading, error, exploreEntityData, onExplo
                                     onChange={(e) => setEntityPrimaryKey(e.target.value)}
                                     placeholder="Enter entity primary key..."
                                     className="flex-1 px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                                    onKeyPress={(e) => e.key === 'Enter' && handleExploreEntity()}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleExploreEntity()}
                                 />
                                 <button
                                     onClick={handleExploreEntity}

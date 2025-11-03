@@ -1,5 +1,12 @@
 // Shared color scheme for graph nodes across Ontology and Data views
 
+// Evaluation result enum matching the backend
+export enum EvaluationResult {
+    ACCEPTED = 'ACCEPTED',
+    REJECTED = 'REJECTED',
+    UNSURE = 'UNSURE'
+}
+
 export const colorMap: { [key: string]: string } = {
     'aws': '#FFC107',
     'backstage': '#4CAF50',
@@ -27,22 +34,7 @@ export const getColorForNode = (label: string): string => {
     return defaultColor;
 };
 
-// Helper function to categorize relations based on confidence
-export const getRelationCategory = (relation: any, acceptanceThreshold: number, rejectionThreshold: number): 'accepted' | 'rejected' | 'uncertain' => {
-    const confidence = relation.relation_properties?.evaluation_relation_confidence;
-    
-    if (confidence === undefined || confidence === null) {
-        return 'uncertain';
-    }
-    
-    if (confidence >= acceptanceThreshold) {
-        return 'accepted';
-    } else if (confidence <= rejectionThreshold) {
-        return 'rejected';
-    } else {
-        return 'uncertain';
-    }
-};
+
 
 // Simple edge styling for data graphs
 export const getDataEdgeStyle = (isSelected: boolean = false) => {
@@ -62,34 +54,34 @@ export const getDataEdgeStyle = (isSelected: boolean = false) => {
     return baseStyle;
 };
 
-// Complex edge styling for ontology graphs with confidence-based styling
-export const getOntologyEdgeStyle = (relation: any, acceptanceThreshold: number, rejectionThreshold: number, isSelected: boolean = false) => {
-    const category = getRelationCategory(relation, acceptanceThreshold, rejectionThreshold);
+// Complex edge styling for ontology graphs with evaluation result-based styling
+export const getOntologyEdgeStyle = (relation: any, isSelected: boolean = false) => {
+    const hasEvaluation = relation.relation_properties?.evaluation_last_evaluated !== undefined && 
+                          relation.relation_properties?.evaluation_last_evaluated !== null &&
+                          relation.relation_properties?.evaluation_last_evaluated > 0;
+
+    const result = hasEvaluation ? relation.relation_properties?.evaluation_result : null;
     
     let baseStyle: any;
     
-    switch (category) {
-        case 'accepted':
-            baseStyle = {
-                stroke: '#6b7280',
-                strokeWidth: 2
-            };
-            break;
-        case 'rejected':
-            baseStyle = {
-                stroke: '#ef4444', // red
-                strokeDasharray: '10 5',
-                strokeWidth: 2
-            };
-            break;
-        case 'uncertain':
-        default:
-            baseStyle = {
-                stroke: '#6b7280', // gray
-                strokeDasharray: '5 5',
-                strokeWidth: 2
-            };
-            break;
+    if (result === EvaluationResult.ACCEPTED) {
+        baseStyle = {
+            stroke: '#6b7280',
+            strokeWidth: 2
+        };
+    } else if (result === EvaluationResult.REJECTED) {
+        baseStyle = {
+            stroke: '#ef4444', // red
+            strokeDasharray: '10 5',
+            strokeWidth: 2
+        };
+    } else {
+        // UNSURE or no evaluation
+        baseStyle = {
+            stroke: '#6b7280', // gray
+            strokeDasharray: '5 5',
+            strokeWidth: 2
+        };
     }
 
     // Apply selection styling

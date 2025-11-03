@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import axios from 'axios'
 import logo from '../assets/logo.svg'
 import IngestView from './IngestView'
 import ExploreView from './ExploreView'
+import { getHealthStatus } from '../api'
 
 const apiBase = import.meta.env.VITE_API_BASE?.toString() || ''
 
@@ -12,20 +12,17 @@ export default function App() {
 	const [healthData, setHealthData] = useState<Record<string, unknown> | null>(null)
 
 	const baseInfo = useMemo(() => (apiBase ? `Proxy disabled -> ${apiBase}` : 'Proxy: /v1 → :9446'), [])
-	const api = useMemo(() => axios.create({ baseURL: apiBase || undefined }), [])
 
 	useEffect(() => {
-		const checkHealth = () => {
-			api
-				.get('/healthz')
-				.then((res) => {
-					setHealth('healthy')
-					setHealthData(res.data)
-				})
-				.catch((err) => {
-					console.warn('Health check failed', err)
-					setHealth('unreachable')
-				})
+		const checkHealth = async () => {
+			try {
+				const data = await getHealthStatus()
+				setHealth('healthy')
+				setHealthData(data)
+			} catch (err) {
+				console.warn('Health check failed', err)
+				setHealth('unreachable')
+			}
 		}
 
 		checkHealth() // Initial check
@@ -34,7 +31,7 @@ export default function App() {
 		return () => {
 			clearInterval(intervalId)
 		}
-	}, [api])
+	}, [])
 
 	return (
 		<div className="mx-auto max-w-7xl px-4 py-8 font-[Inter,system-ui,Arial,sans-serif]">

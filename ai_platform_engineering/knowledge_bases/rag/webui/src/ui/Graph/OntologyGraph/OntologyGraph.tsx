@@ -13,12 +13,33 @@ import {
     Position,
     MarkerType,
 } from '@xyflow/react';
-import axios from 'axios';
 import dagre from 'dagre';
 import OntologyEntityDetailsCard from './OntologyEntityDetailsCard';
 import OntologyRelationDetailsCard from './OntologyRelationDetailsCard';
 import CustomGraphNode from '../CustomGraphNode';
-import { colorMap, defaultColor, darkenColor, getColorForNode, getRelationCategory, getOntologyEdgeStyle } from '../graphStyles';
+import { colorMap, defaultColor, darkenColor, getColorForNode, getOntologyEdgeStyle, EvaluationResult } from '../graphStyles';
+
+// Helper function to get evaluation result from relation data
+const getEvaluationResult = (relation: any): EvaluationResult | null => {
+    const hasEvaluation = relation.relation_properties?.evaluation_last_evaluated !== undefined && 
+                          relation.relation_properties?.evaluation_last_evaluated !== null &&
+                          relation.relation_properties?.evaluation_last_evaluated > 0;
+    
+    return hasEvaluation ? relation.relation_properties?.evaluation_result : null;
+};
+
+import { 
+    getOntologyEntities, 
+    getOntologyRelations, 
+    clearOntology, 
+    regenerateOntology, 
+    getOntologyAgentStatus,
+    acceptOntologyRelation,
+    rejectOntologyRelation,
+    undoOntologyRelationEvaluation,
+    evaluateOntologyRelation,
+    syncOntologyRelation
+} from '../../../api';
 
 import '@xyflow/react/dist/style.css';
 
@@ -76,24 +97,9 @@ const Marquee = ({ text }: { text: string }) => {
 // Node styling is now handled internally by CustomGraphNode
 
 interface OntologyGraphProps {
-    isAgentProcessing: boolean;
-    isAgentEvaluating: boolean;
-    acceptanceThreshold: number;
-    rejectionThreshold: number;
-    onRegenerateOntology: () => Promise<void>;
-    isLoading: boolean;
-    error: string | null;
 }
 
-export default function OntologyGraph({
-    isAgentProcessing,
-    isAgentEvaluating,
-    acceptanceThreshold,
-    rejectionThreshold,
-    onRegenerateOntology,
-    isLoading,
-    error
-}: OntologyGraphProps) {
+export default function OntologyGraph({}: OntologyGraphProps) {
     const [nodes, setNodes] = useState<Node[]>([]);
     const [edges, setEdges] = useState<Edge[]>([]);
     const [graphKey, setGraphKey] = useState(0);
@@ -107,9 +113,46 @@ export default function OntologyGraph({
     const [showRejected, setShowRejected] = useState<boolean>(true); // Show rejected relations
     const [showUncertain, setShowUncertain] = useState<boolean>(true); // Show uncertain relations
     const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null); // Track focused node for filtering
-    const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false); // Show clear confirmation dialog
+    
+    // Agent status related state
+    const [isAgentProcessing, setIsAgentProcessing] = useState(false);
+    const [isAgentEvaluating, setIsAgentEvaluating] = useState(false);
+    const [processingProgress, setProcessingProgress] = useState({ total: 0, completed: 0 });
+    const [evaluationProgress, setEvaluationProgress] = useState({ total: 0, completed: 0 });
+    const [isLoadingAgentStatus, setIsLoadingAgentStatus] = useState(true); // Loading state for initial fetch
+    const [showDeleteOntologyConfirm, setShowDeleteOntologyConfirm] = useState<boolean>(false); // Show clear confirmation dialog
     const [showRegenerateConfirm, setShowRegenerateConfirm] = useState<boolean>(false); // Show regenerate confirmation dialog
+    const [isRelationActionLoading, setIsRelationActionLoading] = useState(false); // Loading state for relation actions
+    const [relationActionResult, setRelationActionResult] = useState<{ type: 'success' | 'error', message: string } | null>(null); // Action result state
     const graphData = useRef<{ nodes: Node[], edges: Edge[] }>({ nodes: [], edges: [] });
+
+    // Derived state for agent activity
+    const isAgentActive = isAgentProcessing || isAgentEvaluating;
+
+    // Fetch agent status function
+    const fetchAgentStatus = useCallback(async () => {
+        try {
+            const response = await getOntologyAgentStatus();
+            const {
+                is_processing,
+                is_evaluating,
+                processing_tasks_total,
+                processed_tasks_count,
+                evaluation_tasks_total,
+                evaluated_tasks_count,
+                candidate_acceptance_threshold,
+                candidate_rejection_threshold
+            } = response;
+            setIsAgentProcessing(is_processing);
+            setIsAgentEvaluating(is_evaluating);
+            setProcessingProgress({ total: processing_tasks_total, completed: processed_tasks_count });
+            setEvaluationProgress({ total: evaluation_tasks_total, completed: evaluated_tasks_count });
+            setIsLoadingAgentStatus(false); // Mark loading as complete
+        } catch (error) {
+            console.error('Failed to fetch agent status:', error);
+            setIsLoadingAgentStatus(false); // Mark loading as complete even on error
+        }
+    }, []);
 
     const handleLabelChange = (label: string, isChecked: boolean) => {
         setSelectedLabels(prev => {
@@ -161,9 +204,9 @@ export default function OntologyGraph({
         setFocusedNodeId(null);
     };
 
-    const handleClearOntology = async () => {
+    const handleDeleteOntology = async () => {
         try {
-            await axios.delete('/v1/graph/ontology/agent/clear');
+            await clearOntology();
             // Clear stored data and trigger refresh
             graphData.current = { nodes: [], edges: [] };
             setAllLabels([]);
@@ -173,21 +216,168 @@ export default function OntologyGraph({
         } catch (error) {
             console.error('Failed to clear ontology:', error);
         }
-        setShowClearConfirm(false);
+        setShowDeleteOntologyConfirm(false);
+    };
+
+    const handleRegenerateOntology = async () => {
+        try {
+            await regenerateOntology();
+            alert('Submitted for regeneration, an agent will look at all the graph data, and regenerate the ontology soon');
+        } catch (error) {
+            console.error('Failed to regenerate ontology:', error);
+            alert('Failed to regenerate ontology.');
+        }
     };
 
     const handleRegenerateConfirm = async () => {
         setShowRegenerateConfirm(false);
-        await onRegenerateOntology();
+        await handleRegenerateOntology();
     };
+
+    const handleRefreshOntology = () => {
+        // Clear stored data to force a refresh
+        graphData.current = { nodes: [], edges: [] };
+        setAllLabels([]);
+        setSelectedLabels(new Set());
+        // Clear any existing relation action results
+        setRelationActionResult(null);
+        // Don't clear focusedNodeId here - let the useEffect handle it after data is loaded
+        // The useEffect will automatically re-fetch and refresh the graph
+    };
+
+    // Relation action handlers
+    const handleRelationEvaluate = async (relationId: string) => {
+        if (!relationId) {
+            setRelationActionResult({ type: 'error', message: 'No relation ID found for this relation' });
+            return;
+        }
+
+        setIsRelationActionLoading(true);
+        setRelationActionResult(null);
+
+        try {
+            await evaluateOntologyRelation(relationId);
+            setRelationActionResult({ type: 'success', message: 'Evaluation submitted successfully' });
+            // Refresh data to get updated relation
+            handleRefreshOntology();
+        } catch (error) {
+            console.error('API call failed:', error);
+            setRelationActionResult({ type: 'error', message: 'Failed - ' + (error instanceof Error ? error.message : 'Unknown error') });
+        } finally {
+            setIsRelationActionLoading(false);
+        }
+    };
+
+    const handleRelationAccept = async (relationId: string, relationName: string) => {
+        if (!relationId) {
+            setRelationActionResult({ type: 'error', message: 'No relation ID found for this relation' });
+            return;
+        }
+
+        const userRelationName = prompt('Please enter the relation name for this connection:', relationName || 'related_to');
+        if (userRelationName !== null) { // User didn't cancel
+            setIsRelationActionLoading(true);
+            setRelationActionResult(null);
+
+            try {
+                await acceptOntologyRelation(relationId, userRelationName);
+                setRelationActionResult({ type: 'success', message: 'Relation accepted successfully' });
+                // Refresh data to get updated relation
+                handleRefreshOntology();
+            } catch (error) {
+                console.error('API call failed:', error);
+                setRelationActionResult({ type: 'error', message: 'Failed - ' + (error instanceof Error ? error.message : 'Unknown error') });
+            } finally {
+                setIsRelationActionLoading(false);
+            }
+        }
+    };
+
+    const handleRelationReject = async (relationId: string) => {
+        if (!relationId) {
+            setRelationActionResult({ type: 'error', message: 'No relation ID found for this relation' });
+            return;
+        }
+
+        setIsRelationActionLoading(true);
+        setRelationActionResult(null);
+
+        try {
+            await rejectOntologyRelation(relationId);
+            setRelationActionResult({ type: 'success', message: 'Relation rejected successfully' });
+            // Refresh data to get updated relation
+            handleRefreshOntology();
+        } catch (error) {
+            console.error('API call failed:', error);
+            setRelationActionResult({ type: 'error', message: 'Failed - ' + (error instanceof Error ? error.message : 'Unknown error') });
+        } finally {
+            setIsRelationActionLoading(false);
+        }
+    };
+
+    const handleRelationUndoEvaluation = async (relationId: string) => {
+        if (!relationId) {
+            setRelationActionResult({ type: 'error', message: 'No relation ID found for this relation' });
+            return;
+        }
+
+        setIsRelationActionLoading(true);
+        setRelationActionResult(null);
+
+        try {
+            await undoOntologyRelationEvaluation(relationId);
+            setRelationActionResult({ type: 'success', message: 'Evaluation undone successfully' });
+            // Refresh data to get updated relation
+            handleRefreshOntology();
+        } catch (error) {
+            console.error('API call failed:', error);
+            setRelationActionResult({ type: 'error', message: 'Failed - ' + (error instanceof Error ? error.message : 'Unknown error') });
+        } finally {
+            setIsRelationActionLoading(false);
+        }
+    };
+
+    const handleRelationSync = async (relationId: string) => {
+        if (!relationId) {
+            setRelationActionResult({ type: 'error', message: 'No relation ID found for this relation' });
+            return;
+        }
+
+        setIsRelationActionLoading(true);
+        setRelationActionResult(null);
+
+        try {
+            await syncOntologyRelation(relationId);
+            setRelationActionResult({ type: 'success', message: 'Sync completed successfully' });
+            // Refresh data to get updated relation
+            handleRefreshOntology();
+        } catch (error) {
+            console.error('API call failed:', error);
+            setRelationActionResult({ type: 'error', message: 'Failed - ' + (error instanceof Error ? error.message : 'Unknown error') });
+        } finally {
+            setIsRelationActionLoading(false);
+        }
+    };
+
+    // Agent status fetching effect
+    useEffect(() => {
+        // Initial status check
+        fetchAgentStatus();
+
+        // Set up periodic status checking every 5 seconds
+        const statusInterval = setInterval(fetchAgentStatus, 5000);
+
+        return () => {
+            clearInterval(statusInterval);
+        };
+    }, [fetchAgentStatus]);
 
     useEffect(() => {
         const processGraphData = async () => {
             // 1. Fetch data only if we don't have any data
             if (graphData.current.nodes.length === 0) {
                 try {
-                    const entitiesResponse = await axios.post('/v1/graph/explore/ontology/entities', { 'filter_by_properties': {} });
-                    const entitiesData = entitiesResponse.data || [];
+                    const entitiesData = await getOntologyEntities({}) || [];
                     
                     const allNodes: Node[] = entitiesData.map((entity: any) => {
                         const label = entity.entity_type || entity.all_properties._primary_key;
@@ -200,8 +390,7 @@ export default function OntologyGraph({
                         };
                     });
 
-                    const relationsResponse = await axios.post('/v1/graph/explore/ontology/relations', { 'filter_by_properties': {} });
-                    const relationsData = relationsResponse.data || [];
+                    const relationsData = await getOntologyRelations({}) || [];
                     
                     // Group edges by node pairs to deduplicate
                     const edgeGroupsMap = new Map<string, any[]>();
@@ -227,9 +416,9 @@ export default function OntologyGraph({
                             label += ` [x${edgeCount}]`;
                         }
                         
-                        const edgeStyle = getOntologyEdgeStyle(firstRelation, acceptanceThreshold, rejectionThreshold, false);
+                        const edgeStyle = getOntologyEdgeStyle(firstRelation, false);
                         return {
-                            id: firstRelation.relation_properties._primary_key,
+                            id: firstRelation.relation_properties._ontology_relation_id,
                             source: firstRelation.from_entity.primary_key,
                             target: firstRelation.to_entity.primary_key,
                             label: label,
@@ -251,6 +440,35 @@ export default function OntologyGraph({
                     });
 
                     graphData.current = { nodes: allNodes, edges: allEdges };
+                    
+                    // Check if focused node still exists after refresh
+                    if (focusedNodeId && !allNodes.some(node => node.id === focusedNodeId)) {
+                        setFocusedNodeId(null);
+                    }
+                    
+                    // Update selected element if it's a relation that has been refreshed
+                    if (selectedElement && selectedElementType === 'edge') {
+                        const updatedRelation = allEdges.find(edge => edge.id === selectedElement.id);
+                        if (updatedRelation) {
+                            setSelectedElement(updatedRelation);
+                        } else {
+                            // Relation no longer exists, close the details card
+                            setSelectedElement(null);
+                            setSelectedElementType(null);
+                        }
+                    }
+                    
+                    // Update selected element if it's a node that has been refreshed
+                    if (selectedElement && selectedElementType === 'node') {
+                        const updatedNode = allNodes.find(node => node.id === selectedElement.id);
+                        if (updatedNode) {
+                            setSelectedElement(updatedNode);
+                        } else {
+                            // Node no longer exists, close the details card
+                            setSelectedElement(null);
+                            setSelectedElementType(null);
+                        }
+                    }
                     
                     // Only update labels if we have nodes, otherwise keep current selection
                     if (allNodes.length > 0) {
@@ -289,10 +507,10 @@ export default function OntologyGraph({
                             return false;
                         }
                         
-                        const category = getRelationCategory(edge.data, acceptanceThreshold, rejectionThreshold);
-                        if (category === 'accepted' && !showAccepted) return false;
-                        if (category === 'rejected' && !showRejected) return false;
-                        if (category === 'uncertain' && !showUncertain) return false;
+                        const result = getEvaluationResult(edge.data);
+                        if (result === EvaluationResult.ACCEPTED && !showAccepted) return false;
+                        if (result === EvaluationResult.REJECTED && !showRejected) return false;
+                        if ((result === EvaluationResult.UNSURE || result === null) && !showUncertain) return false;
                         
                         return true;
                     });
@@ -315,10 +533,10 @@ export default function OntologyGraph({
                     
                     // Apply relation category filters to connected edges
                     filteredEdges = connectedEdges.filter(edge => {
-                        const category = getRelationCategory(edge.data, acceptanceThreshold, rejectionThreshold);
-                        if (category === 'accepted' && !showAccepted) return false;
-                        if (category === 'rejected' && !showRejected) return false;
-                        if (category === 'uncertain' && !showUncertain) return false;
+                        const result = getEvaluationResult(edge.data);
+                        if (result === EvaluationResult.ACCEPTED && !showAccepted) return false;
+                        if (result === EvaluationResult.REJECTED && !showRejected) return false;
+                        if ((result === EvaluationResult.UNSURE || result === null) && !showUncertain) return false;
                         
                         return true;
                     });
@@ -336,10 +554,10 @@ export default function OntologyGraph({
                     }
                     
                     // Then filter by relation category
-                    const category = getRelationCategory(edge.data, acceptanceThreshold, rejectionThreshold);
-                    if (category === 'accepted' && !showAccepted) return false;
-                    if (category === 'rejected' && !showRejected) return false;
-                    if (category === 'uncertain' && !showUncertain) return false;
+                    const result = getEvaluationResult(edge.data);
+                    if (result === EvaluationResult.ACCEPTED && !showAccepted) return false;
+                    if (result === EvaluationResult.REJECTED && !showRejected) return false;
+                    if ((result === EvaluationResult.UNSURE || result === null) && !showUncertain) return false;
                     
                     return true;
                 });
@@ -359,7 +577,27 @@ export default function OntologyGraph({
         };
 
         processGraphData();
-    }, [selectedLabels, layoutDirection, acceptanceThreshold, rejectionThreshold, showAccepted, showRejected, showUncertain, focusedNodeId]); // Re-run when filters, layout direction, thresholds, or focused node change
+    }, [selectedLabels, layoutDirection, showAccepted, showRejected, showUncertain, focusedNodeId]); // Re-run when filters, layout direction, or focused node change
+
+    // Effect to update selected element when edges change (for relation details card refresh)
+    useEffect(() => {
+        if (selectedElement && selectedElementType === 'edge' && edges.length > 0) {
+            // Find the updated version of the selected edge
+            const updatedEdge = edges.find(edge => edge.id === selectedElement.id);
+            if (updatedEdge && JSON.stringify(updatedEdge.data) !== JSON.stringify(selectedElement.data)) {
+                // Edge data has changed, update the selected element
+                setSelectedElement(updatedEdge);
+            }
+        }
+        if (selectedElement && selectedElementType === 'node' && nodes.length > 0) {
+            // Find the updated version of the selected node
+            const updatedNode = nodes.find(node => node.id === selectedElement.id);
+            if (updatedNode && JSON.stringify(updatedNode.data) !== JSON.stringify(selectedElement.data)) {
+                // Node data has changed, update the selected element
+                setSelectedElement(updatedNode);
+            }
+        }
+    }, [edges, nodes, selectedElement, selectedElementType]);
 
     // Separate effect to handle edge selection styling without re-rendering the entire graph
     useEffect(() => {
@@ -373,7 +611,7 @@ export default function OntologyGraph({
                     (selectedElement?.id === edge.source || selectedElement?.id === edge.target);
                 const isHighlighted = isEdgeSelected || isNodeSelected;
                 
-                const edgeStyle = getOntologyEdgeStyle(edge.data, acceptanceThreshold, rejectionThreshold, isHighlighted);
+                const edgeStyle = getOntologyEdgeStyle(edge.data, isHighlighted);
                 return {
                     ...edge,
                     style: edgeStyle,
@@ -398,18 +636,16 @@ export default function OntologyGraph({
                 };
             })
         );
-    }, [selectedElement, selectedElementType, acceptanceThreshold, rejectionThreshold]); // Only update styling when selection or thresholds change
+    }, [selectedElement, selectedElementType]); // Only update styling when selection changes
 
     // Node selection styling is now handled internally by CustomGraphNode
-
-    const isAgentActive = isAgentProcessing || isAgentEvaluating;
 
     return (
         <div className="relative h-full bg-slate-100 overflow-hidden">
             {/* --- Toggle Button --- */}
             <button 
                 onClick={() => setIsPanelOpen(!isPanelOpen)} 
-                className={`absolute top-4 left-4 btn btn-sm z-20 bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white ${focusedNodeId ? 'disabled:bg-gray-400 disabled:cursor-not-allowed' : ''}`}
+                className="absolute top-4 left-4 btn btn-sm z-20 bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
                 disabled={!!focusedNodeId}
                 title={focusedNodeId ? "Filters are disabled when focusing on a specific node" : "Open filters panel"}
             >
@@ -433,12 +669,20 @@ export default function OntologyGraph({
                     {selectedElementType === 'edge' && (
                         <OntologyRelationDetailsCard 
                             relation={selectedElement as Edge} 
-                            acceptanceThreshold={acceptanceThreshold}
-                            rejectionThreshold={rejectionThreshold}
                             onClose={() => {
                                 setSelectedElement(null);
                                 setSelectedElementType(null);
-                            }} 
+                            }}
+                            // API action handlers
+                            onEvaluate={handleRelationEvaluate}
+                            onAccept={handleRelationAccept}
+                            onReject={handleRelationReject}
+                            onUndoEvaluation={handleRelationUndoEvaluation}
+                            onSync={handleRelationSync}
+                            // Loading and result states
+                            isLoading={isRelationActionLoading}
+                            actionResult={relationActionResult}
+                            onClearActionResult={() => setRelationActionResult(null)}
                         />
                     )}
                 </>
@@ -482,7 +726,7 @@ export default function OntologyGraph({
                             />
                             <label htmlFor="show-accepted" className="flex items-center gap-2 text-sm">
                                 <div className="w-4 h-0 border-t-2 border-gray-500"></div>
-                                <span>Accepted (≥{Math.round(acceptanceThreshold * 100)}%)</span>
+                                <span>Accepted</span>
                             </label>
                         </div>
                         <div className="flex items-center">
@@ -495,7 +739,7 @@ export default function OntologyGraph({
                             />
                             <label htmlFor="show-rejected" className="flex items-center gap-2 text-sm">
                                 <div className="w-4 h-0 border-t-2 border-red-500" style={{borderStyle: 'dashed', borderTopWidth: '2px', borderTopStyle: 'dashed'}}></div>
-                                <span>Rejected (≤{Math.round(rejectionThreshold * 100)}%)</span>
+                                <span>Rejected</span>
                             </label>
                         </div>
                         <div className="flex items-center">
@@ -518,30 +762,50 @@ export default function OntologyGraph({
             {/* --- Graph View --- */}
             <div className="w-full h-full flex flex-col p-5">
                 <div className="flex justify-end items-center mb-4 gap-2">
-                    {focusedNodeId && (
-                        <button
-                            onClick={handleClearFocus}
-                            className="btn bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white"
-                            title="Clear node focus and show all filtered nodes">
-                            Clear Focus
-                        </button>
+                    {focusedNodeId ? (
+                        <>
+                            {/* When focused: Refresh, Clear Focus */}
+                            <button
+                                onClick={handleRefreshOntology}
+                                className="px-3 py-1.5 text-sm rounded bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                disabled={isAgentActive || isLoadingAgentStatus}
+                                title={isLoadingAgentStatus ? "Loading agent status..." : isAgentActive ? "Agent is currently active - please wait" : "Refresh ontology data"}>
+                                {isLoadingAgentStatus ? 'Loading...' : 'Refresh'}
+                            </button>
+                            <button
+                                onClick={handleClearFocus}
+                                className="px-3 py-1.5 text-sm rounded bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                title="Clear node focus and show all filtered nodes">
+                                Clear Focus
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            {/* When not focused: Delete, Re-analyse, Refresh */}
+                            <button
+                                onClick={() => setShowDeleteOntologyConfirm(true)}
+                                className="px-3 py-1.5 text-sm rounded bg-red-500 hover:bg-red-600 active:bg-red-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                disabled={isAgentActive || isLoadingAgentStatus}
+                                title={isLoadingAgentStatus ? "Loading agent status..." : isAgentActive ? "Agent is currently active - please wait" : "Clear all ontology data"}>
+                                {isLoadingAgentStatus ? 'Loading...' : 'Delete'}
+                            </button>
+                            <button
+                                onClick={() => setShowRegenerateConfirm(true)}
+                                className="px-3 py-1.5 text-sm rounded bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                disabled={isAgentActive || isLoadingAgentStatus}
+                                title={isLoadingAgentStatus ? "Loading agent status..." : isAgentActive ? "Agent is currently active - please wait" : nodes.length === 0 ? "Analyse Ontology" : "Re-analyse the Ontology"}>
+                                {isLoadingAgentStatus ? 'Loading...' : nodes.length === 0 ? 'Analyse Ontology' : 'Re-analyse'}
+                            </button>
+                            <button
+                                onClick={handleRefreshOntology}
+                                className="px-3 py-1.5 text-sm rounded bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                disabled={isAgentActive || isLoadingAgentStatus}
+                                title={isLoadingAgentStatus ? "Loading agent status..." : isAgentActive ? "Agent is currently active - please wait" : "Refresh ontology data"}>
+                                {isLoadingAgentStatus ? 'Loading...' : 'Refresh'}
+                            </button>
+                        </>
                     )}
-                    <button
-                        onClick={() => setShowClearConfirm(true)}
-                        className="btn bg-red-500 hover:bg-red-600 active:bg-red-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
-                        disabled={isLoading || isAgentActive}
-                        title={isAgentActive ? "Agent is currently active - please wait" : "Clear all ontology data"}>
-                        Clear
-                    </button>
-                    <button
-                        onClick={() => setShowRegenerateConfirm(true)}
-                        className="btn bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
-                        disabled={isLoading || isAgentActive}
-                        title={isAgentActive ? "Agent is currently active - please wait" : nodes.length === 0 ? "Analyse Ontology" : "Re-analyse the Ontology"}>
-                        {isLoading ? 'Processing...' : nodes.length === 0 ? 'Analyse Ontology' : 'Re-analyse'}
-                    </button>
                 </div>
-                {error && <p className="text-red-500 mt-2">{error}</p>}
                 {focusedNodeId && (
                     <div className="mb-2 p-2 bg-blue-50 rounded border border-blue-200">
                         <p className="text-sm text-blue-800">
@@ -554,40 +818,21 @@ export default function OntologyGraph({
                         // Welcome Screen when no ontology data or loading
                         <div className="h-full p-8 flex items-center justify-center">
                             <div className="text-center space-y-4 max-w-md">
-                                {isLoading ? (
-                                    // Loading state
-                                    <>
-                                        <div className="text-6xl mb-4">
-                                            <div className="animate-spin">⚙️</div>
-                                        </div>
-                                        <h3 className="text-2xl font-bold text-gray-800">Loading Ontology...</h3>
-                                        <p className="text-gray-600">
-                                            {isAgentProcessing || isAgentEvaluating 
-                                                ? 'The ontology agent is analyzing data and discovering relationships. This may take a few moments...'
-                                                : 'Fetching ontology data...'
-                                            }
-                                        </p>
-                                        <div className="w-full bg-gray-200 rounded-full h-2.5">
-                                            <div className="bg-indigo-600 h-2.5 rounded-full animate-pulse" style={{width: '60%'}}></div>
-                                        </div>
-                                    </>
-                                ) : (
-                                    // Welcome state when no data
-                                    <>
-                                        <div className="text-6xl text-indigo-500 mb-4">🌐</div>
-                                        <h3 className="text-2xl font-bold text-gray-800">Ontology Graph</h3>
-                                        <p className="text-gray-600">
-                                            No ontology data found. <br/> Use 🔌 Graph connectors to ingest entities, and click detect ontology to see entity relationships and confidence scores.
-                                        </p>
-                                        <button
-                                            onClick={() => setShowRegenerateConfirm(true)}
-                                            className="btn bg-yellow-500 hover:bg-yellow-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
-                                            disabled={isLoading || isAgentActive}
-                                            title={isAgentActive ? "Agent is currently active - please wait" : "Detect Ontology"}>
-                                            Detect Ontology
-                                        </button>
-                                    </>
-                                )}
+                                {/* Welcome state when no data */}
+                                <>
+                                    <div className="text-6xl text-indigo-500 mb-4">🌐</div>
+                                    <h3 className="text-2xl font-bold text-gray-800">Ontology Graph</h3>
+                                    <p className="text-gray-600">
+                                        No ontology data found. <br/> Use 🔌 Graph connectors to ingest entities, and click detect ontology to see entity relationships and confidence scores.
+                                    </p>
+                                    <button
+                                        onClick={() => setShowRegenerateConfirm(true)}
+                                        className="btn bg-yellow-500 hover:bg-yellow-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        disabled={isAgentActive || isLoadingAgentStatus}
+                                        title={isLoadingAgentStatus ? "Loading agent status..." : isAgentActive ? "Agent is currently active - please wait" : "Analyse Ontology"}>
+                                        {isLoadingAgentStatus ? 'Loading...' : 'Analyse Ontology'}
+                                    </button>
+                                </>
                             </div>
                         </div>
                     ) : (
@@ -613,41 +858,82 @@ export default function OntologyGraph({
                     )}
                 </div>
                 
-                {/* Relation Legend */}
-                <div className="flex justify-center items-center gap-6 text-sm mt-4 p-3 bg-white rounded-lg shadow-sm border">
-                    <div className="flex items-center gap-2">
-                        <div className="w-6 h-0 border-t-2 border-gray-500"></div>
-                        <span>Accepted (≥{Math.round(acceptanceThreshold * 100)}%)</span>
+                {/* Legend and Agent Status Containers */}
+                <div className="flex gap-4 mt-4">
+                    {/* Left Container: Relation Legend */}
+                    <div className="flex items-center justify-center gap-6 text-sm p-3 bg-white rounded-lg shadow-sm border w-1/2">
+                        <div className="flex items-center gap-2">
+                            <div className="w-6 h-0 border-t-2 border-gray-500"></div>
+                            <span>Accepted</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-6 h-0 border-t-2 border-red-500" style={{borderStyle: 'dashed', borderTopWidth: '2px', borderTopStyle: 'dashed'}}></div>
+                            <span>Rejected</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-6 h-0 border-t-2 border-gray-500" style={{borderStyle: 'dotted', borderTopWidth: '2px', borderTopStyle: 'dotted'}}></div>
+                            <span>Uncertain</span>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-6 h-0 border-t-2 border-red-500" style={{borderStyle: 'dashed', borderTopWidth: '2px', borderTopStyle: 'dashed'}}></div>
-                        <span>Rejected (≤{Math.round(rejectionThreshold * 100)}%)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-6 h-0 border-t-2 border-gray-500" style={{borderStyle: 'dotted', borderTopWidth: '2px', borderTopStyle: 'dotted'}}></div>
-                        <span>Uncertain</span>
+                    
+                    {/* Right Container: Agent Status */}
+                    <div className={`flex items-center justify-center text-sm p-3 rounded-lg shadow-sm border w-1/2 ${isLoadingAgentStatus || isAgentActive ? 'bg-blue-500 text-white' : 'bg-white text-gray-500'}`}>
+                        {isLoadingAgentStatus ? (
+                            <div className="flex items-center gap-3">
+                                {/* Loading Spinner */}
+                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span className="font-medium">Loading agent status...</span>
+                            </div>
+                        ) : isAgentActive ? (
+                            <div className="flex items-center gap-4">
+                                {/* Loading Spinner */}
+                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span className="font-medium">
+                                    Agent: {isAgentProcessing && isAgentEvaluating ? 'Processing & Evaluating' :
+                                           isAgentProcessing ? 'Processing' : 'Evaluating'}...
+                                </span>
+                                {isAgentProcessing && processingProgress.total > 0 && (
+                                    <span className="text-blue-100 text-xs">
+                                        Processing: {processingProgress.completed}/{processingProgress.total} ({Math.round((processingProgress.completed / processingProgress.total) * 100)}%)
+                                    </span>
+                                )}
+                                {isAgentEvaluating && evaluationProgress.total > 0 && (
+                                    <span className="text-blue-100 text-xs">
+                                        Evaluating: {evaluationProgress.completed}/{evaluationProgress.total} ({Math.round((evaluationProgress.completed / evaluationProgress.total) * 100)}%)
+                                    </span>
+                                )}
+                            </div>
+                        ) : (
+                            <span>Agent: Idle</span>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {/* Clear Ontology Confirmation Dialog */}
-            {showClearConfirm && (
+            {/* Delete Ontology Confirmation Dialog */}
+            {showDeleteOntologyConfirm && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-                        <h3 className="text-lg font-bold text-gray-900 mb-4">Clear Ontology</h3>
+                        <h3 className="text-lg font-bold text-gray-900 mb-4">Delete Ontology</h3>
                         <p className="text-gray-600 mb-6">
-                            Are you sure you want to clear the entire ontology? <b>This will permanently delete all relations & clear the ontology graph.</b> This action cannot be undone.
+                            Are you sure you want to delete the entire ontology? <b>This will permanently delete all relations & clear the ontology graph.</b> This action cannot be undone.
                         </p>
                         <div className="flex justify-end gap-3">
                             <button
-                                onClick={() => setShowClearConfirm(false)}
+                                onClick={() => setShowDeleteOntologyConfirm(false)}
                                 className="btn bg-gray-500 hover:bg-gray-600 text-white">
                                 Cancel
                             </button>
                             <button
-                                onClick={handleClearOntology}
+                                onClick={handleDeleteOntology}
                                 className="btn bg-red-500 hover:bg-red-600 text-white">
-                                Clear Ontology
+                                Delete Ontology
                             </button>
                         </div>
                     </div>
@@ -682,6 +968,8 @@ export default function OntologyGraph({
                     </div>
                 </div>
             )}
+
+
         </div>
     );
 }
