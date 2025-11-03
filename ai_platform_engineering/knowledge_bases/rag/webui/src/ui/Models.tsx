@@ -41,7 +41,8 @@ export type DataSourceInfo = {
 
 export type GraphConnectorInfo = {
 	connector_id: string
-	name: string
+	connector_name: string
+	connector_type: string
 	description?: string
 	last_seen?: string
 	total_entities: number

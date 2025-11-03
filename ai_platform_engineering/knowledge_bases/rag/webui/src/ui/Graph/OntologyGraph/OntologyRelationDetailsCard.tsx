@@ -1,20 +1,42 @@
 import React, { useState } from 'react';
 import { Edge } from '@xyflow/react';
-import { getColorForNode, darkenColor } from '../graphStyles';
+import { getColorForNode, darkenColor, EvaluationResult } from '../graphStyles';
 
 interface OntologyRelationDetailsCardProps {
     relation: Edge;
     onClose: () => void;
-    acceptanceThreshold: number;
-    rejectionThreshold: number;
+    // API action handlers
+    onEvaluate: (relationId: string) => Promise<void>;
+    onAccept: (relationId: string, relationName: string) => Promise<void>;
+    onReject: (relationId: string) => Promise<void>;
+    onUndoEvaluation: (relationId: string) => Promise<void>;
+    onSync: (relationId: string) => Promise<void>;
+    // Loading and result states
+    isLoading: boolean;
+    actionResult: { type: 'success' | 'error', message: string } | null;
+    onClearActionResult: () => void;
 }
 
-export default function OntologyRelationDetailsCard({ relation, onClose, acceptanceThreshold, rejectionThreshold }: OntologyRelationDetailsCardProps) {
+export default function OntologyRelationDetailsCard({ 
+    relation, 
+    onClose, 
+    onEvaluate,
+    onAccept,
+    onReject,
+    onUndoEvaluation,
+    onSync,
+    isLoading,
+    actionResult,
+    onClearActionResult
+}: OntologyRelationDetailsCardProps) {
     const [isRawDataCollapsed, setIsRawDataCollapsed] = useState(true);
     
     const data = relation.data as any || {};
     const relationProps = data.relation_properties || {};
     const relationName = relationProps.evaluation_relation_name || relation.label || 'Unknown Relation';
+    
+    // Get relation ID for API calls
+    const relationId = relation.id
     
     console.log('Relation data:', JSON.stringify(relation.data, null, 2));
 
@@ -71,15 +93,63 @@ export default function OntologyRelationDetailsCard({ relation, onClose, accepta
     const entityAColor = getColorForNode(entityAType);
     const entityBColor = getColorForNode(entityBType);
 
-    // Determine relation status based on confidence
-    const confidence = getNumberValue(relationProps.evaluation_relation_confidence);
-    const isAccepted = confidence >= acceptanceThreshold;
-    const isRejected = confidence <= rejectionThreshold;
-    const isUncertain = confidence > rejectionThreshold && confidence < acceptanceThreshold;
+    // Check if there's already an evaluation
+    const hasEvaluation = relationProps.evaluation_last_evaluated !== undefined && 
+                         relationProps.evaluation_last_evaluated !== null &&
+                         relationProps.evaluation_last_evaluated > 0;
 
-    // Handler for coming soon buttons
-    const handleComingSoon = (action: string) => {
-        alert(`${action} - Coming Soon!`);
+    // Helper function to format time ago
+    const formatTimeAgo = (timestamp: any): string => {
+        if (!timestamp || typeof timestamp !== 'number') return 'Never';
+        const now = Date.now() / 1000; // Current time in seconds
+        const diffMinutes = Math.floor((now - timestamp) / 60);
+        
+        if (diffMinutes < 1) return 'Just now';
+        if (diffMinutes < 60) return `${diffMinutes} minutes ago`;
+        
+        const diffHours = Math.floor(diffMinutes / 60);
+        if (diffHours < 24) return `${diffHours} hours ago`;
+        
+        const diffDays = Math.floor(diffHours / 24);
+        return `${diffDays} days ago`;
+    };
+
+    // Handler functions that delegate to parent component
+    const handleEvaluate = async () => {
+        await onEvaluate(relationId);
+    };
+    
+    const handleAccept = async () => {
+        await onAccept(relationId, relationName);
+    };
+    
+    const handleReject = async () => {
+        await onReject(relationId);
+    };
+    
+    const handleUndoEvaluation = async () => {
+        await onUndoEvaluation(relationId);
+    };
+    
+    const handleSync = async () => {
+        await onSync(relationId);
+    };
+    
+    // Generate sync tooltip based on relation status
+    const getSyncTooltip = () => {
+        if (!relationId) return "No relation ID available";
+        
+        const baseMessage = "Sync with data graph. ";
+        
+        if (hasEvaluation) {
+            const result = relationProps.evaluation_result;
+            if (result === EvaluationResult.ACCEPTED) {
+                return baseMessage + "This will apply this relation across the data graph";
+            } else if (result === EvaluationResult.REJECTED) {
+                return baseMessage + "This will remove this relation from data graph";
+            }
+        }
+        return baseMessage + "Ensure this relation is not applied to data";
     };
 
     return (
@@ -94,38 +164,55 @@ export default function OntologyRelationDetailsCard({ relation, onClose, accepta
                     <div className="flex items-center gap-2">
                         {/* Action Buttons */}
                         <button 
-                            onClick={() => handleComingSoon('Re-Evaluate')}
-                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded text-xs"
+                            onClick={handleEvaluate}
+                            disabled={isLoading || !relationId}
+                            className="bg-blue-500 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold py-1 px-2 rounded text-xs"
+                            title={!relationId ? "No relation ID available" : "Re-evaluate this relation"}
                         >
-                            Re-Evaluate
+                            {isLoading ? 'Evaluating...' : 'Re-Evaluate'}
                         </button>
                         
-                        {isUncertain && (
+                        {!hasEvaluation && (
                             <button 
-                                onClick={() => handleComingSoon('Accept')}
-                                className="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-xs"
+                                onClick={handleAccept}
+                                disabled={isLoading || !relationId}
+                                className="bg-green-500 hover:bg-green-700 disabled:bg-green-300 text-white font-bold py-1 px-2 rounded text-xs"
+                                title={!relationId ? "No relation ID available" : "Accept this relation"}
                             >
-                                Accept
+                                {isLoading ? 'Processing...' : 'Accept'}
                             </button>
                         )}
                         
-                        {(isAccepted || isUncertain) && (
+                        {!hasEvaluation && (
                             <button 
-                                onClick={() => handleComingSoon('Reject')}
-                                className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-xs"
+                                onClick={handleReject}
+                                disabled={isLoading || !relationId}
+                                className="bg-red-500 hover:bg-red-700 disabled:bg-red-300 text-white font-bold py-1 px-2 rounded text-xs"
+                                title={!relationId ? "No relation ID available" : "Reject this relation"}
                             >
-                                Reject
+                                {isLoading ? 'Processing...' : 'Reject'}
                             </button>
                         )}
                         
-                        {isRejected && (
+                        {hasEvaluation && (
                             <button 
-                                onClick={() => handleComingSoon('Un-Reject')}
-                                className="bg-orange-500 hover:bg-orange-700 text-white font-bold py-1 px-2 rounded text-xs"
+                                onClick={handleUndoEvaluation}
+                                disabled={isLoading || !relationId}
+                                className="bg-orange-500 hover:bg-orange-700 disabled:bg-orange-300 text-white font-bold py-1 px-2 rounded text-xs"
+                                title={!relationId ? "No relation ID available" : "Remove current evaluation"}
                             >
-                                Un-Reject
+                                {isLoading ? 'Processing...' : 'Undo Evaluation'}
                             </button>
                         )}
+                        
+                        <button 
+                            onClick={handleSync}
+                            disabled={isLoading || !relationId}
+                            className="bg-purple-500 hover:bg-purple-700 disabled:bg-purple-300 text-white font-bold py-1 px-2 rounded text-xs"
+                            title={getSyncTooltip()}
+                        >
+                            {isLoading ? 'Syncing...' : 'Sync'}
+                        </button>
                         
                         <button 
                             onClick={onClose} 
@@ -137,6 +224,28 @@ export default function OntologyRelationDetailsCard({ relation, onClose, accepta
                 </div>
             </div>
             
+            {/* Action Result Status */}
+            {actionResult && (
+                <div className={`mx-4 mt-2 p-3 rounded-lg ${
+                    actionResult.type === 'success' 
+                        ? 'bg-green-100 border border-green-200 text-green-800' 
+                        : 'bg-red-100 border border-red-200 text-red-800'
+                }`}>
+                    <div className="flex items-center gap-2">
+                        <span className="font-semibold">
+                            {actionResult.type === 'success' ? '✅' : '❌'}
+                        </span>
+                        <span className="text-sm">{actionResult.message}</span>
+                        <button 
+                            onClick={onClearActionResult}
+                            className="ml-auto text-lg hover:opacity-70"
+                        >
+                            ×
+                        </button>
+                    </div>
+                </div>
+            )}
+            
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-4">
                 <div className="space-y-4">
@@ -144,6 +253,16 @@ export default function OntologyRelationDetailsCard({ relation, onClose, accepta
                     <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                         <h6 className="font-semibold text-gray-800 mb-2">Relation Details</h6>
                         <div className="space-y-1">
+                            <div className="flex items-start gap-2 text-sm">
+                                <div className="w-32 flex-shrink-0">
+                                    <span className="font-bold text-gray-700 break-words">Relation ID:</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <span className="text-gray-600 break-words font-mono text-xs">
+                                        {relationId || 'No ID found'}
+                                    </span>
+                                </div>
+                            </div>
                             <div className="flex items-start gap-2 text-sm">
                                 <div className="w-32 flex-shrink-0">
                                     <span className="font-bold text-gray-700 break-words">Relation Name:</span>
@@ -176,25 +295,28 @@ export default function OntologyRelationDetailsCard({ relation, onClose, accepta
                             </div>
                             <div className="flex items-start gap-2 text-sm">
                                 <div className="w-32 flex-shrink-0">
-                                    <span className="font-bold text-gray-700 break-words">Confidence:</span>
+                                    <span className="font-bold text-gray-700 break-words">Status:</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
                                         <span className="text-gray-600 break-words">
-                                            {relationProps.evaluation_relation_confidence !== undefined && relationProps.evaluation_relation_confidence !== null 
-                                                ? `${(getNumberValue(relationProps.evaluation_relation_confidence) * 100).toFixed(1)}%` 
-                                                : 'N/A'}
+                                            {hasEvaluation ? (relationProps.evaluation_result || EvaluationResult.UNSURE) : 'Not Evaluated'}
                                         </span>
-                                        {relationProps.evaluation_relation_confidence !== undefined && relationProps.evaluation_relation_confidence !== null && (
+                                        {hasEvaluation && relationProps.evaluation_result && (
                                             <>
-                                                {getNumberValue(relationProps.evaluation_relation_confidence) >= acceptanceThreshold && (
+                                                {relationProps.evaluation_result === EvaluationResult.ACCEPTED && (
                                                     <span className="px-2 py-1 text-xs font-bold bg-green-100 text-green-800 rounded">
-                                                        ACCEPTED
+                                                        {EvaluationResult.ACCEPTED}
                                                     </span>
                                                 )}
-                                                {getNumberValue(relationProps.evaluation_relation_confidence) <= rejectionThreshold && (
+                                                {relationProps.evaluation_result === EvaluationResult.REJECTED && (
                                                     <span className="px-2 py-1 text-xs font-bold bg-red-100 text-red-800 rounded">
-                                                        REJECTED
+                                                        {EvaluationResult.REJECTED}
+                                                    </span>
+                                                )}
+                                                {relationProps.evaluation_result === EvaluationResult.UNSURE && (
+                                                    <span className="px-2 py-1 text-xs font-bold bg-yellow-100 text-yellow-800 rounded">
+                                                        {EvaluationResult.UNSURE}
                                                     </span>
                                                 )}
                                             </>
@@ -208,6 +330,26 @@ export default function OntologyRelationDetailsCard({ relation, onClose, accepta
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <span className="text-gray-600 break-words">{formatValue(relationProps.heuristic_count)}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-2 text-sm">
+                                <div className="w-32 flex-shrink-0">
+                                    <span className="font-bold text-gray-700 break-words">Last Evaluated:</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <span className="text-gray-600 break-words">
+                                        {formatTimeAgo(relationProps.evaluation_last_evaluated)}
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-2 text-sm">
+                                <div className="w-32 flex-shrink-0">
+                                    <span className="font-bold text-gray-700 break-words">Last Synced:</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <span className="text-gray-600 break-words">
+                                        {formatTimeAgo(relationProps.last_synced)}
+                                    </span>
                                 </div>
                             </div>
                         </div>
