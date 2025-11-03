@@ -17,12 +17,11 @@ PROPERTY_VALUE_MAX_LENGTH = 200  # Maximum length for a property value
 
 # Relation constants
 RELATION_CONFIDENCE_KEY = "_relation_confidence"
-PLACEHOLDER_RELATION_NAME = "TBD"
 ONTOLOGY_RELATION_ID_KEY= "_ontology_relation_id" # The id used to track relations in data graph and the reference to the relation in ontology graph
 
 # Constants for ontology entities and relations
-HEURISTICS_VERSION_ID_KEY = "_heuristics_version_id" # The id used to track the heuristics version
+ONTOLOGY_VERSION_ID_KEY = "_ontology_version_id" # The id used to track the ontology version
 ENTITY_TYPE_NAME_KEY = "entity_type_name" # The name of the entity type
 
 # Key-value store constants
-KV_HEURISTICS_VERSION_ID_KEY = "graph_rag/heuristics_version_id" # Heuristics version id key for kv store
+KV_ONTOLOGY_VERSION_ID_KEY = "graph_rag/ontology_version_id" # Ontology version id key for kv store
