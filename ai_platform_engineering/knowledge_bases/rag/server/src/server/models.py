@@ -40,6 +40,7 @@ class IngestResponse(BaseModel):
 # Graph Explorations models
 class EntityIngest(BaseModel):
     entity_type: str = Field(..., description="Type of the entity")
+    connector_type: str = Field(..., description="Type of the connector submitting the entities")
     connector_name: str = Field(..., description="Name of the connector submitting the entities")
     entities: List[Entity] = Field(..., description="List of entities to ingest")
     fresh_until: int = Field(0, description="Fresh until timestamp")

@@ -6,7 +6,7 @@ from common.graph_db.base import GraphDB
 import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
-from common.constants import KV_HEURISTICS_VERSION_ID_KEY, PROP_DELIMITER, HEURISTICS_VERSION_ID_KEY
+from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOGY_VERSION_ID_KEY
 from common.models.graph import EntityIdentifier
 import traceback
 from server.query_service import VectorDBQueryService
@@ -251,14 +251,14 @@ class AgentTools:
             if not is_ontology_generated:
                 return "Error: the ontology is not generated yet, this tool is unavailable."
 
-            # Fetch the latest heuristics id
-            heuristics_version_id = await self.redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
-            if heuristics_version_id is None:
+            # Fetch the latest ontology id
+            ontology_version_id = await self.redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
+            if ontology_version_id is None:
                 return "Error: the ontology is not generated yet, this tool is unavailable."
-            heuristics_version_id = heuristics_version_id.decode("utf-8")
+            ontology_version_id = ontology_version_id.decode("utf-8")
 
-            entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, heuristics_version_id]))
-            entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, heuristics_version_id]))
+            entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
+            entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
 
             paths = await self.ontology_graphdb.shortest_path(
                 entity_a=entity_a_id,
@@ -319,21 +319,21 @@ class AgentTools:
         if self.ontology_graphdb is None:
             logger.error("Graph database is not available, Is graph RAG enabled?")
             return False
-        heuristics_version_id = await self.redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
-        if heuristics_version_id is None:
+        ontology_version_id = await self.redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
+        if ontology_version_id is None:
             return False
-        heuristics_version_id = heuristics_version_id.decode("utf-8")
-        logger.info(f"Found heuristics version id: {heuristics_version_id}")
+        ontology_version_id = ontology_version_id.decode("utf-8")
+        logger.info(f"Found ontology version id: {ontology_version_id}")
 
-        # Check if the ontology is generated - there should be at least one relation with the heuristics version id
+        # Check if the ontology is generated - there should be at least one relation with the ontology version id
         relation = await self.ontology_graphdb.find_relations(None, None, None, {
-            HEURISTICS_VERSION_ID_KEY: heuristics_version_id
+            ONTOLOGY_VERSION_ID_KEY: ontology_version_id
         }, 1)
         
         if len(relation) > 0:
             return True
 
-        logger.warning(f"No relations found in ontology with the current heuristics version id: {heuristics_version_id}")
+        logger.warning(f"No relations found in ontology with the current heuristics version id: {ontology_version_id}")
         return False
 
     async def graph_raw_query(self, query: str, thought: str) -> str:

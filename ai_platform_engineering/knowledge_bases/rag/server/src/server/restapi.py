@@ -22,7 +22,7 @@ from common.models.rag import DataSourceInfo, GraphConnectorInfo, VectorDBGraphM
 from common.models.graph import Entity
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
-from common.constants import HEURISTICS_VERSION_ID_KEY, KV_HEURISTICS_VERSION_ID_KEY, UPDATED_BY_KEY
+from common.constants import ONTOLOGY_VERSION_ID_KEY, KV_ONTOLOGY_VERSION_ID_KEY, UPDATED_BY_KEY
 import redis.asyncio as redis
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_milvus import BM25BuiltInFunction, Milvus
@@ -41,8 +41,8 @@ ontology_graph_db: Optional[GraphDB] = None
 
 # Initialize logger
 logger = utils.get_logger(__name__)
-logger.setLevel(os.getenv("LOG_LEVEL", logging.DEBUG))
-print(f"LOG LEVEL set to {str(logger.level)}")
+logger.setLevel( os.getenv("LOG_LEVEL", "INFO").upper())
+print(f"LOG LEVEL set to {logger.level}")
 if logger.level == logging.DEBUG: # enable langchain verbose logging
     set_langchain_verbose(True)
 
@@ -450,15 +450,15 @@ async def explore_ontology_entities(explore_entity_request: ExploreEntityRequest
     if not ontology_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
 
-    # Fetch the current heuristics version id
-    heuristics_version_id = await redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
-    if heuristics_version_id is None:
-        raise HTTPException(status_code=500, detail="Intial setup not completed. Heuristics version not found")
-    heuristics_version_id = heuristics_version_id.decode("utf-8")
+    # Fetch the current ontology version id
+    ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
+    if ontology_version_id is None:
+        raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
+    ontology_version_id = ontology_version_id.decode("utf-8")
 
-    # Add heuristics version to filter properties
+    # Add ontology version to filter properties
     filter_by_props = explore_entity_request.filter_by_properties or {}
-    filter_by_props[HEURISTICS_VERSION_ID_KEY] = heuristics_version_id
+    filter_by_props[ONTOLOGY_VERSION_ID_KEY] = ontology_version_id
 
     logger.debug(f"Finding entity: {explore_entity_request.entity_type}, {filter_by_props}")
 
@@ -475,15 +475,15 @@ async def explore_ontology_relations(explore_relations_request: ExploreRelations
     if not ontology_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
 
-    # Fetch the current heuristics version id
-    heuristics_version_id = await redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
-    if heuristics_version_id is None:
-        raise HTTPException(status_code=500, detail="Intial setup not completed. Heuristics version not found")
-    heuristics_version_id = heuristics_version_id.decode("utf-8")
+    # Fetch the current ontology version id
+    ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
+    if ontology_version_id is None:
+        raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
+    ontology_version_id = ontology_version_id.decode("utf-8")
 
-    # Add heuristics version to filter properties
+    # Add ontology version to filter properties
     filter_by_props = explore_relations_request.filter_by_properties or {}
-    filter_by_props[HEURISTICS_VERSION_ID_KEY] = heuristics_version_id
+    filter_by_props[ONTOLOGY_VERSION_ID_KEY] = ontology_version_id
 
     logger.debug(f"Finding relation: {explore_relations_request.from_type}, {explore_relations_request.to_type}, {explore_relations_request.relation_name}, {filter_by_props}")
     relations = await ontology_graph_db.find_relations(explore_relations_request.from_type, explore_relations_request.to_type, explore_relations_request.relation_name, filter_by_props, max_results=1000)
@@ -499,7 +499,7 @@ async def ingest_entities(entity_ingest_request: EntityIngest, background_tasks:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
     logger.debug(f"Updating entities: {entity_ingest_request.connector_name}, type={entity_ingest_request.entity_type}, count={len(entity_ingest_request.entities)}, fresh_until={entity_ingest_request.fresh_until}")
     try:
-        background_tasks.add_task(run_graph_entity_ingestion, entity_ingest_request.connector_name, entity_ingest_request.entity_type, entity_ingest_request.entities, entity_ingest_request.fresh_until)
+        background_tasks.add_task(run_graph_entity_ingestion, entity_ingest_request.connector_type, entity_ingest_request.connector_name, entity_ingest_request.entity_type, entity_ingest_request.entities, entity_ingest_request.fresh_until)
     except ValueError as ve:
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": str(ve)})
     return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Entity created/updated successfully"})
@@ -676,11 +676,12 @@ async def run_url_ingestion_with_progress(url: str, job_id: str, description: st
         logger.error(f"Ingestion failed for job {job_id}: {e}")
         await jobmanager.update_job(job_id, status=JobStatus.FAILED, message="Error ingesting data", errors=[f"Error ingesting data: {e}"])
 
-async def run_graph_entity_ingestion(connector_name: str, entity_type: str, entities: List[Entity], fresh_until: int):
+async def run_graph_entity_ingestion(connector_type: str, connector_name: str, entity_type: str, entities: List[Entity], fresh_until: int):
     """Function to ingest a graph entity"""
     if not vector_db or not metadata_storage or not ontology_graph_db or not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    connector_id = connector_name
+    connector_id = connector_type + "/" + connector_name # in future we will generate this based on auth etc.
+    logger.debug(f"Ingesting graph entities: connector_id={connector_id}, entity_type={entity_type}")
     current_time = datetime.datetime.now(datetime.timezone.utc)
 
     documents : List[Document] = []
@@ -728,7 +729,7 @@ async def run_graph_entity_ingestion(connector_name: str, entity_type: str, enti
     logger.info(f"Successfully ingested {len(entities)} entities into the vector database.")
 
     # Update data graph with the new entities
-    await data_graph_db.update_entity(entity_type, entities, fresh_until=fresh_until, client_name=connector_name)
+    await data_graph_db.update_entity(entity_type, entities, fresh_until=fresh_until, client_name=connector_id)
 
     # Get or create graph connector configuration
     connector_info = await metadata_storage.get_graphconnector_info(connector_id)
@@ -736,7 +737,8 @@ async def run_graph_entity_ingestion(connector_name: str, entity_type: str, enti
         # Create default graph connector info
         connector_info = GraphConnectorInfo(
             connector_id=connector_id,
-            name=connector_name,
+            connector_name=connector_name,
+            connector_type=connector_type,
             description=f"Graph connector for {connector_name}",
             last_seen=current_time,
         )
