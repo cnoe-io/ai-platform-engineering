@@ -20,20 +20,3 @@ def generate_combinations_with_constant(arr, constant):
             result.append([constant] + list(comb))
 
     return result
-
-
-def is_accepted(confidence: (float|None), acceptance_threshold: float) -> bool:
-    """
-    Checks if the confidence is above the acceptance threshold.
-    """
-    if confidence is None:
-        return False
-    return confidence >= acceptance_threshold
-
-def is_rejected(confidence: (float|None), rejection_threshold: float) -> bool:
-    """
-    Checks if the confidence is below the rejection threshold.
-    """
-    if confidence is None:
-        return False
-    return confidence <= rejection_threshold

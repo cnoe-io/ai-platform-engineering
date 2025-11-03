@@ -1,13 +1,14 @@
+import logging
 import os
 import traceback
 
 from common.graph_db.base import GraphDB
+from langchain_core.tools.structured import StructuredTool
 from langgraph.prebuilt import create_react_agent
-from common.agent.tools import fetch_entity
 from agent_ontology.heuristics import HeuristicsProcessor
 from agent_ontology.relation_manager import RelationCandidateManager
 from agent_ontology.prompts import RELATION_PROMPT, SYSTEM_PROMPT_1
-from common.models.ontology    import AgentOutputFKeyRelation, RelationCandidate
+from common.models.ontology import AgentOutputFKeyRelation, RelationCandidate, FkeyEvaluationResult
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import PromptTemplate
 from langgraph.graph.state import CompiledStateGraph
@@ -15,12 +16,9 @@ from langgraph.graph.state import CompiledStateGraph
 import redis.asyncio as redis
 import common.utils as utils
 from common import constants
-import agent_ontology.helpers as helpers
 from cnoe_agent_utils import LLMFactory
 
-AGENT_NAME = "OntologyAgent"
 
-AGENT_TOOLS =[fetch_entity]
 
 class OntologyAgent:
     """
@@ -28,15 +26,13 @@ class OntologyAgent:
      agent follows to determine relations.
     """
 
-    def __init__(self, graph_db: GraphDB, ontology_graph_db: GraphDB, redis : redis.Redis, acceptance_threshold: float, rejection_threshold: float, 
-        min_count_for_eval: int, count_change_threshold_ratio: float, max_concurrent_processing: int, max_concurrent_evaluation: int, agent_recursion_limit: int = 5):
+    def __init__(self, graph_db: GraphDB, ontology_graph_db: GraphDB, redis : redis.Redis, min_count_for_eval: int, 
+                 count_change_threshold_ratio: float, max_concurrent_processing: int, max_concurrent_evaluation: int, agent_recursion_limit: int):
         """
         Initializes the OntologyAgent with the given parameters.
         Args:
             graph_db (GraphDB): The graph database to use.
             ontology_graph_db (GraphDB): The ontology graph database to use.
-            acceptance_threshold (float): The confidence threshold for accepting a relation.
-            rejection_threshold (float): The confidence threshold for rejecting a relation.
             min_count_for_eval (int): The minimum count of matches to consider the heuristic for evaluation.
             count_change_threshold_ratio (float): The ratio of count change needed to trigger re-evaluation (0.0-1.0, e.g., 0.1 = 10% change).
             max_concurrent_processing (int): The maximum number of concurrent processing tasks.
@@ -47,13 +43,12 @@ class OntologyAgent:
         self.graph_db = graph_db
         self.ontology_graph_db = ontology_graph_db
         self.logger = utils.get_logger("ontology_agent")
-        self.acceptance_threshold = acceptance_threshold
-        self.rejection_threshold = rejection_threshold
         self.min_count_for_eval = min_count_for_eval
         self.count_change_threshold_ratio = count_change_threshold_ratio
         self.max_concurrent_processing = max_concurrent_processing
         self.max_concurrent_evaluation = max_concurrent_evaluation
         self.agent_recursion_limit = agent_recursion_limit
+        self.agent_name = "OntologyAgent"
 
         # status flags
         self.is_processing = False # Avoid parallel processing/evaluation
@@ -64,6 +59,10 @@ class OntologyAgent:
         self.evaluated_tasks_count = 0
 
         self.debug = os.getenv("DEBUG_AGENT", "false").lower() in ("true", "1", "yes")
+        
+        # Current relation candidate manager for tool context
+        self._eval_relation_manager: RelationCandidateManager | None = None
+        
         self.agent = self.create_agent()
 
     async def sync_all_relations(self, rc_manager: RelationCandidateManager):
@@ -73,40 +72,134 @@ class OntologyAgent:
         self.logger.info("Syncing all relations with the graph database...")
         candidates = await rc_manager.fetch_all_candidates()
         for _, candidate in candidates.items():
-            await rc_manager.sync_relation(AGENT_NAME, candidate.relation_id)
+            await rc_manager.sync_relation(candidate.relation_id)
             # TODO: Gather relations that are no longer candidates, but still exist in the graph database, and remove them
+
+    async def fetch_entity(self, entity_type: str, primary_key_id: str, thought: str) -> str:
+        """
+        Fetches a single entity and returns all its properties from the graph database.
+        Args:
+            entity_type (str): The type of entity
+            primary_key_id (str):  The primary key id of the entity
+            thought (str): Your thoughts for choosing this tool
+
+        Returns:
+            str: The properties of the entity
+        """
+        self.logger.info(f"Fetching entity of type {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
+        if self.graph_db is None:
+            self.logger.error("Graph database is not available, Is graph RAG enabled?")
+            return "Error: graph database is not available."
+        try:
+            entity = await self.graph_db.fetch_entity(entity_type, primary_key_id)
+            if entity is None:
+                return f"no entity of type {entity_type} with primary_key_id {primary_key_id}"
+            return utils.json_encode(entity.get_external_properties())
+        except Exception as e:
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            self.logger.error(f"Error fetching entity {entity_type} with primary_key_id {primary_key_id}: {e}")
+            return f"Error fetching entity {entity_type} with primary_key_id {primary_key_id}: {e}"
+
+    async def accept_relation(self, relation_id: str, relation_name: str, justification: str) -> str:
+        """
+        Accepts a relation candidate by updating its evaluation to ACCEPTED.
+        Args:
+            relation_id (str): The ID of the relation to accept
+            relation_name (str): The name of the relation
+            justification (str): Justification for accepting the relation
+
+        Returns:
+            str: Success or error message
+        """
+        self.logger.debug(f"Accepting relation {relation_id} with name '{relation_name}'")
+        try:
+            # Get the current relation candidate manager (this assumes we're in evaluation context)
+            if not hasattr(self, '_eval_relation_manager') or self._eval_relation_manager is None:
+                return "Error: No relation candidate manager available in current context"
+            
+            if relation_name.strip() == "":
+                return "Error: Relation name cannot be empty when accepting a relation. Please provide a valid relation name."
+
+            await self._eval_relation_manager.update_evaluation(
+                relation_id=relation_id,
+                relation_name=relation_name.replace(" ", "_").upper(),
+                result=FkeyEvaluationResult.ACCEPTED,
+                justification=justification,
+                thought="",
+                is_manual=True
+            )
+            self.logger.info(f"Successfully accepted relation {relation_id}")
+            return f"Successfully accepted relation {relation_id} with name '{relation_name}'"
+        except Exception as e:
+            self.logger.error(traceback.format_exc())
+            self.logger.error(f"Error accepting relation {relation_id}: {e}")
+            return f"Error accepting relation {relation_id}: {e}"
+
+    async def reject_relation(self, relation_id: str, justification: str) -> str:
+        """
+        Rejects a relation candidate by updating its evaluation to REJECTED.
+        Args:
+            relation_id (str): The ID of the relation to reject
+            justification (str): Justification for rejecting the relation
+
+        Returns:
+            str: Success or error message
+        """
+        self.logger.debug(f"Rejecting relation {relation_id}, Justification: {justification}")
+        try:
+            # Get the current relation candidate manager (this assumes we're in evaluation context)
+            if not hasattr(self, '_eval_relation_manager') or self._eval_relation_manager is None:
+                return "Error: No relation candidate manager available in current context"
+            
+            await self._eval_relation_manager.update_evaluation(
+                relation_id=relation_id,
+                relation_name=self._eval_relation_manager.PLACEHOLDER_RELATION_NAME,
+                result=FkeyEvaluationResult.REJECTED,
+                justification=justification,
+                thought="",
+                is_manual=True,
+            )
+            self.logger.info(f"Successfully rejected relation {relation_id}")
+            return f"Successfully rejected relation {relation_id}'"
+        except Exception as e:
+            self.logger.error(traceback.format_exc())
+            self.logger.error(f"Error rejecting relation {relation_id}: {e}")
+            return f"Error rejecting relation {relation_id}: {e}"
 
     async def process_and_evaluate_all(self):
         self.logger.info("Running heuristics processing and the evaluation...")
 
-        # create a new heuristics version
-        new_heuristics_version_id = utils.get_uuid()
-        self.logger.info(f"Created new heuristics version: {new_heuristics_version_id}")
+        # create a new ontology version
+        new_ontology_version_id = utils.get_uuid()
+        self.logger.info(f"Created new ontology version: {new_ontology_version_id}")
 
-        # use the new heuristics version for processing and evaluation
-        rc_manager_new_version = RelationCandidateManager(self.graph_db, self.ontology_graph_db, self.acceptance_threshold, self.rejection_threshold, new_heuristics_version_id)
+        # use the new ontology version for processing and evaluation
+        rc_manager_new_version = RelationCandidateManager(self.graph_db, self.ontology_graph_db, new_ontology_version_id, self.agent_name)
 
-        # fetch the current heuristics version
-        current_heuristics_version_id = await self.redis.get(constants.KV_HEURISTICS_VERSION_ID_KEY)
-        current_heuristics_version_id = current_heuristics_version_id.decode('utf-8') if current_heuristics_version_id else None
+        # fetch the current ontology version
+        current_ontology_version_id = await self.redis.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
+        current_ontology_version_id = current_ontology_version_id.decode('utf-8') if current_ontology_version_id else None
         rc_manager_current_version = None
-        if current_heuristics_version_id:
-            rc_manager_current_version = RelationCandidateManager(self.graph_db, self.ontology_graph_db, self.acceptance_threshold, self.rejection_threshold, current_heuristics_version_id)
+        if current_ontology_version_id:
+            rc_manager_current_version = RelationCandidateManager(self.graph_db, self.ontology_graph_db, current_ontology_version_id, self.agent_name)
+            self.logger.info(f"Current ontology version: {current_ontology_version_id}, new version: {new_ontology_version_id}")
+        else:
+            self.logger.info("No current ontology version found, this seems to be the first run.")
 
         await self.process_all(rc_manager_new_version)
-        if new_heuristics_version_id is None:
-            self.logger.warning("Heuristics processing failed, skipping evaluation")
+        if new_ontology_version_id is None:
+            self.logger.error("Heuristics processing failed, skipping evaluation")
             return
 
         # Evaluate the new heuristics version
         await self.evaluate_all(rc_manager_current_version, rc_manager_new_version)
 
-        # set the new heuristics version as the current heuristics version
-        self.logger.info(f"Setting new heuristics version: {new_heuristics_version_id}")
-        await self.redis.set(constants.KV_HEURISTICS_VERSION_ID_KEY, new_heuristics_version_id)
+        # set the new ontology version as the current ontology version
+        self.logger.info(f"Setting new ontology version: {new_ontology_version_id}")
+        await self.redis.set(constants.KV_ONTOLOGY_VERSION_ID_KEY, new_ontology_version_id)
 
         await self.sync_all_relations(rc_manager_new_version) # sync all relations with the graph database, just in case some relations were not updated
-        await rc_manager_new_version.cleanup() # Clear previous ontology
+        await rc_manager_new_version.cleanup() # Clear all previous ontology
 
     async def process_all(self, rc_manager: RelationCandidateManager) -> str|None:
         """
@@ -156,10 +249,11 @@ class OntologyAgent:
     async def evaluate_all(self, rc_manager_current: RelationCandidateManager|None, rc_manager_new: RelationCandidateManager):
         """
         Evaluates all relations in the database.
-        :param rc_manager: The relation candidate manager to use. 
-        This is meant to be run periodically to update the relations based on the heuristics.
+        :param rc_manager_current: (Optional) The relation candidate manager for the current ontology version. Used to compare against existing evaluations.
+        :param rc_manager_new: The relation candidate manager for the new ontology version.
+        This is meant to be run periodically to update the relations based on the ontology.
         """        
-        self.logger.info("Evaluating all relations for heuristics_version_id: %s", rc_manager_new.heuristics_version_id)
+        self.logger.info("Evaluating all relations for ontology_version_id: %s", rc_manager_new.ontology_version_id)
         if self.is_evaluating:
             self.logger.warning("Evaluation is already in progress, skipping this run")
             return
@@ -197,43 +291,65 @@ class OntologyAgent:
             current_relation = None
             if rc_manager_current:
                 current_relation = current_relation_candidates.get(rel_id, None)
-            
-            # Check if an existing relation exists and has an evaluation
-            if current_relation and current_relation.evaluation:
-                # Check if heurisitics changed from last evaluation
-                if (helpers.is_accepted(current_relation.evaluation.relation_confidence, self.acceptance_threshold)):
-                    # If the heuristic is already evaluated, we can skip it
-                    self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, already accepted with confidence {current_relation.evaluation.relation_confidence}.")
-                    continue
-                if helpers.is_rejected(current_relation.evaluation.relation_confidence, self.rejection_threshold):
-                    # If the heuristic is already evaluated, we can skip it
-                    self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, already rejected with confidence {current_relation.evaluation.relation_confidence}.")
-                    continue
 
-                 # If the heuristic count changed less than the threshold ratio, we ignore it
+            # Check if an existing relation exists and has an evaluation, if so check its validity
+            if current_relation and current_relation.evaluation:
+                
+                is_current_eval_still_valid = False
+
+                # Check if its evaluation is manual
+                if current_relation.evaluation.is_manual:
+                    self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, current evaluation is manual.")
+                    is_current_eval_still_valid = True
+
+                # Check if the heuristic count changed from last time (if the change is less than the threshold ratio, we ignore it)
                 if current_relation.heuristic.count > 0:
                     count_distance = abs(current_relation.heuristic.count - new_candidate.heuristic.count) / abs(current_relation.heuristic.count)
                     if count_distance < self.count_change_threshold_ratio:
-                        self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count change ratio {count_distance:.3f} is below threshold {self.count_change_threshold_ratio}.")
-                        continue
+                        self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count hasnt changed much since last time (ratio={count_distance:.3f} is below threshold {self.count_change_threshold_ratio}).")
+                        is_current_eval_still_valid = True
+                
+                # If still valid, copy over the evaluation to the new candidate and skip re-evaluation
+                if is_current_eval_still_valid:
+                    await rc_manager_new.update_evaluation(
+                            relation_id=new_candidate.relation_id,
+                            relation_name=current_relation.evaluation.relation_name,
+                            justification=current_relation.evaluation.justification,
+                            thought=current_relation.evaluation.thought,
+                            result=current_relation.evaluation.result,
+                            is_manual=current_relation.evaluation.is_manual
+                        )
+                    continue
             
             # Skip if the absolute count is less than the min required
             if new_candidate.heuristic.count < self.min_count_for_eval:
                 self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count is {new_candidate.heuristic.count} which is below the minimum count for evaluation.")
+                await rc_manager_new.update_evaluation(
+                            relation_id=new_candidate.relation_id,
+                            relation_name=rc_manager_new.PLACEHOLDER_RELATION_NAME,
+                            justification=f"Count below minimum threshold for evaluation. ({new_candidate.heuristic.count} < {self.min_count_for_eval})",
+                            thought="Automatically classed as unsure due to low count.",
+                            result=FkeyEvaluationResult.UNSURE,
+                            is_manual=False
+                        )
                 continue
-
+                            
+            
+            # Create the evaluation task
+            self.logger.debug(f"Scheduling evaluation for relation candidate {new_candidate.relation_id}")
             tasks.append(evaluation_task_with_tracking(index, rc_manager_new, new_candidate.relation_id))
             index += 1
 
         # Run the evaluation tasks concurrently
         await utils.gather(self.max_concurrent_evaluation, *tasks, logger=self.logger)
+
         self.is_evaluating = False
 
     async def process(self, rc_manager: RelationCandidateManager, entity_type: str, entity_pk: str):
         """
         Processes a single relation candidate. (Used for debugging)
         """
-        self.logger.info("Processing entity %s[%s] for heuristics_version_id: %s", entity_type, entity_pk, rc_manager.heuristics_version_id)
+        self.logger.info("Processing entity %s[%s] for ontology_version_id: %s", entity_type, entity_pk, rc_manager.ontology_version_id)
         heuristics_processor = HeuristicsProcessor(self.graph_db)
         entity = await self.graph_db.fetch_entity(entity_type, entity_pk)
         if entity is None:
@@ -246,24 +362,16 @@ class OntologyAgent:
         A worker that picks up entities from the queue and computes heuristics.
         """
         logger = utils.get_logger(f"eval-{task_id}")
-        logger.info(f"Evaluating relation candidate {relation_id} for heuristics_version_id: {rc_manager.heuristics_version_id}")
+        logger.info(f"Evaluating relation candidate {relation_id} for ontology_version_id: {rc_manager.ontology_version_id}")
         try:
             candidate = await rc_manager.fetch_candidate(relation_id)
             if candidate is None:
                 logger.warning(f"Candidate for relation {relation_id} not found, skipping evaluation.")
                 return
-
-           
-            self.logger.info(f"Evaluating {candidate.relation_id} with count {candidate.heuristic.count}.")
-            c = await rc_manager.fetch_candidate(relation_id)
-            if c is None:
-                self.logger.warning(f"Relation candidate {relation_id} not found, skipping evaluation.")
-                return
-            await self.evaluate(rc_manager=rc_manager, candidate=c)
-            await rc_manager.sync_relation(AGENT_NAME, relation_id)
+            await self.evaluate(logger=logger, rc_manager=rc_manager, candidate=candidate)
         except Exception as e:
-            self.logger.error(traceback.format_exc())
-            self.logger.error(f"Error evaluating relation {relation_id}: {e}")
+            logger.error(traceback.format_exc())
+            logger.error(f"Error evaluating relation {relation_id}: {e}")
 
 
     def create_agent(self) -> CompiledStateGraph:
@@ -282,14 +390,21 @@ class OntologyAgent:
             database_type=self.graph_db.database_type,
             query_language=self.graph_db.query_language
         )
-        agent = create_react_agent(llm, tools=AGENT_TOOLS, prompt=system_prompt,
-                                   response_format=("The last message is the evaluation of a relation candidate, using only the evaluation text, generate a structured response. "
-                                   "DO NOT use your own knowledge, only use the evaluation text to generate the response.",
-                                    AgentOutputFKeyRelation))
-        agent.name = AGENT_NAME
+        tools = [
+            StructuredTool.from_function(coroutine=self.fetch_entity),
+            StructuredTool.from_function(coroutine=self.accept_relation),
+            StructuredTool.from_function(coroutine=self.reject_relation)
+        ]
+        # response_format=("The last message is the evaluation of a relation candidate, using only the evaluation text, generate a structured response. "
+        #                            f"If the evaluation text mentions as a {FkeyEvaluationResult.ACCEPTED} relations then output `{FkeyEvaluationResult.ACCEPTED}` for result, if it mentions {FkeyEvaluationResult.REJECTED} then output `{FkeyEvaluationResult.REJECTED}` for result. "
+        #                            f"For all other cases output `{FkeyEvaluationResult.UNSURE}` for result." 
+        #                            "DO NOT use your own knowledge, only use the evaluation text to generate the response.",
+        #                             AgentOutputFKeyRelation)
+        agent = create_react_agent(llm, tools=tools, prompt=system_prompt)
+        agent.name = self.agent_name
         return agent
 
-    async def evaluate(self, rc_manager: RelationCandidateManager, relation_id: str = "", candidate: RelationCandidate|None = None):
+    async def evaluate(self, logger: logging.Logger, rc_manager: RelationCandidateManager, relation_id: str = "", candidate: RelationCandidate|None = None):
         """
         Agentic evaluation of heuristic.
 
@@ -298,8 +413,7 @@ class OntologyAgent:
             relation_id (str, optional): Relation candidate ID. Defaults to "".
             candidate (RelationCandidate|None, optional): Relation candidate. Defaults to None.
         """
-        logger = utils.get_logger(f"fkey_evaluator[{hash(relation_id)}]")
-        logger.info(f"Evaluating relation candidate {relation_id} for heuristics_version_id: {rc_manager.heuristics_version_id}")
+        logger.info(f"Evaluating relation candidate {relation_id} for ontology_version_id: {rc_manager.ontology_version_id}")
         if candidate and relation_id != "":
             raise ValueError("Relation and relation_id cannot both be provided")
         
@@ -323,11 +437,6 @@ class OntologyAgent:
         #     all_heuristics = await self.fetch_all_heuristics()
         #     manually_accepted_relations =  [rel_id for rel_id, heuristic in all_heuristics.items() if heuristic.state == FKeyHeuristicState.ACCEPTED and heuristic.manually_intervened]
 
-        if candidate.heuristic.count < self.min_count_for_eval:
-            # If the count is less than min_count_for_eval, we cannot evaluate the relation
-            logger.warning(f"Relation candidate {candidate.relation_id} has count {candidate.heuristic.count}, which is less than {self.min_count_for_eval}, skipping evaluation.")
-            return
-
         property_counts = {}
         property_values = {}
 
@@ -347,18 +456,11 @@ class OntologyAgent:
         entity_types.discard(candidate.heuristic.entity_a_type)
         entity_types.discard(candidate.heuristic.entity_b_type)
 
-        all_candidates =  await rc_manager.fetch_all_candidates()
-        entity_a_relation_candidates = []
-        for _, rel_candidate in all_candidates.items():
-            eval_confidence = str(rel_candidate.evaluation.relation_confidence) if rel_candidate.evaluation is not None else "Not evaluated"
-            if rel_candidate.heuristic.entity_a_type == candidate.heuristic.entity_a_type and rel_candidate.heuristic.entity_b_type == candidate.heuristic.entity_b_type:
-                candidate_str = f"{rel_candidate.heuristic.entity_a_type}.{rel_candidate.heuristic.entity_a_property} -> {rel_candidate.heuristic.entity_b_type}"
-                candidate_str += f"(count: {rel_candidate.heuristic.count}, confidence (if already evaluated): {eval_confidence})"
-                entity_a_relation_candidates.append(candidate_str)
 
         logger.info(f"Evaluating rel_id={candidate.relation_id} with agent")
         prompt_tpl = PromptTemplate.from_template(RELATION_PROMPT)
         prompt = prompt_tpl.format(
+            relation_id=candidate.relation_id,
             entity_a=candidate.heuristic.entity_a_type,
             entity_b=candidate.heuristic.entity_b_type,
             property_mappings=utils.json_encode(candidate.heuristic.property_mappings, indent=2),
@@ -366,11 +468,15 @@ class OntologyAgent:
             values=property_values,
             entity_a_with_property_counts=property_counts,
             example_matches=utils.json_encode(candidate.heuristic.example_matches, indent=2),
-            entity_a_relation_candidates=utils.json_encode(entity_a_relation_candidates, indent=2),
         )
 
         logger.debug(prompt)
-        if not self.debug:
+        if self.debug:
+            await self.reject_relation(relation_id=candidate.relation_id, justification="Debug mode - auto rejected.")
+        else:
+            # Set the current rc_manager for tool context
+            self._eval_relation_manager = rc_manager
+            
             # Invoke the agent with the prompt
             resp = await self.agent.ainvoke(
                 {"messages": [
@@ -380,37 +486,49 @@ class OntologyAgent:
                 ]},
                 {"recursion_limit": self.agent_recursion_limit}
             )
-            
+                        
             ai_thought = ""
             for msg in resp["messages"]:
                 if isinstance(msg, AIMessage):
                     ai_thought += "\n" + str(msg.content)
-            fkey_agent_response_raw = resp["structured_response"].model_dump_json()
-            fkey_agent_response: AgentOutputFKeyRelation = AgentOutputFKeyRelation.model_validate_json(fkey_agent_response_raw)
+            
+            # fetch the relation candidate
+            candidate = await rc_manager.fetch_candidate(relation_id=candidate.relation_id)
 
-            logger.info(f"Agent response: confidence={fkey_agent_response.relation_confidence}, ")
-            logger.debug(f"Agent response raw: {fkey_agent_response_raw}")
-        else:
-            # For debugging purposes, we can use a static response instead to save time and cost
-            fkey_agent_response = AgentOutputFKeyRelation(
-                relation_name="HAS",
-                relation_confidence=0.5,
-                justification="The properties match and the count is not high enough.",
-            )
-            ai_thought = "This is a debug response, not from the agent."
+            if candidate is None:
+                # this should not happen, but just in case
+                raise ValueError("Relation candidate is None after agent evaluation, skipping update.")
 
+            # check if evaluation was done
+            if candidate.evaluation and candidate.evaluation.last_evaluated > 0:
+                logger.debug(f"Agent evaluation for relation_id={candidate.relation_id}: {candidate.evaluation}")
+                candidate.evaluation.thought = ai_thought
+                try:
+                    await rc_manager.update_evaluation(
+                        relation_id=candidate.relation_id,
+                        relation_name=candidate.evaluation.relation_name,
+                        result=candidate.evaluation.result,
+                        justification=candidate.evaluation.justification,
+                        thought=ai_thought,
+                        is_manual=False
+                        )
+                except Exception as e:
+                    logger.error(traceback.format_exc())
+                    logger.error(f"Error updating evaluation for relation_id={candidate.relation_id}: {e}")
+            else:
+                logger.info(f"No evaluation was made by the agent for relation_id={candidate.relation_id}, marking as UNSURE.")
+                try:
+                    await rc_manager.update_evaluation(
+                        relation_id=candidate.relation_id,
+                        relation_name=rc_manager.PLACEHOLDER_RELATION_NAME,
+                        result=FkeyEvaluationResult.UNSURE,
+                        justification="No evaluation was made by the agent.",
+                        thought=ai_thought,
+                        is_manual=False,
+                    )
+                except Exception as e:
+                    logger.error(traceback.format_exc())
+                    logger.error(f"Error updating evaluation for relation_id={candidate.relation_id}: {e}")
 
-        if fkey_agent_response.relation_confidence is None: # Assume rejection if no confidence is given
-            fkey_agent_response.relation_confidence = 0.0
-
-
-        await rc_manager.update_evaluation(
-            relation_id=candidate.relation_id,
-            relation_name=fkey_agent_response.relation_name.replace(" ", "_").upper(),
-            relation_confidence=float(fkey_agent_response.relation_confidence), 
-            justification=str(fkey_agent_response.justification), 
-            thought=ai_thought,
-            entity_a_property_values=property_values,
-            entity_a_property_counts=property_counts,
-            evaluation_heuristic_count=candidate.heuristic.count
-        )
+    
+        logger.info(f"Evaluation completed for relation_id={candidate.relation_id}")

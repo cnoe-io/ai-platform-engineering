@@ -4,12 +4,10 @@ import time
 from typing import Any, List
 from common import utils
 from common import constants
-import agent_ontology.helpers as helpers
-from common.models.ontology import PropertyMapping, ExampleEntityMatch, FkeyEvaluation, FkeyHeuristic, FkeyRelationManualIntervention, RelationCandidate
+from common.models.ontology import PropertyMapping, ExampleEntityMatch, FkeyEvaluation, FkeyHeuristic, RelationCandidate, FkeyEvaluationResult
 from common.models.graph import Entity, Relation
 from common.graph_db.base import GraphDB
 
-CLIENT_NAME="relation_manager"
 
 class RelationCandidateManager:
     """
@@ -17,15 +15,16 @@ class RelationCandidateManager:
     This class implements a set of functions to identify potential foreign key relationships
     """
 
-    def __init__(self, graph_db: GraphDB, ontology_graph_db: GraphDB, acceptance_threshold: float, rejection_threshold: float, heuristics_version_id: str):
+    PLACEHOLDER_RELATION_NAME = "TBD"
+
+    def __init__(self, graph_db: GraphDB, ontology_graph_db: GraphDB, ontology_version_id: str, client_name: str):
 
         self.data_graph_db = graph_db
         self.ontology_graph_db = ontology_graph_db
         self.logger = utils.get_logger("rc_manager")
         self.max_relation_examples = 10
-        self.acceptance_threshold = acceptance_threshold
-        self.rejection_threshold = rejection_threshold
-        self.heuristics_version_id = heuristics_version_id
+        self.ontology_version_id = ontology_version_id
+        self.client_name = client_name
 
 
     async def cleanup(self):
@@ -34,40 +33,36 @@ class RelationCandidateManager:
         TODO: Move to the GraphDB class
         """
         self.logger.info("Cleaning up relation candidates from the database")
-        await self.ontology_graph_db.raw_query(f"MATCH ()-[r]->() WHERE r.heuristics_version_id <> '{self.heuristics_version_id}' DELETE r")
-        await self.ontology_graph_db.raw_query(f"MATCH (n) WHERE n.heuristics_version_id <> '{self.heuristics_version_id}' DETACH DELETE n")
-        await self.data_graph_db.raw_query(f"MATCH ()-[r]-() WHERE r.{constants.UPDATED_BY_KEY}={CLIENT_NAME} AND r.{constants.HEURISTICS_VERSION_ID_KEY} <> '{self.heuristics_version_id}' DELETE r")
+        await self.ontology_graph_db.raw_query(f"MATCH ()-[r]->() WHERE r.`{constants.ONTOLOGY_VERSION_ID_KEY}` <> '{self.ontology_version_id}' DELETE r")
+        await self.ontology_graph_db.raw_query(f"MATCH (n) WHERE n.`{constants.ONTOLOGY_VERSION_ID_KEY}` <> '{self.ontology_version_id}' DETACH DELETE n")
+        await self.data_graph_db.raw_query(f"MATCH ()-[r]-() WHERE r.`{constants.UPDATED_BY_KEY}`=\"{self.client_name}\" AND r.`{constants.ONTOLOGY_VERSION_ID_KEY}` <> '{self.ontology_version_id}' DELETE r")
 
 
     async def _set_heuristic(self, relation_id: str, candidate: RelationCandidate, recreate: bool = False):
         """
         Sets a relation candidate in the ontology graph database.
         """
-        self.logger.debug(f"[{relation_id}] Updating relation candidate")
+        self.logger.info(f"[{relation_id}] Updating relation candidate - {candidate}, recreate={recreate}")
 
         self.logger.debug(f"[{relation_id}] Updating entities in ontology, entity_type={candidate.heuristic.entity_a_type}")
         # Update entity a and b (if not already present)
         entity_a = Entity(
-            primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.HEURISTICS_VERSION_ID_KEY],
+            primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY],
             entity_type=candidate.heuristic.entity_a_type,
             all_properties={
                 constants.ENTITY_TYPE_NAME_KEY: candidate.heuristic.entity_a_type,
-                constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id
+                constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id
             })
-        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_a_type, [entity_a], fresh_until=utils.get_default_fresh_until(), client_name=CLIENT_NAME)
+        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_a_type, [entity_a], fresh_until=utils.get_default_fresh_until(), client_name=self.client_name)
         entity_b = Entity(
-            primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.HEURISTICS_VERSION_ID_KEY],
+            primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY],
             entity_type=candidate.heuristic.entity_b_type,
             all_properties={
                 constants.ENTITY_TYPE_NAME_KEY: candidate.heuristic.entity_b_type,
-                constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id
+                constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id
             })
-        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_b_type, [entity_b], fresh_until=utils.get_default_fresh_until(), client_name=CLIENT_NAME)
+        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_b_type, [entity_b], fresh_until=utils.get_default_fresh_until(), client_name=self.client_name)
 
-        # Use the evaluation relation name if available (and accepted)
-        relation_name = constants.PLACEHOLDER_RELATION_NAME
-        if candidate.evaluation and candidate.evaluation.relation_name and helpers.is_accepted(candidate.evaluation.relation_confidence, self.acceptance_threshold):
-            relation_name = candidate.evaluation.relation_name
 
         if recreate:
             self.logger.info(f"[{relation_id}] Recreating relation in ontology")
@@ -75,56 +70,68 @@ class RelationCandidateManager:
             existing_relation = await self.ontology_graph_db.find_relations(
                             from_entity_type=entity_a.entity_type, 
                             to_entity_type=entity_b.entity_type, 
-                            properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id, constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id})
+                            properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id, constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
 
-            self.logger.debug(f"[{relation_id}] Found existing relation: {existing_relation}")
-            # Remove the existing relation if it exists
+            self.logger.debug(f"[{relation_id}] Found existing relation, removing it first before recreating." if existing_relation else f"[{relation_id}] No existing relation found, proceeding to create new one.")
+            # Remove the existing relation if it exists - name agnostic
             if existing_relation:
-                await self.ontology_graph_db.remove_relation(constants.PLACEHOLDER_RELATION_NAME, properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id, constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id})
-                await self.ontology_graph_db.remove_relation(relation_name, properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id, constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id})
+                await self.ontology_graph_db.remove_relation(None, properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id, constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
 
         self.logger.debug(f"[{relation_id}] Updating relation in ontology, count: {candidate.heuristic.count}")
-
+            
         heuristic_dict = candidate.heuristic.model_dump()
+        
+        props = {
+            constants.ONTOLOGY_RELATION_ID_KEY: relation_id,
+            constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id,
+            "heuristic_entity_a_type": candidate.heuristic.entity_a_type,
+            "heuristic_entity_b_type": candidate.heuristic.entity_b_type,
+            "heuristic_entity_a_property": candidate.heuristic.entity_a_property,
+            "heuristic_count": candidate.heuristic.count,
+            "heuristic_example_matches": utils.json_encode(heuristic_dict["example_matches"]),
+            "heuristic_properties_in_composite_idkey": list(candidate.heuristic.properties_in_composite_idkey),
+            "heuristic_property_mappings": utils.json_encode(heuristic_dict["property_mappings"]),
+            "heuristic_last_processed": candidate.heuristic.last_processed,
+
+            "error_message": candidate.error_message if candidate.error_message else "",
+            "is_synced": candidate.is_synced,
+            "last_synced": candidate.last_synced if candidate.last_synced else 0,
+        }
+
+        if candidate.evaluation:
+            if candidate.evaluation.relation_name:
+                relation_name = candidate.evaluation.relation_name
+            else:
+                raise ValueError(f"[{relation_id}] Evaluation provided but no relation name found. Evaluation must have a relation name. Evaluation: {candidate.evaluation}")
+
+            evaluation = {
+                "evaluation_relation_name": candidate.evaluation.relation_name,
+                "evaluation_result": candidate.evaluation.result.value,
+                "evaluation_justification": candidate.evaluation.justification,
+                "evaluation_thought": candidate.evaluation.thought,
+                "evaluation_last_evaluated": candidate.evaluation.last_evaluated,
+                "evaluation_is_manual": candidate.evaluation.is_manual,
+            }
+            
+            props.update(evaluation)
+        else:
+            relation_name = self.PLACEHOLDER_RELATION_NAME  # Use placeholder if no evaluation
+
         # Update the relation
         await self.ontology_graph_db.update_relation(
             Relation(
                 from_entity=entity_a.get_identifier(),
                 to_entity=entity_b.get_identifier(),
                 relation_name=relation_name,
-                primary_key_properties=[constants.ONTOLOGY_RELATION_ID_KEY, constants.HEURISTICS_VERSION_ID_KEY],
-                relation_properties={
-                    constants.ONTOLOGY_RELATION_ID_KEY: relation_id,
-                    constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id,
-                    "heuristic_entity_a_type": candidate.heuristic.entity_a_type,
-                    "heuristic_entity_b_type": candidate.heuristic.entity_b_type,
-                    "heuristic_entity_a_property": candidate.heuristic.entity_a_property,
-                    "heuristic_count": candidate.heuristic.count,
-                    "heuristic_example_matches": utils.json_encode(heuristic_dict["example_matches"]),
-                    "heuristic_properties_in_composite_idkey": list(candidate.heuristic.properties_in_composite_idkey),
-                    "heuristic_property_mappings": utils.json_encode(heuristic_dict["property_mappings"]),
-                    "heuristic_last_processed": candidate.heuristic.last_processed,
-
-                    "evaluation_relation_name": candidate.evaluation.relation_name if candidate.evaluation else "",
-                    "evaluation_relation_confidence": candidate.evaluation.relation_confidence if candidate.evaluation else 0.0,
-                    "evaluation_justification": candidate.evaluation.justification if candidate.evaluation else "",
-                    "evaluation_thought": candidate.evaluation.thought if candidate.evaluation else "",
-                    "evaluation_last_evaluated": candidate.evaluation.last_evaluated if candidate.evaluation else 0,
-                    "evaluation_entity_a_property_values":  utils.json_encode(candidate.evaluation.entity_a_property_values) if candidate.evaluation else None,
-                    "evaluation_entity_a_property_counts":  utils.json_encode(candidate.evaluation.entity_a_property_counts) if candidate.evaluation else None,
-    
-    
-                    "is_applied": candidate.is_applied,
-                    "manually_intervened": candidate.manually_intervened,
-                    "evaluation_error_message": candidate.evaluation_error_message if candidate.evaluation_error_message else "",
-                }
+                primary_key_properties=[constants.ONTOLOGY_RELATION_ID_KEY, constants.ONTOLOGY_VERSION_ID_KEY],
+                relation_properties=props
             ),
             fresh_until=utils.get_default_fresh_until(),
-            client_name=CLIENT_NAME
+            client_name=self.client_name
         )
 
 
-    async def parse_relation_candidate(self, relation_properties: dict[str, Any]) -> RelationCandidate:
+    async def _parse_relation_candidate(self, relation_properties: dict[str, Any]) -> RelationCandidate:
         """
         Parses a RelationCandidate from flattened relation properties.
         """
@@ -147,15 +154,14 @@ class RelationCandidateManager:
         
         # Reconstruct FkeyEvaluation (if exists)
         evaluation = None
-        if relation_properties.get("evaluation_relation_name") or relation_properties.get("evaluation_relation_confidence"):
+        if relation_properties.get("evaluation_last_evaluated", 0) > 0:
             evaluation_data = {
-                "relation_name": relation_properties.get("evaluation_relation_name", ""),
-                "relation_confidence": relation_properties.get("evaluation_relation_confidence", 0.0),
+                "relation_name": relation_properties.get("evaluation_relation_name"),
+                "result": relation_properties.get("evaluation_result", FkeyEvaluationResult.UNSURE),
                 "justification": relation_properties.get("evaluation_justification", ""),
                 "thought": relation_properties.get("evaluation_thought", ""),
                 "last_evaluated": relation_properties.get("evaluation_last_evaluated", 0),
-                "entity_a_property_values": json.loads(relation_properties.get("evaluation_entity_a_property_values", "{}")),
-                "entity_a_property_counts": json.loads(relation_properties.get("evaluation_entity_a_property_counts", "{}")),
+                "is_manual": relation_properties.get("evaluation_is_manual", False)
             }
             evaluation = FkeyEvaluation.model_validate(evaluation_data)
         
@@ -163,25 +169,25 @@ class RelationCandidateManager:
             relation_id=relation_id,
             heuristic=heuristic,
             evaluation=evaluation,
-            is_applied=relation_properties.get("is_applied", False),
-            manually_intervened=relation_properties.get("manually_intervened", None),
-            evaluation_error_message=relation_properties.get("evaluation_error_message", "")
+            is_synced=relation_properties.get("is_synced", False),
+            last_synced=relation_properties.get("last_synced", 0),
+            error_message=relation_properties.get("error_message", "")
         )
 
     async def fetch_all_candidates(self) -> dict[str, RelationCandidate]:
         """
         Fetches all relation candidates from the ontology graph database.
         """
-        self.logger.debug("Fetching all heuristics from the database.")
+        self.logger.debug("Fetching all relation candidates from the database.")
         
         # Get all relations and filter for those with relation_id property (these are our candidates)
-        candidate_relations = await self.ontology_graph_db.find_relations(properties={constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id})
+        candidate_relations = await self.ontology_graph_db.find_relations(properties={constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
 
         if not candidate_relations:
-            self.logger.warning("No heuristics found in the database.")
+            self.logger.warning("No relation candidates found in the database.")
             return {}
 
-        heuristics = {}
+        relation_candidates = {}
         for relation in candidate_relations:
             if not relation.relation_properties:
                 self.logger.warning(f"Relation {relation} has no relation properties.")
@@ -190,33 +196,31 @@ class RelationCandidateManager:
             if not relation_id:
                 continue
             
-            candidate = await self.parse_relation_candidate(relation.relation_properties)
+            candidate = await self._parse_relation_candidate(relation.relation_properties)
             
-            heuristics[relation_id] = candidate
+            relation_candidates[relation_id] = candidate
 
-        return heuristics
+        return relation_candidates
 
     async def fetch_candidate(self, relation_id: str) -> RelationCandidate|None:
         """
         Fetches a relation candidate from the ontology graph database.
         """
-        self.logger.debug(f"Fetching heuristic for relation_id={relation_id}")
+        self.logger.debug(f"Fetching relation candidate for relation_id={relation_id}")
         
         # Find relations with the specific relation_id
-        relations = await self.ontology_graph_db.find_relations(properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id, constants.HEURISTICS_VERSION_ID_KEY: self.heuristics_version_id})
+        relations = await self.ontology_graph_db.find_relations(properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id, constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
         
         if not relations:
-            self.logger.warning(f"Heuristic {relation_id} not found in the database.")
             return None
         
         # Get the first matching relation (should be unique by relation_id)
         relation = relations[0]
 
         if not relation.relation_properties:
-            self.logger.warning(f"Relation {relation} has no relation properties.")
             return None
         
-        candidate = await self.parse_relation_candidate(relation.relation_properties)
+        candidate = await self._parse_relation_candidate(relation.relation_properties)
         
         return candidate
 
@@ -275,7 +279,8 @@ class RelationCandidateManager:
                     count=additional_count,
                     property_mappings=property_mappings,
                     example_matches= [ExampleEntityMatch(entity_a_pk=entity.generate_primary_key(), entity_b_pk=matched_entity.generate_primary_key())]
-                )
+                ),
+                evaluation=None,
             )
         else:
             # If the heuristic already exists, we update the count and example matches
@@ -284,43 +289,30 @@ class RelationCandidateManager:
 
             candidate.heuristic.count += additional_count
 
+
+        # Set the synced flag to false as the heuristic has changed
+        candidate.is_synced = False
+
         # Save the heuristic to the database
         self.logger.debug(f"Saving heuristic for relation_id={relation_id}, heuristic: {candidate.heuristic}")
         await self._set_heuristic(relation_id, candidate)
 
 
-    async def update_evaluation_error(self, relation_id: str, error_message: str):
-        """
-        Updates the evaluation error message for the given relation_id. This is mostly used to make it easier to debug issues with evaluation.
-        :param relation_id: The ID of the relation to update.
-        :param error_message: The error message to set.
-        """
-        self.logger.debug(f"Updating evaluation error for {relation_id}")
-        candidate = await self.fetch_candidate(relation_id)
-        if candidate is None:
-            self.logger.warning(f"Relation candidate {relation_id} not found in the database.")
-            return
-        candidate.evaluation_error_message = error_message
-        await self._set_heuristic(relation_id, candidate)
-
     async def update_evaluation(self, relation_id: str, 
                                 relation_name: str, 
-                                relation_confidence: float, 
-                                justification: str, 
+                                result: FkeyEvaluationResult, 
+                                justification: str|None, 
                                 thought: str,
-                                entity_a_property_values: dict[str, List[str]],
-                                entity_a_property_counts: dict[str, int],
-                                evaluation_heuristic_count: int):
+                                is_manual: bool):
         """
         Updates the evaluation for the given relation_id.
         :param relation_id: The ID of the relation to update.
         :param relation_name: The name of the relation.
-        :param relation_confidence: The confidence of the relation.
+        :param result: The result of the evaluation.
         :param justification: Justification for the relation and the confidence.
         :param thought: The agent's thoughts about the relation.
-        :param entity_a_property_values: The values of the properties of entity_a that were used to evaluate the relation.
-        :param entity_a_property_counts: The counts of the properties of entity_a that were used to evaluate the relation.
-        :param evaluation_heuristic_count: The count in heuristics when evaluating.
+        :param is_manual: Whether the evaluation was done manually.
+        :return: None
         """
         self.logger.debug(f"Updating evaluation for {relation_id}")
         # Acquire a lock for the relation_id to avoid concurrent updates to the same heuristic
@@ -328,144 +320,132 @@ class RelationCandidateManager:
         if candidate is None:
             self.logger.warning(f"Relation candidate {relation_id} not found in the database.")
             return
+
+        if (relation_name is None or relation_name == ""):
+            raise ValueError(f"Cannot update evaluation for relation {relation_id} without a relation name.")
+
         candidate.evaluation = FkeyEvaluation(
             relation_name=relation_name,
-            relation_confidence=relation_confidence,
+            result=result,
             justification=justification,
             thought=thought,
-            entity_a_property_values=entity_a_property_values,
-            entity_a_property_counts=entity_a_property_counts,
             last_evaluated=int(time.time()),
-            evaluation_heuristic_count=evaluation_heuristic_count
+            is_manual=is_manual,
         )
+        # Set the synced flag to false as the evaluation has changed
+        candidate.is_synced = False
 
+        # Save the updated evaluation to the database
         await self._set_heuristic(relation_id, candidate, recreate=True)
 
-    async def update_candidate_metadata(self, relation_id: str,
-                                        is_applied: bool,
-                                        manual_intervention: FkeyRelationManualIntervention):
+    async def remove_evaluation(self, relation_id: str):
         """
-        Update the metadata for the relation candidate.
+        Removes the evaluation for a relation candidate.
+        This function is used to remove the evaluation for a relation candidate, effectively setting it back to unevaluated state.
         """
-        self.logger.debug(f"Updating metadata for {relation_id}")
-        # Acquire a lock for the relation_id to avoid concurrent updates to the same heuristic
+        self.logger.info(f"Removing evaluation for relation {relation_id}")
         candidate = await self.fetch_candidate(relation_id)
         if candidate is None:
             self.logger.warning(f"Relation candidate {relation_id} not found in the database.")
             return
 
-        # Update the metadata
-        candidate.is_applied = is_applied
-        candidate.manually_intervened = manual_intervention
+        # Remove the evaluation
+        candidate.evaluation = None
+        candidate.is_synced = False
 
-        await self._set_heuristic(relation_id, candidate)
+        # Update the relation candidate in the database, setting it as unevaluated
+        await self._set_heuristic(relation_id, candidate, recreate=True)
 
-    async def apply_relation(self, client_name: str, relation_id: str, manual: bool=False):
+    async def sync_relation(self, relation_id: str):
         """
-        Applies the relation by creating a relation in the graph database.
+        Syncs the relation with the graph database based on the heuristic evaluation.
+        Checks the relation confidence and applies or unapplies the relation accordingly.
+        This function checks the relation confidence and applies or unapplies the relation accordingly.
+        """
+
+        self.logger.info(f"Syncing relation {relation_id}")
+
+        # Fetch the relation candidate if not provided
+        self.logger.debug(f"Fetching relation candidate for relation_id={relation_id} for syncing.")
+        candidate = await self.fetch_candidate(relation_id)
+
+        # If the candidate does not exist, we cannot sync
+        if candidate is None:
+            self.logger.error(f"Relation candidate {relation_id} not found in the database, cannot sync.")
+            return
+
+        if candidate.evaluation is None:
+            self.logger.warning(f"Relation candidate {relation_id} has no evaluation, skipping sync.")
+            return
+
+        if candidate.evaluation.result == FkeyEvaluationResult.ACCEPTED:
+            self.logger.debug(f"Relation candidate {relation_id} accepted.")
+            if candidate.evaluation.relation_name is None or candidate.evaluation.relation_name == "":
+                self.logger.error(f"Relation {relation_id} has no relation name, cannot apply.")
+                return
+            
+            # Apply the relation
+            await self._apply_relation(self.client_name, 
+                                    relation_id, 
+                                    candidate.evaluation.relation_name, 
+                                    candidate.heuristic.property_mappings, 
+                                    candidate.heuristic.entity_a_type, 
+                                    candidate.heuristic.entity_b_type, 
+                                    candidate.evaluation.result.value)
+
+        elif candidate.evaluation.result == FkeyEvaluationResult.REJECTED:
+            self.logger.debug(f"Relation candidate {relation_id} rejected.")
+            # Unapply the relation
+            await self._unapply_relation(relation_id)
+            candidate.evaluation.relation_name = self.PLACEHOLDER_RELATION_NAME # set to placeholder to indicate rejection
+        else:
+            self.logger.debug(f"Relation candidate {relation_id} unsure, removing any previous applied relation.")
+            await self._unapply_relation(relation_id)  # remove the relation if it existed
+
+        # Update the candidate synced status
+        candidate.is_synced = True
+        candidate.last_synced = int(time.time())
+
+        await self._set_heuristic(relation_id, candidate, recreate=True)
+
+    async def _apply_relation(self, 
+                              client_name: str, 
+                              relation_id: str, 
+                              relation_name: str, 
+                              property_mappings: List[PropertyMapping], 
+                              entity_a_type: str, 
+                              entity_b_type: str,
+                              result: str):
+        """
+        Applies the relation by creating a relation in the data graph database.
         This function is used to accept a relation candidate, effectively creating the relation in the graph.
         """
-        self.logger.info(f"Applying relation {relation_id}")
-        candidate = await self.fetch_candidate(relation_id)
-        if candidate is None:
-            self.logger.warning(f"Relation {relation_id} not found")
-            return
-        if candidate.evaluation is None:
-            self.logger.warning(f"Relation {relation_id} has no evaluation, cannot apply relation.")
-            return
-        self.logger.debug(f"Applying relation {relation_id}, {candidate.model_dump_json()}")
-        if candidate.evaluation.relation_name is None or candidate.evaluation.relation_name == "":
+        self.logger.debug(f"Applying relation {relation_id}")
+        if relation_name is None or relation_name == "":
             self.logger.error(f"Relation {relation_id} has no relation name, cannot apply.")
             return
 
         matching_properties = {}
-        for prop in candidate.heuristic.property_mappings:
+        for prop in property_mappings:
             matching_properties[prop.entity_a_property] = prop.entity_b_idkey_property
 
-        # Sanity check if its a composite key, we have all the properties
-        # if candidate.heuristic.is_entity_b_idkey_composite and len(matching_properties) != len(candidate.heuristic.properties_in_composite_idkey):
-        #     # THIS SHOULD NEVER HAPPEN, but if it does, we log an error and exit, allow for debugging
-        #     self.logger.error(f"THIS SHOULD NEVER HAPPEN - Relation {relation_id} is a composite key, but not all properties are accepted: {matching_properties}, {candidate.heuristic.properties_in_composite_idkey}")
-        #     self.logger.error(candidate.model_dump_json())
-        #     return
-
         # remove relation if it is already applied
-        await self.data_graph_db.remove_relation("", {constants.ONTOLOGY_RELATION_ID_KEY: relation_id})
+        await self._unapply_relation(relation_id)
 
          # If there are no wildcards, we can just relate the entities by property
         await self.data_graph_db.relate_entities_by_property(
             client_name=client_name,
-            entity_a_type=candidate.heuristic.entity_a_type,
-            entity_b_type=candidate.heuristic.entity_b_type,
-            relation_type=candidate.evaluation.relation_name,
+            entity_a_type=entity_a_type,
+            entity_b_type=entity_b_type,
+            relation_type=relation_name,
             matching_properties=matching_properties,
             relation_properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id, 
-                                 constants.RELATION_CONFIDENCE_KEY: candidate.evaluation.relation_confidence}
+                                 constants.RELATION_CONFIDENCE_KEY: result}
         )
-        candidate.is_applied = True
-        if manual:
-            candidate.manually_intervened = FkeyRelationManualIntervention.ACCEPTED
-        else:
-            candidate.manually_intervened = FkeyRelationManualIntervention.NONE
-        await self.update_candidate_metadata(relation_id, is_applied=candidate.is_applied, manual_intervention=candidate.manually_intervened)
-
-    async def unapply_relation(self, relation_id: str, manual: bool=False):
+ 
+    async def _unapply_relation(self, relation_id: str):
         """
-        Unapplies the relation by removing it from the graph database.
+        Unapplies the relation by removing it from the data graph database.
         This function is used to reject a relation candidate, effectively removing the relation from the graph.
         """
-        self.logger.info(f"Rejecting relation {relation_id}")
-        candidate = await self.fetch_candidate(relation_id)
-        if candidate is None:
-            self.logger.warning(f"Relation {relation_id} not found")
-            return  
-        if candidate.evaluation is None:
-            self.logger.warning(f"Relation {relation_id} has no evaluation, cannot unapply relation.")
-            return
-        self.logger.debug(f"Unapplying relation {relation_id}, {candidate.model_dump_json()}")
-
-        if candidate.evaluation.relation_name is None or candidate.evaluation.relation_name == "":
-            self.logger.error(f"Relation {relation_id} has no relation name, cannot undo.")
-            return
-        await self.data_graph_db.remove_relation(candidate.evaluation.relation_name, {constants.ONTOLOGY_RELATION_ID_KEY: relation_id})
-
-        candidate.is_applied = False
-        if manual:
-            candidate.manually_intervened = FkeyRelationManualIntervention.REJECTED
-        else:
-            candidate.manually_intervened = FkeyRelationManualIntervention.NONE
-        await self.update_candidate_metadata(relation_id, is_applied=candidate.is_applied, manual_intervention=candidate.manually_intervened)
-
-
-    async def sync_relation(self, client_name: str, relation_id: str):
-        """
-        Syncs the relation with the graph database based on the heuristic evaluation.
-        This function checks the relation confidence and applies or unapplies the relation accordingly.
-        """
-
-        self.logger.debug(f"Syncing relation {relation_id}")
-        # Fetch the heuristic for the relation_id
-        candidate = await self.fetch_candidate(relation_id)
-        if candidate is None:
-            self.logger.warning(f"Relation candidate {relation_id} not found in the database.")
-            return
-
-        if candidate.evaluation is None:
-            self.logger.warning(f"Relation candidate {relation_id} has no evaluation, cannot sync relation.")
-            return
-        
-        if helpers.is_accepted(candidate.evaluation.relation_confidence, self.acceptance_threshold):
-            # If the relation confidence is above the acceptance threshold, we apply the relation
-            await self.apply_relation(client_name, relation_id)
-            return
-        
-        if helpers.is_rejected(candidate.evaluation.relation_confidence, self.rejection_threshold):
-            # If the relation confidence is below the acceptance threshold, we reject the relation
-            await self.unapply_relation(relation_id)
-            return
-
-        # If the relation confidence is between the acceptance and rejection thresholds, we set it to pending
-        await self.unapply_relation(relation_id)  # reject the relation 
-
-# if __name__ == "__main__":
-    # rc = RelationCandidateManager(graph_db=Neo4jDB(), ontology_graph_db=Neo4jDB(uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688")), acceptance_threshold=0.75, rejection_threshold=0.3)
+        await self.data_graph_db.remove_relation(None, {constants.ONTOLOGY_RELATION_ID_KEY: relation_id})

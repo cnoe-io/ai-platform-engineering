@@ -21,7 +21,7 @@ ground_truth_candidates = {}
 CLIENT_NAME = "test_heuristics_e2e_client"
 TEST_DATA_HEURISTICS_FILE = "test_data_heuristics.json"
 
-rc = RelationCandidateManager(graph_db=graph_db, ontology_graph_db=ontology_graph_db, heuristics_version_id="test", acceptance_threshold=0.75, rejection_threshold=0.3)
+rc = RelationCandidateManager(graph_db=graph_db, ontology_graph_db=ontology_graph_db, heuristics_version_id="test", client_name=CLIENT_NAME)
 
 async def initialise():
 
@@ -67,12 +67,12 @@ async def test_each_evaluation():
         agent = OntologyAgent(graph_db=graph_db, 
             ontology_graph_db=ontology_graph_db, 
             kv_store=kv_store, 
-            acceptance_threshold=rc.acceptance_threshold, 
-            rejection_threshold=rc.rejection_threshold, 
             min_count_for_eval=1, 
             count_change_threshold_ratio=0.2, 
             max_concurrent_processing=30, 
-            max_concurrent_evaluation=5)
+            max_concurrent_evaluation=5,
+            agent_recursion_limit=10
+            )
         logging.info("Running heuristics processing...")
         await agent.process_all(rc)
 
