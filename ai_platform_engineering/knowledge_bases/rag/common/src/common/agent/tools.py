@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
-from common.constants import KV_HEURISTICS_VERSION_ID_KEY, PROP_DELIMITER, HEURISTICS_VERSION_ID_KEY
+from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOGY_VERSION_ID_KEY
 from common.models.graph import EntityIdentifier
 import traceback
 import httpx
@@ -225,21 +225,21 @@ async def graph_check_if_ontology_generated(thought: str) -> str:
     """
     logger.info(f"Checking if ontology is generated, Thought: {thought}")
     try:
-        heuristics_version_id = await redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
-        if heuristics_version_id is None:
+        ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
+        if ontology_version_id is None:
             return "false"
-        heuristics_version_id = heuristics_version_id.decode("utf-8")
-        logger.info(f"Found heuristics version id: {heuristics_version_id}")
+        ontology_version_id = ontology_version_id.decode("utf-8")
+        logger.info(f"Found ontology version id: {ontology_version_id}")
 
-        # Check if the ontology is generated - there should be at least one relation with the heuristics version id
+        # Check if the ontology is generated - there should be at least one relation with the ontology version id
         relation = await ontology_graphdb.find_relations(None, None, None, {
-            HEURISTICS_VERSION_ID_KEY: heuristics_version_id
+            ONTOLOGY_VERSION_ID_KEY: ontology_version_id
         }, 1)
 
         if len(relation) > 0:
             return "true"
 
-        logger.warning(f"No relations found in ontology with the current heuristics version id: {heuristics_version_id}")
+        logger.warning(f"No relations found in ontology with the current ontology version id: {ontology_version_id}")
         return "false"
     except Exception as e:
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -261,14 +261,14 @@ async def graph_get_relation_path_between_entity_types(entity_type_1: str, entit
     logger.info(f"Getting relation path between {entity_type_1} and {entity_type_2}, Thought: {thought}")
 
     try:
-        # Fetch the latest heuristics id
-        heuristics_version_id = await redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
-        if heuristics_version_id is None:
+        # Fetch the latest ontology id
+        ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
+        if ontology_version_id is None:
             return "Error: the ontology is not generated yet, this tool is unavailable"
-        heuristics_version_id = heuristics_version_id.decode("utf-8")
+        ontology_version_id = ontology_version_id.decode("utf-8")
 
-        entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, heuristics_version_id]))
-        entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, heuristics_version_id]))
+        entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
+        entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
 
         paths = await ontology_graphdb.shortest_path(
             entity_a=entity_a_id,

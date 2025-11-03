@@ -53,7 +53,8 @@ def valid_metadata_keys(metadata_list_override: List[Type[BaseModel]] = []) -> L
 
 class GraphConnectorInfo(BaseModel):
     connector_id: str = Field(..., description="Unique identifier for the graph connector") # TODO: Implement ID generation
-    name: str = Field(..., description="Name of the graph connector")
+    connector_type: str = Field(..., description="Type of the graph connector")
+    connector_name: str = Field(..., description="Name of the graph connector")
     description: Optional[str] = Field(None, description="Description of the graph connector")
     last_seen: Optional[datetime.datetime] = Field(None, description="Last time the connector was seen")
 
