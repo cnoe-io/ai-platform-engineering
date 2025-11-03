@@ -21,12 +21,12 @@ jobs:
 
     steps:
       - name: Checkout current repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: main-repo
 
       - name: Checkout community-plugins repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: cnoe-io/community-plugins
           ref: agent-forge-upstream-docker
@@ -74,7 +74,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v3
         if: github.event_name != 'pull_request'
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
