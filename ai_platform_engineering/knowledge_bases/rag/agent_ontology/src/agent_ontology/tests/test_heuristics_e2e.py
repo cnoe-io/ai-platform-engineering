@@ -20,10 +20,12 @@ from core.constants import DEFAULT_LABEL, UPDATED_BY_KEY
 TEST_DATA_HEURISTICS_FILE = "test_data_heuristics.json"
 TEST_DATA_FILE = "../../../../test_data.json"
 
+CLIENT_NAME = "test_heuristics_e2e_client"
+
 graph_db = Neo4jDB()
 ontology_graph_db = Neo4jDB("bolt://localhost:7688")
 
-rc = RelationCandidateManager(graph_db=graph_db, ontology_graph_db=ontology_graph_db, heuristics_version_id="test", acceptance_threshold=0.75, rejection_threshold=0.3)
+rc = RelationCandidateManager(graph_db=graph_db, ontology_graph_db=ontology_graph_db, heuristics_version_id="test", client_name=CLIENT_NAME)
 hp = HeuristicsProcessor(graph_db=graph_db)
 
 ground_truth_candidates = {}
