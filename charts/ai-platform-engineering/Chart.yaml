@@ -11,10 +11,10 @@ dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
     # Chart version for agent subchart
-    version: 0.2.0
+    version: 0.2.1
   # Single agent chart used multiple times with different aliases
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-argocd
     tags:
       - agent-argocd
@@ -24,7 +24,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.argocd
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-aws
     tags:
       - agent-aws
@@ -33,7 +33,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.aws
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-backstage
     tags:
       - agent-backstage
@@ -43,7 +43,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.backstage
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-confluence
     tags:
       - agent-confluence
@@ -52,7 +52,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.confluence
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-github
     tags:
       - agent-github
@@ -62,7 +62,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.github
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-jira
     tags:
       - agent-jira
@@ -71,7 +71,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.jira
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-komodor
     tags:
       - agent-komodor
@@ -80,7 +80,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.komodor
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-pagerduty
     tags:
       - agent-pagerduty
@@ -89,7 +89,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.pagerduty
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-slack
     tags:
       - agent-slack
@@ -98,7 +98,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.slack
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-splunk
     tags:
       - agent-splunk
@@ -107,7 +107,7 @@ dependencies:
       - child: agentExports.data
         parent: global.enabledSubAgents.splunk
   - name: agent
-    version: 0.3.0
+    version: 0.3.1
     alias: agent-webex
     tags:
       - agent-webex
