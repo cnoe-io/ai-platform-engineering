@@ -1,11 +1,7 @@
-## 0.1.20 (2025-11-01)
+## 0.2.0 (2025-11-04)
 
 ### Feat
 
-- add info on PR template
-- allow helm pre-release on fork PRs using label
-- Use more standard pattern for Helm ingress
-- build agent-forge on push to main and remove cronjob
 - Support multi-platform Docker builds (AMD64 + ARM64)
 - Update agent-forge Dockerfile for AMD64 compatibility
 - refactor a2a stream with common code and fix agent-forge workflow
@@ -19,9 +15,6 @@
 
 ### Fix
 
-- **prompt_config.deep_agent.yaml**: updates
-- Logging of authentication configuration
-- agent-forge ci gh action
 - lint
 - Build agent-forge Docker image for AMD64 only
 - use shell to cd into workspace directory before starting

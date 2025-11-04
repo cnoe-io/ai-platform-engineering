@@ -23,6 +23,7 @@ global:
     secretName: "llm-secret"
   externalSecrets:
     enabled: false
+    apiVersion: "v1beta1"  # API version for ExternalSecret resources. Options: "v1" or "v1beta1". Defaults to "v1beta1" if not specified.
   slim:
     enabled: false
     endpoint: "http://ai-platform-engineering-slim:46357"
@@ -213,7 +214,7 @@ backstage-plugin-agent-forge:
   nameOverride: "backstage-plugin-agent-forge"
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
-    tag: "latest"
+    tag: "latest"  # Currently there is no stable tag so defaulting to latest. Will be updated to stable when available.
     pullPolicy: "Always"
   service:
     ports:
@@ -226,14 +227,48 @@ backstage-plugin-agent-forge:
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
+# Below values are only a subset of the values that are available in the rag-stack chart.
+# For more values, please refer to the rag-stack chart values.yaml file.
 rag-stack:
+
   rag-server:
     enabled: true
+    image:
+      repository: "ghcr.io/cnoe-io/rag-server"
+      tag: "stable"
+      pullPolicy: "Always"
+
+  agent-rag:
+    enabled: true
+    image:
+      repository: "ghcr.io/cnoe-io/caipe-rag-agent-rag"
+      tag: "stable"
+      pullPolicy: "Always"
+
+  agent-ontology:
+    enabled: false # This is currently undergoing refactoring, so disbled by default.
+
   rag-webui:
     enabled: true
-  rag-agent:
+    image:
+      repository: "ghcr.io/cnoe-io/caipe-rag-webui"
+      tag: "stable"
+      pullPolicy: "Always"
+
+  neo4j:
     enabled: true
+
+  neo4j-ontology:
+    enabled: false # This is currently undergoing refactoring, so disbled by default.
+
   rag-redis:
     enabled: true
-  rag-milvus:
+    image:
+      repository: "redis"
+      tag: "7.2-alpine"
+      pullPolicy: IfNotPresent
+    persistence:
+      enabled: false
+
+  milvus:
     enabled: true

@@ -71,6 +71,25 @@ system_prompt_template: |
   - **⟧** (U+27E7) - Mathematical Right White Square Bracket - EXECUTION PLAN END
   - Unique markers safe for token streaming and visually distinctive
 
+  ### ❌ WRONG - Function call pseudo-code after execution plan:
+  ```
+  User: "Get my Jira tasks"
+  Agent:
+  ⟦**🎯 Execution Plan...**⟧
+  
+  jira({ prompt: "Retrieve tasks..." })  ← VIOLATION! No pseudo-code!
+  [actual results from tool]
+  ```
+
+  ### ✅ CORRECT - No text between plan and results:
+  ```
+  User: "Get my Jira tasks"
+  Agent:
+  ⟦**🎯 Execution Plan...**⟧
+  🔧 Supervisor: Calling Agent Jira...
+  ✅ Jira: Here are your tasks: [results]
+  ```
+
   ## Meta Prompts
 
   ### DIRECTIVE: OnCall Schedule & Task Analysis
