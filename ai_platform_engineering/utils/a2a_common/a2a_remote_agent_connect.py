@@ -203,7 +203,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
             except Exception:
                 chunk_dump = str(chunk)
 
-            logger.info(f"Received A2A stream chunk: {chunk_dump}")
+            logger.debug(f"A2ARemoteAgentConnectTool: Received A2A stream chunk: {chunk_dump}")
             # Don't stream raw chunk_dump - we'll stream extracted text only at line 251
 
             try:
@@ -241,7 +241,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
                                     # Check if artifact streaming is enabled (for agents like AWS that use artifact-update for streaming)
                                     enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
-                                    
+
                                     if enable_artifact_streaming:
                                         # Stream the entire artifact-update result as-is (preserves A2A event structure)
                                         writer({"type": "artifact-update", "result": result})
@@ -251,7 +251,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
                 # Extract text from status-update events (RAG agent streams via status messages)
                 elif kind == "status-update":
-                    logger.info(f"Received status-update event: {result}")
+                    logger.debug(f"Received status-update event: {result}")
                     status = result.get('status')
                     if status and isinstance(status, dict):
                         message = status.get('message')
@@ -269,18 +269,18 @@ class A2ARemoteAgentConnectTool(BaseTool):
                                         # clean_text = text.replace('**', '')
                                         # writer({"type": "a2a_event", "data": clean_text})
                                         # logger.info(f"✅ Streamed content from status-update: {len(clean_text)} chars")
-                                        
-                                        
+
+
                                         # Check if tool output streaming is enabled
                                         stream_tool_output = os.getenv("STREAM_SUB_AGENT_TOOL_OUTPUT", "false").lower() == "true"
-                                        
+
                                         # Stream tool-related messages (🔧 calling, ✅ completed, and optionally 📄 output)
                                         # Full responses will be streamed token-by-token by supervisor
                                         is_tool_notification = '🔧' in text or '✅' in text
                                         is_tool_output = '📄' in text
-                                        
+
                                         should_stream = is_tool_notification or (is_tool_output and stream_tool_output)
-                                        
+
                                         if should_stream:
                                             # Remove markdown bold formatting (** **) from tool names
                                             clean_text = text.replace('**', '')
@@ -290,9 +290,9 @@ class A2ARemoteAgentConnectTool(BaseTool):
                                             else:
                                                 logger.info(f"✅ Streamed tool notification from status-update: {len(clean_text)} chars")
                                         elif is_tool_output:
-                                            logger.info(f"⏭️  Skipped streaming tool output (STREAM_SUB_AGENT_TOOL_OUTPUT=false): {len(text)} chars")
+                                            logger.debug(f"⏭️  Skipped streaming tool output (STREAM_SUB_AGENT_TOOL_OUTPUT=false): {len(text)} chars")
                                         else:
-                                            logger.info(f"⏭️  Skipped streaming content from status-update (not a tool message): {len(text)} chars")
+                                            logger.debug(f"⏭️  Skipped streaming content from status-update (not a tool message): {len(text)} chars")
             except Exception as e:
                 logger.warning(f"Non-fatal error while handling stream chunk: {e}")
                 import traceback

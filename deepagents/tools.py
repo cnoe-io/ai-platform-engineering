@@ -16,11 +16,27 @@ from deepagents.state import Todo, DeepAgentState
 def write_todos(
     todos: list[Todo], tool_call_id: Annotated[str, InjectedToolCallId]
 ) -> Command:
+    # Format todos as markdown checklist
+    status_icons = {
+        "pending": "⏳",
+        "in_progress": "🔄",
+        "completed": "✅",
+        "cancelled": "❌"
+    }
+
+    markdown_lines = ["**📋 Task Progress:**", ""]
+    for todo in todos:
+        icon = status_icons.get(todo["status"], "•")
+        status_text = todo["status"].replace("_", " ").title()
+        markdown_lines.append(f"{icon} **{status_text}:** {todo['content']}")
+
+    markdown_output = "\n".join(markdown_lines)
+
     return Command(
         update={
             "todos": todos,
             "messages": [
-                ToolMessage(f"Updated todo list to {todos}", tool_call_id=tool_call_id)
+                ToolMessage(markdown_output, tool_call_id=tool_call_id)
             ],
         }
     )
