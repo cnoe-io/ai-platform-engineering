@@ -31,7 +31,6 @@ spec:
     - host: {{ . | quote }}
       http:
         paths:
-          {{- range .paths }}
           - path: /
             pathType: Prefix
             backend:
@@ -39,7 +38,6 @@ spec:
                 name: {{ $fullName }}
                 port:
                   number: {{ $svcPort }}
-          {{- end }}
     {{- end }}
     {{- else }}
     - http:
