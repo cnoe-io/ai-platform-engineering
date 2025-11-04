@@ -7,6 +7,7 @@ on:
     paths:
       - 'ai_platform_engineering/agents/**'
       - '.github/**'
+      - 'build/agents/Dockerfile.mcp'
 jobs:
   determine-agents:
     runs-on: ubuntu-latest
@@ -32,6 +33,7 @@ jobs:
               - 'ai_platform_engineering/agents/argocd/mcp/**'
               - 'ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
               - '.github/**'
+              - 'build/agents/Dockerfile.mcp'
             backstage:
               - 'ai_platform_engineering/agents/backstage/mcp/**'
               - 'ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
@@ -105,7 +107,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/prebuild/mcp-${{ matrix.agent }}
+      IMAGE_NAME: ${{ github.repository_owner }}/prebuild/mcp-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -152,14 +154,25 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
+      - name: Determine Dockerfile path
+        id: dockerfile
+        run: |
+          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.mcp" ]; then
+            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
+          else
+            echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and Push MCP Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ env.AGENT_DIR }}/build/Dockerfile.mcp
+          file: ${{ steps.dockerfile.outputs.path }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            AGENT_NAME=${{ matrix.agent }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
