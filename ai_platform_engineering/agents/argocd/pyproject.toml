@@ -38,6 +38,11 @@ allow-direct-references = true
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = [
+    "ruff>=0.13.2",
+]
+
 [tool.ruff]
 # Allow lines to be as long as 140.
 line-length = 140
@@ -61,4 +66,4 @@ markers = [
 ]
 
 [tool.uv.sources]
-mcp-argocd = { path = "mcp" }
+mcp-argocd = { workspace = true }

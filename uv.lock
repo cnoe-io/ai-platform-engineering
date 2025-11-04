@@ -11,6 +11,7 @@ members = [
     "agent-argocd",
     "agent-komodor",
     "ai-platform-engineering",
+    "mcp-argocd",
 ]
 
 [[package]]
@@ -56,6 +57,11 @@ dependencies = [
     { name = "uv" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", specifier = "==0.2.16" },
@@ -68,7 +74,7 @@ requires-dist = [
     { name = "langchain-core", specifier = ">=0.3.60" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
     { name = "langgraph", specifier = "==0.5.3" },
-    { name = "mcp-argocd", directory = "ai_platform_engineering/agents/argocd/mcp" },
+    { name = "mcp-argocd", editable = "ai_platform_engineering/agents/argocd/mcp" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
@@ -76,6 +82,9 @@ requires-dist = [
     { name = "tabulate", specifier = ">=0.9.0" },
     { name = "uv" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.13.2" }]
 
 [[package]]
 name = "agent-komodor"
@@ -2370,7 +2379,7 @@ cli = [
 [[package]]
 name = "mcp-argocd"
 version = "0.1.0"
-source = { directory = "ai_platform_engineering/agents/argocd/mcp" }
+source = { editable = "ai_platform_engineering/agents/argocd/mcp" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },

@@ -301,6 +301,8 @@ services:
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8001:8000"
+    mem_limit: 2g
+    mem_reservation: 1g
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -501,6 +503,8 @@ services:
       - p2p-tracing
       - p2p-no-rag
       - p2p-no-rag-tracing
+    depends_on:
+      - mcp-backstage
     env_file:
       - .env
     volumes:
@@ -591,6 +595,8 @@ services:
       - p2p-tracing
       - p2p-no-rag
       - p2p-no-rag-tracing
+    depends_on:
+      - mcp-confluence
     env_file:
       - .env
     volumes:
@@ -890,7 +896,7 @@ services:
     container_name: agent-pagerduty-slim
     profiles:
       - slim
-      - slim-tracing  
+      - slim-tracing
       - slim-no-rag
       - slim-no-rag-tracing
     depends_on:
@@ -1075,6 +1081,8 @@ services:
       - p2p-tracing
       - p2p-no-rag
       - p2p-no-rag-tracing
+    depends_on:
+      - mcp-webex
     env_file:
       - .env
     volumes:
@@ -1557,7 +1565,7 @@ services:
       - rag_p2p
       - rag_no_graph_p2p
       - p2p
-      - p2p-tracing 
+      - p2p-tracing
   milvus-standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.6.0
