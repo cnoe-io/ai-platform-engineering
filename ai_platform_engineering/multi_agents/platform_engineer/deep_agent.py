@@ -96,7 +96,7 @@ class AIPlatformEngineerMAS:
     # Dynamically generate system prompt and subagents from current registry
     current_agents = platform_registry.agents
     system_prompt = generate_system_prompt(current_agents)
-    
+
     # Generate CustomSubAgents (pre-created react agents with A2A tools)
     subagents = platform_registry.generate_subagents(agent_prompts, base_model)
 
