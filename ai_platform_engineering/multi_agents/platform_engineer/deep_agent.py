@@ -93,26 +93,27 @@ class AIPlatformEngineerMAS:
 
     base_model = LLMFactory().get_llm()
 
-    # Get fresh tools from registry (A2A Remote Agent Connect Tools)
-    all_agents = platform_registry.get_all_agents()
-
-    # Dynamically generate system prompt from current registry
+    # Dynamically generate system prompt and subagents from current registry
     current_agents = platform_registry.agents
     system_prompt = generate_system_prompt(current_agents)
+    
+    # Generate CustomSubAgents (pre-created react agents with A2A tools)
+    subagents = platform_registry.generate_subagents(agent_prompts, base_model)
 
-    logger.info(f'🔧 Rebuilding with {len(all_agents)} tools (A2A agents) and 0 subagents')
-    logger.info(f'📦 Tools: {[t.name for t in all_agents]}')
-    logger.info(f'🤖 Subagents: [] (A2A agents must be tools, not Deep Agent subagents)')
+    logger.info(f'🔧 Rebuilding with 0 direct tools and {len(subagents)} subagents')
+    logger.info(f'🤖 Subagents: {[s["name"] for s in subagents]}')
 
-    # Create the Deep Agent
-    # A2A AGENT APPROACH: A2A agents MUST be tools (not subagents)
-    # Why: A2ARemoteAgentConnectTool handles the A2A protocol communication
-    # Deep Agent subagents would create new react agents, breaking A2A connections
-    # The system prompt enforces: Execution Plan (⟦⟧) → Tool Calls → Results
+    # Create the Deep Agent with CUSTOM SUBAGENT architecture
+    # Each A2A agent is a pre-created react agent (CustomSubAgent) with ONE A2ARemoteAgentConnectTool
+    # Benefits:
+    # - Main supervisor has NO direct A2A tools (avoids conflicts with write_todos)
+    # - Proper task delegation via task() tool (supervisor manages TODOs, delegates to subagents)
+    # - Token-by-token streaming from subagents
+    # - A2A protocol maintained (each subagent uses its A2ARemoteAgentConnectTool)
     deep_agent = async_create_deep_agent(
-      tools=all_agents,  # A2A agents as tools for proper protocol handling
+      tools=[],  # Empty - supervisor only has built-in tools (write_todos, read_file, etc.)
       instructions=system_prompt,  # System prompt enforces execution plan first
-      subagents=[],  # Not using Deep Agent subagents (incompatible with A2A)
+      subagents=subagents,  # CustomSubAgents with pre-created graphs
       model=base_model
       # response_format=PlatformEngineerResponse
     )
@@ -132,7 +133,7 @@ class AIPlatformEngineerMAS:
     self._graph_generation += 1
 
     logger.debug(f"Deep agent created successfully (generation {self._graph_generation})")
-    logger.info(f"✅ Deep agent updated with {len(all_agents)} A2A agent tools")
+    logger.info(f"✅ Deep agent updated with {len(subagents)} subagents (each with one A2A tool)")
 
 
   async def serve(self, prompt: str):

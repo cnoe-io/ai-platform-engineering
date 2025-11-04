@@ -8,16 +8,27 @@ The Platform Engineer uses **Deep Agent's native subagent streaming** to enable 
 
 ### 1. Sub-Agent Configuration
 
-Sub-agents are configured as **subagents** (not tools) in the Deep Agent:
+A2A agents are configured as **subagents** (not direct tools) in the Deep Agent. Each subagent is a react agent with ONE A2ARemoteAgentConnectTool:
 
 ```python
 # In deep_agent.py
+all_agents = platform_registry.get_all_agents()  # Get A2ARemoteAgentConnectTools
+subagents = platform_registry.generate_subagents(agent_prompts)  # Generate subagent configs
+
 deep_agent = async_create_deep_agent(
-    tools=[],  # Empty - no blocking tools
-    subagents=subagents,  # All agents as subagents for streaming
+    tools=all_agents,  # A2A tools (for subagents to reference)
+    subagents=subagents,  # Each subagent wraps ONE A2A tool
     instructions=system_prompt,
     model=base_model
 )
+
+# Each subagent looks like:
+# {
+#   "name": "komodor",
+#   "description": "Kubernetes troubleshooting...",
+#   "prompt": "You are a Kubernetes expert...",
+#   "tools": ["komodor"]  # References the A2ARemoteAgentConnectTool by name
+# }
 ```
 
 ### 2. Deep Agent Streaming Flow
