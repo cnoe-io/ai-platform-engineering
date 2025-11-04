@@ -68,6 +68,7 @@ agent-komodor = { workspace = true }
 members = [
     "ai_platform_engineering/agents/argocd",
     "ai_platform_engineering/agents/komodor",
+    "ai_platform_engineering/agents/argocd/mcp",
 ]
 
 [dependency-groups]

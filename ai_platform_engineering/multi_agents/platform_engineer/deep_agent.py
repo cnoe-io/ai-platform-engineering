@@ -93,25 +93,26 @@ class AIPlatformEngineerMAS:
 
     base_model = LLMFactory().get_llm()
 
-    # Get fresh tools from registry
+    # Get fresh tools from registry (A2A Remote Agent Connect Tools)
     all_agents = platform_registry.get_all_agents()
 
-    # Dynamically generate system prompt and subagents from current registry
+    # Dynamically generate system prompt from current registry
     current_agents = platform_registry.agents
     system_prompt = generate_system_prompt(current_agents)
-    subagents = platform_registry.generate_subagents(agent_prompts)
 
-    logger.info(f'🔧 Rebuilding with {len(all_agents)} tools and {len(subagents)} sub_agents')
+    logger.info(f'🔧 Rebuilding with {len(all_agents)} tools (A2A agents) and 0 subagents')
     logger.info(f'📦 Tools: {[t.name for t in all_agents]}')
-    logger.info(f'🤖 Subagents: {[s["name"] for s in subagents]}')
+    logger.info(f'🤖 Subagents: [] (A2A agents must be tools, not Deep Agent subagents)')
 
     # Create the Deep Agent
-    # NOTE: Sub-agents are A2A tools, not Deep Agent subagents
-    # Streaming is handled via A2ARemoteAgentConnectTool's streaming implementation
+    # A2A AGENT APPROACH: A2A agents MUST be tools (not subagents)
+    # Why: A2ARemoteAgentConnectTool handles the A2A protocol communication
+    # Deep Agent subagents would create new react agents, breaking A2A connections
+    # The system prompt enforces: Execution Plan (⟦⟧) → Tool Calls → Results
     deep_agent = async_create_deep_agent(
-      tools=all_agents,
-      instructions=system_prompt,
-      subagents=subagents,
+      tools=all_agents,  # A2A agents as tools for proper protocol handling
+      instructions=system_prompt,  # System prompt enforces execution plan first
+      subagents=[],  # Not using Deep Agent subagents (incompatible with A2A)
       model=base_model
       # response_format=PlatformEngineerResponse
     )
@@ -131,7 +132,7 @@ class AIPlatformEngineerMAS:
     self._graph_generation += 1
 
     logger.debug(f"Deep agent created successfully (generation {self._graph_generation})")
-    logger.info(f"✅ Deep agent updated with {len(all_agents)} tools and {len(subagents)} subagents")
+    logger.info(f"✅ Deep agent updated with {len(all_agents)} A2A agent tools")
 
 
   async def serve(self, prompt: str):

@@ -21,12 +21,20 @@ StateSchemaType = Type[StateSchema]
 
 base_prompt = """You have access to a number of standard tools
 
-## `write_todos`
+## `write_todos` - MANDATORY for multi-step tasks
 
 You have access to the `write_todos` tools to help you manage and plan tasks. Use these tools VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress.
 These tools are also EXTREMELY helpful for planning tasks, and for breaking down larger complex tasks into smaller steps. If you do not use this tool when planning, you may forget to do important tasks - and that is unacceptable.
 
-It is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.
+**CRITICAL TODO WORKFLOW:**
+1. Create todos with merge=False at the start (first task as in_progress)
+2. **WORK ON EACH TODO SEQUENTIALLY** - complete the in_progress task before moving to next
+3. **UPDATE todos with merge=True IMMEDIATELY after completing each task**
+4. **NEVER stop responding if you have pending or in_progress todos** - continue working until ALL are completed
+5. Mark next pending task as in_progress, complete it, then repeat
+
+**You MUST complete every TODO you create.** Do not create a TODO list and then ignore it. The TODO list is your work contract with the user.
+
 ## `task`
 
 - When doing web search, prefer to use the `task` tool in order to reduce context usage."""
