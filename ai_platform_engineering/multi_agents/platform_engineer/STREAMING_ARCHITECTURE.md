@@ -8,28 +8,27 @@ The Platform Engineer uses **Deep Agent's native subagent streaming** to enable 
 
 ### 1. Sub-Agent Configuration
 
-A2A agents are configured as **subagents** (not direct tools) in the Deep Agent. Each subagent is a react agent with ONE A2ARemoteAgentConnectTool:
+A2A agents use a **hybrid architecture** - tools passed to BOTH supervisor and subagents:
 
 ```python
 # In deep_agent.py
 base_model = LLMFactory().get_llm()
+all_agents = platform_registry.get_all_agents()  # A2ARemoteAgentConnectTools
 
 # Generate CustomSubAgents (pre-created react agents with A2A tools)
 subagents = platform_registry.generate_subagents(agent_prompts, base_model)
 
 deep_agent = async_create_deep_agent(
-    tools=[],  # Empty - supervisor only has built-in tools
-    subagents=subagents,  # CustomSubAgents with pre-created graphs
+    tools=all_agents,  # A2A tools for visibility and streaming events
+    subagents=subagents,  # CustomSubAgents for proper task() delegation
     instructions=system_prompt,
     model=base_model
 )
 
-# Each CustomSubAgent looks like:
-# {
-#   "name": "komodor",
-#   "description": "Kubernetes troubleshooting...",
-#   "graph": <pre-created react agent with ONE A2ARemoteAgentConnectTool>
-# }
+# Why Hybrid?
+# - Supervisor has tools → tool_call/tool_result events stream properly
+# - Subagents provide task() interface → write_todos workflow works
+# - System prompt encourages task() delegation → avoids conflicts
 ```
 
 ### 2. Deep Agent Streaming Flow
