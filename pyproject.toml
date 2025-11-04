@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.1.20"
+version = "0.2.0"
 description = "AI Platform Engineering Multi-Agent Systems"
 authors = [
   {name = "CNOE Contributors"}
@@ -86,6 +86,7 @@ dev = [
     "redis>=6.2.0",
     "langchain-milvus>=0.2.1",
     "pymilvus>=2.6.0",
+    "pandas>=2.0.0",
     "fastapi>=0.115.12,<0.116.0",
     "beautifulsoup4>=4.12.3",
     "lxml>=6.0.1",
