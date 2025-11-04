@@ -3,8 +3,8 @@ name: rag-stack
 description: A complete RAG stack including web UI, server, agents, Redis, Neo4j and Milvus
 
 type: application
-version: 0.0.3
-appVersion: "0.0.3"
+version: 0.0.4
+appVersion: "0.0.4"
 
 dependencies:
   - name: rag-server
@@ -20,7 +20,7 @@ dependencies:
     repository: "file://./charts/agent-ontology"
     condition: agent-ontology.enabled
   - name: rag-webui
-    version: "0.0.1"
+    version: "0.0.2"
     repository: "file://./charts/rag-webui"
     condition: rag-webui.enabled
   - name: neo4j
