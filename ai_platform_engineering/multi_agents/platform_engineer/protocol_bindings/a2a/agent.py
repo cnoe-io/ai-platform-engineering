@@ -210,11 +210,21 @@ class AIPlatformEngineerA2ABinding:
                           }
                       }
 
-              # Handle ToolMessage (tool completion indicators)
+              # Handle ToolMessage (tool completion indicators + content)
               elif isinstance(message, ToolMessage):
                   tool_name = message.name if hasattr(message, 'name') else "unknown"
-                  logging.info(f"Tool call completed: {tool_name}")
-                  # Stream tool completion notification to client with metadata
+                  tool_content = message.content if hasattr(message, 'content') else ""
+                  logging.info(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
+
+                  # Stream tool content first (e.g., formatted TODO lists from write_todos)
+                  if tool_content and tool_content.strip():
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "content": tool_content + "\n",
+                      }
+
+                  # Then stream completion notification
                   tool_name_formatted = tool_name.title()
                   yield {
                       "is_task_complete": False,
@@ -260,11 +270,13 @@ class AIPlatformEngineerA2ABinding:
                       "content": "",
                   }
               elif isinstance(message, ToolMessage):
-                  logging.info("Detected ToolMessage, yielding")
+                  # Stream ToolMessage content (includes formatted TODO lists)
+                  tool_content = message.content if hasattr(message, 'content') else ""
+                  logging.info(f"Detected ToolMessage with {len(tool_content)} chars, yielding")
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
-                      "content": "",
+                      "content": tool_content if tool_content else "",
                   }
               elif isinstance(message, AIMessageChunk):
                   # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
