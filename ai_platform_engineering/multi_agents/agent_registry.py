@@ -118,19 +118,19 @@ class AgentRegistry:
     def generate_subagents(self, agent_prompts, model) -> List[Dict[str, Any]]:
         """
         Generate Deep Agent CustomSubAgents for all enabled A2A agents.
-        
+
         Creates react agents where each has ONE A2ARemoteAgentConnectTool.
         This enables proper task delegation and streaming while maintaining A2A protocol.
-        
+
         Args:
             agent_prompts: Dict of agent-specific prompt overrides
             model: LLM model to use for subagents
-        
+
         Returns:
             List of CustomSubAgent dicts with keys: name, description, graph
         """
         from langgraph.prebuilt import create_react_agent
-        
+
         subagents = []
         for agent in self._agents:
             system_prompt_override = agent_prompts.get(agent, {}).get("system_prompt")
@@ -150,9 +150,9 @@ class AgentRegistry:
             if agent not in self._tools:
                 logger.warning(f"Tool not found for agent {agent}, skipping subagent creation")
                 continue
-            
+
             a2a_tool = self._tools[agent]
-            
+
             # Create a react agent with ONLY this A2A tool
             subagent_graph = create_react_agent(
                 model,
@@ -160,7 +160,7 @@ class AgentRegistry:
                 tools=[a2a_tool],  # Single A2A tool
                 checkpointer=False,
             )
-            
+
             subagents.append({
                 "name": sanitized_name,
                 "description": description,

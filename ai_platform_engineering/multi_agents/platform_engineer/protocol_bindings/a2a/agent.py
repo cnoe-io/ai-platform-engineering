@@ -77,7 +77,7 @@ class AIPlatformEngineerA2ABinding:
           # - 'messages': Token-level streaming via AIMessageChunk
           # - 'custom': Custom events from sub-agents via get_stream_writer()
           async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
-              
+
               # Handle custom A2A event payloads from sub-agents
               if item_type == 'custom' and isinstance(item, dict):
                   # Handle different custom event types
@@ -98,11 +98,11 @@ class AIPlatformEngineerA2ABinding:
                       logging.info("Received artifact-update custom event from sub-agent, forwarding to executor")
                       yield item
                       continue
-              
+
               # Process message stream
               if item_type != 'messages':
                   continue
-                  
+
               message = item[0] if item else None
               if not message:
                   continue
@@ -123,9 +123,9 @@ class AIPlatformEngineerA2ABinding:
                           if not tool_name or not tool_name.strip():
                               logging.debug("Skipping tool call with empty name (streaming chunk)")
                               continue
-                              
+
                           logging.info(f"Tool call started (from AIMessageChunk): {tool_name}")
-                          
+
                           # Stream tool start notification to client with metadata
                           tool_name_formatted = tool_name.title()
                           yield {
@@ -140,7 +140,7 @@ class AIPlatformEngineerA2ABinding:
                           }
                       # Don't process content for tool call chunks
                       continue
-                  
+
                   content = message.content
                   # Normalize content (handle both string and list formats)
                   if isinstance(content, list):
@@ -161,7 +161,7 @@ class AIPlatformEngineerA2ABinding:
                       import re
                       querying_pattern = r'🔍\s+Querying\s+(\w+)\s+for\s+([^.]+?)\.\.\.'
                       match = re.search(querying_pattern, content)
-                      
+
                       if match:
                           agent_name = match.group(1)
                           purpose = match.group(2)
@@ -194,9 +194,9 @@ class AIPlatformEngineerA2ABinding:
                       if not tool_name or not tool_name.strip():
                           logging.debug("Skipping tool call with empty name")
                           continue
-                          
+
                           logging.info(f"Tool call started: {tool_name}")
-                      
+
                       # Stream tool start notification to client with metadata
                       tool_name_formatted = tool_name.title()
                       yield {

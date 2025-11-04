@@ -372,46 +372,70 @@ class TestSubagentGeneration(unittest.TestCase):
     """Test subagent generation functionality."""
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    def test_generate_subagents_basic(self, mock_load):
+    @patch('ai_platform_engineering.multi_agents.agent_registry.create_react_agent')
+    def test_generate_subagents_basic(self, mock_create_react, mock_load):
         """Test basic subagent generation."""
         mock_load.return_value = None
+        mock_create_react.return_value = "mock_graph"
 
         with patch.dict(os.environ, {}, clear=True):
             registry = AgentRegistry()
 
-        # Create mock agent cards
+        # Create mock agent cards and tools
+        from unittest.mock import MagicMock
+        mock_tool = MagicMock()
+        mock_tool.name = "GitHub_Agent"
+
         registry._agents = {
             'GITHUB': {'name': 'GitHub Agent', 'description': 'GitHub integration'},
             'JIRA': {'name': 'JIRA Agent', 'description': 'JIRA integration'}
         }
+        registry._tools = {
+            'GITHUB': mock_tool,
+            'JIRA': mock_tool
+        }
 
         agent_prompts = {}
-        subagents = registry.generate_subagents(agent_prompts)
+        mock_model = MagicMock()
+        subagents = registry.generate_subagents(agent_prompts, mock_model)
 
         self.assertEqual(len(subagents), 2)
         self.assertTrue(all('name' in sa for sa in subagents))
         self.assertTrue(all('description' in sa for sa in subagents))
-        self.assertTrue(all('prompt' in sa for sa in subagents))
+        self.assertTrue(all('graph' in sa for sa in subagents))
         print("✓ Subagent generation works")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    def test_generate_subagents_with_override(self, mock_load):
+    @patch('ai_platform_engineering.multi_agents.agent_registry.create_react_agent')
+    def test_generate_subagents_with_override(self, mock_create_react, mock_load):
         """Test subagent generation with prompt override."""
         mock_load.return_value = None
+        mock_create_react.return_value = "mock_graph"
 
         with patch.dict(os.environ, {}, clear=True):
             registry = AgentRegistry()
 
+        from unittest.mock import MagicMock
+        mock_tool = MagicMock()
+        mock_tool.name = "GitHub_Agent"
+
         registry._agents = {
             'GITHUB': {'name': 'GitHub Agent', 'description': 'GitHub integration'}
+        }
+        registry._tools = {
+            'GITHUB': mock_tool
         }
 
         agent_prompts = {
             'GITHUB': {'system_prompt': 'Custom prompt'}
         }
-        subagents = registry.generate_subagents(agent_prompts)
+        mock_model = MagicMock()
+        subagents = registry.generate_subagents(agent_prompts, mock_model)
 
-        self.assertEqual(subagents[0]['prompt'], 'Custom prompt')
+        # Verify the custom prompt was passed to create_react_agent
+        mock_create_react.assert_called()
+        call_args = mock_create_react.call_args
+        self.assertEqual(call_args[1]['prompt'], 'Custom prompt')
         print("✓ Subagent prompt override works")
 
 

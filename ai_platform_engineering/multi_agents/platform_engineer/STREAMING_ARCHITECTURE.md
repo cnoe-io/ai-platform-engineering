@@ -12,22 +12,23 @@ A2A agents are configured as **subagents** (not direct tools) in the Deep Agent.
 
 ```python
 # In deep_agent.py
-all_agents = platform_registry.get_all_agents()  # Get A2ARemoteAgentConnectTools
-subagents = platform_registry.generate_subagents(agent_prompts)  # Generate subagent configs
+base_model = LLMFactory().get_llm()
+
+# Generate CustomSubAgents (pre-created react agents with A2A tools)
+subagents = platform_registry.generate_subagents(agent_prompts, base_model)
 
 deep_agent = async_create_deep_agent(
-    tools=all_agents,  # A2A tools (for subagents to reference)
-    subagents=subagents,  # Each subagent wraps ONE A2A tool
+    tools=[],  # Empty - supervisor only has built-in tools
+    subagents=subagents,  # CustomSubAgents with pre-created graphs
     instructions=system_prompt,
     model=base_model
 )
 
-# Each subagent looks like:
+# Each CustomSubAgent looks like:
 # {
 #   "name": "komodor",
 #   "description": "Kubernetes troubleshooting...",
-#   "prompt": "You are a Kubernetes expert...",
-#   "tools": ["komodor"]  # References the A2ARemoteAgentConnectTool by name
+#   "graph": <pre-created react agent with ONE A2ARemoteAgentConnectTool>
 # }
 ```
 

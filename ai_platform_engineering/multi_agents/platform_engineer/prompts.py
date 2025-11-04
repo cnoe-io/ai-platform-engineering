@@ -69,7 +69,8 @@ skills_prompt = PromptTemplate(
     )
 )
 
-subagents = platform_registry.generate_subagents(agent_prompts)
+# Note: Subagents are now generated dynamically in deep_agent.py with the model
+# This allows CustomSubAgents to be created with proper react agent graphs
 
 # Generate system prompt dynamically based on tools and their tasks
 def generate_system_prompt(agents: Dict[str, Any]):
