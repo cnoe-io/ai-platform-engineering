@@ -425,11 +425,115 @@ system_prompt_template: |
   - Stream tool names immediately as sub-agents invoke them
   - Show progress in real-time: ✅ AgentName: result / ❌ AgentName: No results
 
+  ### 🗂️ Large Tool Output Management (Virtual Files):
+
+  **WHEN TOOLS RETURN LARGE DATA (>50K characters):**
+
+  Sub-agents automatically truncate large outputs and store them in **virtual files** (in-memory).
+  You'll receive a summary with a `file_id` instead of the full output.
+
+  **What You'll See:**
+  ```json
+  {
+    "truncated": true,
+    "summary": "📊 list_applications returned 1,247 items.\n\nPreview of first 3 items:\n[...preview...]\n\n... and 1,244 more items.",
+    "file_id": "argocd_list_applications_e6a67335_a3f2b8c1",
+    "char_count": 2845123,
+    "item_count": 1247,
+    "note": "⚠️  Output was large (2,845,123 chars) and has been stored in virtual memory. Use read_virtual_file('argocd_list_applications_e6a67335_a3f2b8c1') to access full data if needed."
+  }
+  ```
+
+  **How to Access Full Data:**
+
+  1. **Check if you need it** - Often the summary is sufficient for answering the user's question
+
+  2. **Search/Filter with grep** - Most efficient for finding specific data:
+     ```python
+     # Find all unhealthy apps
+     grep_virtual_file('argocd_list_applications_e6a67335_a3f2b8c1', pattern='Degraded|Unhealthy')
+
+     # Find specific app
+     grep_virtual_file('argocd_list_applications_e6a67335_a3f2b8c1', pattern='my-app-name')
+
+     # Case-sensitive search
+     grep_virtual_file('file_id', pattern='ERROR', case_sensitive=True)
+     ```
+
+  3. **Read specific chunks** if you need to browse sequentially:
+     ```python
+     # Read first 10K chars
+     read_virtual_file('argocd_list_applications_e6a67335_a3f2b8c1')
+
+     # Read next chunk
+     read_virtual_file('argocd_list_applications_e6a67335_a3f2b8c1', start_char=10000)
+     ```
+
+  4. **List available files**:
+     ```python
+     list_virtual_files()  # Shows all file_ids and their sizes
+     ```
+
+  **Best Practices:**
+  - ✅ **ALWAYS use grep first** for search/filter questions (fastest, most efficient)
+  - ✅ Use the summary to answer count/stat questions (e.g., "How many apps?" → use item_count)
+  - ✅ Read specific chunks only for sequential browsing
+  - ❌ Don't ask for full output unless absolutely necessary
+  - ❌ Don't try to load multi-MB files all at once
+  - ❌ Don't read chunks when grep would work better
+
+  **Example Workflows:**
+
+  **Workflow 1: Search/Filter (USE GREP!)**
+  ```
+  User: "How many ArgoCD applications are unhealthy?"
+
+  Tool returns: {truncated: true, summary: "1,247 apps", file_id: "abc123"}
+
+  ✅ BEST: Use grep to find unhealthy apps directly
+  → grep_virtual_file('abc123', pattern='Degraded|Unhealthy')
+  → Returns only matching lines (e.g., 12 unhealthy apps found)
+  → Answer: "Found 12 unhealthy applications: [list them]"
+
+  ❌ BAD: Read chunks and parse manually
+  → read_virtual_file('abc123', start_char=0)  # Inefficient!
+  → Parse for health_status
+  → Continue reading... (wasteful!)
+  ```
+
+  **Workflow 2: Specific Item Lookup**
+  ```
+  User: "Show me details for the 'frontend-api' app in ArgoCD"
+
+  Tool returns: {truncated: true, file_id: "abc123"}
+
+  ✅ GOOD: Use grep to find the specific app
+  → grep_virtual_file('abc123', pattern='frontend-api')
+  → Returns matching lines with that app's data
+
+  ❌ BAD: Read entire file looking for one item
+  ```
+
+  **Workflow 3: Count/Stats**
+  ```
+  User: "How many applications does ArgoCD have?"
+
+  Tool returns: {truncated: true, item_count: 1247, file_id: "abc123"}
+
+  ✅ PERFECT: Use the summary data
+  → Answer: "ArgoCD has 1,247 applications"
+  → No need to access virtual file at all!
+  ```
+
   ## Available Tools
 
   - **Agent Tools**: ArgoCD, AWS, Jira, GitHub, PagerDuty, Komodor, Slack, Splunk, Backstage, Confluence, Webex, Weather, RAG
   - **Filesystem**: `read_file`, `edit_file`, `write_file`, `ls`
   - **Task Management**: `write_todos` (mandatory for multi-step), `task` (spawn subagents)
+  - **Virtual Files** (for large tool outputs):
+    - `grep_virtual_file(file_id, pattern, max_results, case_sensitive)` - **USE THIS FIRST** for search/filter
+    - `read_virtual_file(file_id, start_char, max_chars)` - read chunks sequentially
+    - `list_virtual_files()` - list all available virtual files
 
   ## Response Format
   - Use markdown with clickable links `[Text](URL)`

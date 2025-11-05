@@ -3,6 +3,8 @@
 
 """Base agent class providing common A2A functionality with streaming support."""
 
+import asyncio
+import json
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -30,6 +32,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
+from .tool_output_manager import get_tool_output_manager
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +43,8 @@ if not MCP_AVAILABLE:
 # Reduce verbosity of third-party libraries
 # Set this early before any imports use these loggers
 for log_name in ["httpx", "mcp.server.streamable_http", "mcp.server.streamable_http_manager",
-                  "mcp.client", "mcp.client.streamable_http", "sse_starlette.sse"]:
+                  "mcp.client", "mcp.client.streamable_http", "sse_starlette.sse",
+                  "uvicorn.access", "uvicorn.error"]:
     logging.getLogger(log_name).setLevel(logging.WARNING)
     logging.getLogger(log_name).propagate = False
 
@@ -279,6 +283,12 @@ Use this as the reference point for all date calculations. When users say "today
         # Get tools from MCP client
         tools = await client.get_tools()
 
+        # Wrap tools with output truncation to prevent context overflow
+        tools = self._wrap_tools_with_truncation(tools, context_id)
+
+        # Add virtual file management tools
+        tools.extend(self._create_virtual_file_tools())
+
         # Display detailed tool information for debugging
         logger.debug('*' * 50)
         logger.debug(f"🔧 AVAILABLE {agent_name.upper()} TOOLS AND PARAMETERS")
@@ -420,6 +430,130 @@ Use this as the reference point for all date calculations. When users say "today
             Total token count
         """
         return sum(self._count_message_tokens(msg) for msg in messages)
+
+    def _wrap_tools_with_truncation(self, tools: list, context_id: str) -> list:
+        """
+        Wrap MCP tools to automatically truncate large outputs.
+
+        This prevents context window overflow by detecting large tool outputs
+        and storing them in virtual files while returning summaries.
+
+        Args:
+            tools: List of MCP tools from client.get_tools()
+            context_id: Context ID for this conversation
+
+        Returns:
+            List of wrapped tools with truncation logic
+        """
+        from langchain_core.tools import Tool
+        from functools import wraps
+
+        agent_name = self.get_agent_name()
+        tool_output_manager = get_tool_output_manager()
+        wrapped_tools = []
+
+        for tool in tools:
+            original_func = tool.func if hasattr(tool, 'func') else tool._run
+
+            @wraps(original_func)
+            async def wrapped_tool_func(*args, original_tool=tool, original_func=original_func, **kwargs):
+                """Wrapped tool function that truncates large outputs."""
+                # Call the original tool
+                if asyncio.iscoroutinefunction(original_func):
+                    result = await original_func(*args, **kwargs)
+                else:
+                    result = original_func(*args, **kwargs)
+
+                # Process the output (truncate if too large)
+                processed = tool_output_manager.process_tool_output(
+                    output=result,
+                    tool_name=original_tool.name,
+                    context_id=context_id,
+                    agent_name=agent_name,
+                )
+
+                # If truncated, return summary + file_id
+                # Otherwise, return original output
+                if processed.get("truncated"):
+                    return json.dumps(processed, indent=2)
+                else:
+                    return processed.get("output", result)
+
+            # Create wrapped tool
+            wrapped_tool = Tool(
+                name=tool.name,
+                description=tool.description,
+                func=wrapped_tool_func,
+                args_schema=tool.args_schema if hasattr(tool, 'args_schema') else None,
+            )
+            wrapped_tools.append(wrapped_tool)
+
+        logger.info(f"{agent_name}: Wrapped {len(wrapped_tools)} tools with output truncation")
+        return wrapped_tools
+
+    def _create_virtual_file_tools(self) -> list:
+        """
+        Create LangChain tools for virtual file management.
+
+        These tools allow agents to interact with large tool outputs
+        stored in virtual memory.
+
+        Returns:
+            List of virtual file management tools
+        """
+        from langchain_core.tools import Tool
+
+        tool_output_manager = get_tool_output_manager()
+
+        tools = [
+            Tool(
+                name="grep_virtual_file",
+                description=(
+                    "Search for a pattern in a virtual file (like grep). "
+                    "USE THIS FIRST for any search/filter questions! "
+                    "Returns matching lines with line numbers. "
+                    "Supports regex patterns. "
+                    "Args: file_id (str), pattern (str), max_results (int, default 100), "
+                    "case_sensitive (bool, default False)"
+                ),
+                func=lambda file_id, pattern, max_results=100, case_sensitive=False: (
+                    tool_output_manager.grep_virtual_file(
+                        file_id=file_id,
+                        pattern=pattern,
+                        max_results=max_results,
+                        case_sensitive=case_sensitive,
+                    )
+                ),
+            ),
+            Tool(
+                name="read_virtual_file",
+                description=(
+                    "Read a chunk from a virtual file with character-based pagination. "
+                    "Use this for sequential browsing when grep won't work. "
+                    "Returns content, pagination info, and whether more data exists. "
+                    "Args: file_id (str), start_char (int, default 0), max_chars (int, default 10000)"
+                ),
+                func=lambda file_id, start_char=0, max_chars=10000: (
+                    tool_output_manager.read_virtual_file(
+                        file_id=file_id,
+                        start_char=start_char,
+                        max_chars=max_chars,
+                    )
+                ),
+            ),
+            Tool(
+                name="list_virtual_files",
+                description=(
+                    "List all virtual files currently in memory. "
+                    "Returns dict of {file_id: size_in_chars}. "
+                    "Use this to see what large tool outputs are available. "
+                    "No arguments required."
+                ),
+                func=lambda: tool_output_manager.list_virtual_files(),
+            ),
+        ]
+
+        return tools
 
     async def _trim_messages_if_needed(self, config: RunnableConfig) -> None:
         """
