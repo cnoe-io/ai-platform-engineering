@@ -40,7 +40,9 @@ class GitHubAgent(BaseLangGraphAgent):
             "If any required parameters are missing, ask the user to provide them",
             "Always use the most appropriate tool for the requested operation and validate parameters",
             "When filtering issues, pull requests, or commits by date, use the current date provided above as reference",
-            "**IMPORTANT - Repository References:** When the user mentions a repository name without specifying the organization/owner, ALWAYS ask them to clarify the organization name. DO NOT assume the organization name is the same as the repository name. Example: If user says 'show PRs in ai-platform-engineering', ask 'Which organization is the ai-platform-engineering repository under?' DO NOT assume it's 'ai-platform-engineering/ai-platform-engineering'",
+            "**IMPORTANT - Repository References:** When the user mentions a repository name without specifying the organization/owner, "
+            "ALWAYS ask them to clarify the organization name. DO NOT assume the organization name is the same as the repository name. "
+            "Example: If user says 'show PRs in ai-platform-engineering', ask 'Which organization is the ai-platform-engineering repository under?' DO NOT assume it's 'ai-platform-engineering/ai-platform-engineering'",
             "Repository format is always 'organization/repository' or 'owner/repository'. Never duplicate the repository name as both organization and repository name"
         ],
         include_error_handling=True,  # Real GitHub API calls

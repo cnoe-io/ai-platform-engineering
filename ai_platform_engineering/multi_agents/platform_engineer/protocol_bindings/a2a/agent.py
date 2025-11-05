@@ -88,17 +88,28 @@ class AIPlatformEngineerA2ABinding:
                       # Legacy a2a_event format (text-based)
                       custom_text = item.get("data", "")
                       if custom_text:
-                          logging.info(f"Processing custom a2a_event from sub-agent: {len(custom_text)} chars")
+                          logging.debug(f"Processing custom a2a_event from sub-agent: {len(custom_text)} chars")
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
                               "content": custom_text,
                           }
                       continue
+                  elif item.get("type") == "human_prompt":
+                      prompt_text = item.get("prompt", "")
+                      options = item.get("options", [])
+                      logging.debug("Received human-in-the-loop prompt from sub-agent")
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": True,
+                          "content": prompt_text,
+                          "metadata": {"options": options} if options else {},
+                      }
+                      continue
                   elif item.get("type") == "artifact-update":
                       # New artifact-update format from sub-agents (full A2A event)
                       # Yield the entire event dict for the executor to handle
-                      logging.info("Received artifact-update custom event from sub-agent, forwarding to executor")
+                      logging.debug("Received artifact-update custom event from sub-agent, forwarding to executor")
                       yield item
                       continue
 
@@ -127,7 +138,7 @@ class AIPlatformEngineerA2ABinding:
                               logging.debug("Skipping tool call with empty name (streaming chunk)")
                               continue
 
-                          logging.info(f"Tool call started (from AIMessageChunk): {tool_name}")
+                          logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
 
                           # Stream tool start notification to client with metadata
                           tool_name_formatted = tool_name.title()
@@ -168,7 +179,7 @@ class AIPlatformEngineerA2ABinding:
                       if match:
                           agent_name = match.group(1)
                           purpose = match.group(2)
-                          logging.info(f"Tool update detected: {agent_name} - {purpose}")
+                          logging.debug(f"Tool update detected: {agent_name} - {purpose}")
                           # Emit as tool_update event
                           yield {
                               "is_task_complete": False,
@@ -217,13 +228,13 @@ class AIPlatformEngineerA2ABinding:
               elif isinstance(message, ToolMessage):
                   tool_name = message.name if hasattr(message, 'name') else "unknown"
                   tool_content = message.content if hasattr(message, 'content') else ""
-                  logging.info(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
+                  logging.debug(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
 
                   # Special handling for write_todos: execution plan vs status updates
                   if tool_name == "write_todos" and tool_content and tool_content.strip():
                       if not self._execution_plan_sent:
                           self._execution_plan_sent = True
-                          logging.info("📋 Emitting initial TODO list as execution_plan_update artifact")
+                          logging.debug("📋 Emitting initial TODO list as execution_plan_update artifact")
                           # Emit as execution plan artifact for client display in execution plan pane
                           yield {
                               "is_task_complete": False,
@@ -235,7 +246,7 @@ class AIPlatformEngineerA2ABinding:
                               }
                           }
                       else:
-                          logging.info("📊 Emitting TODO progress update as execution_plan_status_update artifact")
+                          logging.debug("📊 Emitting TODO progress update as execution_plan_status_update artifact")
                           # This is a TODO status update (merge=true) - emit as status update
                           # Client should update the execution plan pane in-place, not add to chat
                           yield {
@@ -277,13 +288,24 @@ class AIPlatformEngineerA2ABinding:
           async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
 
               # Handle custom A2A event payloads emitted via get_stream_writer()
-              if isinstance(item, dict) and item.get("type") == "a2a_event":
-                  event_obj = self._deserialize_a2a_event(item.get("data"))
-                  if event_obj is not None:
-                      yield event_obj
+              if isinstance(item, dict):
+                  if item.get("type") == "a2a_event":
+                      event_obj = self._deserialize_a2a_event(item.get("data"))
+                      if event_obj is not None:
+                          yield event_obj
+                          continue
+                      else:
+                          logging.warning("Supervisor: Received a2a_event but failed to deserialize; ignoring.")
+                  elif item.get("type") == "human_prompt":
+                      prompt_text = item.get("prompt", "")
+                      options = item.get("options", [])
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": True,
+                          "content": prompt_text,
+                          "metadata": {"options": options} if options else {},
+                      }
                       continue
-                  else:
-                      logging.warning("Supervisor: Received a2a_event but failed to deserialize; ignoring.")
               elif item_type == 'messages':
                 message = item[0]
               elif 'generate_structured_response' in item:
@@ -294,7 +316,7 @@ class AIPlatformEngineerA2ABinding:
                   and getattr(message, "tool_calls", None)
                   and len(message.tool_calls) > 0
               ):
-                  logging.info("Detected AIMessage with tool calls, yielding")
+                  logging.debug("Detected AIMessage with tool calls, yielding")
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
@@ -303,7 +325,7 @@ class AIPlatformEngineerA2ABinding:
               elif isinstance(message, ToolMessage):
                   # Stream ToolMessage content (includes formatted TODO lists)
                   tool_content = message.content if hasattr(message, 'content') else ""
-                  logging.info(f"Detected ToolMessage with {len(tool_content)} chars, yielding")
+                  logging.debug(f"Detected ToolMessage with {len(tool_content)} chars, yielding")
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,

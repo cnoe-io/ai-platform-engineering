@@ -11,7 +11,7 @@ echo "======================================================"
 # Test configurations (Updated naming - now 4 modes)
 declare -A modes
 modes[DEEP_AGENT_INTELLIGENT_ROUTING]="ENABLE_ENHANCED_STREAMING=true FORCE_DEEP_AGENT_ORCHESTRATION=false ENABLE_ENHANCED_ORCHESTRATION=false"
-modes[DEEP_AGENT_PARALLEL_ORCHESTRATION]="ENABLE_ENHANCED_STREAMING=false FORCE_DEEP_AGENT_ORCHESTRATION=true ENABLE_ENHANCED_ORCHESTRATION=false"  
+modes[DEEP_AGENT_PARALLEL_ORCHESTRATION]="ENABLE_ENHANCED_STREAMING=false FORCE_DEEP_AGENT_ORCHESTRATION=true ENABLE_ENHANCED_ORCHESTRATION=false"
 modes[DEEP_AGENT_SEQUENTIAL_ORCHESTRATION]="ENABLE_ENHANCED_STREAMING=false FORCE_DEEP_AGENT_ORCHESTRATION=false ENABLE_ENHANCED_ORCHESTRATION=false"
 modes[DEEP_AGENT_ENHANCED_ORCHESTRATION]="ENABLE_ENHANCED_STREAMING=false FORCE_DEEP_AGENT_ORCHESTRATION=false ENABLE_ENHANCED_ORCHESTRATION=true"
 
@@ -26,27 +26,27 @@ for mode in DEEP_AGENT_INTELLIGENT_ROUTING DEEP_AGENT_PARALLEL_ORCHESTRATION DEE
     echo "========================================"
     echo "🎯 Testing $mode mode"
     echo "========================================"
-    
+
     # Set environment variables for the mode
     env_vars=${modes[$mode]}
     echo "🔧 Setting environment: $env_vars"
-    
+
     # Export environment variables
     export $env_vars
-    
+
     echo "🔄 Restarting platform-engineer-p2p with new configuration..."
     docker restart platform-engineer-p2p
-    
+
     echo "⏳ Waiting for service to be ready..."
     sleep 15
-    
+
     # Check if service is ready (using A2A agent.json endpoint)
     echo "🔍 Checking service health..."
     max_retries=6
     retry_count=0
-    
+
     while [ $retry_count -lt $max_retries ]; do
-        if curl -s -f "http://10.99.255.178:8000/.well-known/agent.json" > /dev/null 2>&1; then
+        if curl -s -f "http://10.99.255.178:8000/.well-known/agent-card.json" > /dev/null 2>&1; then
             echo "✅ Service is ready!"
             break
         else
@@ -55,28 +55,28 @@ for mode in DEEP_AGENT_INTELLIGENT_ROUTING DEEP_AGENT_PARALLEL_ORCHESTRATION DEE
             retry_count=$((retry_count+1))
         fi
     done
-    
+
     if [ $retry_count -eq $max_retries ]; then
         echo "❌ Service failed to become ready, skipping $mode"
         continue
     fi
-    
+
     # Run the Python test (use quick mode for faster comparison)
     echo "🧪 Running streaming tests for $mode..."
     log_file="$results_dir/${mode}_test.log"
-    
+
     cd /home/sraradhy/ai-platform-engineering
     source .venv/bin/activate
     if python integration/test_platform_engineer_streaming.py --quick > "$log_file" 2>&1; then
         echo "✅ $mode tests completed successfully"
-        
+
         # Extract key metrics from log
         echo "📊 Quick metrics for $mode:"
         grep -E "(Average duration:|Average time to first chunk:|Quality Distribution:)" "$log_file" || echo "   Metrics extraction failed"
     else
         echo "❌ $mode tests failed - check $log_file for details"
     fi
-    
+
     echo ""
 done
 
