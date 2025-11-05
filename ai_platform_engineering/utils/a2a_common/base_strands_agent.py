@@ -154,7 +154,11 @@ class BaseStrandsAgent(ABC):
         return f"{self.get_agent_name()} is processing results..."
 
     def _initialize_mcp_and_agent(self):
-        """Initialize MCP clients and create the Strands agent."""
+        """Initialize MCP clients and create the Strands agent with retry logic."""
+        # Get retry configuration from environment variables
+        max_retries = int(os.getenv("STRANDS_MCP_INIT_RETRIES", "3"))
+        backoff_s = 2.0
+        
         try:
             logger.info(f"Initializing MCP clients for {self.get_agent_name()} agent...")
 
@@ -171,20 +175,40 @@ class BaseStrandsAgent(ABC):
                 logger.info(f"{self.get_agent_name()} agent initialized successfully with {len(self._tools)} tools")
                 return
 
-            # Enter each MCP client context and aggregate tools
+            # Enter each MCP client context and aggregate tools with retry logic
             aggregated_tools = []
             successful_clients = []
+            
             for name, client in mcp_clients_with_names:
-                try:
-                    ctx = client.__enter__()
-                    self._mcp_contexts.append(ctx)
-                    successful_clients.append((name, client))
-                    tools = client.list_tools_sync()
-                    logger.info(f"Retrieved {len(tools)} tools from MCP server '{name}'")
-                    aggregated_tools.extend(tools)
-                except Exception as e:
-                    logger.warning(f"Failed to initialize MCP server '{name}': {e}")
-                    logger.info(f"Continuing without MCP server '{name}'")
+                last_err = None
+                client_initialized = False
+                
+                # Retry logic for each MCP server
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        ctx = client.__enter__()
+                        self._mcp_contexts.append(ctx)
+                        successful_clients.append((name, client))
+                        tools = client.list_tools_sync()
+                        logger.info(f"Retrieved {len(tools)} tools from MCP server '{name}' (attempt {attempt})")
+                        aggregated_tools.extend(tools)
+                        client_initialized = True
+                        break  # Success, exit retry loop
+                        
+                    except Exception as e:
+                        last_err = e
+                        logger.warning(
+                            f"Failed to initialize MCP server '{name}' (attempt {attempt}/{max_retries}): {e}"
+                        )
+                        if attempt < max_retries:
+                            import time
+                            time.sleep(backoff_s * attempt)
+                
+                if not client_initialized:
+                    logger.warning(
+                        f"MCP server '{name}' failed to initialize after {max_retries} attempts. "
+                        f"Continuing without this server. Last error: {last_err}"
+                    )
 
             # Update the client list to only include successful ones
             self._mcp_clients = [client for _, client in successful_clients]
@@ -218,61 +242,6 @@ class BaseStrandsAgent(ABC):
             logger.error(f"Failed to initialize {self.get_agent_name()} agent: {e}")
             self._cleanup_mcp()
             raise
-
-    async def ensure_mcp_ready(
-        self,
-        timeout_s: Optional[int] = None,
-        max_retries: Optional[int] = None,
-        backoff_s: float = 2.0,
-    ) -> None:
-        """
-        Waits for all configured MCP connections to be ready.
-        Retries a few times because servers may cold-start or fetch AWS creds.
-
-        Args:
-            timeout_s: Timeout in seconds for each attempt (default from STRANDS_MCP_INIT_TIMEOUT env var or 90)
-            max_retries: Maximum number of retry attempts (default from STRANDS_MCP_INIT_RETRIES env var or 3)
-            backoff_s: Backoff multiplier for retry delays (default 2.0 seconds)
-
-        Raises:
-            RuntimeError: If MCP initialization fails after all retry attempts
-        """
-        timeout_s = timeout_s or int(os.getenv("STRANDS_MCP_INIT_TIMEOUT", "90"))
-        max_retries = max_retries or int(os.getenv("STRANDS_MCP_INIT_RETRIES", "3"))
-
-        last_err = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                # Verify MCP clients are initialized and responsive
-                if not self._mcp_clients:
-                    logger.info(f"{self.get_agent_name()}: No MCP clients configured, skipping preflight check")
-                    return
-
-                # Try to list tools from each MCP client to verify they're responsive
-                for client in self._mcp_clients:
-                    if hasattr(client, 'list_tools_sync'):
-                        # Use sync method with asyncio timeout
-                        await asyncio.wait_for(
-                            asyncio.to_thread(client.list_tools_sync),
-                            timeout=timeout_s
-                        )
-
-                logger.info(f"{self.get_agent_name()}: Strands MCP preflight succeeded (attempt {attempt})")
-                return
-
-            except Exception as e:
-                last_err = e
-                logger.warning(
-                    f"{self.get_agent_name()}: Strands MCP preflight failed (attempt {attempt}/{max_retries}): {e}"
-                )
-                if attempt < max_retries:
-                    await asyncio.sleep(backoff_s * attempt)
-
-        # Surface the last error with context
-        raise RuntimeError(
-            f"{self.get_agent_name()}: Strands MCP failed to initialize after {max_retries} attempts "
-            f"/ ~{timeout_s}s each"
-        ) from last_err
 
     def _create_strands_agent(self, tools: List[Any]) -> Agent:
         """
