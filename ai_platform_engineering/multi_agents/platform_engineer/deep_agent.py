@@ -13,6 +13,7 @@ from cnoe_agent_utils import LLMFactory
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
+from ai_platform_engineering.multi_agents.tools import reflect_on_output
 from deepagents import async_create_deep_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -100,11 +101,14 @@ class AIPlatformEngineerMAS:
     # Get fresh tools from registry (for tool notifications and visibility)
     all_agents = platform_registry.get_all_agents()
 
+    # Add reflection tool for output validation
+    all_tools = all_agents + [reflect_on_output]
+
     # Generate CustomSubAgents (pre-created react agents with A2A tools)
     subagents = platform_registry.generate_subagents(agent_prompts, base_model)
 
-    logger.info(f'🔧 Rebuilding with {len(all_agents)} tools and {len(subagents)} subagents')
-    logger.info(f'📦 Tools: {[t.name for t in all_agents]}')
+    logger.info(f'🔧 Rebuilding with {len(all_tools)} tools and {len(subagents)} subagents')
+    logger.info(f'📦 Tools: {[t.name for t in all_tools]}')
     logger.info(f'🤖 Subagents: {[s["name"] for s in subagents]}')
 
     # Create the Deep Agent with HYBRID architecture
@@ -112,6 +116,7 @@ class AIPlatformEngineerMAS:
     # - Supervisor has tools for visibility (tool_call/tool_result events stream properly)
     # - Subagents provide delegation interface via task() tool (for write_todos workflow)
     # - System prompt enforces TODO-based execution plan workflow
+    # - reflect_on_output tool provides mandatory output validation
     #
     # KNOWN ISSUE: First request may complete without calling write_todos
     # - LLMs can ignore prompt requirements and complete without tool calls
@@ -122,7 +127,7 @@ class AIPlatformEngineerMAS:
     #   2. Custom state_modifier (not supported by create_react_agent)
     #   3. Accept as LLM limitation and document
     deep_agent = async_create_deep_agent(
-      tools=all_agents,  # A2A tools for visibility and streaming events
+      tools=all_tools,  # A2A tools + reflect_on_output for validation
       instructions=system_prompt,  # System prompt enforces TODO-based execution workflow
       subagents=subagents,  # CustomSubAgents for proper task() delegation
       model=base_model

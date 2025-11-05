@@ -106,17 +106,17 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                     tool_info = event["tool_call"]
                     tool_name = tool_info.get("name", "unknown")
                     tool_id = tool_info.get("id", "")
-                    
+
                     # Avoid duplicate tool notifications
                     if tool_id and tool_id in seen_tool_calls:
                         continue
                     if tool_id:
                         seen_tool_calls.add(tool_id)
-                    
+
                     tool_name_formatted = tool_name.title()
                     tool_notification = f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n"
                     logger.info(f"Tool call started: {tool_name}")
-                    
+
                     # Send tool start notification
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
@@ -131,19 +131,19 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                             ),
                         )
                     )
-                    
+
                 # Handle tool completion events
                 elif "tool_result" in event:
                     tool_info = event["tool_result"]
                     tool_name = tool_info.get("name", "unknown")
                     is_error = tool_info.get("is_error", False)
-                    
+
                     icon = "❌" if is_error else "✅"
                     status = "failed" if is_error else "completed"
                     tool_name_formatted = tool_name.title()
                     tool_notification = f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n"
                     logger.info(f"Tool call {status}: {tool_name}")
-                    
+
                     # Send tool completion notification
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
@@ -158,7 +158,7 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                             ),
                         )
                     )
-                    
+
                 # Handle regular data streaming
                 elif "data" in event:
                     chunk = event["data"]
@@ -178,7 +178,7 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                     else:
                         # Subsequent chunks - reuse artifact ID
                         artifact = new_text_artifact(
-                            name='streaming_result', 
+                            name='streaming_result',
                             description=f'Streaming result from {agent_name}',
                             text=chunk,
                         )

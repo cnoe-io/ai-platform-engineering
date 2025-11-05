@@ -103,7 +103,8 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                 # Task completed successfully - send empty final marker (content already streamed)
                 final_content = ''.join(accumulated_content) if accumulated_content else event.get('content', '')
                 logger.info(
-                    f"{agent_name}: Task complete. Accumulated {len(accumulated_content)} chunks, final_content length: {len(final_content)}"
+                    f"{agent_name}: Task complete. Accumulated {len(accumulated_content)} chunks, "
+                    f"final_content length: {len(final_content)}"
                 )
 
                 # Close the streaming artifact (if any) so SSE consumers see last_chunk=True
@@ -169,34 +170,34 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                     # Custom artifact-update event from sub-agent - forward as TaskArtifactUpdateEvent
                     result = event.get('result', {})
                     artifact = result.get('artifact')
-                    
+
                     if artifact:
                         # Extract text length for logging
                         parts = artifact.get('parts', [])
                         text_len = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict))
-                        
+
                         logger.info(f"{agent_name}: Forwarding artifact-update from sub-agent ({text_len} chars)")
-                        
+
                         # Convert dict to proper Artifact object
                         from a2a.types import Artifact, TextPart
                         artifact_obj = Artifact(
-                            artifactId=artifact.get('artifactId'),
+                            artifact_id=artifact.get('artifact_id'),
                             name=artifact.get('name', 'streaming_result'),
                             description=artifact.get('description', 'Streaming from sub-agent'),
                             parts=[TextPart(text=p.get('text', '')) for p in parts if isinstance(p, dict) and p.get('text')]
                         )
-                        
+
                         await event_queue.enqueue_event(
                             TaskArtifactUpdateEvent(
                                 append=result.get('append', True),
-                                contextId=task.contextId,
-                                taskId=task.id,
-                                lastChunk=result.get('lastChunk', False),
+                                context_id=task.context_id,
+                                task_id=task.id,
+                                last_chunk=result.get('last_chunk', False),
                                 artifact=artifact_obj,
                             )
                         )
-                    continue
-                
+                        continue
+
                 # Agent is still working - stream tool messages immediately, accumulate AI responses
                 content = event['content']
 

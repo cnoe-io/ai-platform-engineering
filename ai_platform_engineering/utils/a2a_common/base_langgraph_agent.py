@@ -565,6 +565,17 @@ Use this as the reference point for all date calculations. When users say "today
         inputs: dict[str, Any] = {'messages': [('user', query)]}
         config: RunnableConfig = self.tracing.create_config(sessionId)
 
+        configurable = dict(config.get("configurable", {})) if isinstance(config.get("configurable", {}), dict) else {}
+        if sessionId and "thread_id" not in configurable:
+            configurable["thread_id"] = sessionId
+
+        config = RunnableConfig(
+            callbacks=config.get("callbacks"),
+            tags=config.get("tags"),
+            metadata=config.get("metadata"),
+            configurable=configurable,
+        )
+
         # Ensure graph is initialized
         await self._ensure_graph_initialized(config)
 
@@ -624,6 +635,11 @@ Use this as the reference point for all date calculations. When users say "today
                             yield {
                                 'is_task_complete': False,
                                 'require_user_input': False,
+                                'tool_call': {
+                                    'id': tool_id or tool_name_formatted,
+                                    'name': tool_name,
+                                },
+                                'kind': 'tool_call',
                                 'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
                             }
                         continue
@@ -633,6 +649,7 @@ Use this as the reference point for all date calculations. When users say "today
                         yield {
                             'is_task_complete': False,
                             'require_user_input': False,
+                            'kind': 'text_chunk',
                             'content': str(message.content),
                         }
                     continue
@@ -655,6 +672,12 @@ Use this as the reference point for all date calculations. When users say "today
                     yield {
                         'is_task_complete': False,
                         'require_user_input': False,
+                        'tool_result': {
+                            'name': tool_name,
+                            'status': status,
+                            'is_error': is_error,
+                        },
+                        'kind': 'tool_result',
                         'content': f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n",
                     }
 
@@ -672,7 +695,62 @@ Use this as the reference point for all date calculations. When users say "today
                         yield {
                             'is_task_complete': False,
                             'require_user_input': False,
+                            'kind': 'tool_output',
                             'content': f"📄 {agent_name_formatted}: Tool output:\n{tool_output_preview}\n\n",
+                        }
+                    continue
+
+                if isinstance(message, AIMessage):
+                    # Surface any tool calls contained on the final AI message as well
+                    if getattr(message, "tool_calls", None):
+                        for tool_call in message.tool_calls:
+                            tool_id = tool_call.get("id", "")
+                            tool_name = tool_call.get("name", "unknown")
+
+                            if tool_id and tool_id in seen_tool_calls:
+                                continue
+                            if tool_id:
+                                seen_tool_calls.add(tool_id)
+
+                            agent_name_formatted = self.get_agent_name().title()
+                            tool_name_formatted = tool_name.title()
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'tool_call': {
+                                    'id': tool_id or tool_name_formatted,
+                                    'name': tool_name,
+                                },
+                                'kind': 'tool_call',
+                                'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
+                            }
+
+                    content_text = ""
+                    if isinstance(message.content, str):
+                        content_text = message.content
+                    elif isinstance(message.content, list):
+                        parts: list[str] = []
+                        for part in message.content:
+                            if isinstance(part, dict):
+                                part_text = part.get("text") or part.get("content")
+                                if part_text:
+                                    parts.append(part_text)
+                            elif hasattr(part, "text"):
+                                part_text = getattr(part, "text", "")
+                                if part_text:
+                                    parts.append(part_text)
+                            elif isinstance(part, str):
+                                parts.append(part)
+                        content_text = "".join(parts)
+                    elif message.content is not None:
+                        content_text = str(message.content)
+
+                    if content_text:
+                        yield {
+                            'is_task_complete': False,
+                            'require_user_input': False,
+                            'kind': 'text_chunk',
+                            'content': content_text,
                         }
                     continue
 

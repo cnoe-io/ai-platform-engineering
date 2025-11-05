@@ -319,7 +319,7 @@ class AgentRegistry:
                 # Use synchronous HTTP client to avoid event loop conflicts
                 with httpx.Client(timeout=httpx.Timeout(self._connectivity_timeout)) as client:
                     # Try to fetch the agent card endpoint - this tests connectivity
-                    card_url = f"{agent_url.rstrip('/')}/.well-known/agent.json"
+                    card_url = f"{agent_url.rstrip('/')}/.well-known/agent-card.json"
                     logger.debug(f"🌐 Testing URL: {card_url}")
 
                     response = client.get(card_url)

@@ -372,7 +372,7 @@ class TestSubagentGeneration(unittest.TestCase):
     """Test subagent generation functionality."""
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    @patch('ai_platform_engineering.multi_agents.agent_registry.create_react_agent')
+    @patch('langgraph.prebuilt.create_react_agent')
     def test_generate_subagents_basic(self, mock_create_react, mock_load):
         """Test basic subagent generation."""
         mock_load.return_value = None
@@ -406,7 +406,7 @@ class TestSubagentGeneration(unittest.TestCase):
         print("✓ Subagent generation works")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    @patch('ai_platform_engineering.multi_agents.agent_registry.create_react_agent')
+    @patch('langgraph.prebuilt.create_react_agent')
     def test_generate_subagents_with_override(self, mock_create_react, mock_load):
         """Test subagent generation with prompt override."""
         mock_load.return_value = None
@@ -430,7 +430,7 @@ class TestSubagentGeneration(unittest.TestCase):
             'GITHUB': {'system_prompt': 'Custom prompt'}
         }
         mock_model = MagicMock()
-        subagents = registry.generate_subagents(agent_prompts, mock_model)
+        _ = registry.generate_subagents(agent_prompts, mock_model)
 
         # Verify the custom prompt was passed to create_react_agent
         mock_create_react.assert_called()

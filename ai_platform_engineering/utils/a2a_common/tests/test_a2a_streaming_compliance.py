@@ -61,7 +61,6 @@ def _ensure_strands_stubs() -> None:
 
 _ensure_strands_stubs()
 
-import pytest
 
 from a2a.server.agent_execution import RequestContext
 from a2a.types import (

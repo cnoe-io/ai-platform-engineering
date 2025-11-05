@@ -21,14 +21,22 @@ def write_todos(
         "pending": "⏳",
         "in_progress": "🔄",
         "completed": "✅",
-        "cancelled": "❌"
+        "cancelled": "❌",
+        "error": "❌",
+        "failed": "❌",
     }
 
-    markdown_lines = ["**📋 Task Progress:**", ""]
+    markdown_lines = ["📋 **Task Progress:**", ""]
+    failed_tasks = []
     for todo in todos:
         icon = status_icons.get(todo["status"], "•")
-        status_text = todo["status"].replace("_", " ").title()
-        markdown_lines.append(f"{icon} **{status_text}:** {todo['content']}")
+        markdown_lines.append(f"- {icon} {todo['content']}")
+        if todo["status"] in {"error", "failed"}:
+            failed_tasks.append(todo["content"])
+
+    if failed_tasks:
+        markdown_lines.append("")
+        markdown_lines.append("⚠️ One or more tasks encountered an error. Let me know if you'd like me to retry them or mark them as skipped.")
 
     markdown_output = "\n".join(markdown_lines)
 

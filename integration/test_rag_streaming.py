@@ -26,7 +26,7 @@ async def test_rag_streaming():
     # Create A2A client
     async with httpx.AsyncClient(timeout=60.0) as http_client:
         # Fetch agent card
-        agent_card_response = await http_client.get(f"{rag_agent_url}/.well-known/agent.json")
+        agent_card_response = await http_client.get(f"{rag_agent_url}/.well-known/agent-card.json")
         if agent_card_response.status_code != 200:
             print(f"❌ Failed to fetch agent card: {agent_card_response.status_code}")
             return

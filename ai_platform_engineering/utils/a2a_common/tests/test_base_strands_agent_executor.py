@@ -60,7 +60,7 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
-        task.contextId = "test-context-123"
+        task.context_id = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
         context.get_user_input = Mock(return_value="Test query")
@@ -93,7 +93,7 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
-        task.contextId = "test-context-123"
+        task.context_id = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
         context.get_user_input = Mock(return_value="Test query")
@@ -127,7 +127,7 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
-        task.contextId = "test-context-123"
+        task.context_id = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
         context.get_user_input = Mock(return_value="Test query")
@@ -159,7 +159,7 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
-        task.contextId = "test-context-123"
+        task.context_id = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
         context.get_user_input = Mock(return_value="Test query")
@@ -183,7 +183,7 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
-        task.contextId = "test-context-123"
+        task.context_id = "test-context-123"
         context.current_task = task
 
         event_queue = AsyncMock()
@@ -205,7 +205,7 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
-        task.contextId = "test-context-123"
+        task.context_id = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
         context.get_user_input = Mock(return_value="Test query")
@@ -234,7 +234,7 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-123"
-        task.contextId = "test-context-123"
+        task.context_id = "test-context-123"
         task.instruction = "Query with instruction"
         context.current_task = task
         context.get_user_input = Mock(return_value="Query with instruction")
@@ -264,7 +264,7 @@ class TestBaseStrandsAgentExecutor:
         context = Mock()
         task = Mock()
         task.id = "test-task-123"
-        task.contextId = "test-context-123"
+        task.context_id = "test-context-123"
         task.instruction = "Test query"
         context.current_task = task
         context.get_user_input = Mock(return_value="Test query")
@@ -295,7 +295,7 @@ class TestBaseStrandsAgentExecutor:
             context = Mock()
             task = Mock()
             task.id = task_id
-            task.contextId = f"context-{task_id}"
+            task.context_id = f"context-{task_id}"
             task.instruction = f"Query {task_id}"
             context.current_task = task
             context.get_user_input = Mock(return_value=f"Query {task_id}")

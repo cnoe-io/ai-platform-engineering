@@ -409,8 +409,8 @@ services:
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8001:8000"
-    mem_limit: 2g
-    mem_reservation: 1g
+    mem_limit: 1g
+    mem_reservation: 256m
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -420,6 +420,9 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - MAX_CONTEXT_TOKENS=50000      # Reduce from 100K to 50K
+      - MIN_MESSAGES_TO_KEEP=5        # Keep fewer messages (default: 10)
+      - ENABLE_AUTO_COMPRESSION=true  # Ensure compression is enabled
       - ENABLE_STREAMING=true
 
   ####################################################################################################
@@ -492,7 +495,7 @@ services:
       dockerfile: ai_platform_engineering/agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-p2p
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent.json', timeout=5)"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 5

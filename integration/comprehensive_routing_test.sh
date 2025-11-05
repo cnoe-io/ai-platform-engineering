@@ -21,7 +21,7 @@ fi
 # Test configurations (Updated naming - now 4 modes)
 declare -A modes
 modes[DEEP_AGENT_INTELLIGENT_ROUTING]="ENABLE_ENHANCED_STREAMING=true FORCE_DEEP_AGENT_ORCHESTRATION=false ENABLE_ENHANCED_ORCHESTRATION=false"
-modes[DEEP_AGENT_PARALLEL_ORCHESTRATION]="ENABLE_ENHANCED_STREAMING=false FORCE_DEEP_AGENT_ORCHESTRATION=true ENABLE_ENHANCED_ORCHESTRATION=false"  
+modes[DEEP_AGENT_PARALLEL_ORCHESTRATION]="ENABLE_ENHANCED_STREAMING=false FORCE_DEEP_AGENT_ORCHESTRATION=true ENABLE_ENHANCED_ORCHESTRATION=false"
 modes[DEEP_AGENT_SEQUENTIAL_ORCHESTRATION]="ENABLE_ENHANCED_STREAMING=false FORCE_DEEP_AGENT_ORCHESTRATION=false ENABLE_ENHANCED_ORCHESTRATION=false"
 modes[DEEP_AGENT_ENHANCED_ORCHESTRATION]="ENABLE_ENHANCED_STREAMING=false FORCE_DEEP_AGENT_ORCHESTRATION=false ENABLE_ENHANCED_ORCHESTRATION=true"
 
@@ -36,27 +36,27 @@ for mode in DEEP_AGENT_INTELLIGENT_ROUTING DEEP_AGENT_PARALLEL_ORCHESTRATION DEE
     echo "========================================"
     echo "🎯 Testing $mode mode (70 scenarios)"
     echo "========================================"
-    
+
     # Set environment variables for the mode
     env_vars=${modes[$mode]}
     echo "🔧 Setting environment: $env_vars"
-    
+
     # Export environment variables
     export $env_vars
-    
+
     echo "🔄 Restarting platform-engineer-p2p with new configuration..."
     docker restart platform-engineer-p2p
-    
+
     echo "⏳ Waiting for service to be ready..."
     sleep 15
-    
+
     # Check if service is ready (using A2A agent.json endpoint)
     echo "🔍 Checking service health..."
     max_retries=6
     retry_count=0
-    
+
     while [ $retry_count -lt $max_retries ]; do
-        if curl -s -f "http://10.99.255.178:8000/.well-known/agent.json" > /dev/null 2>&1; then
+        if curl -s -f "http://10.99.255.178:8000/.well-known/agent-card.json" > /dev/null 2>&1; then
             echo "✅ Service is ready!"
             break
         else
@@ -65,28 +65,28 @@ for mode in DEEP_AGENT_INTELLIGENT_ROUTING DEEP_AGENT_PARALLEL_ORCHESTRATION DEE
             retry_count=$((retry_count+1))
         fi
     done
-    
+
     if [ $retry_count -eq $max_retries ]; then
         echo "❌ Service failed to become ready, skipping $mode"
         continue
     fi
-    
+
     # Run the Python test (FULL mode - all 70 scenarios)
     start_time=$(date +%s)
     echo "🧪 Running COMPREHENSIVE streaming tests for $mode (70 scenarios)..."
     log_file="$results_dir/${mode}_comprehensive.log"
-    
+
     cd /home/sraradhy/ai-platform-engineering
     source .venv/bin/activate
     if python integration/test_platform_engineer_streaming.py > "$log_file" 2>&1; then
         end_time=$(date +%s)
         duration=$((end_time - start_time))
         echo "✅ $mode tests completed successfully in ${duration}s"
-        
+
         # Extract key metrics from log
         echo "📊 Comprehensive metrics for $mode:"
         grep -E "(Total tests:|Average duration:|Average time to first chunk:|Quality Distribution:)" "$log_file" || echo "   Metrics extraction failed"
-        
+
         # Extract routing distribution
         echo "🎯 Routing performance by category:"
         echo "   Knowledge base queries (DIRECT to RAG):"
@@ -97,11 +97,11 @@ for mode in DEEP_AGENT_INTELLIGENT_ROUTING DEEP_AGENT_PARALLEL_ORCHESTRATION DEE
         grep -A2 -B1 "PARALLEL execution" "$log_file" | grep "Time to first chunk:" | head -5 | awk '{print "     " $0}' || echo "     Data not available"
         echo "   Complex queries (COMPLEX via Deep Agent):"
         grep -A2 -B1 "COMPLEX via Deep Agent" "$log_file" | grep "Time to first chunk:" | head -5 | awk '{print "     " $0}' || echo "     Data not available"
-        
+
     else
         echo "❌ $mode tests failed - check $log_file for details"
     fi
-    
+
     echo ""
 done
 
@@ -123,7 +123,7 @@ for mode in DEEP_AGENT_INTELLIGENT_ROUTING DEEP_AGENT_PARALLEL_ORCHESTRATION DEE
         total_tests=$(grep "Total tests:" "$log_file" | cut -d':' -f2 | tr -d ' ' || echo "N/A")
         avg_duration=$(grep "Average duration:" "$log_file" | cut -d':' -f2 | tr -d ' s' || echo "N/A")
         avg_first_chunk=$(grep "Average time to first chunk:" "$log_file" | cut -d':' -f2 | tr -d ' s' || echo "N/A")
-        
+
         # Calculate success rate
         completed_tests=$(grep -c "✅ Streamed chunk to" "$log_file" 2>/dev/null || echo "0")
         if [ "$total_tests" != "N/A" ] && [ "$total_tests" -gt 0 ]; then
@@ -132,7 +132,7 @@ for mode in DEEP_AGENT_INTELLIGENT_ROUTING DEEP_AGENT_PARALLEL_ORCHESTRATION DEE
         else
             success_rate="N/A"
         fi
-        
+
         printf "%-22s | %-11s | %-12s | %-16s | %-11s\n" "$mode" "$total_tests" "$avg_duration" "$avg_first_chunk" "$success_rate"
     else
         printf "%-22s | %-11s | %-12s | %-16s | %-11s\n" "$mode" "FAILED" "FAILED" "FAILED" "FAILED"
@@ -156,7 +156,7 @@ done
 echo ""
 echo "🤖 Single Agent Queries (DIRECT routing):"
 for mode in DEEP_AGENT_INTELLIGENT_ROUTING DEEP_AGENT_PARALLEL_ORCHESTRATION DEEP_AGENT_SEQUENTIAL_ORCHESTRATION DEEP_AGENT_ENHANCED_ORCHESTRATION; do
-    log_file="$results_dir/${mode}_comprehensive.log"  
+    log_file="$results_dir/${mode}_comprehensive.log"
     if [ -f "$log_file" ]; then
         single_avg=$(grep -A2 -B1 "Single agent query" "$log_file" | grep "Time to first chunk:" | awk '{sum+=$5; count++} END {if(count>0) printf "%.2f", sum/count; else print "N/A"}')
         echo "   $mode: ${single_avg}s average first chunk"
@@ -189,7 +189,7 @@ echo "============================"
 echo "✅ Each mode tested with 70 diverse scenarios"
 echo "✅ Scenarios distributed across routing categories:"
 echo "   • 15 Knowledge base queries (docs:/@docs)"
-echo "   • 20 Single agent queries (various agents)"  
+echo "   • 20 Single agent queries (various agents)"
 echo "   • 15 Multi-agent queries (parallel execution)"
 echo "   • 12 Complex queries (orchestration needed)"
 echo "   • 8 Mixed/edge case queries"
@@ -223,7 +223,7 @@ done
 if [ -n "$best_mode" ]; then
     echo "🏆 Best performing mode: $best_mode"
     echo "⚡ Average first chunk time: ${best_time}s"
-    
+
     case $best_mode in
         "ENHANCED_STREAMING")
             echo "💡 Recommendation: Use ENHANCED_STREAMING for production"
