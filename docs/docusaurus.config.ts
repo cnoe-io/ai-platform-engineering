@@ -157,6 +157,10 @@ const config: Config = {
           title: 'Project',
           items: [
             {
+              label: 'GitHub Repository',
+              href: 'https://github.com/cnoe-io/ai-platform-engineering',
+            },
+            {
               label: 'Project Roadmap',
               href: 'https://github.com/orgs/cnoe-io/projects/9',
             },
