@@ -4,11 +4,14 @@
 """Base agent class for Strands-based agents with A2A protocol support."""
 
 import logging
+import os
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, Tuple
 
 from strands import Agent
 from strands.tools.mcp import MCPClient
+
+from .context_config import get_context_limit_for_provider
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +47,21 @@ class BaseStrandsAgent(ABC):
         self._mcp_contexts: List[Any] = []
         self._tools: List[Any] = []
 
+        # Get context management configuration from global config
+        # Strands manages conversation state internally, but we track limits for monitoring
+        llm_provider = os.getenv("LLM_PROVIDER", "aws-bedrock").lower()
+        self.max_context_tokens = get_context_limit_for_provider(llm_provider)
+        self.message_count = 0  # Track conversation length
+
         # Set up logging
         if config and hasattr(config, 'log_level'):
             log_level = config.log_level
             logging.getLogger("strands").setLevel(getattr(logging, log_level, logging.INFO))
 
-        logger.info(f"Initializing {self.get_agent_name()} agent (Strands-based)")
+        logger.info(
+            f"Initializing {self.get_agent_name()} agent (Strands-based) - "
+            f"provider={llm_provider}, max_context_tokens={self.max_context_tokens:,}"
+        )
 
         # Initialize MCP clients and agent
         self._initialize_mcp_and_agent()
@@ -172,7 +184,7 @@ class BaseStrandsAgent(ABC):
                 except Exception as e:
                     logger.warning(f"Failed to initialize MCP server '{name}': {e}")
                     logger.info(f"Continuing without MCP server '{name}'")
-            
+
             # Update the client list to only include successful ones
             self._mcp_clients = [client for _, client in successful_clients]
 
@@ -186,7 +198,7 @@ class BaseStrandsAgent(ABC):
                     # Fallback: append if name not resolvable
                     dedup[id(t)] = t
             self._tools = list(dedup.values())
-            
+
             # Handle case where all MCP servers failed to initialize
             if not successful_clients:
                 logger.warning("No MCP servers could be initialized. Agent will run without MCP capabilities.")
@@ -194,7 +206,7 @@ class BaseStrandsAgent(ABC):
                 self._agent = self._create_strands_agent(self._tools)
                 logger.info(f"{self.get_agent_name()} agent initialized successfully with {len(self._tools)} tools")
                 return
-            
+
             logger.info(f"Total aggregated tools: {len(self._tools)} (from {len(successful_clients)} successful MCP servers)")
 
             # Create the Strands agent with all tools
@@ -281,15 +293,27 @@ class BaseStrandsAgent(ABC):
             if self._agent is None or not self._mcp_clients:
                 self._initialize_mcp_and_agent()
 
-            logger.info(f"Streaming response for message: {message[:100]}...")
+            # Track conversation length (Strands manages internal state)
+            self.message_count += 1
+            logger.info(
+                f"Streaming response for message #{self.message_count}: {message[:100]}... "
+                f"(max_context: {self.max_context_tokens:,} tokens)"
+            )
+
+            # Warn if conversation is getting long (Strands doesn't expose token count easily)
+            if self.message_count > 20:
+                logger.warning(
+                    f"{self.get_agent_name()}: Long conversation detected ({self.message_count} messages). "
+                    "Consider monitoring for context overflow or restarting agent periodically."
+                )
 
             full_response = ""
             current_tool = None
-            
+
             async for event in self._agent.stream_async(message):
                 # Log the raw event for debugging (debug level since it's verbose)
                 logger.debug(f"Raw Strands event: {event}")
-                
+
                 # Check for tool usage indicators in the event
                 # Strands SDK may emit events with tool information
                 if "tool" in event:
@@ -304,13 +328,13 @@ class BaseStrandsAgent(ABC):
                             }
                         }
                         logger.info(f"Tool call detected: {current_tool}")
-                
+
                 # Check for tool result indicators
                 elif "tool_result" in event:
                     result_info = event["tool_result"]
                     tool_name = result_info.get("name", current_tool or "unknown")
                     is_error = result_info.get("error", False) or result_info.get("is_error", False)
-                    
+
                     yield {
                         "tool_result": {
                             "name": tool_name,
@@ -319,12 +343,12 @@ class BaseStrandsAgent(ABC):
                     }
                     logger.info(f"Tool result detected: {tool_name}, error={is_error}")
                     current_tool = None
-                
+
                 # Pass through regular data events
                 elif "data" in event:
                     full_response += event["data"]
                     yield event
-                
+
                 # Pass through other events
                 else:
                     yield event

@@ -35,6 +35,7 @@ class AIPlatformEngineerA2ABinding:
   def __init__(self):
       self.graph = AIPlatformEngineerMAS().get_graph()
       self.tracing = TracingManager()
+      self._execution_plan_sent = False
 
   def _deserialize_a2a_event(self, data: Any):
       """Try to deserialize a dict payload into known A2A models."""
@@ -50,6 +51,8 @@ class AIPlatformEngineerA2ABinding:
   @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
       logging.info(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
+      # Reset execution plan state for each new stream
+      self._execution_plan_sent = False
       inputs = {'messages': [('user', query)]}
       config = self.tracing.create_config(context_id)
 
@@ -216,8 +219,36 @@ class AIPlatformEngineerA2ABinding:
                   tool_content = message.content if hasattr(message, 'content') else ""
                   logging.info(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
 
-                  # Stream tool content first (e.g., formatted TODO lists from write_todos)
-                  if tool_content and tool_content.strip():
+                  # Special handling for write_todos: execution plan vs status updates
+                  if tool_name == "write_todos" and tool_content and tool_content.strip():
+                      if not self._execution_plan_sent:
+                          self._execution_plan_sent = True
+                          logging.info("📋 Emitting initial TODO list as execution_plan_update artifact")
+                          # Emit as execution plan artifact for client display in execution plan pane
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "artifact": {
+                                  "name": "execution_plan_update",
+                                  "description": "TODO-based execution plan",
+                                  "text": tool_content
+                              }
+                          }
+                      else:
+                          logging.info("📊 Emitting TODO progress update as execution_plan_status_update artifact")
+                          # This is a TODO status update (merge=true) - emit as status update
+                          # Client should update the execution plan pane in-place, not add to chat
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "artifact": {
+                                  "name": "execution_plan_status_update",
+                                  "description": "TODO progress update",
+                                  "text": tool_content
+                              }
+                          }
+                  # Stream other tool content normally (actual results for user)
+                  elif tool_content and tool_content.strip():
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,

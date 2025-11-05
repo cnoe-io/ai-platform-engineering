@@ -17,16 +17,19 @@ except ImportError:
     MultiServerMCPClient = None
     MCP_AVAILABLE = False
 
-from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, HumanMessage, SystemMessage, RemoveMessage
 from langchain_core.runnables.config import RunnableConfig
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 from pydantic import BaseModel
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import tiktoken
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
+
+from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 
 
 logger = logging.getLogger(__name__)
@@ -82,6 +85,26 @@ class BaseLangGraphAgent(ABC):
         # Store tool metadata for debugging and reference
         self.tools_info = {}
 
+        # Initialize tokenizer for context management
+        try:
+            self.tokenizer = tiktoken.encoding_for_model("gpt-4")
+        except Exception:
+            # Fallback to cl100k_base (used by GPT-4/3.5)
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+
+        # Get context management configuration from global config
+        llm_provider = os.getenv("LLM_PROVIDER", "azure-openai").lower()
+        self.max_context_tokens = get_context_limit_for_provider(llm_provider)
+        self.min_messages_to_keep = get_min_messages_to_keep()
+        self.enable_auto_compression = is_auto_compression_enabled()
+
+        logger.info(
+            f"Context management initialized for provider={llm_provider}: "
+            f"max_tokens={self.max_context_tokens:,}, "
+            f"min_messages={self.min_messages_to_keep}, "
+            f"auto_compression={self.enable_auto_compression}"
+        )
+
     @abstractmethod
     def get_agent_name(self) -> str:
         """Return the agent's name for logging and tracing."""
@@ -91,17 +114,17 @@ class BaseLangGraphAgent(ABC):
     def get_system_instruction(self) -> str:
         """Return the system instruction/prompt for the agent."""
         pass
-    
+
     def _get_system_instruction_with_date(self) -> str:
         """
         Return the system instruction with current date/time injected.
-        
+
         This method wraps get_system_instruction() and automatically prepends
         the current date and time, so agents always have temporal context.
         """
         # Get current date/time in UTC
         now_utc = datetime.now(ZoneInfo("UTC"))
-        
+
         # Format date information
         date_context = f"""## Current Date and Time
 
@@ -112,7 +135,7 @@ ISO format: {now_utc.isoformat()}
 Use this as the reference point for all date calculations. When users say "today", "tomorrow", "yesterday", or other relative dates, calculate from this date.
 
 """
-        
+
         # Combine with agent's system instruction
         return date_context + self.get_system_instruction()
 
@@ -193,10 +216,10 @@ Use this as the reference point for all date calculations. When users say "today
         agent_name = self.get_agent_name()
 
         # Display initialization banner
-        logger.debug("=" * 50)
-        logger.debug(f"🔧 INITIALIZING {agent_name.upper()} AGENT")
-        logger.debug("=" * 50)
-        logger.debug(f"📡 Launching MCP server at: {server_path}")
+        logger.info("=" * 50)
+        logger.info(f"🔧 INITIALIZING {agent_name.upper()} AGENT")
+        logger.info("=" * 50)
+        logger.info(f"📡 Launching MCP server at: {server_path}")
 
         # Get MCP mode from environment
         mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
@@ -238,7 +261,7 @@ Use this as the reference point for all date calculations. When users say "today
         else:
             logging.info(f"{agent_name}: Using STDIO transport for MCP client")
             mcp_config = self.get_mcp_config(server_path)
-            
+
             # Check if this is a multi-server config (dict of server configs)
             # vs a single server config (dict with "command", "args", etc.)
             if mcp_config and "command" not in mcp_config:
@@ -311,7 +334,7 @@ Use this as the reference point for all date calculations. When users say "today
         logger.debug('*'*80)
 
         # Create the react agent graph
-        logger.debug(f"🔧 Creating {agent_name} agent graph with {len(tools)} tools...")
+        logger.info(f"🔧 Creating {agent_name} agent graph with {len(tools)} tools...")
 
         self.graph = create_react_agent(
             self.model,
@@ -350,12 +373,168 @@ Use this as the reference point for all date calculations. When users say "today
         logger.info(f"✅ {agent_name} agent initialized with {len(tools)} tools")
 
         if ai_content:
-            logger.debug("=" * 50)
-            logger.debug(f"Agent {agent_name.upper()} Capabilities:")
-            logger.debug(ai_content)
-            logger.debug("=" * 50)
+            logger.info("=" * 50)
+            logger.info(f"Agent {agent_name.upper()} Capabilities:")
+            logger.info(ai_content)
+            logger.info("=" * 50)
         else:
             logger.warning(f"No assistant content found in LLM result for {agent_name}")
+
+    def _count_message_tokens(self, message: Any) -> int:
+        """
+        Count the number of tokens in a message.
+
+        Args:
+            message: A LangChain message object
+
+        Returns:
+            Approximate token count
+        """
+        try:
+            content = ""
+            if hasattr(message, "content"):
+                content = str(message.content)
+            elif isinstance(message, dict) and "content" in message:
+                content = str(message["content"])
+
+            # Add tokens for tool calls if present
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    content += str(tool_call)
+
+            return len(self.tokenizer.encode(content))
+        except Exception as e:
+            logger.warning(f"Error counting tokens: {e}, returning estimate")
+            # Rough estimate: 1 token ≈ 4 characters
+            content_len = len(str(getattr(message, "content", "")))
+            return content_len // 4
+
+    def _count_total_tokens(self, messages: list) -> int:
+        """
+        Count total tokens across all messages.
+
+        Args:
+            messages: List of messages
+
+        Returns:
+            Total token count
+        """
+        return sum(self._count_message_tokens(msg) for msg in messages)
+
+    async def _trim_messages_if_needed(self, config: RunnableConfig) -> None:
+        """
+        Trim old messages from the checkpointer if context is too large.
+
+        Keeps:
+        - System messages (always)
+        - Recent N messages (configurable via MIN_MESSAGES_TO_KEEP)
+        - Removes oldest messages in between
+
+        Args:
+            config: Runnable configuration with thread_id
+        """
+        if not self.enable_auto_compression:
+            return
+
+        agent_name = self.get_agent_name()
+
+        try:
+            # Get current state from checkpointer
+            state = await self.graph.aget_state(config)
+            if not state:
+                logger.info(f"{agent_name}: No state found in checkpointer, skipping trim")
+                return
+            if not state.values:
+                logger.info(f"{agent_name}: State has no values, skipping trim")
+                return
+            if "messages" not in state.values:
+                logger.info(f"{agent_name}: No messages in state, skipping trim")
+                return
+
+            messages = state.values["messages"]
+            if not messages:
+                logger.info(f"{agent_name}: Messages list is empty, skipping trim")
+                return
+
+            # Count current tokens
+            logger.info(f"{agent_name}: Found {len(messages)} messages in state, counting tokens...")
+            total_tokens = self._count_total_tokens(messages)
+            logger.info(f"{agent_name}: Total tokens: {total_tokens:,} (limit: {self.max_context_tokens:,})")
+
+            if total_tokens <= self.max_context_tokens:
+                logger.info(f"{agent_name}: ✅ Context size OK ({total_tokens:,} tokens)")
+                return
+
+            logger.warning(
+                f"{agent_name}: Context too large ({total_tokens} tokens > {self.max_context_tokens}). "
+                f"Trimming old messages..."
+            )
+
+            # Separate system messages from conversation messages
+            system_messages = []
+            conversation_messages = []
+
+            for msg in messages:
+                if isinstance(msg, SystemMessage) or (
+                    isinstance(msg, dict) and msg.get("type") == "system"
+                ):
+                    system_messages.append(msg)
+                else:
+                    conversation_messages.append(msg)
+
+            # Keep recent N messages
+            messages_to_keep = conversation_messages[-self.min_messages_to_keep:]
+            messages_to_remove = conversation_messages[:-self.min_messages_to_keep]
+
+            # Calculate tokens after trimming
+            kept_tokens = (
+                self._count_total_tokens(system_messages) +
+                self._count_total_tokens(messages_to_keep)
+            )
+
+            # If still too large, trim more aggressively
+            while kept_tokens > self.max_context_tokens and len(messages_to_keep) > 2:
+                # Remove the oldest message from kept messages
+                removed = messages_to_keep.pop(0)
+                messages_to_remove.append(removed)
+                kept_tokens = (
+                    self._count_total_tokens(system_messages) +
+                    self._count_total_tokens(messages_to_keep)
+                )
+
+            if not messages_to_remove:
+                logger.warning(f"{agent_name}: Cannot trim further without breaking conversation")
+                return
+
+            # Create RemoveMessage commands for messages to delete
+            remove_commands = []
+            for msg in messages_to_remove:
+                msg_id = msg.id if hasattr(msg, "id") else msg.get("id")
+                if msg_id:
+                    remove_commands.append(RemoveMessage(id=msg_id))
+
+            if remove_commands:
+                # Update the graph state to remove old messages
+                await self.graph.aupdate_state(
+                    config,
+                    {"messages": remove_commands}
+                )
+
+                removed_tokens = self._count_total_tokens(messages_to_remove)
+                logger.info(
+                    f"{agent_name}: ✂️ Trimmed {len(messages_to_remove)} messages "
+                    f"({removed_tokens} tokens). Kept {len(messages_to_keep)} messages "
+                    f"({kept_tokens} tokens)"
+                )
+
+        except Exception as e:
+            logger.error(
+                f"{agent_name}: Error trimming messages: {e}",
+                exc_info=True,
+                extra={"exception_type": type(e).__name__}
+            )
+            # Don't fail the request if trimming fails - just log and continue
+            logger.warning(f"{agent_name}: Continuing without message trimming due to error")
 
     async def _ensure_graph_initialized(self, config: RunnableConfig) -> None:
         """Ensure the graph is initialized before use."""
@@ -389,12 +568,15 @@ Use this as the reference point for all date calculations. When users say "today
         # Ensure graph is initialized
         await self._ensure_graph_initialized(config)
 
+        # Auto-trim old messages to prevent context overflow
+        await self._trim_messages_if_needed(config)
+
         # Track which messages we've already processed to avoid duplicates
         seen_tool_calls = set()
-        
+
         # Check if token-by-token streaming is enabled (default: false for backward compatibility)
         enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
-        
+
         if enable_streaming:
             # Token-by-token streaming mode using 'messages' and 'custom' (for writer() events from tools)
             logger.info(f"{agent_name}: Token-by-token streaming ENABLED")
@@ -407,16 +589,16 @@ Use this as the reference point for all date calculations. When users say "today
                     # Yield custom events as-is for the executor to handle
                     yield item
                     continue
-                
+
                 if item_type != 'messages':
                     continue
-                    
+
                 message = item[0] if item else None
                 if not message:
                     continue
 
                 logger.debug(f"📨 Received message type: {type(message).__name__}")
-                
+
                 # Skip HumanMessage
                 if isinstance(message, HumanMessage):
                     continue
@@ -428,15 +610,15 @@ Use this as the reference point for all date calculations. When users say "today
                         for tool_call in message.tool_calls:
                             tool_name = tool_call.get("name", "")
                             tool_id = tool_call.get("id", "")
-                            
+
                             if not tool_name or not tool_name.strip():
                                 continue
-                            
+
                             if tool_id and tool_id in seen_tool_calls:
                                 continue
                             if tool_id:
                                 seen_tool_calls.add(tool_id)
-                                
+
                             agent_name_formatted = self.get_agent_name().title()
                             tool_name_formatted = tool_name.title()
                             yield {
@@ -445,7 +627,7 @@ Use this as the reference point for all date calculations. When users say "today
                                 'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
                             }
                         continue
-                    
+
                     # Stream token content
                     if message.content:
                         yield {
@@ -475,18 +657,18 @@ Use this as the reference point for all date calculations. When users say "today
                         'require_user_input': False,
                         'content': f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n",
                     }
-                    
+
                     # Stream intermediate tool output if enabled
                     stream_tool_output = os.getenv("STREAM_TOOL_OUTPUT", "false").lower() == "true"
                     if stream_tool_output and tool_content:
                         # Format tool output for readability
                         tool_output_preview = str(tool_content)
-                        
+
                         # Limit output size to avoid overwhelming the stream
                         max_output_length = int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", "2000"))
                         if len(tool_output_preview) > max_output_length:
                             tool_output_preview = tool_output_preview[:max_output_length] + "...\n[Output truncated]"
-                        
+
                         yield {
                             'is_task_complete': False,
                             'require_user_input': False,
@@ -574,18 +756,18 @@ Use this as the reference point for all date calculations. When users say "today
                             'require_user_input': False,
                             'content': f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n",
                         }
-                        
+
                         # Stream intermediate tool output if enabled
                         stream_tool_output = os.getenv("STREAM_TOOL_OUTPUT", "false").lower() == "true"
                         if stream_tool_output and tool_content:
                             # Format tool output for readability
                             tool_output_preview = str(tool_content)
-                            
+
                             # Limit output size to avoid overwhelming the stream
                             max_output_length = int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", "2000"))
                             if len(tool_output_preview) > max_output_length:
                                 tool_output_preview = tool_output_preview[:max_output_length] + "...\n[Output truncated]"
-                            
+
                             yield {
                                 'is_task_complete': False,
                                 'require_user_input': False,
