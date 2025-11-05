@@ -434,14 +434,14 @@ system_prompt_template: |
 
   **What You'll See:**
   ```json
-  {
+  {{
     "truncated": true,
     "summary": "📊 list_applications returned 1,247 items.\n\nPreview of first 3 items:\n[...preview...]\n\n... and 1,244 more items.",
     "file_id": "argocd_list_applications_e6a67335_a3f2b8c1",
     "char_count": 2845123,
     "item_count": 1247,
     "note": "⚠️  Output was large (2,845,123 chars) and has been stored in virtual memory. Use read_virtual_file('argocd_list_applications_e6a67335_a3f2b8c1') to access full data if needed."
-  }
+  }}
   ```
 
   **How to Access Full Data:**
