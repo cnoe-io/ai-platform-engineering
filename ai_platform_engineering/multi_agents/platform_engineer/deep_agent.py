@@ -99,7 +99,7 @@ class AIPlatformEngineerMAS:
 
     # Get fresh tools from registry (for tool notifications and visibility)
     all_agents = platform_registry.get_all_agents()
-    
+
     # Generate CustomSubAgents (pre-created react agents with A2A tools)
     subagents = platform_registry.generate_subagents(agent_prompts, base_model)
 
@@ -111,10 +111,19 @@ class AIPlatformEngineerMAS:
     # A2A tools passed to BOTH supervisor and subagents:
     # - Supervisor has tools for visibility (tool_call/tool_result events stream properly)
     # - Subagents provide delegation interface via task() tool (for write_todos workflow)
-    # - System prompt encourages using task() for delegation, not direct tool calls
+    # - System prompt enforces TODO-based execution plan workflow
+    #
+    # KNOWN ISSUE: First request may complete without calling write_todos
+    # - LLMs can ignore prompt requirements and complete without tool calls
+    # - Second request typically works correctly
+    # - Cannot use tool_choice="any" (would create infinite loop on all calls)
+    # - Potential solutions:
+    #   1. Pre-warm with dummy request
+    #   2. Custom state_modifier (not supported by create_react_agent)
+    #   3. Accept as LLM limitation and document
     deep_agent = async_create_deep_agent(
       tools=all_agents,  # A2A tools for visibility and streaming events
-      instructions=system_prompt,  # System prompt enforces execution plan + task delegation
+      instructions=system_prompt,  # System prompt enforces TODO-based execution workflow
       subagents=subagents,  # CustomSubAgents for proper task() delegation
       model=base_model
       # response_format=PlatformEngineerResponse

@@ -83,13 +83,13 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                         state=TaskState.working,
                         message=new_agent_text_message(
                             self.agent.get_tool_working_message(),
-                            task.contextId,
+                            task.context_id,
                             task.id,
                         ),
                     ),
                     final=False,
-                    contextId=task.contextId,
-                    taskId=task.id,
+                    context_id=task.context_id,
+                    task_id=task.id,
                 )
             )
 
@@ -121,9 +121,9 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
                             append=False,
-                            contextId=task.contextId,
-                            taskId=task.id,
-                            lastChunk=False,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            last_chunk=False,
                             artifact=new_text_artifact(
                                 name='tool_notification_start',
                                 description=f'Tool call started: {tool_name}',
@@ -148,9 +148,9 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
                             append=False,
-                            contextId=task.contextId,
-                            taskId=task.id,
-                            lastChunk=False,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            last_chunk=False,
                             artifact=new_text_artifact(
                                 name='tool_notification_end',
                                 description=f'Tool call {status}: {tool_name}',
@@ -172,7 +172,7 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                             description=f'Streaming result from {agent_name}',
                             text=chunk,
                         )
-                        streaming_artifact_id = artifact.artifactId
+                        streaming_artifact_id = artifact.artifact_id
                         use_append = False
                         logger.debug(f"🚀 {agent_name}: Sending FIRST streaming chunk (append=False)")
                     else:
@@ -182,16 +182,16 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                             description=f'Streaming result from {agent_name}',
                             text=chunk,
                         )
-                        artifact.artifactId = streaming_artifact_id
+                        artifact.artifact_id = streaming_artifact_id
                         use_append = True
                         logger.debug(f"🚀 {agent_name}: Streaming chunk (append=True)")
 
                     await event_queue.enqueue_event(
                         TaskArtifactUpdateEvent(
                             append=use_append,
-                            contextId=task.contextId,
-                            taskId=task.id,
-                            lastChunk=False,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            last_chunk=False,
                             artifact=artifact,
                         )
                     )
@@ -204,24 +204,42 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                                 state=TaskState.failed,
                                 message=new_agent_text_message(
                                     f"Error: {event['error']}",
-                                    task.contextId,
+                                    task.context_id,
                                     task.id,
                                 ),
                             ),
                             final=True,
-                            contextId=task.contextId,
-                            taskId=task.id,
+                            context_id=task.context_id,
+                            task_id=task.id,
                         )
                     )
                     return
+
+            # Close the streaming artifact so SSE clients can finalize reconstruction
+            if streaming_artifact_id is not None:
+                closing_artifact = new_text_artifact(
+                    name='streaming_result',
+                    description=f'Streaming result from {agent_name} (complete)',
+                    text='',
+                )
+                closing_artifact.artifact_id = streaming_artifact_id
+                await event_queue.enqueue_event(
+                    TaskArtifactUpdateEvent(
+                        append=True,
+                        context_id=task.context_id,
+                        task_id=task.id,
+                        last_chunk=True,
+                        artifact=closing_artifact,
+                    )
+                )
 
             # Send final complete artifact as backup (for non-streaming clients)
             await event_queue.enqueue_event(
                 TaskArtifactUpdateEvent(
                     append=False,
-                    contextId=task.contextId,
-                    taskId=task.id,
-                    lastChunk=False,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                    last_chunk=True,
                     artifact=new_text_artifact(
                         name='complete_result',
                         description=f'Complete result from {agent_name}',
@@ -235,8 +253,8 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     status=TaskStatus(state=TaskState.completed),
                     final=True,
-                    contextId=task.contextId,
-                    taskId=task.id,
+                    context_id=task.context_id,
+                    task_id=task.id,
                 )
             )
 
@@ -247,9 +265,9 @@ class BaseStrandsAgentExecutor(AgentExecutor):
             await event_queue.enqueue_event(
                 TaskArtifactUpdateEvent(
                     append=False,
-                    contextId=task.contextId,
-                    taskId=task.id,
-                    lastChunk=True,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                    last_chunk=True,
                     artifact=new_text_artifact(
                         name='error_result',
                         description='Error result from agent.',
@@ -261,8 +279,8 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     status=TaskStatus(state=TaskState.failed),
                     final=True,
-                    contextId=task.contextId,
-                    taskId=task.id,
+                    context_id=task.context_id,
+                    task_id=task.id,
                 )
             )
 
@@ -283,8 +301,8 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     status=TaskStatus(state=TaskState.canceled),
                     final=True,
-                    contextId=task.contextId,
-                    taskId=task.id,
+                    context_id=task.context_id,
+                    task_id=task.id,
                 )
             )
             logger.info(f"Task {task.id} cancelled")

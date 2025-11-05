@@ -62,6 +62,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         self._execution_plan_active = False
         self._execution_plan_buffer = ""
         self._execution_plan_complete = False
+        self._execution_plan_emitted = False
+        self._execution_plan_artifact_id = None
 
         # Feature flags for different routing approaches
         # Default to DEEP_AGENT_PARALLEL_ORCHESTRATION mode (best performance: 4.94s avg, 29% faster than ENHANCED_STREAMING)
@@ -942,6 +944,38 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             # invoke the underlying agent, using streaming results
             # NOTE: Pass task to maintain task ID consistency across sub-agents
             async for event in self.agent.stream(query, context_id, trace_id):
+                # Handle direct artifact payloads emitted by agent binding (e.g., write_todos execution plan)
+                artifact_payload = event.get('artifact') if isinstance(event, dict) else None
+                if artifact_payload:
+                    artifact_name = artifact_payload.get('name', 'agent_artifact')
+                    artifact_description = artifact_payload.get('description', 'Artifact from Platform Engineer')
+                    artifact_text = artifact_payload.get('text', '')
+
+                    artifact = new_text_artifact(
+                        name=artifact_name,
+                        description=artifact_description,
+                        text=artifact_text,
+                    )
+
+                    # Track execution plan emission for retry logic / diagnostics
+                    if artifact_name in ('execution_plan_update', 'execution_plan_status_update'):
+                        self._execution_plan_emitted = True
+                        if artifact_name == 'execution_plan_update':
+                            self._execution_plan_artifact_id = artifact.artifactId
+
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskArtifactUpdateEvent(
+                            append=False,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            lastChunk=False,
+                            artifact=artifact,
+                        )
+                    )
+                    first_artifact_sent = True
+                    continue
+
                 # Handle typed A2A events - TRANSFORM APPEND FLAG FOR FORWARDED EVENTS
                 if isinstance(event, (A2ATaskArtifactUpdateEvent, A2ATaskStatusUpdateEvent)):
                     logger.debug(f"Executor: Processing streamed A2A event: {type(event).__name__}")
