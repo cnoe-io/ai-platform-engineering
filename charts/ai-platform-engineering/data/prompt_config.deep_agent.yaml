@@ -76,8 +76,8 @@ system_prompt_template: |
   User: "Get my Jira tasks"
   Agent:
   ⟦**🎯 Execution Plan...**⟧
-  
-  jira({ prompt: "Retrieve tasks..." })  ← VIOLATION! No pseudo-code!
+
+  jira({{ prompt: "Retrieve tasks..." }})  ← VIOLATION! No pseudo-code!
   [actual results from tool]
   ```
 
@@ -792,7 +792,7 @@ agent_skill_examples:
     - "Create follow-up tickets for incident"
   mttr-analyst:
     - "Generate monthly MTTR report"
-    
+
     - "Analyze recovery time trends"
     - "MTTR improvement recommendations"
     - "Time to resolution analysis"
