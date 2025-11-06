@@ -30,18 +30,20 @@ class JiraAgent(BaseLangGraphAgent):
             "When searching or filtering issues by date (created, updated, resolved), calculate date ranges based on the current date provided above",
             "Always convert relative dates (today, this week, last month) to absolute dates in YYYY-MM-DD format for JQL queries",
             "Use JQL (Jira Query Language) syntax for complex searches with proper date formatting",
-            "CRITICAL: If no date/time is specified in a Jira search query, assume 'now' (current date/time) as the default reference point",
+            "CRITICAL: If no date/time range is specified in a Jira search query, use 14 days as the default time range (from 14 days ago until now)",
+            "When building JQL queries without a specified date range, use: created >= -14d OR updated >= -14d",
             "CRITICAL: Always format Jira issue links as browseable URLs: {JIRA_BASE_URL}/browse/{ISSUE_KEY} (e.g., https://example.atlassian.net/browse/CAIPE-67)",
             "NEVER return API endpoint URLs like /rest/api/3/issue/{issue_id} - these are not user-friendly",
             "Extract the issue key (e.g., CAIPE-67) from API responses and construct the proper browse URL",
-            
+
             "CRITICAL: Do NOT add issueType filter to JQL queries unless the user explicitly specifies an issue type (Bug, Story, Task, Epic, etc.)",
             "When searching for 'issues', return ALL issue types - do not default to issueType=Bug or any specific type",
-            
-            "CRITICAL: When JQL search results are paginated, retrieve ALL pages and process all results - do not stop after the first page",
-            "If the total result count exceeds 100 issues, show the first page results and ask the user if they want to continue fetching remaining pages",
-            "For queries with 100 or fewer total results, automatically fetch all pages without asking for confirmation",
-            
+
+            "CRITICAL: When JQL search results are paginated, inform the user about pagination status",
+            "If there are more issues available beyond the current page, clearly tell the user: 'There are [X] more issues available. Would you like me to fetch them?'",
+            "Wait for user confirmation before fetching additional pages",
+            "Always show the total count of issues found and how many are currently displayed",
+
             "",
             "**CRITICAL - Data Presentation and Formatting**:",
             "1. When user requests 'tabulate' or 'table', ALWAYS format data as a markdown table",

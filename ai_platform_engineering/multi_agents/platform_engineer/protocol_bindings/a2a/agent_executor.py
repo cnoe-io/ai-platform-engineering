@@ -1454,4 +1454,25 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def cancel(
         self, context: RequestContext, event_queue: EventQueue
     ) -> None:
-        raise Exception('cancel not supported')
+        """
+        Handle task cancellation.
+        
+        Sends a cancellation status update to the client and logs the cancellation.
+        Note: Currently doesn't stop in-flight LangGraph execution, but prevents
+        further streaming and notifies the client properly.
+        """
+        logger.info("Platform Engineer Agent: Task cancellation requested")
+        
+        task = context.current_task
+        if task:
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    status=TaskStatus(state=TaskState.canceled),
+                    final=True,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                )
+            )
+            logger.info(f"Task {task.id} cancelled successfully")
+        else:
+            logger.warning("Cancellation requested but no current task found")

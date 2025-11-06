@@ -510,9 +510,92 @@ class AgentRegistry:
             logger.warning(f"Unreachable agents excluded: {', '.join(unreachable_agents)}")
             logger.info("To skip connectivity checks, set SKIP_AGENT_CONNECTIVITY_CHECK=true")
 
+        # 📊 Print connectivity table for easy visual scanning
+        self._print_connectivity_table(connectivity_results, agent_cards)
+
         self._agents = agents
         self._tools = tools
         self._loaded_modules = {}  # No longer using loaded modules
+
+    def _print_connectivity_table(self, connectivity_results: Dict[str, bool], agent_cards: Dict[str, Dict[str, Any]]) -> None:
+        """Print a formatted table of agent connectivity status."""
+        # Table configuration
+        col_widths = {
+            'name': 20,
+            'url': 45,
+            'status': 12,
+            'description': 30
+        }
+        total_width = sum(col_widths.values()) + 13  # 13 for separators and padding
+
+        # Sort agents: reachable first, then unreachable
+        sorted_agents = sorted(
+            connectivity_results.items(),
+            key=lambda x: (not x[1], x[0])  # False (unreachable) comes after True (reachable)
+        )
+
+        # Build table lines
+        lines = []
+        lines.append("")
+        lines.append("╔" + "═" * (total_width - 2) + "╗")
+        lines.append("║" + "📊 AGENT CONNECTIVITY STATUS".center(total_width - 2) + "║")
+        lines.append("╠" + "═" * (total_width - 2) + "╣")
+
+        # Header row
+        header = (
+            f"║ {'Agent Name':<{col_widths['name']}} │ "
+            f"{'URL':<{col_widths['url']}} │ "
+            f"{'Status':<{col_widths['status']}} │ "
+            f"{'Description':<{col_widths['description']}} ║"
+        )
+        lines.append(header)
+        lines.append("╟" + "─" * (col_widths['name'] + 1) + "┼" +
+                    "─" * (col_widths['url'] + 2) + "┼" +
+                    "─" * (col_widths['status'] + 2) + "┼" +
+                    "─" * (col_widths['description'] + 2) + "╢")
+
+        # Data rows
+        for agent_name, is_reachable in sorted_agents:
+            agent_url = self.AGENT_ADDRESS_MAPPING.get(agent_name, "N/A")
+            status = "✅ ONLINE" if is_reachable else "❌ OFFLINE"
+
+            # Get description from agent card if available
+            description = "N/A"
+            if agent_name in agent_cards:
+                description = agent_cards[agent_name].get('description', 'N/A')
+                # Truncate long descriptions
+                if len(description) > col_widths['description']:
+                    description = description[:col_widths['description']-3] + "..."
+
+            # Truncate URL if too long
+            if len(agent_url) > col_widths['url']:
+                agent_url = agent_url[:col_widths['url']-3] + "..."
+
+            # Truncate agent name if too long
+            if len(agent_name) > col_widths['name']:
+                agent_name = agent_name[:col_widths['name']-3] + "..."
+
+            row = (
+                f"║ {agent_name:<{col_widths['name']}} │ "
+                f"{agent_url:<{col_widths['url']}} │ "
+                f"{status:<{col_widths['status']}} │ "
+                f"{description:<{col_widths['description']}} ║"
+            )
+            lines.append(row)
+
+        # Summary footer
+        reachable = sum(1 for r in connectivity_results.values() if r)
+        total = len(connectivity_results)
+        summary_text = f"Summary: {reachable}/{total} agents online"
+
+        lines.append("╠" + "═" * (total_width - 2) + "╣")
+        lines.append("║" + summary_text.center(total_width - 2) + "║")
+        lines.append("╚" + "═" * (total_width - 2) + "╝")
+        lines.append("")
+
+        # Print all lines without timestamps
+        for line in lines:
+            print(line)
 
     def _check_connectivity_for_modules(self) -> tuple[Dict[str, bool], Dict[str, Dict[str, Any]]]:
         """Check connectivity for a set of loaded modules."""
