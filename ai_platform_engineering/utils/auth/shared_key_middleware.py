@@ -38,6 +38,11 @@ class SharedKeyMiddleware(BaseHTTPMiddleware):
         :return:
         """
         path = request.url.path
+
+        # Allow OPTIONS requests (CORS preflight) without authentication
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         for header_name, header_value in request.headers.items():
             if header_name.lower() == 'authorization':
                 # Mask the Authorization header for security

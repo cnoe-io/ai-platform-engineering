@@ -116,14 +116,6 @@ A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
 
 A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY')
 
-# Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
-app.add_middleware(
-  CORSMiddleware,
-  allow_origins=["*"],  # Allow all origins
-  allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-  allow_headers=["*"],  # Allow all headers
-)
-
 if A2A_AUTH_SHARED_KEY:
   logger.info("Using shared key authentication")
   from ai_platform_engineering.utils.auth.shared_key_middleware import SharedKeyMiddleware
@@ -142,3 +134,13 @@ elif A2A_AUTH_OAUTH2:
   )
 else:
   logger.info("Using no authentication")
+
+# Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
+# Note: Added AFTER auth middleware so it executes BEFORE auth (middleware runs in reverse order)
+app.add_middleware(
+  CORSMiddleware,
+  allow_origins=["*"],  # Allow all origins
+  allow_credentials=True,  # Allow credentials (cookies, authorization headers, etc.)
+  allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+  allow_headers=["*"],  # Allow all headers
+)
