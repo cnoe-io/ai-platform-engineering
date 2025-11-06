@@ -10,6 +10,9 @@ services:
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
+    extra_hosts:
+      # Map hub.docker.local to host machine so Jarvis agent can be reached
+      - "hub.docker.local:host-gateway"
     profiles:
       - p2p
       - p2p-tracing
@@ -193,6 +196,10 @@ services:
       - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
       - WEBEX_AGENT_PORT=8000
+      # Jarvis is an external A2A agent (not running in docker-compose)
+      # Use hub.docker.local to reach the host machine from inside the container
+      - JARVIS_AGENT_HOST=${JARVIS_AGENT_HOST:-hub.docker.local}
+      - JARVIS_AGENT_PORT=58000
       # Enable agents
       - ENABLE_ARGOCD=true
       - ENABLE_AWS=true
@@ -208,6 +215,7 @@ services:
       - ENABLE_WEBEX=true
       - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
+      - ENABLE_JARVIS=true
       # Structured response format with execution plan validation
       # Set to "true" to enforce execution plans with Pydantic validation
       - ENABLE_STRUCTURED_RESPONSE_FORMAT=false
