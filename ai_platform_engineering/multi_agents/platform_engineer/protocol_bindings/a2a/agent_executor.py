@@ -303,6 +303,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             accumulated_text = []
             chunk_count = 0
             first_artifact_sent = False  # Track if we've sent the initial artifact
+            sub_agent_streaming_artifact_id = None  # Shared artifact ID for sub-agent streaming chunks
             async for response_wrapper in client.send_message_streaming(streaming_request):
                 chunk_count += 1
                 wrapper_type = type(response_wrapper).__name__
@@ -335,29 +336,58 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                             # A2A protocol: first artifact must have append=False to create it
                             # Subsequent artifacts use append=True to append to existing artifact
-                            use_append = first_artifact_sent
                             if not first_artifact_sent:
+                                # First chunk - create new artifact with unique ID
+                                artifact = new_text_artifact(
+                                    name='streaming_result',
+                                    description='Streaming result from sub-agent',
+                                    text=combined_text,
+                                )
+                                sub_agent_streaming_artifact_id = artifact.artifact_id
                                 first_artifact_sent = True
-                                logger.debug("📝 Sending FIRST artifact (append=False) to create artifact")
+                                use_append = False
+                                logger.debug(f"📝 Sending FIRST artifact (append=False) with ID: {sub_agent_streaming_artifact_id}")
                             else:
-                                logger.debug("📝 Appending to existing artifact (append=True)")
+                                # Subsequent chunks - reuse the same artifact ID
+                                artifact = new_text_artifact(
+                                    name='streaming_result',
+                                    description='Streaming result from sub-agent',
+                                    text=combined_text,
+                                )
+                                artifact.artifact_id = sub_agent_streaming_artifact_id
+                                use_append = True
+                                logger.debug(f"📝 Appending to existing artifact (append=True) with ID: {sub_agent_streaming_artifact_id}")
 
                             # Forward chunk immediately to client (streaming!)
-                            await self._safe_enqueue_event(
-                                event_queue,
-                                TaskArtifactUpdateEvent(
-                                    append=use_append,  # First: False (create), subsequent: True (append)
-                                    context_id=task.context_id,
-                                    task_id=task.id,
-                                    last_chunk=False,
-                                    artifact=new_text_artifact(
-                                        name='streaming_result',
-                                        description='Streaming result from sub-agent',
-                                        text=combined_text,
-                                    ),
+                            #
+# Add small delay after first artifact to ensure it's registered
+                            # before subsequent append operations (prevents A2A SDK warnings)
+                            if use_append is False:
+                                await self._safe_enqueue_event(
+                                    event_queue,
+                                    TaskArtifactUpdateEvent(
+                                        append=use_append,
+                                        context_id=task.context_id,
+                                        task_id=task.id,
+                                        last_chunk=False,
+                                        artifact=artifact,
+                                    )
                                 )
-                            )
-                            logger.debug(f"✅ Streamed chunk to client: {combined_text[:50]}...")
+                                # Small delay to ensure artifact is registered in A2A SDK
+                                await asyncio.sleep(0.01)  # 10ms
+                                logger.debug(f"✅ Streamed FIRST chunk to client (with 10ms buffer): {combined_text[:50]}...")
+                            else:
+                                await self._safe_enqueue_event(
+                                    event_queue,
+                                    TaskArtifactUpdateEvent(
+                                        append=use_append,
+                                        context_id=task.context_id,
+                                        task_id=task.id,
+                                        last_chunk=False,
+                                        artifact=artifact,
+                                    )
+                                )
+                                logger.debug(f"✅ Streamed chunk to client: {combined_text[:50]}...")
 
                     # Handle status-update events (task completion and content)
                     elif event_kind == 'status-update':
@@ -383,12 +413,27 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             accumulated_text.append(combined_text)
 
                             # A2A protocol: first artifact must have append=False to create it
-                            use_append = first_artifact_sent
                             if not first_artifact_sent:
+                                # First chunk - create new artifact with unique ID
+                                artifact = new_text_artifact(
+                                    name='streaming_result',
+                                    description='Streaming result from sub-agent',
+                                    text=combined_text,
+                                )
+                                sub_agent_streaming_artifact_id = artifact.artifact_id
                                 first_artifact_sent = True
-                                logger.debug("📝 Sending FIRST artifact (append=False) from status message")
+                                use_append = False
+                                logger.debug(f"📝 Sending FIRST artifact (append=False) from status message with ID: {sub_agent_streaming_artifact_id}")
                             else:
-                                logger.debug("📝 Appending status content to artifact (append=True)")
+                                # Subsequent chunks - reuse the same artifact ID
+                                artifact = new_text_artifact(
+                                    name='streaming_result',
+                                    description='Streaming result from sub-agent',
+                                    text=combined_text,
+                                )
+                                artifact.artifact_id = sub_agent_streaming_artifact_id
+                                use_append = True
+                                logger.debug(f"📝 Appending status content to artifact (append=True) with ID: {sub_agent_streaming_artifact_id}")
 
                             # Forward status message content to client
                             await self._safe_enqueue_event(
@@ -398,11 +443,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                     context_id=task.context_id,
                                     task_id=task.id,
                                     last_chunk=False,
-                                    artifact=new_text_artifact(
-                                        name='streaming_result',
-                                        description='Streaming result from sub-agent',
-                                        text=combined_text,
-                                    ),
+                                    artifact=artifact,
                                 )
                             )
                             logger.debug(f"✅ Streamed status content to client: {combined_text[:50]}...")
@@ -727,6 +768,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         logger.info(f"🎉 Parallel streaming completed from {len(agents)} agents")
 
+    # _clean_json_wrapper() method removed - Frontend now handles JSON parsing
+    # to support structured metadata and dynamic form generation
+
     async def _safe_enqueue_event(self, event_queue: EventQueue, event) -> None:
         """Safely enqueue an event, handling closed queue gracefully."""
         try:
@@ -770,7 +814,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # Enhanced trace_id extraction - check multiple locations
         if not trace_id and context and context.message:
             # Try additional extraction methods for evaluation requests
-            logger.info("🔍 Platform Engineer Executor: No trace_id from extract_trace_id_from_context, checking alternatives")
+            logger.debug("🔍 Platform Engineer Executor: No trace_id from extract_trace_id_from_context, checking alternatives")
 
             # Check if there's metadata in the message
             if hasattr(context.message, 'metadata') and context.message.metadata:
@@ -790,7 +834,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             # Platform engineer is the ROOT supervisor - generate trace_id
             # Langfuse requires 32 lowercase hex chars (no dashes)
             trace_id = str(uuid.uuid4()).replace('-', '').lower()
-            logger.info(f"🔍 Platform Engineer Executor: Generated ROOT trace_id: {trace_id}")
+            logger.debug(f"🔍 Platform Engineer Executor: Generated ROOT trace_id: {trace_id}")
         else:
             logger.info(f"🔍 Platform Engineer Executor: Using trace_id from context: {trace_id}")
 
@@ -1091,6 +1135,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     else:
                         final_content = content
                         logger.info(f"📝 Using current event content for final_result ({len(final_content)} chars)")
+
+                    # Note: We send structured JSON as-is to support dynamic forms in frontend
+                    # Frontend will parse the JSON and extract content + metadata for dynamic UI
 
                     await self._safe_enqueue_event(
                         event_queue,

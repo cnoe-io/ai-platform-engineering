@@ -6,6 +6,8 @@ import os
 import httpx
 from dotenv import load_dotenv
 
+from ai_platform_engineering.utils.logging_config import configure_logging
+
 
 from starlette.middleware.cors import CORSMiddleware
 
@@ -69,6 +71,9 @@ def get_agent_card(host: str, port: int, external_url: str = None):
 
 # Load environment variables from a .env file if present
 load_dotenv()
+
+# Configure logging to suppress noisy health check logs
+configure_logging()
 
 # Check environment variables for host and port if not provided via CLI
 env_host = os.getenv('A2A_HOST')

@@ -7,13 +7,6 @@ services:
       context: .
       dockerfile: build/Dockerfile
     container_name: platform-engineer-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
@@ -139,34 +132,34 @@ services:
     # 'condition: service_started' just waits for the container to start (faster but less reliable).
     depends_on:
       agent-argocd-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-aws-p2p:
         condition: service_healthy
       agent-backstage-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-confluence-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-github-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-jira-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-komodor-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-pagerduty-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-petstore-p2p:
-        condition: service_healthy
+        condition: service_started
       # agent_rag:
       #   # condition: service_healthy
       #   condition: service_started
       agent-slack-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-splunk-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-weather-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-webex-p2p:
-        condition: service_healthy
+        condition: service_started
     env_file:
       - .env
     ports:
@@ -343,13 +336,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/argocd/build/Dockerfile.mcp
     container_name: mcp-argocd
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request, json; req = urllib.request.Request('http://localhost:8000/mcp/v1', data=json.dumps({'jsonrpc':'2.0','id':'health','method':'ping'}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req, timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -411,13 +397,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/argocd/build/Dockerfile.a2a
     container_name: agent-argocd-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -432,8 +411,8 @@ services:
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8001:8000"
-    mem_limit: 1g
-    mem_reservation: 256m
+    mem_limit: 4g
+    mem_reservation: 2g
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -443,9 +422,11 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - MAX_CONTEXT_TOKENS=50000      # Reduce from 100K to 50K
-      - MIN_MESSAGES_TO_KEEP=5        # Keep fewer messages (default: 10)
+      - MAX_CONTEXT_TOKENS=20000      # Allow reasonable context for pagination responses
+      - MIN_MESSAGES_TO_KEEP=2        # Keep only essential messages (user query + last response)
       - ENABLE_AUTO_COMPRESSION=true  # Ensure compression is enabled
+      - SUMMARIZE_TOOL_OUTPUTS=true   # Summarize large tool outputs before adding to context
+      - MAX_TOOL_OUTPUT_LENGTH=5000   # Max chars from tool output to keep in context (truncate rest)
       - ENABLE_STREAMING=true
 
   ####################################################################################################
@@ -636,13 +617,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/backstage/build/Dockerfile.a2a
     container_name: agent-backstage-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -675,13 +649,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/backstage/build/Dockerfile.mcp
     container_name: mcp-backstage
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request, json; req = urllib.request.Request('http://localhost:8000/mcp/v1', data=json.dumps({'jsonrpc':'2.0','id':'health','method':'ping'}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req, timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -742,13 +709,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/confluence/build/Dockerfile.a2a
     container_name: agent-confluence-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -781,13 +741,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/confluence/build/Dockerfile.mcp
     container_name: mcp-confluence
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request, json; req = urllib.request.Request('http://localhost:8000/mcp/v1', data=json.dumps({'jsonrpc':'2.0','id':'health','method':'ping'}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req, timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -849,13 +802,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/github/build/Dockerfile.a2a
     container_name: agent-github-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -918,13 +864,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/jira/build/Dockerfile.a2a
     container_name: agent-jira-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -956,13 +895,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/jira/build/Dockerfile.mcp
     container_name: mcp-jira
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request, json; req = urllib.request.Request('http://localhost:8000/mcp/v1', data=json.dumps({'jsonrpc':'2.0','id':'health','method':'ping'}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req, timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1023,13 +955,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/komodor/build/Dockerfile.a2a
     container_name: agent-komodor-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1060,13 +985,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/komodor/build/Dockerfile.mcp
     container_name: mcp-komodor
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request, json; req = urllib.request.Request('http://localhost:8000/mcp/v1', data=json.dumps({'jsonrpc':'2.0','id':'health','method':'ping'}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req, timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1127,13 +1045,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/pagerduty/build/Dockerfile.a2a
     container_name: agent-pagerduty-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1164,13 +1075,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp
     container_name: mcp-pagerduty
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request, json; req = urllib.request.Request('http://localhost:8000/mcp/v1', data=json.dumps({'jsonrpc':'2.0','id':'health','method':'ping'}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req, timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1233,13 +1137,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/slack/build/Dockerfile.a2a
     container_name: agent-slack-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1270,13 +1167,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/slack/build/Dockerfile.mcp
     container_name: mcp-slack
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request, json; req = urllib.request.Request('http://localhost:8000/mcp/v1', data=json.dumps({'jsonrpc':'2.0','id':'health','method':'ping'}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req, timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1305,13 +1195,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/webex/build/Dockerfile.a2a
     container_name: agent-webex-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1374,13 +1257,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/webex/build/Dockerfile.mcp
     container_name: mcp-webex
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request, json; req = urllib.request.Request('http://localhost:8000/mcp/v1', data=json.dumps({'jsonrpc':'2.0','id':'health','method':'ping'}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req, timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1407,13 +1283,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/splunk/build/Dockerfile.mcp
     container_name: mcp-splunk
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request, json; req = urllib.request.Request('http://localhost:8000/mcp/v1', data=json.dumps({'jsonrpc':'2.0','id':'health','method':'ping'}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req, timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1472,13 +1341,6 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/splunk/build/Dockerfile.a2a
     container_name: agent-splunk-p2p
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-tracing
@@ -1615,12 +1477,6 @@ services:
       dockerfile: ai_platform_engineering/agents/template/build/Dockerfile.a2a
     container_name: agent-petstore-p2p
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
-      interval: 30s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
     profiles:
       - p2p
       - p2p-basic

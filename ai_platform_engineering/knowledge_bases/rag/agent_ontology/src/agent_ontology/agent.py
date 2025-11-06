@@ -28,7 +28,7 @@ class OntologyAgent:
      agent follows to determine relations.
     """
 
-    def __init__(self, graph_db: GraphDB, ontology_graph_db: GraphDB, redis : redis.Redis, acceptance_threshold: float, rejection_threshold: float, 
+    def __init__(self, graph_db: GraphDB, ontology_graph_db: GraphDB, redis : redis.Redis, acceptance_threshold: float, rejection_threshold: float,
         min_count_for_eval: int, count_change_threshold_ratio: float, max_concurrent_processing: int, max_concurrent_evaluation: int, agent_recursion_limit: int = 5):
         """
         Initializes the OntologyAgent with the given parameters.
@@ -117,7 +117,7 @@ class OntologyAgent:
         if self.is_processing:
             self.logger.warning("Processing is already in progress, skipping this run")
             return None
-        
+
         self.is_processing = True
         self.processing_tasks_total = 0
         self.processed_tasks_count = 0
@@ -127,7 +127,7 @@ class OntologyAgent:
         entities = []
         for entity_type in entity_types:
             entities += await self.graph_db.find_entity(entity_type, {}, max_results=10000)
-        
+
         self.processing_tasks_total = len(entities)
         self.logger.info(f"Processing {len(entities)} entities for heuristics")
 
@@ -151,14 +151,14 @@ class OntologyAgent:
         await utils.gather(self.max_concurrent_processing, *tasks, logger=self.logger)
 
         self.is_processing = False
-    
+
 
     async def evaluate_all(self, rc_manager_current: RelationCandidateManager|None, rc_manager_new: RelationCandidateManager):
         """
         Evaluates all relations in the database.
-        :param rc_manager: The relation candidate manager to use. 
+        :param rc_manager: The relation candidate manager to use.
         This is meant to be run periodically to update the relations based on the heuristics.
-        """        
+        """
         self.logger.info("Evaluating all relations for heuristics_version_id: %s", rc_manager_new.heuristics_version_id)
         if self.is_evaluating:
             self.logger.warning("Evaluation is already in progress, skipping this run")
@@ -187,17 +187,17 @@ class OntologyAgent:
         new_relation_candidates = await rc_manager_new.fetch_all_candidates()
         self.evaluation_tasks_total = len(new_relation_candidates)
         self.logger.info(f"Found {len(new_relation_candidates)} relation candidates to evaluate")
-        
+
         # Create tasks for each relation candidate if they pass requirements
         tasks = []
         index = 0
         for rel_id, new_candidate in new_relation_candidates.items():
-            
+
             # Check if there is an existing relation candidate
             current_relation = None
             if rc_manager_current:
                 current_relation = current_relation_candidates.get(rel_id, None)
-            
+
             # Check if an existing relation exists and has an evaluation
             if current_relation and current_relation.evaluation:
                 # Check if heurisitics changed from last evaluation
@@ -216,7 +216,7 @@ class OntologyAgent:
                     if count_distance < self.count_change_threshold_ratio:
                         self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count change ratio {count_distance:.3f} is below threshold {self.count_change_threshold_ratio}.")
                         continue
-            
+
             # Skip if the absolute count is less than the min required
             if new_candidate.heuristic.count < self.min_count_for_eval:
                 self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count is {new_candidate.heuristic.count} which is below the minimum count for evaluation.")
@@ -253,7 +253,7 @@ class OntologyAgent:
                 logger.warning(f"Candidate for relation {relation_id} not found, skipping evaluation.")
                 return
 
-           
+
             self.logger.info(f"Evaluating {candidate.relation_id} with count {candidate.heuristic.count}.")
             c = await rc_manager.fetch_candidate(relation_id)
             if c is None:
@@ -302,14 +302,14 @@ class OntologyAgent:
         logger.info(f"Evaluating relation candidate {relation_id} for heuristics_version_id: {rc_manager.heuristics_version_id}")
         if candidate and relation_id != "":
             raise ValueError("Relation and relation_id cannot both be provided")
-        
+
         # Fetch the candidate if relation_id is provided
         if relation_id != "":
             candidate = await rc_manager.fetch_candidate(relation_id)
             if candidate is None:
                 logger.error(f"Relation candidate {relation_id} is None, skipping evaluation.")
                 return
-        
+
         # If candidate is not provided, we cannot evaluate
         if candidate is None:
             raise ValueError("Relation candidate is None, cannot evaluate")
@@ -336,10 +336,10 @@ class OntologyAgent:
             matching_properties[prop.entity_a_property] = prop.entity_b_idkey_property
             property_counts[prop.entity_a_property] = await self.graph_db.get_property_value_count(candidate.heuristic.entity_a_type, prop.entity_a_property, None)
             property_values[prop.entity_a_property] = await self.graph_db.get_values_of_matching_property(
-                candidate.heuristic.entity_a_type, 
+                candidate.heuristic.entity_a_type,
                 prop.entity_a_property,
-                candidate.heuristic.entity_b_type, 
-                matching_properties, 
+                candidate.heuristic.entity_b_type,
+                matching_properties,
                 max_results=5)
 
         entity_types = await self.graph_db.get_all_entity_types()
@@ -380,7 +380,7 @@ class OntologyAgent:
                 ]},
                 {"recursion_limit": self.agent_recursion_limit}
             )
-            
+
             ai_thought = ""
             for msg in resp["messages"]:
                 if isinstance(msg, AIMessage):
@@ -407,8 +407,8 @@ class OntologyAgent:
         await rc_manager.update_evaluation(
             relation_id=candidate.relation_id,
             relation_name=fkey_agent_response.relation_name.replace(" ", "_").upper(),
-            relation_confidence=float(fkey_agent_response.relation_confidence), 
-            justification=str(fkey_agent_response.justification), 
+            relation_confidence=float(fkey_agent_response.relation_confidence),
+            justification=str(fkey_agent_response.justification),
             thought=ai_thought,
             entity_a_property_values=property_values,
             entity_a_property_counts=property_counts,

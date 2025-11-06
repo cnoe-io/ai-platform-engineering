@@ -217,7 +217,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
       if trace_id:
         logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
       else:
-        logger.warning("A2ARemoteAgentConnectTool: No trace_id available from any source")
+        logger.debug("A2ARemoteAgentConnectTool: No trace_id available from any source")
 
     if self._client is None:
       logger.info("A2AClient not initialized. Connecting now...")

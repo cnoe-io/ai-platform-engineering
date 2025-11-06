@@ -38,7 +38,7 @@ def main(host: str | None, port: int | None):
     )
 
     server = A2AStarletteApplication(
-        agent_card=get_agent_card(host, port), 
+        agent_card=get_agent_card(host, port),
         http_handler=request_handler
     )
     app = server.build()
@@ -58,17 +58,17 @@ def main(host: str | None, port: int | None):
 def get_agent_card(host: str, port: int) -> AgentCard:
     """Returns the Agent Card for the AWS Agent with multi-MCP support."""
     import os
-    
+
     # Check which MCP servers are enabled
     enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
     enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "true").lower() == "true"
     enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "true").lower() == "true"
-    
+
     capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-    
+
     # Build skills based on enabled MCP servers
     skills = []
-    
+
     if enable_eks_mcp:
         eks_skill = AgentSkill(
             id='aws-eks',
@@ -87,7 +87,7 @@ def get_agent_card(host: str, port: int) -> AgentCard:
             ],
         )
         skills.append(eks_skill)
-    
+
     if enable_cost_explorer_mcp:
         cost_skill = AgentSkill(
             id='aws-cost',
@@ -106,7 +106,7 @@ def get_agent_card(host: str, port: int) -> AgentCard:
             ],
         )
         skills.append(cost_skill)
-    
+
     if enable_iam_mcp:
         iam_skill = AgentSkill(
             id='aws-iam',
@@ -127,22 +127,22 @@ def get_agent_card(host: str, port: int) -> AgentCard:
             ],
         )
         skills.append(iam_skill)
-    
+
     # Build description based on enabled capabilities
     description_parts = ["AI agent for comprehensive AWS management including:"]
-    
+
     if enable_eks_mcp:
         description_parts.append(" Amazon EKS cluster management and Kubernetes operations,")
-    
+
     if enable_cost_explorer_mcp:
         description_parts.append(" cost analysis and optimization,")
-    
+
     if enable_iam_mcp:
         description_parts.append(" IAM security and access management,")
-    
+
     description_parts.append(" using AWS native tools and best practices.")
     description = "".join(description_parts)
-    
+
     return AgentCard(
         name='AWS Agent',
         description=description,

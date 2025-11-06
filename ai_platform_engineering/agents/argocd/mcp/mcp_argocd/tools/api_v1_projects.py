@@ -13,20 +13,34 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def project_list(param_name: str = None, summary_only: bool = True, limit: int = 100) -> Dict[str, Any]:
+async def project_list(
+    param_name: str = None, 
+    summary_only: bool = True, 
+    page: int = 1,
+    page_size: int = 20
+) -> Dict[str, Any]:
     '''
-    List returns a list of projects.
+    List returns a paginated list of projects.
 
     Args:
-        param_name (str, optional): OpenAPI parameter corresponding to 'param_name'. Defaults to None.
+        param_name (str, optional): Filter by project name. Defaults to None.
         summary_only (bool, optional): If True, return only summary information (default: True).
-        limit (int, optional): Maximum number of projects to return (default: 100).
+        page (int, optional): Page number (1-indexed, default: 1).
+        page_size (int, optional): Number of items per page (default: 20, max: 100).
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call containing the list of projects.
-
-    Raises:
-        Exception: If the API request fails or returns an error.
+        Dict[str, Any]: Paginated list of projects with metadata:
+        {
+            "items": [...],
+            "pagination": {
+                "page": 1,
+                "page_size": 20,
+                "total_items": 50,
+                "total_pages": 3,
+                "has_next": true,
+                "has_prev": false
+            }
+        }
     '''
     logger.debug("Making GET request to /api/v1/projects")
 
@@ -35,8 +49,6 @@ async def project_list(param_name: str = None, summary_only: bool = True, limit:
 
     if param_name is not None:
         params["name"] = str(param_name).lower() if isinstance(param_name, bool) else param_name
-
-    # Note: ArgoCD API doesn't support limit parameter, so we'll handle it in application logic
 
     flat_body = {}
     data = assemble_nested_body(flat_body)
@@ -47,16 +59,50 @@ async def project_list(param_name: str = None, summary_only: bool = True, limit:
         logger.error(f"Request failed: {response.get('error')}")
         return {"error": response.get("error", "Request failed")}
 
+    # Enforce pagination limits
+    page = max(1, page)
+    page_size = min(100, max(1, page_size))
+
+    all_items = response.get("items", [])
+    total_items = len(all_items)
+    total_pages = (total_items + page_size - 1) // page_size
+
+    # Calculate pagination slice
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    # Check if page is out of bounds
+    if start_idx >= total_items and total_items > 0:
+        return {
+            "error": f"Page {page} out of bounds. Total pages: {total_pages}",
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": total_pages,
+                "has_next": False,
+                "has_prev": page > 1
+            }
+        }
+
+    paginated_items = all_items[start_idx:end_idx]
+
+    # Build pagination metadata
+    pagination_meta = {
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
+        "showing_from": start_idx + 1 if paginated_items else 0,
+        "showing_to": start_idx + len(paginated_items)
+    }
+
     # If summary_only is True, return only essential information
-    if summary_only and "items" in response:
+    if summary_only:
         summary_items = []
-        projects = response["items"]
-
-        # Apply limit in application logic since ArgoCD API doesn't support it
-        if limit is not None and limit > 0:
-            projects = projects[:limit]
-
-        for project in projects:
+        for project in paginated_items:
             summary_item = {
                 "name": project.get("metadata", {}).get("name", ""),
                 "description": project.get("spec", {}).get("description", ""),
@@ -76,18 +122,14 @@ async def project_list(param_name: str = None, summary_only: bool = True, limit:
 
         return {
             "items": summary_items,
-            "total": len(summary_items),
-            "summary_only": True,
-            "limit_applied": limit is not None
+            "pagination": pagination_meta,
+            "summary_only": True
         }
 
-    # Handle limit for full response as well
-    if "items" in response and limit is not None and limit > 0:
-        response["items"] = response["items"][:limit]
-        response["total"] = len(response["items"])
-        response["limit_applied"] = True
-
-    return response
+    return {
+        "items": paginated_items,
+        "pagination": pagination_meta
+    }
 
 
 async def project_create(
