@@ -66,8 +66,11 @@ def verify_token(token: str) -> bool:
     """
     try:
         header = jwt.get_unverified_header(token)
-    except InvalidTokenError:
-        logger.warning("Invalid token header")
+    except InvalidTokenError as e:
+        logger.warning(f"Invalid token header: {e}")
+        return False
+    except Exception as e:
+        logger.warning(f"Unexpected error parsing token header: {e}")
         return False
 
     kid = header.get("kid")
@@ -144,6 +147,11 @@ class OAuth2Middleware(BaseHTTPMiddleware):
         :return:
         """
         path = request.url.path
+
+        # Allow OPTIONS requests (CORS preflight) without authentication
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         for header_name, header_value in request.headers.items():
             if header_name.lower() == 'authorization' and not DEBUG_UNMASK_AUTH_HEADER:
                 # Mask the Authorization header for security
