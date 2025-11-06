@@ -226,10 +226,10 @@ class BaseStrandsAgent(ABC):
     ) -> Tuple[List[Any], List[Tuple[str, MCPClient]]]:
         """
         Initialize multiple MCP clients in parallel with retry logic.
-        
+
         Args:
             mcp_clients_with_names: List of (name, client) tuples
-            
+
         Returns:
             Tuple of (aggregated_tools, successful_clients)
         """
@@ -239,7 +239,7 @@ class BaseStrandsAgent(ABC):
         async def init_single_client(name: str, client: MCPClient):
             """Initialize a single MCP client with retry logic."""
             last_err = None
-            
+
             for attempt in range(1, max_retries + 1):
                 try:
                     # Run sync operations in thread pool
@@ -247,7 +247,7 @@ class BaseStrandsAgent(ABC):
                     tools = await asyncio.to_thread(client.list_tools_sync)
                     logger.info(f"Retrieved {len(tools)} tools from MCP server '{name}' (attempt {attempt})")
                     return (name, client, ctx, tools, None)  # Success
-                    
+
                 except Exception as e:
                     last_err = e
                     logger.warning(
@@ -255,7 +255,7 @@ class BaseStrandsAgent(ABC):
                     )
                     if attempt < max_retries:
                         await asyncio.sleep(backoff_s * attempt)
-            
+
             # All retries failed
             logger.warning(
                 f"MCP server '{name}' failed to initialize after {max_retries} attempts. "
@@ -273,13 +273,13 @@ class BaseStrandsAgent(ABC):
         # Aggregate results
         aggregated_tools = []
         successful_clients = []
-        
+
         for result in results:
             # Handle exceptions from gather
             if isinstance(result, Exception):
                 logger.error(f"Unexpected exception during MCP client initialization: {result}")
                 continue
-            
+
             name, client, ctx, tools, error = result
             if error is None and ctx is not None:
                 # Success
@@ -287,7 +287,7 @@ class BaseStrandsAgent(ABC):
                 successful_clients.append((name, client))
                 aggregated_tools.extend(tools)
             # Failures are already logged in init_single_client
-        
+
         return aggregated_tools, successful_clients
 
     def _create_strands_agent(self, tools: List[Any]) -> Agent:

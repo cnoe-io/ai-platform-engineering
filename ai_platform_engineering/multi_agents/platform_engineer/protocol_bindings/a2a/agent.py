@@ -50,7 +50,7 @@ class AIPlatformEngineerA2ABinding:
 
   @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
-      logging.info(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
+      logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
       # Reset execution plan state for each new stream
       self._execution_plan_sent = False
       inputs = {'messages': [('user', query)]}
@@ -62,17 +62,17 @@ class AIPlatformEngineerA2ABinding:
 
       if trace_id:
           config['metadata']['trace_id'] = trace_id
-          logging.info(f"Added trace_id to config metadata: {trace_id}")
+          logging.debug(f"Added trace_id to config metadata: {trace_id}")
       else:
           # Try to get trace_id from TracingManager context if not provided
           current_trace_id = self.tracing.get_trace_id()
           if current_trace_id:
               config['metadata']['trace_id'] = current_trace_id
-              logging.info(f"Added trace_id from context to config metadata: {current_trace_id}")
+              logging.debug(f"Added trace_id from context to config metadata: {current_trace_id}")
           else:
-              logging.warning("No trace_id available from parameter or context")
+              logging.debug("No trace_id available from parameter or context")
 
-      logging.info(f"Created tracing config: {config}")
+      logging.debug(f"Created tracing config: {config}")
 
       try:
           # Use astream with multiple stream modes to get both token-level streaming AND custom events

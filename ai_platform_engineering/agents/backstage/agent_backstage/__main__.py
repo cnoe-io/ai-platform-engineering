@@ -90,11 +90,8 @@ async def async_main(host: str, port: int):
             allow_headers=["*"],  # Allow all headers
         )
 
-        # Configure uvicorn access log to DEBUG level for health checks
-        access_logger = logging.getLogger("uvicorn.access")
-        access_logger.setLevel(logging.DEBUG)
-        
-        config = uvicorn.Config(app, host=host, port=port, access_log=True)
+        # Disable uvicorn access logs to reduce noise from health checks
+        config = uvicorn.Config(app, host=host, port=port, access_log=False)
         server = uvicorn.Server(config=config)
         await server.serve()
 

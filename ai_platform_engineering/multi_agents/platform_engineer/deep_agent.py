@@ -1,11 +1,15 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
+import json
 import logging
 import uuid
 import os
 import threading
+from functools import wraps
 from langchain_core.messages import AIMessage
+from langchain_core.tools import Tool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 from cnoe_agent_utils import LLMFactory
@@ -14,6 +18,7 @@ from cnoe_agent_utils import LLMFactory
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
 from ai_platform_engineering.multi_agents.tools import reflect_on_output
+from ai_platform_engineering.utils.a2a_common.tool_output_manager import get_tool_output_manager
 from deepagents import async_create_deep_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -85,6 +90,7 @@ class AIPlatformEngineerMAS:
         "registry_status": platform_registry.get_registry_status()
       }
 
+
   def _build_graph(self) -> None:
     """
     Internal method to construct and compile a DeepAgents graph with current agents.
@@ -111,27 +117,19 @@ class AIPlatformEngineerMAS:
     logger.info(f'📦 Tools: {[t.name for t in all_tools]}')
     logger.info(f'🤖 Subagents: {[s["name"] for s in subagents]}')
 
-    # Create the Deep Agent with HYBRID architecture
-    # A2A tools passed to BOTH supervisor and subagents:
-    # - Supervisor has tools for visibility (tool_call/tool_result events stream properly)
-    # - Subagents provide delegation interface via task() tool (for write_todos workflow)
-    # - System prompt enforces TODO-based execution plan workflow
-    # - reflect_on_output tool provides mandatory output validation
-    #
-    # KNOWN ISSUE: First request may complete without calling write_todos
-    # - LLMs can ignore prompt requirements and complete without tool calls
-    # - Second request typically works correctly
-    # - Cannot use tool_choice="any" (would create infinite loop on all calls)
-    # - Potential solutions:
-    #   1. Pre-warm with dummy request
-    #   2. Custom state_modifier (not supported by create_react_agent)
-    #   3. Accept as LLM limitation and document
+    # Create the Deep Agent with CUSTOM SUBAGENT architecture
+    # Each A2A agent is a pre-created react agent (CustomSubAgent) with ONE A2ARemoteAgentConnectTool
+    # Benefits:
+    # - Main supervisor has NO direct A2A tools (avoids conflicts with write_todos)
+    # - Proper task delegation via task() tool (supervisor manages TODOs, delegates to subagents)
+    # - Token-by-token streaming from subagents
+    # - A2A protocol maintained (each subagent uses its A2ARemoteAgentConnectTool)
+
     deep_agent = async_create_deep_agent(
       tools=all_tools,  # A2A tools + reflect_on_output for validation
       instructions=system_prompt,  # System prompt enforces TODO-based execution workflow
       subagents=subagents,  # CustomSubAgents for proper task() delegation
       model=base_model
-      # response_format=PlatformEngineerResponse
     )
 
     # Check if LANGGRAPH_DEV is defined in the environment
