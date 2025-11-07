@@ -1,5 +1,9 @@
 # CopilotKit-Style Metadata Input Implementation
 
+**Status**: 🟡 Proposed (Superseded by 2025-11-07-user-input-metadata-format.md with UserInputMetaData prefix)
+**Category**: Features & Enhancements
+**Date**: October 31, 2025
+
 ## Overview
 
 This implementation adds dynamic metadata input forms to the Agent Forge UI, similar to CopilotKit's interface. When the agent requires user input, a compact, interactive form is displayed with the appropriate input fields.
@@ -91,7 +95,7 @@ Detects metadata in `artifact-update` events:
 if (event.artifact?.metadata && Object.keys(event.artifact.metadata).length > 0) {
   // Convert metadata to MetadataField format
   const metadataFields = Object.entries(event.artifact.metadata).map(...)
-  
+
   // Add bot message with metadata request
   addMessageToSession({
     text: textPart.text,

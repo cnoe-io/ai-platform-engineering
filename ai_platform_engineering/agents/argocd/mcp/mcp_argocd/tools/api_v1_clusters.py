@@ -14,22 +14,39 @@ logger = logging.getLogger("mcp_tools")
 
 
 async def cluster_service__list(
-    param_server: str = None, param_name: str = None, param_id_type: str = None, param_id_value: str = None
+    param_server: str = None, 
+    param_name: str = None, 
+    param_id_type: str = None, 
+    param_id_value: str = None,
+    summary_only: bool = True,
+    page: int = 1,
+    page_size: int = 20
 ) -> Dict[str, Any]:
     '''
-    List returns a list of clusters.
+    List returns a paginated list of clusters.
 
     Args:
-        param_server (str, optional): OpenAPI parameter corresponding to 'param_server'. Defaults to None.
-        param_name (str, optional): OpenAPI parameter corresponding to 'param_name'. Defaults to None.
+        param_server (str, optional): Filter by cluster server URL. Defaults to None.
+        param_name (str, optional): Filter by cluster name. Defaults to None.
         param_id_type (str, optional): Type of the specified cluster identifier ("server" - default, "name"). Defaults to None.
         param_id_value (str, optional): Value holds the cluster server URL or cluster name. Defaults to None.
+        summary_only (bool, optional): If True, return only summary information (default: True).
+        page (int, optional): Page number (1-indexed, default: 1).
+        page_size (int, optional): Number of items per page (default: 20, max: 100).
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call containing the list of clusters.
-
-    Raises:
-        Exception: If the API request fails or returns an error.
+        Dict[str, Any]: Paginated list of clusters with metadata:
+        {
+            "items": [...],
+            "pagination": {
+                "page": 1,
+                "page_size": 20,
+                "total_items": 15,
+                "total_pages": 1,
+                "has_next": false,
+                "has_prev": false
+            }
+        }
     '''
     logger.debug("Making GET request to /api/v1/clusters")
 
@@ -56,7 +73,76 @@ async def cluster_service__list(
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
         return {"error": response.get("error", "Request failed")}
-    return response
+
+    # Enforce pagination limits
+    page = max(1, page)
+    page_size = min(100, max(1, page_size))
+
+    all_items = response.get("items", [])
+    total_items = len(all_items)
+    total_pages = (total_items + page_size - 1) // page_size
+
+    # Calculate pagination slice
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    # Check if page is out of bounds
+    if start_idx >= total_items and total_items > 0:
+        return {
+            "error": f"Page {page} out of bounds. Total pages: {total_pages}",
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": total_pages,
+                "has_next": False,
+                "has_prev": page > 1
+            }
+        }
+
+    paginated_items = all_items[start_idx:end_idx]
+
+    # Build pagination metadata
+    pagination_meta = {
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
+        "showing_from": start_idx + 1 if paginated_items else 0,
+        "showing_to": start_idx + len(paginated_items)
+    }
+
+    # If summary_only is True, return only essential information
+    if summary_only:
+        summary_items = []
+        for cluster in paginated_items:
+            summary_item = {
+                "name": cluster.get("name", ""),
+                "server": cluster.get("server", ""),
+                "namespaces": cluster.get("namespaces", []),
+                "cluster_resources": cluster.get("clusterResources", False),
+                "project": cluster.get("project", ""),
+                "labels": cluster.get("labels", {}),
+                "annotations": cluster.get("annotations", {}),
+                "shard": cluster.get("shard", ""),
+                "server_version": cluster.get("info", {}).get("serverVersion", ""),
+                "connection_status": cluster.get("info", {}).get("connectionState", {}).get("status", ""),
+                "applications_count": cluster.get("info", {}).get("applicationsCount", 0),
+            }
+            summary_items.append(summary_item)
+
+        return {
+            "items": summary_items,
+            "pagination": pagination_meta,
+            "summary_only": True
+        }
+
+    return {
+        "items": paginated_items,
+        "pagination": pagination_meta
+    }
 
 
 async def cluster_service__create(

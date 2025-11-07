@@ -14,22 +14,37 @@ logger = logging.getLogger("mcp_tools")
 
 
 async def applicationset_list(
-    param_projects: List[str] = None, param_selector: str = None, param_appsetNamespace: str = None, summary_only: bool = True
+    param_projects: List[str] = None, 
+    param_selector: str = None, 
+    param_appsetNamespace: str = None, 
+    summary_only: bool = True,
+    page: int = 1,
+    page_size: int = 20
 ) -> Dict[str, Any]:
     '''
-    List returns a list of applicationsets.
+    List returns a paginated list of applicationsets.
 
     Args:
         param_projects (List[str], optional): The project names to restrict the returned list of applicationsets. Defaults to None.
         param_selector (str, optional): The selector to restrict the returned list to applications only with matched labels. Defaults to None.
         param_appsetNamespace (str, optional): The application set namespace. If not provided, defaults to the ArgoCD control plane namespace. Defaults to None.
         summary_only (bool, optional): If True, return only summary information (default: True).
+        page (int, optional): Page number (1-indexed, default: 1).
+        page_size (int, optional): Number of items per page (default: 20, max: 100).
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call containing the list of applicationsets.
-
-    Raises:
-        Exception: If the API request fails or returns an error.
+        Dict[str, Any]: Paginated list of applicationsets with metadata:
+        {
+            "items": [...],
+            "pagination": {
+                "page": 1,
+                "page_size": 20,
+                "total_items": 50,
+                "total_pages": 3,
+                "has_next": true,
+                "has_prev": false
+            }
+        }
     '''
     logger.debug("Making GET request to /api/v1/applicationsets")
 
@@ -56,10 +71,50 @@ async def applicationset_list(
         logger.error(f"Request failed: {response.get('error')}")
         return {"error": response.get("error", "Request failed")}
 
+    # Enforce pagination limits
+    page = max(1, page)
+    page_size = min(100, max(1, page_size))
+
+    all_items = response.get("items", [])
+    total_items = len(all_items)
+    total_pages = (total_items + page_size - 1) // page_size
+
+    # Calculate pagination slice
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    # Check if page is out of bounds
+    if start_idx >= total_items and total_items > 0:
+        return {
+            "error": f"Page {page} out of bounds. Total pages: {total_pages}",
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": total_pages,
+                "has_next": False,
+                "has_prev": page > 1
+            }
+        }
+
+    paginated_items = all_items[start_idx:end_idx]
+
+    # Build pagination metadata
+    pagination_meta = {
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
+        "showing_from": start_idx + 1 if paginated_items else 0,
+        "showing_to": start_idx + len(paginated_items)
+    }
+
     # If summary_only is True, return only essential information
-    if summary_only and "items" in response:
+    if summary_only:
         summary_items = []
-        for appset in response["items"]:
+        for appset in paginated_items:
             summary_item = {
                 "name": appset.get("metadata", {}).get("name", ""),
                 "namespace": appset.get("metadata", {}).get("namespace", ""),
@@ -81,11 +136,14 @@ async def applicationset_list(
 
         return {
             "items": summary_items,
-            "total": response.get("total", len(summary_items)),
+            "pagination": pagination_meta,
             "summary_only": True
         }
 
-    return response
+    return {
+        "items": paginated_items,
+        "pagination": pagination_meta
+    }
 
 
 async def applicationset_create(

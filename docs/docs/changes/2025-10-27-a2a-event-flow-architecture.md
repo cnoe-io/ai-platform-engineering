@@ -1,5 +1,9 @@
 # A2A Event Flow Architecture - Complete Analysis
 
+**Status**: 🟢 In-use
+**Category**: Architecture & Core Design
+**Date**: October 27, 2025
+
 ## Overview
 
 This document provides a thorough analysis of the Agent-to-Agent (A2A) protocol event flow in the CAIPE platform, from end client through supervisor to sub-agents, documenting actual event types, streaming behavior, and data flow patterns.
@@ -22,72 +26,72 @@ MCP Server (ArgoCD tools)
 flowchart TD
     %% Client Layer
     Client["👤 End Client<br/>Browser/CLI"]
-    
+
     %% Supervisor Layer
     SupervisorAPI["🎛️ Supervisor API<br/>:8000 /message/stream"]
     SupervisorLLM["🧠 LLM Engine<br/>Claude/GPT/Gemini"]
     SupervisorLangGraph["📊 LangGraph<br/>Agent Orchestration"]
-    
+
     %% Sub-Agent Layer
     SubAgentAPI["🤖 Sub-Agent API<br/>:8001 /message/stream"]
     SubAgentLangGraph["📊 LangGraph<br/>Tool Orchestration"]
-    
+
     %% MCP Layer
     MCPClient["🔌 MCP Client<br/>stdio/http"]
     MCPServer["🔧 MCP Server<br/>Tool Definitions"]
-    
+
     %% Tool Layer
     Tools["⚙️ Actual Tools<br/>ArgoCD API, kubectl, etc."]
-    
+
     %% Flow: Client to Supervisor
     Client -->|"POST<br/>{role:user,text:query}"| SupervisorAPI
     SupervisorAPI -->|"SSE Response<br/>task:submitted"| Client
-    
+
     %% Flow: Supervisor Processing
     SupervisorAPI --> SupervisorLangGraph
     SupervisorLangGraph --> SupervisorLLM
     SupervisorLLM -->|"Token Stream<br/>Execution Plan ⟦⟧"| SupervisorAPI
     SupervisorAPI -->|"artifact-update<br/>execution_plan_streaming<br/>append=false/true"| Client
-    
+
     %% Flow: Supervisor calls Sub-Agent
     SupervisorLLM -->|"Tool Call<br/>argocd tool"| SupervisorLangGraph
     SupervisorLangGraph -->|"artifact-update<br/>tool_notification_start"| SupervisorAPI
     SupervisorAPI -->|"🔧 Calling Agent..."| Client
-    
+
     SupervisorLangGraph -->|"A2A POST<br/>{role:user,text:query}"| SubAgentAPI
-    
+
     %% Flow: Sub-Agent Processing
     SubAgentAPI --> SubAgentLangGraph
     SubAgentLangGraph --> MCPClient
     MCPClient -->|"MCP Request<br/>get_version"| MCPServer
     MCPServer --> Tools
-    
+
     %% Flow: Tool Response
     Tools -->|"API Response<br/>version data"| MCPServer
     MCPServer -->|"MCP Response<br/>formatted data"| MCPClient
     MCPClient --> SubAgentLangGraph
-    
+
     %% Flow: Sub-Agent Streaming
     SubAgentLangGraph -->|"Token Stream<br/>Each character"| SubAgentAPI
     SubAgentAPI -->|"status-update<br/>state:working<br/>text:'H','e','r','e'..."| SupervisorLangGraph
-    
+
     %% Flow: Supervisor Forwards to Client
     SupervisorLangGraph --> SupervisorAPI
     SupervisorAPI -->|"artifact-update<br/>streaming_result<br/>append=false/true"| Client
-    
+
     %% Flow: Completion
     SubAgentAPI -->|"status-update<br/>final:true<br/>state:completed"| SupervisorLangGraph
     SupervisorLangGraph --> SupervisorAPI
     SupervisorAPI -->|"artifact-update<br/>partial_result<br/>lastChunk:true"| Client
     SupervisorAPI -->|"status-update<br/>final:true"| Client
-    
+
     %% Styling
     classDef clientLayer fill:#e1f5ff,stroke:#01579b,stroke-width:2px
     classDef supervisorLayer fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
     classDef subagentLayer fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
     classDef mcpLayer fill:#fff3e0,stroke:#e65100,stroke-width:2px
     classDef toolLayer fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-    
+
     class Client clientLayer
     class SupervisorAPI,SupervisorLLM,SupervisorLangGraph supervisorLayer
     class SubAgentAPI,SubAgentLangGraph subagentLayer
@@ -103,11 +107,11 @@ sequenceDiagram
     participant Super as 🎛️ Supervisor<br/>(platform-engineer-p2p:8000)
     participant SubAgent as 🤖 Sub-Agent<br/>(agent-argocd-p2p:8001)
     participant MCP as 🔧 MCP Server<br/>(ArgoCD Tools)
-    
+
     Note over Client,MCP: Phase 1: Task Submission
     Client->>Super: POST /message/stream<br/>{"role":"user","text":"show argocd version"}
     Super-->>Client: task: {"kind":"task","status":"submitted"}
-    
+
     Note over Client,MCP: Phase 2: Execution Plan Streaming
     Super->>Super: LLM generates plan
     Super-->>Client: artifact-update: execution_plan_streaming<br/>append=false, text="⟦"
@@ -116,17 +120,17 @@ sequenceDiagram
     Super-->>Client: ... (streaming token by token)
     Super-->>Client: artifact-update: execution_plan_streaming<br/>append=true, text="⟧"
     Super-->>Client: artifact-update: execution_plan_update<br/>Complete plan content
-    
+
     Note over Client,MCP: Phase 3: Tool Notification
     Super->>Super: LLM calls argocd tool
     Super-->>Client: artifact-update: tool_notification_start<br/>"🔧 Supervisor: Calling Agent Argocd..."
-    
+
     Note over Client,MCP: Phase 4: Sub-Agent Communication
     Super->>SubAgent: POST /message/stream<br/>A2A protocol
     SubAgent->>SubAgent: LangGraph processes
     SubAgent->>MCP: MCP tool call: get_version
     MCP-->>SubAgent: Return version data
-    
+
     Note over Client,MCP: Phase 5: Sub-Agent Streaming Response
     SubAgent-->>Super: status-update: state=working<br/>{"text":"🔧 Calling tool..."}
     SubAgent-->>Super: status-update: state=working<br/>{"text":"✅ Tool completed"}
@@ -136,7 +140,7 @@ sequenceDiagram
     SubAgent-->>Super: status-update: state=working<br/>{"text":"v3.1.8+becb020"}
     SubAgent-->>Super: artifact-update: current_result<br/>lastChunk=true
     SubAgent-->>Super: status-update: final=true<br/>state=completed
-    
+
     Note over Client,MCP: Phase 6: Supervisor Streams Sub-Agent Response
     Super-->>Client: artifact-update: streaming_result<br/>append=false, text="Here..."
     Super-->>Client: artifact-update: streaming_result<br/>append=true, text="is..."
@@ -150,8 +154,8 @@ sequenceDiagram
 ### 1. Task Events
 
 #### Task Submission (`kind: "task"`)
-**Direction**: Supervisor → Client  
-**When**: Immediately after request received  
+**Direction**: Supervisor → Client
+**When**: Immediately after request received
 **Structure**:
 ```json
 {
@@ -180,8 +184,8 @@ sequenceDiagram
 ### 2. Artifact Update Events (`kind: "artifact-update"`)
 
 #### Execution Plan Streaming (`name: "execution_plan_streaming"`)
-**Direction**: Supervisor → Client  
-**When**: LLM generates execution plan  
+**Direction**: Supervisor → Client
+**When**: LLM generates execution plan
 **Streaming Type**: **Token-by-token streaming with append flags**
 
 **First Chunk**:
@@ -226,8 +230,8 @@ sequenceDiagram
 - ✅ Each chunk contains 1-10 characters
 
 #### Execution Plan Complete (`name: "execution_plan_update"`)
-**Direction**: Supervisor → Client  
-**When**: After execution plan streaming completes  
+**Direction**: Supervisor → Client
+**When**: After execution plan streaming completes
 **Streaming Type**: **Single complete chunk**
 
 ```json
@@ -255,8 +259,8 @@ sequenceDiagram
 - ✅ Contains complete plan text
 
 #### Tool Notifications (`name: "tool_notification_start"`, `"tool_notification_complete"`)
-**Direction**: Supervisor → Client  
-**When**: Tool (sub-agent) invocation starts/ends  
+**Direction**: Supervisor → Client
+**When**: Tool (sub-agent) invocation starts/ends
 **Streaming Type**: **Single-event notifications**
 
 **Start Notification**:
@@ -284,8 +288,8 @@ sequenceDiagram
 - ✅ User-friendly emoji prefixes
 
 #### Streaming Result (`name: "streaming_result"`)
-**Direction**: Supervisor → Client  
-**When**: Forwarding sub-agent response tokens  
+**Direction**: Supervisor → Client
+**When**: Forwarding sub-agent response tokens
 **Streaming Type**: **Token-by-token streaming with append flags**
 
 **First Chunk**:
@@ -326,8 +330,8 @@ sequenceDiagram
 - ✅ `append=false` for first, `append=true` for rest
 
 #### Partial Result (`name: "partial_result"`)
-**Direction**: Supervisor → Client  
-**When**: End of streaming sequence  
+**Direction**: Supervisor → Client
+**When**: End of streaming sequence
 **Streaming Type**: **Single complete result**
 
 ```json
@@ -357,8 +361,8 @@ sequenceDiagram
 ### 3. Status Update Events (`kind: "status-update"`)
 
 #### Sub-Agent Working Status
-**Direction**: Sub-Agent → Supervisor  
-**When**: During sub-agent processing  
+**Direction**: Sub-Agent → Supervisor
+**When**: During sub-agent processing
 **Streaming Type**: **Individual token events**
 
 ```json
@@ -390,8 +394,8 @@ sequenceDiagram
 - ✅ Can contain tool notifications: "🔧 Calling tool: version_service__version"
 
 #### Sub-Agent Final Status
-**Direction**: Sub-Agent → Supervisor  
-**When**: Sub-agent task complete  
+**Direction**: Sub-Agent → Supervisor
+**When**: Sub-agent task complete
 **Streaming Type**: **Single completion event**
 
 ```json
@@ -436,7 +440,7 @@ sequenceDiagram
 ## Token Streaming vs. Chunks
 
 ### Token-by-Token Streaming
-**Used for**: Execution plans, sub-agent responses  
+**Used for**: Execution plans, sub-agent responses
 **Mechanism**:
 1. First event: `append=false`, new `artifactId`
 2. Subsequent events: `append=true`, same `artifactId`
@@ -452,7 +456,7 @@ Result: "Here is"
 ```
 
 ### Single-Chunk Events
-**Used for**: Tool notifications, completion markers  
+**Used for**: Tool notifications, completion markers
 **Mechanism**:
 1. One event with complete content
 2. `append=false` (standalone)
@@ -605,7 +609,7 @@ Standalone:      append=false, artifactId="unique-id"
 ### Event Handling
 ```typescript
 // Handle execution plan streaming
-if (event.kind === "artifact-update" && 
+if (event.kind === "artifact-update" &&
     event.artifact.name === "execution_plan_streaming") {
   if (event.append === false) {
     // Create new plan display
@@ -617,14 +621,14 @@ if (event.kind === "artifact-update" &&
 }
 
 // Handle tool notifications
-if (event.kind === "artifact-update" && 
+if (event.kind === "artifact-update" &&
     event.artifact.name === "tool_notification_start") {
   // Show new notification (don't append)
   showNotification(event.artifact.parts[0].text);
 }
 
 // Handle streaming results
-if (event.kind === "artifact-update" && 
+if (event.kind === "artifact-update" &&
     event.artifact.name === "streaming_result") {
   if (event.append === false) {
     resultElement = createResultElement(event.artifact.artifactId);

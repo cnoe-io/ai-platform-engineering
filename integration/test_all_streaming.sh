@@ -10,14 +10,14 @@ echo "================================"
 echo ""
 echo "📡 Checking if services are running..."
 
-if ! curl -s http://localhost:8099/.well-known/agent.json > /dev/null; then
+if ! curl -s http://localhost:8099/.well-known/agent-card.json > /dev/null; then
     echo "❌ RAG agent (port 8099) is not running"
     echo "   Start with: docker-compose -f docker-compose.dev.yaml --profile p2p up -d agent_rag"
     exit 1
 fi
 echo "✅ RAG agent is running"
 
-if ! curl -s http://localhost:8080/.well-known/agent.json > /dev/null; then
+if ! curl -s http://localhost:8080/.well-known/agent-card.json > /dev/null; then
     echo "❌ Platform Engineer (port 8080) is not running"
     echo "   Start with: docker-compose -f docker-compose.dev.yaml --profile p2p up -d platform-engineer-p2p"
     exit 1

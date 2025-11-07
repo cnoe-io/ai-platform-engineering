@@ -1,6 +1,8 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
+import json
 import logging
 import os
 from typing import Any, Optional, Union, List
@@ -148,168 +150,242 @@ class A2ARemoteAgentConnectTool(BaseTool):
     raise NotImplementedError("Use _arun for async execution.")
 
   async def _arun(self, prompt: str, trace_id: Optional[str] = None) -> Any:
-    """
-    Asynchronously sends a prompt to the A2A agent and returns the response via streaming.
-    Streams A2A events (Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent) using get_stream_writer.
-    """
-    try:
-        logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
-        if not prompt:
-            logger.error("Invalid input: Prompt must be a non-empty string.")
-            raise ValueError("Invalid input: Prompt must be a non-empty string.")
+    """Execute remote agent call with retry, error detection, and human-in-loop support."""
 
-        # Use provided trace_id or try to get from TracingManager context
-        if trace_id:
-            logger.info(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
-        else:
-            tracing = TracingManager()
-            trace_id = tracing.get_trace_id() if tracing.is_enabled else None
-            if trace_id:
-                logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
-            else:
-                logger.warning("A2ARemoteAgentConnectTool: No trace_id available from any source")
+    max_attempts = int(os.getenv("A2A_REMOTE_MAX_RETRIES", "3"))
+    retry_delay = float(os.getenv("A2A_REMOTE_RETRY_DELAY_SECONDS", "5.0"))
+    writer = get_stream_writer()
 
-        if self._client is None:
-            logger.info("A2AClient not initialized. Connecting now...")
-            await self.connect()
+    last_error: Optional[str] = None
 
-        # Build message payload with optional trace_id in metadata
-        message_payload: dict[str, Any] = {
-            "message": {
-                "role": "user",
-                "parts": [{"kind": "text", "text": prompt}],
-                "message_id": uuid4().hex,
-            }
+    for attempt in range(max_attempts + 1):
+      try:
+        output, status, status_message = await self._execute_once(prompt, trace_id, writer)
+
+        if status and status.lower() == "error":
+          last_error = status_message or "Remote agent returned an error response."
+          logger.warning(f"{self.name} attempt {attempt + 1} failed with status=error: {last_error}")
+          if attempt < max_attempts:
+            writer({
+              "type": "a2a_event",
+              "data": f"⚠️ {self.name}: {last_error} (attempt {attempt + 1}/{max_attempts + 1}). Retrying..."
+            })
+            await asyncio.sleep(retry_delay)
+            continue
+          self._notify_failure(writer, last_error)
+          return Output(response=f"ERROR: {last_error}")
+
+        return output
+
+      except Exception as exc:  # noqa: BLE001
+        last_error = str(exc)
+        logger.error(f"{self.name} attempt {attempt + 1} raised exception: {last_error}")
+        if attempt < max_attempts:
+          writer({
+            "type": "a2a_event",
+            "data": f"⚠️ {self.name}: {last_error} (attempt {attempt + 1}/{max_attempts + 1}). Retrying..."
+          })
+          await asyncio.sleep(retry_delay)
+          continue
+        self._notify_failure(writer, last_error)
+        return Output(response=f"ERROR: {last_error}")
+
+    # Should never reach here, but return the last error as a fallback
+    fallback = last_error or "Unknown error"
+    self._notify_failure(writer, fallback)
+    return Output(response=f"ERROR: {fallback}")
+
+  async def _execute_once(
+      self,
+      prompt: str,
+      trace_id: Optional[str],
+      writer,
+  ) -> tuple[Output, Optional[str], Optional[str]]:
+    """Execute a single remote agent streaming call and return output with status info."""
+
+    logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
+    if not prompt:
+      logger.error("Invalid input: Prompt must be a non-empty string.")
+      raise ValueError("Invalid input: Prompt must be a non-empty string.")
+
+    # Use provided trace_id or try to get from TracingManager context
+    if trace_id:
+      logger.info(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
+    else:
+      tracing = TracingManager()
+      trace_id = tracing.get_trace_id() if tracing.is_enabled else None
+      if trace_id:
+        logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
+      else:
+        logger.debug("A2ARemoteAgentConnectTool: No trace_id available from any source")
+
+    if self._client is None:
+      logger.info("A2AClient not initialized. Connecting now...")
+      await self.connect()
+
+    message_payload: dict[str, Any] = {
+        "message": {
+            "role": "user",
+            "parts": [{"kind": "text", "text": prompt}],
+            "message_id": uuid4().hex,
         }
-        if trace_id:
-            message_payload["message"]["metadata"] = {"trace_id": trace_id}
-            logger.info(f"Adding trace_id to A2A message: {trace_id}")
+    }
+    if trace_id:
+      message_payload["message"]["metadata"] = {"trace_id": trace_id}
+      logger.info(f"Adding trace_id to A2A message: {trace_id}")
 
-        # Create streaming request
-        streaming_request = SendStreamingMessageRequest(
-            id=str(uuid4()),
-            params=MessageSendParams(**message_payload),
-        )
+    streaming_request = SendStreamingMessageRequest(
+        id=str(uuid4()),
+        params=MessageSendParams(**message_payload),
+    )
 
-        # Prepare stream writer
-        writer = get_stream_writer()
-        logger.info("Starting A2A streaming send_message.")
+    logger.info("Starting A2A streaming send_message.")
 
-        accumulated_text: list[str] = []
+    accumulated_text: list[str] = []
 
-        async for chunk in self._client.send_message_streaming(streaming_request):
-            try:
-                chunk_dump = chunk.model_dump(mode="json", exclude_none=True)
-            except Exception:
-                chunk_dump = str(chunk)
+    async for chunk in self._client.send_message_streaming(streaming_request):
+      try:
+        chunk_dump = chunk.model_dump(mode="json", exclude_none=True)
+      except Exception:
+        chunk_dump = str(chunk)
 
-            logger.info(f"Received A2A stream chunk: {chunk_dump}")
-            # Don't stream raw chunk_dump - we'll stream extracted text only at line 251
+      logger.debug(f"A2ARemoteAgentConnectTool: Received A2A stream chunk: {chunk_dump}")
 
-            try:
-                # The chunk is a SendStreamingMessageResponse Pydantic object
-                # The actual event data is in chunk.model_dump()['result']
-                # We already dumped it above as chunk_dump
-                result = chunk_dump.get('result') if isinstance(chunk_dump, dict) else None
-                if not result:
-                    logger.info("No result in chunk, skipping")
-                    continue
+      try:
+        result = chunk_dump.get('result') if isinstance(chunk_dump, dict) else None
+        if not result:
+          logger.info("No result in chunk, skipping")
+          continue
 
-                # Get event kind
-                kind = result.get('kind')
-                logger.debug(f"Received event: {result}")
-                if not kind:
-                    logger.info(f"No kind in result, skipping: {result}")
-                    continue
+        kind = result.get('kind')
+        logger.debug(f"Received event: {result}")
+        if not kind:
+          logger.info(f"No kind in result, skipping: {result}")
+          continue
 
-                # Extract and stream text from artifact-update events
-                if kind == "artifact-update":
-                    logger.info(f"Received artifact-update event: {result}")
-                    artifact = result.get('artifact')
-                    logger.info(f"🔍 artifact type: {type(artifact)}, is_dict: {isinstance(artifact, dict)}")
-                    if artifact and isinstance(artifact, dict):
-                        parts = artifact.get('parts', [])
-                        logger.info(f"🔍 parts count: {len(parts)}")
-                        for part in parts:
-                            logger.info(f"🔍 part type: {type(part)}, is_dict: {isinstance(part, dict)}")
-                            if isinstance(part, dict):
-                                text = part.get('text')
-                                logger.info(f"🔍 text extracted: '{text}', exists: {bool(text)}")
-                                if text:
-                                    accumulated_text.append(text)
-                                    logger.info(f"✅ Accumulated text from artifact-update: {len(text)} chars")
+        if kind == "artifact-update":
+          logger.debug(f"Received artifact-update event: {result}")
+          artifact = result.get('artifact')
+          logger.debug(f"🔍 artifact type: {type(artifact)}, is_dict: {isinstance(artifact, dict)}")
+          if artifact and isinstance(artifact, dict):
+            parts = artifact.get('parts', [])
+            logger.debug(f"🔍 parts count: {len(parts)}")
+            for part in parts:
+              logger.debug(f"🔍 part type: {type(part)}, is_dict: {isinstance(part, dict)}")
+              if isinstance(part, dict):
+                text = part.get('text')
+                logger.debug(f"🔍 text extracted: '{text}', exists: {bool(text)}")
+                if text:
+                  accumulated_text.append(text)
+                  logger.debug(f"✅ Accumulated text from artifact-update: {len(text)} chars")
 
-                                    # Check if artifact streaming is enabled (for agents like AWS that use artifact-update for streaming)
-                                    enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
-                                    
-                                    if enable_artifact_streaming:
-                                        # Stream the entire artifact-update result as-is (preserves A2A event structure)
-                                        writer({"type": "artifact-update", "result": result})
-                                        logger.info(f"✅ Streamed artifact-update event (ENABLE_ARTIFACT_STREAMING=true): {len(text)} chars")
-                                    else:
-                                        logger.info("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
+                  enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
 
-                # Extract text from status-update events (RAG agent streams via status messages)
-                elif kind == "status-update":
-                    logger.info(f"Received status-update event: {result}")
-                    status = result.get('status')
-                    if status and isinstance(status, dict):
-                        message = status.get('message')
-                        if message and isinstance(message, dict):
-                            parts = message.get('parts', [])
-                            for part in parts:
-                                if isinstance(part, dict):
-                                    text = part.get('text')
-                                    if text:
-                                        accumulated_text.append(text)
+                  if enable_artifact_streaming:
+                    writer({"type": "artifact-update", "result": result})
+                    logger.debug(f"✅ Streamed artifact-update event (ENABLE_ARTIFACT_STREAMING=true): {len(text)} chars")
+                  else:
+                    logger.debug("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
 
-                                        # TODO: Uncomment this when we are ready to stream status-update content for real-time feedback
+        elif kind == "status-update":
+          logger.debug(f"Received status-update event: {result}")
+          status = result.get('status')
+          if status and isinstance(status, dict):
+            message = status.get('message')
+            if message and isinstance(message, dict):
+              parts = message.get('parts', [])
+              for part in parts:
+                if isinstance(part, dict):
+                  text = part.get('text')
+                  if text:
+                    accumulated_text.append(text)
 
-                                        # # Stream all status-update content for real-time feedback
-                                        # clean_text = text.replace('**', '')
-                                        # writer({"type": "a2a_event", "data": clean_text})
-                                        # logger.info(f"✅ Streamed content from status-update: {len(clean_text)} chars")
-                                        
-                                        
-                                        # Check if tool output streaming is enabled
-                                        stream_tool_output = os.getenv("STREAM_SUB_AGENT_TOOL_OUTPUT", "false").lower() == "true"
-                                        
-                                        # Stream tool-related messages (🔧 calling, ✅ completed, and optionally 📄 output)
-                                        # Full responses will be streamed token-by-token by supervisor
-                                        is_tool_notification = '🔧' in text or '✅' in text
-                                        is_tool_output = '📄' in text
-                                        
-                                        should_stream = is_tool_notification or (is_tool_output and stream_tool_output)
-                                        
-                                        if should_stream:
-                                            # Remove markdown bold formatting (** **) from tool names
-                                            clean_text = text.replace('**', '')
-                                            writer({"type": "a2a_event", "data": clean_text})
-                                            if is_tool_output:
-                                                logger.info(f"✅ Streamed tool output from status-update (STREAM_SUB_AGENT_TOOL_OUTPUT=true): {len(clean_text)} chars")
-                                            else:
-                                                logger.info(f"✅ Streamed tool notification from status-update: {len(clean_text)} chars")
-                                        elif is_tool_output:
-                                            logger.info(f"⏭️  Skipped streaming tool output (STREAM_SUB_AGENT_TOOL_OUTPUT=false): {len(text)} chars")
-                                        else:
-                                            logger.info(f"⏭️  Skipped streaming content from status-update (not a tool message): {len(text)} chars")
-            except Exception as e:
-                logger.warning(f"Non-fatal error while handling stream chunk: {e}")
-                import traceback
-                logger.warning(traceback.format_exc())
+                    stream_tool_output = os.getenv("STREAM_SUB_AGENT_TOOL_OUTPUT", "false").lower() == "true"
+                    is_tool_notification = '🔧' in text or '✅' in text
+                    is_tool_output = '📄' in text
+                    should_stream = is_tool_notification or (is_tool_output and stream_tool_output)
 
-        # Concatenate tokens without adding extra spaces (tokens already include spaces)
-        final_response = "".join(accumulated_text).strip()
-        if not final_response:
-            logger.info("No accumulated artifact text; falling back to non-streaming send_message to get result.")
-            final_response = await self.send_message(prompt, trace_id)
+                    if should_stream:
+                      clean_text = text.replace('**', '')
+                      writer({"type": "a2a_event", "data": clean_text})
+                      if is_tool_output:
+                        logger.info(f"✅ Streamed tool output from status-update (STREAM_SUB_AGENT_TOOL_OUTPUT=true): {len(clean_text)} chars")
+                      else:
+                        logger.info(f"✅ Streamed tool notification from status-update: {len(clean_text)} chars")
+                    elif is_tool_output:
+                      logger.debug(f"⏭️  Skipped streaming tool output (STREAM_SUB_AGENT_TOOL_OUTPUT=false): {len(text)} chars")
+                    else:
+                      logger.debug(f"⏭️  Skipped streaming content from status-update (not a tool message): {len(text)} chars")
+      except Exception as e:  # noqa: BLE001
+        logger.warning(f"Non-fatal error while handling stream chunk: {e}")
+        import traceback
+        logger.warning(traceback.format_exc())
 
-        logger.info(f"Accumulated {len(accumulated_text)} tokens into {len(final_response)} char response")
-        return Output(response=final_response)
+    final_response = "".join(accumulated_text).strip()
+    if not final_response:
+      logger.info("No accumulated artifact text; falling back to non-streaming send_message to get result.")
+      final_response = await self.send_message(prompt, trace_id)
 
-    except Exception as e:
-        logger.error(f"Failed to execute A2A client tool via streaming: {str(e)}")
-        raise RuntimeError(f"Failed to execute A2A client tool: {str(e)}")
+    if not final_response:
+      writer({
+        "type": "a2a_event",
+        "data": "⚠️ Remote agent returned no content."
+      })
+    else:
+      writer({
+        "type": "a2a_event",
+        "data": final_response
+      })
+
+    logger.info(f"Accumulated {len(accumulated_text)} tokens into {len(final_response)} char response")
+
+    clean_text, status, status_message = self._split_status_payload(final_response)
+    if not clean_text and status_message:
+      clean_text = status_message
+
+    output_text = clean_text or final_response
+
+    return Output(response=output_text), status, status_message
+
+  def _split_status_payload(self, response_text: str) -> tuple[str, Optional[str], Optional[str]]:
+    """Split combined text/JSON payload returned by remote agent."""
+    if not response_text:
+      return "", None, None
+
+    marker = '{"status":'
+    if marker not in response_text:
+      return response_text, None, None
+
+    prefix, json_part = response_text.rsplit(marker, 1)
+    json_str = marker + json_part
+    try:
+      payload = json.loads(json_str)
+      status = payload.get("status")
+      message = payload.get("message")
+      clean_text = prefix.strip()
+      return clean_text, status, message
+    except Exception:  # noqa: BLE001
+      logger.warning("Failed to parse status payload from remote agent response")
+      return response_text, None, None
+
+  def _notify_failure(self, writer, error_message: str) -> None:
+    """Send failure notifications and surface human-in-the-loop prompt."""
+    summary = error_message or "Unknown error"
+    writer({
+      "type": "a2a_event",
+      "data": f"❌ {self.name}: {summary}"
+    })
+
+    prompt = (
+      f"{self.name} encountered an error after multiple attempts: {summary}.\n"
+      "Would you like me to retry this tool call? Reply 'retry' to try again or 'skip' to move on."
+    )
+
+    writer({
+      "type": "human_prompt",
+      "prompt": prompt,
+      "options": ["retry", "skip"],
+    })
 
   async def send_message(self, prompt: str, trace_id: str = None) -> str:
     """

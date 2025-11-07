@@ -6,10 +6,13 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: caipe-p2p-with-rag
+    container_name: platform-engineer-p2p
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
+    extra_hosts:
+      # Map hub.docker.local to host machine so Jarvis agent can be reached
+      - "hub.docker.local:host-gateway"
     profiles:
       - p2p
       - p2p-tracing
@@ -18,33 +21,33 @@ services:
     # 'condition: service_started' just waits for the container to start (faster but less reliable).
     depends_on:
       agent-argocd-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-aws-p2p:
         condition: service_healthy
       agent-backstage-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-confluence-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-github-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-jira-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-komodor-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-pagerduty-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-petstore-p2p:
-        condition: service_healthy
+        condition: service_started
       agent_rag:
-        condition: service_healthy
+        condition: service_started
       agent-slack-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-splunk-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-weather-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-webex-p2p:
-        condition: service_healthy
+        condition: service_started
     env_file:
       - .env
     ports:
@@ -149,7 +152,6 @@ services:
         condition: service_started
       agent-petstore-p2p:
         condition: service_started
-
       agent-slack-p2p:
         condition: service_started
       agent-splunk-p2p:
@@ -191,6 +193,10 @@ services:
       - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
       - WEBEX_AGENT_PORT=8000
+      # Jarvis is an external A2A agent (not running in docker-compose)
+      # Use hub.docker.local to reach the host machine from inside the container
+      - JARVIS_AGENT_HOST=${JARVIS_AGENT_HOST:-hub.docker.local}
+      - JARVIS_AGENT_PORT=58000
       # Enable agents
       - ENABLE_ARGOCD=true
       - ENABLE_AWS=true
@@ -206,6 +212,7 @@ services:
       - ENABLE_WEBEX=true
       - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
+      - ENABLE_JARVIS=true
       # Structured response format with execution plan validation
       # Set to "true" to enforce execution plans with Pydantic validation
       - ENABLE_STRUCTURED_RESPONSE_FORMAT=false
@@ -409,6 +416,8 @@ services:
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports:
       - "8001:8000"
+    mem_limit: 4g
+    mem_reservation: 2g
     environment:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=${MCP_MODE:-http}
@@ -418,6 +427,11 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - MAX_CONTEXT_TOKENS=20000      # Allow reasonable context for pagination responses
+      - MIN_MESSAGES_TO_KEEP=2        # Keep only essential messages (user query + last response)
+      - ENABLE_AUTO_COMPRESSION=true  # Ensure compression is enabled
+      - SUMMARIZE_TOOL_OUTPUTS=true   # Summarize large tool outputs before adding to context
+      - MAX_TOOL_OUTPUT_LENGTH=5000   # Max chars from tool output to keep in context (truncate rest)
       - ENABLE_STREAMING=true
 
   ####################################################################################################
@@ -465,7 +479,7 @@ services:
       - ENABLE_CLOUDWATCH_MCP=${ENABLE_CLOUDWATCH_MCP:-true}
       - ENABLE_POSTGRES_MCP=${ENABLE_POSTGRES_MCP:-false}
       - ENABLE_AWS_SUPPORT_MCP=${ENABLE_AWS_SUPPORT_MCP:-true}
-      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-true}
+      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-false}
       - ENABLE_AWS_KNOWLEDGE_MCP=${ENABLE_AWS_KNOWLEDGE_MCP:-false}
       - AWS_DOCUMENTATION_PARTITION=${AWS_DOCUMENTATION_PARTITION:-aws}
       # Optional Postgres configuration (only needed if ENABLE_POSTGRES_MCP=true)
@@ -489,10 +503,11 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-p2p
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent.json', timeout=5)"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
       interval: 30s
-      timeout: 10s
+      timeout: 60s
       retries: 5
       start_period: 10s
     profiles:
@@ -527,6 +542,9 @@ services:
       # Timeout configurations
       - A2A_TIMEOUT=${A2A_TIMEOUT:-600}
       - MCP_TIMEOUT=${MCP_TIMEOUT:-120}
+      - MCP_STARTUP_TIMEOUT=${MCP_STARTUP_TIMEOUT:-120}
+      - STRANDS_MCP_INIT_TIMEOUT=${STRANDS_MCP_INIT_TIMEOUT:-120}
+      - STRANDS_MCP_INIT_RETRIES=${STRANDS_MCP_INIT_RETRIES:-5}
       # Stream intermediate tool outputs to supervisor
       - STREAM_TOOL_OUTPUT=${STREAM_TOOL_OUTPUT:-true}
       - MAX_TOOL_OUTPUT_LENGTH=${MAX_TOOL_OUTPUT_LENGTH:-2000}
@@ -545,7 +563,7 @@ services:
       - ENABLE_CLOUDWATCH_MCP=${ENABLE_CLOUDWATCH_MCP:-true}
       - ENABLE_POSTGRES_MCP=${ENABLE_POSTGRES_MCP:-false}
       - ENABLE_AWS_SUPPORT_MCP=${ENABLE_AWS_SUPPORT_MCP:-true}
-      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-true}
+      - ENABLE_CDK_MCP=${ENABLE_CDK_MCP:-false}
       - ENABLE_AWS_KNOWLEDGE_MCP=${ENABLE_AWS_KNOWLEDGE_MCP:-false}
       - AWS_DOCUMENTATION_PARTITION=${AWS_DOCUMENTATION_PARTITION:-aws}
       # Optional Postgres configuration (only needed if ENABLE_POSTGRES_MCP=true)
@@ -609,6 +627,8 @@ services:
       - p2p-tracing
       - p2p-no-rag
       - p2p-no-rag-tracing
+    depends_on:
+      - mcp-backstage
     env_file:
       - .env
     volumes:
@@ -699,6 +719,8 @@ services:
       - p2p-tracing
       - p2p-no-rag
       - p2p-no-rag-tracing
+    depends_on:
+      - mcp-confluence
     env_file:
       - .env
     volumes:
@@ -1183,6 +1205,8 @@ services:
       - p2p-tracing
       - p2p-no-rag
       - p2p-no-rag-tracing
+    depends_on:
+      - mcp-webex
     env_file:
       - .env
     volumes:
@@ -1387,6 +1411,13 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/weather/build/Dockerfile.a2a
     container_name: agent-weather-p2p
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
+      interval: 30s
+      timeout: 60s
+      retries: 5
+      start_period: 10s
     profiles:
       - p2p
       - p2p-basic
@@ -1450,6 +1481,7 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/template/build/Dockerfile.a2a
     container_name: agent-petstore-p2p
+    restart: unless-stopped
     profiles:
       - p2p
       - p2p-basic
@@ -1909,7 +1941,7 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
-      timeout: 10s
+      timeout: 60s
       retries: 10
 
   langfuse-postgres:
@@ -1960,15 +1992,13 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       # Mount datasets for development
       - ./evals/datasets:/app/datasets
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
-      timeout: 10s
+      timeout: 60s
       retries: 3
       start_period: 10s
 

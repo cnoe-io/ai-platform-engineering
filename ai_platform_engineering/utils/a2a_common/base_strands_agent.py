@@ -3,12 +3,16 @@
 
 """Base agent class for Strands-based agents with A2A protocol support."""
 
+import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List, Tuple
 
 from strands import Agent
 from strands.tools.mcp import MCPClient
+
+from .context_config import get_context_limit_for_provider
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +48,21 @@ class BaseStrandsAgent(ABC):
         self._mcp_contexts: List[Any] = []
         self._tools: List[Any] = []
 
+        # Get context management configuration from global config
+        # Strands manages conversation state internally, but we track limits for monitoring
+        llm_provider = os.getenv("LLM_PROVIDER", "aws-bedrock").lower()
+        self.max_context_tokens = get_context_limit_for_provider(llm_provider)
+        self.message_count = 0  # Track conversation length
+
         # Set up logging
         if config and hasattr(config, 'log_level'):
             log_level = config.log_level
             logging.getLogger("strands").setLevel(getattr(logging, log_level, logging.INFO))
 
-        logger.info(f"Initializing {self.get_agent_name()} agent (Strands-based)")
+        logger.info(
+            f"Initializing {self.get_agent_name()} agent (Strands-based) - "
+            f"provider={llm_provider}, max_context_tokens={self.max_context_tokens:,}"
+        )
 
         # Initialize MCP clients and agent
         self._initialize_mcp_and_agent()
@@ -141,7 +154,7 @@ class BaseStrandsAgent(ABC):
         return f"{self.get_agent_name()} is processing results..."
 
     def _initialize_mcp_and_agent(self):
-        """Initialize MCP clients and create the Strands agent."""
+        """Initialize MCP clients and create the Strands agent with parallel initialization."""
         try:
             logger.info(f"Initializing MCP clients for {self.get_agent_name()} agent...")
 
@@ -158,21 +171,23 @@ class BaseStrandsAgent(ABC):
                 logger.info(f"{self.get_agent_name()} agent initialized successfully with {len(self._tools)} tools")
                 return
 
-            # Enter each MCP client context and aggregate tools
-            aggregated_tools = []
-            successful_clients = []
-            for name, client in mcp_clients_with_names:
-                try:
-                    ctx = client.__enter__()
-                    self._mcp_contexts.append(ctx)
-                    successful_clients.append((name, client))
-                    tools = client.list_tools_sync()
-                    logger.info(f"Retrieved {len(tools)} tools from MCP server '{name}'")
-                    aggregated_tools.extend(tools)
-                except Exception as e:
-                    logger.warning(f"Failed to initialize MCP server '{name}': {e}")
-                    logger.info(f"Continuing without MCP server '{name}'")
-            
+            # Initialize all MCP clients in parallel
+            import asyncio
+            try:
+                # Run async initialization in event loop
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                aggregated_tools, successful_clients = loop.run_until_complete(
+                    self._initialize_mcp_clients_parallel(mcp_clients_with_names)
+                )
+            except Exception as e:
+                logger.error(f"Error during parallel MCP initialization: {e}")
+                logger.warning("Continuing without MCP tools due to initialization failure")
+                aggregated_tools = []
+                successful_clients = []
+            finally:
+                loop.close()
+
             # Update the client list to only include successful ones
             self._mcp_clients = [client for _, client in successful_clients]
 
@@ -186,7 +201,7 @@ class BaseStrandsAgent(ABC):
                     # Fallback: append if name not resolvable
                     dedup[id(t)] = t
             self._tools = list(dedup.values())
-            
+
             # Handle case where all MCP servers failed to initialize
             if not successful_clients:
                 logger.warning("No MCP servers could be initialized. Agent will run without MCP capabilities.")
@@ -194,7 +209,7 @@ class BaseStrandsAgent(ABC):
                 self._agent = self._create_strands_agent(self._tools)
                 logger.info(f"{self.get_agent_name()} agent initialized successfully with {len(self._tools)} tools")
                 return
-            
+
             logger.info(f"Total aggregated tools: {len(self._tools)} (from {len(successful_clients)} successful MCP servers)")
 
             # Create the Strands agent with all tools
@@ -205,6 +220,75 @@ class BaseStrandsAgent(ABC):
             logger.error(f"Failed to initialize {self.get_agent_name()} agent: {e}")
             self._cleanup_mcp()
             raise
+
+    async def _initialize_mcp_clients_parallel(
+        self, mcp_clients_with_names: List[Tuple[str, MCPClient]]
+    ) -> Tuple[List[Any], List[Tuple[str, MCPClient]]]:
+        """
+        Initialize multiple MCP clients in parallel with retry logic.
+
+        Args:
+            mcp_clients_with_names: List of (name, client) tuples
+
+        Returns:
+            Tuple of (aggregated_tools, successful_clients)
+        """
+        max_retries = int(os.getenv("STRANDS_MCP_INIT_RETRIES", "3"))
+        backoff_s = 2.0
+
+        async def init_single_client(name: str, client: MCPClient):
+            """Initialize a single MCP client with retry logic."""
+            last_err = None
+
+            for attempt in range(1, max_retries + 1):
+                try:
+                    # Run sync operations in thread pool
+                    ctx = await asyncio.to_thread(client.__enter__)
+                    tools = await asyncio.to_thread(client.list_tools_sync)
+                    logger.info(f"Retrieved {len(tools)} tools from MCP server '{name}' (attempt {attempt})")
+                    return (name, client, ctx, tools, None)  # Success
+
+                except Exception as e:
+                    last_err = e
+                    logger.warning(
+                        f"Failed to initialize MCP server '{name}' (attempt {attempt}/{max_retries}): {e}"
+                    )
+                    if attempt < max_retries:
+                        await asyncio.sleep(backoff_s * attempt)
+
+            # All retries failed
+            logger.warning(
+                f"MCP server '{name}' failed to initialize after {max_retries} attempts. "
+                f"Continuing without this server. Last error: {last_err}"
+            )
+            return (name, client, None, None, last_err)  # Failure
+
+        # Initialize all clients in parallel
+        logger.info(f"Initializing {len(mcp_clients_with_names)} MCP servers in parallel...")
+        results = await asyncio.gather(
+            *[init_single_client(name, client) for name, client in mcp_clients_with_names],
+            return_exceptions=True  # Capture exceptions instead of failing entire gather
+        )
+
+        # Aggregate results
+        aggregated_tools = []
+        successful_clients = []
+
+        for result in results:
+            # Handle exceptions from gather
+            if isinstance(result, Exception):
+                logger.error(f"Unexpected exception during MCP client initialization: {result}")
+                continue
+
+            name, client, ctx, tools, error = result
+            if error is None and ctx is not None:
+                # Success
+                self._mcp_contexts.append(ctx)
+                successful_clients.append((name, client))
+                aggregated_tools.extend(tools)
+            # Failures are already logged in init_single_client
+
+        return aggregated_tools, successful_clients
 
     def _create_strands_agent(self, tools: List[Any]) -> Agent:
         """
@@ -281,15 +365,27 @@ class BaseStrandsAgent(ABC):
             if self._agent is None or not self._mcp_clients:
                 self._initialize_mcp_and_agent()
 
-            logger.info(f"Streaming response for message: {message[:100]}...")
+            # Track conversation length (Strands manages internal state)
+            self.message_count += 1
+            logger.info(
+                f"Streaming response for message #{self.message_count}: {message[:100]}... "
+                f"(max_context: {self.max_context_tokens:,} tokens)"
+            )
+
+            # Warn if conversation is getting long (Strands doesn't expose token count easily)
+            if self.message_count > 20:
+                logger.warning(
+                    f"{self.get_agent_name()}: Long conversation detected ({self.message_count} messages). "
+                    "Consider monitoring for context overflow or restarting agent periodically."
+                )
 
             full_response = ""
             current_tool = None
-            
+
             async for event in self._agent.stream_async(message):
                 # Log the raw event for debugging (debug level since it's verbose)
                 logger.debug(f"Raw Strands event: {event}")
-                
+
                 # Check for tool usage indicators in the event
                 # Strands SDK may emit events with tool information
                 if "tool" in event:
@@ -304,13 +400,13 @@ class BaseStrandsAgent(ABC):
                             }
                         }
                         logger.info(f"Tool call detected: {current_tool}")
-                
+
                 # Check for tool result indicators
                 elif "tool_result" in event:
                     result_info = event["tool_result"]
                     tool_name = result_info.get("name", current_tool or "unknown")
                     is_error = result_info.get("error", False) or result_info.get("is_error", False)
-                    
+
                     yield {
                         "tool_result": {
                             "name": tool_name,
@@ -319,12 +415,12 @@ class BaseStrandsAgent(ABC):
                     }
                     logger.info(f"Tool result detected: {tool_name}, error={is_error}")
                     current_tool = None
-                
+
                 # Pass through regular data events
                 elif "data" in event:
                     full_response += event["data"]
                     yield event
-                
+
                 # Pass through other events
                 else:
                     yield event

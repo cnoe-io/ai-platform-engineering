@@ -196,8 +196,9 @@ class TestBaseStrandsAgent:
         # Agent should handle errors gracefully and log warnings
         agent = TestStrandsAgent(mock_clients=mock_clients)
         
-        # Verify warning was logged
-        assert "Failed to initialize MCP server 'bad': Connection failed" in caplog.text
+        # Verify warning was logged (check for actual log message format with retry attempts)
+        assert "Failed to initialize MCP server 'bad'" in caplog.text
+        assert "Connection failed" in caplog.text
         assert "No MCP servers could be initialized" in caplog.text
         
         # Agent should still be created

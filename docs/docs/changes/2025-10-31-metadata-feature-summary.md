@@ -1,6 +1,9 @@
 # Metadata Detection Feature - Implementation Summary
 
-## Status: ✅ SERVER WORKING | ⚠️ CLIENT NEEDS DEBUG
+**Status**: 🟡 Proposed (Partially implemented - server working, client needs debug)
+**Category**: Features & Enhancements
+**Date**: October 31, 2025
+**Implementation Status**: ✅ SERVER WORKING | ⚠️ CLIENT NEEDS DEBUG
 
 ## What Was Implemented
 
@@ -31,7 +34,7 @@
    - Updated field mapping: `name`, `description`, `required` (was `field_name`, `field_description`)
    - Added required/optional indicators
    - Parses structured JSON responses
-   
+
 2. **Issue**: Client hangs after showing execution plan start marker `⟦`
    - Possible causes:
      - Streaming not completing properly

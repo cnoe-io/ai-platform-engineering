@@ -33,7 +33,7 @@ warnings.filterwarnings(
 # Set a2a.client logging to WARNING
 logging.getLogger("a2a.client").setLevel(logging.WARNING)
 
-PUBLIC_AGENT_CARD_PATH = '/.well-known/agent.json'
+PUBLIC_AGENT_CARD_PATH = '/.well-known/agent-card.json'
 EXTENDED_AGENT_CARD_PATH = '/agent/authenticatedExtendedCard'
 
 logging.basicConfig(
@@ -254,7 +254,7 @@ async def fetch_agent_card(host, port, token: str, tls: bool) -> AgentCard:
   else:
     base_url = f"http://{host}:{port}"
 
-  PUBLIC_AGENT_CARD_PATH = '/.well-known/agent.json'
+  PUBLIC_AGENT_CARD_PATH = '/.well-known/agent-card.json'
   EXTENDED_AGENT_CARD_PATH = '/agent/authenticatedExtendedCard'
 
   async with httpx.AsyncClient() as httpx_client:

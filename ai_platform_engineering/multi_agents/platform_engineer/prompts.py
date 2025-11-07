@@ -69,7 +69,8 @@ skills_prompt = PromptTemplate(
     )
 )
 
-subagents = platform_registry.generate_subagents(agent_prompts)
+# Note: Subagents are now generated dynamically in deep_agent.py with the model
+# This allows CustomSubAgents to be created with proper react agent graphs
 
 # Generate system prompt dynamically based on tools and their tasks
 def generate_system_prompt(agents: Dict[str, Any]):
@@ -138,6 +139,9 @@ system_prompt = generate_system_prompt(agents)
 logger.info("="*50)
 logger.info(f"System Prompt Generated:\n{system_prompt}")
 logger.info("="*50)
+
+# 📊 Print connectivity table after system prompt
+platform_registry.print_connectivity_table()
 
 response_format_instruction: str = config.get(
   "response_format_instruction",
