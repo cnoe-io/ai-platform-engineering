@@ -24,7 +24,6 @@ import httpx
 import uvicorn
 import asyncio
 import os
-import logging
 from dotenv import load_dotenv
 from agntcy_app_sdk.factory import AgntcyFactory
 

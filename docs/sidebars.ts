@@ -322,6 +322,11 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'doc',
+          id: 'changes/2025-11-07-user-input-metadata-format',
+          label: '2025-11-07: User Input Metadata Format',
+        },
+        {
+          type: 'doc',
           id: 'changes/2025-10-30-agent-forge-workflow-setup',
           label: '2025-10-30: Agent Forge GitHub Action Workflow',
         },

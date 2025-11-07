@@ -1,5 +1,9 @@
 # Agent Forge Docker Build Integration
 
+**Status**: 🟢 In-use
+**Category**: Integrations
+**Date**: October 30, 2025 (consolidated November 5, 2025)
+
 ## Overview
 
 The GitHub Action workflow has been configured to use a custom Dockerfile from `build/agent-forge/Dockerfile` instead of relying on a Dockerfile from the cloned community-plugins repository. This enables automated building and publishing of the Backstage Agent Forge plugin as a Docker image to GitHub Container Registry (ghcr.io).
@@ -74,7 +78,7 @@ CMD ["yarn", "start"]
      uses: actions/checkout@v4
      with:
        path: main-repo
-       
+
    - name: Checkout community-plugins repository
      uses: actions/checkout@v4
      with:
@@ -328,9 +332,9 @@ docker run -d \
 
 ---
 
-**Date Added**: October 30, 2025  
-**Dockerfile Location**: `build/agent-forge/Dockerfile`  
-**Workflow**: `.github/workflows/build-agent-forge-plugin.yml`  
+**Date Added**: October 30, 2025
+**Dockerfile Location**: `build/agent-forge/Dockerfile`
+**Workflow**: `.github/workflows/build-agent-forge-plugin.yml`
 **Related Documentation**: `.github/workflows/README.md`, `.github/WORKFLOW_SETUP.md`
 
 # Agent Forge GitHub Action Workflow Setup
@@ -555,8 +559,8 @@ For issues or questions:
 
 ---
 
-**Date Added:** October 30, 2025  
-**Workflow Version:** 1.0  
-**Maintainer:** Platform Engineering Team  
+**Date Added:** October 30, 2025
+**Workflow Version:** 1.0
+**Maintainer:** Platform Engineering Team
 **Related Documentation:** [Agent Forge Docker Build Integration](./2025-10-30-agent-forge-docker-build.md)
 

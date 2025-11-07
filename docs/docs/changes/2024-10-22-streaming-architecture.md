@@ -1,6 +1,10 @@
 # Platform Engineer Streaming Architecture
 
-## Current Status: ⚠️ **Streaming Not Fully Working**
+**Status**: 🔴 Abandoned (Superseded by 2024-10-23-platform-engineer-streaming-architecture.md)
+**Category**: Architecture & Core Design
+**Date**: October 22, 2024
+
+## Current Status: ⚠️ **Streaming Not Fully Working** (Historical Note)
 
 Token-by-token streaming from sub-agents (like `agent-komodor-p2p`) to clients is currently **NOT working** due to LangGraph's tool execution model. This document explains why and outlines the solution path.
 

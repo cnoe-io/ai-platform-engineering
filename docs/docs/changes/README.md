@@ -2,6 +2,14 @@
 
 This directory contains documentation of significant changes, features, and architectural decisions made to the AI Platform Engineering project.
 
+## ADR Status Taxonomy
+
+Each document is classified with one of the following statuses:
+
+- **🟢 In-use**: Currently implemented and actively used in production
+- **🟡 Proposed**: Planned or partially implemented, not yet in production
+- **🔴 Abandoned**: Deprecated, replaced, or no longer actively maintained
+
 ## Current Structure
 
 All documentation files are in the root of this directory, organized by date and topic.
@@ -9,48 +17,49 @@ All documentation files are in the root of this directory, organized by date and
 ## Documentation by Category
 
 ### 🏗️ Architecture & Core Design
-- **2025-11-05-architecture.md** - Main architecture overview (consolidated)
-- **2024-10-22-streaming-architecture.md** - Original streaming architecture
-- **2024-10-23-platform-engineer-streaming-architecture.md** - Platform Engineer streaming specifics
-- **2024-10-25-sub-agent-tool-message-streaming.md** - Sub-agent tool message streaming
-- **2025-10-27-a2a-event-flow-architecture.md** - A2A event flow architecture
-- **2024-10-22-a2a-intermediate-states.md** - A2A intermediate states design
+- **2025-11-05-architecture.md** - Main architecture overview (consolidated) [🟢 In-use]
+- **2024-10-22-streaming-architecture.md** - Original streaming architecture [🔴 Superseded by platform-engineer-streaming]
+- **2024-10-23-platform-engineer-streaming-architecture.md** - Platform Engineer streaming specifics [🟢 In-use]
+- **2024-10-25-sub-agent-tool-message-streaming.md** - Sub-agent tool message streaming [🟢 In-use]
+- **2025-10-27-a2a-event-flow-architecture.md** - A2A event flow architecture [🟢 In-use]
+- **2024-10-22-a2a-intermediate-states.md** - A2A intermediate states design [🟢 In-use]
 
 ### ✨ Features & Enhancements
-- **2025-11-05-date-handling.md** - Date/time handling across agents (consolidated)
-- **2025-10-27-agents-with-date-handling.md** - Agents with date handling capabilities
-- **2025-10-27-automatic-date-time-injection.md** - Automatic date/time injection
-- **2025-10-27-date-handling-guide.md** - Date handling implementation guide
-- **2025-10-31-metadata-feature-summary.md** - Metadata feature overview
-- **2025-10-31-metadata-input-implementation.md** - Metadata input details
-- **2025-10-31-streaming-text-fix.md** - Streaming text rendering fixes
-- **2024-10-22-enhanced-streaming-feature.md** - Enhanced streaming feature design
-- **2025-11-05-todo-based-execution-plan.md** - TODO-based execution plan
+- **2025-11-05-date-handling.md** - Date/time handling across agents (consolidated) [🟢 In-use]
+- **2025-10-27-agents-with-date-handling.md** - Agents with date handling capabilities [🟢 In-use]
+- **2025-10-27-automatic-date-time-injection.md** - Automatic date/time injection [🟢 In-use]
+- **2025-10-27-date-handling-guide.md** - Date handling implementation guide [🟢 In-use]
+- **2025-10-31-metadata-feature-summary.md** - Metadata feature overview [🟡 Partially implemented]
+- **2025-10-31-metadata-input-implementation.md** - Metadata input details [🟡 Partially implemented]
+- **2025-10-31-streaming-text-fix.md** - Streaming text rendering fixes [🟢 In-use]
+- **2024-10-22-enhanced-streaming-feature.md** - Enhanced streaming feature design [🟢 In-use]
+- **2025-11-05-todo-based-execution-plan.md** - TODO-based execution plan [🟢 In-use]
+- **2025-11-07-user-input-metadata-format.md** - User input metadata format with prefix [🟢 In-use]
 
 ### 🔧 Configuration & Prompts
-- **2024-10-22-prompt-configuration.md** - Prompt configuration system
-- **2024-10-23-prompt-templates-readme.md** - Prompt template documentation
-- **2025-11-05-context-config-env-vars.md** - Context configuration environment variables
-- **2025-11-05-context-management.md** - Auto context management for LangGraph agents
+- **2024-10-22-prompt-configuration.md** - Prompt configuration system [🟢 In-use]
+- **2024-10-23-prompt-templates-readme.md** - Prompt template documentation [🟢 In-use]
+- **2025-11-05-context-config-env-vars.md** - Context configuration environment variables [🟢 In-use]
+- **2025-11-05-context-management.md** - Auto context management for LangGraph agents [🟢 In-use]
 
 ### 🔌 Integrations
-- **2025-11-05-aws-integration.md** - AWS integration (consolidated)
-- **2025-10-27-aws-backend-comparison.md** - AWS backend comparison
-- **2025-10-27-aws-ecs-mcp-integration.md** - AWS ECS MCP integration
-- **2025-11-05-agent-forge-setup.md** - Agent Forge setup (consolidated)
-- **2025-10-30-agent-forge-docker-build.md** - Agent Forge Docker build
-- **2025-10-30-agent-forge-workflow-setup.md** - Agent Forge workflow setup
+- **2025-11-05-aws-integration.md** - AWS integration (consolidated) [🟢 In-use]
+- **2025-10-27-aws-backend-comparison.md** - AWS backend comparison [🟢 In-use]
+- **2025-10-27-aws-ecs-mcp-integration.md** - AWS ECS MCP integration [🟢 In-use]
+- **2025-11-05-agent-forge-setup.md** - Agent Forge setup (consolidated) [🟢 In-use]
+- **2025-10-30-agent-forge-docker-build.md** - Agent Forge Docker build [🟢 In-use]
+- **2025-10-30-agent-forge-workflow-setup.md** - Agent Forge workflow setup [🟢 In-use]
 
 ### 🔄 Refactoring & Implementation
-- **2024-10-22-agent-refactoring-summary.md** - Agent refactoring overview
-- **2024-10-22-base-agent-refactor.md** - Base agent refactoring
-- **2024-10-22-implementation-summary.md** - Implementation summary
+- **2024-10-22-agent-refactoring-summary.md** - Agent refactoring overview [🟢 In-use]
+- **2024-10-22-base-agent-refactor.md** - Base agent refactoring [🟢 In-use]
+- **2024-10-22-implementation-summary.md** - Implementation summary [🟢 In-use]
 
 ### 🤖 Agent-Specific
-- **2025-11-05-backstage-agent-changelog.md** - Backstage agent changes
+- **2025-11-05-backstage-agent-changelog.md** - Backstage agent changes [🟢 In-use]
 
 ### 📝 Session & Context
-- **2024-10-25-session-context.md** - Session context management
+- **2024-10-25-session-context.md** - Session context management [🟢 In-use]
 
 ## Quick Reference Guide
 
@@ -66,14 +75,19 @@ All documentation files are in the root of this directory, organized by date and
 
 ## Document Statistics
 
-- **Total documents**: 30 markdown files
-- **Architecture docs**: 6 files
-- **Feature docs**: 9 files
-- **Configuration docs**: 4 files
-- **Integration docs**: 6 files
-- **Refactoring docs**: 3 files
-- **Agent-specific docs**: 1 file
-- **Session/Context docs**: 1 file
+- **Total documents**: 31 markdown files
+- **🟢 In-use**: 27 documents
+- **🟡 Proposed**: 2 documents
+- **🔴 Abandoned**: 1 document
+
+### By Category
+- **Architecture docs**: 6 files (5 In-use, 1 Abandoned)
+- **Feature docs**: 10 files (8 In-use, 2 Proposed)
+- **Configuration docs**: 4 files (4 In-use)
+- **Integration docs**: 6 files (6 In-use)
+- **Refactoring docs**: 3 files (3 In-use)
+- **Agent-specific docs**: 1 file (1 In-use)
+- **Session/Context docs**: 1 file (1 In-use)
 
 ## Recent Consolidations (2025-11-05)
 

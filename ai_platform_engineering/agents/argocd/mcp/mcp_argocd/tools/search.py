@@ -7,7 +7,7 @@ This module provides a unified search capability across all ArgoCD resources
 on names, descriptions, labels, annotations, etc.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import re
 import logging
 from mcp_argocd.tools.api_v1_applications import list_applications

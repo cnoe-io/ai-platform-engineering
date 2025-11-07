@@ -1,5 +1,9 @@
 # Agent Forge GitHub Action Workflow Setup
 
+**Status**: 🟢 In-use
+**Category**: Integrations
+**Date**: October 30, 2025
+
 ## Overview
 
 A GitHub Action workflow has been created to automatically build and push the Backstage Agent Forge plugin Docker image to GitHub Container Registry.
@@ -220,8 +224,8 @@ For issues or questions:
 
 ---
 
-**Date Added:** October 30, 2025  
-**Workflow Version:** 1.0  
-**Maintainer:** Platform Engineering Team  
+**Date Added:** October 30, 2025
+**Workflow Version:** 1.0
+**Maintainer:** Platform Engineering Team
 **Related Documentation:** [Agent Forge Docker Build Integration](./2025-10-30-agent-forge-docker-build.md)
 

@@ -1,5 +1,9 @@
 # TODO-Based Execution Plan Architecture
 
+**Status**: 🟢 In-use
+**Category**: Features & Enhancements
+**Date**: November 5, 2025
+
 ## Overview
 
 The Platform Engineer now uses **TODO lists as execution plans** instead of text-based execution plans with `⟦...⟧` markers. This solves the "execution plan without tool calls" problem and provides better UX.

@@ -1,5 +1,9 @@
 # Automatic Date/Time Injection for All Agents
 
+**Status**: 🟢 In-use (Part of consolidated date handling feature)
+**Category**: Features & Enhancements
+**Date**: October 27, 2025 (Consolidated into 2025-11-05-date-handling.md)
+
 ## Overview
 
 Added automatic current date/time injection to all agents that use `BaseLangGraphAgent`. This eliminates the need for agents to call external tools to determine the current date, improving response latency and simplifying date-based queries.
@@ -22,7 +26,7 @@ Date context includes:
 def _get_system_instruction_with_date(self) -> str:
     """Return the system instruction with current date/time injected."""
     now_utc = datetime.now(ZoneInfo("UTC"))
-    
+
     date_context = f"""## Current Date and Time
 
 Today's date: {now_utc.strftime("%A, %B %d, %Y")}

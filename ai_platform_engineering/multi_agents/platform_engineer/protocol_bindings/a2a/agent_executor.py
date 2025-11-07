@@ -1456,13 +1456,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     ) -> None:
         """
         Handle task cancellation.
-        
+
         Sends a cancellation status update to the client and logs the cancellation.
         Note: Currently doesn't stop in-flight LangGraph execution, but prevents
         further streaming and notifies the client properly.
         """
         logger.info("Platform Engineer Agent: Task cancellation requested")
-        
+
         task = context.current_task
         if task:
             await event_queue.enqueue_event(

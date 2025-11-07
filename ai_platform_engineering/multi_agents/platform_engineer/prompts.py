@@ -140,6 +140,9 @@ logger.info("="*50)
 logger.info(f"System Prompt Generated:\n{system_prompt}")
 logger.info("="*50)
 
+# 📊 Print connectivity table after system prompt
+platform_registry.print_connectivity_table()
+
 response_format_instruction: str = config.get(
   "response_format_instruction",
   (

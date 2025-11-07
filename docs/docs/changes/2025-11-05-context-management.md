@@ -1,5 +1,9 @@
 # Auto Context Management for LangGraph Agents
 
+**Status**: 🟢 In-use
+**Category**: Configuration & Prompts
+**Date**: November 5, 2025
+
 ## Overview
 
 All LangGraph agents now have **automatic message compression** to prevent context length exceeded errors. This system automatically trims old messages when the conversation history grows too large, ensuring agents can run indefinitely without hitting token limits.
@@ -14,7 +18,7 @@ LangGraph agents use a `MemorySaver` checkpointer to maintain conversation histo
 
 Eventually, the total tokens exceed the model's context window (e.g., 128K tokens for GPT-4), causing errors:
 ```
-openai.BadRequestError: Error code: 400 - This model's maximum context length is 128000 tokens. 
+openai.BadRequestError: Error code: 400 - This model's maximum context length is 128000 tokens.
 However, your messages resulted in 186014 tokens...
 ```
 
@@ -116,12 +120,12 @@ The system uses the `tiktoken` library to accurately count tokens:
 def _count_message_tokens(self, message: Any) -> int:
     """Count tokens in a message including content and tool calls."""
     content = str(message.content)
-    
+
     # Add tokens for tool calls
     if hasattr(message, "tool_calls"):
         for tool_call in message.tool_calls:
             content += str(tool_call)
-    
+
     return len(self.tokenizer.encode(content))
 ```
 
@@ -132,23 +136,23 @@ When tokens exceed `MAX_CONTEXT_TOKENS`:
 ```python
 async def _trim_messages_if_needed(self, config: RunnableConfig) -> None:
     """Trim old messages from checkpointer if context too large."""
-    
+
     # Get current state
     state = await self.graph.aget_state(config)
     messages = state.values["messages"]
-    
+
     # Count tokens
     total_tokens = self._count_total_tokens(messages)
-    
+
     if total_tokens > self.max_context_tokens:
         # Separate system messages (keep) from conversation (trim)
         system_messages = [m for m in messages if isinstance(m, SystemMessage)]
         conversation_messages = [m for m in messages if not isinstance(m, SystemMessage)]
-        
+
         # Keep recent N messages
         messages_to_keep = conversation_messages[-self.min_messages_to_keep:]
         messages_to_remove = conversation_messages[:-self.min_messages_to_keep]
-        
+
         # Remove old messages from checkpointer
         remove_commands = [RemoveMessage(id=msg.id) for msg in messages_to_remove]
         await self.graph.aupdate_state(config, {"messages": remove_commands})
@@ -161,13 +165,13 @@ Trimming happens automatically in the `stream()` method:
 ```python
 async def stream(self, query: str, sessionId: str, trace_id: str = None):
     config = self.tracing.create_config(sessionId)
-    
+
     # Ensure graph is initialized
     await self._ensure_graph_initialized(config)
-    
+
     # Auto-trim old messages to prevent context overflow
     await self._trim_messages_if_needed(config)  # ← Automatic!
-    
+
     # Continue streaming...
     async for state in self.graph.astream(inputs, config):
         yield state
@@ -328,7 +332,7 @@ export MIN_MESSAGES_TO_KEEP=15
 
 **Cause:** Tool definitions consuming too many tokens
 
-**Solution:** 
+**Solution:**
 1. Reduce MAX_CONTEXT_TOKENS to trigger earlier trimming
 2. Reduce MIN_MESSAGES_TO_KEEP to trim more aggressively
 3. Review tool schemas - simplify descriptions/parameters

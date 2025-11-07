@@ -1,5 +1,9 @@
 # AWS Agent Backend Implementations
 
+**Status**: 🟢 In-use
+**Category**: Integrations
+**Date**: November 5, 2025 (consolidated)
+
 The AWS agent supports two backend implementations:
 
 ## 1. LangGraph Backend (Default) ✨
@@ -29,7 +33,7 @@ export ENABLE_STREAMING=true
 
 Found 3 EKS clusters in us-west-2:
 - prod-cluster
-- staging-cluster  
+- staging-cluster
 - dev-cluster
 ```
 
@@ -186,7 +190,7 @@ Added support for the [AWS ECS MCP Server](https://awslabs.github.io/mcp/servers
 
 ### 1. AWS Agent System Prompt Enhancement
 
-**Files**: 
+**Files**:
 - `ai_platform_engineering/agents/aws/agent_aws/agent.py`
 - `ai_platform_engineering/agents/aws/agent_aws/agent_langgraph.py`
 
@@ -231,14 +235,14 @@ Added ECS MCP client configuration with security controls:
 if enable_ecs_mcp:
     logger.info("Creating ECS MCP client...")
     ecs_env = env_vars.copy()
-    
+
     # Security controls (default to safe values)
     allow_write = os.getenv("ECS_MCP_ALLOW_WRITE", "false").lower() == "true"
     allow_sensitive_data = os.getenv("ECS_MCP_ALLOW_SENSITIVE_DATA", "false").lower() == "true"
-    
+
     ecs_env["ALLOW_WRITE"] = "true" if allow_write else "false"
     ecs_env["ALLOW_SENSITIVE_DATA"] = "true" if allow_sensitive_data else "false"
-    
+
     ecs_client = MCPClient(lambda: stdio_client(
         StdioServerParameters(
             command="uvx",
