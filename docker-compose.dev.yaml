@@ -23,7 +23,7 @@ services:
       agent-argocd-p2p:
         condition: service_started
       agent-aws-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-backstage-p2p:
         condition: service_started
       agent-confluence-p2p:
@@ -137,7 +137,7 @@ services:
       agent-argocd-p2p:
         condition: service_started
       agent-aws-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-backstage-p2p:
         condition: service_started
       agent-confluence-p2p:
