@@ -28,7 +28,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/caipe-rag-${{ matrix.component }}
+      IMAGE_NAME: ${{ github.repository_owner }}/caipe-rag-${{ matrix.component }}
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
