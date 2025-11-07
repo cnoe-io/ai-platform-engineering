@@ -21,33 +21,33 @@ services:
     # 'condition: service_started' just waits for the container to start (faster but less reliable).
     depends_on:
       agent-argocd-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-aws-p2p:
         condition: service_healthy
       agent-backstage-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-confluence-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-github-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-jira-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-komodor-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-pagerduty-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-petstore-p2p:
-        condition: service_healthy
+        condition: service_started
       agent_rag:
-        condition: service_healthy
+        condition: service_started
       agent-slack-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-splunk-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-weather-p2p:
-        condition: service_healthy
+        condition: service_started
       agent-webex-p2p:
-        condition: service_healthy
+        condition: service_started
     env_file:
       - .env
     ports:
@@ -152,9 +152,6 @@ services:
         condition: service_started
       agent-petstore-p2p:
         condition: service_started
-      # agent_rag:
-      #   # condition: service_healthy
-      #   condition: service_started
       agent-slack-p2p:
         condition: service_started
       agent-splunk-p2p:
