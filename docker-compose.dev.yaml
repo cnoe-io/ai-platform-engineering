@@ -10,8 +10,11 @@ services:
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
+    # The 'extra_hosts' option below maps the hostname 'hub.docker.local' to the Docker host's gateway IP.
+    # This enables services running inside this container to access other agents or services that are
+    # available on the host machine network (outside the Docker Compose network), by resolving
+    # 'hub.docker.local' to the actual host machine's network interface.
     extra_hosts:
-      # Map hub.docker.local to host machine so Jarvis agent can be reached
       - "hub.docker.local:host-gateway"
     profiles:
       - p2p
@@ -1454,7 +1457,7 @@ services:
       context: .
       dockerfile: build/agents/Dockerfile.a2a
       args:
-        - AGENT_NAME=petstore
+        - AGENT_NAME=template
     container_name: agent-petstore-p2p
     restart: unless-stopped
     profiles:
