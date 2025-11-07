@@ -1,22 +1,26 @@
 # Streaming Text Chunking Fix
 
+**Status**: 🟢 In-use
+**Category**: Features & Enhancements
+**Date**: October 31, 2025
+
 ## Problem
 
 When the agent streams responses, words were being split with extra spaces:
 
 **Before:**
 ```
-Looking up AWS Resources...I'll help you fin d the cost associated with the 'comn' EKS cluster. 
-Let me search for costs that include this cluster name in the usage details an d relate d expenses. 
-Let me try a different approach. I'll look for tag -based filtering that might include the cluster name: 
-Great ! I found evidence of the 'comn ' cluster through the Kubernetes cluster tag . 
-Now let me get costs associate d with this cluster using the tag filter : 
+Looking up AWS Resources...I'll help you fin d the cost associated with the 'comn' EKS cluster.
+Let me search for costs that include this cluster name in the usage details an d relate d expenses.
+Let me try a different approach. I'll look for tag -based filtering that might include the cluster name:
+Great ! I found evidence of the 'comn ' cluster through the Kubernetes cluster tag .
+Now let me get costs associate d with this cluster using the tag filter :
 Perfect! Now let me get a detaile d breakdown of the E K S- specific costs for the ' com n ' cluster :
 ```
 
 **Issues:**
 - "fin d" should be "find"
-- "an d relate d" should be "and related"  
+- "an d relate d" should be "and related"
 - "tag -based" should be "tag-based"
 - "associate d" should be "associated"
 - "detaile d" should be "detailed"
@@ -41,7 +45,7 @@ if (/[a-zA-Z0-9]/.test(lastChar) && /[a-zA-Z0-9]/.test(firstChar)) {
 ```
 
 When the server sends chunks like:
-1. "fin" 
+1. "fin"
 2. "d the cost"
 
 The old logic would detect:
@@ -65,11 +69,11 @@ Removed the "smart spacing" logic and just concatenate chunks directly:
 
 **After:**
 ```
-Looking up AWS Resources...I'll help you find the cost associated with the 'comn' EKS cluster. 
-Let me search for costs that include this cluster name in the usage details and related expenses. 
-Let me try a different approach. I'll look for tag-based filtering that might include the cluster name: 
-Great! I found evidence of the 'comn' cluster through the Kubernetes cluster tag. 
-Now let me get costs associated with this cluster using the tag filter: 
+Looking up AWS Resources...I'll help you find the cost associated with the 'comn' EKS cluster.
+Let me search for costs that include this cluster name in the usage details and related expenses.
+Let me try a different approach. I'll look for tag-based filtering that might include the cluster name:
+Great! I found evidence of the 'comn' cluster through the Kubernetes cluster tag.
+Now let me get costs associated with this cluster using the tag filter:
 Perfect! Now let me get a detailed breakdown of the EKS-specific costs for the 'comn' cluster:
 ```
 
@@ -84,12 +88,12 @@ Perfect! Now let me get a detailed breakdown of the EKS-specific costs for the '
 - } else {
 -   // Append to existing text with smart spacing
 -   console.log('APPENDING to existing text');
--   
+-
 -   // Add spacing logic to prevent words from running together
 -   if (accumulatedText && cleanText) {
 -     const lastChar = accumulatedText.slice(-1);
 -     const firstChar = cleanText.slice(0, 1);
--     
+-
 -     // Add space if both are alphanumeric and no space exists
 -     if (/[a-zA-Z0-9]/.test(lastChar) && /[a-zA-Z0-9]/.test(firstChar)) {
 -       // Don't add space if the new text already starts with punctuation or whitespace

@@ -259,6 +259,15 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - MAX_CONTEXT_TOKENS=50000      # Reduce from 100K to 50K
+      - MIN_MESSAGES_TO_KEEP=5        # Keep fewer messages (default: 10)
+      - ENABLE_AUTO_COMPRESSION=true  # Ensure compression is enabled
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 512M
 
   ####################################################################################################
   #                                      AGENT AWS A2A over SLIM                                     #
@@ -1137,7 +1146,7 @@ services:
       rag_server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8099/.well-known/agent.json').read()\" || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8099/.well-known/agent-card.json').read()\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

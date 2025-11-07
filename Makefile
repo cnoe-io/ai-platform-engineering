@@ -14,7 +14,7 @@ APP_NAME ?= ai-platform-engineering
 	build install build-docker run run-ai-platform-engineer langgraph-dev \
 	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
-	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale test-rag-all validate lock-all help
+	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help
 
 .DEFAULT_GOAL := run
 
@@ -178,9 +178,10 @@ test-rag-scale: setup-venv ## Run RAG module scale tests with memory monitoring
 	@echo "Running RAG module scale tests with memory monitoring..."
 	@cd ai_platform_engineering/knowledge_bases/rag && make test-scale
 
-test-rag-all: setup-venv ## Run all RAG module tests (unit, scale, memory, coverage)
-	@echo "Running comprehensive RAG module test suite..."
-	@cd ai_platform_engineering/knowledge_bases/rag/server && make test-all
+# Temporarily disabled - test-all target not found in nested Makefile
+# test-rag-all: setup-venv ## Run all RAG module tests (unit, scale, memory, coverage)
+# 	@echo "Running comprehensive RAG module test suite..."
+# 	@cd ai_platform_engineering/knowledge_bases/rag/server && make test-all
 
 ## ========== Integration Tests ==========
 

@@ -1,5 +1,9 @@
 # Date Handling in AI Platform Engineering Agents
 
+**Status**: 🟢 In-use (Part of consolidated date handling feature)
+**Category**: Features & Enhancements
+**Date**: October 27, 2025 (Consolidated into 2025-11-05-date-handling.md)
+
 This guide explains how agents automatically receive current date/time context and how to properly handle date-related queries.
 
 ## Automatic Date Injection
@@ -149,7 +153,7 @@ class MyCustomAgent(BaseLangGraphAgent):
         """Custom date injection with timezone support."""
         now_utc = datetime.now(ZoneInfo("UTC"))
         now_local = datetime.now(ZoneInfo("America/New_York"))
-        
+
         date_context = f"""## Current Date and Time
 
 UTC: {now_utc.strftime("%A, %B %d, %Y %H:%M:%S")}
@@ -173,7 +177,7 @@ from zoneinfo import ZoneInfo
 def test_date_aware_query(mock_datetime):
     # Set a fixed date for testing
     mock_datetime.now.return_value = datetime(2025, 10, 26, 15, 30, 45, tzinfo=ZoneInfo("UTC"))
-    
+
     # Test your agent with relative date queries
     response = await agent.stream("show me today's incidents", session_id="test")
     # Assert expected behavior
@@ -185,7 +189,7 @@ def test_date_aware_query(mock_datetime):
 
 **Problem**: Agent seems to use incorrect dates or doesn't understand "today"
 
-**Solution**: 
+**Solution**:
 1. Verify agent inherits from `BaseLangGraphAgent`
 2. Check that `include_date_handling=True` if needed
 3. Review agent logs to see the actual system prompt being used

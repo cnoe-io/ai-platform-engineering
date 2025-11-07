@@ -26,7 +26,7 @@ def update_task_with_agent_response(task: Task, agent_response: dict[str, Any]) 
   if agent_response["require_user_input"]:
     task.status.state = TaskState.input_required
     message = Message(
-      messageId=str(uuid4()),
+      message_id=str(uuid4()),
       role=Role.agent,
       parts=parts,
     )
@@ -41,7 +41,7 @@ def update_task_with_agent_response(task: Task, agent_response: dict[str, Any]) 
     if not task.artifacts:
       task.artifacts = []
 
-    artifact: Artifact = Artifact(parts=parts, artifactId=str(uuid4()))
+    artifact: Artifact = Artifact(parts=parts, artifact_id=str(uuid4()))
     task.artifacts.append(artifact)
 
 
@@ -61,30 +61,30 @@ def process_streaming_agent_response(
   # responses from this agent can be working/completed/input-required
   if not is_task_complete and not require_user_input:
     task_state = TaskState.working
-    message = Message(role=Role.agent, parts=parts, messageId=str(uuid4()))
+    message = Message(role=Role.agent, parts=parts, message_id=str(uuid4()))
   elif require_user_input:
     task_state = TaskState.input_required
-    message = Message(role=Role.agent, parts=parts, messageId=str(uuid4()))
+    message = Message(role=Role.agent, parts=parts, message_id=str(uuid4()))
     end_stream = True
   else:
     task_state = TaskState.completed
-    artifact = Artifact(parts=parts, artifactId=str(uuid4()))
+    artifact = Artifact(parts=parts, artifact_id=str(uuid4()))
     end_stream = True
 
   task_artifact_update_event = None
 
   if artifact:
     task_artifact_update_event = TaskArtifactUpdateEvent(
-      taskId=task.id,
-      contextId=task.contextId,
+      task_id=task.id,
+      context_id=task.context_id,
       artifact=artifact,
       append=False,
-      lastChunk=True,
+      last_chunk=True,
     )
 
   task_status_event = TaskStatusUpdateEvent(
-    taskId=task.id,
-    contextId=task.contextId,
+    task_id=task.id,
+    context_id=task.context_id,
     status=TaskStatus(
       state=task_state,
       message=message,

@@ -1,5 +1,9 @@
 # AWS Agent Backend Implementations
 
+**Status**: 🟢 In-use (Part of consolidated AWS integration)
+**Category**: Integrations
+**Date**: October 27, 2025 (Consolidated into 2025-11-05-aws-integration.md)
+
 The AWS agent supports two backend implementations:
 
 ## 1. LangGraph Backend (Default) ✨
@@ -29,7 +33,7 @@ export ENABLE_STREAMING=true
 
 Found 3 EKS clusters in us-west-2:
 - prod-cluster
-- staging-cluster  
+- staging-cluster
 - dev-cluster
 ```
 

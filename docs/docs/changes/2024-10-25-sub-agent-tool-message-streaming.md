@@ -1,5 +1,9 @@
 # Sub-Agent Tool Message Streaming Analysis
 
+**Status**: 🟢 In-use
+**Category**: Architecture & Core Design
+**Date**: October 25, 2024
+
 > **Note**: This is a historical debugging/investigation document from October 2024. For comprehensive A2A protocol documentation with actual event data, see [A2A Event Flow Architecture](./2025-10-27-a2a-event-flow-architecture.md).
 
 ## Overview
@@ -28,66 +32,66 @@ Through extensive debugging, we mapped the complete event flow from sub-agents t
 flowchart TD
     %% End User
     User["👤 End User<br/>curl request"] --> Supervisor["🎛️ Supervisor<br/>platform-engineer-p2p:8000"]
-    
+
     %% Supervisor Processing
     Supervisor --> |POST /argocd| StreamHandler["🔄 Stream Handler<br/>agent.py"]
     StreamHandler --> |astream_events v2| LangGraph["🧠 LangGraph<br/>Deep Agent"]
-    
+
     %% LangGraph Events
     LangGraph --> |on_chat_model_stream| TokenStream["📝 Token Streaming<br/>Execution Plan ⟦⟧"]
     LangGraph --> |on_tool_start| ToolStartEvent["🔧 Tool Start Event<br/>tool_name: argocd"]
     LangGraph --> |on_tool_end| ToolEndEvent["✅ Tool End Event<br/>tool_name: argocd"]
-    
+
     %% Tool Start Processing
     ToolStartEvent --> SupervisorToolMsg["📢 Supervisor Tool Message<br/>🔧 Calling argocd..."]
-    
+
     %% Sub-Agent Communication
     LangGraph --> |A2ARemoteAgentConnectTool| A2AClient["🔗 A2A Client<br/>a2a_remote_agent_connect.py"]
     A2AClient --> |HTTP POST| SubAgent["🤖 Sub-Agent<br/>agent-argocd-p2p:8000"]
-    
+
     %% Sub-Agent Processing
     SubAgent --> |generates| StatusEvents["📊 Status-Update Events"]
     StatusEvents --> |event 1| ToolCallMsg["🔧 Calling tool: version_service__version"]
     StatusEvents --> |event 2| ToolCompleteMsg["✅ Tool version_service__version completed"]
     StatusEvents --> |event 3| ResponseMsg["📄 Full ArgoCD version response"]
-    
+
     %% Event Processing
     ToolCallMsg --> |45 chars| StatusProcessor["⚙️ Status Processor<br/>_arun line 239"]
     ToolCompleteMsg --> |46 chars| StatusProcessor
     ResponseMsg --> |400+ chars| StatusProcessor
-    
+
     %% Status Processing Details
     StatusProcessor --> AccumulateText["📥 Accumulate Text<br/>accumulated_text.append"]
     StatusProcessor --> StreamText["📤 Stream Text<br/>writer a2a_event"]
     StatusProcessor --> LogInfo["📝 Log Info<br/>✅ Streamed + accumulated"]
-    
+
     %% Stream Writer Issue
     StreamText --> |get_stream_writer| CustomEvent["🎨 Custom Event<br/>type: a2a_event"]
     CustomEvent --> |❌ DROPPED| LangGraphLimitation["⚠️ LangGraph Limitation<br/>astream_events no custom events"]
-    
+
     %% Working Stream Path
     TokenStream --> |content| UserOutput["📺 User Output"]
     SupervisorToolMsg --> |tool notification| UserOutput
     ToolEndEvent --> SupervisorCompleteMsg["✅ argocd completed"]
     SupervisorCompleteMsg --> UserOutput
-    
+
     %% Final Output
     UserOutput --> |SSE format| StreamResponse["📡 Server-Sent Events<br/>data: JSON"]
     StreamResponse --> User
-    
+
     %% Fallback Mode (Not Used)
     LangGraph -.-> |fallback exception| FallbackMode["🔄 Fallback Mode<br/>astream messages/custom"]
     FallbackMode -.-> |handles custom events| CustomEventProcessor["🎨 Custom Event Handler<br/>_deserialize_a2a_event"]
-    
+
     %% Status Update Details
     subgraph SubAgentDetails ["Sub-Agent Event Details"]
         SA1["🔧 status-update: tool start<br/>messageId: uuid<br/>45 chars"]
-        SA2["✅ status-update: tool complete<br/>messageId: uuid<br/>46 chars"] 
+        SA2["✅ status-update: tool complete<br/>messageId: uuid<br/>46 chars"]
         SA3["📄 status-update: response<br/>messageId: uuid<br/>400+ chars"]
         SA4["🏁 status-update: final<br/>final: true<br/>state: completed"]
     end
-    
-    %% Event Processing Details  
+
+    %% Event Processing Details
     subgraph ProcessingDetails ["Event Processing Chain"]
         P1["📨 Received event<br/>kind: status-update"]
         P2["🔍 Extract text<br/>parts[0].text"]
@@ -96,7 +100,7 @@ flowchart TD
         P5["📝 Log<br/>INFO level"]
         P1 --> P2 --> P3 --> P4 --> P5
     end
-    
+
     %% User Experience
     subgraph UserExperience ["What User Sees"]
         UE1["⟦ Execution Plan ⟧<br/>✅ VISIBLE"]
@@ -105,13 +109,13 @@ flowchart TD
         UE4["🔧 Calling tool: version_service<br/>❌ NOT VISIBLE"]
         UE5["✅ Tool version_service completed<br/>❌ NOT VISIBLE"]
     end
-    
+
     %% Styling
     classDef working fill:#d4edda,stroke:#155724,color:#155724
     classDef broken fill:#f8d7da,stroke:#721c24,color:#721c24
     classDef processing fill:#fff3cd,stroke:#856404,color:#856404
     classDef subagent fill:#cce5ff,stroke:#004085,color:#004085
-    
+
     class SupervisorToolMsg,TokenStream,SupervisorCompleteMsg,UE1,UE2,UE3 working
     class LangGraphLimitation,UE4,UE5 broken
     class StatusProcessor,AccumulateText,StreamText,LogInfo processing
@@ -188,7 +192,7 @@ except asyncio.CancelledError:
     logging.info("Primary stream cancelled by client disconnection")
     return
 
-# In fallback streaming loop  
+# In fallback streaming loop
 except asyncio.CancelledError:
     logging.info("Fallback stream cancelled by client disconnection")
     return
@@ -229,7 +233,7 @@ elif event_type == "on_custom":
 **Impact:** Confirmed that status-update events are being processed correctly:
 ```
 ✅ Streamed + accumulated text from status-update: 45 chars
-✅ Streamed + accumulated text from status-update: 46 chars  
+✅ Streamed + accumulated text from status-update: 46 chars
 ✅ Streamed + accumulated text from status-update: 400+ chars
 ```
 
@@ -342,7 +346,7 @@ For the **current, comprehensive A2A protocol documentation** with actual event 
 
 ---
 
-**Investigation Date:** October 25, 2024  
-**Document Status:** Historical - See [2025-10-27-a2a-event-flow-architecture.md](./2025-10-27-a2a-event-flow-architecture.md) for current documentation  
-**Findings:** Infrastructure Complete - Architecture Limitation Identified  
+**Investigation Date:** October 25, 2024
+**Document Status:** Historical - See [2025-10-27-a2a-event-flow-architecture.md](./2025-10-27-a2a-event-flow-architecture.md) for current documentation
+**Findings:** Infrastructure Complete - Architecture Limitation Identified
 **Outcome:** LangGraph streaming limitation documented; sub-agent tool details not visible to end users via `astream_events`

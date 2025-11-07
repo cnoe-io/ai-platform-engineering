@@ -61,6 +61,9 @@ from mcp_argocd.tools import api_v1_clusters_id_value
 from mcp_argocd.tools import api_v1_gpgkeys
 from mcp_argocd.tools import api_v1_gpgkeys_keyid
 
+# Search
+from mcp_argocd.tools import search
+
 def main():
     # Load environment variables
     load_dotenv()
@@ -157,6 +160,9 @@ def main():
     # Clusters
     mcp.tool()(api_v1_clusters_id_value.cluster_service__get)
     mcp.tool()(api_v1_clusters.cluster_service__list)
+
+    # Search across all resources
+    mcp.tool()(search.search_argocd_resources)
 
     # GPG Keys
     mcp.tool()(api_v1_gpgkeys_keyid.gpg_key_service__get)

@@ -1,5 +1,9 @@
 # Prompt Configuration Feature
 
+**Status**: 🟢 In-use
+**Category**: Configuration & Prompts
+**Date**: October 22, 2024
+
 ## Overview
 
 The AI Platform Engineering Helm chart now supports flexible prompt configuration, allowing users to choose between predefined orchestration behaviors or provide custom configurations.

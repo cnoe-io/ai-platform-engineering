@@ -1,6 +1,9 @@
 # Chat Session Context - Sub-Agent Tool Message Streaming Fix
-**Date:** October 25, 2024  
-**Session Goal:** Enable sub-agent tool messages to stream to end users for better transparency and debugging
+
+**Status**: 🟢 In-use
+**Category**: Session & Context
+**Date**: October 25, 2024
+**Session Goal**: Enable sub-agent tool messages to stream to end users for better transparency and debugging
 
 ---
 
@@ -22,7 +25,7 @@ Successfully implemented streaming of sub-agent tool messages from sub-agents (p
   # OLD (doesn't capture custom events):
   async for event in self.graph.astream_events(inputs, config, version="v2"):
       event_type = event.get("event")
-  
+
   # NEW (captures both messages and custom events):
   async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
   ```
@@ -63,7 +66,7 @@ Successfully implemented streaming of sub-agent tool messages from sub-agents (p
   ```python
   # OLD (caused raw JSON to appear):
   writer({"type": "a2a_event", "data": chunk_dump})
-  
+
   # NEW (only stream extracted text at line 251):
   # Don't stream raw chunk_dump - we'll stream extracted text only at line 251
   ```
@@ -119,7 +122,7 @@ curl -X POST http://10.99.255.178:8000 \
 1. **Primary Streaming Mode:** `astream_events` with version="v2"
    - ✅ Captures: `on_chat_model_stream`, `on_tool_start`, `on_tool_end`
    - ❌ Ignores: Custom events from `get_stream_writer()`
-   
+
 2. **Fallback Mode:** `astream` with `stream_mode=['messages', 'custom', 'updates']`
    - ✅ Captures: Custom events
    - ⚠️ Only triggered on exceptions (never used in normal flow)

@@ -1,5 +1,9 @@
 # A2A Common: Intermediate States and Tool Visibility
 
+**Status**: 🟢 In-use
+**Category**: Architecture & Core Design
+**Date**: October 22, 2024
+
 ## Overview
 
 Enhanced the `a2a_common` base classes to provide **detailed visibility** into agent execution, including:

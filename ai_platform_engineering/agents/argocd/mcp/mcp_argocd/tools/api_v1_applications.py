@@ -27,9 +27,11 @@ async def list_applications(
     namespace: str = "",
     refresh: str = "",
     summary_only: bool = True,
+    page: int = 1,
+    page_size: int = 20,
 ) -> Dict[str, Any]:
     """
-    List applications in ArgoCD with filtering options
+    List applications in ArgoCD with filtering and pagination options
 
     Args:
         project: Filter applications by project name
@@ -38,9 +40,22 @@ async def list_applications(
         namespace: Filter applications by namespace
         refresh: Forces application reconciliation if set to 'hard' or 'normal'
         summary_only: If True, return only summary information (default: True)
+        page: Page number (1-indexed, default: 1)
+        page_size: Number of items per page (default: 20, max: 100)
 
     Returns:
-        List of applications with pagination information
+        Paginated list of applications with metadata:
+        {
+            "items": [...],
+            "pagination": {
+                "page": 1,
+                "page_size": 20,
+                "total_items": 819,
+                "total_pages": 41,
+                "has_next": true,
+                "has_prev": false
+            }
+        }
     """
     params = {}
 
@@ -70,16 +85,65 @@ async def list_applications(
 
     # Handle None items
     if data.get("items") is None:
-        return {
+        response = {
             "items": [],
-            "total": 0,
-            "summary_only": summary_only
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": 0,
+                "total_pages": 0,
+                "has_next": False,
+                "has_prev": False
+            }
+        }
+        if summary_only:
+            response["summary_only"] = True
+        return response
+
+    # Enforce pagination limits
+    page = max(1, page)  # Ensure page is at least 1
+    page_size = min(100, max(1, page_size))  # Enforce max 100 items per page
+
+    all_items = data.get("items", [])
+    total_items = len(all_items)
+    total_pages = (total_items + page_size - 1) // page_size  # Ceiling division
+
+    # Calculate pagination slice
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+
+    # Check if page is out of bounds
+    if start_idx >= total_items and total_items > 0:
+        return {
+            "error": f"Page {page} out of bounds. Total pages: {total_pages}",
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": total_pages,
+                "has_next": False,
+                "has_prev": page > 1
+            }
         }
 
+    paginated_items = all_items[start_idx:end_idx]
+
+    # Build pagination metadata
+    pagination_meta = {
+        "page": page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
+        "showing_from": start_idx + 1 if paginated_items else 0,
+        "showing_to": start_idx + len(paginated_items)
+    }
+
     # If summary_only is True, return only essential information
-    if summary_only and "items" in data:
+    if summary_only:
         summary_items = []
-        for app in data["items"]:
+        for app in paginated_items:
             summary_item = {
                 "name": app.get("metadata", {}).get("name", ""),
                 "namespace": app.get("metadata", {}).get("namespace", ""),
@@ -95,11 +159,14 @@ async def list_applications(
 
         return {
             "items": summary_items,
-            "total": data.get("total", len(summary_items)),
+            "pagination": pagination_meta,
             "summary_only": True
         }
 
-    return data
+    return {
+        "items": paginated_items,
+        "pagination": pagination_meta
+    }
 
 
 async def get_application_details(

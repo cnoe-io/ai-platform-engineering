@@ -37,7 +37,7 @@ async def test_list_applications_with_none_data():
         result = await list_applications(summary_only=True)
         print(f"Result: {result}")
         assert result["items"] == [], "Should return empty list for None items"
-        assert result["total"] == 0, "Should return 0 total for None items"
+        assert result["pagination"]["total_items"] == 0, "Should return 0 total for None items"
         assert result["summary_only"], "Should preserve summary_only flag"
         print("✓ None items handled correctly")
 
@@ -49,7 +49,7 @@ async def test_list_applications_with_none_data():
         result = await list_applications(summary_only=True)
         print(f"Result: {result}")
         assert result["items"] == [], "Should return empty list for empty items"
-        assert result["total"] == 0, "Should return 0 total for empty items"
+        assert result["pagination"]["total_items"] == 0, "Should return 0 total for empty items"
         print("✓ Empty items list handled correctly")
 
     # Test 4: Valid data with applications
@@ -78,7 +78,7 @@ async def test_list_applications_with_none_data():
         result = await list_applications(summary_only=True)
         print(f"Result: {result}")
         assert len(result["items"]) == 1, "Should return one application"
-        assert result["total"] == 1, "Should return correct total"
+        assert result["pagination"]["total_items"] == 1, "Should return correct total"
         assert result["items"][0]["name"] == "test-app", "Should extract application name correctly"
         print("✓ Valid data handled correctly")
 
@@ -130,7 +130,10 @@ async def test_list_applications_summary_vs_full():
         # Test summary_only=False
         result_full = await list_applications(summary_only=False)
         print(f"Full result keys: {list(result_full.keys())}")
-        assert result_full == sample_data, "Should return original data when summary_only=False"
+        assert "items" in result_full, "Should have items key"
+        assert "pagination" in result_full, "Should have pagination key"
+        assert "summary_only" not in result_full, "Should not have summary_only flag when False"
+        assert len(result_full["items"]) == 1, "Should have one item"
 
     print("✅ Summary vs full data test passed!")
 

@@ -1,5 +1,9 @@
 # Common Prompt Templates
 
+**Status**: 🟢 In-use
+**Category**: Configuration & Prompts
+**Date**: October 23, 2024
+
 This document explains how to use the common prompt template utilities located in `prompt_templates.py` to create consistent, reusable system instructions for AI Platform Engineering agents.
 
 ## Overview
@@ -7,7 +11,7 @@ This document explains how to use the common prompt template utilities located i
 The `prompt_templates.py` module provides:
 
 1. **Reusable prompt templates** - Common patterns like graceful error handling
-2. **Building block functions** - Tools to construct system instructions programmatically  
+2. **Building block functions** - Tools to construct system instructions programmatically
 3. **Predefined guidelines** - Standard response guidelines and important notes
 4. **Response formats** - XML coordination and simple status formats
 
@@ -137,7 +141,7 @@ capabilities = [
         description="Generate various reports",
         items=[
             "User activity reports",
-            "System usage analytics", 
+            "System usage analytics",
             "Performance metrics"
         ]
     )
@@ -220,7 +224,7 @@ from ai_platform_engineering.utils.prompt_templates import (
 
 capabilities = [
     AgentCapability(
-        title="Ticket Management", 
+        title="Ticket Management",
         description="Handle Jira tickets",
         items=["Create and update tickets", "Search for issues"]
     )
@@ -242,7 +246,7 @@ SYSTEM_INSTRUCTION = build_system_instruction(
 - Standardized response formats across the platform
 - Common guidelines ensure uniform behavior
 
-### ✅ Maintainability  
+### ✅ Maintainability
 - Updates to common patterns propagate to all agents
 - Easy to add new standard guidelines
 - Single source of truth for prompt patterns
@@ -280,7 +284,7 @@ When you identify a pattern used across multiple agents:
 # In prompt_templates.py
 SECURITY_GUIDELINES = [
     "Always validate user permissions before operations",
-    "Log security-relevant actions for audit purposes", 
+    "Log security-relevant actions for audit purposes",
     "Never expose sensitive data in responses"
 ]
 

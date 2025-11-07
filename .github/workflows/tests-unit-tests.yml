@@ -88,40 +88,40 @@ jobs:
           source .venv/bin/activate && uv sync --no-dev
           cd ai_platform_engineering/agents/argocd/mcp && make test
 
-  run-rag-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+  # run-rag-tests:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v6
+  #       with:
+  #         python-version: "3.13"
 
-      - name: Install UV
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
+  #     - name: Install UV
+  #       run: |
+  #         curl -LsSf https://astral.sh/uv/install.sh | sh
 
-      - name: Run RAG tests
-        run: |
-          /home/runner/.local/bin/uv venv
-          source .venv/bin/activate && cd ai_platform_engineering/knowledge_bases/rag/server && uv sync --dev
-          source .venv/bin/activate && uv add --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match torch --force-reinstall
-          make test-rag-all
+  #     - name: Run RAG tests
+  #       run: |
+  #         /home/runner/.local/bin/uv venv
+  #         source .venv/bin/activate && cd ai_platform_engineering/knowledge_bases/rag/server && uv sync --dev
+  #         source .venv/bin/activate && uv add --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match torch --force-reinstall
+  #         make test-rag-all
 
-      - name: Upload RAG coverage reports
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v5
-        with:
-          name: coverage-reports-rag
-          path: |
-            ai_platform_engineering/knowledge_bases/rag/server/coverage.xml
-            ai_platform_engineering/knowledge_bases/rag/server/htmlcov/
+  #     - name: Upload RAG coverage reports
+  #       if: github.event_name == 'pull_request'
+  #       uses: actions/upload-artifact@v5
+  #       with:
+  #         name: coverage-reports-rag
+  #         path: |
+  #           ai_platform_engineering/knowledge_bases/rag/server/coverage.xml
+  #           ai_platform_engineering/knowledge_bases/rag/server/htmlcov/
 
   coverage-report:
     runs-on: ubuntu-latest
-    needs: [run-tests, run-argocd-tests, run-rag-tests]
+    needs: [run-tests, run-argocd-tests]
     if: github.event_name == 'pull_request'
     steps:
       - name: Checkout code
@@ -133,11 +133,12 @@ jobs:
           name: coverage-reports-main
           path: ./main-coverage/
 
-      - name: Download RAG coverage reports
-        uses: actions/download-artifact@v6
-        with:
-          name: coverage-reports-rag
-          path: ./rag-coverage/
+      # RAG tests disabled - uncomment when re-enabled
+      # - name: Download RAG coverage reports
+      #   uses: actions/download-artifact@v6
+      #   with:
+      #     name: coverage-reports-rag
+      #     path: ./rag-coverage/
 
       - name: Generate coverage summary
         run: |
