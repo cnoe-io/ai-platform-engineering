@@ -1421,7 +1421,7 @@ services:
       context: .
       dockerfile: build/agents/Dockerfile.a2a
       args:
-        - AGENT_NAME=petstore
+        - AGENT_NAME=template
     profiles:
       - slim
       - slim-tracing
