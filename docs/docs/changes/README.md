@@ -75,18 +75,18 @@ All documentation files are in the root of this directory, organized by date and
 
 ## Document Statistics
 
-- **Total documents**: 31 markdown files
-- **🟢 In-use**: 27 documents
+- **Total documents**: 36 markdown files
+- **🟢 In-use**: 32 documents
 - **🟡 Proposed**: 2 documents
-- **🔴 Abandoned**: 1 document
+- **🔴 Abandoned**: 2 documents
 
 ### By Category
-- **Architecture docs**: 6 files (5 In-use, 1 Abandoned)
-- **Feature docs**: 10 files (8 In-use, 2 Proposed)
+- **Architecture docs**: 6 files (4 In-use, 2 Abandoned)
+- **Feature docs**: 11 files (9 In-use, 2 Proposed)
 - **Configuration docs**: 4 files (4 In-use)
 - **Integration docs**: 6 files (6 In-use)
 - **Refactoring docs**: 3 files (3 In-use)
-- **Agent-specific docs**: 1 file (1 In-use)
+- **Agent-specific docs**: 5 files (5 In-use - OOM protection & ArgoCD)
 - **Session/Context docs**: 1 file (1 In-use)
 
 ## Recent Consolidations (2025-11-05)

@@ -1,212 +1,393 @@
-# ADR (Architecture Decision Record) Documentation Standards
+# Architecture Decision Records (ADR) - Cursor Rules
 
-All change documentation in this directory must follow the ADR format.
+## Purpose
+This directory contains ADRs documenting significant changes, features, and design decisions for ai-platform-engineering (Backend AI Agent System). These records provide historical context and rationale for architectural choices.
 
-## File Naming Convention
+## ADR Format (REQUIRED)
 
-**Format:** `YYYY-MM-DD-kebab-case-description.md`
-
-**Examples:**
-- `2025-11-05-todo-based-execution-plan.md`
-- `2025-11-05-context-management.md`
-- `2025-10-31-metadata-feature-summary.md`
-
-**Rules:**
-- Use the current date when creating new ADRs
-- Use lowercase with hyphens (kebab-case)
-- Be descriptive but concise
-- Date format is strictly YYYY-MM-DD
-
-## Required Header Structure
+Every ADR MUST follow this exact structure:
 
 ```markdown
-# Title in Title Case
+# ADR: [Title]
 
-**Status**: 🟢 In-use | 🟡 Proposed | 🔴 Deprecated
-**Category**: Features & Enhancements | Bug Fixes | Configuration & Prompts | Architecture & Design
+**Status**: 🟢 In-use | 🟡 Proposal | 🔴 Abandoned
+**Category**: [Architecture & Design | Features & Enhancements | Bug Fixes & Performance | Documentation]
 **Date**: Month DD, YYYY
+**Signed-off-by**: Name <email>
+
+## Overview / Summary
+[1-2 paragraph summary of what was changed/implemented]
+
+## Problem / Problem Statement
+[What problem was being solved? What was the root cause?]
+
+## Solution / Solution Design / Implementation
+[How was the problem solved? What approach was taken? Code examples]
+
+## Benefits
+[Why this change matters, what improvements it brings]
+
+## Testing / Verification
+[How to verify the change works, test cases, integration tests]
+
+## Files Modified
+[List of files that were changed with paths]
+
+## Related Documentation
+[Links to related ADRs, frontend docs, external references]
+
+---
 ```
 
-**Status Options:**
-- 🟢 **In-use** - Currently implemented and active
-- 🟡 **Proposed** - Planned but not yet implemented
-- 🔴 **Deprecated** - No longer in use
+## Status Indicators
 
-**Category Options:**
-- Features & Enhancements
-- Bug Fixes
-- Configuration & Prompts
-- Architecture & Design
-- Documentation & Examples
+### 🟢 In-use
+- Feature/decision is **actively implemented** and **in production**
+- Code is present and functional in the codebase
+- Must be verified against actual Python code before marking as in-use
+- Agent is deployed and handling requests
 
-## Required Sections (in order)
+### 🟡 Proposal
+- Feature/decision is **proposed** but **not yet implemented**
+- Use for design proposals and planned features
+- Should include implementation timeline
+- Include rationale and alternatives considered
 
-### 1. Overview
-Brief summary (2-3 sentences) of what this document covers.
+### 🔴 Abandoned
+- Feature/decision was **implemented but later removed** OR **proposed but rejected**
+- Must include reason for abandonment
+- Keep for historical context
+- Reference replacement solution if any
 
-### 2. The Problem (or Context)
-- What problem does this solve?
-- What was the previous behavior?
-- Why was a change needed?
+## Rules for Creating/Updating ADRs
 
-### 3. The Solution
-- What was implemented?
-- High-level approach
-- Key decisions made
+### 1. Verify Before Marking Status
+**CRITICAL**: Before marking an ADR as 🟢 In-use:
+- ✅ Search the codebase for mentioned functions/classes/agents
+- ✅ Verify the code is actually being used (not commented out)
+- ✅ Check agent is deployed (docker-compose or Helm)
+- ✅ Verify integration tests pass
+- ✅ Confirm the feature works in production
 
-### 4. How It Works
-Detailed technical explanation with:
-- Step-by-step flow
-- Code examples
-- Diagrams if helpful
-- Example scenarios
+Example verification:
+```bash
+# Search for function/class usage
+grep -r "class ArgocdAgent" ai_platform_engineering/
 
-### 5. Implementation Details (optional)
-- Functions/classes added or modified
-- Configuration changes
-- Integration points
-- Technical specifics
+# Check MCP server implementation
+find ai_platform_engineering/agents/argocd/mcp -name "*.py"
 
-### 6. Benefits
-Why this is valuable:
-- User experience improvements
-- Developer experience improvements
-- Performance gains
-- Maintainability improvements
+# Verify agent deployment
+grep -r "argocd" docker-compose/
 
-### 7. Implementation Files
-List of modified/added files with descriptions:
-```markdown
-1. **`path/to/file.py`**
-   - Added function X
-   - Modified class Y
-   - Lines 123-456
-
-2. **`path/to/config.yaml`**
-   - Updated configuration Z
+# Run integration tests
+pytest integration/test_platform_engineer_executor.py
 ```
 
-### 8. Configuration (if applicable)
-- Environment variables
-- Configuration files
-- Setup instructions
-- Examples
+### 2. File Naming Convention
+- Format: `YYYY-MM-DD-descriptive-title.md`
+- Use lowercase with hyphens
+- Be descriptive but concise
+- Example: `2025-11-05-argocd-oom-protection.md`
 
-### 9. Testing (if applicable)
-- How to test
-- Test coverage
-- Example test runs
+### 3. Categories
 
-### 10. Compatibility
-- Backward compatibility notes
-- Breaking changes (if any)
-- Migration guide (if needed)
+**Architecture & Design**
+- Multi-agent system architecture
+- Supervisor patterns
+- State management approaches
+- LangGraph implementations
+- A2A protocol design
 
-### 11. Examples (if applicable)
-Real-world usage examples with code blocks.
+**Features & Enhancements**
+- New agent implementations
+- MCP server additions
+- Tool implementations
+- Performance optimizations
+- Context management features
 
-### 12. Troubleshooting (optional)
-Common issues and solutions.
+**Bug Fixes & Performance**
+- Critical bug fixes
+- OOM protections
+- Memory optimizations
+- Race condition fixes
 
-### 13. Future Enhancements (optional)
-Potential improvements or next steps.
+**Documentation**
+- Setup guides
+- Integration guides
+- API documentation
 
-## Style Guidelines
+### 4. When to Create an ADR
 
-### Formatting
-- Use **bold** for emphasis
-- Use `inline code` for code references
-- Use ```language code blocks for examples
-- Use > blockquotes for important notes
-- Use - or * for bullet lists
-- Use 1. 2. 3. for numbered lists
+Create an ADR when:
+- ✅ Implementing a new agent (ArgoCD, AWS, Jira, etc.)
+- ✅ Making architectural decisions (supervisor vs direct routing)
+- ✅ Fixing critical bugs (OOM, race conditions, streaming issues)
+- ✅ Adding A2A protocol features
+- ✅ Implementing MCP servers
+- ✅ Performance optimizations (pagination, caching)
+- ✅ Context management strategies
 
-### Emoji Indicators
-Use emojis to enhance readability:
-- ✅ Success, done, working
-- ❌ Error, not working, removed
-- 🟢 Active status
-- 🟡 Pending/proposed status
-- 🔴 Deprecated status
-- 📋 Todo, checklist
-- 🎯 Goal, target
-- 🎨 UI/UX related
-- 🔧 Configuration
-- 🧪 Testing
-- 📚 Documentation
-- 🚀 Deployment, release
-- ⚠️ Warning, caution
+Do NOT create an ADR for:
+- ❌ Minor bug fixes
+- ❌ Dependency updates (unless significant)
+- ❌ Code formatting changes
+- ❌ Configuration tweaks
 
-### Code Examples
+### 5. Code Examples in ADRs
+
 Always include:
-- Syntax highlighting (```python, ```yaml, etc.)
-- Context (what file, what function)
-- Comments explaining key parts
+- **Location comments**: Specify file path and function/class
+- **Context**: Show before/after comparisons for changes
+- **Complete examples**: Include enough Python code to understand
+- **Language tags**: Use `python` syntax highlighting
 
-### Tables
-Use tables for comparisons:
-```markdown
-| Before | After |
-|--------|-------|
-| Old behavior | New behavior |
+Example:
+```python
+# File: ai_platform_engineering/agents/argocd/mcp/mcp_argocd/tools/api_v1_applications.py
+
+def list_applications(
+    page: int = 1,
+    page_size: int = 20
+) -> Dict[str, Any]:
+    """List ArgoCD applications with pagination.
+
+    Args:
+        page: Page number (1-indexed)
+        page_size: Items per page (default 20, max 100)
+
+    Returns:
+        Dictionary with items and pagination metadata
+    """
+    # Fetch from ArgoCD API
+    all_apps = argocd_client.list_applications()
+
+    # Calculate pagination
+    total_items = len(all_apps)
+    total_pages = (total_items + page_size - 1) // page_size
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+
+    return {
+        "items": all_apps[start_idx:end_idx],
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total_items": total_items,
+            "total_pages": total_pages
+        }
+    }
 ```
 
-### Language
-- Write in present tense
-- Be clear and concise
-- Explain "what" and "why", not just "how"
-- Assume reader has context but not specifics
-- Define acronyms on first use
+### 6. Backend-Specific Considerations
 
-## Example ADR Structure
+**Agent Implementations**:
+- Document system prompts and their rationale
+- Show LangGraph state definitions
+- Explain routing decisions
+- Include tool definitions
 
+**Multi-Agent System**:
+- Document supervisor routing logic
+- Show sub-agent communication patterns
+- Explain delegation strategies
+- Include execution plan formats
+
+**A2A Protocol**:
+- Show artifact structure
+- Document event types
+- Explain streaming behavior
+- Include protocol compliance
+
+**MCP Servers**:
+- Document server endpoints
+- Show tool definitions
+- Explain resource management
+- Include pagination strategies
+
+### 7. Updating Existing ADRs
+
+When code changes affect an ADR:
+
+**If feature is enhanced:**
+- Update the Implementation section
+- Add note about enhancement with date
+- Keep Status as 🟢 In-use
+
+**If feature is deprecated:**
+- Change Status to 🔴 Abandoned
+- Add "Deprecation" section explaining why
+- Document replacement solution if any
+
+**If agent is replaced:**
+- Change Status to 🔴 Abandoned
+- Reference the new ADR that replaces it
+- Keep original for historical context
+
+### 8. Cross-References
+
+Always link to:
+- Related backend ADRs
+- Frontend ADRs (agent-forge, agent-chat-cli)
+- A2A protocol documentation
+- LangGraph/LangChain docs
+
+Example:
 ```markdown
-# TODO-Based Execution Plan Architecture
+## Related Documentation
 
-**Status**: 🟢 In-use
-**Category**: Features & Enhancements
-**Date**: November 5, 2025
-
-## Overview
-
-The Platform Engineer now uses **TODO lists as execution plans** instead of text-based execution plans with markers. This solves the "execution plan without tool calls" problem.
-
-## The Problem
-
-Previously, agents could complete without calling tools after streaming an execution plan.
-
-## The Solution
-
-Enforce TODO creation as first step, making tool execution mandatory.
-
-## How It Works
-
-### 1. Prompt Changes
-
-Agent must call write_todos immediately...
-
-[etc.]
+- [Agent-Forge Artifact Handling](../../../../../community-plugins/workspaces/agent-forge/docs/docs/changes/2025-11-05-a2a-artifact-based-streaming.md)
+- [Agent-Chat-CLI Partial Results](../../../../../agent-chat-cli/docs/docs/changes/2025-11-07-streaming-behavior.md)
+- [A2A Protocol Spec](https://github.com/ModelContextProtocol/a2a-spec)
 ```
 
-## Quality Checklist
+### 9. Testing Section
 
-Before committing an ADR, ensure:
-- ✅ File name follows YYYY-MM-DD-kebab-case.md format
-- ✅ Header has Status, Category, Date
-- ✅ Overview is clear and concise
-- ✅ Problem/Context is explained
-- ✅ Solution is described
-- ✅ Implementation details are included
-- ✅ Benefits are listed
-- ✅ Files modified are documented
-- ✅ Code examples are provided
-- ✅ Formatting is consistent
-- ✅ No typos or grammatical errors
+For backend ADRs, include:
+- **Integration Tests**: Paths to test files
+- **Manual Testing**: Steps to verify manually
+- **Performance Testing**: Memory/latency measurements
+- **Test Scenarios**: Real-world usage patterns
 
-## References
+Example:
+```markdown
+## Testing
 
-For examples, see existing ADRs in this directory:
-- `2025-11-05-todo-based-execution-plan.md`
-- `2025-11-05-context-management.md`
-- `2025-11-05-agent-forge-setup.md`
+### Integration Tests
 
+Run the platform engineer executor tests:
+```bash
+pytest integration/test_platform_engineer_executor.py -v
+```
+
+### Manual Testing
+
+1. Start ArgoCD agent:
+```bash
+docker-compose -f docker-compose/docker-compose.argocd.yaml up
+```
+
+2. Send test query:
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "list applications page 1"}'
+```
+
+3. Verify pagination in response
+
+### Performance Testing
+
+- Memory usage: < 500 MB for 20 items
+- Response time: < 2 seconds
+- No OOM with 819 total applications
+```
+```
+
+### 10. Verification Section (Required for 🟢 In-use)
+
+Every In-use ADR MUST include verification:
+
+```markdown
+## Verification
+
+Code analysis confirms these features are **actively in use**:
+- ✅ `list_applications()` function in `tools/api_v1_applications.py`
+- ✅ Pagination parameters implemented (page, page_size)
+- ✅ Agent deployed in `docker-compose.argocd.yaml`
+- ✅ Integration test passing: `test_platform_engineer_executor.py`
+- ✅ Feature verified in production environment
+```
+
+### 11. Architecture Diagrams
+
+Use ASCII art or mermaid diagrams when helpful:
+
+```
+Multi-Agent Architecture:
+
+┌─────────────────────────────────────────┐
+│  Platform Engineer Supervisor           │
+│  - Routes to specialized agents          │
+│  - Manages execution plan                │
+│  - Aggregates responses                  │
+└──────────┬──────────────────────────────┘
+           │
+           ├──> ArgoCD Agent
+           │    - List applications
+           │    - Search resources
+           │    - Manage deployments
+           │
+           ├──> AWS Agent
+           │    - List resources
+           │    - Manage services
+           │    - Cost analysis
+           │
+           └──> Jira Agent
+                - Create issues
+                - Search tickets
+                - Update status
+```
+
+### 12. Performance Metrics
+
+Document performance impact:
+
+```markdown
+## Performance Impact
+
+### Before
+- Memory: 2.5 GB (819 apps loaded)
+- Response time: 45 seconds (OOM timeout)
+- Success rate: 60% (40% OOM killed)
+
+### After (with pagination)
+- Memory: 480 MB (20 apps per page)
+- Response time: 2 seconds
+- Success rate: 100%
+- Improvement: 80% memory reduction
+```
+
+### 13. Maintenance
+
+**Monthly Review**:
+- Verify all 🟢 In-use ADRs are still accurate
+- Check for deprecated agents
+- Update performance metrics
+- Verify integration tests still pass
+
+**Code Changes**:
+- When modifying agent code, update corresponding ADR
+- Keep implementation details synchronized
+- Update file paths if code moves
+
+## Quick Checklist for New ADRs
+
+Before committing a new ADR:
+- [ ] Title starts with "ADR:"
+- [ ] Status indicator (🟢/🟡/🔴) is present
+- [ ] Category is specified
+- [ ] Date is included
+- [ ] Signed-off-by line is present
+- [ ] All required sections are included
+- [ ] Code examples have file paths
+- [ ] Python code is properly formatted
+- [ ] If Status is 🟢 In-use: Verification section is included
+- [ ] Integration tests referenced
+- [ ] Performance impact documented (if applicable)
+- [ ] Related frontend ADRs cross-referenced
+- [ ] File name follows YYYY-MM-DD-title.md format
+- [ ] README.md is updated with new ADR entry
+
+## Examples
+
+See existing ADRs in this directory:
+- `2025-11-05-argocd-oom-protection-summary.md` - Architecture decision
+- `2025-11-05-mcp-argocd-pagination-summary.md` - Feature implementation
+- `2025-11-05-a2a-artifact-streaming-fix.md` - Bug fix
+
+## Contact
+
+For questions about ADR format or content:
+- Platform Engineering Team
+- Sri Aradhyula <sraradhy@cisco.com>
