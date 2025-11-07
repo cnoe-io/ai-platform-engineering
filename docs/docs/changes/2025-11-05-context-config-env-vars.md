@@ -205,8 +205,7 @@ max_context_tokens = get_context_limit_for_provider()
 
 ## See Also
 
-- [`CONTEXT_MANAGEMENT.md`](./CONTEXT_MANAGEMENT.md) - Full documentation
-- [`CONTEXT_MANAGEMENT_SUMMARY.md`](./CONTEXT_MANAGEMENT_SUMMARY.md) - Quick reference
+- [Context Management](./2025-11-05-context-management.md) - Full documentation on context management implementation
 
 
 

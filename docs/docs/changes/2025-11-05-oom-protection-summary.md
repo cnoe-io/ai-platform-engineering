@@ -3,7 +3,7 @@
 **Status**: 🟢 In-use
 **Category**: Architecture & Design
 **Date**: November 5, 2025
-**Signed-off-by**: Sri Aradhyula <sraradhy@cisco.com>
+**Signed-off-by**: Sri Aradhyula \<sraradhy@cisco.com\>
 
 ## Overview
 This document outlines the multi-layered OOM (Out of Memory) protection strategy implemented for the ArgoCD agent to handle large queries safely.
