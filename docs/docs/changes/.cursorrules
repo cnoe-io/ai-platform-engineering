@@ -1,0 +1,212 @@
+# ADR (Architecture Decision Record) Documentation Standards
+
+All change documentation in this directory must follow the ADR format.
+
+## File Naming Convention
+
+**Format:** `YYYY-MM-DD-kebab-case-description.md`
+
+**Examples:**
+- `2025-11-05-todo-based-execution-plan.md`
+- `2025-11-05-context-management.md`
+- `2025-10-31-metadata-feature-summary.md`
+
+**Rules:**
+- Use the current date when creating new ADRs
+- Use lowercase with hyphens (kebab-case)
+- Be descriptive but concise
+- Date format is strictly YYYY-MM-DD
+
+## Required Header Structure
+
+```markdown
+# Title in Title Case
+
+**Status**: 🟢 In-use | 🟡 Proposed | 🔴 Deprecated
+**Category**: Features & Enhancements | Bug Fixes | Configuration & Prompts | Architecture & Design
+**Date**: Month DD, YYYY
+```
+
+**Status Options:**
+- 🟢 **In-use** - Currently implemented and active
+- 🟡 **Proposed** - Planned but not yet implemented
+- 🔴 **Deprecated** - No longer in use
+
+**Category Options:**
+- Features & Enhancements
+- Bug Fixes
+- Configuration & Prompts
+- Architecture & Design
+- Documentation & Examples
+
+## Required Sections (in order)
+
+### 1. Overview
+Brief summary (2-3 sentences) of what this document covers.
+
+### 2. The Problem (or Context)
+- What problem does this solve?
+- What was the previous behavior?
+- Why was a change needed?
+
+### 3. The Solution
+- What was implemented?
+- High-level approach
+- Key decisions made
+
+### 4. How It Works
+Detailed technical explanation with:
+- Step-by-step flow
+- Code examples
+- Diagrams if helpful
+- Example scenarios
+
+### 5. Implementation Details (optional)
+- Functions/classes added or modified
+- Configuration changes
+- Integration points
+- Technical specifics
+
+### 6. Benefits
+Why this is valuable:
+- User experience improvements
+- Developer experience improvements
+- Performance gains
+- Maintainability improvements
+
+### 7. Implementation Files
+List of modified/added files with descriptions:
+```markdown
+1. **`path/to/file.py`**
+   - Added function X
+   - Modified class Y
+   - Lines 123-456
+
+2. **`path/to/config.yaml`**
+   - Updated configuration Z
+```
+
+### 8. Configuration (if applicable)
+- Environment variables
+- Configuration files
+- Setup instructions
+- Examples
+
+### 9. Testing (if applicable)
+- How to test
+- Test coverage
+- Example test runs
+
+### 10. Compatibility
+- Backward compatibility notes
+- Breaking changes (if any)
+- Migration guide (if needed)
+
+### 11. Examples (if applicable)
+Real-world usage examples with code blocks.
+
+### 12. Troubleshooting (optional)
+Common issues and solutions.
+
+### 13. Future Enhancements (optional)
+Potential improvements or next steps.
+
+## Style Guidelines
+
+### Formatting
+- Use **bold** for emphasis
+- Use `inline code` for code references
+- Use ```language code blocks for examples
+- Use > blockquotes for important notes
+- Use - or * for bullet lists
+- Use 1. 2. 3. for numbered lists
+
+### Emoji Indicators
+Use emojis to enhance readability:
+- ✅ Success, done, working
+- ❌ Error, not working, removed
+- 🟢 Active status
+- 🟡 Pending/proposed status
+- 🔴 Deprecated status
+- 📋 Todo, checklist
+- 🎯 Goal, target
+- 🎨 UI/UX related
+- 🔧 Configuration
+- 🧪 Testing
+- 📚 Documentation
+- 🚀 Deployment, release
+- ⚠️ Warning, caution
+
+### Code Examples
+Always include:
+- Syntax highlighting (```python, ```yaml, etc.)
+- Context (what file, what function)
+- Comments explaining key parts
+
+### Tables
+Use tables for comparisons:
+```markdown
+| Before | After |
+|--------|-------|
+| Old behavior | New behavior |
+```
+
+### Language
+- Write in present tense
+- Be clear and concise
+- Explain "what" and "why", not just "how"
+- Assume reader has context but not specifics
+- Define acronyms on first use
+
+## Example ADR Structure
+
+```markdown
+# TODO-Based Execution Plan Architecture
+
+**Status**: 🟢 In-use
+**Category**: Features & Enhancements
+**Date**: November 5, 2025
+
+## Overview
+
+The Platform Engineer now uses **TODO lists as execution plans** instead of text-based execution plans with markers. This solves the "execution plan without tool calls" problem.
+
+## The Problem
+
+Previously, agents could complete without calling tools after streaming an execution plan.
+
+## The Solution
+
+Enforce TODO creation as first step, making tool execution mandatory.
+
+## How It Works
+
+### 1. Prompt Changes
+
+Agent must call write_todos immediately...
+
+[etc.]
+```
+
+## Quality Checklist
+
+Before committing an ADR, ensure:
+- ✅ File name follows YYYY-MM-DD-kebab-case.md format
+- ✅ Header has Status, Category, Date
+- ✅ Overview is clear and concise
+- ✅ Problem/Context is explained
+- ✅ Solution is described
+- ✅ Implementation details are included
+- ✅ Benefits are listed
+- ✅ Files modified are documented
+- ✅ Code examples are provided
+- ✅ Formatting is consistent
+- ✅ No typos or grammatical errors
+
+## References
+
+For examples, see existing ADRs in this directory:
+- `2025-11-05-todo-based-execution-plan.md`
+- `2025-11-05-context-management.md`
+- `2025-11-05-agent-forge-setup.md`
+
