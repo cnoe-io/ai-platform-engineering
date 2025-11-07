@@ -3,7 +3,7 @@
 **Status**: 🟢 In-use
 **Category**: Bug Fixes & Performance
 **Date**: November 5, 2025
-**Signed-off-by**: Sri Aradhyula <sraradhy@cisco.com>
+**Signed-off-by**: Sri Aradhyula \<sraradhy@cisco.com\>
 
 ## Problem Statement
 The ArgoCD agent was experiencing OOM (Out of Memory) kills in Docker when processing queries that list all ArgoCD applications (819 apps).
