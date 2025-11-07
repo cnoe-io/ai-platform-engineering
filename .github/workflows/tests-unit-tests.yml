@@ -37,16 +37,16 @@ jobs:
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
 
-          /home/runner/.local/bin/uv venv
+      - name: Install dependencies and run tests
+        run: |
+          echo "Installing dependencies with uv sync..."
+          /home/runner/.local/bin/uv sync
 
-          echo "Installing ai_platform_engineering, agents, and argocd..."
-
-          source .venv/bin/activate && uv add pytest-asyncio pytest-cov --group unittest
-          source .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
-          source .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
+          echo "Adding test dependencies..."
+          /home/runner/.local/bin/uv add pytest-asyncio pytest-cov --group unittest
 
           echo "Running tests with coverage..."
-          source .venv/bin/activate && uv run pytest \
+          /home/runner/.local/bin/uv run pytest \
             --ignore=integration \
             --ignore=evals \
             --ignore=ai_platform_engineering/knowledge_bases/rag/tests \

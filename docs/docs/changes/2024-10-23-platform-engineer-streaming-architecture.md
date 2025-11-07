@@ -8,7 +8,7 @@
 
 1. [Executive Summary](#executive-summary)
 2. [Architecture Overview](#architecture-overview)
-3. [Routing Strategies](#routing-strategies)
+3. [Routing Decision Logic](#routing-decision-logic)
 4. [Streaming Implementation](#streaming-implementation)
 5. [Performance Analysis](#performance-characteristics)
 6. [Key Findings](#key-findings-and-analysis)

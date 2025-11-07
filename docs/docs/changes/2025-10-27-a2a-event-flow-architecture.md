@@ -668,5 +668,5 @@ curl -X POST http://localhost:8001 \
   - Documents LangGraph streaming limitations
   - Investigation of sub-agent tool message visibility
   - Architectural discoveries and attempted solutions
-- [Session Context (Oct 25, 2024)](./session-context-2024-10-25.md) - Earlier investigation session
+- [Session Context (Oct 25, 2024)](./2024-10-25-session-context.md) - Earlier investigation session
 

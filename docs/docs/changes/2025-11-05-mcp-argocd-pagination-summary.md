@@ -3,7 +3,7 @@
 **Status**: 🟢 In-use
 **Category**: Features & Enhancements
 **Date**: November 5, 2025
-**Signed-off-by**: Sri Aradhyula <sraradhy@cisco.com>
+**Signed-off-by**: Sri Aradhyula \<sraradhy@cisco.com\>
 
 ## Summary
 
