@@ -4,7 +4,7 @@
 
 1. [Executive Summary](#executive-summary)
 2. [Architecture Overview](#architecture-overview)
-3. [Routing Strategies](#routing-strategies)
+3. [Routing Decision Logic](#routing-decision-logic)
 4. [Streaming Implementation](#streaming-implementation)
 5. [Performance Analysis](#performance-characteristics)
 6. [Key Findings](#key-findings-and-analysis)
@@ -16,7 +16,7 @@
 
 **Latest Test Results (October 2025) - Updated 4-Mode System:**
 - 🥇 **DEEP_AGENT_PARALLEL_ORCHESTRATION_ORCHESTRATION** wins with 4.94s average (29% faster than expected)
-- 🥈 **DEEP_AGENT_SEQUENTIAL_ORCHESTRATION** second with 6.55s average (baseline performance)  
+- 🥈 **DEEP_AGENT_SEQUENTIAL_ORCHESTRATION** second with 6.55s average (baseline performance)
 - 🥉 **DEEP_AGENT_INTELLIGENT_ROUTING** third with 6.97s average (needs investigation)
 - 🆕 **DEEP_AGENT_ENHANCED_ORCHESTRATION** - NEW experimental mode combining smart routing + orchestration hints
 - ⭐ **100% excellent streaming quality** across all modes (0.02s first chunk)
@@ -36,26 +36,26 @@ graph TD
     B --> C{Enhanced Streaming Enabled?}
     C -->|No| D[Deep Agent Only<br/>Original Behavior]
     C -->|Yes| E[Query Analysis & Routing]
-    
+
     E --> F{Routing Decision}
     F -->|DIRECT| G[Single Agent Direct Streaming]
     F -->|PARALLEL| H[Multi-Agent Parallel Streaming]
     F -->|COMPLEX| I[Deep Agent Orchestration]
-    
+
     G --> J[Direct A2A Connection]
     J --> K[Token-by-Token Streaming]
-    
+
     H --> L[Parallel A2A Connections]
     L --> M[Aggregated Results]
-    
+
     I --> N[Deep Agent + System Prompt]
     N --> O[Subagent Invocation]
     O --> P[Streamed via LangGraph Events]
-    
+
     K --> Q[Client Receives Tokens]
     M --> Q
     P --> Q
-    
+
     D --> N
 ```
 
@@ -68,17 +68,17 @@ The system analyzes incoming queries using a multi-stage decision tree:
 ```python
 def _route_query(self, query: str) -> RoutingDecision:
     query_lower = query.lower()
-    
+
     # Stage 1: Explicit documentation queries
     if query_lower.startswith('docs:'):
         return RoutingDecision(type=RoutingType.DIRECT, agents=[('RAG', rag_url)])
-    
+
     # Stage 2: Explicit agent mentions
     mentioned_agents = []
     for agent_name, agent_url in available_agents.items():
         if agent_name.lower() in query_lower:
             mentioned_agents.append((agent_name, agent_url))
-    
+
     # Stage 3: Route based on agent count and complexity
     if len(mentioned_agents) == 0:
         return COMPLEX  # Deep Agent handles semantic routing
@@ -109,10 +109,10 @@ def _route_query(self, query: str) -> RoutingDecision:
 ```python
 async def _stream_from_sub_agent(self, agent_url, query, task, event_queue, trace_id):
     """Direct streaming bypasses Deep Agent for maximum performance"""
-    
+
     # Create direct A2A connection
     client = A2AClient(httpx_client=httpx_client, agent_card=agent_card)
-    
+
     # Stream chunks from sub-agent
     first_artifact_sent = False
     async for response_wrapper in client.send_message_streaming(streaming_request):
@@ -139,11 +139,11 @@ async def _stream_from_sub_agent(self, agent_url, query, task, event_queue, trac
 ```python
 async def _stream_from_multiple_agents(self, agents, query, task, event_queue):
     """Parallel execution with result aggregation"""
-    
+
     # Execute all agents concurrently
     tasks = [stream_single_agent(name, url) for name, url in agents]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     # Aggregate results with source annotations
     combined_output = []
     for result in results:
@@ -151,7 +151,7 @@ async def _stream_from_multiple_agents(self, agents, query, task, event_queue):
             combined_output.append(f"## 📊 {agent_name.upper()} Results\n\n{content}")
         else:
             combined_output.append(f"## ❌ {agent_name.upper()} Error\n\n{error}")
-    
+
     # Send aggregated result as single artifact
     await event_queue.enqueue_event(TaskArtifactUpdateEvent(
         append=False,
@@ -182,7 +182,7 @@ You are an AI Platform Engineer that helps users manage and operate cloud-native
 ## Available Agents
 You have access to the following specialist agents as subagents:
 - RAG: Documentation and knowledge base queries
-- KOMODOR: Kubernetes cluster monitoring and troubleshooting  
+- KOMODOR: Kubernetes cluster monitoring and troubleshooting
 - GITHUB: Repository management and code operations
 - PAGERDUTY: On-call schedules and incident management
 - JIRA: Issue tracking and project management
@@ -216,10 +216,10 @@ deep_agent = async_create_deep_agent(
 # In agent.py - Platform Engineer A2A Binding
 async def stream(self, query, context_id, trace_id):
     """Stream via Deep Agent's astream_events for token-level streaming"""
-    
+
     async for event in self.graph.astream_events(inputs, config, version="v2"):
         event_type = event.get("event")
-        
+
         if event_type == "on_chat_model_stream":
             # Captures both:
             # 1. Deep Agent's reasoning (system prompt processing)
@@ -270,8 +270,8 @@ The system supports multiple client types:
 
 ### Comprehensive Performance Analysis Results
 
-**Test Date:** October 2025  
-**Test Coverage:** 70 comprehensive scenarios (16 representative scenarios shown)  
+**Test Date:** October 2025
+**Test Coverage:** 70 comprehensive scenarios (16 representative scenarios shown)
 **Platform Engineer URL:** http://10.99.255.178:8000
 
 #### Executive Summary
@@ -403,7 +403,7 @@ FORCE_DEEP_AGENT_ORCHESTRATION=false
 - **Intelligent routing** - analyzes queries and chooses optimal execution path
 - **Three routing strategies:**
   - `DIRECT`: Single sub-agent, direct streaming (fastest)
-  - `PARALLEL`: Multiple sub-agents, parallel streaming  
+  - `PARALLEL`: Multiple sub-agents, parallel streaming
   - `COMPLEX`: Deep Agent orchestration (when needed)
 
 **Examples:**
@@ -419,7 +419,7 @@ FORCE_DEEP_AGENT_ORCHESTRATION=false
 
 ## DEEP_AGENT_PARALLEL_ORCHESTRATION (Testing/Comparison Mode)
 ```bash
-ENABLE_DEEP_AGENT_INTELLIGENT_ROUTING=false  
+ENABLE_DEEP_AGENT_INTELLIGENT_ROUTING=false
 FORCE_DEEP_AGENT_ORCHESTRATION=true
 ```
 
@@ -511,7 +511,7 @@ export ORCHESTRATION_KEYWORDS="analyze,orchestrate,workflow,pipeline"
 
 **Hypothesis:** Combine the best of both worlds:
 - ✅ Fast DIRECT routing for knowledge base queries (like DEEP_AGENT_INTELLIGENT_ROUTING)
-- ✅ Efficient PARALLEL routing for multi-agent queries (like DEEP_AGENT_INTELLIGENT_ROUTING)  
+- ✅ Efficient PARALLEL routing for multi-agent queries (like DEEP_AGENT_INTELLIGENT_ROUTING)
 - ✅ Deep Agent with orchestration hints for COMPLEX queries (like DEEP_AGENT_PARALLEL_ORCHESTRATION)
 
 **Expected Benefits:**
@@ -535,7 +535,7 @@ export FORCE_DEEP_AGENT_ORCHESTRATION=false
 ```bash
 # Knowledge base queries (→ RAG agent) - using default KNOWLEDGE_BASE_KEYWORDS
 "docs: duo-sso setup instructions"
-"docs: kubernetes deployment guide" 
+"docs: kubernetes deployment guide"
 "@docs troubleshooting network issues"
 
 # Custom knowledge base keywords (if KNOWLEDGE_BASE_KEYWORDS="help:,guide:,@help")
@@ -641,7 +641,7 @@ python integration/test_platform_engineer_streaming.py
 - Topics: duo-sso, kubernetes, jenkins, terraform, helm, monitoring, security
 - Expected routing: DIRECT to RAG in DEEP_AGENT_INTELLIGENT_ROUTING mode
 
-**Single Agent Queries (20 scenarios)**  
+**Single Agent Queries (20 scenarios)**
 - Queries targeting specific agents: komodor, github, pagerduty, jira, argocd, etc.
 - Examples: `show me komodor clusters`, `pagerduty current incidents`
 - Expected routing: DIRECT to target agent in DEEP_AGENT_INTELLIGENT_ROUTING mode
@@ -671,7 +671,7 @@ python integration/test_platform_engineer_streaming.py
 
 #### Performance Metrics
 - **First Chunk Latency**: Time from query start to first response chunk
-- **Total Duration**: Complete query processing time  
+- **Total Duration**: Complete query processing time
 - **Streaming Quality**: Based on first chunk latency (⭐⭐⭐⭐⭐ < 2s)
 - **Chunk Analysis**: Count and size distribution of streaming chunks
 
