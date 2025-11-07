@@ -510,12 +510,20 @@ class AgentRegistry:
             logger.warning(f"Unreachable agents excluded: {', '.join(unreachable_agents)}")
             logger.info("To skip connectivity checks, set SKIP_AGENT_CONNECTIVITY_CHECK=true")
 
-        # 📊 Print connectivity table for easy visual scanning
-        self._print_connectivity_table(connectivity_results, agent_cards)
+        # Store results for later table printing
+        self._connectivity_results = connectivity_results
+        self._agent_cards = agent_cards
 
         self._agents = agents
         self._tools = tools
         self._loaded_modules = {}  # No longer using loaded modules
+
+    def print_connectivity_table(self) -> None:
+        """Print a formatted table of agent connectivity status (public method)."""
+        if not hasattr(self, '_connectivity_results') or not hasattr(self, '_agent_cards'):
+            logger.warning("Connectivity results not available yet")
+            return
+        self._print_connectivity_table(self._connectivity_results, self._agent_cards)
 
     def _print_connectivity_table(self, connectivity_results: Dict[str, bool], agent_cards: Dict[str, Dict[str, Any]]) -> None:
         """Print a formatted table of agent connectivity status."""

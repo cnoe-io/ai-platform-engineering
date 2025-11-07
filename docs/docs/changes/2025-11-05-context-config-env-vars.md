@@ -1,5 +1,9 @@
 # Context Management Environment Variables
 
+**Status**: 🟢 In-use
+**Category**: Configuration & Prompts
+**Date**: November 5, 2025
+
 ## Overview
 
 Global context management configuration that supports **provider-specific overrides** via environment variables.

@@ -1995,8 +1995,6 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       # Mount datasets for development
       - ./evals/datasets:/app/datasets

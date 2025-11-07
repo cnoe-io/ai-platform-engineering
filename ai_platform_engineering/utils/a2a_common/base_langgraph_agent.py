@@ -3,14 +3,12 @@
 
 """Base agent class providing common A2A functionality with streaming support."""
 
-import asyncio
 import json
 import logging
 import os
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
-from functools import wraps
 from typing import Any, Dict
 
 # Make MCP optional - some agents (like RAG) don't use MCP

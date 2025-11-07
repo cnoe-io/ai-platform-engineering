@@ -85,7 +85,7 @@ async def list_applications(
 
     # Handle None items
     if data.get("items") is None:
-        return {
+        response = {
             "items": [],
             "pagination": {
                 "page": page,
@@ -96,6 +96,9 @@ async def list_applications(
                 "has_prev": False
             }
         }
+        if summary_only:
+            response["summary_only"] = True
+        return response
 
     # Enforce pagination limits
     page = max(1, page)  # Ensure page is at least 1
@@ -108,7 +111,7 @@ async def list_applications(
     # Calculate pagination slice
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size
-    
+
     # Check if page is out of bounds
     if start_idx >= total_items and total_items > 0:
         return {

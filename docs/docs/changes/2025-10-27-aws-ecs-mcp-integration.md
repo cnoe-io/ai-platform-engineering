@@ -1,5 +1,9 @@
 # AWS ECS MCP Server Integration
 
+**Status**: 🟢 In-use (Part of consolidated AWS integration)
+**Category**: Integrations
+**Date**: October 27, 2025 (Consolidated into 2025-11-05-aws-integration.md)
+
 ## Overview
 
 Added support for the [AWS ECS MCP Server](https://awslabs.github.io/mcp/servers/ecs-mcp-server) to the AWS Agent, enabling comprehensive Amazon Elastic Container Service (ECS) management capabilities. This integration allows AI assistants to help users with the full lifecycle of containerized applications on AWS.
@@ -8,7 +12,7 @@ Added support for the [AWS ECS MCP Server](https://awslabs.github.io/mcp/servers
 
 ### 1. AWS Agent System Prompt Enhancement
 
-**Files**: 
+**Files**:
 - `ai_platform_engineering/agents/aws/agent_aws/agent.py`
 - `ai_platform_engineering/agents/aws/agent_aws/agent_langgraph.py`
 
@@ -53,14 +57,14 @@ Added ECS MCP client configuration with security controls:
 if enable_ecs_mcp:
     logger.info("Creating ECS MCP client...")
     ecs_env = env_vars.copy()
-    
+
     # Security controls (default to safe values)
     allow_write = os.getenv("ECS_MCP_ALLOW_WRITE", "false").lower() == "true"
     allow_sensitive_data = os.getenv("ECS_MCP_ALLOW_SENSITIVE_DATA", "false").lower() == "true"
-    
+
     ecs_env["ALLOW_WRITE"] = "true" if allow_write else "false"
     ecs_env["ALLOW_SENSITIVE_DATA"] = "true" if allow_sensitive_data else "false"
-    
+
     ecs_client = MCPClient(lambda: stdio_client(
         StdioServerParameters(
             command="uvx",

@@ -1,5 +1,9 @@
 # Enhanced Streaming Feature
 
+**Status**: 🟢 In-use
+**Category**: Features & Enhancements
+**Date**: October 22, 2024
+
 ## Overview
 
 The Enhanced Streaming feature provides intelligent routing for agent queries with three execution modes:

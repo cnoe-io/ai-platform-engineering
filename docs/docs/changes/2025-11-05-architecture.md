@@ -1,4 +1,8 @@
-# Arch
+# AI Platform Engineering Architecture
+
+**Status**: 🟢 In-use
+**Category**: Architecture & Core Design
+**Date**: November 5, 2025 (consolidated)
 
 
 
