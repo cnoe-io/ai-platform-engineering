@@ -686,28 +686,20 @@ system_prompt_template: |
   You: UserInputMetaData: {{ "require_user_input": true, "metadata": {{ "input_fields": [...] }} }}  ← GOOD!
   ```
 
-  ### 🔄 TRANSFORMATION RECIPE - EXACTLY WHAT TO DO
+  ### 🔄 TRANSFORMATION EXAMPLES - LEARN THE PATTERN
 
-  **When sub-agent responds with "I need X, Y, Z" - DO THIS:**
+  **EXAMPLE 1: GitHub Issue Creation**
 
-  1. **Read** the sub-agent's response (e.g., "To create a GitHub issue, I need: 1. Title, 2. Body, 3. Assignees")
-  2. **Extract** each field mentioned:
-     - "Title" → becomes a field
-     - "Body" → becomes a field
-     - "Assignees" → becomes a field
-  3. **Convert** to JSON structure with UserInputMetaData prefix
-  4. **Respond** ONLY with the UserInputMetaData JSON, NOT the original text
-
-  **CONCRETE EXAMPLE - Sub-agent says this:**
+  When GitHub agent responds:
   ```
-  "To create a GitHub issue, I need the following information:
+  "To create a GitHub issue, I need:
   1. Repository Owner - The username or organization
   2. Repository Name - The repository name
   3. Title - A brief title for the issue
   4. Body (optional) - Detailed description"
   ```
 
-  **YOU MUST TRANSFORM IT TO THIS:**
+  You MUST output (notice the UserInputMetaData prefix):
   ```
   UserInputMetaData: {{
     "require_user_input": true,
@@ -748,7 +740,142 @@ system_prompt_template: |
   }}
   ```
 
-  **🚨 DO NOT JUST COPY THE SUB-AGENT'S TEXT - YOU MUST TRANSFORM IT! 🚨**
+  **EXAMPLE 2: GitHub PR Creation**
+
+  When GitHub agent responds:
+  ```
+  "To create a pull request, I need:
+  1. Repository owner
+  2. Repository name
+  3. Title for the PR
+  4. Description (body)
+  5. Head branch (source branch)
+  6. Base branch (target branch, usually 'main')"
+  ```
+
+  You MUST output:
+  ```
+  UserInputMetaData: {{
+    "require_user_input": true,
+    "content": "To create a pull request, I need the following information:",
+    "metadata": {{
+      "user_input": true,
+      "input_fields": [
+        {{
+          "name": "owner",
+          "label": "Repository Owner",
+          "type": "text",
+          "required": true,
+          "description": "Repository owner username or organization"
+        }},
+        {{
+          "name": "repo",
+          "label": "Repository Name",
+          "type": "text",
+          "required": true,
+          "description": "Name of the repository"
+        }},
+        {{
+          "name": "title",
+          "label": "PR Title",
+          "type": "text",
+          "required": true,
+          "description": "Title for the pull request"
+        }},
+        {{
+          "name": "body",
+          "label": "PR Description",
+          "type": "textarea",
+          "required": false,
+          "description": "Detailed description of the changes"
+        }},
+        {{
+          "name": "head",
+          "label": "Source Branch",
+          "type": "text",
+          "required": true,
+          "description": "Head branch (source branch with your changes)"
+        }},
+        {{
+          "name": "base",
+          "label": "Target Branch",
+          "type": "text",
+          "required": true,
+          "default": "main",
+          "description": "Base branch (target branch, usually 'main')"
+        }}
+      ]
+    }}
+  }}
+  ```
+
+  **EXAMPLE 3: Jira Issue Creation**
+
+  When Jira agent responds:
+  ```
+  "To create a Jira issue, please provide:
+  - Project key (e.g., PROJ)
+  - Issue type (Bug, Task, Story)
+  - Summary
+  - Description
+  - Assignee (optional)"
+  ```
+
+  You MUST output:
+  ```
+  UserInputMetaData: {{
+    "require_user_input": true,
+    "content": "To create a Jira issue, I need the following information:",
+    "metadata": {{
+      "user_input": true,
+      "input_fields": [
+        {{
+          "name": "project_key",
+          "label": "Project Key",
+          "type": "text",
+          "required": true,
+          "description": "Jira project key (e.g., PROJ)"
+        }},
+        {{
+          "name": "issue_type",
+          "label": "Issue Type",
+          "type": "text",
+          "required": true,
+          "description": "Type of issue: Bug, Task, or Story"
+        }},
+        {{
+          "name": "summary",
+          "label": "Summary",
+          "type": "text",
+          "required": true,
+          "description": "Brief summary of the issue"
+        }},
+        {{
+          "name": "description",
+          "label": "Description",
+          "type": "textarea",
+          "required": false,
+          "description": "Detailed description of the issue"
+        }},
+        {{
+          "name": "assignee",
+          "label": "Assignee",
+          "type": "text",
+          "required": false,
+          "description": "Username of the person to assign (optional)"
+        }}
+      ]
+    }}
+  }}
+  ```
+
+  **🔑 KEY PATTERN:**
+  1. Agent says "I need X, Y, Z"
+  2. You extract each item (X → field, Y → field, Z → field)
+  3. You create JSON with UserInputMetaData prefix
+  4. Each field gets: name (snake_case), label (Title Case), type, required, description
+
+  **🚨 NEVER output the agent's plain text - ALWAYS transform to UserInputMetaData JSON! 🚨**
 
   ### Response Format for Input Required
 
