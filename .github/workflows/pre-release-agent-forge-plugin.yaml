@@ -58,7 +58,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/prebuild/backstage-plugin-agent-forge
+      IMAGE_NAME: ${{ github.repository_owner }}/prebuild/backstage-plugin-agent-forge
 
     steps:
       - name: 🔒 harden runner

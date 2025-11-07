@@ -1,6 +1,13 @@
 # ---------- Stage 1: Build dependencies ----------
 FROM python:3.13-slim AS builder
 
+ARG AGENT_NAME
+
+RUN if [ -z "$AGENT_NAME" ]; then \
+    echo "Error: AGENT_NAME build argument is required but not set."; \
+    exit 1; \
+    fi
+
 # Install system dependencies and uv in one layer
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
@@ -10,15 +17,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy only the necessary directories for the weather agent
+# Copy only the necessary directories for the agent
 COPY --chown=root:root ./ai_platform_engineering/utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root ./ai_platform_engineering/agents/weather /app/ai_platform_engineering/agents/weather/
+COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME} /app/ai_platform_engineering/agents/agent/
 
-# Set working directory to the weather agent
-WORKDIR /app/ai_platform_engineering/agents/weather
+# Set working directory to the agent directory
+WORKDIR /app/ai_platform_engineering/agents/agent
 
 # Create README.md if not present (due to .dockerignore)
-RUN [ ! -f "README.md" ] && echo "# Weather Agent" > README.md || true
+RUN [ ! -f "README.md" ] && echo "# README" > README.md || true
 
 # Install dependencies into venv (no dev deps)
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -26,6 +33,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
+
+ARG AGENT_NAME
+
+RUN if [ -z "$AGENT_NAME" ]; then \
+    echo "Error: AGENT_NAME build argument is required but not set."; \
+    exit 1; \
+    fi
 
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,14 +49,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
-WORKDIR /app/ai_platform_engineering/agents/weather
+WORKDIR /app/ai_platform_engineering/agents/agent
 
 # Set env vars for uv & PATH
-ENV UV_PROJECT_ENVIRONMENT=/app/ai_platform_engineering/agents/weather/.venv \
-    PATH="/app/ai_platform_engineering/agents/weather/.venv/bin:${PATH}" \
-    PYTHONPATH="/app:${PYTHONPATH}" \
+ENV UV_PROJECT_ENVIRONMENT=/app/ai_platform_engineering/agents/agent/.venv \
+    PATH="/app/ai_platform_engineering/agents/agent/.venv/bin:${PATH}" \
+    PYTHONPATH="/app" \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    AGENT_PACKAGE=${AGENT_NAME}
 
 # Copy venv & code from builder (maintain directory structure)
 COPY --from=builder --chown=appuser:appuser /app /app
@@ -51,4 +66,4 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["python", "-m", "agent_weather", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "exec python -m agent_${AGENT_PACKAGE} --host 0.0.0.0 --port 8000"]

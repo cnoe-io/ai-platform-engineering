@@ -15,7 +15,7 @@ on:
       - 'ai_platform_engineering/__init__.py'
       - '.github/**'
 env:
-  IMAGE_NAME: cnoe-io/prebuild/ai-platform-engineering
+  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/ai-platform-engineering
 
 jobs:
   determine-changes:
