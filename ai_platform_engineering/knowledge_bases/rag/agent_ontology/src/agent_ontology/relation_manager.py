@@ -36,7 +36,7 @@ class RelationCandidateManager:
         self.logger.info("Cleaning up relation candidates from the database")
         await self.ontology_graph_db.raw_query(f"MATCH ()-[r]->() WHERE r.heuristics_version_id <> '{self.heuristics_version_id}' DELETE r")
         await self.ontology_graph_db.raw_query(f"MATCH (n) WHERE n.heuristics_version_id <> '{self.heuristics_version_id}' DETACH DELETE n")
-        await self.data_graph_db.raw_query(f"MATCH ()-[r]-() WHERE r.{constants.UPDATED_BY_KEY}={CLIENT_NAME} AND r.{constants.HEURISTICS_VERSION_ID_KEY} <> '{self.heuristics_version_id}' DELETE r")
+        await self.data_graph_db.raw_query(f"MATCH ()-[r]-() WHERE r.{constants.UPDATED_BY_KEY}='{CLIENT_NAME}' AND r.{constants.HEURISTICS_VERSION_ID_KEY} <> '{self.heuristics_version_id}' DELETE r")
 
 
     async def _set_heuristic(self, relation_id: str, candidate: RelationCandidate, recreate: bool = False):
