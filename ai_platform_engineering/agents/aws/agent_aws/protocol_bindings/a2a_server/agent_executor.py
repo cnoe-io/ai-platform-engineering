@@ -20,7 +20,7 @@ class AWSAgentExecutor:
 
     def __new__(cls):
         """Create the appropriate executor based on AWS_AGENT_BACKEND environment variable."""
-        backend = os.getenv("AWS_AGENT_BACKEND", "langgraph").lower()
+        backend = os.getenv("AWS_AGENT_BACKEND", "strands").lower()
         
         if backend == "strands":
             logger.info("🔧 Using Strands-based AWS agent implementation")
