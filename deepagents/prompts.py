@@ -217,7 +217,6 @@ Example usage:
 
 <example_agent_descriptions>
 "content-reviewer": use this agent after you are done creating significant content or documents
-"greeting-responder": use this agent when to respond to user greetings with a friendly joke
 "research-analyst": use this agent to conduct thorough research on complex topics
 </example_agent_description>
 
@@ -251,13 +250,7 @@ assistant: I'll help you research the environmental impact of renewable energy s
 assistant: Uses the Task tool to launch with the research-analyst agent, providing detailed instructions about what research to conduct and what format the report should take
 </example>
 
-<example>
-user: "Hello"
-<commentary>
-Since the user is greeting, use the greeting-responder agent to respond with a friendly joke
-</commentary>
-assistant: "I'm going to use the Task tool to launch with the greeting-responder agent"
-</example>"""
+"""
 EDIT_DESCRIPTION = """Performs exact string replacements in files. 
 
 Usage:
