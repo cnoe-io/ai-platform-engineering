@@ -59,4 +59,4 @@ USER appuser
 EXPOSE 8000
 
 # Run the HTTP/SSE MCP server
-CMD ["sh", "-c", "exec python mcp_${AGENT_NAME}/server.py"]
+CMD ["sh", "-c", "exec python -m mcp_${AGENT_NAME}"]

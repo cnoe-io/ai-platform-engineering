@@ -886,9 +886,9 @@ Use this as the reference point for all date calculations. When users say "today
 
                 # Process each new message
                 for message in new_messages:
-                    logger.info(f"📨 Received message type: {type(message).__name__}")
+                    logger.debug(f"📨 Received message type: {type(message).__name__}")
                     if hasattr(message, 'content'):
-                        logger.info(f"📝 Content: {str(message.content)[:200]}")
+                        logger.debug(f"📝 Content: {str(message.content)[:200]}")
                     debug_print(f"Streamed message: {message}", banner=False)
 
                     # Skip HumanMessage - we don't want to echo the user's query back
