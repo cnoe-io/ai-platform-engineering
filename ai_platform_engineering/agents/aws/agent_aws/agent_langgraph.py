@@ -54,7 +54,7 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         # Check which capabilities are enabled
         enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
         enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
-        enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "false").lower() == "true"
+        enable_iam_mcp = os.getenv("USE_IAM_MCP", "false").lower() == "true"
         enable_terraform_mcp = os.getenv("ENABLE_TERRAFORM_MCP", "false").lower() == "true"
         enable_aws_documentation_mcp = os.getenv("ENABLE_AWS_DOCUMENTATION_MCP", "false").lower() == "true"
         enable_cloudtrail_mcp = os.getenv("ENABLE_CLOUDTRAIL_MCP", "false").lower() == "true"
@@ -184,14 +184,14 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
         enable_ecs_mcp = os.getenv("ENABLE_ECS_MCP", "false").lower() == "true"
         enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "true").lower() == "true"
-        enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "true").lower() == "true"
+        enable_iam_mcp = os.getenv("USE_IAM_MCP", "true").lower() == "true"
         enable_cloudtrail_mcp = os.getenv("ENABLE_CLOUDTRAIL_MCP", "true").lower() == "true"
         enable_cloudwatch_mcp = os.getenv("ENABLE_CLOUDWATCH_MCP", "true").lower() == "true"
         enable_aws_knowledge_mcp = os.getenv("ENABLE_AWS_KNOWLEDGE_MCP", "false").lower() == "true"
 
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"🔍 MCP Enable Flags: EKS={enable_eks_mcp}, ECS={enable_ecs_mcp}, Cost={enable_cost_explorer_mcp}, IAM={enable_iam_mcp}, CloudTrail={enable_cloudtrail_mcp}, CloudWatch={enable_cloudwatch_mcp}, Knowledge={enable_aws_knowledge_mcp}")
+        logger.debug(f"🔍 MCP Enable Flags: EKS={enable_eks_mcp}, ECS={enable_ecs_mcp}, Cost={enable_cost_explorer_mcp}, IAM={enable_iam_mcp}, CloudTrail={enable_cloudtrail_mcp}, CloudWatch={enable_cloudwatch_mcp}, Knowledge={enable_aws_knowledge_mcp}")
 
         # Build environment variables for AWS
         env_vars = {
@@ -285,7 +285,7 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         # Note: This returns a dict of server configs, not a single server config
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"🔍 AWS Agent MCP servers configured: {list(mcp_servers.keys())}")
+        logger.debug(f"🔍 AWS Agent MCP servers configured: {list(mcp_servers.keys())}")
         return mcp_servers
 
     def get_tool_working_message(self) -> str:
