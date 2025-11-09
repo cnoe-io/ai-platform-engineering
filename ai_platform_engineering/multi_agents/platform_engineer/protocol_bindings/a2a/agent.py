@@ -75,6 +75,10 @@ class AIPlatformEngineerA2ABinding:
       logging.debug(f"Created tracing config: {config}")
 
       try:
+          # Track accumulated AI message content for final parsing
+          accumulated_ai_content = []
+          final_ai_message = None
+
           # Use astream with multiple stream modes to get both token-level streaming AND custom events
           # stream_mode=['messages', 'custom'] enables:
           # - 'messages': Token-level streaming via AIMessageChunk
@@ -169,6 +173,10 @@ class AIPlatformEngineerA2ABinding:
                       content = ''.join(text_parts)
                   elif not isinstance(content, str):
                       content = str(content) if content else ''
+
+                  # Accumulate content for post-stream parsing
+                  if content:
+                      accumulated_ai_content.append(content)
 
                   if content:  # Only yield if there's actual content
                       # Check for querying announcements and emit as tool_update events
@@ -279,9 +287,19 @@ class AIPlatformEngineerA2ABinding:
                       }
                   }
 
+              # Handle final AIMessage (without tool calls) from primary stream
+              elif isinstance(message, AIMessage):
+                  # This is the final complete AIMessage - store it for post-stream parsing
+                  logging.info(f"🎯 CAPTURED final AIMessage from primary stream: type={type(message).__name__}, has_content={hasattr(message, 'content')}")
+                  if hasattr(message, 'content'):
+                      content_preview = str(message.content)[:200]
+                      logging.info(f"🎯 AIMessage content preview: {content_preview}...")
+                      accumulated_ai_content.append(str(message.content))
+                  final_ai_message = message
+
       except asyncio.CancelledError:
-          logging.info("Primary stream cancelled by client disconnection")
-          return
+          logging.warning("⚠️ Primary stream cancelled by client disconnection - parsing final response before exit")
+          # Don't return immediately - let post-stream parsing run below
       # Fallback to old method if astream doesn't work
       except Exception as e:
           logging.warning(f"Token-level streaming failed, falling back to message-level: {e}")
@@ -349,48 +367,101 @@ class AIPlatformEngineerA2ABinding:
                   elif not isinstance(content, str):
                       content = str(content) if content else ''
 
+                  # Accumulate content for final parsing
+                  if content:
+                      accumulated_ai_content.append(content)
+
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
                       "content": content,
                   }
+              elif isinstance(message, AIMessage):
+                  # Final complete AIMessage (not a chunk) from fallback stream
+                  # Store it for parsing after stream ends
+                  logging.info(f"🎯 CAPTURED final AIMessage from fallback stream: type={type(message).__name__}, has_content={hasattr(message, 'content')}")
+                  if hasattr(message, 'content'):
+                      content_preview = str(message.content)[:200]
+                      logging.info(f"🎯 AIMessage content preview: {content_preview}...")
+                      accumulated_ai_content.append(str(message.content))
+                  final_ai_message = message
 
-      except Exception as e:
-          logging.error(f"Error during agent stream processing: {e}")
-          # Yield an error response instead of letting the exception propagate
-          yield {
+      # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
+      logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}")
+
+      # Try to use final_ai_message first, otherwise use accumulated content
+      if final_ai_message:
+          logging.info("✅ Using final AIMessage for structured response parsing")
+          # Extract content from AIMessage
+          final_content = final_ai_message.content if hasattr(final_ai_message, 'content') else str(final_ai_message)
+          logging.info(f"📝 Extracted content from AIMessage: type={type(final_content)}, length={len(str(final_content))}")
+          logging.info(f"📝 Content preview: {str(final_content)[:300]}...")
+          final_response = self.handle_structured_response(final_content)
+          logging.info(f"✅ Parsed response from final AIMessage: is_task_complete={final_response.get('is_task_complete')}")
+      elif accumulated_ai_content:
+          accumulated_text = ''.join(accumulated_ai_content)
+          logging.info(f"⚠️ Using accumulated content ({len(accumulated_text)} chars) for structured response parsing")
+          logging.info(f"📝 Accumulated content preview: {accumulated_text[:300]}...")
+          final_response = self.handle_structured_response(accumulated_text)
+          logging.info(f"✅ Parsed response from accumulated content: is_task_complete={final_response.get('is_task_complete')}")
+      else:
+          logging.warning("❌ No final message or accumulated content to parse - defaulting to complete")
+          final_response = {
               'is_task_complete': True,
               'require_user_input': False,
-              'content': f'Agent processing failed: {str(e)}',
+              'content': '',
           }
 
+      # Yield the final parsed response with correct is_task_complete
+      logging.info(f"🚀 YIELDING FINAL RESPONSE: is_task_complete={final_response.get('is_task_complete')}, require_user_input={final_response.get('require_user_input')}, content_length={len(final_response.get('content', ''))}")
+      yield final_response
+
   def handle_structured_response(self, ai_message):
+    logging.info(f"🔧 handle_structured_response called: input_type={type(ai_message).__name__}")
     try:
       response_obj = None
       if isinstance(ai_message, PlatformEngineerResponse):
+          logging.info("✅ Input is already PlatformEngineerResponse")
           response_obj = ai_message
       elif isinstance(ai_message, dict):
+          logging.info("✅ Input is dict, validating as PlatformEngineerResponse")
           response_obj = PlatformEngineerResponse.model_validate(ai_message)
       elif isinstance(ai_message, str):
           raw_content = ai_message.strip()
+          logging.info(f"✅ Input is string ({len(raw_content)} chars), attempting to parse JSON")
           # Strip Markdown code fences if present
           if raw_content.startswith('```') and raw_content.endswith('```'):
               if raw_content.startswith('```json'):
                   raw_content = raw_content[7:-3].strip()
+                  logging.info("Stripped ```json``` markdown")
               else:
                   raw_content = raw_content[3:-3].strip()
-          try:
-              response_obj = PlatformEngineerResponse.model_validate_json(raw_content)
-          except Exception:
+                  logging.info("Stripped ``` markdown")
+
+          # Try to find and parse the last valid PlatformEngineerResponse JSON object
+          # The LLM sometimes outputs multiple JSON objects or text before JSON
+          # Strategy: Find all potential JSON start positions and try to parse from the LAST valid one
+
+          response_obj = None
+          brace_positions = [i for i, c in enumerate(raw_content) if c == '{']
+
+          # Try parsing from each '{' position, starting from the END (last JSON object)
+          for start_pos in reversed(brace_positions):
               try:
-                  # Last resort: json.loads then validate
-                  response_obj = PlatformEngineerResponse.model_validate(json.loads(raw_content))
+                  candidate = raw_content[start_pos:]
+                  response_obj = PlatformEngineerResponse.model_validate_json(candidate)
+                  logging.info(f"✅ Successfully parsed PlatformEngineerResponse from position {start_pos}")
+                  break
               except Exception:
-                  response_obj = None
+                  continue
+
+          if response_obj is None:
+              logging.info("❌ Could not parse any valid PlatformEngineerResponse from content")
     except Exception as e:
-      logging.warning(f"Failed to deserialize PlatformEngineerResponse: {e}")
+      logging.warning(f"❌ Failed to deserialize PlatformEngineerResponse: {e}")
 
     if response_obj is not None:
+      logging.info(f"✅ Successfully created response_obj: is_task_complete={response_obj.is_task_complete}, require_user_input={response_obj.require_user_input}")
       result = {
         'is_task_complete': response_obj.is_task_complete,
         'require_user_input': response_obj.require_user_input,
@@ -405,15 +476,16 @@ class AIPlatformEngineerA2ABinding:
               {
                 'field_name': f.field_name,
                 'field_description': f.field_description,
-                'field_values': f.field_values
+                'field_values': getattr(f, 'field_values', None)
               }
               for f in (md.input_fields or [])
             ] if getattr(md, 'input_fields', None) else None
           }
-      logging.info(f"Returning structured response (deserialized): {result}")
+      logging.info(f"🎉 Returning structured response: is_task_complete={result.get('is_task_complete')}, require_user_input={result.get('require_user_input')}")
       return result
 
     # Fallback: handle plain text or attempt JSON parsing for backward compatibility
+    logging.info("⚠️ Falling back to legacy JSON parsing")
     try:
       content = ai_message if isinstance(ai_message, str) else str(ai_message)
 

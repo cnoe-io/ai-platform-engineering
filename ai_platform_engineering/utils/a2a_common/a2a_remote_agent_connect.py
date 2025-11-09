@@ -273,17 +273,31 @@ class A2ARemoteAgentConnectTool(BaseTool):
             for part in parts:
               logger.debug(f"🔍 part type: {type(part)}, is_dict: {isinstance(part, dict)}")
               if isinstance(part, dict):
+                # Handle both TextPart and DataPart
                 text = part.get('text')
-                logger.debug(f"🔍 text extracted: '{text}', exists: {bool(text)}")
+                data = part.get('data')
+
                 if text:
+                  logger.debug(f"🔍 TextPart extracted: '{text[:100]}...', length: {len(text)} chars")
                   accumulated_text.append(text)
                   logger.debug(f"✅ Accumulated text from artifact-update: {len(text)} chars")
+                elif data:
+                  # DataPart with structured JSON - convert to JSON string for accumulation
+                  import json
+                  json_str = json.dumps(data)
+                  accumulated_text.append(json_str)
+                  logger.info(f"✅ Accumulated DataPart from artifact-update: {len(json_str)} chars")
+                else:
+                  logger.debug(f"🔍 part has neither 'text' nor 'data' key: {list(part.keys())}")
 
+                # Stream artifact if enabled (for both TextPart and DataPart)
+                if text or data:
                   enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
 
                   if enable_artifact_streaming:
                     writer({"type": "artifact-update", "result": result})
-                    logger.debug(f"✅ Streamed artifact-update event (ENABLE_ARTIFACT_STREAMING=true): {len(text)} chars")
+                    content_type = "DataPart" if data else "TextPart"
+                    logger.info(f"✅ Streamed artifact-update event ({content_type}, ENABLE_ARTIFACT_STREAMING=true)")
                   else:
                     logger.debug("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
 

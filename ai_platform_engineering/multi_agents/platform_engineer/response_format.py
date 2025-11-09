@@ -6,12 +6,13 @@ from typing import List, Optional
 
 
 class InputField(BaseModel):
-    """Model for input field requirements extracted from tool responses"""
-    name: str = Field(description="The name of the field that should be provided, extracted from the tool's specific request.")
-    description: str = Field(description="A description of what this field represents, based on the tool's actual request for information.")
-    type: Optional[str] = Field(default="text", description="The type of input field: 'text', 'number', 'email', 'password', 'textarea', 'select', 'boolean'")
-    required: Optional[bool] = Field(default=True, description="Whether this field is required")
-    options: Optional[List[str]] = Field(default=None, description="Possible values for select/dropdown fields, if any")
+    """Model for input field requirements extracted from tool responses.
+
+    Uses Jarvis-compatible field names for consistency across agents.
+    """
+    field_name: str = Field(description="The exact field name from the tool's request (e.g., 'provider_name', 'model', 'project_name')")
+    field_description: str = Field(description="The exact description from the tool's request")
+    field_values: Optional[List[str]] = Field(default=None, description="ALL possible values for select/dropdown fields. Preserve all values exactly as provided by the tool.")
 
 
 class Metadata(BaseModel):
@@ -37,18 +38,14 @@ class PlatformEngineerResponse(BaseModel):
                     "user_input": True,
                     "input_fields": [
                         {
-                            "name": "parameter_name",
-                            "description": "The specific parameter that needs to be provided",
-                            "type": "select",
-                            "required": True,
-                            "options": ["option1", "option2", "option3"]
+                            "field_name": "parameter_name",
+                            "field_description": "The specific parameter that needs to be provided",
+                            "field_values": ["option1", "option2", "option3"]
                         },
                         {
-                            "name": "configuration_details",
-                            "description": "Additional configuration or context details",
-                            "type": "textarea",
-                            "required": True,
-                            "options": None
+                            "field_name": "configuration_details",
+                            "field_description": "Additional configuration or context details",
+                            "field_values": None
                         }
                     ]
                 }
