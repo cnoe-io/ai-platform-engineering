@@ -80,7 +80,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
     Establishes a connection to the remote A2A agent.
     Fetches AgentCard if not already provided.
     """
-    logger.info("*" * 80)
+    logger.debug("*" * 80)
     logger.info(
         f"Connecting to remote agent: {getattr(self._remote_agent_card, 'name', self._remote_agent_card)}")
     self._httpx_client = httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(retries=10), timeout=httpx.Timeout(300.0))
@@ -122,13 +122,13 @@ class A2ARemoteAgentConnectTool(BaseTool):
         raise RuntimeError(
             f"Could not fetch remote agent card from {base_url}") from e
 
-    logger.info(f"Agent Card: {self._agent_card}")
+    logger.debug(f"Agent Card: {self._agent_card}")
     self._client = A2AClient(
         httpx_client=self._httpx_client,
         agent_card=self._agent_card
     )
-    logger.info("A2AClient initialized.")
-    logger.info("*" * 80)
+    logger.debug("A2AClient initialized.")
+    logger.debug("*" * 80)
 
   def agent_card(self) -> AgentCard:
     return self._agent_card
@@ -203,24 +203,24 @@ class A2ARemoteAgentConnectTool(BaseTool):
   ) -> tuple[Output, Optional[str], Optional[str]]:
     """Execute a single remote agent streaming call and return output with status info."""
 
-    logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
+    logger.debug(f"Received prompt: {prompt}, trace_id: {trace_id}")
     if not prompt:
       logger.error("Invalid input: Prompt must be a non-empty string.")
       raise ValueError("Invalid input: Prompt must be a non-empty string.")
 
     # Use provided trace_id or try to get from TracingManager context
     if trace_id:
-      logger.info(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
+      logger.debug(f"A2ARemoteAgentConnectTool: Using provided trace_id: {trace_id}")
     else:
       tracing = TracingManager()
       trace_id = tracing.get_trace_id() if tracing.is_enabled else None
       if trace_id:
-        logger.info(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
+        logger.debug(f"A2ARemoteAgentConnectTool: Using trace_id from TracingManager context: {trace_id}")
       else:
         logger.debug("A2ARemoteAgentConnectTool: No trace_id available from any source")
 
     if self._client is None:
-      logger.info("A2AClient not initialized. Connecting now...")
+      logger.debug("A2AClient not initialized. Connecting now...")
       await self.connect()
 
     message_payload: dict[str, Any] = {
@@ -232,14 +232,14 @@ class A2ARemoteAgentConnectTool(BaseTool):
     }
     if trace_id:
       message_payload["message"]["metadata"] = {"trace_id": trace_id}
-      logger.info(f"Adding trace_id to A2A message: {trace_id}")
+      logger.debug(f"Adding trace_id to A2A message: {trace_id}")
 
     streaming_request = SendStreamingMessageRequest(
         id=str(uuid4()),
         params=MessageSendParams(**message_payload),
     )
 
-    logger.info("Starting A2A streaming send_message.")
+    logger.debug("Starting A2A streaming send_message.")
 
     accumulated_text: list[str] = []
 
@@ -273,19 +273,33 @@ class A2ARemoteAgentConnectTool(BaseTool):
             for part in parts:
               logger.debug(f"🔍 part type: {type(part)}, is_dict: {isinstance(part, dict)}")
               if isinstance(part, dict):
+                # Handle both TextPart and DataPart
                 text = part.get('text')
-                logger.debug(f"🔍 text extracted: '{text}', exists: {bool(text)}")
+                data = part.get('data')
+
                 if text:
+                  logger.debug(f"🔍 TextPart extracted: '{text[:100]}...', length: {len(text)} chars")
                   accumulated_text.append(text)
                   logger.debug(f"✅ Accumulated text from artifact-update: {len(text)} chars")
+                elif data:
+                  # DataPart with structured JSON - convert to JSON string for accumulation
+                  import json
+                  json_str = json.dumps(data)
+                  accumulated_text.append(json_str)
+                  logger.debug(f"✅ Accumulated DataPart from artifact-update: {len(json_str)} chars")
+                else:
+                  logger.debug(f"🔍 part has neither 'text' nor 'data' key: {list(part.keys())}")
 
-                  enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
+                # Stream artifact if enabled (for both TextPart and DataPart)
+                if text or data:
+                  enable_artifact_streaming = os.getenv("USE_ARTIFACT_STREAMING", "false").lower() == "true"
 
                   if enable_artifact_streaming:
                     writer({"type": "artifact-update", "result": result})
-                    logger.debug(f"✅ Streamed artifact-update event (ENABLE_ARTIFACT_STREAMING=true): {len(text)} chars")
+                    content_type = "DataPart" if data else "TextPart"
+                    logger.debug(f"✅ Streamed artifact-update event ({content_type}, USE_ARTIFACT_STREAMING=true)")
                   else:
-                    logger.debug("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
+                    logger.debug("⏭️  Artifact streaming disabled (USE_ARTIFACT_STREAMING=false), only accumulating")
 
         elif kind == "status-update":
           logger.debug(f"Received status-update event: {result}")
@@ -309,9 +323,9 @@ class A2ARemoteAgentConnectTool(BaseTool):
                       clean_text = text.replace('**', '')
                       writer({"type": "a2a_event", "data": clean_text})
                       if is_tool_output:
-                        logger.info(f"✅ Streamed tool output from status-update (STREAM_SUB_AGENT_TOOL_OUTPUT=true): {len(clean_text)} chars")
+                        logger.debug(f"✅ Streamed tool output from status-update (STREAM_SUB_AGENT_TOOL_OUTPUT=true): {len(clean_text)} chars")
                       else:
-                        logger.info(f"✅ Streamed tool notification from status-update: {len(clean_text)} chars")
+                        logger.debug(f"✅ Streamed tool notification from status-update: {len(clean_text)} chars")
                     elif is_tool_output:
                       logger.debug(f"⏭️  Skipped streaming tool output (STREAM_SUB_AGENT_TOOL_OUTPUT=false): {len(text)} chars")
                     else:
@@ -323,7 +337,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
     final_response = "".join(accumulated_text).strip()
     if not final_response:
-      logger.info("No accumulated artifact text; falling back to non-streaming send_message to get result.")
+      logger.debug("No accumulated artifact text; falling back to non-streaming send_message to get result.")
       final_response = await self.send_message(prompt, trace_id)
 
     if not final_response:
@@ -337,7 +351,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
         "data": final_response
       })
 
-    logger.info(f"Accumulated {len(accumulated_text)} tokens into {len(final_response)} char response")
+    logger.debug(f"Accumulated {len(accumulated_text)} tokens into {len(final_response)} char response")
 
     clean_text, status, status_message = self._split_status_payload(final_response)
     if not clean_text and status_message:
@@ -398,7 +412,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
       str: The response returned by the agent.
     """
     if self._client is None:
-      logger.info("A2AClient not initialized. Connecting now...")
+      logger.debug("A2AClient not initialized. Connecting now...")
       await self.connect()
 
     # Build message payload with optional trace_id in metadata
@@ -413,7 +427,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
     # Add trace_id to metadata if provided
     if trace_id:
         message_payload['metadata'] = {'trace_id': trace_id}
-        logger.info(f"Adding trace_id to A2A message: {trace_id}")
+        logger.debug(f"Adding trace_id to A2A message: {trace_id}")
 
     send_message_payload = {'message': message_payload}
     # logger.info("Sending message to A2A agent with payload:\n" + json.dumps({**send_message_payload, 'message': send_message_payload['message'].dict()}, indent=4))
@@ -422,10 +436,10 @@ class A2ARemoteAgentConnectTool(BaseTool):
         params=MessageSendParams(**send_message_payload)
     )
 
-    logger.info(f"Request to send message: {request}")
+    logger.debug(f"Request to send message: {request}")
     pprint.pprint(request)
     response = await self._client.send_message(request)
-    logger.info(f"Response received from A2A agent: {response}")
+    logger.debug(f"Response received from A2A agent: {response}")
     pprint.pprint(response)
 
     def extract_text_from_response(result):
