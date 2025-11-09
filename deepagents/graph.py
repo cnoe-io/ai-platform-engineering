@@ -116,6 +116,7 @@ def _agent_builder(
         post_model_hook=selected_post_model_hook,
         config_schema=config_schema,
         checkpointer=checkpointer,
+        response_format=response_format,
     )
 
 

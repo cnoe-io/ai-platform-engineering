@@ -127,8 +127,3 @@ def reflect_on_output(
         "total_issues": len(issues)
     }
 
-
-
-
-
-

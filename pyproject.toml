@@ -28,6 +28,10 @@ dependencies = [
     "neo4j>=6.0.2",
     "cymple>=0.12.0",
     "redis>=6.4.0",
+    "mdformat>=0.7.0",
+    "httpx>=0.27.0",
+    "html2text>=2024.2.26",
+    "beautifulsoup4>=4.12.0",
 ]
 
 [tool.pytest.ini_options]

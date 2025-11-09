@@ -55,6 +55,14 @@ All documentation files are in the root of this directory, organized by date and
 - **2024-10-22-base-agent-refactor.md** - Base agent refactoring [🟢 In-use]
 - **2024-10-22-implementation-summary.md** - Implementation summary [🟢 In-use]
 
+### 🐛 Bug Fixes & Performance
+- **2025-11-08-platform-engineer-final-response-parsing.md** - Platform Engineer final response parsing and DataPart implementation [🟢 In-use]
+- **2025-11-05-a2a-artifact-streaming-fix.md** - A2A artifact streaming race condition fix [🟢 In-use]
+- **2025-11-05-argocd-oom-analysis.md** - ArgoCD OOM protection analysis [🟢 In-use]
+- **2025-11-05-mcp-argocd-pagination-summary.md** - MCP ArgoCD pagination implementation [🟢 In-use]
+- **2025-11-05-oom-protection-summary.md** - OOM protection summary [🟢 In-use]
+- **2025-11-05-oom-protection-diagram.md** - OOM protection architecture diagram [🟢 In-use]
+
 ### 🤖 Agent-Specific
 - **2025-11-05-backstage-agent-changelog.md** - Backstage agent changes [🟢 In-use]
 
@@ -72,11 +80,15 @@ All documentation files are in the root of this directory, organized by date and
 - **Context management?** → `2025-11-05-context-management.md`
 - **Prompt configuration?** → `2024-10-22-prompt-configuration.md`
 - **Metadata features?** → `2025-10-31-metadata-feature-summary.md`
+- **DataPart & structured responses?** → `2025-11-08-platform-engineer-final-response-parsing.md`
+- **A2A artifact streaming?** → `2025-11-05-a2a-artifact-streaming-fix.md`
+- **OOM protection?** → `2025-11-05-oom-protection-summary.md`
+- **ArgoCD pagination?** → `2025-11-05-mcp-argocd-pagination-summary.md`
 
 ## Document Statistics
 
-- **Total documents**: 36 markdown files
-- **🟢 In-use**: 32 documents
+- **Total documents**: 37 markdown files
+- **🟢 In-use**: 38 documents
 - **🟡 Proposed**: 2 documents
 - **🔴 Abandoned**: 2 documents
 
@@ -86,7 +98,8 @@ All documentation files are in the root of this directory, organized by date and
 - **Configuration docs**: 4 files (4 In-use)
 - **Integration docs**: 6 files (6 In-use)
 - **Refactoring docs**: 3 files (3 In-use)
-- **Agent-specific docs**: 5 files (5 In-use - OOM protection & ArgoCD)
+- **Bug Fixes & Performance docs**: 6 files (6 In-use)
+- **Agent-specific docs**: 1 file (1 In-use)
 - **Session/Context docs**: 1 file (1 In-use)
 
 ## Recent Consolidations (2025-11-05)

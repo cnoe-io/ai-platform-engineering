@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: platform-engineer-p2p
+    container_name: caipe-p2p-with-rag
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
@@ -97,13 +97,10 @@ services:
       - ENABLE_WEATHER=true
       - ENABLE_WEBEX=true
       - ENABLE_RAG=true
-      # Structured response format with execution plan validation
-      # Set to "true" to enforce execution plans with Pydantic validation
-      - ENABLE_STRUCTURED_RESPONSE_FORMAT=false
-      # Metadata detection for user input requirements
-      # Set to "true" to automatically detect and extract input fields from agent responses
-      # When enabled, agent responses asking for user input are wrapped with structured metadata
-      - ENABLE_METADATA_DETECTION=false
+      # Structured output with A2A DataPart (native JSON schema support)
+      # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
+      # When disabled, all responses are sent as TextPart (backward compatible)
+      - ENABLE_STRUCTURED_OUTPUT=true
       # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
       # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
       # When enabled, the platform engineer will stream sub-agent responses token-by-token
@@ -124,7 +121,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: caipe-no-rag-p2p
+    container_name: caipe-p2p-no-rag
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
@@ -144,6 +141,8 @@ services:
       agent-confluence-p2p:
         condition: service_started
       agent-github-p2p:
+        condition: service_started
+      agent-jarvis-p2p:
         condition: service_started
       agent-jira-p2p:
         condition: service_started
@@ -194,9 +193,8 @@ services:
       - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
       - WEBEX_AGENT_PORT=8000
-      # Jarvis is an external A2A agent (not running in docker-compose)
-      # Use hub.docker.local to reach the host machine from inside the container
-      - JARVIS_AGENT_HOST=${JARVIS_AGENT_HOST:-hub.docker.local}
+      # Jarvis A2A agent running in docker-compose
+      - JARVIS_AGENT_HOST=agent-jarvis-p2p
       - JARVIS_AGENT_PORT=58000
       # Enable agents
       - ENABLE_ARGOCD=true
@@ -214,13 +212,10 @@ services:
       - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
       - ENABLE_JARVIS=true
-      # Structured response format with execution plan validation
-      # Set to "true" to enforce execution plans with Pydantic validation
-      - ENABLE_STRUCTURED_RESPONSE_FORMAT=false
-      # Metadata detection for user input requirements
-      # Set to "true" to automatically detect and extract input fields from agent responses
-      # When enabled, agent responses asking for user input are wrapped with structured metadata
-      - ENABLE_METADATA_DETECTION=false
+      # Structured output with A2A DataPart (native JSON schema support)
+      # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
+      # When disabled, all responses are sent as TextPart (backward compatible)
+      - ENABLE_STRUCTURED_OUTPUT=true
       # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
       # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
       # When enabled, the platform engineer will stream sub-agent responses token-by-token
@@ -1425,6 +1420,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=template
+        - AGENT_PACKAGE=petstore
     profiles:
       - slim
       - slim-tracing
@@ -1458,6 +1454,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=template
+        - AGENT_PACKAGE=petstore
     container_name: agent-petstore-p2p
     restart: unless-stopped
     profiles:
@@ -1481,6 +1478,34 @@ services:
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+
+  ####################################################################################################
+  #                                      AGENT JARVIS A2A P2P                                        #
+  ####################################################################################################
+  agent-jarvis-p2p:
+    image: jarvis-agent:dev
+    container_name: agent-jarvis-p2p
+    restart: unless-stopped
+    profiles:
+      - p2p-no-rag
+      - p2p-no-rag-tracing
+    env_file:
+      - .env.jarvis
+    ports:
+      - "48000:8000"  # FastAPI port
+      - "58000:58000" # A2A port
+    environment:
+      - A2A_TRANSPORT=p2p
+      - ALLOWED_ORIGINS=*
+      - LANGGRAPH_CHECKPOINT_MEMORY_SAVER=memory
+      - ENABLE_KNOWLEDGE_GRAPH=false
+      - ENABLE_K8S_AGENT=false
+      - AIGATEWAY_SERVER_URL=https://platform-api.outshift.ai/control-plane-api/api/v1
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+    command: python3 -m jarvis_agent.combined_server --fastapi-port 8000 --a2a-port 58000
 
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                       #
