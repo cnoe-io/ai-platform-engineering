@@ -128,7 +128,3 @@ def reflect_on_output(
     }
 
 
-
-
-
-
