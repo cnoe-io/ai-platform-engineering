@@ -144,7 +144,8 @@ class AIPlatformEngineerMAS:
       instructions=system_prompt,  # System prompt enforces TODO-based execution workflow
       subagents=subagents,  # CustomSubAgents for proper task() delegation
       model=base_model,
-      response_format=PlatformEngineerResponse  # Enforce structured output with metadata
+      # response_format=PlatformEngineerResponse  # Removed: Causes embedded JSON in streaming output
+      # Sub-agent DataParts (like Jarvis forms) still work - they're forwarded independently
     )
 
     # Check if LANGGRAPH_DEV is defined in the environment
