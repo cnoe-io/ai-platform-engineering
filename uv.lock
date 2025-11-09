@@ -172,12 +172,15 @@ source = { virtual = "." }
 dependencies = [
     { name = "a2a-sdk" },
     { name = "agntcy-app-sdk" },
+    { name = "beautifulsoup4" },
     { name = "click" },
     { name = "cnoe-agent-utils" },
     { name = "config" },
     { name = "cryptography" },
     { name = "cymple" },
     { name = "fastapi" },
+    { name = "html2text" },
+    { name = "httpx" },
     { name = "identity-service-sdk" },
     { name = "langchain" },
     { name = "langchain-core" },
@@ -185,6 +188,7 @@ dependencies = [
     { name = "langfuse" },
     { name = "langgraph" },
     { name = "langgraph-supervisor" },
+    { name = "mdformat" },
     { name = "neo4j" },
     { name = "pyjwt" },
     { name = "redis" },
@@ -223,12 +227,15 @@ unittest = [
 requires-dist = [
     { name = "a2a-sdk", specifier = "==0.3.0" },
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
+    { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "click", specifier = ">=8.2.1,<9.0.0" },
     { name = "cnoe-agent-utils", specifier = "==0.3.2" },
     { name = "config", specifier = ">=0.5.1,<0.6.0" },
     { name = "cryptography", specifier = ">=45.0.7" },
     { name = "cymple", specifier = ">=0.12.0" },
     { name = "fastapi", specifier = ">=0.115.12,<0.116.0" },
+    { name = "html2text", specifier = ">=2024.2.26" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "identity-service-sdk", specifier = ">=0.0.1" },
     { name = "langchain", specifier = ">=0.3.25" },
     { name = "langchain-core", specifier = ">=0.3.65,<0.4.0" },
@@ -236,6 +243,7 @@ requires-dist = [
     { name = "langfuse", specifier = ">=3.0.8,<4.0.0" },
     { name = "langgraph", specifier = "==0.5.3" },
     { name = "langgraph-supervisor", specifier = "==0.0.28" },
+    { name = "mdformat", specifier = ">=0.7.0" },
     { name = "neo4j", specifier = ">=6.0.2" },
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "redis", specifier = ">=6.4.0" },
@@ -1448,6 +1456,15 @@ wheels = [
 ]
 
 [[package]]
+name = "html2text"
+version = "2025.4.15"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/27/e158d86ba1e82967cc2f790b0cb02030d4a8bef58e0c79a8590e9678107f/html2text-2025.4.15.tar.gz", hash = "sha256:948a645f8f0bc3abe7fd587019a2197a12436cd73d0d4908af95bfc8da337588", size = 64316, upload-time = "2025-04-15T04:02:30.045Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/84/1a0f9555fd5f2b1c924ff932d99b40a0f8a6b12f6dd625e2a47f415b00ea/html2text-2025.4.15-py3-none-any.whl", hash = "sha256:00569167ffdab3d7767a4cdf589b7f57e777a5ed28d12907d8c58769ec734acc", size = 34656, upload-time = "2025-04-15T04:02:28.44Z" },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -2493,6 +2510,18 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.12.3" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+]
+
+[[package]]
+name = "mdformat"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markdown-it-py" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/05/32b5e14b192b0a8a309f32232c580aefedd9d06017cb8fe8fce34bec654c/mdformat-1.0.0.tar.gz", hash = "sha256:4954045fcae797c29f86d4ad879e43bb151fa55dbaf74ac6eaeacf1d45bb3928", size = 56953, upload-time = "2025-10-16T12:05:03.695Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/54/9a/8fe71b95985ca7a4001effbcc58e5a07a1f2a2884203f74dcf48a3b08315/mdformat-1.0.0-py3-none-any.whl", hash = "sha256:bca015d65a1d063a02e885a91daee303057bc7829c2cd37b2075a50dbb65944b", size = 53288, upload-time = "2025-10-16T12:05:02.607Z" },
 ]
 
 [[package]]
