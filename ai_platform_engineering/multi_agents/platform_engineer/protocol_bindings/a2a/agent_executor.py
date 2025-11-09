@@ -1120,7 +1120,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                         sub_agent_accumulated_content.append(json_str)
                                         sub_agent_sent_datapart = True  # Mark that sub-agent sent structured data
                                         logger.info(f"📝 Accumulated sub-agent DataPart: {len(json_str)} chars - MARKING sub_agent_sent_datapart=True")
-                                        
+
                                         # CRITICAL: Clear supervisor's accumulated content - we ONLY want the sub-agent's DataPart
                                         # The supervisor may have already streamed partial text before we received the DataPart
                                         if accumulated_content:
@@ -1404,7 +1404,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                        logger.debug("Skipping status update for streaming content to avoid duplication - artifacts provide the content")
 
             # If we exit the stream loop without receiving 'is_task_complete', send accumulated content
-            logger.info(f"🔍 EXECUTOR: Stream loop exited. Last event is_task_complete={event.get('is_task_complete', False) if event else 'N/A'}")
+            # BUT: If require_user_input=True, the task IS complete (just waiting for input) - don't send partial_result
+            logger.info(f"🔍 EXECUTOR: Stream loop exited. Last event is_task_complete={event.get('is_task_complete', False) if event else 'N/A'}, require_user_input={event.get('require_user_input', False) if event else 'N/A'}")
+
+            # Skip partial_result if task is waiting for user input (task is effectively complete)
+            if event and event.get('require_user_input', False):
+                logger.info("✅ EXECUTOR: Task is waiting for user input (require_user_input=True) - NOT sending partial_result")
+                return
+
             if (accumulated_content or sub_agent_accumulated_content) and not event.get('is_task_complete', False):
                 await self._ensure_execution_plan_completed(event_queue, task)
                 logger.warning("❌ EXECUTOR: Stream ended WITHOUT is_task_complete=True, sending PARTIAL_RESULT (THIS IS THE BUG!)")
