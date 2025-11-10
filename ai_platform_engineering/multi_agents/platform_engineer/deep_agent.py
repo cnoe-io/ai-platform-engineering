@@ -13,7 +13,17 @@ from cnoe_agent_utils import LLMFactory
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
-from ai_platform_engineering.multi_agents.tools import reflect_on_output
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
+from ai_platform_engineering.multi_agents.tools import (
+    reflect_on_output,
+    format_markdown,
+    fetch_url,
+    get_current_date,
+    write_workspace_file,
+    read_workspace_file,
+    list_workspace_files,
+    clear_workspace
+)
 from deepagents import async_create_deep_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -102,8 +112,17 @@ class AIPlatformEngineerMAS:
     # Get fresh tools from registry (for tool notifications and visibility)
     all_agents = platform_registry.get_all_agents()
 
-    # Add reflection tool for output validation
-    all_tools = all_agents + [reflect_on_output]
+    # Add utility tools: reflection, markdown formatting, URL fetching, current date, workspace
+    all_tools = all_agents + [
+        reflect_on_output,
+        format_markdown,
+        fetch_url,
+        get_current_date,
+        write_workspace_file,
+        read_workspace_file,
+        list_workspace_files,
+        clear_workspace
+    ]
 
     # Generate CustomSubAgents (pre-created react agents with A2A tools)
     subagents = platform_registry.generate_subagents(agent_prompts, base_model)
@@ -124,7 +143,9 @@ class AIPlatformEngineerMAS:
       tools=all_tools,  # A2A tools + reflect_on_output for validation
       instructions=system_prompt,  # System prompt enforces TODO-based execution workflow
       subagents=subagents,  # CustomSubAgents for proper task() delegation
-      model=base_model
+      model=base_model,
+      # response_format=PlatformEngineerResponse  # Removed: Causes embedded JSON in streaming output
+      # Sub-agent DataParts (like Jarvis forms) still work - they're forwarded independently
     )
 
     # Check if LANGGRAPH_DEV is defined in the environment

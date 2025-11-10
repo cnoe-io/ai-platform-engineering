@@ -5,6 +5,3 @@ from mcp_confluence.server import main
 
 if __name__ == "__main__":
     main()
-
-
-
