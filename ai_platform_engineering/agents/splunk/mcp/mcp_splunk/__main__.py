@@ -5,7 +5,3 @@ from mcp_splunk.server import main
 
 if __name__ == "__main__":
     main()
-
-
-
-
