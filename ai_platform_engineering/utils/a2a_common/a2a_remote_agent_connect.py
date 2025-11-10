@@ -359,7 +359,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
     # Return brief completion message instead of full content to prevent LLM from echoing it
     # The actual content (including tool notifications) was already streamed via writer() above
     completion_message = f"✅ {self.name} completed successfully"
-    
+
     return completion_message, status, status_message
 
   def _split_status_payload(self, response_text: str) -> tuple[str, Optional[str], Optional[str]]:
