@@ -25,7 +25,9 @@ A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
 
 if A2A_AUTH_OAUTH2:
   CLOCK_SKEW_LEEWAY = 10
-  ALGORITHMS = ["RS256"]
+  # Support multiple JWT signing algorithms (RS256, ES256, etc.)
+  # Can be configured via ALLOWED_ALGORITHMS env var (comma-separated)
+  ALGORITHMS = os.environ.get("ALLOWED_ALGORITHMS", "RS256,ES256").split(",")
   JWKS_URI = os.environ["JWKS_URI"]
   AUDIENCE = os.environ["AUDIENCE"]  # expected 'aud' claim in token
   ISSUER = os.environ["ISSUER"]
@@ -35,6 +37,7 @@ if A2A_AUTH_OAUTH2:
 
   print("\n" + "="*40)
   print(f"JWKS_URI: {JWKS_URI}")
+  print(f"ALLOWED_ALGORITHMS: {ALGORITHMS}")
   print("="*40 + "\n")
 
 
