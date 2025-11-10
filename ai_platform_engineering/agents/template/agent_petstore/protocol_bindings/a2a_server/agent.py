@@ -124,11 +124,8 @@ class PetStoreAgent:
             response_format=(self.RESPONSE_FORMAT_INSTRUCTION, ResponseFormat),
         )
 
-        # Initialize with a test message using a temporary thread ID
-        config = RunnableConfig(configurable={"thread_id": "132456789"})
-        logger.debug(f"Initializing with test message, config: {config}")
-        await self.graph.ainvoke({"messages": [HumanMessage(content="Summarize what you can do?")]}, config=config)
-        logger.debug("Test message initialization complete")
+        # Agent initialization complete
+        logger.info(f"✅ Petstore agent initialized with {len(tools)} tools")
 
     async def stream(
         self, query: str, context_id: str | None = None

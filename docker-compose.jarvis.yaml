@@ -142,6 +142,8 @@ services:
         condition: service_started
       agent-github-p2p:
         condition: service_started
+      agent-jarvis-p2p:
+        condition: service_started
       agent-jira-p2p:
         condition: service_started
       agent-komodor-p2p:
@@ -191,6 +193,9 @@ services:
       - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
       - WEBEX_AGENT_PORT=8000
+      # Jarvis A2A agent running in docker-compose
+      - JARVIS_AGENT_HOST=agent-jarvis-p2p
+      - JARVIS_AGENT_PORT=58000
       # Enable agents
       - ENABLE_ARGOCD=true
       - ENABLE_AWS=true
@@ -206,6 +211,7 @@ services:
       - ENABLE_WEBEX=true
       - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
+      - ENABLE_JARVIS=true
       # Structured output with A2A DataPart (native JSON schema support)
       # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
       # When disabled, all responses are sent as TextPart (backward compatible)
@@ -1473,6 +1479,33 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
 
+  ####################################################################################################
+  #                                      AGENT JARVIS A2A P2P                                        #
+  ####################################################################################################
+  agent-jarvis-p2p:
+    image: jarvis-agent:dev
+    container_name: agent-jarvis-p2p
+    restart: unless-stopped
+    profiles:
+      - p2p-no-rag
+      - p2p-no-rag-tracing
+    env_file:
+      - .env.jarvis
+    ports:
+      - "48000:8000"  # FastAPI port
+      - "58000:58000" # A2A port
+    environment:
+      - A2A_TRANSPORT=p2p
+      - ALLOWED_ORIGINS=*
+      - LANGGRAPH_CHECKPOINT_MEMORY_SAVER=memory
+      - ENABLE_KNOWLEDGE_GRAPH=false
+      - ENABLE_K8S_AGENT=false
+      - AIGATEWAY_SERVER_URL=https://platform-api.outshift.ai/control-plane-api/api/v1
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+    command: python3 -m jarvis_agent.combined_server --fastapi-port 8000 --a2a-port 58000
 
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                       #
