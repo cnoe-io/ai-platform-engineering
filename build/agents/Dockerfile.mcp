@@ -21,8 +21,9 @@ WORKDIR /app
 COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME}/mcp ./
 
 # Install dependencies into venv (no dev deps)
+# Increase timeout for large packages (e.g., pyarrow 39MB)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev
+    UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
 
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim

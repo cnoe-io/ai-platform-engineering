@@ -23,7 +23,6 @@ from a2a.types import (
 from langchain_core.tools import BaseTool
 from langgraph.config import get_stream_writer
 
-from ai_platform_engineering.utils.models.generic_agent import Output
 from cnoe_agent_utils.tracing import TracingManager
 from pydantic import BaseModel, Field
 
@@ -173,7 +172,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
             await asyncio.sleep(retry_delay)
             continue
           self._notify_failure(writer, last_error)
-          return Output(response=f"ERROR: {last_error}")
+          return f"ERROR: {last_error}"
 
         return output
 
@@ -188,19 +187,19 @@ class A2ARemoteAgentConnectTool(BaseTool):
           await asyncio.sleep(retry_delay)
           continue
         self._notify_failure(writer, last_error)
-        return Output(response=f"ERROR: {last_error}")
+        return f"ERROR: {last_error}"
 
     # Should never reach here, but return the last error as a fallback
     fallback = last_error or "Unknown error"
     self._notify_failure(writer, fallback)
-    return Output(response=f"ERROR: {fallback}")
+    return f"ERROR: {fallback}"
 
   async def _execute_once(
       self,
       prompt: str,
       trace_id: Optional[str],
       writer,
-  ) -> tuple[Output, Optional[str], Optional[str]]:
+  ) -> tuple[str, Optional[str], Optional[str]]:
     """Execute a single remote agent streaming call and return output with status info."""
 
     logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
@@ -273,17 +272,31 @@ class A2ARemoteAgentConnectTool(BaseTool):
             for part in parts:
               logger.debug(f"🔍 part type: {type(part)}, is_dict: {isinstance(part, dict)}")
               if isinstance(part, dict):
+                # Handle both TextPart and DataPart
                 text = part.get('text')
-                logger.debug(f"🔍 text extracted: '{text}', exists: {bool(text)}")
+                data = part.get('data')
+
                 if text:
+                  logger.debug(f"🔍 TextPart extracted: '{text[:100]}...', length: {len(text)} chars")
                   accumulated_text.append(text)
                   logger.debug(f"✅ Accumulated text from artifact-update: {len(text)} chars")
+                elif data:
+                  # DataPart with structured JSON - convert to JSON string for accumulation
+                  import json
+                  json_str = json.dumps(data)
+                  accumulated_text.append(json_str)
+                  logger.info(f"✅ Accumulated DataPart from artifact-update: {len(json_str)} chars")
+                else:
+                  logger.debug(f"🔍 part has neither 'text' nor 'data' key: {list(part.keys())}")
 
+                # Stream artifact if enabled (for both TextPart and DataPart)
+                if text or data:
                   enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
 
                   if enable_artifact_streaming:
                     writer({"type": "artifact-update", "result": result})
-                    logger.debug(f"✅ Streamed artifact-update event (ENABLE_ARTIFACT_STREAMING=true): {len(text)} chars")
+                    content_type = "DataPart" if data else "TextPart"
+                    logger.info(f"✅ Streamed artifact-update event ({content_type}, ENABLE_ARTIFACT_STREAMING=true)")
                   else:
                     logger.debug("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
 
@@ -343,9 +356,11 @@ class A2ARemoteAgentConnectTool(BaseTool):
     if not clean_text and status_message:
       clean_text = status_message
 
-    output_text = clean_text or final_response
+    # Return brief completion message instead of full content to prevent LLM from echoing it
+    # The actual content (including tool notifications) was already streamed via writer() above
+    completion_message = f"✅ {self.name} completed successfully"
 
-    return Output(response=output_text), status, status_message
+    return completion_message, status, status_message
 
   def _split_status_payload(self, response_text: str) -> tuple[str, Optional[str], Optional[str]]:
     """Split combined text/JSON payload returned by remote agent."""

@@ -167,6 +167,16 @@ jobs:
             echo "path=build/agents/Dockerfile.a2a" >> $GITHUB_OUTPUT
           fi
 
+      - name: Determine Agent Package Name
+        id: agent_package
+        run: |
+          # Special case: template agent uses agent_petstore package
+          if [ "${{ matrix.agent }}" == "template" ]; then
+            echo "name=petstore" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ matrix.agent }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and Push A2A Docker image
         uses: docker/build-push-action@v6
         with:
@@ -177,6 +187,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             AGENT_NAME=${{ matrix.agent }}
+            AGENT_PACKAGE=${{ steps.agent_package.outputs.name }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max

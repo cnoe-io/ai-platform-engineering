@@ -927,7 +927,7 @@ system_prompt_template: |
 
   ## Available Tools
 
-  - **Agent Tools**: ArgoCD, AWS, Jira, GitHub, PagerDuty, Komodor, Slack, Splunk, Backstage, Confluence, Webex, Weather, RAG
+  - **Agent Tools**: ArgoCD, AWS, Jira, GitHub, PagerDuty, Komodor, Slack, Splunk, Backstage, Confluence, Webex, Weather, Jarvis, RAG
   - **Task Management**: `write_todos` (mandatory for all queries), `task` (spawn subagents)
   - **Agent Workspace** (in-memory coordination for parallel agents - prevents garbled output):
     * `write_workspace_file(path, content)` - Sub-agents write results to separate files
@@ -1476,6 +1476,10 @@ agent_prompts:
     system_prompt: |
       Handle Splunk observability operations:
       - log searches, alert management, detector health
+  jarvis:
+    system_prompt: |
+      Handle Outshift platform workflows:
+      - Outshift platform workflows like MyID Groups, Baseapps, if a user specifically mentions outshift workflow.
   komodor:
     system_prompt: |
       Handle Komodor operations:

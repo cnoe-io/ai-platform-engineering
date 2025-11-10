@@ -17,7 +17,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 # Install dependencies only (no package installation needed)
-RUN uv sync --frozen --no-cache --no-dev
+# Increase timeout for large packages (e.g., pyarrow 39MB)
+RUN UV_HTTP_TIMEOUT=300 uv sync --frozen --no-cache --no-dev
 
 # Copy source code
 COPY . .
