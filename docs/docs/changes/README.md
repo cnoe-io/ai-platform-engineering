@@ -25,6 +25,7 @@ All documentation files are in the root of this directory, organized by date and
 - **2024-10-22-a2a-intermediate-states.md** - A2A intermediate states design [🟢 In-use]
 
 ### ✨ Features & Enhancements
+- **2025-11-10-remove-agent-init-capabilities-greeting.md** - Remove agent initialization capabilities greeting [🟢 In-use]
 - **2025-11-05-date-handling.md** - Date/time handling across agents (consolidated) [🟢 In-use]
 - **2025-10-27-agents-with-date-handling.md** - Agents with date handling capabilities [🟢 In-use]
 - **2025-10-27-automatic-date-time-injection.md** - Automatic date/time injection [🟢 In-use]
