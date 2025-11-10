@@ -456,38 +456,8 @@ Use this as the reference point for all date calculations. When users say "today
             ),
         )
 
-        # Initialize with a capabilities summary
-        runnable_config = RunnableConfig(configurable={"thread_id": "test-thread"})
-        llm_result = await self.graph.ainvoke(
-            {"messages": HumanMessage(content="Summarize what you can do?")},
-            config=runnable_config
-        )
-
-        # Extract meaningful content from LLM result
-        ai_content = None
-        for msg in reversed(llm_result.get("messages", [])):
-            if hasattr(msg, "type") and msg.type in ("ai", "assistant") and getattr(msg, "content", None):
-                ai_content = msg.content
-                break
-            elif isinstance(msg, dict) and msg.get("type") in ("ai", "assistant") and msg.get("content"):
-                ai_content = msg["content"]
-                break
-
-        # Fallback: check tool_call_results
-        if not ai_content and "tool_call_results" in llm_result:
-            ai_content = "\n".join(
-                str(r.get("content", r)) for r in llm_result["tool_call_results"]
-            )
-
+        # Agent initialization complete
         logger.info(f"✅ {agent_name} agent initialized with {len(tools)} tools")
-
-        if ai_content:
-            logger.info("=" * 50)
-            logger.info(f"Agent {agent_name.upper()} Capabilities:")
-            logger.info(ai_content)
-            logger.info("=" * 50)
-        else:
-            logger.warning(f"No assistant content found in LLM result for {agent_name}")
 
     def _count_message_tokens(self, message: Any) -> int:
         """
