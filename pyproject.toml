@@ -67,11 +67,13 @@ major_version_zero = true
 [tool.uv.sources]
 agent-argocd = { workspace = true }
 agent-komodor = { workspace = true }
+agent-grafana = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "ai_platform_engineering/agents/argocd",
     "ai_platform_engineering/agents/komodor",
+    "ai_platform_engineering/agents/grafana",
 ]
 
 [dependency-groups]
