@@ -238,6 +238,13 @@ class AIPlatformEngineerA2ABinding:
                   tool_content = message.content if hasattr(message, 'content') else ""
                   logging.debug(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
 
+                  # List of utility tools whose output should NOT be shown to users
+                  utility_tools = [
+                      "write_todos", "clear_workspace", "write_workspace_file",
+                      "get_current_date", "format_markdown", "reflect_on_output",
+                      "list_workspace_files", "read_workspace_file"
+                  ]
+
                   # Special handling for write_todos: execution plan vs status updates
                   if tool_name == "write_todos" and tool_content and tool_content.strip():
                       if not self._execution_plan_sent:
@@ -267,15 +274,18 @@ class AIPlatformEngineerA2ABinding:
                               }
                           }
                   # Stream other tool content normally (actual results for user)
-                  elif tool_content and tool_content.strip():
-                      yield {
-                          "is_task_complete": False,
-                          "require_user_input": False,
-                          "content": tool_content + "\n",
-                      }
+                  # Skip utility tools AND sub-agent tools (their output will be synthesized by LLM)
+                  # Only stream content from tools that need immediate display (none currently)
+                  # Sub-agent tool results go to LLM for synthesis, not directly to client
+                  elif False:  # Disabled - let LLM synthesize all tool outputs
+                      pass
 
-                  # Then stream completion notification
+                  # Then stream completion notification (but not for utility tools)
                   tool_name_formatted = tool_name.title()
+                  if tool_name in utility_tools:
+                      # Skip completion notification for utility tools
+                      logging.debug(f"Skipping completion notification for utility tool: {tool_name}")
+                      continue
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
@@ -290,12 +300,10 @@ class AIPlatformEngineerA2ABinding:
               # Handle final AIMessage (without tool calls) from primary stream
               elif isinstance(message, AIMessage):
                   # This is the final complete AIMessage - store it for post-stream parsing
+                  # BUT don't accumulate content if we already streamed it as chunks
                   logging.info(f"🎯 CAPTURED final AIMessage from primary stream: type={type(message).__name__}, has_content={hasattr(message, 'content')}")
-                  if hasattr(message, 'content'):
-                      content_preview = str(message.content)[:200]
-                      logging.info(f"🎯 AIMessage content preview: {content_preview}...")
-                      accumulated_ai_content.append(str(message.content))
                   final_ai_message = message
+                  # Don't add to accumulated_ai_content - it was already accumulated as chunks
 
       except asyncio.CancelledError:
           logging.warning("⚠️ Primary stream cancelled by client disconnection - parsing final response before exit")
@@ -341,14 +349,26 @@ class AIPlatformEngineerA2ABinding:
                       "content": "",
                   }
               elif isinstance(message, ToolMessage):
-                  # Stream ToolMessage content (includes formatted TODO lists)
+                  # Stream ToolMessage content (skip only utility tools)
                   tool_content = message.content if hasattr(message, 'content') else ""
+                  tool_name = message.name if hasattr(message, 'name') else "unknown"
                   logging.debug(f"Detected ToolMessage with {len(tool_content)} chars, yielding")
-                  yield {
-                      "is_task_complete": False,
-                      "require_user_input": False,
-                      "content": tool_content if tool_content else "",
-                  }
+
+                  # List of utility tools whose output should NOT be shown
+                  utility_tools = [
+                      "write_todos", "clear_workspace", "write_workspace_file",
+                      "get_current_date", "format_markdown", "reflect_on_output",
+                      "list_workspace_files", "read_workspace_file"
+                  ]
+
+                  # Skip utility tools but stream sub-agent results
+                  if tool_name not in utility_tools and tool_content:
+                      yield {
+                          "is_task_complete": False,
+                          "require_user_input": False,
+                          "content": tool_content if tool_content else "",
+                          "kind": "tool_output",  # Mark so executor doesn't accumulate (LLM will synthesize)
+                      }
               elif isinstance(message, AIMessageChunk):
                   # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
                   content = message.content
@@ -379,41 +399,45 @@ class AIPlatformEngineerA2ABinding:
               elif isinstance(message, AIMessage):
                   # Final complete AIMessage (not a chunk) from fallback stream
                   # Store it for parsing after stream ends
+                  # BUT don't accumulate content if we already streamed it as chunks
                   logging.info(f"🎯 CAPTURED final AIMessage from fallback stream: type={type(message).__name__}, has_content={hasattr(message, 'content')}")
-                  if hasattr(message, 'content'):
-                      content_preview = str(message.content)[:200]
-                      logging.info(f"🎯 AIMessage content preview: {content_preview}...")
-                      accumulated_ai_content.append(str(message.content))
                   final_ai_message = message
+                  # Don't add to accumulated_ai_content - it was already accumulated as chunks
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
       logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}")
 
-      # Try to use final_ai_message first, otherwise use accumulated content
+      # Parse final message to extract is_task_complete, but DON'T re-send content (it was already streamed)
+      is_task_complete = False
+      require_user_input = False
+
       if final_ai_message:
-          logging.info("✅ Using final AIMessage for structured response parsing")
-          # Extract content from AIMessage
+          logging.info("✅ Parsing final AIMessage for task completion status")
+          # Extract content from AIMessage for parsing
           final_content = final_ai_message.content if hasattr(final_ai_message, 'content') else str(final_ai_message)
-          logging.info(f"📝 Extracted content from AIMessage: type={type(final_content)}, length={len(str(final_content))}")
-          logging.info(f"📝 Content preview: {str(final_content)[:300]}...")
-          final_response = self.handle_structured_response(final_content)
-          logging.info(f"✅ Parsed response from final AIMessage: is_task_complete={final_response.get('is_task_complete')}")
+          logging.info(f"📝 Content length: {len(str(final_content))}")
+          parsed_response = self.handle_structured_response(final_content)
+          is_task_complete = parsed_response.get('is_task_complete', False)
+          require_user_input = parsed_response.get('require_user_input', False)
+          logging.info(f"✅ Parsed from final AIMessage: is_task_complete={is_task_complete}, require_user_input={require_user_input}")
       elif accumulated_ai_content:
           accumulated_text = ''.join(accumulated_ai_content)
-          logging.info(f"⚠️ Using accumulated content ({len(accumulated_text)} chars) for structured response parsing")
-          logging.info(f"📝 Accumulated content preview: {accumulated_text[:300]}...")
-          final_response = self.handle_structured_response(accumulated_text)
-          logging.info(f"✅ Parsed response from accumulated content: is_task_complete={final_response.get('is_task_complete')}")
+          logging.info(f"⚠️ Parsing accumulated content ({len(accumulated_text)} chars) for task completion status")
+          parsed_response = self.handle_structured_response(accumulated_text)
+          is_task_complete = parsed_response.get('is_task_complete', False)
+          require_user_input = parsed_response.get('require_user_input', False)
+          logging.info(f"✅ Parsed from accumulated content: is_task_complete={is_task_complete}, require_user_input={require_user_input}")
       else:
           logging.warning("❌ No final message or accumulated content to parse - defaulting to complete")
-          final_response = {
-              'is_task_complete': True,
-              'require_user_input': False,
-              'content': '',
-          }
+          is_task_complete = True
 
-      # Yield the final parsed response with correct is_task_complete
-      logging.info(f"🚀 YIELDING FINAL RESPONSE: is_task_complete={final_response.get('is_task_complete')}, require_user_input={final_response.get('require_user_input')}, content_length={len(final_response.get('content', ''))}")
+      # Yield ONLY the completion status (content was already streamed as chunks)
+      final_response = {
+          'is_task_complete': is_task_complete,
+          'require_user_input': require_user_input,
+          'content': '',  # Empty - content was already streamed
+      }
+      logging.info(f"🚀 YIELDING FINAL COMPLETION SIGNAL: is_task_complete={is_task_complete}, require_user_input={require_user_input}")
       yield final_response
 
   def handle_structured_response(self, ai_message):

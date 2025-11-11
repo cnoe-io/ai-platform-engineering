@@ -1192,8 +1192,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     # Send final artifact with all accumulated content for non-streaming clients
                     # Content selection strategy (PRIORITY ORDER):
                     # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                    # 2. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's structured response (PlatformEngineerResponse)
-                    # 3. Otherwise: Use sub-agent's content (backward compatible)
+                    # 2. Use supervisor's synthesized response (combines/cleans sub-agent outputs)
+                    # 3. Fallback to sub-agent content if no supervisor synthesis
+                    # 4. Final fallback to current event content
 
                     require_user_input = event.get('require_user_input', False)
 
@@ -1201,18 +1202,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         # Sub-agent sent structured DataPart - use it directly (highest priority)
                         final_content = ''.join(sub_agent_accumulated_content)
                         logger.info(f"📦 Using sub-agent DataPart for final_result ({len(final_content)} chars) - sub_agent_sent_datapart=True")
-                    elif ENABLE_STRUCTURED_OUTPUT and accumulated_content:
-                        # Structured output enabled - use supervisor's accumulated content
+                    elif accumulated_content:
+                        # Use supervisor's synthesized/formatted response (combines multiple agents, cleans noise)
                         final_content = ''.join(accumulated_content)
-                        logger.info(f"📝 Using supervisor accumulated content for final_result ({len(final_content)} chars) - structured output enabled")
+                        logger.info(f"📝 Using supervisor accumulated content for final_result ({len(final_content)} chars) - LLM synthesis")
                     elif sub_agent_accumulated_content:
-                        # Fallback to sub-agent content
+                        # Fallback to raw sub-agent content (if supervisor didn't synthesize)
                         final_content = ''.join(sub_agent_accumulated_content)
                         logger.info(f"📝 Using sub-agent accumulated content for final_result ({len(final_content)} chars)")
-                    elif accumulated_content:
-                        # Fallback to supervisor content
-                        final_content = ''.join(accumulated_content)
-                        logger.info(f"📝 Using supervisor accumulated content for final_result ({len(final_content)} chars) - fallback")
                     else:
                         # Final fallback to current event content
                         final_content = content
@@ -1297,6 +1294,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     # This is a streaming chunk - forward it immediately to the client!
                     logger.debug(f"🔍 Processing streaming chunk: has_content={bool(content)}, content_length={len(content) if content else 0}")
                     if content:  # Only send artifacts with actual content
+                       # Check if this is tool output (raw sub-agent data that will be synthesized by LLM)
+                       is_tool_output = event.get('kind') == 'tool_output'
+
                        # Check if this is a tool notification (both metadata-based and content-based)
                        is_tool_notification = (
                            # Metadata-based tool notifications (from tool_call/tool_result events)
@@ -1311,11 +1311,15 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                            (content.strip().startswith('✅') and 'completed' in content.lower())
                        )
 
-                       # Accumulate non-notification content for final UI response
-                       # Streaming artifacts are for real-time display, final response for clean UI display
-                       # CRITICAL: If sub-agent sent DataPart, DON'T accumulate supervisor's streaming text
-                       # We want ONLY the sub-agent's structured response, not the supervisor's rewrite
-                       if not is_tool_notification:
+                       # Accumulate content based on type:
+                       # - Tool output: Stream to client but DON'T accumulate (LLM will synthesize it)
+                       # - LLM synthesis: Accumulate for final result
+                       # - Tool notifications: Skip both streaming and accumulation
+                       if is_tool_output:
+                           # Stream tool output to client for real-time display, but don't accumulate
+                           # The LLM will synthesize it and we'll accumulate the synthesis instead
+                           logger.debug(f"📦 Streaming tool output to client (not accumulating): {content[:50]}...")
+                       elif not is_tool_notification:
                            if not sub_agent_sent_datapart:
                                accumulated_content.append(content)
                                logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
@@ -1418,8 +1422,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                 # Content selection strategy (PRIORITY ORDER):
                 # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                # 2. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's structured response (PlatformEngineerResponse)
-                # 3. Otherwise: Use sub-agent's content (backward compatible)
+                # 2. Use supervisor's synthesized response (combines/cleans sub-agent outputs)
+                # 3. Fallback to sub-agent content if no supervisor synthesis
 
                 require_user_input = event.get('require_user_input', False)
 
@@ -1427,18 +1431,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     # Sub-agent sent structured DataPart - use it directly (highest priority)
                     final_content = ''.join(sub_agent_accumulated_content)
                     logger.info(f"📦 Using sub-agent DataPart for partial_result ({len(final_content)} chars) - sub_agent_sent_datapart=True")
-                elif ENABLE_STRUCTURED_OUTPUT and accumulated_content:
-                    # Structured output enabled - use supervisor's accumulated content
+                elif accumulated_content:
+                    # Use supervisor's synthesized/formatted response
                     final_content = ''.join(accumulated_content)
-                    logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars) - structured output enabled")
+                    logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars) - LLM synthesis")
                 elif sub_agent_accumulated_content:
-                    # Fallback to sub-agent content
+                    # Fallback to raw sub-agent content
                     final_content = ''.join(sub_agent_accumulated_content)
                     logger.info(f"📝 Using sub-agent accumulated content for partial_result ({len(final_content)} chars)")
                 else:
-                    # Final fallback to supervisor content
-                    final_content = ''.join(accumulated_content)
-                    logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars) - fallback")
+                    # Final fallback
+                    final_content = content
+                    logger.info(f"📝 Using current event content for partial_result ({len(final_content)} chars)")
 
                 # Choose artifact format based on ENABLE_STRUCTURED_OUTPUT feature flag (same as final_result)
                 artifact = None
