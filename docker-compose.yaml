@@ -702,6 +702,79 @@ services:
       - MCP_PORT=8000
 
   ####################################################################################################
+  #                                           MCP GRAFANA                                            #
+  ####################################################################################################
+  mcp-grafana:
+    image: grafana/mcp-grafana:latest
+    container_name: mcp-grafana
+    profiles:
+      - p2p
+      - p2p-tracing
+      - slim
+      - slim-tracing
+    env_file:
+      - .env
+    ports:
+      - "18012:8000"
+    environment:
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - GRAFANA_URL=${GRAFANA_URL}
+      - GRAFANA_API_KEY=${GRAFANA_API_KEY}
+
+  ####################################################################################################
+  #                                      AGENT GRAFANA A2A over SLIM                                 #
+  ####################################################################################################
+  agent-grafana-slim:
+    image: ghcr.io/cnoe-io/agent-grafana:${IMAGE_TAG:-stable}
+    container_name: agent-grafana-slim
+    profiles:
+      - slim
+      - slim-tracing
+    depends_on:
+      - slim-dataplane
+      - mcp-grafana
+    env_file:
+      - .env
+    ports:
+      - "8012:8000"
+    environment:
+      - A2A_TRANSPORT=slim
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-grafana
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
+  #                                      AGENT GRAFANA A2A P2P                                       #
+  ####################################################################################################
+  agent-grafana-p2p:
+    image: ghcr.io/cnoe-io/agent-grafana:${IMAGE_TAG:-stable}
+    container_name: agent-grafana-p2p
+    profiles:
+      - p2p
+      - p2p-tracing
+    depends_on:
+      - mcp-grafana
+    env_file:
+      - .env
+    ports:
+      - "8012:8000"
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=${MCP_MODE:-http}
+      - MCP_PORT=8000
+      - MCP_HOST=mcp-grafana
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+  ####################################################################################################
   #                                      AGENT PAGERDUTY A2A over SLIM                               #
   ####################################################################################################
   agent-pagerduty-slim:
