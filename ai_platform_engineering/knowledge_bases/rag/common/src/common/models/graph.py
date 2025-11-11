@@ -85,18 +85,7 @@ class Relation(BaseModel):
     from_entity: EntityIdentifier = Field(description="The from entity")
     to_entity: EntityIdentifier = Field(description="The to entity")
     relation_name: str = Field(description="The name of the relation")
-    primary_key_properties: Optional[List[str]] = Field(description="(Optional) Primary key properties of the relation to maintain uniqueness between the from and to entities")
     relation_properties: Optional[dict[str, Any]] = Field(description="(Optional) The properties of the relation")
-
-    def generate_primary_key(self) -> str:
-        """
-        Generates a primary key for this entity from the primary key properties
-        :return: str
-        """
-        if self.primary_key_properties is None or self.relation_properties is None:
-            return ""
-        return PROP_DELIMITER.join([self.relation_properties[k] for k in self.primary_key_properties])
-
 
 class EntityTypeMetaRelation(BaseModel):
     """

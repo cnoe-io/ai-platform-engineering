@@ -14,9 +14,6 @@ class RelationCandidateManager:
     Heuristic class for determining foreign key relations between tables.
     This class implements a set of functions to identify potential foreign key relationships
     """
-
-    PLACEHOLDER_RELATION_NAME = "TBD"
-
     def __init__(self, graph_db: GraphDB, ontology_graph_db: GraphDB, ontology_version_id: str, client_name: str):
 
         self.data_graph_db = graph_db
@@ -26,6 +23,14 @@ class RelationCandidateManager:
         self.ontology_version_id = ontology_version_id
         self.client_name = client_name
 
+
+    def generate_placeholder_relation_name(self, relation_id: str) -> str:
+        """
+        Generates a placeholder relation name for a relation candidate.
+        :param relation_id: The relation ID for which to generate the placeholder name.
+        :return: str
+        """
+        return f"TBD_{relation_id}"
 
     async def cleanup(self):
         """
@@ -115,7 +120,7 @@ class RelationCandidateManager:
             
             props.update(evaluation)
         else:
-            relation_name = self.PLACEHOLDER_RELATION_NAME  # Use placeholder if no evaluation
+            relation_name = self.generate_placeholder_relation_name(relation_id)  # Use placeholder if no evaluation
 
         # Update the relation
         await self.ontology_graph_db.update_relation(
@@ -371,36 +376,40 @@ class RelationCandidateManager:
 
         # If the candidate does not exist, we cannot sync
         if candidate is None:
-            self.logger.error(f"Relation candidate {relation_id} not found in the database, cannot sync.")
-            return
-
-        if candidate.evaluation is None:
-            self.logger.warning(f"Relation candidate {relation_id} has no evaluation, skipping sync.")
-            return
-
-        if candidate.evaluation.result == FkeyEvaluationResult.ACCEPTED:
-            self.logger.debug(f"Relation candidate {relation_id} accepted.")
-            if candidate.evaluation.relation_name is None or candidate.evaluation.relation_name == "":
-                self.logger.error(f"Relation {relation_id} has no relation name, cannot apply.")
-                return
-            
-            # Apply the relation
-            await self._apply_relation(self.client_name, 
-                                    relation_id, 
-                                    candidate.evaluation.relation_name, 
-                                    candidate.heuristic.property_mappings, 
-                                    candidate.heuristic.entity_a_type, 
-                                    candidate.heuristic.entity_b_type, 
-                                    candidate.evaluation.result.value)
-
-        elif candidate.evaluation.result == FkeyEvaluationResult.REJECTED:
-            self.logger.debug(f"Relation candidate {relation_id} rejected.")
-            # Unapply the relation
-            await self._unapply_relation(relation_id)
-            candidate.evaluation.relation_name = self.PLACEHOLDER_RELATION_NAME # set to placeholder to indicate rejection
-        else:
-            self.logger.debug(f"Relation candidate {relation_id} unsure, removing any previous applied relation.")
+            self.logger.debug(f"Relation candidate {relation_id} does not exist. Removing any applied relation in the data graph.")
             await self._unapply_relation(relation_id)  # remove the relation if it existed
+            return
+        
+        if candidate.evaluation is None: # No evaluation, unapply any existing relation
+            self.logger.debug(f"Relation candidate {relation_id} has no evaluation. Removing any applied relation in the data graph.")
+            await self._unapply_relation(relation_id)  # remove the relation if it existed
+
+        else: # Evaluation exists, apply or unapply based on the result
+            if candidate.evaluation.result == FkeyEvaluationResult.ACCEPTED:
+                self.logger.debug(f"Relation candidate {relation_id} accepted. Applying relation to the data graph.")
+
+                # sanity check for relation name
+                if candidate.evaluation.relation_name is None or candidate.evaluation.relation_name == "":
+                    self.logger.error(f"Relation {relation_id} has no relation name, cannot apply.")
+                    candidate.error_message = "Cannot apply relation, no relation name provided in evaluation."
+
+                else:
+                    # Apply the relation
+                    await self._apply_relation(self.client_name, 
+                                            relation_id, 
+                                            candidate.evaluation.relation_name, 
+                                            candidate.heuristic.property_mappings, 
+                                            candidate.heuristic.entity_a_type, 
+                                            candidate.heuristic.entity_b_type)
+                    
+            elif candidate.evaluation.result == FkeyEvaluationResult.REJECTED:
+                self.logger.debug(f"Relation candidate {relation_id} rejected. Removing any applied relation in the data graph.")
+                # Unapply the relation
+                await self._unapply_relation(relation_id)
+                candidate.evaluation.relation_name = self.generate_placeholder_relation_name(relation_id) # set to placeholder to indicate rejection
+            else:
+                self.logger.debug(f"Relation candidate {relation_id} neither accepted nor rejected, in unsure state, removing any applied relation in the data graph.")
+                await self._unapply_relation(relation_id)  # remove the relation if it existed
 
         # Update the candidate synced status
         candidate.is_synced = True
@@ -414,8 +423,7 @@ class RelationCandidateManager:
                               relation_name: str, 
                               property_mappings: List[PropertyMapping], 
                               entity_a_type: str, 
-                              entity_b_type: str,
-                              result: str):
+                              entity_b_type: str):
         """
         Applies the relation by creating a relation in the data graph database.
         This function is used to accept a relation candidate, effectively creating the relation in the graph.
@@ -439,8 +447,7 @@ class RelationCandidateManager:
             entity_b_type=entity_b_type,
             relation_type=relation_name,
             matching_properties=matching_properties,
-            relation_properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id, 
-                                 constants.RELATION_CONFIDENCE_KEY: result}
+            relation_properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id}
         )
  
     async def _unapply_relation(self, relation_id: str):

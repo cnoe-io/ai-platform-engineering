@@ -1,6 +1,5 @@
 import os
 from contextlib import asynccontextmanager
-import time
 
 from agent_ontology.agent import OntologyAgent, RelationCandidateManager 
 from common.graph_db.base import GraphDB
@@ -97,6 +96,10 @@ async def accept_relation(relation_id: str, relation_name: str):
     if candidate is None:
         raise HTTPException(status_code=404, detail=f"Relation candidate {relation_id} not found")
 
+    # check if an evaluation already exists
+    if candidate.evaluation is not None:
+        raise HTTPException(status_code=400, detail=f"Relation candidate {relation_id} already has an evaluation, you must undo it first before accepting")
+
     # update the evaluation
     await rc_manager.update_evaluation(
         relation_id=relation_id,
@@ -127,10 +130,14 @@ async def reject_relation(relation_id: str):
     if candidate is None:
         raise HTTPException(status_code=404, detail=f"Relation candidate {relation_id} not found")
 
+    # check if an evaluation already exists
+    if candidate.evaluation is not None:
+        raise HTTPException(status_code=400, detail=f"Relation candidate {relation_id} already has an evaluation, you must undo it first before rejecting")
+
     # Update the evaluation
     await rc_manager.update_evaluation(
         relation_id=relation_id,
-        relation_name=rc_manager.PLACEHOLDER_RELATION_NAME,
+        relation_name=rc_manager.generate_placeholder_relation_name(relation_id),
         result=FkeyEvaluationResult.REJECTED,
         justification="Manually rejected by user",
         thought="Manually rejected by user",
@@ -221,6 +228,20 @@ async def get_ontology_version():
     return JSONResponse(status_code=200, content={"ontology_version_id": ontology_version_id.decode('utf-8')})
 
 
+#### 
+# Endpoints for debugging
+####
+@app.post("/v1/graph/ontology/agent/debug/process_all")
+async def process_all():
+    """
+    Asks the agent to process all entities for heuristics, this is used for debugging
+    For debugging purposes
+    """
+    logger.warning("Processing all entities for heuristics")
+    rc_manager = await get_rc_manager_with_latest_ontology()
+    await agent.process_all(rc_manager)
+    return JSONResponse(status_code=200, content={"message": "Submitted for processing"})
+
 #####
 # API Endpoints for debugging
 #####
@@ -247,21 +268,29 @@ async def cleanup():
     return JSONResponse(status_code=200, content={"message": "Submitted"})
 
 #####
-# Health endpoint
+# Health and config endpoints
 #####
 @app.get("/v1/graph/ontology/agent/status")
-async def status():
-    return {"status": "ok", 
-            "is_processing": agent.is_processing,
-            "processing_tasks_total": agent.processing_tasks_total,
-            "processed_tasks_count": agent.processed_tasks_count,
-            "is_evaluating": agent.is_evaluating,
-            "evaluation_tasks_total": agent.evaluation_tasks_total,
-            "evaluated_tasks_count": agent.evaluated_tasks_count,
-            "max_concurrent_processing": MAX_CONCURRENT_PROCESSING,
-            "max_concurrent_evaluation": MAX_CONCURRENT_EVALUATION,
-            "min_count_for_eval": MIN_COUNT_FOR_EVAL,   
-            "count_change_threshold_ratio": COUNT_CHANGE_THRESHOLD_RATIO,}
+async def healthz():
+    return {
+        "status": "healthy",
+        "redis_ready": "true",
+        "graph_db_ready": "true",
+        "ontology_graph_db_ready": "true",
+        "is_processing": agent.is_processing,
+        "is_evaluating": agent.is_evaluating,
+        "last_evaluation_run_timestamp": agent.last_evaluation_run_timestamp,
+        "max_concurrent_processing": MAX_CONCURRENT_PROCESSING,
+        "max_concurrent_evaluation": MAX_CONCURRENT_EVALUATION,
+        "min_count_for_eval": MIN_COUNT_FOR_EVAL,
+        "count_change_threshold_ratio": COUNT_CHANGE_THRESHOLD_RATIO,
+        "sync_interval_seconds": SYNC_INTERVAL,
+        "agent_recursion_limit": AGENT_RECURSION_LIMIT,
+        "processing_tasks_total": agent.processing_tasks_total,
+        "processed_tasks_count": agent.processed_tasks_count,
+        "evaluation_tasks_total": agent.evaluation_tasks_total,
+        "evaluated_tasks_count": agent.evaluated_tasks_count
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=port)

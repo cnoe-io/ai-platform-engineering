@@ -67,6 +67,23 @@ class Neo4jDB(GraphDB):
 
         # await self._create_unique_constraint_relation(["relation_id"]) # TODO
 
+    async def status(self) -> bool:
+        """
+        Check the status of the graph database connection
+        :return: True if the connection is healthy, False otherwise
+        """
+        try:
+            async with self.driver.session(default_access_mode=neo4j.READ_ACCESS, database=self.database) as session:
+                result = await session.run("RETURN 1 AS ok") # type: ignore
+                record = await result.single()
+                if record and record["ok"] == 1:
+                    return True
+                else:
+                    return False
+        except Exception as e:
+            logger.error(f"Neo4j connection check failed: {e}", exc_info=True)
+            return False
+
     async def fuzzy_search(self, keywords: List[List[Union[str, Tuple[float, str]]]],
                            type_filter: List[str],
                            num_record_per_type: int = 0,
@@ -278,14 +295,9 @@ class Neo4jDB(GraphDB):
                 relation = Relation(
                     from_entity=EntityIdentifier(entity_type=str(from_entity_type), primary_key=str(from_entity_pk)),
                     to_entity=EntityIdentifier(entity_type=str(to_entity_type), primary_key=str(to_entity_pk)),
-                    primary_key_properties=None,
                     relation_name=rel.type,
                     relation_properties=relation_props
                 )
-
-                primary_key_properties = relation_props.get(ALL_IDS_KEY, None)
-                if primary_key_properties is not None:
-                    relation.primary_key_properties = primary_key_properties
                 
                 relations.append(relation)
             
@@ -395,13 +407,8 @@ class Neo4jDB(GraphDB):
 
                 relation = Relation(from_entity=from_entity.get_identifier(),
                                           to_entity=to_entity.get_identifier(),
-                                          primary_key_properties=None,
                                           relation_name=relation_name,
                                           relation_properties=relation_props)
-                
-                primary_key_properties = relation_props.get(ALL_IDS_KEY, None)
-                if primary_key_properties is not None:
-                    relation.primary_key_properties = primary_key_properties
 
                 relations.append(relation)
 
@@ -500,8 +507,8 @@ class Neo4jDB(GraphDB):
                     logger.error(f"Neo4j batch query failed after {max_retries} attempts: {e}", exc_info=True)
                     raise
 
-    async def update_relation(self, relation: Relation, fresh_until: int, ignore_direction=False, client_name=None):
-        logger.debug(f"Executing update_relation with relation={relation.relation_name}, from_entity={relation.from_entity}, to_entity={relation.to_entity}, fresh_until={fresh_until}, ignore_direction={ignore_direction}, client_name={client_name}")
+    async def update_relation(self, relation: Relation, fresh_until: int, client_name=None):
+        logger.debug(f"Executing update_relation with relation={relation.relation_name}, from_entity={relation.from_entity}, to_entity={relation.to_entity}, fresh_until={fresh_until}, client_name={client_name}")
         properties = {}
         if relation.relation_properties is not None:
             properties = relation.relation_properties
@@ -513,58 +520,31 @@ class Neo4jDB(GraphDB):
             properties[UPDATED_BY_KEY] = client_name
             properties[FRESH_UNTIL_KEY] = fresh_until
             properties[LAST_UPDATED_KEY] = unix_timestamp
-                
-        properties[ALL_IDS_KEY] = relation.primary_key_properties # we only store primary keys unlike entities where we store all ids
-        
+                        
         # Format all the properties for the write query
         properties_with_ref = {}
         for k,v in properties.items():
             properties_with_ref[f"{relationship_ref}.{k}"] = v 
 
-        if relation.from_entity is None or relation.to_entity is None:
-            raise ValueError("from_entity and to_entity must be set")
         if relation.from_entity.entity_type is None or relation.to_entity.entity_type is None:
             raise ValueError("from_entity and to_entity must have entity_type set")
 
-        if ignore_direction:
-            builder = (
-                QueryBuilder()
-                .match()
-                .node(labels=[relation.from_entity.entity_type], ref_name='f', properties={PRIMARY_ID_KEY: relation.from_entity.primary_key}) # type: ignore
-                .match()
-                .node(labels=[relation.to_entity.entity_type], ref_name='t', properties={PRIMARY_ID_KEY: relation.to_entity.primary_key}) # type: ignore
-                .merge()
-                .node(ref_name='f')
-                .related(ref_name=relationship_ref, label=relation.relation_name)
-                .node(ref_name='t')
-                .set(properties_with_ref)
-            )
-        else:
-            builder = (
-                QueryBuilder()
-                .match()
-                .node(labels=[relation.from_entity.entity_type], ref_name='f', properties={PRIMARY_ID_KEY: relation.from_entity.primary_key})  # type: ignore
-                .match()
-                .node(labels=[relation.to_entity.entity_type], ref_name='t', properties={PRIMARY_ID_KEY: relation.to_entity.primary_key}) # type: ignore
-                
-            )
-        
-        # If primary key properties are provided, use them to check uniqueness of the relationship BETWEEN the from and to entities
-        if relation.primary_key_properties is not None:
-            primary_key = PROP_DELIMITER.join([properties[k] for k in relation.primary_key_properties])
-            builder = (builder
-                        .merge()
-                        .node(ref_name='f')
-                        .related_to(ref_name=relationship_ref, label=relation.relation_name, properties={PRIMARY_ID_KEY: primary_key})
-                        .node(ref_name='t')
-                        .set(properties_with_ref))
-        else:
-            builder = (builder
-                        .merge()
-                        .node(ref_name='f')
-                        .related(ref_name=relationship_ref, label=relation.relation_name)
-                        .node(ref_name='t')
-                        .set(properties_with_ref))
+        # Build the query for matching the nodes part
+        builder = (
+            QueryBuilder()
+            .match()
+            .node(labels=[relation.from_entity.entity_type], ref_name='f', properties={PRIMARY_ID_KEY: relation.from_entity.primary_key})  # type: ignore
+            .match()
+            .node(labels=[relation.to_entity.entity_type], ref_name='t', properties={PRIMARY_ID_KEY: relation.to_entity.primary_key}) # type: ignore
+        )
+
+        # Build the merge/create relationship part
+        builder = (builder
+                    .merge()
+                    .node(ref_name='f')
+                    .related(ref_name=relationship_ref, label=relation.relation_name)
+                    .node(ref_name='t')
+                    .set(properties_with_ref))
 
         query = str(builder)
         logger.debug(query)
@@ -651,7 +631,6 @@ class Neo4jDB(GraphDB):
                     relation = Relation(
                         from_entity=from_entity_id,
                         to_entity=to_entity_id,
-                        primary_key_properties=relation_props.get(ALL_IDS_KEY, None),
                         relation_name=relationship.type,
                         relation_properties=relation_props
                     )

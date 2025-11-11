@@ -128,14 +128,19 @@ class TestRAGEndToEnd:
             
         # Store job_id for use in other tests
         self.last_job_id = job_id
+
+        # Wait a moment for indexing to complete
+        time.sleep(10)
         
         print(f"✅ Ingestion completed successfully")
 
+    @pytest.mark.dependency(depends=['test_url_ingestion_workflow'])
     def test_datasource_listing(self):
         """Test datasource listing functionality."""
         print("\n📋 Testing datasource listing...")
         
         response = requests.get(f"{self.base_url}/v1/datasources")
+        print(response.text)
         assert response.status_code == 200, f"Failed to list datasources: {response.text}"
         
         datasources_data = response.json()
@@ -147,6 +152,7 @@ class TestRAGEndToEnd:
         
         print(f"✅ Found {len(datasources)} datasource(s)")
 
+    @pytest.mark.dependency(depends=['test_url_ingestion_workflow'])
     def test_query_ingested_content(self):
         """Test querying ingested content."""
         print("\n🔍 Testing content querying...")
@@ -200,7 +206,15 @@ class TestRAGEndToEnd:
     def test_job_termination(self):
         """Test job termination functionality."""
         print("\n🛑 Testing job termination...")
-        
+
+        # list all datasources to find one to terminate
+        response = requests.get(f"{self.base_url}/v1/datasources")
+        assert response.status_code == 200, f"Failed to list datasources: {response.text}"
+        datasources_data = response.json()
+        datasources = datasources_data["datasources"]
+        print(datasources)
+
+
         # Start a new ingestion job
         test_url = "https://docs.astral.sh/ruff/sitemap.xml" # Using a larger sitemap for longer job
         ingest_data = {
@@ -253,6 +267,7 @@ class TestRAGEndToEnd:
         
         print("✅ Error scenarios handled correctly")
 
+    @pytest.mark.dependency(depends=['test_url_ingestion_workflow'])
     def test_datasource_reload(self):
         """Test datasource reload functionality."""
         print("\n🔄 Testing datasource reload...")
@@ -281,6 +296,7 @@ class TestRAGEndToEnd:
 
         print("✅ Datasource reload completed successfully")
 
+    @pytest.mark.dependency(depends=['test_url_ingestion_workflow'])
     def test_datasource_cleanup(self):
         """Clean up test datasources and verify content is no longer searchable."""
         print("\n🧹 Testing datasource deletion...")
@@ -371,6 +387,7 @@ class TestRAGEndToEnd:
         entity_data = {
             "entity_type": "TestEntity",
             "connector_name": "test_connector",
+            "connector_type": "test_connector_type",
             "fresh_until": int(time.time()) + 3600,  # 1 hour from now
             "entities": [
                 {
@@ -421,6 +438,8 @@ class TestRAGEndToEnd:
         
         query_results = response.json()
         assert "results" in query_results, "Query results missing"
+
+        print(f"🔎 Search results: {query_results}")
         
         # Should find our test entity
         found_test_entity = False
@@ -430,7 +449,7 @@ class TestRAGEndToEnd:
             
             # Check if this is our test entity
             if (metadata.get("graph_entity_type") == "TestEntity" and 
-                metadata.get("graph_connector_id") == "test_connector"):
+                metadata.get("graph_connector_id") == "test_connector_type/test_connector"):
                 found_test_entity = True
                 
                 # Verify the content contains our test data
@@ -457,6 +476,8 @@ class TestRAGEndToEnd:
 
     @pytest.mark.skipif(os.getenv("ENABLE_GRAPH_RAG", "true").lower() != "true", 
                        reason="Graph RAG disabled")
+    
+    @pytest.mark.dependency(depends=['test_query_ingested_entity'])
     def test_graph_connector_cleanup(self):
         """Clean up test graph connector (Graph RAG only)."""
         print("\n🧹 Testing graph connector deletion...")
