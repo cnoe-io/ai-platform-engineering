@@ -17,6 +17,7 @@ The Grafana Agent provides comprehensive monitoring, dashboard, alert, and incid
 ## Architecture
 
 - **Deployment Pattern**: Separate pods for agent and MCP server
+- **MCP Server**: Uses official [Grafana MCP server](https://github.com/grafana/mcp-grafana) image
 - **Communication**: Agent connects to MCP via Kubernetes Service (`mcp-grafana:8000`)
 - **Base Class**: Extends `BaseLangGraphAgent` from ai_platform_engineering.utils
 - **Protocol**: A2A (Agent-to-Agent) for inter-agent communication
@@ -64,13 +65,18 @@ See `charts/ai-platform-engineering/values.yaml` for configuration options.
 
 ## MCP Tools
 
-The Grafana MCP server provides tools for:
+The [official Grafana MCP server](https://github.com/grafana/mcp-grafana) provides tools for:
 - Dashboard search and retrieval
 - Data source management
 - Alert rule management
 - Prometheus/Loki queries
 - Incident management
 - Team and user management
+- OnCall schedules
+- Sift investigations
+- Pyroscope profiling
+
+See the [Grafana MCP documentation](https://github.com/grafana/mcp-grafana) for the complete list of available tools.
 
 ## License
 

@@ -36,13 +36,15 @@ async def main():
     """Main entry point."""
     try:
         logger.info("Starting Grafana Agent A2A Server...")
+        logger.info("Using official Grafana MCP server via MCP_HOST service")
 
         # Initialize agent
-        agent = GrafanaAgent()
+        _agent = GrafanaAgent()  # noqa: F841
+        logger.info("Grafana Agent initialized successfully")
 
         # Start A2A server (implementation depends on A2A SDK)
         # This would typically involve setting up FastAPI/uvicorn with A2A endpoints
-        logger.info("Grafana Agent initialized successfully")
+        # TODO: Implement A2A server startup
 
         # For now, keep the process running
         while True:
