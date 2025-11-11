@@ -126,12 +126,12 @@ KEY CAPABILITIES:
         """Return message to show when agent is processing tool results."""
         return "📊 Analyzing Grafana data..."
 
-    @trace_agent_stream
-    async def stream(self, user_message: str, thread_id: str = "default"):
+    @trace_agent_stream("grafana")
+    async def stream(self, query: str, sessionId: str, trace_id: str = None):
         """
-        Stream agent responses with tracing.
+        Stream responses with grafana-specific tracing.
 
-        This method is automatically traced by the @trace_agent_stream decorator.
+        Overrides the base stream method to add agent-specific tracing decorator.
         """
-        async for chunk in self._stream_impl(user_message, thread_id):
+        async for chunk in self._stream_impl(query, sessionId):
             yield chunk
