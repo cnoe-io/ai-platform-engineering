@@ -133,5 +133,5 @@ KEY CAPABILITIES:
 
         Overrides the base stream method to add agent-specific tracing decorator.
         """
-        async for chunk in self._stream_impl(query, sessionId):
-            yield chunk
+        async for event in super().stream(query, sessionId, trace_id):
+            yield event
