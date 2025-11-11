@@ -19,6 +19,14 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
+    async def status(self) -> bool:
+        """
+        Check the status of the graph database connection
+        :return: True if the connection is healthy, False otherwise
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+
+    @abstractmethod
     async def fuzzy_search(self, keywords: List[List[Union[str, Tuple[float, str]]]], 
                            type_filter: List[str], 
                            num_record_per_type: int = 0, 
@@ -121,12 +129,12 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    async def update_relation(self, relation: Relation, fresh_until: int, ignore_direction=False, client_name=None):
+    async def update_relation(self, relation: Relation, fresh_until: int, client_name=None):
         """
         Update a relationship between two entities in the graph database
+        The uniqueness of the relation is determined by from_entity, to_entity and relation_name
         :param relation: relation to update
         :param fresh_until: timestamp until which the relation is fresh
-        :param ignore_direction: if True, ignore the direction of the relation
         :param client_name: name of the client updating the relation
         """
         raise NotImplementedError("Subclasses must implement this method.")

@@ -12,21 +12,17 @@ dotenv.load_dotenv()
 logger = utils.get_logger(__name__)
 
 
-class Connector:
+class Connector():
     """
     Bindings for graph entities and relations 
     """
-    def __init__(self):
-        """
-        :param name: plugin name
-        """
-        self.server_addr = os.getenv("SERVER_ADDR", "http://localhost:9446")
-        self.name = os.getenv("CONNECTOR_NAME")
-        if not self.name:
-            raise ValueError("CONNECTOR_NAME environment variable is not set")
+    def __init__(self, connector_name: str, connector_type: str = "generic"):
+        self.server_addr = os.getenv("RAG_SERVER_URL", "http://localhost:9446")
+        self.connector_type = connector_type
+        self.connector_name = connector_name
         # API key is currently not used by the server, but kept for future compatibility
-        self.api_key = os.environ.get("API_KEY", "")
         utils.retry_function(lambda: requests.get(self.server_addr + "/healthz").raise_for_status(), 10, 10)
+    
 
     def update_entity(self, entity_type: str, entities: List[Entity], fresh_until: int=0):
         """
@@ -41,7 +37,8 @@ class Connector:
         # Create the request body using the new Pydantic model structure
         request_body = {
             "entity_type": entity_type,
-            "connector_name": self.name,
+            "connector_name": self.connector_name,
+            "connector_type": self.connector_type,
             "entities": [entity.model_dump() for entity in entities],
             "fresh_until": fresh_until
         }

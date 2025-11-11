@@ -1,5 +1,6 @@
 import logging
 import os
+from time import time
 import traceback
 
 from common.graph_db.base import GraphDB
@@ -49,6 +50,7 @@ class OntologyAgent:
         self.max_concurrent_evaluation = max_concurrent_evaluation
         self.agent_recursion_limit = agent_recursion_limit
         self.agent_name = "OntologyAgent"
+        self.last_evaluation_run_timestamp = 0
 
         # status flags
         self.is_processing = False # Avoid parallel processing/evaluation
@@ -153,7 +155,7 @@ class OntologyAgent:
             
             await self._eval_relation_manager.update_evaluation(
                 relation_id=relation_id,
-                relation_name=self._eval_relation_manager.PLACEHOLDER_RELATION_NAME,
+                relation_name=self._eval_relation_manager.generate_placeholder_relation_name(relation_id),
                 result=FkeyEvaluationResult.REJECTED,
                 justification=justification,
                 thought="",
@@ -168,6 +170,7 @@ class OntologyAgent:
 
     async def process_and_evaluate_all(self):
         self.logger.info("Running heuristics processing and the evaluation...")
+        # self.last_evaluation_run_timestamp = time.time()
 
         # create a new ontology version
         new_ontology_version_id = utils.get_uuid()
@@ -326,7 +329,7 @@ class OntologyAgent:
                 self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count is {new_candidate.heuristic.count} which is below the minimum count for evaluation.")
                 await rc_manager_new.update_evaluation(
                             relation_id=new_candidate.relation_id,
-                            relation_name=rc_manager_new.PLACEHOLDER_RELATION_NAME,
+                            relation_name=rc_manager_new.generate_placeholder_relation_name(new_candidate.relation_id),
                             justification=f"Count below minimum threshold for evaluation. ({new_candidate.heuristic.count} < {self.min_count_for_eval})",
                             thought="Automatically classed as unsure due to low count.",
                             result=FkeyEvaluationResult.UNSURE,
@@ -520,7 +523,7 @@ class OntologyAgent:
                 try:
                     await rc_manager.update_evaluation(
                         relation_id=candidate.relation_id,
-                        relation_name=rc_manager.PLACEHOLDER_RELATION_NAME,
+                        relation_name=rc_manager.generate_placeholder_relation_name(candidate.relation_id),
                         result=FkeyEvaluationResult.UNSURE,
                         justification="No evaluation was made by the agent.",
                         thought=ai_thought,

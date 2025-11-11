@@ -13,8 +13,6 @@ It also listens for entity update notifications and sleeps for a few seconds bef
 Its both an ingestor and a processor plugin.
 """
 
-CONNECTOR_NAME = os.getenv("CONNECTOR_NAME", "test_dummy")
-
 SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 60 * 15))  # sync every 15 minutes by default
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(level=LOG_LEVEL)
@@ -57,7 +55,10 @@ def sync(p: Connector):
 
 async def run():
     #  create a plugin object
-    p = Connector()
+    p = Connector(
+        connector_name="test_dummy",
+        connector_type="test"
+    )
 
     init_delay = os.getenv("INIT_DELAY_SECONDS", 0)
     if init_delay:
@@ -77,7 +78,7 @@ async def run():
 
 if __name__ == "__main__":
     try:
-        logging.info(f"Running client {CONNECTOR_NAME}...")
+        logging.info(f"Running client...")
         asyncio.run(run())
     except KeyboardInterrupt:
         logging.info("Client execution interrupted")

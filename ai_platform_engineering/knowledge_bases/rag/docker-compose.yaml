@@ -252,16 +252,36 @@ services:
       timeout: 20s
       retries: 3
   
-  # Test services
-  httpbin:
-    image: kennethreitz/httpbin:latest
-    container_name: test-httpbin
+#####################
+# Test services
+#####################
+
+  testwebsite:
+    image: nginx:alpine
+    container_name: test-website
     ports:
       - "8080:80"
+    volumes:
+      - ./tests/rag_test:/usr/share/nginx/html
     profiles:
-      - test
+      - dummy_site
       - apps
-      - rag_no_graph
+
+  dummy_connector:
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.connectors
+    container_name: dummy-connector
+    volumes:
+      - ./tests/rag_graph_test:/app/data:ro
+    environment:
+      RAG_SERVER_URL: http://rag_server:9446
+      CONNECTOR_NAME: dummy_connector
+      DUMMY_ENTITIES_FILE: /app/data/dummy_entities.json
+    depends_on:
+      - rag_server
+    profiles:
+      - dummy_connector
   
   # dex:
   #     image: ghcr.io/dexidp/dex:latest
