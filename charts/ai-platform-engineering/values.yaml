@@ -8,6 +8,7 @@ tags:
   agent-confluence: false
   agent-github: false
   agent-jira: false
+  agent-grafana: false
   agent-komodor: false
   agent-pagerduty: false
   agent-slack: false
@@ -192,6 +193,19 @@ agent-webex:
     image:
       repository: "ghcr.io/cnoe-io/mcp-webex"
       tag: "stable"
+      pullPolicy: "Always"
+    mode: "http" # Options: stdio, http
+    port: 8000
+
+agent-grafana:
+  nameOverride: "agent-grafana"
+  image:
+    repository: "ghcr.io/cnoe-io/agent-grafana"
+    pullPolicy: "Always"
+  mcp:
+    image:
+      repository: "grafana/mcp-grafana"  # Official Grafana MCP server
+      tag: "latest"
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
