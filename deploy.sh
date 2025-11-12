@@ -166,10 +166,40 @@ fi
 
 echo "Deploying services with $TRANSPORT transport: $SHOULD_RUN"
 
-# Deploy the selected services
-if [ "$DETACHED" = "no" ]; then
-    docker compose -f docker-compose.yaml up $SHOULD_RUN
-else
-    docker compose -f docker-compose.yaml up -d $SHOULD_RUN
+# Separate platform engineer from other services
+PLATFORM_ENGINEER=""
+OTHER_SERVICES=""
+
+for service in $SHOULD_RUN; do
+    if [[ "$service" == "platform-engineer-p2p" || "$service" == "platform-engineer-slim" ]]; then
+        PLATFORM_ENGINEER="$service"
+    else
+        OTHER_SERVICES="$OTHER_SERVICES $service"
+    fi
+done
+
+# Start other services first
+if [ -n "$OTHER_SERVICES" ]; then
+    echo "Starting supporting services: $OTHER_SERVICES"
+    docker compose -f docker-compose.yaml up -d $OTHER_SERVICES
+    
+    # Wait for all services to be running
+    echo "Waiting for services to be ready..."
+    for service in $OTHER_SERVICES; do
+        while [ "$(docker compose -f docker-compose.yaml ps -q $service 2>/dev/null | xargs docker inspect -f '{{.State.Status}}' 2>/dev/null)" != "running" ]; do
+            sleep 1
+        done
+    done
+    echo "All supporting services are running"
+fi
+
+# Start platform engineer last
+if [ -n "$PLATFORM_ENGINEER" ]; then
+    echo "Starting platform engineer: $PLATFORM_ENGINEER"
+    if [ "$DETACHED" = "no" ]; then
+        docker compose -f docker-compose.yaml up $PLATFORM_ENGINEER
+    else
+        docker compose -f docker-compose.yaml up -d $PLATFORM_ENGINEER
+    fi
 fi
 
