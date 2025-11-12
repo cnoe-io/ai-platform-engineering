@@ -16,13 +16,13 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from ai_platform_engineering.multi_agents.tools import (
     reflect_on_output,
-    format_markdown,
+    # format_markdown,        # DISABLED - causing validation loops (see ADR 2025-01-12)
     fetch_url,
     get_current_date,
-    write_workspace_file,
-    read_workspace_file,
-    list_workspace_files,
-    clear_workspace
+    # write_workspace_file,   # DISABLED - designed for parallel execution (see ADR 2025-01-12)
+    # read_workspace_file,    # DISABLED - designed for parallel execution (see ADR 2025-01-12)
+    # list_workspace_files,   # DISABLED - designed for parallel execution (see ADR 2025-01-12)
+    # clear_workspace         # DISABLED - designed for parallel execution (see ADR 2025-01-12)
 )
 from deepagents import async_create_deep_agent
 
@@ -112,16 +112,14 @@ class AIPlatformEngineerMAS:
     # Get fresh tools from registry (for tool notifications and visibility)
     all_agents = platform_registry.get_all_agents()
 
-    # Add utility tools: reflection, markdown formatting, URL fetching, current date, workspace
+    # Add utility tools: reflection, URL fetching, current date
+    # Note: format_markdown and workspace tools removed (see ADR 2025-01-12)
+    # - format_markdown: caused infinite validation loops
+    # - workspace tools: designed for parallel execution (not used in sequential delegation)
     all_tools = all_agents + [
         reflect_on_output,
-        format_markdown,
         fetch_url,
         get_current_date,
-        write_workspace_file,
-        read_workspace_file,
-        list_workspace_files,
-        clear_workspace
     ]
 
     # Generate CustomSubAgents (pre-created react agents with A2A tools)
