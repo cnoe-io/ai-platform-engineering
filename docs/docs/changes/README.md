@@ -57,6 +57,7 @@ All documentation files are in the root of this directory, organized by date and
 - **2024-10-22-implementation-summary.md** - Implementation summary [🟢 In-use]
 
 ### 🐛 Bug Fixes & Performance
+- **2025-01-12-remove-workspace-and-markdown-tools.md** - Removed workspace and format_markdown tools to fix hallucination loops [🟢 In-use]
 - **2025-11-08-platform-engineer-final-response-parsing.md** - Platform Engineer final response parsing and DataPart implementation [🟢 In-use]
 - **2025-11-05-a2a-artifact-streaming-fix.md** - A2A artifact streaming race condition fix [🟢 In-use]
 - **2025-11-05-argocd-oom-analysis.md** - ArgoCD OOM protection analysis [🟢 In-use]
@@ -88,8 +89,8 @@ All documentation files are in the root of this directory, organized by date and
 
 ## Document Statistics
 
-- **Total documents**: 37 markdown files
-- **🟢 In-use**: 38 documents
+- **Total documents**: 38 markdown files
+- **🟢 In-use**: 39 documents
 - **🟡 Proposed**: 2 documents
 - **🔴 Abandoned**: 2 documents
 
@@ -99,7 +100,7 @@ All documentation files are in the root of this directory, organized by date and
 - **Configuration docs**: 4 files (4 In-use)
 - **Integration docs**: 6 files (6 In-use)
 - **Refactoring docs**: 3 files (3 In-use)
-- **Bug Fixes & Performance docs**: 6 files (6 In-use)
+- **Bug Fixes & Performance docs**: 7 files (7 In-use)
 - **Agent-specific docs**: 1 file (1 In-use)
 - **Session/Context docs**: 1 file (1 In-use)
 
