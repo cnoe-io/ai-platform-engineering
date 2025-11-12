@@ -1,0 +1,95 @@
+# OpenAPI-based Agent Manifest Example
+# This demonstrates an agent generated from an OpenAPI specification
+
+manifest_version: "1.0"
+
+metadata:
+  name: "petstore"
+  display_name: "Petstore Agent"
+  version: "0.1.0"
+  description: "A comprehensive petstore management agent that handles pet inventory, customer orders, and user accounts using the Swagger Petstore API"
+  author: "CNOE Contributors"
+  author_email: "info@cnoe.io"
+  license: "Apache-2.0"
+  tags:
+    - "petstore"
+    - "ecommerce"
+    - "openapi"
+    - "swagger"
+
+protocols:
+  - a2a
+  - mcp
+
+transports:
+  - http
+
+skills:
+  - id: "pet_management"
+    name: "Pet Management"
+    description: "Manage pet inventory with full CRUD operations"
+    tags:
+      - "pets"
+      - "inventory"
+      - "crud"
+    examples:
+      - "List all available pets"
+      - "Find pets by status: available"
+      - "Add a new pet to the store"
+      - "Update pet information"
+      - "Delete a pet from inventory"
+      - "Upload a photo for pet ID 123"
+  
+  - id: "order_management"
+    name: "Order Management"
+    description: "Process and manage customer orders"
+    tags:
+      - "orders"
+      - "purchase"
+      - "ecommerce"
+    examples:
+      - "Place an order for pet ID 456"
+      - "Check order status for order ID 789"
+      - "Show current store inventory"
+      - "Cancel order ID 789"
+  
+  - id: "user_management"
+    name: "User Management"
+    description: "Manage user accounts and authentication"
+    tags:
+      - "users"
+      - "authentication"
+      - "accounts"
+    examples:
+      - "Create a new user account"
+      - "Login as user 'john_doe'"
+      - "Update user profile"
+      - "Logout current user"
+
+dependencies:
+  - source: "openapi"
+    name: "petstore-api"
+    url: "https://petstore.swagger.io/v2/swagger.json"
+    api_key_env_var: "PETSTORE_API_KEY"
+    additional_config:
+      generate_mcp: true
+      base_path: "/v2"
+
+environment:
+  - name: "PETSTORE_API_KEY"
+    description: "API key for Petstore service"
+    required: true
+    default: "special-key"
+  
+  - name: "PETSTORE_API_URL"
+    description: "Base URL for Petstore API"
+    required: false
+    default: "https://petstore.swagger.io/v2"
+
+capabilities:
+  streaming: true
+  pushNotifications: true
+
+docker_config:
+  base_image: "python:3.13-slim"
+
