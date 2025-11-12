@@ -126,3 +126,4 @@ def reflect_on_output(
         "validation_summary": validation_summary,
         "total_issues": len(issues)
     }
+
