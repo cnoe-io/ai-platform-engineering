@@ -48,7 +48,9 @@ dist/
 docs/_build/
 
 # Web build artifacts (if any)
-web/node_modules/
-web/dist/
-web/.next/
-web/build/ 
+webui/node_modules/
+webui/dist/
+webui/.next/
+webui/build/
+node_modules/
+**/node_modules/
