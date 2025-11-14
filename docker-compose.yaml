@@ -692,9 +692,7 @@ services:
     depends_on: [rag_server, neo4j, neo4j-ontology, rag-redis]
 
   rag_webui:
-    build:
-      context: ai_platform_engineering/knowledge_bases/rag
-      dockerfile: ./build/Dockerfile.webui
+    image: ghcr.io/cnoe-io/caipe-rag-webui:${IMAGE_TAG:-stable}
     container_name: rag-webui
     environment:
       - RAG_SERVER_URL=http://rag_server:9446
