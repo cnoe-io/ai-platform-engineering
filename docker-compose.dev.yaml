@@ -10,12 +10,6 @@ services:
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
-    # The 'extra_hosts' option below maps the hostname 'hub.docker.local' to the Docker host's gateway IP.
-    # This enables services running inside this container to access other agents or services that are
-    # available on the host machine network (outside the Docker Compose network), by resolving
-    # 'hub.docker.local' to the actual host machine's network interface.
-    extra_hosts:
-      - "hub.docker.local:host-gateway"
     profiles:
       - p2p
       - p2p-tracing
