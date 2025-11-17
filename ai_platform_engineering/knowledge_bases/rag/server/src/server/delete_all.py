@@ -4,7 +4,7 @@ from pymilvus import MilvusClient
 import redis.asyncio as redis
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from server.restapi import milvus_uri, default_collection_name_docs, graph_rag_enabled, redis_url, neo4j_addr, ontology_neo4j_addr
-redis_client = redis.from_url(redis_url)
+redis_client = redis.from_url(redis_url, decode_responses=True)
 
 legacy_default_collection_name_graph = "graph_rag_default"
 delete_delay_seconds = int(os.getenv("DELETE_DELAY_SECONDS", "20"))

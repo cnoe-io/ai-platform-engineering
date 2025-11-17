@@ -10,7 +10,7 @@ from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOG
 from common.models.graph import EntityIdentifier
 import traceback
 from server.query_service import VectorDBQueryService
-from common.models.rag import valid_metadata_keys, doc_types, VectorDBBaseMetadata, VectorDBTextMetadata, DocTypeText
+from common.models.rag import valid_metadata_keys
 from fastmcp import FastMCP
 
 # Load environment variables from .env file
@@ -42,7 +42,7 @@ class AgentTools:
         Search for relevant documents and graph entities using semantic search in the vector databases.
         Args:
             query (str): The search query (Use full sentences for better results)
-            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}. Valid `doc_type` values are: {', '.join(doc_types)}.
+            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
             limit (int): Maximum number of results to return (default: 5)
             similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
             thought (str): Your thoughts for choosing this tool
@@ -51,13 +51,16 @@ class AgentTools:
             str: JSON encoded search results containing documents, graph entities, and their scores
         """
         else:
-            valid_filter_keys = valid_metadata_keys([VectorDBTextMetadata, VectorDBBaseMetadata]) # exclude graph metadata keys
+            valid_filter_keys = valid_metadata_keys() # exclude graph metadata keys
+            # remove any graph-related keys
+            valid_filter_keys = [key for key in valid_filter_keys if "graph_entity" not in key]
+
             logger.info(f"Valid filter keys for search tool: {valid_filter_keys}")
             search_description =f"""
         Search for relevant documents using semantic search in the vector databases.
         Args:
             query (str): The search query (Use full sentences for better results)
-            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}. Valid `doc_type` value is only: {DocTypeText}.
+            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
             limit (int): Maximum number of results to return (default: 5)
             similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
             thought (str): Your thoughts for choosing this tool
@@ -111,7 +114,7 @@ class AgentTools:
             logger.error(f"Error during search: {e}")
             return f"Error during search: {e}"
 
-        logger.info(f"search results: total_documents {len(results.results)}")
+        logger.info(f"search results: total_documents {len(results)}")
         return json_encode(results)
 
     #####################
@@ -255,7 +258,6 @@ class AgentTools:
             ontology_version_id = await self.redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
             if ontology_version_id is None:
                 return "Error: the ontology is not generated yet, this tool is unavailable."
-            ontology_version_id = ontology_version_id.decode("utf-8")
 
             entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
             entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
@@ -322,7 +324,6 @@ class AgentTools:
         ontology_version_id = await self.redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
         if ontology_version_id is None:
             return False
-        ontology_version_id = ontology_version_id.decode("utf-8")
         logger.info(f"Found ontology version id: {ontology_version_id}")
 
         # Check if the ontology is generated - there should be at least one relation with the ontology version id

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import type { QueryResult, QueryResponse } from './Models';
+import type { QueryResult } from './Models';
 import { searchDocuments, getHealthStatus } from '../api';
 
 interface SearchViewProps {
@@ -14,8 +14,9 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     const [filters, setFilters] = useState<Record<string, string>>({});
     const [rankerType] = useState('weighted'); // Only weighted ranker supported
     const [semanticsWeight, setSemanticsWeight] = useState(0.7); // Slider for weights
-    const [results, setResults] = useState<QueryResponse | null>(null);
+    const [results, setResults] = useState<QueryResult[] | null>(null);
     const [loadingQuery, setLoadingQuery] = useState(false);
+    const [lastQuery, setLastQuery] = useState('');
     const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set());
     
     // Filter configuration
@@ -23,6 +24,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     const [supportedDocTypes, setSupportedDocTypes] = useState<string[]>([]);
     const [selectedFilterKey, setSelectedFilterKey] = useState('');
     const [filterValue, setFilterValue] = useState('');
+    const [isGraphEntityFilter, setIsGraphEntityFilter] = useState<'all' | 'true' | 'false'>('all'); // 'all' = not set, 'true'/'false' = filter value
 
 
 
@@ -66,8 +68,9 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
         console.log('Explore clicked', metadata);
         
         // Extract entity information from metadata - using the correct keys
-        const entityType = metadata.graph_entity_type as string || metadata.entity_type as string;
-        const primaryKey = metadata.graph_entity_primary_key as string || metadata.entity_primary_key as string;
+        const nestedMetadata = metadata?.metadata as Record<string, unknown> | undefined;
+        const entityType = nestedMetadata?.graph_entity_type as string || undefined;
+        const primaryKey = nestedMetadata?.graph_entity_pk as string || undefined;
         
         if (entityType && primaryKey) {
             if (onExploreEntity) {
@@ -103,15 +106,22 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
             const textWeight = 1 - semanticsWeight;
             const weights = [semanticsWeight, textWeight];
 
+            // Build filters - combine regular filters with is_graph_entity radio button
+            const combinedFilters: Record<string, string | boolean> = { ...filters };
+            if (isGraphEntityFilter !== 'all') {
+                combinedFilters['is_graph_entity'] = isGraphEntityFilter === 'true'; // boolean true or false
+            }
+
             const data = await searchDocuments({
                 query,
                 limit,
                 similarity_threshold: similarity,
-                filters: Object.keys(filters).length > 0 ? filters : undefined,
+                filters: Object.keys(combinedFilters).length > 0 ? combinedFilters : undefined,
                 ranker_type: rankerType,
                 ranker_params: { weights }
             });
             setResults(data);
+            setLastQuery(query);
         } catch (e: any) {
             alert(`Query failed: ${e?.message || 'unknown error'}`);
         } finally {
@@ -234,6 +244,43 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         <div className="mt-4 mb-4 p-4 border border-gray-200 rounded-md bg-gray-50">
                             <h4 className="text-sm font-semibold mb-3">Filters</h4>
                             
+                            {/* Graph Entity Radio Filter */}
+                            <div className="mb-4 p-3 bg-white border border-gray-200 rounded-md">
+                                <div className="text-sm font-medium mb-2">Entity Type</div>
+                                <div className="flex gap-4">
+                                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="graph-entity-filter"
+                                            checked={isGraphEntityFilter === 'all'}
+                                            onChange={() => setIsGraphEntityFilter('all')}
+                                            className="h-4 w-4"
+                                        />
+                                        <span>All</span>
+                                    </label>
+                                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="graph-entity-filter"
+                                            checked={isGraphEntityFilter === 'true'}
+                                            onChange={() => setIsGraphEntityFilter('true')}
+                                            className="h-4 w-4"
+                                        />
+                                        <span>Graph entities only</span>
+                                    </label>
+                                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="graph-entity-filter"
+                                            checked={isGraphEntityFilter === 'false'}
+                                            onChange={() => setIsGraphEntityFilter('false')}
+                                            className="h-4 w-4"
+                                        />
+                                        <span>Non-graph entities</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
                             {/* Add Filter Controls */}
                             <div className="flex gap-2 mb-3">
                                 <select
@@ -242,7 +289,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                     className="rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                                 >
                                     <option value="">Select filter key...</option>
-                                    {validFilterKeys.map(key => (
+                                    {validFilterKeys.filter(key => key !== 'is_graph_entity').map(key => (
                                         <option key={key} value={key}>{key}</option>
                                     ))}
                                 </select>
@@ -306,18 +353,18 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                     )}
                     {results && (
                         <div>
-                            <div className="mb-3 text-sm text-slate-600">Query: {results.query}</div>
+                            <div className="mb-3 text-sm text-slate-600">Query: {lastQuery}</div>
                             <ul className="grid list-none gap-3 p-0 mr-2 max-w-full">
-                            {results.results.map((r, i) => {
+                            {results.map((r, i) => {
                                 const isExpanded = expandedResults.has(i);
                                 const pageContent = String(r.document.page_content || '');
                                 const summary = pageContent.replace(/\n/g, ' ').substring(0, 150);
-                                const docType = r.document.metadata?.doc_type as string;
-                                const isGraphEntity = docType === 'graph_entity';
+                                const isGraphEntity = r.document.metadata?.is_graph_entity as boolean;
                                 
                                 // For graph entities, extract entity info
-                                const entityType = r.document.metadata?.graph_entity_type as string || 'Unknown';
-                                const primaryKey = r.document.metadata?.graph_entity_primary_key as string || 'Unknown';
+                                const nestedMetadata = r.document.metadata?.metadata as Record<string, unknown> | undefined;
+                                const entityType = nestedMetadata?.graph_entity_type as string || 'Unknown';
+                                const primaryKey = nestedMetadata?.graph_entity_pk as string || 'Unknown';
 
                                 return (
                                     <li 

@@ -140,8 +140,6 @@ export default function OntologyGraph({}: OntologyGraphProps) {
                 processed_tasks_count,
                 evaluation_tasks_total,
                 evaluated_tasks_count,
-                candidate_acceptance_threshold,
-                candidate_rejection_threshold
             } = response;
             setIsAgentProcessing(is_processing);
             setIsAgentEvaluating(is_evaluating);
@@ -168,7 +166,8 @@ export default function OntologyGraph({}: OntologyGraphProps) {
 
     // Handle arrow click to focus on a specific node and its relations
     const handleNodeArrowClick = (nodeData: any) => {
-        const nodeId = nodeData.all_properties?._primary_key || nodeData._primary_key || nodeData.id;
+        const nodeId = nodeData.all_properties?._entity_pk || nodeData._entity_pk || nodeData.id;
+        console.log('Focus button clicked, node ID:', nodeId);
         setFocusedNodeId(nodeId);
         setIsPanelOpen(false); // Close filter panel when focusing on a node
     };
@@ -378,25 +377,34 @@ export default function OntologyGraph({}: OntologyGraphProps) {
             if (graphData.current.nodes.length === 0) {
                 try {
                     const entitiesData = await getOntologyEntities({}) || [];
+                    console.log('Fetched entities:', entitiesData);
+                    console.log('Number of entities:', entitiesData.length);
                     
                     const allNodes: Node[] = entitiesData.map((entity: any) => {
-                        const label = entity.entity_type || entity.all_properties._primary_key;
+                        const primaryKey = entity.all_properties?._entity_pk || entity._entity_pk;
+                        const label = entity.entity_type || primaryKey;
                         const displayLabel = label.length > 20 ? label.substring(0, 20) + '...' : label;
+                        console.log('Creating node:', { id: primaryKey, label, entity });
                         return {
-                            id: entity.all_properties._primary_key,
+                            id: primaryKey,
                             type: 'ontologyNode',
                             data: { label: displayLabel, originalLabel: label, ...entity }, // Store both display and original label
                             position: { x: 0, y: 0 },
                         };
                     });
+                    
+                    console.log('Created nodes:', allNodes.length, allNodes);
 
                     const relationsData = await getOntologyRelations({}) || [];
+                    console.log('Fetched relations:', relationsData);
+                    console.log('Number of relations:', relationsData.length);
                     
                     // Group edges by node pairs to deduplicate
                     const edgeGroupsMap = new Map<string, any[]>();
                     relationsData.forEach((relation: any) => {
                         const sourceId = relation.from_entity.primary_key;
                         const targetId = relation.to_entity.primary_key;
+                        console.log('Processing relation:', { sourceId, targetId, relation });
                         // Create a key that maintains direction (source -> target)
                         const edgeKey = `${sourceId}->${targetId}`;
                         
@@ -405,6 +413,8 @@ export default function OntologyGraph({}: OntologyGraphProps) {
                         }
                         edgeGroupsMap.get(edgeKey)!.push(relation);
                     });
+                    
+                    console.log('Edge groups:', edgeGroupsMap.size, Array.from(edgeGroupsMap.entries()));
                     
                     const allEdges: Edge[] = Array.from(edgeGroupsMap.entries()).map(([edgeKey, relations]) => {
                         const firstRelation = relations[0]; // Use the first relation as the representative
@@ -416,9 +426,13 @@ export default function OntologyGraph({}: OntologyGraphProps) {
                             label += ` [x${edgeCount}]`;
                         }
                         
+                        // Use _ontology_relation_id as relation ID
+                        const relationId = firstRelation.relation_properties?._ontology_relation_id || firstRelation._ontology_relation_id;
+                        console.log('Creating edge:', { id: relationId, source: firstRelation.from_entity.primary_key, target: firstRelation.to_entity.primary_key });
+                        
                         const edgeStyle = getOntologyEdgeStyle(firstRelation, false);
                         return {
-                            id: firstRelation.relation_properties._ontology_relation_id,
+                            id: relationId,
                             source: firstRelation.from_entity.primary_key,
                             target: firstRelation.to_entity.primary_key,
                             label: label,
@@ -438,6 +452,8 @@ export default function OntologyGraph({}: OntologyGraphProps) {
                             },
                         };
                     });
+                    
+                    console.log('Created edges:', allEdges.length, allEdges);
 
                     graphData.current = { nodes: allNodes, edges: allEdges };
                     

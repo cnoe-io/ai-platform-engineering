@@ -354,16 +354,16 @@ class TestRAGEndToEnd:
     
     @pytest.mark.skipif(os.getenv("ENABLE_GRAPH_RAG", "true").lower() != "true", 
                        reason="Graph RAG disabled")
-    def test_graph_connectors(self):
-        """Test graph connector operations (Graph RAG only)."""
-        print("\n🔗 Testing graph connectors...")
+    def test_graph_ingestors(self):
+        """Test graph ingestor operations (Graph RAG only)."""
+        print("\n🔗 Testing graph ingestors...")
         
-        # List connectors (should be empty initially)
-        response = requests.get(f"{self.base_url}/v1/graph/connectors")
-        assert response.status_code == 200, f"Failed to list graph connectors: {response.text}"
+        # List ingestors (should be empty initially)
+        response = requests.get(f"{self.base_url}/v1/graph/ingestors")
+        assert response.status_code == 200, f"Failed to list graph ingestors: {response.text}"
         
-        connectors = response.json()
-        print(f"✅ Found {len(connectors)} graph connector(s)")
+        ingestors = response.json()
+        print(f"✅ Found {len(ingestors)} graph ingestor(s)")
 
     @pytest.mark.skipif(os.getenv("ENABLE_GRAPH_RAG", "true").lower() != "true", 
                        reason="Graph RAG disabled")
@@ -386,8 +386,8 @@ class TestRAGEndToEnd:
         # Sample entity data
         entity_data = {
             "entity_type": "TestEntity",
-            "connector_name": "test_connector",
-            "connector_type": "test_connector_type",
+            "ingestor_name": "test_ingestor",
+            "ingestor_type": "test_ingestor_type",
             "fresh_until": int(time.time()) + 3600,  # 1 hour from now
             "entities": [
                 {
@@ -409,8 +409,8 @@ class TestRAGEndToEnd:
         
         print("✅ Graph entity ingestion completed")
         
-        # Store connector name for cleanup
-        self.test_connector_id = "test_connector"
+        # Store ingestor name for cleanup
+        self.test_ingestor_id = "test_ingestor"
 
     @pytest.mark.skipif(os.getenv("ENABLE_GRAPH_RAG", "true").lower() != "true", 
                        reason="Graph RAG disabled")
@@ -449,7 +449,7 @@ class TestRAGEndToEnd:
             
             # Check if this is our test entity
             if (metadata.get("graph_entity_type") == "TestEntity" and 
-                metadata.get("graph_connector_id") == "test_connector_type/test_connector"):
+                metadata.get("graph_ingestor_id") == "test_ingestor_type/test_ingestor"):
                 found_test_entity = True
                 
                 # Verify the content contains our test data
@@ -468,7 +468,7 @@ class TestRAGEndToEnd:
                 metadata = result.get("document", {}).get("metadata", {})
                 print(f"  {i+1}. Type: {metadata.get('doc_type')}, "
                       f"Entity Type: {metadata.get('graph_entity_type')}, "
-                      f"Connector: {metadata.get('graph_connector_id')}")
+                      f"Ingestor: {metadata.get('graph_ingestor_id')}")
             
             raise AssertionError("Test entity not found in search results")
         
@@ -478,16 +478,16 @@ class TestRAGEndToEnd:
                        reason="Graph RAG disabled")
     
     @pytest.mark.dependency(depends=['test_query_ingested_entity'])
-    def test_graph_connector_cleanup(self):
-        """Clean up test graph connector (Graph RAG only)."""
-        print("\n🧹 Testing graph connector deletion...")
+    def test_graph_ingestor_cleanup(self):
+        """Clean up test graph ingestor (Graph RAG only)."""
+        print("\n🧹 Testing graph ingestor deletion...")
         
-        if hasattr(self, 'test_connector_id'):
-            response = requests.delete(f"{self.base_url}/v1/graph/connector/delete", 
-                                     params={"connector_id": self.test_connector_id})
-            assert response.status_code == 200, f"Failed to delete graph connector: {response.text}"
+        if hasattr(self, 'test_ingestor_id'):
+            response = requests.delete(f"{self.base_url}/v1/graph/ingestor/delete", 
+                                     params={"ingestor_id": self.test_ingestor_id})
+            assert response.status_code == 200, f"Failed to delete graph ingestor: {response.text}"
             
-            print("✅ Test graph connector deleted successfully")
+            print("✅ Test graph ingestor deleted successfully")
 
 
 if __name__ == "__main__":
