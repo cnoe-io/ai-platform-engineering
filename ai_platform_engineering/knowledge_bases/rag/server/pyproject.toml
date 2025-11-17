@@ -32,8 +32,8 @@ dependencies = [
     "redis>=5.0.0",
     "uvicorn>=0.35.0",
     "fastmcp>=2.12.4",
-    "common",
     "aiohttp-retry>=2.9.1",
+    "common",
 ]
 
 [project.scripts]

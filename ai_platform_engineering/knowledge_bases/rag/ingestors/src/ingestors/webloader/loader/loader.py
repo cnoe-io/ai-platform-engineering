@@ -1,31 +1,26 @@
 import gc
-from common.models.rag import DocumentInfo
+import time
 from common import utils
-from server.loader.url.docsaurus_scraper import scrape_docsaurus
-from server.loader.url.mkdocs_scraper import scrape_mkdocs
+from loader.url.docsaurus_scraper import scrape_docsaurus
+from loader.url.mkdocs_scraper import scrape_mkdocs
 import aiohttp
 from aiohttp_retry import RetryClient, ExponentialRetry
 from bs4 import BeautifulSoup
 import gzip
-import os
 from typing import List
-from aiofile import async_open
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import Tuple, Dict, Any
-import uuid
-import datetime
-from server.metadata_storage import MetadataStorage
-from common.job_manager import JobManager, JobStatus
-from common.models.rag import DataSourceInfo, VectorDBTextMetadata, DocTypeText
+from common.job_manager import JobStatus, JobManager
+from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.utils import get_logger
 import traceback
 from common.task_scheduler import TaskScheduler
-from langchain_core.vectorstores import VectorStore
+from common.ingestor import Client
 from urllib.parse import urlparse
 
 class Loader:
-    def __init__(self, vstore: VectorStore, metadata_storage: MetadataStorage, datasourceinfo: DataSourceInfo, jobmanager: JobManager, max_concurrency: int):
+    def __init__(self, rag_client: Client, jobmanager: JobManager, datasourceinfo: DataSourceInfo, max_concurrency: int):
         """
         Initialize the loader with the given vstore, logger, metadata storage, and datasource.
 
@@ -35,14 +30,13 @@ class Loader:
             datasourceinfo (DataSourceInfo): The datasource configuration to use for loading documents.
         """
         self.session = None
-        self.vstore = vstore
         self.logger = get_logger(f"loader:{datasourceinfo.datasource_id[12:]}")
-        self.metadata_storage = metadata_storage
         self.chunk_size = datasourceinfo.default_chunk_size
         self.chunk_overlap = datasourceinfo.default_chunk_overlap
         self.datasourceinfo = datasourceinfo
-        self.jobmanager = jobmanager
         self.max_concurrency = max_concurrency
+        self.jobmanager = jobmanager
+        self.client = rag_client
 
         # Chrome user agent for better web scraping compatibility
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -219,13 +213,17 @@ class Loader:
             metadata["language"] = ""
 
         return content, metadata
+    
 
-    async def process_url(self, url: str, job_id: str):
+
+    async def process_url(self, url: str, job_id: str, batch: List[Document]):
         """
-        Process a URL, fetching the document and splitting into chunks if necessary.
+        Process a URL, fetching the document and adding it to the batch.
         """
         try:
             self.logger.info(f"Processing URL {url}")
+
+            assert self.client.ingestor_id is not None, "Ingestor ID is None, Ingestor client not initialized properly"
             
             # Check if job is terminated
             if await self.jobmanager.is_job_terminated(job_id):
@@ -245,8 +243,24 @@ class Loader:
                 html_content = await resp.text()
                 soup = BeautifulSoup(html_content, 'html.parser')
                 content, metadata = await self.custom_parser(soup, url)
-                doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
-                await self.process_document(doc, self.datasourceinfo.default_chunk_size, self.datasourceinfo.default_chunk_overlap)
+                doc_id = utils.generate_document_id_from_url(self.datasourceinfo.datasource_id, url)
+                doc = Document(id=doc_id, page_content=content, 
+                               metadata=DocumentMetadata(
+                                    datasource_id=self.datasourceinfo.datasource_id,
+                                    description=metadata.get("description", ""),
+                                    title=metadata.get("title", ""),
+                                    document_id=doc_id,
+                                    document_ingested_at=int(time.time()),
+                                    document_type="webpage",
+                                    fresh_until=0, # to be set later
+                                    ingestor_id=self.client.ingestor_id,
+                                    is_graph_entity=False,
+                                    metadata=metadata
+                                ).model_dump())
+                
+                # Add document to batch instead of ingesting immediately
+                batch.append(doc)
+
         except aiohttp.TooManyRedirects as e:
             self.logger.error(f"TooManyRedirects error: {e}")
             # Print redirect history for debugging
@@ -254,119 +268,28 @@ class Loader:
                 for resp in e.history:
                     self.logger.error(f"Redirected from: {resp.url} with status {resp.status}")
 
-            await self.jobmanager.update_job(job_id,
-                message=f"Failed to process URL {url}",
-                failed_increment=1,
-                errors=[f"Failed to process URL {url} : {type(e).__name__} {e} "]
+            await self.jobmanager.increment_failure(
+                job_id=job_id,
+                message=f"Failed: Too many redirects - URL: {url} : {type(e).__name__} {e} "
             )
         except Exception as e:
             self.logger.error(traceback.format_exc())
-            self.logger.error(f"Failed to process URL {url}: {e}")
-            await self.jobmanager.update_job(job_id,
-                message=f"Failed to process URL {url}",
-                failed_increment=1,
-                errors=[f"Failed to process URL {url} : {type(e).__name__} {e} "]
+            self.logger.error(f"Failed to load URL {url}: {e}")
+
+            await self.jobmanager.increment_failure(
+                job_id=job_id,
+                message=f"Failed to load URL {url} : {type(e).__name__} {e} "
             )
         finally:
-            await self.jobmanager.update_job(job_id,
-                message=f"Processed URL {url}",
-                processed_increment=1,
+            await self.jobmanager.increment_progress(
+                job_id=job_id,
+            )
+            await self.jobmanager.upsert_job(
+                job_id=job_id,
+                message=f"Processed URL: {url}"
             )
             self.logger.debug(f"DONE Processing URL {url}")
 
-
-    async def process_document(self, doc: Document, chunk_size: int = 10000, chunk_overlap: int = 2000):
-        """
-        Process a document, splitting into chunks if necessary, with proper ID management.
-        """
-        if not self.datasourceinfo:
-            self.logger.error("No sourceinfo set for document processing")
-            return
-
-        source = doc.metadata.get("source", "<unknown>")
-        content = doc.page_content
-
-        self.logger.debug(f"Processing document: {source} ({len(content)} characters)")
-
-        # Generate document ID
-        document_id = DocumentInfo.generate_id_from_url(self.datasourceinfo.datasource_id, source)
-        doc.id = document_id # Set the LangChain document ID
-        
-        # Store document info in Redis
-        current_time = datetime.datetime.now(datetime.timezone.utc)
-        document_info = DocumentInfo(
-            document_id=document_id,
-            datasource_id=self.datasourceinfo.datasource_id,
-            path=source,
-            title=doc.metadata.get("title", ""),
-            description=doc.metadata.get("description", ""),
-            content_length=len(content),
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            chunk_count=0,
-            created_at=current_time,
-            metadata=doc.metadata
-        )
-
-        chunks: List[Document] = []
-        chunk_ids: List[str] = []
-        
-        # Check if document needs chunking
-        if len(content) > chunk_size:
-            self.logger.debug("Document exceeds chunk size, splitting into chunks using RecursiveCharacterTextSplitter")
-            # Create document-specific text splitter
-            document_text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                length_function=len,
-                separators=["\n\n", "\n", ". ", "? ", "! ", " ", ""]
-            )
-            
-            doc_chunks = document_text_splitter.split_documents([doc])
-            document_info.chunk_count = len(doc_chunks)
-
-            self.logger.debug(f"Split document into {len(doc_chunks)} chunks for: {document_id}")
-
-            for i, chunk_doc in enumerate(doc_chunks):
-                chunk_id = doc.id + "_chunk_" + str(i)
-                # Add comprehensive metadata to each chunk
-
-                chunk_doc.metadata.update(VectorDBTextMetadata(
-                    id=chunk_id,
-                    doc_type=DocTypeText,
-                    datasource_id=self.datasourceinfo.datasource_id,
-                    document_id=document_id,
-                    chunk_index=i,
-                    total_chunks=len(doc_chunks)
-                ).model_dump())
-                
-                chunk_ids.append(chunk_id)
-                chunks.append(chunk_doc)
-
-        else:
-            # Process as single document (one chunk)
-            self.logger.debug(f"Embedding & adding document: {source}")
-            document_info.chunk_count = 1
-            chunk_id = doc.id + "_chunk_0"
-            
-            doc.metadata.update(VectorDBTextMetadata(
-                id=chunk_id,
-                doc_type=DocTypeText,
-                datasource_id=self.datasourceinfo.datasource_id,
-                document_id=document_id,
-                chunk_index=0,
-                total_chunks=1
-            ).model_dump())
-
-            chunk_ids.append(chunk_id)
-            chunks.append(doc)
-        
-        # Add chunks to vector store
-        self.logger.debug(f"Adding {len(chunks)} document chunks to vector store")
-        await self.vstore.aadd_documents(chunks, ids=chunk_ids)
-        
-        # Store document info in Redis
-        await self.metadata_storage.store_document_info(document_info)
 
     async def get_urls_from_sitemap(self, sitemap_url: str) -> List[str]:
         """
@@ -437,15 +360,12 @@ class Loader:
 
         Returns: List of document_ids (filenames for now)
         """
-        await self.jobmanager.update_job(job_id,
-            status=JobStatus.IN_PROGRESS,
-            message="Loading URL..."
-        )
         try:
             urls = [] # URLs to process
             if check_for_site_map:
                 # Check if the URL has sitemap
-                await self.jobmanager.update_job(job_id,
+                await self.jobmanager.upsert_job(
+                    job_id=job_id,
                     status=JobStatus.IN_PROGRESS,
                     message="Checking for sitemaps..."
                 )
@@ -464,7 +384,8 @@ class Loader:
                 # Load documents from URLs with streaming processing
                 for sitemap_url in sitemaps:
                     self.logger.info(f"Loading sitemap: {sitemap_url}")
-                    await self.jobmanager.update_job(job_id,
+                    await self.jobmanager.upsert_job(
+                        job_id=job_id,
                         message=f"Getting URLs from sitemap: {sitemap_url}..."
                     )
                     urls.extend(await self.get_urls_from_sitemap(sitemap_url))
@@ -475,31 +396,51 @@ class Loader:
                         urls = urls[:sitemap_max_urls]
                         break
             
-            await self.jobmanager.update_job(job_id,
+            await self.jobmanager.upsert_job(
+                job_id=job_id,
                 message=f"Found {len(urls)} URLs to process",
-                processed_counter=0,
-                failed_counter=0,
                 total=len(urls))
             
-            # Process URLs concurrently with max concurrency (to avoid overloading the system and memory)
+            # Process URLs concurrently with batching
             self.logger.info(f"Processing {len(urls)} URLs with max concurrency {self.max_concurrency}")
-            tasks = [self.process_url(url, job_id) for url in urls]
+            batch: List[Document] = []
+            batch_size = 100
+            
+            async def process_and_flush(url: str):
+                """Process URL and flush batch if needed"""
+
+                # process the URL and add to batch
+                await self.process_url(url, job_id, batch)
+                
+                # Check if batch is full
+                if len(batch) >= batch_size:
+                    # Flush the batch
+                    docs_to_send = batch[:batch_size]
+                    del batch[:batch_size]
+                    
+                    self.logger.info(f"Flushing batch of {len(docs_to_send)} documents")
+                    await self.client.ingest_documents(
+                        job_id=job_id,
+                        datasource_id=self.datasourceinfo.datasource_id,
+                        documents=docs_to_send
+                    )
+            
+            tasks = [process_and_flush(url) for url in urls]
             scheduler = TaskScheduler(max_parallel_tasks=self.max_concurrency)
-            await scheduler.run(tasks) # Run tasks concurrently # type: ignore
+            await scheduler.run(tasks) # type: ignore
+            
+            # Flush remaining documents in batch
+            if batch:
+                self.logger.info(f"Flushing final batch of {len(batch)} documents")
+                await self.client.ingest_documents(
+                    job_id=job_id,
+                    datasource_id=self.datasourceinfo.datasource_id,
+                    documents=batch
+                )
 
             # Invoke garbage collection to free up memory
             gc.collect()
                 
-            # Get the job info
-            job_info = await self.jobmanager.get_job(job_id)
-            if job_info is None: # Unusual case
-                self.logger.error(f"Job not found: {job_id}")
-                await self.jobmanager.update_job(job_id,
-                    status=JobStatus.FAILED,
-                    errors=["Job not found"],
-                    message="Job not found")
-                return
-
             # Check if job was deleted during processing
             job =  await self.jobmanager.get_job(job_id)
             if job is None:
@@ -509,45 +450,44 @@ class Loader:
             # Check if job was terminated
             if job.status == JobStatus.TERMINATED:
                 self.logger.info(f"Job {job_id} was terminated during URL processing.")
-                await self.jobmanager.update_job(job_id,
+                await self.jobmanager.upsert_job(
+                    job_id=job_id,
                     status=JobStatus.TERMINATED,
                     message="Job was terminated during URL processing."
                 )
             # Determine final job status
-            elif job_info.failed_counter == job_info.total:
-                await self.jobmanager.update_job(job_id,
+            elif job.failed_counter and job.failed_counter == job.total:
+                await self.jobmanager.upsert_job(
+                    job_id=job_id,
                     status=JobStatus.FAILED,
-                    message=f"All {job_info.total} URLs failed to process",
+                    message=f"All {job.total} URLs failed to process",
                 )
-            elif job_info.failed_counter > 0:
-                await self.jobmanager.update_job(job_id,
+            elif job.failed_counter and job.failed_counter > 0:
+                await self.jobmanager.upsert_job(
+                    job_id=job_id,
                     status=JobStatus.COMPLETED_WITH_ERRORS,
-                    message=f"Processed {job_info.processed_counter} URLs with {job_info.failed_counter} failures",
+                    message=f"Processed {job.progress_counter} URLs with {job.failed_counter} failures",
                 )
             else:
-                await self.jobmanager.update_job(job_id,
+                await self.jobmanager.upsert_job(
+                    job_id=job_id,
                     status=JobStatus.COMPLETED,
-                    errors=[],
-                    message=f"Processed: {job_info.total} URLs",
+                    message=f"Processed: {job.total} URLs",
                 )
 
         except Exception as e:
             self.logger.error(traceback.format_exc())
             self.logger.error(f"Error during URL ingestion: {e}")
-            await self.jobmanager.update_job(job_id,
+            await self.jobmanager.increment_failure(
+                job_id=job_id,
+                message=f"Error during URL ingestion: {type(e).__name__} {e}"
+            )
+            await self.jobmanager.upsert_job(
+                job_id=job_id,
                 status=JobStatus.FAILED,
-                errors=[f"Error processing URLs: {type(e).__name__} : {e}"],
                 message="Failed to process URLs"
             )
             raise
-
-    async def save_to_file(self, filename: str, content: str):
-        # create folder if not exists
-        os.makedirs("documents", exist_ok=True)
-        self.logger.info("Saving document to file: documents/"+filename)
-        # Use aiofiles for async file operations, but for now use asyncio.to_thread
-        async with async_open("documents/"+filename, "w") as f:
-            await f.write(content)
 
     async def close(self):
         """Close the aiohttp session"""

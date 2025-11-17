@@ -12,13 +12,13 @@ ENV UV_PYTHON_DOWNLOADS=0
 # Copy over the local dependencies
 COPY common /app/common
 
-WORKDIR /app/connectors
+WORKDIR /app/ingestors
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=connectors/uv.lock,target=uv.lock \
-    --mount=type=bind,source=connectors/pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=ingestors/uv.lock,target=uv.lock \
+    --mount=type=bind,source=ingestors/pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-dev
 
-COPY connectors .
+COPY ingestors .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 
@@ -29,6 +29,18 @@ FROM python:3.13-slim-bookworm
 # Python executable must be the same, e.g., using `python:3.13-slim-bookworm`
 # will fail.
 
+# Install AWS CLI v2 for EKS authentication (This is for k8s ingestor)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl unzip && \
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf awscliv2.zip aws && \
+    apt-get remove -y curl unzip && \
+    apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create a non-root user
 RUN groupadd --gid 1001 app && \
     useradd --uid 1001 --gid app --shell /bin/bash --create-home app
@@ -36,13 +48,13 @@ RUN groupadd --gid 1001 app && \
 # Copy the application from the builder
 COPY --from=builder --chown=app:app /app /app
 
-WORKDIR /app/connectors
+WORKDIR /app/ingestors
 
 # Place executables in the environment at the front of the path
-ENV PATH="/app/connectors/.venv/bin:$PATH"
+ENV PATH="/app/ingestors/.venv/bin:$PATH"
 
 # Use a non-root user to run the application
 USER app
 
-# Run the application by default
-CMD ["python3", "src/connectors/test_dummy/client.py"]
+# Run the application by default - use shell form to enable variable expansion
+CMD python3 src/ingestors/${INGESTOR_TYPE}/ingestor.py

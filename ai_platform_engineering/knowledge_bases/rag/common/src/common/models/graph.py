@@ -5,6 +5,10 @@ from common.constants import ENTITY_TYPE_KEY, PRIMARY_ID_KEY, PROP_DELIMITER
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
+# ============================================================================
+# Models for graph entities and relations
+# ============================================================================
+
 class EntityIdentifier(BaseModel):
     """
     Represents an entity identifier to uniquely identify an entity in the graph database

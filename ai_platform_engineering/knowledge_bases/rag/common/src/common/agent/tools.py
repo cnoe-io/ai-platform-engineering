@@ -21,7 +21,7 @@ server_url = os.getenv("RAG_SERVER_URL", "http://localhost:9446")
 if graph_rag_enabled:
     data_graphdb = Neo4jDB(readonly=True)
     ontology_graphdb = Neo4jDB(readonly=True, uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
-    redis_client = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+    redis_client = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
 
 logger = get_logger(__name__)
 
@@ -228,7 +228,7 @@ async def graph_check_if_ontology_generated(thought: str) -> str:
         ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
         if ontology_version_id is None:
             return "false"
-        ontology_version_id = ontology_version_id.decode("utf-8")
+        ontology_version_id = ontology_version_id
         logger.info(f"Found ontology version id: {ontology_version_id}")
 
         # Check if the ontology is generated - there should be at least one relation with the ontology version id
@@ -265,8 +265,7 @@ async def graph_get_relation_path_between_entity_types(entity_type_1: str, entit
         ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
         if ontology_version_id is None:
             return "Error: the ontology is not generated yet, this tool is unavailable"
-        ontology_version_id = ontology_version_id.decode("utf-8")
-
+        ontology_version_id = ontology_version_id
         entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
         entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
 

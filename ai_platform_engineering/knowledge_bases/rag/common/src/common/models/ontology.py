@@ -3,6 +3,10 @@ from enum import Enum
 from typing import Annotated, Any, List, Optional, TypedDict
 from pydantic import BaseModel, Field, WithJsonSchema
 
+# ============================================================================
+# Models for ontology management
+# ============================================================================
+
 class ExampleEntityMatch(TypedDict):
     """
     Represents an example match of two entities in the foreign key heuristic
