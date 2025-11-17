@@ -549,6 +549,7 @@ def resource_type_to_entity_type(resource_type: str) -> str:
 async def ensure_account_entity_exists(client: Client, account_id: str, datasource_id: str, job_id: str):
     """
     Ensure the AWS account entity exists in the graph database.
+    The graph database will handle deduplication if the entity already exists.
     
     Args:
         client: RAG client instance
@@ -557,33 +558,24 @@ async def ensure_account_entity_exists(client: Client, account_id: str, datasour
         job_id: Current job ID for error tracking
     """
     try:
-        # Check if account entity already exists
-        account_search = await client.graph_find_entity(
+        logging.info(f"Ingesting AwsAccount entity for account: {account_id}")
+        
+        account_entity = Entity(
             entity_type="AwsAccount",
-            entity_pk=account_id
+            primary_key_properties=["account_id"],
+            all_properties={"account_id": account_id}
         )
         
-        if not account_search or not account_search.get("entity"):
-            logging.info(f"Creating AwsAccount entity for account: {account_id}")
-            
-            account_entity = Entity(
-                entity_type="AwsAccount",
-                primary_key_properties=["account_id"],
-                all_properties={"account_id": account_id}
-            )
-            
-            await client.ingest_entities(
-                job_id=job_id,
-                datasource_id=datasource_id,
-                entities=[account_entity],
-                fresh_until=utils.get_default_fresh_until()
-            )
-            logging.info(f"Created AwsAccount entity: {account_id}")
-        else:
-            logging.debug(f"AwsAccount entity already exists: {account_id}")
+        await client.ingest_entities(
+            job_id=job_id,
+            datasource_id=datasource_id,
+            entities=[account_entity],
+            fresh_until=utils.get_default_fresh_until()
+        )
+        logging.info(f"Ingested AwsAccount entity: {account_id}")
             
     except Exception as e:
-        logging.warning(f"Could not verify/create account entity: {e}")
+        logging.warning(f"Could not ingest account entity: {e}")
         # Non-fatal error - continue with resource ingestion
 
 

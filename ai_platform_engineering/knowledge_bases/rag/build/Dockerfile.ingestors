@@ -10,7 +10,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 ENV UV_PYTHON_DOWNLOADS=0
 
 # Copy over the local dependencies
-COPY ./ai_platform_engineering/knowledge_bases/rag/common /app/common
+COPY common /app/common
 
 WORKDIR /app/ingestors
 RUN --mount=type=cache,target=/root/.cache/uv \
