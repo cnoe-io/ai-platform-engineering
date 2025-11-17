@@ -1,8 +1,11 @@
 import axios, { AxiosInstance } from 'axios';
-import { DataSourceInfo, GraphConnectorInfo, IngestionJob, QueryResponse } from '../ui/Models';
+import { DataSourceInfo, IngestorInfo, IngestionJob, QueryResult } from '../ui/Models';
 
 // API configuration
 const apiBase = import.meta.env.VITE_API_BASE?.toString() || '';
+
+// Constants
+export const WEBLOADER_INGESTOR_ID = 'webloader:default_webloader';
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
@@ -22,39 +25,27 @@ export const getHealthStatus = async () => {
 // Data Sources API
 // ============================================================================
 
-export const getDataSources = async (): Promise<{ datasources: DataSourceInfo[] }> => {
+export const getDataSources = async (): Promise<{ success: boolean; datasources: DataSourceInfo[]; count: number }> => {
     const response = await api.get('/v1/datasources');
     return response.data;
 };
 
-export const getDataSource = async (datasourceId: string): Promise<DataSourceInfo> => {
-    const response = await api.get(`/v1/datasource/${datasourceId}`);
-    return response.data.source_info;
-};
-
 export const deleteDataSource = async (datasourceId: string): Promise<void> => {
-    await api.delete('/v1/datasource/delete', { params: { datasource_id: datasourceId } });
+    await api.delete('/v1/datasource', { params: { datasource_id: datasourceId } });
 };
 
 export const ingestUrl = async (params: {
     url: string;
-    default_chunk_size: number;
-    default_chunk_overlap: number;
-    check_for_site_map?: boolean;
+    check_for_sitemaps?: boolean;
     sitemap_max_urls?: number;
     description?: string;
-}): Promise<{ job_id: string }> => {
-    const response = await api.post('/v1/datasource/ingest/url', params);
+}): Promise<{ datasource_id: string; job_id: string; message: string }> => {
+    const response = await api.post('/v1/ingest/webloader/url', params);
     return response.data;
 };
 
-export const getDataSourceDocuments = async (datasourceId: string) => {
-    const response = await api.get(`/v1/datasource/${datasourceId}/documents`);
-    return response.data;
-};
-
-export const reloadDataSource = async (datasourceId: string): Promise<{ job_id: string }> => {
-    const response = await api.post('/v1/datasource/reload', null, { params: { datasource_id: datasourceId } });
+export const reloadDataSource = async (datasourceId: string): Promise<{ datasource_id: string; message: string }> => {
+    const response = await api.post('/v1/ingest/webloader/reload', { datasource_id: datasourceId });
     return response.data;
 };
 
@@ -64,6 +55,11 @@ export const reloadDataSource = async (datasourceId: string): Promise<{ job_id: 
 
 export const getJobStatus = async (jobId: string): Promise<IngestionJob> => {
     const response = await api.get(`/v1/job/${jobId}`);
+    return response.data;
+};
+
+export const getJobsByDataSource = async (datasourceId: string): Promise<IngestionJob[]> => {
+    const response = await api.get(`/v1/jobs/datasource/${datasourceId}`);
     return response.data;
 };
 
@@ -79,28 +75,28 @@ export const searchDocuments = async (params: {
     query: string;
     limit?: number;
     similarity_threshold?: number;
-    filters?: Record<string, string>;
+    filters?: Record<string, string | boolean>;
     ranker_type?: string;
     ranker_params?: { weights: number[] };
     datasource_id?: string;
     connector_id?: string;
     graph_entity_type?: string;
-}): Promise<QueryResponse> => {
+}): Promise<QueryResult[]> => {
     const response = await api.post('/v1/query', params);
     return response.data;
 };
 
 // ============================================================================
-// Graph Connectors API
+// Ingestors API
 // ============================================================================
 
-export const getGraphConnectors = async (): Promise<GraphConnectorInfo[]> => {
-    const response = await api.get('/v1/graph/connectors');
+export const getIngestors = async (): Promise<IngestorInfo[]> => {
+    const response = await api.get('/v1/ingestors');
     return response.data;
 };
 
-export const deleteGraphConnector = async (connectorId: string): Promise<void> => {
-    await api.delete(`/v1/graph/connector/${connectorId}`);
+export const deleteIngestor = async (ingestorId: string): Promise<void> => {
+    await api.delete('/v1/ingestor/delete', { params: { ingestor_id: ingestorId } });
 };
 
 // ============================================================================
@@ -109,6 +105,7 @@ export const deleteGraphConnector = async (connectorId: string): Promise<void> =
 
 export const getOntologyEntities = async (filterProps: Record<string, any> = {}) => {
     const response = await api.post('/v1/graph/explore/ontology/entities', {
+        entity_type: null,
         filter_by_properties: filterProps
     });
     return response.data;
@@ -116,6 +113,9 @@ export const getOntologyEntities = async (filterProps: Record<string, any> = {})
 
 export const getOntologyRelations = async (filterProps: Record<string, any> = {}) => {
     const response = await api.post('/v1/graph/explore/ontology/relations', {
+        from_type: null,
+        to_type: null,
+        relation_name: null,
         filter_by_properties: filterProps
     });
     return response.data;

@@ -1,28 +1,26 @@
 from contextlib import asynccontextmanager
-import datetime
+import hashlib
 import traceback
 import uuid
 from common import utils
-from fastapi import FastAPI, status, BackgroundTasks, HTTPException
+from fastapi import FastAPI, status, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastmcp import FastMCP
 from server.tools import AgentTools
-from server.loader.loader import Loader
 from starlette.requests import Request
 from starlette.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from typing import List, Optional
 import logging
 from langchain_core.documents import Document
-from server.metadata_storage import MetadataStorage
+from common.metadata_storage import MetadataStorage
 from common.job_manager import JobManager, JobStatus
-from server.models import ExploreDataEntityRequest, ExploreEntityRequest, ExploreRelationsRequest, QueryRequest, IngestResponse, QueryResults, UrlIngest, FileIngest, EntityIngest
-from common.models.rag import DataSourceInfo, GraphConnectorInfo, VectorDBGraphMetadata, DocTypeGraphEntity, doc_types, valid_metadata_keys
-from common.models.graph import Entity
+from common.models.server import ExploreDataEntityRequest, ExploreEntityRequest, ExploreRelationsRequest, QueryRequest, QueryResult, DocumentIngestRequest, IngestorPingRequest, IngestorPingResponse, UrlIngestRequest, IngestorRequest, WebIngestorCommand, UrlReloadRequest
+from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
-from common.constants import ONTOLOGY_VERSION_ID_KEY, KV_ONTOLOGY_VERSION_ID_KEY, UPDATED_BY_KEY
+from common.constants import ONTOLOGY_VERSION_ID_KEY, KV_ONTOLOGY_VERSION_ID_KEY, INGESTOR_ID_KEY, DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE
 import redis.asyncio as redis
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_milvus import BM25BuiltInFunction, Milvus
@@ -32,6 +30,8 @@ import os
 import httpx
 from server.query_service import VectorDBQueryService
 from langchain.globals import set_verbose as set_langchain_verbose
+from server.ingestion import DocumentProcessor
+from common.utils import get_default_fresh_until, sanitize_url
 
 metadata_storage: Optional[MetadataStorage] = None
 vector_db: Optional[Milvus] = None
@@ -60,6 +60,8 @@ max_ingestion_concurrency = int(os.getenv("MAX_INGESTION_CONCURRENCY", 30)) # ma
 ui_url = os.getenv("UI_URL", "http://localhost:9447")
 mcp_enabled = os.getenv("ENABLE_MCP", "true").lower() in ("true", "1", "yes")
 sleep_on_init_failure = int(os.getenv("SLEEP_ON_INIT_FAILURE_SECONDS", 180)) # seconds to sleep on init failure before shutdown
+max_documents_per_ingest = int(os.getenv("MAX_DOCUMENTS_PER_INGEST", 1000)) # max number of documents to ingest per ingestion request
+max_results_per_query = int(os.getenv("MAX_RESULTS_PER_QUERY", 100)) # max number of results to return per query
 
 default_collection_name_docs = "rag_default"
 dense_index_params = {"index_type": "HNSW", "metric_type": "COSINE"}
@@ -67,11 +69,10 @@ sparse_index_params = {"index_type": "SPARSE_INVERTED_INDEX", "metric_type": "BM
 
 milvus_connection_args = {"uri": milvus_uri}
 
-
 if graph_rag_enabled:
-    logger.info("Graph RAG is enabled.")
+    logger.warning("Graph RAG is ENABLED ✅")
 else:
-    logger.info("Graph RAG is disabled.")
+    logger.warning("Graph RAG is DISABLED ❌")
 
 
 # Application lifespan management - initalization and cleanup
@@ -89,8 +90,9 @@ async def app_lifespan(app: FastAPI):
     global vector_db
     global redis_client
     global vector_db_query_service
+    global ingestor
 
-    redis_client = redis.from_url(redis_url)
+    redis_client = redis.from_url(redis_url, decode_responses=True)
     metadata_storage = MetadataStorage(redis_client=redis_client)
     jobmanager = JobManager(redis_client=redis_client)
     embeddings = AzureOpenAIEmbeddings(model=embeddings_model)
@@ -132,7 +134,21 @@ async def app_lifespan(app: FastAPI):
         ontology_graph_db = Neo4jDB(uri=ontology_neo4j_addr)
         await ontology_graph_db.setup()
 
-    # Initialize database, cache, etc.
+        # setup ingestor with graph db
+        ingestor = DocumentProcessor(
+            vstore=vector_db,
+            graph_rag_enabled=graph_rag_enabled,
+            job_manager=jobmanager,
+            data_graph_db=data_graph_db
+        )
+    else:
+        # setup ingestor without graph db
+        ingestor = DocumentProcessor(
+            vstore=vector_db,
+            job_manager=jobmanager,
+            graph_rag_enabled=graph_rag_enabled,
+        )
+
     yield
     # Shutdown
     logging.info("Shutting down the app...")
@@ -183,42 +199,130 @@ else:
         lifespan=combined_lifespan,
     )
 
+def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
+    """Generate a unique ingestor ID for webloader ingestor"""
+    return f"{ingestor_type}:{ingestor_name}"
+
+
+# ============================================================================
+# Ingestor Endpoints
+# ============================================================================
+
+@app.get("/v1/ingestors")
+async def list_ingestors():
+    """
+    Lists all ingestors in the database
+    """
+    if not metadata_storage:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    logger.debug("Listing ingestors")
+    ingestors = await metadata_storage.fetch_all_ingestor_info()
+    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(ingestors))
+
+@app.post("/v1/ingestor/heartbeat", response_model=IngestorPingResponse, status_code=status.HTTP_200_OK)
+async def ping_ingestor(ingestor_ping: IngestorPingRequest):
+    """
+    Registers a heartbeat from a ingestor, creating or updating its entry
+    """
+    if not metadata_storage:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    logger.info(f"Received heartbeat from ingestor: name={ingestor_ping.ingestor_name} type={ingestor_ping.ingestor_type}")
+    ingestor_id = generate_ingestor_id(ingestor_ping.ingestor_name, ingestor_ping.ingestor_type)
+    ingestor_info = IngestorInfo(
+        ingestor_id=ingestor_id,
+        ingestor_type=ingestor_ping.ingestor_type,
+        ingestor_name=ingestor_ping.ingestor_name,
+        description=ingestor_ping.description,
+        metadata=ingestor_ping.metadata,
+        last_seen=int(time.time())
+    )
+    await metadata_storage.store_ingestor_info(ingestor_info=ingestor_info)
+    return IngestorPingResponse(
+                ingestor_id=ingestor_id,
+                message="Ingestor heartbeat registered",
+                max_documents_per_ingest=max_documents_per_ingest
+    )
+
+@app.delete("/v1/ingestor/delete")
+async def delete_ingestor(ingestor_id: str):
+    """
+    Deletes an ingestor from metadata storage, does not delete any associated datasources or data
+    """
+    if not vector_db or not metadata_storage:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    if graph_rag_enabled and not data_graph_db:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+
+    # Fetch ingestor info - check if it exists
+    ingestor_info =  await metadata_storage.get_ingestor_info(ingestor_id)
+
+    if not ingestor_info:
+        raise HTTPException(status_code=404, detail="Ingestor not found")
+
+    logger.info(f"Deleting ingestor: {ingestor_id}")
+    await metadata_storage.delete_ingestor_info(ingestor_id) # remove metadata
+
 # ============================================================================
 # Datasources Endpoints
 # ============================================================================
 
-@app.delete("/v1/datasource/delete", status_code=status.HTTP_200_OK)
+@app.post("/v1/datasource", status_code=status.HTTP_202_ACCEPTED)
+async def upsert_datasource(datasource_info: DataSourceInfo):
+    """Create or update datasource metadata entry."""
+    if not metadata_storage:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+
+    await metadata_storage.store_datasource_info(datasource_info)
+
+    return status.HTTP_202_ACCEPTED
+
+@app.delete("/v1/datasource", status_code=status.HTTP_200_OK)
 async def delete_datasource(datasource_id: str):
     """Delete datasource from vector storage and metadata."""
+
+    # Check initialization
     if not vector_db or not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
+    if graph_rag_enabled and not data_graph_db:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    
     # Fetch datasource info
     datasource_info = await metadata_storage.get_datasource_info(datasource_id)
     if not datasource_info:
         raise HTTPException(status_code=404, detail="Datasource not found")
 
     # Check if any jobs are running for this datasource
-    if datasource_info.job_id:
-        job_info = await jobmanager.get_job(datasource_info.job_id)
-        if job_info and job_info.status == JobStatus.IN_PROGRESS:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot delete datasource while ingestion job is in progress."
-            )
+    jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
+    if jobs and any(job.status == JobStatus.IN_PROGRESS for job in jobs):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete datasource while ingestion job is in progress."
+        )
+    
+    # remove all jobs for this datasource
+    jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
+    if jobs:
+        for job in jobs:
+            await jobmanager.delete_job(job.job_id)
 
     await vector_db.adelete(expr=f"datasource_id == '{datasource_id}'")
     await metadata_storage.delete_datasource_info(datasource_id) # remove metadata
 
+    if graph_rag_enabled and data_graph_db:
+        await data_graph_db.remove_entity(None, {DATASOURCE_ID_KEY: datasource_id}) # remove from graph db
+
+
     return status.HTTP_200_OK
 
 @app.get("/v1/datasources")
-async def list_datasources():
+async def list_datasources(ingestor_id: Optional[str] = None):
     """List all stored datasources"""
     if not metadata_storage:
         raise HTTPException(status_code=500, detail="Server not initialized")
     try:
         datasources = await metadata_storage.fetch_all_datasource_info()
-
+        if ingestor_id:
+            datasources = [ds for ds in datasources if ds.ingestor_id == ingestor_id]
         return {
             "success": True,
             "datasources": datasources,
@@ -228,101 +332,11 @@ async def list_datasources():
         logger.error(f"Failed to list datasources: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/v1/datasource/ingest/url", response_model=IngestResponse)
-async def ingest_datasource_url(
-    url_ingest_request: UrlIngest,
-    background_tasks: BackgroundTasks):
-    """Ingest a new datasource from a URL into the unified collection."""
-    if not metadata_storage or not jobmanager:
-        raise HTTPException(status_code=500, detail="Server not initialized")
-    logger.info(f"Ingesting datasource from URL: {url_ingest_request.url}")
-
-    # Sanitize URL
-    url_ingest_request.url = utils.sanitize_url(url_ingest_request.url)
-
-    # Generate a deterministic datasource_id from the URL
-    datasource_id = DataSourceInfo.generate_id_from_url(url_ingest_request.url)
-
-    # Check if a datasource for this ID already exists and is being ingested
-    existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
-    if existing_datasource and existing_datasource.job_id:
-        job_info = await jobmanager.get_job(existing_datasource.job_id)
-        if job_info:
-            if job_info.status == JobStatus.PENDING or job_info.status == JobStatus.IN_PROGRESS:
-                logger.warning(f"Ingestion for datasource {datasource_id} is already in progress with job_id {existing_datasource.job_id}.")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Ingestion for this datasource is already in progress (Job ID: {existing_datasource.job_id})."
-                )
-            else:
-                logger.warning(f"Ingestion for datasource {datasource_id} is already completed with job_id {existing_datasource.job_id}.")
-                raise HTTPException(
-                    status_code=400,
-                    detail="Ingestion for this datasource is already completed. Please delete the datasource and try again."
-                )
-
-    # Create job and update job status
-    job_id = str(uuid.uuid4())
-    await jobmanager.update_job(job_id, status=JobStatus.PENDING, message="Starting ingestion...")
-
-    # Start background task
-    background_tasks.add_task(
-        run_url_ingestion_with_progress,
-        url_ingest_request.url,
-        job_id,
-        url_ingest_request.description,
-        url_ingest_request.default_chunk_size,
-        url_ingest_request.default_chunk_overlap,
-        url_ingest_request.check_for_site_map,
-        url_ingest_request.sitemap_max_urls
-    )
-
-    return IngestResponse(
-        job_id=job_id,
-        datasource_id=datasource_id
-    )
-
-@app.post("/v1/datasource/reload")
-async def reload_datasource(datasource_id: str, background_tasks: BackgroundTasks):
-    # Fetch the datasource
-    if not metadata_storage or not vector_db or not jobmanager:
-        raise HTTPException(status_code=500, detail="Server not initialized")
-    datasource_info = await metadata_storage.get_datasource_info(datasource_id)
-    if not datasource_info:
-            raise HTTPException(status_code=404, detail="Datasource not found")
-
-    # Re-ingest based on original source type
-    if datasource_info.source_type == "web":
-        # Delete the existing datasource
-        await delete_datasource(datasource_id)
-        url_ingest_request = UrlIngest(
-            url=datasource_info.path,
-            description=datasource_info.description,
-            default_chunk_size=datasource_info.default_chunk_size,
-            default_chunk_overlap=datasource_info.default_chunk_overlap,
-            check_for_site_map=datasource_info.check_for_site_map,
-            sitemap_max_urls=datasource_info.sitemap_max_urls
-        )
-        return await ingest_datasource_url(
-            url_ingest_request,
-            background_tasks
-        )
-
-
-@app.post("/v1/datasource/ingest/file", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-async def ingest_datasource_file(
-    datasource: FileIngest,
-    background_tasks: BackgroundTasks
-):
-    """Ingest a new datasource from a file."""
-    # TODO: implement file ingestion
-    return status.HTTP_501_NOT_IMPLEMENTED
-
 # ============================================================================
 # Job Endpoints
 # ============================================================================
 @app.get("/v1/job/{job_id}")
-async def get_job_status(job_id: str):
+async def get_job(job_id: str):
     """Get the status of an ingestion job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
@@ -330,48 +344,164 @@ async def get_job_status(job_id: str):
     if not job_info:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    logger.info(f"Returning job status for {job_id}: {job_info.status}")
-    return {
-        "job_id": job_id,
-        "status": job_info.status,
-        "message": job_info.message,
-        "processed_counter": job_info.processed_counter,
-        "failed_counter": job_info.failed_counter,
-        "total": job_info.total,
-        "created_at": job_info.created_at.isoformat(),
-        "completed_at": job_info.completed_at.isoformat() if job_info.completed_at else None,
-        "errors": job_info.errors
+    logger.info(f"Returning job {job_info}")
+    return job_info
 
-    }
+@app.get("/v1/jobs/datasource/{datasource_id}")
+async def get_jobs_by_datasource(datasource_id: str, status_filter: Optional[JobStatus] = None):
+    """Get all jobs for a specific datasource, optionally filtered by status."""
+    if not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    jobs = await jobmanager.get_jobs_by_datasource(datasource_id, status_filter=status_filter)
+    if jobs is None:
+        raise HTTPException(status_code=404, detail="No jobs found for the specified datasource")
+
+    logger.info(f"Returning {len(jobs)} jobs for datasource {datasource_id}")
+    return jobs
+
+@app.post("/v1/job", status_code=status.HTTP_201_CREATED)
+async def create_job(
+    datasource_id: str,
+    job_status: Optional[JobStatus] = None,
+    message: Optional[str] = None,
+    total: Optional[int] = None):
+    """Create a new job for a datasource."""
+    if not jobmanager or not metadata_storage:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    
+    # Check if datasource exists
+    datasource_info = await metadata_storage.get_datasource_info(datasource_id)
+    if not datasource_info:
+        raise HTTPException(status_code=404, detail="Datasource not found")
+    
+    # Generate new job ID
+    job_id = str(uuid.uuid4())
+    
+    # Create job with datasource_id
+    success = await jobmanager.upsert_job(
+        job_id,
+        status=job_status or JobStatus.PENDING,
+        message=message or "Job created",
+        total=total,
+        datasource_id=datasource_id
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to create job")
+    
+    logger.info(f"Created job {job_id} for datasource {datasource_id}")
+    return {"job_id": job_id, "datasource_id": datasource_id}
+
+@app.patch("/v1/job/{job_id}", status_code=status.HTTP_200_OK)
+async def update_job(
+    job_id: str,
+    job_status: Optional[JobStatus] = None,
+    message: Optional[str] = None,
+    total: Optional[int] = None):
+    """Update an existing job."""
+    if not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    
+    # Check if job exists
+    existing_job = await jobmanager.get_job(job_id)
+    if not existing_job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Update job
+    success = await jobmanager.upsert_job(
+        job_id,
+        status=job_status,
+        message=message,
+        total=total,
+        datasource_id=existing_job.datasource_id
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to update job (job may be terminated)")
+    
+    logger.info(f"Updated job {job_id}")
+    return {"job_id": job_id, "datasource_id": existing_job.datasource_id}
 
 @app.post("/v1/job/{job_id}/terminate", status_code=status.HTTP_200_OK)
-async def terminate_job(job_id: str):
+async def terminate_job_endpoint(job_id: str):
     """Terminate an ingestion job."""
     if not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
+    
     job_info = await jobmanager.get_job(job_id)
     if not job_info:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    if job_info.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.TERMINATED):
-        raise HTTPException(status_code=400, detail="Job is already completed or terminated")
-
-    await jobmanager.update_job(job_id, status=JobStatus.TERMINATED, message="Job has been terminated by user.")
+    success = await jobmanager.terminate_job(job_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to terminate job")
+    
     logger.info(f"Job {job_id} has been terminated.")
     return {"message": f"Job {job_id} has been terminated."}
+
+@app.post("/v1/job/{job_id}/increment-progress")
+async def increment_job_progress(job_id: str, increment: int = 1):
+    """Increment the progress counter for a job."""
+    if not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    
+    new_value = await jobmanager.increment_progress(job_id, increment)
+    if new_value == -1:
+        raise HTTPException(status_code=400, detail="Cannot increment progress - job is terminated")
+    
+    logger.debug(f"Incremented progress for job {job_id} by {increment}, new value: {new_value}")
+    return {"job_id": job_id, "progress_counter": new_value}
+
+@app.post("/v1/job/{job_id}/increment-failure")
+async def increment_job_failure(job_id: str, increment: int = 1):
+    """Increment the failure counter for a job."""
+    if not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    
+    new_value = await jobmanager.increment_failure(job_id, increment)
+    if new_value == -1:
+        raise HTTPException(status_code=400, detail="Cannot increment failure - job is terminated")
+    
+    logger.debug(f"Incremented failure for job {job_id} by {increment}, new value: {new_value}")
+    return {"job_id": job_id, "failed_counter": new_value}
+
+@app.post("/v1/job/{job_id}/add-errors")
+async def add_job_errors(job_id: str, error_messages: List[str]):
+    """Add error messages to a job."""
+    if not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    
+    if not error_messages:
+        raise HTTPException(status_code=400, detail="Error messages list cannot be empty")
+    
+    results = []
+    for error_msg in error_messages:
+        new_length = await jobmanager.add_error_msg(job_id, error_msg)
+        if new_length == -1:
+            raise HTTPException(status_code=400, detail="Cannot add error messages - job is terminated")
+        results.append(new_length)
+    
+    final_length = results[-1] if results else 0
+    logger.debug(f"Added {len(error_messages)} error messages to job {job_id}, total errors: {final_length}")
+    return {"job_id": job_id, "errors_added": len(error_messages), "total_errors": final_length}
 
 # ============================================================================
 # Query Endpoint
 # ============================================================================
 
-@app.post("/v1/query", response_model=QueryResults)
+@app.post("/v1/query", response_model=List[QueryResult])
 async def query_documents(query_request: QueryRequest):
     """Query for relevant documents using semantic search in the unified collection."""
+
+    # Enforce max results limit
+    if query_request.limit > max_results_per_query:
+        raise HTTPException(status_code=400, detail=f"Query limit exceeds maximum allowed of {max_results_per_query} results.")
 
     # If weighted ranker specified but no weights then use default weights
     if query_request.ranker_type == "weighted":
         if query_request.ranker_params is None:
             query_request.ranker_params = {"weights": [0.7, 0.3]} # More weight to dense (semantic) score
+
 
     # If no ranker specified then set ranker params to None
     if not query_request.ranker_type or query_request.ranker_type == "":
@@ -388,34 +518,170 @@ async def query_documents(query_request: QueryRequest):
     return results
 
 # ============================================================================
-# Knowledge Graph Endpoints
+# Ingestion Endpoints
 # ============================================================================
 
-@app.get("/v1/graph/connectors")
-async def list_graph_connectors():
-    """
-    Lists all graph connectors in the database
-    """
-    if not metadata_storage:
-        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    logger.debug("Listing graph connectors")
-    connectors = await metadata_storage.fetch_all_graphconnector_info()
-    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(connectors))
+@app.post("/v1/ingest/webloader/url", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_url(url_request: UrlIngestRequest):
+    """Queue a URL for ingestion by the webloader ingestor."""
+    if not metadata_storage or not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    
+    logger.info(f"Received URL ingestion request: {url_request.url}")
+    
+    # Sanitize URL and generate datasource ID from URL
+    sanitized_url = sanitize_url(url_request.url)
+    url_request.url = sanitized_url
+    datasource_id = utils.generate_datasource_id_from_url(url_request.url)
+    ingestor_id = generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE)
 
-@app.delete("/v1/graph/connector/delete")
-async def delete_graph_connector(connector_id: str):
-    if not vector_db or not metadata_storage or not data_graph_db:
-        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    connector_info =  await metadata_storage.get_graphconnector_info(connector_id)
+    # Check if datasource already exists
+    existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
+    if existing_datasource:
+        logger.info(f"Datasource already exists for URL {url_request.url}, datasource ID: {datasource_id}")
+        raise HTTPException(status_code=400, detail="URL already ingested, please delete existing datasource before re-ingesting")
+    
+    # Check if there is already a job for this datasource in progress or pending
+    existing_jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
+    if existing_jobs:
+        existing_pending_jobs = [job for job in existing_jobs if job.status in (JobStatus.IN_PROGRESS, JobStatus.PENDING)]
+        if existing_pending_jobs:
+            logger.info(f"An ingestion job is already in progress or pending for datasource {datasource_id}, job ID: {existing_pending_jobs[0].job_id}")
+            raise HTTPException(status_code=400, detail=f"An ingestion job is already in progress or pending for this URL (job ID: {existing_pending_jobs[0].job_id})")
+                
+    # Create job with PENDING status first
+    job_id = str(uuid.uuid4())
+    success = await jobmanager.upsert_job(
+        job_id,
+        status=JobStatus.PENDING,
+        message="Waiting for ingestor to process...",
+        total=0,  # Unknown until sitemap is checked
+        datasource_id=datasource_id
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to create job")
+    
+    logger.info(f"Created job {job_id} for datasource {datasource_id}")
+    
+    if not url_request.description:
+        url_request.description = f"Web content from {url_request.url}"
 
-    if not connector_info:
-        raise HTTPException(status_code=404, detail="Connector not found")
+    # Create datasource
+    datasource_info = DataSourceInfo(
+        datasource_id=datasource_id,
+        ingestor_id=ingestor_id,
+        description=url_request.description,
+        source_type="web",
+        last_updated=int(time.time()),
+        default_chunk_size=1000,
+        default_chunk_overlap=200,
+        metadata={"url_ingest_request": url_request.model_dump()}
+    )
 
-    logger.info(f"Deleting graph connector: {connector_id}")
-    await data_graph_db.remove_entity(None, {UPDATED_BY_KEY: connector_id}) # remove from graph db
-    await vector_db.adelete(expr=f"graph_connector_id == '{connector_id}'") # remove from vector db
-    await metadata_storage.delete_graphconnector_info(connector_id) # remove metadata
+    await metadata_storage.store_datasource_info(datasource_info)
+    logger.info(f"Created datasource: {datasource_id}")
+    
+    # Queue the request for the ingestor
+    ingestor_request = IngestorRequest(
+        ingestor_id=ingestor_id,
+        command=WebIngestorCommand.INGEST_URL,
+        payload=url_request.model_dump()
+    )
+    
+    # Push to Redis queue  
+    await redis_client.rpush(WEBLOADER_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
+    logger.info(f"Queued URL ingestion request for {url_request.url}")
+    return {"datasource_id": datasource_id, "job_id": job_id, "message": "URL ingestion request queued"}
 
+
+@app.post("/v1/ingest/webloader/reload", status_code=status.HTTP_202_ACCEPTED)
+async def reload_url(reload_request: UrlReloadRequest):
+    """Reloads a previously ingested URL by re-queuing it for ingestion."""
+    if not metadata_storage or not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    
+    # Fetch existing datasource
+    datasource_info = await metadata_storage.get_datasource_info(reload_request.datasource_id)
+    if not datasource_info:
+        raise HTTPException(status_code=404, detail="Datasource not found")
+        
+    # Queue the request for the ingestor
+    ingestor_request = IngestorRequest(
+        ingestor_id=datasource_info.ingestor_id,
+        command=WebIngestorCommand.RELOAD_DATASOURCE,
+        payload=reload_request.model_dump()
+    )
+    
+    # Push to Redis queue  
+    await redis_client.rpush(WEBLOADER_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
+    logger.info(f"Re-queued URL ingestion request for {reload_request.datasource_id}")
+    return {"datasource_id": reload_request.datasource_id, "message": "URL reload ingestion request queued"}
+
+@app.post("/v1/ingest/webloader/reload-all", status_code=status.HTTP_202_ACCEPTED)
+async def reload_all_urls():
+    """Reloads all previously ingested URLs by re-queuing them for ingestion."""
+    if not metadata_storage or not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    
+     # Queue the request for the ingestor
+    ingestor_request = IngestorRequest(
+        ingestor_id=generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE),
+        command=WebIngestorCommand.RELOAD_ALL,
+        payload={}
+    )
+
+    # Push to Redis queue
+    await redis_client.rpush(WEBLOADER_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
+    logger.info(f"Re-queued URL ingestion request for all datasources")
+    
+    return {"message": "Reload all URLs request queued"}
+
+@app.post("/v1/ingest")
+async def ingest_documents(ingest_request: DocumentIngestRequest):
+    """Updates/Ingests text and graph data to the appropriate databases"""
+
+    if not vector_db or not metadata_storage or not ingestor or not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+    logger.info(f"Starting data ingestion for datasource: {ingest_request.datasource_id}")
+
+    # Check if datasource exists
+    datasource_info = await metadata_storage.get_datasource_info(ingest_request.datasource_id)
+    if not datasource_info:
+        raise HTTPException(status_code=404, detail="Datasource not found")
+    
+    # Find the current job for this datasource is IN_PROGRESS
+    job_info = await jobmanager.get_job(ingest_request.job_id)
+    if not job_info:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job_info.status != JobStatus.IN_PROGRESS:
+        raise HTTPException(status_code=400, detail="Ingestion can only be started for jobs in IN_PROGRESS status")
+
+    # Check max documents limit
+    if len(ingest_request.documents) > max_documents_per_ingest:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": f"Number of documents exceeds the maximum limit of {max_documents_per_ingest} per ingestion request."})
+    
+    if ingest_request.fresh_until is None:
+        ingest_request.fresh_until = get_default_fresh_until()
+
+    try:
+        await ingestor.ingest_documents(
+            ingestor_id=ingest_request.ingestor_id,
+            datasource_id=ingest_request.datasource_id,
+            job_id=job_info.job_id,
+            documents=ingest_request.documents,
+            fresh_until=ingest_request.fresh_until,
+            chunk_overlap=datasource_info.default_chunk_overlap,
+            chunk_size=datasource_info.default_chunk_size,
+        )
+    except ValueError as ve:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": str(ve)})
+    return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={"message": "Text data ingestion started successfully"})
+
+# ============================================================================
+# Knowledge Graph Endpoints
+# ============================================================================
 
 @app.get("/v1/graph/explore/entity_type")
 async def list_entity_types():
@@ -454,7 +720,6 @@ async def explore_ontology_entities(explore_entity_request: ExploreEntityRequest
     ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
     if ontology_version_id is None:
         raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
-    ontology_version_id = ontology_version_id.decode("utf-8")
 
     # Add ontology version to filter properties
     filter_by_props = explore_entity_request.filter_by_properties or {}
@@ -479,7 +744,6 @@ async def explore_ontology_relations(explore_relations_request: ExploreRelations
     ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
     if ontology_version_id is None:
         raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
-    ontology_version_id = ontology_version_id.decode("utf-8")
 
     # Add ontology version to filter properties
     filter_by_props = explore_relations_request.filter_by_properties or {}
@@ -490,20 +754,6 @@ async def explore_ontology_relations(explore_relations_request: ExploreRelations
     if len(relations) < 0:
         return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": "No relations found"})
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(relations))
-
-
-@app.post("/v1/graph/ingest/entities")
-async def ingest_entities(entity_ingest_request: EntityIngest, background_tasks: BackgroundTasks):
-    """Updates/Ingests entities to the database"""
-    if not data_graph_db or not ontology_graph_db:
-        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    logger.debug(f"Updating entities: {entity_ingest_request.connector_name}, type={entity_ingest_request.entity_type}, count={len(entity_ingest_request.entities)}, fresh_until={entity_ingest_request.fresh_until}")
-    try:
-        background_tasks.add_task(run_graph_entity_ingestion, entity_ingest_request.connector_type, entity_ingest_request.connector_name, entity_ingest_request.entity_type, entity_ingest_request.entities, entity_ingest_request.fresh_until)
-    except ValueError as ve:
-        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": str(ve)})
-    return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "Entity created/updated successfully"})
-
 
 async def _reverse_proxy(request: Request):
     """Reverse proxy to ontology agent service, which runs a separate FastAPI instance, and is responsible for handling ontology related requests."""
@@ -524,35 +774,6 @@ if graph_rag_enabled:
     app.add_route("/v1/graph/ontology/agent/{path:path}",
                 _reverse_proxy, ["GET", "POST", "DELETE"])
 
-
-# ============================================================================
-# Prompt Endpoints
-# ============================================================================
-
-@app.get("/v1/utility/discovery")
-async def get_rag_prompt_endpoint():
-    """Get the RAG prompt template."""
-    if not data_graph_db or not metadata_storage:
-        logger.warning("Ontology graph db or metadata storage not initialized, or graph RAG is disabled. Returning empty prompt.")
-        return ""
-    available_filters = valid_metadata_keys()
-    document_sources = await metadata_storage.fetch_all_datasource_info() if metadata_storage else []
-    document_sources = [{"datasource_id": ds.datasource_id, "description": ds.description, "path": ds.path} for ds in document_sources]
-    entities = await data_graph_db.get_all_entity_types()
-
-    resp = {
-        "graph_rag_enabled": graph_rag_enabled,
-        "available_filters": available_filters,
-        "document_sources": document_sources,
-        "ui_url": ui_url,
-    }
-
-    if graph_rag_enabled:
-        resp["entities"] = entities
-        resp["graph_db_type"] = data_graph_db.database_type
-        resp["graph_query_language"] = data_graph_db.query_language
-
-    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(resp))
 
 # ============================================================================
 # Health Check and Configuration Endpoint
@@ -578,7 +799,6 @@ async def health_check():
             "graph_rag_enabled": graph_rag_enabled,
             "search" : {
                 "keys": valid_metadata_keys(),
-                "supported_doc_types": doc_types
             },
             "vector_db": {
                 "milvus": {
@@ -617,137 +837,11 @@ async def health_check():
 
     response = {
         "status": health_status,
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "timestamp": int(time.time()),
         "details": health_details,
         "config": config
     }
     return response
-
-
-# ============================================================================
-# Ingest functions
-# ============================================================================
-
-async def run_url_ingestion_with_progress(url: str, job_id: str, description: str, default_chunk_size: int, default_chunk_overlap: int, check_for_site_map: bool = False, sitemap_max_urls: int = 0):
-    """Function to run ingestion with proper job tracking and ID management"""
-    if not vector_db or not metadata_storage or not jobmanager:
-        raise HTTPException(status_code=500, detail="Server not initialized")
-    try:
-        # Generate the datasource id from the url
-        datasource_id = DataSourceInfo.generate_id_from_url(url)
-        logger.info(f"Ingesting datasource: url={url}, datasource_id={datasource_id}")
-
-        # Get or create datasource configuration
-        datasource_info = await metadata_storage.get_datasource_info(datasource_id)
-        if not datasource_info:
-            # Create default datasource info
-            current_time = datetime.datetime.now(datetime.timezone.utc)
-            datasource_info = DataSourceInfo(
-                job_id=job_id,
-                datasource_id=datasource_id,
-                description=description,
-                check_for_site_map=check_for_site_map,
-                sitemap_max_urls=sitemap_max_urls,
-                source_type="web",
-                path=url,
-                default_chunk_size=default_chunk_size,
-                default_chunk_overlap=default_chunk_overlap,
-                created_at=current_time,
-                last_updated=current_time,
-                total_documents=0,
-                total_chunks=0,
-                metadata={}
-            )
-            await metadata_storage.store_datasource_info(datasource_info)
-
-        logger.info(f"Ingesting datasource: datasource_id={datasource_id}")
-        logger.debug(f"Datasource info: {datasource_info.model_dump()}")
-
-        # Create a new loader and run ingestion
-        logger.debug(f"Creating loader for datasource: datasource_id={datasource_id}")
-        async with Loader(vector_db, metadata_storage, datasource_info, jobmanager, max_ingestion_concurrency) as loader:
-            await loader.load_url(url, job_id, check_for_site_map, sitemap_max_urls)
-
-        # Update source statistics after ingestion
-        await metadata_storage.update_source_stats(datasource_id)
-
-    except Exception as e:
-        logger.error(traceback.format_exc())
-        logger.error(f"Ingestion failed for job {job_id}: {e}")
-        await jobmanager.update_job(job_id, status=JobStatus.FAILED, message="Error ingesting data", errors=[f"Error ingesting data: {e}"])
-
-async def run_graph_entity_ingestion(connector_type: str, connector_name: str, entity_type: str, entities: List[Entity], fresh_until: int):
-    """Function to ingest a graph entity"""
-    if not vector_db or not metadata_storage or not ontology_graph_db or not data_graph_db:
-        raise HTTPException(status_code=500, detail="Server not initialized")
-    connector_id = connector_type + "/" + connector_name # in future we will generate this based on auth etc.
-    logger.debug(f"Ingesting graph entities: connector_id={connector_id}, entity_type={entity_type}")
-    current_time = datetime.datetime.now(datetime.timezone.utc)
-
-    documents : List[Document] = []
-    ids : List[str] = []
-    for entity in entities:
-        entity_hash = entity.get_hash()
-        primary_key = entity.generate_primary_key()
-
-        # Check if the entity with the same primary key already exists
-        try:
-            existing_data = await vector_db.aget_by_ids([primary_key])
-            if existing_data:
-                # If it exists, check the hash
-                if existing_data[0].metadata.get("hash") == entity_hash:
-                    logger.debug(f"Entity {primary_key} has not changed. Skipping ingestion.")
-                    return
-        except Exception:
-            # If aget fails, it's likely because the document doesn't exist, so we can proceed
-            pass
-
-        # Create a document from the entity properties
-        entity_properties = entity.get_external_properties()
-        entity_properties["entity_type"] = entity.entity_type
-        entity_text = utils.json_encode(entity_properties)
-        global_id = f"{entity_type}_{primary_key}" # create a global id for the entity document which includes the entity type
-        document = Document(
-            page_content=entity_text,
-            metadata=VectorDBGraphMetadata(
-                doc_type=DocTypeGraphEntity,
-                chunk_index=0,
-                total_chunks=1,
-                datasource_id=connector_id, # use connector_id as datasource_id
-                id=global_id,
-                graph_entity_hash=entity_hash,
-                graph_connector_id=connector_id,
-                graph_entity_type=entity.entity_type,
-                graph_entity_primary_key=primary_key
-            ).model_dump()
-        )
-        documents.append(document)
-        ids.append(primary_key)
-
-    # Add the document to the vector database
-    await vector_db.aadd_documents(documents, ids=ids)
-    logger.info(f"Successfully ingested {len(entities)} entities into the vector database.")
-
-    # Update data graph with the new entities
-    await data_graph_db.update_entity(entity_type, entities, fresh_until=fresh_until, client_name=connector_id)
-
-    # Get or create graph connector configuration
-    connector_info = await metadata_storage.get_graphconnector_info(connector_id)
-    if not connector_info:
-        # Create default graph connector info
-        connector_info = GraphConnectorInfo(
-            connector_id=connector_id,
-            connector_name=connector_name,
-            connector_type=connector_type,
-            description=f"Graph connector for {connector_name}",
-            last_seen=current_time,
-        )
-    else:
-        # Update last_seen timestamp
-        connector_info.last_seen = current_time
-
-    await metadata_storage.store_graphconnector_info(connector_info, ttl=utils.DURATION_DAY)
-
 
 async def init_tests(logger: logging.Logger,
                redis_client: redis.Redis,

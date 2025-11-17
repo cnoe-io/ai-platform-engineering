@@ -1,9 +1,9 @@
 from typing import Any, Dict, List, Optional
 import traceback
 from common.utils import get_logger
-from server.models import QueryResult, QueryResults
+from common.models.server import QueryResult
 from langchain_milvus import Milvus
-from common.models.rag import valid_metadata_keys, doc_types
+from common.models.rag import valid_metadata_keys
 
 logger = get_logger(__name__)
 
@@ -20,21 +20,17 @@ class VectorDBQueryService:
                 raise ValueError(f"Invalid filter key: {filter_name}, must be one of {valid_filter_keys}")
             
             # Add additional validation for filter values if needed
-            if not isinstance(filter_value, str):
-                logger.warning(f"Invalid filter value for {filter_name}: {filter_value}, must be a string")
-                raise ValueError(f"Invalid filter value for {filter_name}: {filter_value}, must be a string")
-
-            if filter_name == "doc_type" and filter_value not in doc_types:
-                logger.warning(f"Invalid doc_type filter value: {filter_value}")
-                raise ValueError(f"Invalid doc_type filter value: {filter_value}, must be one of {doc_types}")
+            if not isinstance(filter_value, str) and not isinstance(filter_value, bool):
+                logger.warning(f"Invalid filter value for {filter_name}: {filter_value}, must be a string or boolean")
+                raise ValueError(f"Invalid filter value for {filter_name}: {filter_value}, must be a string or boolean")
 
     async def query(self, 
         query: str,
-        filters: Optional[Dict[str, str]] = None,
+        filters: Optional[Dict[str, str|bool]] = None,
         limit: int = 5, 
         similarity_threshold: float = 0.3,
         ranker: str = "",
-        ranker_params: Optional[Dict[str, Any]] = None) -> QueryResults:
+        ranker_params: Optional[Dict[str, Any]] = None) -> List[QueryResult]:
         """
         Query the vector database with optional filters and ranking.
         :param query: The query string.
@@ -54,7 +50,12 @@ class VectorDBQueryService:
             # Build filter expressions for filtering if specified
             filter_expr_parts = []
             for key, value in (filters or {}).items():
-                filter_expr_parts.append(f"{key} == '{value}'")
+                if isinstance(value, bool):
+                    # For boolean values, don't use quotes
+                    filter_expr_parts.append(f"{key} == {str(value).lower()}")
+                else:
+                    # For string values, use quotes
+                    filter_expr_parts.append(f"{key} == '{value}'")
             filter_expr = " AND ".join(filter_expr_parts)
         else:
             filter_expr = None # No filters
@@ -71,10 +72,7 @@ class VectorDBQueryService:
         except Exception as e:
             logger.error(traceback.format_exc())
             logger.error(f"Error querying docs vector db: {e}")
-            return QueryResults(
-                query=query,
-                results=[],
-            )
+            return []
 
         # Format results for response
         query_results: List[QueryResult] = []
@@ -87,7 +85,4 @@ class VectorDBQueryService:
                     score=score
                 )
             )
-        return QueryResults(
-                query=query,
-                results=query_results,
-            )
+        return query_results
