@@ -56,10 +56,16 @@ class AIPlatformEngineerA2ABinding:
       inputs = {'messages': [('user', query)]}
       config = self.tracing.create_config(context_id)
 
-      # Ensure trace_id is always in config metadata for tools to access
+      # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:
           config['metadata'] = {}
 
+      # Add context_id to metadata so tools can maintain conversation continuity
+      if context_id:
+          config['metadata']['context_id'] = context_id
+          logging.debug(f"Added context_id to config metadata: {context_id}")
+
+      # Add trace_id to metadata for distributed tracing
       if trace_id:
           config['metadata']['trace_id'] = trace_id
           logging.debug(f"Added trace_id to config metadata: {trace_id}")
@@ -476,7 +482,8 @@ class AIPlatformEngineerA2ABinding:
               {
                 'field_name': f.field_name,
                 'field_description': f.field_description,
-                'field_values': getattr(f, 'field_values', None)
+                'field_values': getattr(f, 'field_values', None),
+                'required': getattr(f, 'required', True)
               }
               for f in (md.input_fields or [])
             ] if getattr(md, 'input_fields', None) else None

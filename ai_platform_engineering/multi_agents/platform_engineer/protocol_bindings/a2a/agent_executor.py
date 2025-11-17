@@ -979,7 +979,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         sub_agent_accumulated_content = []  # Track content from sub-agent artifacts
         sub_agent_sent_datapart = False  # Track if sub-agent sent structured DataPart
         streaming_artifact_id = None  # Shared artifact ID for all streaming chunks
-
+        # seen_artifact_ids - removed # THIS WILL BREAK JAVIS SAYING ERROR
         try:
             # invoke the underlying agent, using streaming results
             # NOTE: Pass task to maintain task ID consistency across sub-agents
@@ -1151,8 +1151,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         use_append = first_artifact_sent
                         if not first_artifact_sent:
                             first_artifact_sent = True
-                            logger.debug("📝 First sub-agent artifact chunk (append=False)")
-
                         await self._safe_enqueue_event(
                             event_queue,
                             TaskArtifactUpdateEvent(
