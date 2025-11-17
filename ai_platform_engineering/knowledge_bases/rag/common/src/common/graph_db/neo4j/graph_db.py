@@ -13,8 +13,7 @@ import asyncio
 import common.utils as utils
 
 from common.graph_db.base import GraphDB
-from common.constants import ALL_IDS_KEY, ALL_IDS_PROPS_KEY, FRESH_UNTIL_KEY, PRIMARY_ID_KEY, LAST_UPDATED_KEY, \
-    ENTITY_TYPE_KEY, DEFAULT_LABEL, UPDATED_BY_KEY, PROP_DELIMITER
+from common.constants import ALL_IDS_KEY, ALL_IDS_PROPS_KEY, PRIMARY_ID_KEY, ENTITY_TYPE_KEY, DEFAULT_LABEL, PROP_DELIMITER, FRESH_UNTIL_KEY
 
 from common.models.graph import Entity, EntityIdentifier, Relation
 
@@ -414,16 +413,14 @@ class Neo4jDB(GraphDB):
 
             return relations
 
-    async def update_entity(self, entity_type: str, entities: List[Entity], client_name: str, fresh_until: int):
+    async def update_entity(self, entity_type: str, entities: List[Entity]):
         """
         Create or update a list of entities in the database using a batch UNWIND query.
 
         :param entity_type: The primary label for all entities in the batch.
         :param entities: The list of entities to create/update.
-        :param client_name: The name of the client creating/updating the entities.
-        :param fresh_until: The fresh until timestamp.
         """
-        logger.debug(f"Updating {len(entities)} entities of type '{entity_type}' for client='{client_name}'")
+        logger.debug(f"Updating {len(entities)} entities of type '{entity_type}'")
         
         # Return if no entities provided
         if not entities:
@@ -457,10 +454,7 @@ class Neo4jDB(GraphDB):
                 # 3. Assemble the complete properties dictionary for the query
                 entity_params = entity.all_properties.copy()
                 entity_params.update({
-                    FRESH_UNTIL_KEY: fresh_until,
                     ENTITY_TYPE_KEY: entity.entity_type,
-                    LAST_UPDATED_KEY: unix_timestamp,
-                    UPDATED_BY_KEY: client_name,
                     ALL_IDS_KEY: all_id_vals,
                     ALL_IDS_PROPS_KEY: all_id_props,
                     PRIMARY_ID_KEY: primary_key_val
@@ -507,20 +501,14 @@ class Neo4jDB(GraphDB):
                     logger.error(f"Neo4j batch query failed after {max_retries} attempts: {e}", exc_info=True)
                     raise
 
-    async def update_relation(self, relation: Relation, fresh_until: int, client_name=None):
-        logger.debug(f"Executing update_relation with relation={relation.relation_name}, from_entity={relation.from_entity}, to_entity={relation.to_entity}, fresh_until={fresh_until}, client_name={client_name}")
+    async def update_relation(self, relation: Relation):
+        logger.debug(f"Executing update_relation with relation={relation.relation_name}, from_entity={relation.from_entity}, to_entity={relation.to_entity}")
         properties = {}
         if relation.relation_properties is not None:
             properties = relation.relation_properties
 
         relationship_ref = 'r'
-        unix_timestamp = int(time.time())
 
-        if client_name is not None:
-            properties[UPDATED_BY_KEY] = client_name
-            properties[FRESH_UNTIL_KEY] = fresh_until
-            properties[LAST_UPDATED_KEY] = unix_timestamp
-                        
         # Format all the properties for the write query
         properties_with_ref = {}
         for k,v in properties.items():
@@ -709,7 +697,7 @@ class Neo4jDB(GraphDB):
 
     async def remove_stale_entities(self):
         """
-        Periodically clean up the database by removing entities that are older than the fresh_until timestamp
+        Periodically clean up the database by removing entities that are older than the fresh until timestamp
         """
         logger.debug("Removing stale entities from the database")
         query = f"""
@@ -720,9 +708,9 @@ class Neo4jDB(GraphDB):
             await session.run(query) # type: ignore
             logger.info("Removed stale entities from the database")
 
-    async def relate_entities_by_property(self, client_name: str, entity_a_type: str, entity_b_type: str, relation_type: str,
+    async def relate_entities_by_property(self, entity_a_type: str, entity_b_type: str, relation_type: str,
                                           matching_properties: dict, relation_properties: (dict | None) = None):
-        logger.debug(f"Executing relate_entities_by_property with client_name={client_name}, entity_a_type={entity_a_type}, entity_b_type={entity_b_type}, relation_type={relation_type}, matching_properties={matching_properties}, relation_properties={relation_properties}")
+        logger.debug(f"Executing relate_entities_by_property with entity_a_type={entity_a_type}, entity_b_type={entity_b_type}, relation_type={relation_type}, matching_properties={matching_properties}, relation_properties={relation_properties}")
 
         if matching_properties is None or len(matching_properties) == 0:
             raise ValueError("matching_properties must be set and not empty")
@@ -749,8 +737,6 @@ class Neo4jDB(GraphDB):
                     f"MATCH (t:{entity_b_type}) " + \
                     f"{where_str} " + \
                     f"MERGE (f)-[r:{relation_type}]-(t) " + \
-                    f"SET r.`{UPDATED_BY_KEY}`='{client_name}' " +\
-                    f"SET r.`{LAST_UPDATED_KEY}`={time.time()} " +\
                     f"{set_str}"
         logger.debug(query)
         await self.raw_query(query)

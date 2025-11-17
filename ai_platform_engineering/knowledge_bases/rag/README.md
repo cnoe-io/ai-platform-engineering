@@ -11,7 +11,7 @@
 - 🤖 **Intelligent Knowledge Platform** with autonomous ontology discovery and RAG-powered question answering across multiple data sources.
 - 🧠 **Ontology Agent:** AI agent that automatically discovers and evaluates entity relationships from graph data using heuristics and LLM evaluation.
 - 🔍 **RAG/GraphRAG Agent:** Retrieval-augmented generation system for answering questions using vector embeddings and graph traversal.
-- 🌐 **Ingestion and Indexing:** Supports ingestion of URLs, as well as graph connectors for AWS, Kubernetes, Backstage, and other data sources.
+- 🌐 **Ingestion and Indexing:** Supports ingestion of URLs, as well as ingestors for AWS, Kubernetes, Backstage, and other data sources.
 - 📊 **Graph Database Integration:** Uses Neo4j for both data storage and ontology relationship management.
 - 🖥️ **Web Interface:** React-based UI for exploring ontologies, searching data, and visualizing relationships.
 
@@ -48,7 +48,6 @@ For detailed architecture information, see [Architecture.md](Architecture.md).
 - Automatic relationship discovery using heuristics
 - LLM-powered evaluation of relationship candidates
 - Progress tracking with real-time status updates
-- Configurable acceptance/rejection thresholds
 - Background processing with concurrent task management
 
 ### RAG System

@@ -118,24 +118,20 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    async def update_entity(self, entity_type: str, entities: List[Entity], client_name: str, fresh_until: int):
+    async def update_entity(self, entity_type: str, entities: List[Entity]):
         """
         Batch update entities in the graph database (Creates if it does not exist)
         :param entity_type: type of entity
         :param entities: list of entities to update
-        :param client_name: name of the client updating the entity
-        :param fresh_until: timestamp until which the entity is fresh
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    async def update_relation(self, relation: Relation, fresh_until: int, client_name=None):
+    async def update_relation(self, relation: Relation):
         """
         Update a relationship between two entities in the graph database
         The uniqueness of the relation is determined by from_entity, to_entity and relation_name
         :param relation: relation to update
-        :param fresh_until: timestamp until which the relation is fresh
-        :param client_name: name of the client updating the relation
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
@@ -165,11 +161,10 @@ class GraphDB(ABC):
         raise NotImplementedError("Subclasses must implement this method.")
 
     @abstractmethod
-    async def relate_entities_by_property(self, client_name: str, entity_a_type: str, entity_b_type: str, relation_type: str, 
+    async def relate_entities_by_property(self, entity_a_type: str, entity_b_type: str, relation_type: str, 
                                           matching_properties: dict, relation_properties: (dict | None) = None):
         """
         Relates two entity types by a property in the graph database.
-        :param client_name: name of the client creating the relation
         :param entity_a_type: type of the first entity
         :param entity_b_type: type of the second entity
         :param relation_type: type of the relation to create
