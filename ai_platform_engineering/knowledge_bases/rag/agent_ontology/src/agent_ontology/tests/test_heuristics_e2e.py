@@ -14,8 +14,8 @@ from core.models import Entity
 
 
 from agent_ontology.heuristics import HeuristicsProcessor
-from core.constants import DEFAULT_LABEL, UPDATED_BY_KEY
-
+from core.constants import DEFAULT_LABEL
+ 
 
 TEST_DATA_HEURISTICS_FILE = "test_data_heuristics.json"
 TEST_DATA_FILE = "../../../../test_data.json"
@@ -60,7 +60,7 @@ async def initialise():
         with open(f"entities/{i}.json", "w") as ef:
             json.dump(entity.model_dump(), ef, cls=ObjEncoder, indent=2)
 
-        await graph_db.update_entity(entity, client_name=CLIENT_NAME, fresh_until=get_default_fresh_until())
+        await graph_db.update_entity(entity, fresh_until=get_default_fresh_until())
     
     # Process all entities in the database, and compute heuristics
     logging.info("Processing all entities in the database...")

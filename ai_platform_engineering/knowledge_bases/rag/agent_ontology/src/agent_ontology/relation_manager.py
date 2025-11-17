@@ -40,7 +40,7 @@ class RelationCandidateManager:
         self.logger.info("Cleaning up relation candidates from the database")
         await self.ontology_graph_db.raw_query(f"MATCH ()-[r]->() WHERE r.`{constants.ONTOLOGY_VERSION_ID_KEY}` <> '{self.ontology_version_id}' DELETE r")
         await self.ontology_graph_db.raw_query(f"MATCH (n) WHERE n.`{constants.ONTOLOGY_VERSION_ID_KEY}` <> '{self.ontology_version_id}' DETACH DELETE n")
-        await self.data_graph_db.raw_query(f"MATCH ()-[r]-() WHERE r.`{constants.UPDATED_BY_KEY}`=\"{self.client_name}\" AND r.`{constants.ONTOLOGY_VERSION_ID_KEY}` <> '{self.ontology_version_id}' DELETE r")
+        await self.data_graph_db.raw_query(f"MATCH ()-[r]-() WHERE r.`{constants.RELATION_UPDATED_BY_KEY}`=\"{self.client_name}\" AND r.`{constants.ONTOLOGY_VERSION_ID_KEY}` <> '{self.ontology_version_id}' DELETE r")
 
 
     async def _set_heuristic(self, relation_id: str, candidate: RelationCandidate, recreate: bool = False):
@@ -58,7 +58,7 @@ class RelationCandidateManager:
                 constants.ENTITY_TYPE_NAME_KEY: candidate.heuristic.entity_a_type,
                 constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id
             })
-        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_a_type, [entity_a], fresh_until=utils.get_default_fresh_until(), client_name=self.client_name)
+        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_a_type, [entity_a])
         entity_b = Entity(
             primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY],
             entity_type=candidate.heuristic.entity_b_type,
@@ -66,7 +66,7 @@ class RelationCandidateManager:
                 constants.ENTITY_TYPE_NAME_KEY: candidate.heuristic.entity_b_type,
                 constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id
             })
-        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_b_type, [entity_b], fresh_until=utils.get_default_fresh_until(), client_name=self.client_name)
+        await self.ontology_graph_db.update_entity(candidate.heuristic.entity_b_type, [entity_b])
 
 
         if recreate:
@@ -128,11 +128,8 @@ class RelationCandidateManager:
                 from_entity=entity_a.get_identifier(),
                 to_entity=entity_b.get_identifier(),
                 relation_name=relation_name,
-                primary_key_properties=[constants.ONTOLOGY_RELATION_ID_KEY, constants.ONTOLOGY_VERSION_ID_KEY],
                 relation_properties=props
             ),
-            fresh_until=utils.get_default_fresh_until(),
-            client_name=self.client_name
         )
 
 
@@ -395,8 +392,7 @@ class RelationCandidateManager:
 
                 else:
                     # Apply the relation
-                    await self._apply_relation(self.client_name, 
-                                            relation_id, 
+                    await self._apply_relation(relation_id, 
                                             candidate.evaluation.relation_name, 
                                             candidate.heuristic.property_mappings, 
                                             candidate.heuristic.entity_a_type, 
@@ -418,7 +414,6 @@ class RelationCandidateManager:
         await self._set_heuristic(relation_id, candidate, recreate=True)
 
     async def _apply_relation(self, 
-                              client_name: str, 
                               relation_id: str, 
                               relation_name: str, 
                               property_mappings: List[PropertyMapping], 
@@ -442,12 +437,15 @@ class RelationCandidateManager:
 
          # If there are no wildcards, we can just relate the entities by property
         await self.data_graph_db.relate_entities_by_property(
-            client_name=client_name,
             entity_a_type=entity_a_type,
             entity_b_type=entity_b_type,
             relation_type=relation_name,
             matching_properties=matching_properties,
-            relation_properties={constants.ONTOLOGY_RELATION_ID_KEY: relation_id}
+            relation_properties={
+                constants.ONTOLOGY_RELATION_ID_KEY: relation_id,
+                constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id,
+                constants.RELATION_UPDATED_BY_KEY: self.client_name
+            }
         )
  
     async def _unapply_relation(self, relation_id: str):
