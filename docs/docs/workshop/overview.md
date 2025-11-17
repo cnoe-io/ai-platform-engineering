@@ -114,7 +114,7 @@ _CAIPE is empowered by a set of specialized sub-agents that integrate seamlessly
 
   * **8 CPUs**
   * **16 GB RAM**
-  * **80 GD Disk Space**
+  * **80 GB Disk Space**
   * Docker installed and ready
 
 ---
