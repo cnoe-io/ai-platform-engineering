@@ -137,6 +137,7 @@ def determine_primary_key_properties(properties: Dict[str, Any]) -> List[str]:
 async def ensure_cluster_entity_exists(client: Client, cluster_name: str, datasource_id: str, job_id: str):
     """
     Ensure the K8s cluster entity exists in the graph database.
+    The graph database will handle deduplication if the entity already exists.
     
     Args:
         client: RAG client instance
@@ -145,33 +146,24 @@ async def ensure_cluster_entity_exists(client: Client, cluster_name: str, dataso
         job_id: Current job ID for error tracking
     """
     try:
-        # Check if cluster entity already exists
-        cluster_search = await client.graph_find_entity(
+        logging.info(f"Ingesting K8sCluster entity for cluster: {cluster_name}")
+        
+        cluster_entity = Entity(
             entity_type="K8sCluster",
-            entity_pk=cluster_name
+            primary_key_properties=["name"],
+            all_properties={"name": cluster_name}
         )
         
-        if not cluster_search or not cluster_search.get("entity"):
-            logging.info(f"Creating K8sCluster entity for cluster: {cluster_name}")
-            
-            cluster_entity = Entity(
-                entity_type="K8sCluster",
-                primary_key_properties=["name"],
-                all_properties={"name": cluster_name}
-            )
-            
-            await client.ingest_entities(
-                job_id=job_id,
-                datasource_id=datasource_id,
-                entities=[cluster_entity],
-                fresh_until=utils.get_default_fresh_until()
-            )
-            logging.info(f"Created K8sCluster entity: {cluster_name}")
-        else:
-            logging.debug(f"K8sCluster entity already exists: {cluster_name}")
+        await client.ingest_entities(
+            job_id=job_id,
+            datasource_id=datasource_id,
+            entities=[cluster_entity],
+            fresh_until=utils.get_default_fresh_until()
+        )
+        logging.info(f"Ingested K8sCluster entity: {cluster_name}")
             
     except Exception as e:
-        logging.warning(f"Could not verify/create cluster entity: {e}")
+        logging.warning(f"Could not ingest cluster entity: {e}")
         # Non-fatal error - continue with resource ingestion
 
 
