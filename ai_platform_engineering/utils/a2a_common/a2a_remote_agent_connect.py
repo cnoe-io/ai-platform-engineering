@@ -380,11 +380,16 @@ class A2ARemoteAgentConnectTool(BaseTool):
     if not clean_text and status_message:
       clean_text = status_message
 
-    # Return brief completion message instead of full content to prevent LLM from echoing it
-    # The actual content (including tool notifications) was already streamed via writer() above
-    completion_message = f"✅ {self.name} completed successfully"
-
-    return completion_message, status, status_message
+    # CRITICAL: Return the FULL content to the LLM so it can extract data for sequential workflows
+    # The supervisor needs the actual response to extract values (emails, IDs, names, etc.)
+    # and pass them to subsequent agent calls
+    # The content was already streamed to UI via writer(), but LLM needs it in message history
+    if clean_text:
+      return clean_text, status, status_message
+    else:
+      # Fallback if no content - return success message
+      completion_message = f"✅ {self.name} completed successfully"
+      return completion_message, status, status_message
 
   def _split_status_payload(self, response_text: str) -> tuple[str, Optional[str], Optional[str]]:
     """Split combined text/JSON payload returned by remote agent."""
