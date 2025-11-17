@@ -37,7 +37,7 @@ logger.info("Initializing ontology graph database...")
 ontology_graph_db: GraphDB = Neo4jDB(uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
 
 logger.info("Initializing key-value store...")
-redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"))
+redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
 
 logger.info("Initializing ontology agent...")
 logger.info("Config:\nMax concurrent processing: %s\nMax concurrent evaluation: %s\nCount change threshold ratio: %s\nMin count for eval: %s", 
@@ -75,7 +75,7 @@ async def get_rc_manager_with_latest_ontology() -> RelationCandidateManager:
     ontology_version_id = await redis_client.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
     if ontology_version_id is None:
         raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
-    return RelationCandidateManager(graph_db, ontology_graph_db, ontology_version_id.decode('utf-8'), agent.agent_name)
+    return RelationCandidateManager(graph_db, ontology_graph_db, ontology_version_id, agent.agent_name)
 
 #####
 # API Endpoints for manual relation management
@@ -215,7 +215,6 @@ async def clear_ontology():
     ontology_version_id = await redis_client.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
     if ontology_version_id is None:
         raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
-    ontology_version_id = ontology_version_id.decode('utf-8')
     await agent.ontology_graph_db.remove_relation(None, {constants.ONTOLOGY_VERSION_ID_KEY: ontology_version_id})
     await agent.ontology_graph_db.remove_entity(None, {constants.ONTOLOGY_VERSION_ID_KEY: ontology_version_id})
     return JSONResponse(status_code=200, content={"message": "Cleared"})
@@ -225,7 +224,7 @@ async def get_ontology_version():
     ontology_version_id = await redis_client.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
     if ontology_version_id is None:
         raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
-    return JSONResponse(status_code=200, content={"ontology_version_id": ontology_version_id.decode('utf-8')})
+    return JSONResponse(status_code=200, content={"ontology_version_id": ontology_version_id})
 
 
 #### 

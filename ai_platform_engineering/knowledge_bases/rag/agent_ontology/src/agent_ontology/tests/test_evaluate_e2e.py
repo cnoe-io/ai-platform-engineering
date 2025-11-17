@@ -44,7 +44,7 @@ async def initialise():
     for entity in data["entities"]:
         logging.info(f"Creating entity {entity}...")
         entity = Entity.model_validate(entity)
-        await graph_db.update_entity(entity, client_name=CLIENT_NAME, fresh_until=get_default_fresh_until())
+        await graph_db.update_entity(entity, fresh_until=get_default_fresh_until())
     
     # Load up ground truth data
     logging.info("Loading ground truth data...")

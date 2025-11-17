@@ -1,6 +1,5 @@
 import logging
 import os
-from time import time
 import traceback
 
 from common.graph_db.base import GraphDB
@@ -9,11 +8,11 @@ from langgraph.prebuilt import create_react_agent
 from agent_ontology.heuristics import HeuristicsProcessor
 from agent_ontology.relation_manager import RelationCandidateManager
 from agent_ontology.prompts import RELATION_PROMPT, SYSTEM_PROMPT_1
-from common.models.ontology import AgentOutputFKeyRelation, RelationCandidate, FkeyEvaluationResult
+from common.models.ontology import RelationCandidate, FkeyEvaluationResult
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import PromptTemplate
 from langgraph.graph.state import CompiledStateGraph
-
+import gc
 import redis.asyncio as redis
 import common.utils as utils
 from common import constants
@@ -181,7 +180,6 @@ class OntologyAgent:
 
         # fetch the current ontology version
         current_ontology_version_id = await self.redis.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
-        current_ontology_version_id = current_ontology_version_id.decode('utf-8') if current_ontology_version_id else None
         rc_manager_current_version = None
         if current_ontology_version_id:
             rc_manager_current_version = RelationCandidateManager(self.graph_db, self.ontology_graph_db, current_ontology_version_id, self.agent_name)
@@ -203,6 +201,9 @@ class OntologyAgent:
 
         await self.sync_all_relations(rc_manager_new_version) # sync all relations with the graph database, just in case some relations were not updated
         await rc_manager_new_version.cleanup() # Clear all previous ontology
+
+        # invoke the garbage collector to free up memory
+        gc.collect()
 
     async def process_all(self, rc_manager: RelationCandidateManager) -> str|None:
         """
