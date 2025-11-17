@@ -482,7 +482,8 @@ class AIPlatformEngineerA2ABinding:
               {
                 'field_name': f.field_name,
                 'field_description': f.field_description,
-                'field_values': getattr(f, 'field_values', None)
+                'field_values': getattr(f, 'field_values', None),
+                'required': getattr(f, 'required', True)
               }
               for f in (md.input_fields or [])
             ] if getattr(md, 'input_fields', None) else None
