@@ -6,13 +6,24 @@ global:
       # kubernetes.io/ingress.class: "nginx"
       # kubernetes.io/tls-acme: "true"
 
+supervisor-agent:
+  ingress:
+    enabled: true
+    className: nginx
+    hosts: 
+    - supervisor-agent.local
+    tls: []
+      # - secretName: supervisor-agent-tls
+      #   hosts:
+      #     - supervisor-agent.local
+    annotations: {}
+      # kubernetes.io/ingress.class: "nginx"
+      # kubernetes.io/tls-acme: "true"
+
 agent-argocd:
   ingress:
-    hosts:
-      - host: agent-argocd.local
-        paths:
-          - path: /
-            pathType: Prefix
+    hosts: []
+      #  - agent-argocd.local
     tls: []
       # - secretName: agent-argocd-tls
       #   hosts:
@@ -20,11 +31,8 @@ agent-argocd:
 
 agent-pagerduty:
   ingress:
-    hosts:
-      - host: agent-pagerduty.local
-        paths:
-          - path: /
-            pathType: Prefix
+    hosts: []
+      #  - agent-pagerduty.local
     tls: []
       # - secretName: agent-pagerduty-tls
       #   hosts:
@@ -32,11 +40,8 @@ agent-pagerduty:
 
 agent-github:
   ingress:
-    hosts:
-      - host: agent-github.local
-        paths:
-          - path: /
-            pathType: Prefix
+    hosts: []
+      #  - agent-github.local
     tls: []
       # - secretName: agent-github-tls
       #   hosts:
@@ -44,11 +49,8 @@ agent-github:
 
 agent-backstage:
   ingress:
-    hosts:
-      - host: agent-backstage.local
-        paths:
-          - path: /
-            pathType: Prefix
+    hosts: []
+      #  - agent-backstage.local
     tls: []
       # - secretName: agent-backstage-tls
       #   hosts:
@@ -56,11 +58,8 @@ agent-backstage:
 
 agent-slack:
   ingress:
-    hosts:
-      - host: agent-slack.local
-        paths:
-          - path: /
-            pathType: Prefix
+    hosts: []
+      #  - agent-slack.local
     tls: []
       # - secretName: agent-slack-tls
       #   hosts:
@@ -68,11 +67,8 @@ agent-slack:
 
 agent-confluence:
   ingress:
-    hosts:
-      - host: agent-confluence.local
-        paths:
-          - path: /
-            pathType: Prefix
+    hosts: []
+      #  - agent-confluence.local
     tls: []
       # - secretName: agent-confluence-tls
       #   hosts:
@@ -80,11 +76,8 @@ agent-confluence:
 
 agent-jira:
   ingress:
-    hosts:
-      - host: agent-jira.local
-        paths:
-          - path: /
-            pathType: Prefix
+    hosts: []
+      #  - agent-jira.local
     tls: []
       # - secretName: agent-jira-tls
       #   hosts:
@@ -92,11 +85,8 @@ agent-jira:
 
 agent-reflection:
   ingress:
-    hosts:
-      - host: agent-reflection.local
-        paths:
-          - path: /
-            pathType: Prefix
+    hosts: []
+      #  - agent-reflection.local
     tls: []
       # - secretName: agent-reflection-tls
       #   hosts:

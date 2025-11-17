@@ -4,8 +4,9 @@
 
 """Model for Totalcount"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Totalcount(BaseModel):
 class TotalcountResponse(APIResponse):
     """Response model for Totalcount"""
 
-    data: Optional[Totalcount] = None
+    data: Totalcount | None = None
 
 
 class TotalcountListResponse(APIResponse):
     """List response model for Totalcount"""
 
-    data: List[Totalcount] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Totalcount] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

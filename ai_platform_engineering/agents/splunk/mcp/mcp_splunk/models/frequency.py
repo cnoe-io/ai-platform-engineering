@@ -4,8 +4,9 @@
 
 """Model for Frequency"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Frequency(BaseModel):
 class FrequencyResponse(APIResponse):
     """Response model for Frequency"""
 
-    data: Optional[Frequency] = None
+    data: Frequency | None = None
 
 
 class FrequencyListResponse(APIResponse):
     """List response model for Frequency"""
 
-    data: List[Frequency] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Frequency] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

@@ -15,6 +15,7 @@ disable_a2a_tracing()
 
 import asyncio
 import os
+import logging
 
 import click
 import httpx
@@ -92,7 +93,11 @@ async def async_main(host: str, port: int):
             allow_headers=["*"],  # Allow all headers
         )
 
-        config = uvicorn.Config(app, host=host, port=port)
+        # Configure uvicorn access log to DEBUG level for health checks
+        access_logger = logging.getLogger("uvicorn.access")
+        access_logger.setLevel(logging.DEBUG)
+
+        config = uvicorn.Config(app, host=host, port=port, access_log=True)
         server = uvicorn.Server(config=config)
         await server.serve()
 

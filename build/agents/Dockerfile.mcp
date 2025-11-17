@@ -1,0 +1,63 @@
+# ---------- Stage 1: Build dependencies ----------
+FROM python:3.13-slim AS builder
+
+ARG AGENT_NAME
+
+RUN if [ -z "$AGENT_NAME" ]; then \
+    echo "Error: AGENT_NAME build argument is required but not set."; \
+    exit 1; \
+    fi
+
+# Install system dependencies and uv in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && pip install uv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the entire MCP directory structure first since uv sync needs it to build
+COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME}/mcp ./
+
+# Install dependencies into venv (no dev deps)
+# Increase timeout for large packages (e.g., pyarrow 39MB)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
+
+# ---------- Stage 2: Final runtime image ----------
+FROM python:3.13-slim
+
+ARG AGENT_NAME
+
+RUN if [ -z "$AGENT_NAME" ]; then \
+    echo "Error: AGENT_NAME build argument is required but not set."; \
+    exit 1; \
+    fi
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create appuser in final image
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
+
+WORKDIR /app
+
+# Set env vars for uv & PATH
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    AGENT_NAME=${AGENT_NAME}
+
+# Copy venv & code from builder
+COPY --from=builder --chown=appuser:appuser /app /app
+
+USER appuser
+
+EXPOSE 8000
+
+# Run the HTTP/SSE MCP server
+CMD ["sh", "-c", "exec python -m mcp_${AGENT_NAME}"]

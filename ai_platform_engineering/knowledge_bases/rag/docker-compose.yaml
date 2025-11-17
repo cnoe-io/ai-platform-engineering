@@ -3,7 +3,7 @@ services:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
     container_name: caipe-p2p
     volumes:
-    - ../../../prompt_config.yaml:/app/prompt_config.yaml
+    - ../../../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
     - ../../../persona.yaml:/app/persona.yaml
     env_file:
     - ../../../.env
@@ -240,7 +240,7 @@ services:
       NEO4J_apoc_export_file_enabled: true
       NEO4J_apoc_import_file_enabled: true
       NEO4J_apoc_import_file_use__neo4j__config: true
-      
+
   neo4j-ontology:
     image: neo4j:latest
     volumes:
@@ -325,7 +325,7 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-      
+
   milvus-minio:
     container_name: milvus-minio
     image: minio/minio:RELEASE.2024-05-28T17-19-04Z

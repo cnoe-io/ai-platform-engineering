@@ -4,8 +4,9 @@
 
 """Model for Msteamsnotificationobject"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Msteamsnotificationobject(BaseModel):
 class MsteamsnotificationobjectResponse(APIResponse):
     """Response model for Msteamsnotificationobject"""
 
-    data: Optional[Msteamsnotificationobject] = None
+    data: Msteamsnotificationobject | None = None
 
 
 class MsteamsnotificationobjectListResponse(APIResponse):
     """List response model for Msteamsnotificationobject"""
 
-    data: List[Msteamsnotificationobject] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Msteamsnotificationobject] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

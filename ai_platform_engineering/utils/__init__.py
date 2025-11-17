@@ -4,8 +4,10 @@
 """
 AI Platform Engineering Utilities
 
-This package contains common utility functions shared across the AI Platform Engineering codebase.
+This package contains common utilities, base classes, and shared functionality
+for AI Platform Engineering agents and applications.
+
+Import classes directly from their modules:
+  from ai_platform_engineering.utils.a2a_common.base_agent import BaseLangGraphAgent
+  from ai_platform_engineering.utils.a2a_common.base_strands_agent import BaseStrandsAgent
 """
-
-
-__all__ = []

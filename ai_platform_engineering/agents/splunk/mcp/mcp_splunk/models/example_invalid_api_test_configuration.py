@@ -4,8 +4,9 @@
 
 """Model for Exampleinvalidapitestconfiguration"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Exampleinvalidapitestconfiguration(BaseModel):
 class ExampleinvalidapitestconfigurationResponse(APIResponse):
     """Response model for Exampleinvalidapitestconfiguration"""
 
-    data: Optional[Exampleinvalidapitestconfiguration] = None
+    data: Exampleinvalidapitestconfiguration | None = None
 
 
 class ExampleinvalidapitestconfigurationListResponse(APIResponse):
     """List response model for Exampleinvalidapitestconfiguration"""
 
-    data: List[Exampleinvalidapitestconfiguration] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Exampleinvalidapitestconfiguration] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

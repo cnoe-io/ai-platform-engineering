@@ -1,4 +1,6 @@
 {{- if .Values.ingress.enabled -}}
+{{- $fullName := include "rag-webui.fullname" . -}}
+{{- $svcPort := .Values.service.port -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -24,18 +26,28 @@ spec:
     {{- end }}
   {{- end }}
   rules:
+    {{- if .Values.ingress.hosts }}
     {{- range .Values.ingress.hosts }}
-    - host: {{ .host | quote }}
+    - host: {{ . | quote }}
       http:
         paths:
-          {{- range .paths }}
-          - path: {{ .path }}
-            pathType: {{ .pathType }}
+          - path: /
+            pathType: Prefix
             backend:
               service:
-                name: {{ include "rag-webui.fullname" $ }}
+                name: {{ $fullName }}
                 port:
-                  number: {{ $.Values.service.port }}
-          {{- end }}
+                  number: {{ $svcPort }}
+    {{- end }}
+    {{- else }}
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ $svcPort }}
     {{- end }}
 {{- end }}

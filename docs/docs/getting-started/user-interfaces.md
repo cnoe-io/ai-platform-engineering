@@ -20,7 +20,7 @@ These interfaces empower users to build and manage sophisticated multi-agent sys
    *Or, clone and run the chat client:*
 
    ```bash
-   uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
+   uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
    ```
 
 ## Agent Forge Backstage Plugin

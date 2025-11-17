@@ -6,10 +6,13 @@ from typing import List, Optional
 
 
 class InputField(BaseModel):
-    """Model for input field requirements extracted from tool responses"""
-    field_name: str = Field(description="The name of the field that should be provided, extracted from the tool's specific request.")
-    field_description: str = Field(description="A description of what this field represents, based on the tool's actual request for information.")
-    field_values: Optional[List[str]] = Field(default=None, description="Possible values for the field mentioned by the tool, if any.")
+    """Model for input field requirements extracted from tool responses.
+
+    Uses Jarvis-compatible field names for consistency across agents.
+    """
+    field_name: str = Field(description="The exact field name from the tool's request (e.g., 'provider_name', 'model', 'project_name')")
+    field_description: str = Field(description="The exact description from the tool's request")
+    field_values: Optional[List[str]] = Field(default=None, description="ALL possible values for select/dropdown fields. Preserve all values exactly as provided by the tool.")
 
 
 class Metadata(BaseModel):

@@ -1,39 +1,16 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-import logging
-
-from collections.abc import AsyncIterable
-from typing import Any, Literal
-import importlib
-
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
-from langchain_core.runnables.config import (
-    RunnableConfig,
-)
-from pydantic import BaseModel
-
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import create_react_agent  # type: ignore
-from cnoe_agent_utils import LLMFactory
-from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
+"""Slack Agent implementation using common A2A base classes."""
 
 import os
-from pathlib import Path
+from typing import Literal
+from pydantic import BaseModel
 
+from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
+from cnoe_agent_utils.tracing import trace_agent_stream
 
-logger = logging.getLogger(__name__)
-
-def debug_print(message: str, banner: bool = True):
-    if os.getenv("A2A_SERVER_DEBUG", "false").lower() == "true":
-        if banner:
-            print("=" * 80)
-        print(f"DEBUG: {message}")
-        if banner:
-            print("=" * 80)
-
-memory = MemorySaver()
 
 class ResponseFormat(BaseModel):
     """Respond to the user in this format."""
@@ -41,16 +18,21 @@ class ResponseFormat(BaseModel):
     status: Literal['input_required', 'completed', 'error'] = 'input_required'
     message: str
 
-class SlackAgent:
-    """Slack Agent using A2A protocol."""
 
-    SYSTEM_INSTRUCTION = (
-      'You are an expert assistant for Slack integration and operations. '
-      'Your purpose is to help users interact with Slack workspaces, channels, and messages. '
-      'Use the available Slack tools to interact with the Slack API and provide accurate, '
-      'actionable responses. If the user asks about anything unrelated to Slack, politely state '
-      'that you can only assist with Slack operations. Do not attempt to answer unrelated questions '
-      'or use tools for other purposes.'
+class SlackAgent(BaseLangGraphAgent):
+    """Slack Agent for workspace and channel management."""
+
+    # Using common utilities - eliminates 19 lines of duplicated code!
+    # Slack makes real API calls, so include error handling
+    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
+        service_name="Slack",
+        service_operations="interact with Slack workspaces, channels, and messages",
+        additional_guidelines=[
+            "Use the available Slack tools to interact with the Slack API",
+            "When searching for messages or filtering by time, use the current date provided above as reference"
+        ],
+        include_error_handling=True,  # Real API calls can fail
+        include_date_handling=True    # Enable date handling
     )
 
     RESPONSE_FORMAT_INSTRUCTION: str = (
@@ -59,260 +41,56 @@ class SlackAgent:
         'Set response status to error if the input indicates an error.'
     )
 
-    def __init__(self):
-        self.slack_token = os.getenv("SLACK_BOT_TOKEN")
-        if not self.slack_token:
-            logger.warning("SLACK_BOT_TOKEN not set, Slack integration will be limited")
+    def get_agent_name(self) -> str:
+        """Return the agent's name."""
+        return "slack"
 
-        # Initialize the model if credentials are available
-        self.model = LLMFactory().get_llm()
-        self.tracing = TracingManager()
+    def get_system_instruction(self) -> str:
+        """Return the system instruction for the agent."""
+        return self.SYSTEM_INSTRUCTION
 
-        self.graph = None
+    def get_response_format_instruction(self) -> str:
+        """Return the response format instruction."""
+        return self.RESPONSE_FORMAT_INSTRUCTION
 
-        # Find installed path of the slack_mcp sub-module
-        spec = importlib.util.find_spec("mcp_slack.server")
-        if not spec or not spec.origin:
-            try:
-                spec = importlib.util.find_spec("mcp.mcp_slack.server")
-                if not spec or not spec.origin:
-                    raise ImportError("Cannot find slack_mcp server module")
-            except ImportError:
-                logger.error("Cannot find slack_mcp server module in any known location")
-                raise ImportError("Cannot find slack_mcp server module in any known location")
+    def get_response_format_class(self) -> type[BaseModel]:
+        """Return the response format class."""
+        return ResponseFormat
 
-        self.server_path = str(Path(spec.origin).resolve())
-        logger.info(f"Found Slack MCP server path: {self.server_path}")
-        self._initialized = False
+    def get_mcp_config(self, server_path: str) -> dict:
+        """Return MCP configuration for Slack."""
+        slack_token = os.getenv("SLACK_BOT_TOKEN")
+        if not slack_token:
+            raise ValueError("SLACK_BOT_TOKEN must be set as an environment variable.")
 
-    async def _initialize_agent(self):
-        """Initialize the agent with tools and configuration."""
-        if self._initialized:
-            return
+        slack_team_id = os.getenv("SLACK_TEAM_ID")
+        if not slack_team_id:
+            raise ValueError("SLACK_TEAM_ID must be set as an environment variable.")
 
-        if not self.model:
-            logger.error("Cannot initialize agent without a valid model")
-            return
+        return {
+            "command": "uv",
+            "args": ["run", "--project", os.path.dirname(server_path), server_path],
+            "env": {
+                "SLACK_BOT_TOKEN": slack_token,
+                "SLACK_TEAM_ID": slack_team_id,
+            },
+            "transport": "stdio",
+        }
 
-        logger.info(f"Launching MCP server at: {self.server_path}")
+    def get_tool_working_message(self) -> str:
+        """Return message shown when calling tools."""
+        return 'Querying Slack...'
 
-        try:
-
-            client = None
-            mcp_mode = os.getenv("MCP_MODE", "stdio").lower()
-            if mcp_mode == "http" or mcp_mode == "streamable_http":
-              logging.info("Using HTTP transport for MCP client")
-              # For HTTP transport, we need to connect to the MCP server
-              # This is useful for production or when the MCP server is running separately
-              # Ensure MCP_HOST and MCP_PORT are set in the environment
-              mcp_host = os.getenv("MCP_HOST", "localhost")
-              mcp_port = os.getenv("MCP_PORT", "3000")
-              logging.info(f"Connecting to MCP server at {mcp_host}:{mcp_port}")
-              # TBD: Handle user authentication
-              user_jwt = "TBD_USER_JWT"
-
-              client = MultiServerMCPClient(
-                {
-                  "slack": {
-                    "transport": "streamable_http",
-                    "url": f"http://{mcp_host}:{mcp_port}/mcp/",
-                    "headers": {
-                      "Authorization": f"Bearer {user_jwt}",
-                    },
-                  }
-                }
-              )
-            else:
-              logging.info("Using STDIO transport for MCP client")
-              # For STDIO transport, we can use a simple client without URL
-              # This is useful for local development or testing
-              # Ensure ARGOCD_TOKEN and ARGOCD_API_URL are set in the environment
-
-              client = MultiServerMCPClient(
-                  {
-                      "slack": {
-                          "command": "uv",
-                          "args": ["run", self.server_path],
-                          "env": {
-                              "SLACK_BOT_TOKEN": self.slack_token,
-                          },
-                          "transport": "stdio",
-                      }
-                  }
-              )
-
-            # Get tools via the client
-            client_tools = await client.get_tools()
-
-            print('*'*80)
-            print("Available Slack Tools and Parameters:")
-            for tool in client_tools:
-                print(f"Tool: {tool.name}")
-                print(f"  Description: {tool.description.strip().splitlines()[0]}")
-                params = tool.args_schema.get('properties', {})
-                if params:
-                    print("  Parameters:")
-                    for param, meta in params.items():
-                        param_type = meta.get('type', 'unknown')
-                        param_title = meta.get('title', param)
-                        default = meta.get('default', None)
-                        print(f"    - {param} ({param_type}): {param_title}", end='')
-                        if default is not None:
-                            print(f" [default: {default}]")
-                        else:
-                            print()
-                else:
-                    print("  Parameters: None")
-                print()
-            print('*'*80)
-
-            # Create the agent with the tools
-            self.graph = create_react_agent(
-                self.model,
-                client_tools,
-                checkpointer=memory,
-                prompt=self.SYSTEM_INSTRUCTION,
-                response_format=(self.RESPONSE_FORMAT_INSTRUCTION, ResponseFormat),
-            )
-
-            # Test the agent with a simple query
-            runnable_config = RunnableConfig(configurable={"thread_id": "init-thread"})
-            try:
-                llm_result = await self.graph.ainvoke(
-                    {"messages": HumanMessage(content="Summarize what Slack operations you can help with")},
-                    config=runnable_config
-                )
-
-                # Try to extract meaningful content from the LLM result
-                ai_content = None
-                for msg in reversed(llm_result.get("messages", [])):
-                    if hasattr(msg, "type") and msg.type in ("ai", "assistant") and getattr(msg, "content", None):
-                        ai_content = msg.content
-                        break
-                    elif isinstance(msg, dict) and msg.get("type") in ("ai", "assistant") and msg.get("content"):
-                        ai_content = msg["content"]
-                        break
-
-                # Print the agent's capabilities
-                print("=" * 80)
-                print(f"Agent Slack Capabilities: {ai_content}")
-                print("=" * 80)
-            except Exception as e:
-                logger.error(f"Error testing agent: {e}")
-
-            self._initialized = True
-        except Exception as e:
-            logger.exception(f"Error initializing agent: {e}")
-            self.graph = None
+    def get_tool_processing_message(self) -> str:
+        """Return message shown when processing tool results."""
+        return 'Processing Slack data...'
 
     @trace_agent_stream("slack")
-    async def stream(self, query: str, context_id: str, trace_id: str = None) -> AsyncIterable[dict[str, Any]]:
-        """Stream responses from the agent."""
-        logger.info(f"Starting stream with query: {query} and context_id: {context_id}")
+    async def stream(self, query: str, sessionId: str, trace_id: str = None):
+        """
+        Stream responses with slack-specific tracing.
 
-        # Initialize the agent if not already done
-        await self._initialize_agent()
-
-        if not self.graph:
-            logger.error("Agent graph not initialized")
-            yield {
-                'is_task_complete': False,
-                'require_user_input': True,
-                'content': 'Slack agent is not properly initialized. Please check the logs.',
-            }
-            return
-
-        inputs: dict[str, Any] = {'messages': [HumanMessage(content=query)]}
-        config: RunnableConfig = self.tracing.create_config(context_id)
-
-        try:
-            async for item in self.graph.astream(inputs, config, stream_mode='values'):
-                message = item.get('messages', [])[-1] if item.get('messages') else None
-
-                if not message:
-                    continue
-
-                logger.debug(f"Streamed message type: {type(message)}")
-
-                if (
-                    isinstance(message, AIMessage)
-                    and hasattr(message, 'tool_calls')
-                    and message.tool_calls
-                    and len(message.tool_calls) > 0
-                ):
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': 'Processing Slack operations...',
-                    }
-                elif isinstance(message, ToolMessage):
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': 'Interacting with Slack API...',
-                    }
-
-                elif isinstance(message, AIMessage) and message.content:
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'content': message.content,
-                    }
-
-            yield self.get_agent_response(config)
-        except Exception as e:
-            logger.exception(f"Error in stream: {e}")
-            yield {
-                'is_task_complete': False,
-                'require_user_input': True,
-                'content': f'An error occurred while processing your Slack request: {str(e)}',
-            }
-
-    def get_agent_response(self, config: RunnableConfig) -> dict[str, Any]:
-        """Get the final response from the agent."""
-        logger.debug(f"Fetching agent response with config: {config}")
-
-        try:
-            current_state = self.graph.get_state(config)
-            logger.debug(f"Current state values: {current_state.values}")
-
-            structured_response = current_state.values.get('structured_response')
-            logger.debug(f"Structured response: {structured_response}")
-
-            if structured_response and isinstance(structured_response, ResponseFormat):
-                logger.debug(f"Structured response is valid: {structured_response.status}")
-                if structured_response.status in {'input_required', 'error'}:
-                    return {
-                        'is_task_complete': False,
-                        'require_user_input': True,
-                        'content': structured_response.message,
-                    }
-                if structured_response.status == 'completed':
-                    return {
-                        'is_task_complete': True,
-                        'require_user_input': False,
-                        'content': structured_response.message,
-                    }
-
-            # If we couldn't get a structured response, try to get the last message
-            messages = []
-            for item in current_state.values.get('messages', []):
-                if isinstance(item, AIMessage) and item.content:
-                    messages.append(item.content)
-
-            if messages:
-                return {
-                    'is_task_complete': True,
-                    'require_user_input': False,
-                    'content': messages[-1],
-                }
-
-        except Exception as e:
-            logger.exception(f"Error getting agent response: {e}")
-
-        logger.warning("Unable to process request, returning fallback response")
-        return {
-            'is_task_complete': False,
-            'require_user_input': True,
-            'content': 'We are unable to process your Slack request at the moment. Please try again.',
-        }
+        Overrides the base stream method to add agent-specific tracing decorator.
+        """
+        async for event in super().stream(query, sessionId, trace_id):
+            yield event

@@ -90,7 +90,8 @@ async def async_main(host: str, port: int):
             allow_headers=["*"],  # Allow all headers
         )
 
-        config = uvicorn.Config(app, host=host, port=port)
+        # Disable uvicorn access logs to reduce noise from health checks
+        config = uvicorn.Config(app, host=host, port=port, access_log=False)
         server = uvicorn.Server(config=config)
         await server.serve()
 

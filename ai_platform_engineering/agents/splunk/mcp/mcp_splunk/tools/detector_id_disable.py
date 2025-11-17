@@ -5,15 +5,16 @@
 """Tools for /detector/{id}/disable operations"""
 
 import logging
-from typing import Any, List
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+from typing import Any
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def disable__detect__blocks(path_id: str, body: List[str]) -> Any:
+async def disable__detect__blocks(path_id: str, body: list[str]) -> Any:
     """
     Disables detect blocks for a detector
 

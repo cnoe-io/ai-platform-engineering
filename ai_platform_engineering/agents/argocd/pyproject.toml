@@ -9,8 +9,8 @@ license = {text = "Apache-2.0"}
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "a2a-sdk (==0.2.16)",
-  "agntcy-app-sdk==0.1.4",
+  "a2a-sdk (==0.3.0)",
+  "agntcy-app-sdk==0.4.0",
   "agentevals (>=0.0.7)",
   "click (>=8.2.0)",
   "langchain-core (>=0.3.60)",
@@ -38,6 +38,11 @@ allow-direct-references = true
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = [
+    "ruff>=0.13.2",
+]
+
 [tool.ruff]
 # Allow lines to be as long as 140.
 line-length = 140
@@ -61,4 +66,4 @@ markers = [
 ]
 
 [tool.uv.sources]
-mcp-argocd = { path = "mcp" }
+mcp-argocd = { path = "./mcp" }

@@ -214,7 +214,7 @@ class OntologyAgent:
         if self.is_processing:
             self.logger.warning("Processing is already in progress, skipping this run")
             return None
-        
+
         self.is_processing = True
         self.processing_tasks_total = 0
         self.processed_tasks_count = 0
@@ -224,7 +224,7 @@ class OntologyAgent:
         entities = []
         for entity_type in entity_types:
             entities += await self.graph_db.find_entity(entity_type, {}, max_results=10000)
-        
+
         self.processing_tasks_total = len(entities)
         self.logger.info(f"Processing {len(entities)} entities for heuristics")
 
@@ -248,7 +248,7 @@ class OntologyAgent:
         await utils.gather(self.max_concurrent_processing, *tasks, logger=self.logger)
 
         self.is_processing = False
-    
+
 
     async def evaluate_all(self, rc_manager_current: RelationCandidateManager|None, rc_manager_new: RelationCandidateManager):
         """
@@ -285,12 +285,12 @@ class OntologyAgent:
         new_relation_candidates = await rc_manager_new.fetch_all_candidates()
         self.evaluation_tasks_total = len(new_relation_candidates)
         self.logger.info(f"Found {len(new_relation_candidates)} relation candidates to evaluate")
-        
+
         # Create tasks for each relation candidate if they pass requirements
         tasks = []
         index = 0
         for rel_id, new_candidate in new_relation_candidates.items():
-            
+
             # Check if there is an existing relation candidate
             current_relation = None
             if rc_manager_current:
@@ -420,14 +420,14 @@ class OntologyAgent:
         logger.info(f"Evaluating relation candidate {relation_id} for ontology_version_id: {rc_manager.ontology_version_id}")
         if candidate and relation_id != "":
             raise ValueError("Relation and relation_id cannot both be provided")
-        
+
         # Fetch the candidate if relation_id is provided
         if relation_id != "":
             candidate = await rc_manager.fetch_candidate(relation_id)
             if candidate is None:
                 logger.error(f"Relation candidate {relation_id} is None, skipping evaluation.")
                 return
-        
+
         # If candidate is not provided, we cannot evaluate
         if candidate is None:
             raise ValueError("Relation candidate is None, cannot evaluate")
@@ -449,10 +449,10 @@ class OntologyAgent:
             matching_properties[prop.entity_a_property] = prop.entity_b_idkey_property
             property_counts[prop.entity_a_property] = await self.graph_db.get_property_value_count(candidate.heuristic.entity_a_type, prop.entity_a_property, None)
             property_values[prop.entity_a_property] = await self.graph_db.get_values_of_matching_property(
-                candidate.heuristic.entity_a_type, 
+                candidate.heuristic.entity_a_type,
                 prop.entity_a_property,
-                candidate.heuristic.entity_b_type, 
-                matching_properties, 
+                candidate.heuristic.entity_b_type,
+                matching_properties,
                 max_results=5)
 
         entity_types = await self.graph_db.get_all_entity_types()

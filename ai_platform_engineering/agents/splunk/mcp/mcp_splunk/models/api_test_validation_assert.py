@@ -4,8 +4,9 @@
 
 """Model for Apitestvalidationassert"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Apitestvalidationassert(BaseModel):
 class ApitestvalidationassertResponse(APIResponse):
     """Response model for Apitestvalidationassert"""
 
-    data: Optional[Apitestvalidationassert] = None
+    data: Apitestvalidationassert | None = None
 
 
 class ApitestvalidationassertListResponse(APIResponse):
     """List response model for Apitestvalidationassert"""
 
-    data: List[Apitestvalidationassert] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Apitestvalidationassert] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

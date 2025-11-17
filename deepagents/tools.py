@@ -16,11 +16,35 @@ from deepagents.state import Todo, DeepAgentState
 def write_todos(
     todos: list[Todo], tool_call_id: Annotated[str, InjectedToolCallId]
 ) -> Command:
+    # Format todos as markdown checklist
+    status_icons = {
+        "pending": "⏳",
+        "in_progress": "🔄",
+        "completed": "✅",
+        "cancelled": "❌",
+        "error": "❌",
+        "failed": "❌",
+    }
+
+    markdown_lines = ["📋 **Task Progress:**", ""]
+    failed_tasks = []
+    for todo in todos:
+        icon = status_icons.get(todo["status"], "•")
+        markdown_lines.append(f"- {icon} {todo['content']}")
+        if todo["status"] in {"error", "failed"}:
+            failed_tasks.append(todo["content"])
+
+    if failed_tasks:
+        markdown_lines.append("")
+        markdown_lines.append("⚠️ One or more tasks encountered an error. Let me know if you'd like me to retry them or mark them as skipped.")
+
+    markdown_output = "\n".join(markdown_lines)
+
     return Command(
         update={
             "todos": todos,
             "messages": [
-                ToolMessage(f"Updated todo list to {todos}", tool_call_id=tool_call_id)
+                ToolMessage(markdown_output, tool_call_id=tool_call_id)
             ],
         }
     )

@@ -84,7 +84,9 @@ ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 
 run-a2a:           ## Run A2A agent with uvicorn
 	@$(MAKE) check-env
-	@A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
+	@REPO_ROOT=$$(git rev-parse --show-toplevel 2>/dev/null || echo "../../.."); \
+	export PYTHONPATH=$$REPO_ROOT:$$PYTHONPATH; \
+	A2A_AGENT_PORT=$$(grep A2A_AGENT_PORT .env | cut -d '=' -f2); \
 	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_AGENT_PORT:-8000}
 
 run-mcp:           ## Run MCP server in SSE mode
@@ -104,7 +106,8 @@ run-mcp-client: setup-venv ## Run MCP client script
 ## ========== Docker ==========
 
 build-docker-a2a:            ## Build A2A Docker image
-	docker build -t $(AGENT_DIR_NAME):a2a-latest -f build/Dockerfile.a2a .
+	REPO_ROOT=$$(git rev-parse --show-toplevel 2>/dev/null || echo "../../.."); \
+	docker build -t $(AGENT_DIR_NAME):a2a-latest -f $$REPO_ROOT/ai_platform_engineering/agents/webex/build/Dockerfile.a2a $$REPO_ROOT
 
 build-docker-a2a-tag:        ## Tag A2A Docker image
 	docker tag $(AGENT_DIR_NAME):a2a-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-latest
