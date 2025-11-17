@@ -48,6 +48,7 @@ class InputField(BaseModel):
     field_name: str = Field(description="The name of the field that should be provided, extracted from the tool's specific request.")
     field_description: str = Field(description="A description of what this field represents, based on the tool's actual request for information.")
     field_values: Optional[List[str]] = Field(default=None, description="Possible values for the field mentioned by the tool, if any.")
+    required: Optional[bool] = Field(default=True, description="Whether this field is required. Defaults to True if not specified.")
 
 
 class ResponseMetadata(BaseModel):
