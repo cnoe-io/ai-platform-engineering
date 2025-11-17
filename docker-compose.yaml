@@ -656,6 +656,7 @@ services:
       - ONTOLOGY_AGENT_RESTAPI_ADDR=http://agent_ontology:8098
       - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-true}
       - CLEANUP_INTERVAL=86400
+      - EMBEDDINGS_MODEL=${ENABLE_GRAPH_RAG:-text-embedding-3-large}
     restart: unless-stopped
     env_file: [.env]
     depends_on: [rag-redis]
