@@ -58,7 +58,7 @@ check-env:         ## Check if .env file exists
 	fi
 
 venv-activate = . .venv/bin/activate
-load-env = set -a && . .env && set +a
+load-env = (set -a; [ -f .env ] && . "$$(readlink -f .env 2>/dev/null || echo .env)" || true; set +a)
 venv-run = $(venv-activate) && $(load-env) &&
 
 ## ========== Install ==========
@@ -89,12 +89,16 @@ ruff-fix: setup-venv ## Auto-fix lint issues with ruff
 
 run: setup-venv    ## Run the agent locally
 	@$(MAKE) check-env
-	@$(venv-run) python -u $(AGENT_PKG_NAME)/__main__.py
+	@REPO_ROOT=$$(git rev-parse --show-toplevel 2>/dev/null || echo "../../.."); \
+	export PYTHONPATH=$$REPO_ROOT:$$PYTHONPATH; \
+	$(venv-run) python -u $(AGENT_PKG_NAME)/__main__.py
 
-run-a2a: setup-venv ## Run A2A agent with uvicorn
+run-a2a: setup-venv ## Run A2A agent with uvicorn (use A2A_HOST and A2A_PORT env vars)
 	@$(MAKE) check-env
-	@A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
-		$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
+	@REPO_ROOT=$$(git rev-parse --show-toplevel 2>/dev/null || echo "../../.."); \
+	export PYTHONPATH=$$REPO_ROOT:$$PYTHONPATH; \
+	A2A_PORT=$$(grep A2A_PORT .env | cut -d '=' -f2); \
+	$(venv-run) uv run $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8502}
 
 run-mcp: setup-venv ## Run MCP server in SSE mode
 	@$(MAKE) check-env
@@ -120,7 +124,8 @@ test-gemini:       ## Run Gemini-specific evaluations
 ## ========== Docker ==========
 
 build-docker-a2a: ## Build A2A Docker image
-	@docker build -f build/Dockerfile.a2a -t $(AGENT_DIR_NAME):a2a-latest .
+	@REPO_ROOT=$$(git rev-parse --show-toplevel 2>/dev/null || echo "../../.."); \
+	docker build -f $$REPO_ROOT/ai_platform_engineering/agents/aws/build/Dockerfile.a2a -t $(AGENT_DIR_NAME):a2a-latest $$REPO_ROOT
 
 build-docker-a2a-tag: ## Tag A2A Docker image
 	@docker tag $(AGENT_DIR_NAME):a2a-latest ghcr.io/cnoe-io/$(AGENT_DIR_NAME):a2a-stable

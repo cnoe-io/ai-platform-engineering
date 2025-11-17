@@ -6,7 +6,8 @@
 
 import logging
 from typing import Any
-from mcp_splunk.api.client import make_api_request, assemble_nested_body
+
+from mcp_splunk.api.client import assemble_nested_body, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +15,7 @@ logger = logging.getLogger("mcp_tools")
 
 
 async def retrieve__metric__timeseries__metadata(
-    param_query: str = None, param_limit: int = None, param_searchInactive: bool = False
+    param_query: str = None, param_limit: int = None, param_searchInactive: bool = False,
 ) -> Any:
     """
     Retrieves metric timeseries (MTS) metadata based on a query

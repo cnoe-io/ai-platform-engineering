@@ -1,0 +1,72 @@
+# ---------- Stage 1: Build dependencies ----------
+FROM python:3.13-slim AS builder
+
+ARG AGENT_NAME
+ARG AGENT_PACKAGE
+
+RUN if [ -z "$AGENT_NAME" ]; then \
+    echo "Error: AGENT_NAME build argument is required but not set."; \
+    exit 1; \
+    fi
+
+# Install system dependencies and uv in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && pip install uv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy only the necessary directories for the agent
+COPY --chown=root:root ./ai_platform_engineering/utils /app/ai_platform_engineering/utils/
+COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME} /app/ai_platform_engineering/agents/agent/
+
+# Set working directory to the agent directory
+WORKDIR /app/ai_platform_engineering/agents/agent
+
+# Create README.md if not present (due to .dockerignore)
+RUN [ ! -f "README.md" ] && echo "# README" > README.md || true
+
+# Install dependencies into venv (no dev deps)
+# Increase timeout for large packages (e.g., pyarrow 39MB)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_HTTP_TIMEOUT=300 uv sync --no-dev
+
+# ---------- Stage 2: Final runtime image ----------
+FROM python:3.13-slim
+
+ARG AGENT_NAME
+ARG AGENT_PACKAGE
+
+RUN if [ -z "$AGENT_NAME" ]; then \
+    echo "Error: AGENT_NAME build argument is required but not set."; \
+    exit 1; \
+    fi
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create appuser in final image
+RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
+
+WORKDIR /app/ai_platform_engineering/agents/agent
+
+# Set AGENT_PACKAGE to AGENT_NAME if not provided, then set env vars for uv & PATH
+ENV AGENT_PACKAGE_NAME=${AGENT_PACKAGE:-${AGENT_NAME}} \
+    UV_PROJECT_ENVIRONMENT=/app/ai_platform_engineering/agents/agent/.venv \
+    PATH="/app/ai_platform_engineering/agents/agent/.venv/bin:${PATH}" \
+    PYTHONPATH="/app" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Copy venv & code from builder (maintain directory structure)
+COPY --from=builder --chown=appuser:appuser /app /app
+
+USER appuser
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "exec python -m agent_${AGENT_PACKAGE_NAME} --host 0.0.0.0 --port 8000"]

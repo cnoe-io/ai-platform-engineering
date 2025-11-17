@@ -221,11 +221,8 @@ def add_to_ingress_file(values_file, agent_name):
     agent_section = f'''
 agent-{agent_name}:
   ingress:
-    hosts:
-      - host: agent-{agent_name}.local
-        paths:
-          - path: /
-            pathType: Prefix
+    hosts: []
+      #  - agent-{agent_name}.local
     tls: []
       # - secretName: agent-{agent_name}-tls
       #   hosts:

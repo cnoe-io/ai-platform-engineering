@@ -16,7 +16,7 @@ services:
       - MCP_MODE=${MCP_MODE:-http}
       - PETSTORE_MCP_API_URL=https://petstore.outshift.io/mcp
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/.well-known/agent.json"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/.well-known/agent-card.json"]
       interval: 10s
       timeout: 5s
       retries: 5

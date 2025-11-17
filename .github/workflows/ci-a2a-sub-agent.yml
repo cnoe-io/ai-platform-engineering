@@ -13,6 +13,7 @@ on:
     paths:
       - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/agents/**'
+      - 'build/agents/Dockerfile.a2a'
   workflow_dispatch:
     inputs:
       build_all:
@@ -58,6 +59,7 @@ jobs:
             filters += '  - \'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py\'\n';
             filters += '  - \'ai_platform_engineering/utils/agntcy/agntcy_remote_agent_connect.py\'\n';
             filters += '  - \'.github/**\'\n';
+            filters += '  - \'build/agents/Dockerfile.a2a\'\n';
             agents.forEach(agent => {
               filters += `${agent}:\n`;
               filters += `  - 'ai_platform_engineering/agents/${agent}/**'\n`;
@@ -120,7 +122,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: cnoe-io/agent-${{ matrix.agent }}
+      IMAGE_NAME: ${{ github.repository_owner }}/agent-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -156,14 +158,36 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
+      - name: Determine Dockerfile path
+        id: dockerfile
+        run: |
+          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.a2a" ]; then
+            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.a2a" >> $GITHUB_OUTPUT
+          else
+            echo "path=build/agents/Dockerfile.a2a" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine Agent Package Name
+        id: agent_package
+        run: |
+          # Special case: template agent uses agent_petstore package
+          if [ "${{ matrix.agent }}" == "template" ]; then
+            echo "name=petstore" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ matrix.agent }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and Push A2A Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.AGENT_DIR }}
-          file: ${{ env.AGENT_DIR }}/build/Dockerfile.a2a
+          context: .
+          file: ${{ steps.dockerfile.outputs.path }}
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            AGENT_NAME=${{ matrix.agent }}
+            AGENT_PACKAGE=${{ steps.agent_package.outputs.name }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max

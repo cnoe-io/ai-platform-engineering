@@ -1,3 +1,138 @@
+## 0.2.1 (2025-11-07)
+
+### BREAKING CHANGE
+
+- Agents must now use UserInputMetaData JSON format instead of plain text when requesting user input
+- Update A2A protocol field naming from camelCase to snake_case
+- Replace artifactId with artifact_id throughout codebase
+- Replace messageId with message_id in streaming events
+- Replace taskId with task_id in context handling
+- Replace contextId with context_id across protocol
+- Replace lastChunk with last_chunk in streaming
+- Update TypeScript schema in Agent Forge frontend to match
+
+### Feat
+
+- enhance user input transformation with detailed recipe
+- add user input metadata format and improve agent orchestration
+- add UserInputMetaData format and automatic error retry logic
+- enhance agent system with parallel execution and improved UX
+- parallelize MCP client initialization with graceful failure handling
+- add MCP initialization retry logic with configurable timeouts
+- add grep_virtual_file tool for efficient large output search
+- add critical directive to preserve sub-agent output details
+- add GitHub CI/CD failure analysis directive to system prompt
+- enhance multi-agent queries with unified tabulated results
+- add our github repo link easy for mobile
+- maintain same defaults and properly bump charts
+- add redis persistence, external secrets v1 support, and fix dependencies
+- add info on PR template
+- allow helm pre-release on fork PRs using label
+- Use more standard pattern for Helm ingress
+- build agent-forge on push to main and remove cronjob
+- Support multi-platform Docker builds (AMD64 + ARM64)
+- Update agent-forge Dockerfile for AMD64 compatibility
+- refactor a2a stream with common code and fix agent-forge workflow
+- add prompt templates and agent integration improvements
+- Add execution plan markers and creation confirmation policy
+- Major streaming architecture improvements and prompt enhancements
+- update a2a streaming and agent improvements
+- implement A2A streaming and common code refactoring
+- refactor a2a_stream with common code
+- add istio support and extraDeploy for custom resources
+
+### Fix
+
+- Docker Compose dev file not starting properly
+- **docs**: fix npm build errors and broken links
+- **agent-aws**: change default AWS agent backend to 'strands'
+- disable test-rag-all target in Makefile
+- update uv.lock for agent-rag Docker build
+- escape curly braces in YAML template for Python format()
+- resolve agntcy-app-sdk 0.4.0 compatibility issues
+- Remove deprecated A2AProtocol import from agntcy_remote_agent_connect
+- Derive a2a_topic directly from agent card name
+- Fix agent registry to use agent-card.json endpoint
+- Update all agent dependencies to use slim-bindings 0.4.1
+- resolve pyproject.toml workspace dependency conflicts
+- Change mcp-argocd from workspace to path dependency in argocd agent
+- Remove ai_platform_engineering/agents/argocd/mcp from workspace members
+- Prevent uv dependency resolution conflicts during Docker builds
+- correct indentation errors in Python streaming code
+- Fix indentation in agent_executor.py streaming logic
+- Fix indentation in base_langgraph_agent_executor.py
+- Fix indentation in helpers.py event processing
+- Fix indentation in webex agent a2a_server helpers
+- use hybrid architecture for A2A tool visibility and streaming
+- remove prompts.py subagent generation at import time
+- use CustomSubAgents with tools=[] to avoid write_todos conflicts
+- stream ToolMessage content to display formatted TODO lists
+- enforce A2A agents as tools instead of Deep Agent subagents
+- work with CORS for id token auth
+- deep_agent prompt with correct {}
+- command syntax in user-interfaces.md
+- correct ingress path templating and consistent rag ingress
+- **docker-compose**: use stable image
+- **prompt_config.deep_agent.yaml**: updates
+- Logging of authentication configuration
+- agent-forge ci gh action
+- lint
+- Build agent-forge Docker image for AMD64 only
+- use shell to cd into workspace directory before starting
+- run yarn from workspace root to access state files
+- simplify Dockerfile to copy all files at once
+- copy .yarn directory to Docker container for Yarn 4.9.4 binary
+- remove unnecessary Node.js setup and build steps from workflow
+- resolve yarn workspace state file issue in agent-forge build
+- updates
+- **docker**: align docker-compose contexts with Dockerfile changes
+- **docker**: include __main__.py files in agent Docker builds
+- resolve RAG unit tests virtual environment and module import issues
+- **agents/template**: resolve Docker build failure in CI
+- **build**: export PYTHONPATH for all agent run targets
+- **build**: add PYTHONPATH and fix RAG server venv detection
+- **build**: correct Dockerfile paths in Makefiles to use absolute paths
+- **build**: update Makefiles to use repository root as Docker build context
+- **docker**: correct RAG Dockerfile paths and enable supervisor builds for prebuild branches
+- **docker**: correct A2A directory paths in agent Dockerfiles
+- **docker**: correct MCP directory path in agent Dockerfiles
+- update weather agent dockerfile
+- update rag agent dockerfile
+- update webex agent dockerfile
+- update confluence agent dockerfile
+- resolve Docker build context issues for RAG and A2A agents
+- **ci**: resolve RAG agent Docker build context issues
+- **ci**: resolve Docker build context issues for agent containers
+- **splunk**: apply automatic linting fixes
+- resolve test suite issues and enable linting
+- restore RAG direct routing and add streaming tests
+- Weather and Webex agent environment and MCP configuration
+- Update Weather and Webex agent Docker configurations
+- **async-streaming**: wip
+- **async-streaming**: wip
+- Fix linting issues and verify tests pass
+- lint and tests
+- better docker-compose and temporarily disable aws
+- **auth**: Fix shared key authentication not loading middleware
+- rag broken links
+- docs - broken links
+- docs sidebar - remove unused pages
+- rag-arch image
+- delete old docs
+- update rag docs
+- updates
+- updates
+- updates
+
+### Refactor
+
+- integrate MCP retry logic directly into initialization
+- Weather and Webex agents to use BaseLangGraphAgent
+- GitHub agent to use BaseLangGraphAgent for consistent streaming
+- Move prompt_config.yaml to charts directory and relocate docs
+- Refactor AWS agent to use BaseStrandsAgent and BaseStrandsAgentExecutor
+- **a2a**: move a2a agent and bindings code to common library
+
 ## 0.1.19 (2025-10-22)
 
 ### Feat

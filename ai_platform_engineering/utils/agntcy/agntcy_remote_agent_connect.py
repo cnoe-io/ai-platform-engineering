@@ -11,7 +11,6 @@ from a2a.types import (
     Role,
 )
 from agntcy_app_sdk.factory import AgntcyFactory, ProtocolTypes
-from agntcy_app_sdk.protocols.a2a.protocol import A2AProtocol
 
 # Example Input/Output types for illustration (replace as needed)
 from pydantic import BaseModel, PrivateAttr, Field
@@ -79,8 +78,17 @@ class AgntcySlimRemoteAgentConnectTool(BaseTool):
     """
     logger.info("Establishing connection to the remote agent.")
     logger.info(f"Creating A2A topic for agent card: {self.remote_agent_card}")
-    a2a_topic = A2AProtocol.create_agent_topic(self.remote_agent_card)
-    logger.info(f"A2A topic created: {a2a_topic}")
+
+    # Extract agent topic from agent card
+    # In agntcy-app-sdk 0.4.0, the topic is derived from the agent card name
+    if isinstance(self.remote_agent_card, AgentCard):
+      a2a_topic = self.remote_agent_card.name
+    elif isinstance(self.remote_agent_card, str):
+      a2a_topic = self.remote_agent_card
+    else:
+      raise ValueError(f"Invalid remote_agent_card type: {type(self.remote_agent_card)}")
+
+    logger.info(f"A2A topic: {a2a_topic}")
     logger.info("Creating A2A client with factory")
     self._client = await self._factory.create_client(
       ProtocolTypes.A2A.value,

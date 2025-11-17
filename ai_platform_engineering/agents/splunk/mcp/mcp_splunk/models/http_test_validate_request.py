@@ -4,8 +4,9 @@
 
 """Model for Httptestvalidaterequest"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Httptestvalidaterequest(BaseModel):
 class HttptestvalidaterequestResponse(APIResponse):
     """Response model for Httptestvalidaterequest"""
 
-    data: Optional[Httptestvalidaterequest] = None
+    data: Httptestvalidaterequest | None = None
 
 
 class HttptestvalidaterequestListResponse(APIResponse):
     """List response model for Httptestvalidaterequest"""
 
-    data: List[Httptestvalidaterequest] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Httptestvalidaterequest] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

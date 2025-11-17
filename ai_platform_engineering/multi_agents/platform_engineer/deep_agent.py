@@ -13,6 +13,17 @@ from cnoe_agent_utils import LLMFactory
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
+from ai_platform_engineering.multi_agents.tools import (
+    reflect_on_output,
+    format_markdown,
+    fetch_url,
+    get_current_date,
+    write_workspace_file,
+    read_workspace_file,
+    list_workspace_files,
+    clear_workspace
+)
 from deepagents import async_create_deep_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -84,6 +95,7 @@ class AIPlatformEngineerMAS:
         "registry_status": platform_registry.get_registry_status()
       }
 
+
   def _build_graph(self) -> None:
     """
     Internal method to construct and compile a DeepAgents graph with current agents.
@@ -93,25 +105,47 @@ class AIPlatformEngineerMAS:
 
     base_model = LLMFactory().get_llm()
 
-    # Get fresh tools from registry
-    all_agents = platform_registry.get_all_agents()
-
     # Dynamically generate system prompt and subagents from current registry
     current_agents = platform_registry.agents
     system_prompt = generate_system_prompt(current_agents)
-    subagents = platform_registry.generate_subagents(agent_prompts)
 
-    logger.info(f'🔧 Rebuilding with {len(all_agents)} tools and {len(subagents)} sub_agents')
-    logger.info(f'📦 Tools: {[t.name for t in all_agents]}')
+    # Get fresh tools from registry (for tool notifications and visibility)
+    all_agents = platform_registry.get_all_agents()
+
+    # Add utility tools: reflection, markdown formatting, URL fetching, current date, workspace
+    all_tools = all_agents + [
+        reflect_on_output,
+        format_markdown,
+        fetch_url,
+        get_current_date,
+        write_workspace_file,
+        read_workspace_file,
+        list_workspace_files,
+        clear_workspace
+    ]
+
+    # Generate CustomSubAgents (pre-created react agents with A2A tools)
+    subagents = platform_registry.generate_subagents(agent_prompts, base_model)
+
+    logger.info(f'🔧 Rebuilding with {len(all_tools)} tools and {len(subagents)} subagents')
+    logger.info(f'📦 Tools: {[t.name for t in all_tools]}')
     logger.info(f'🤖 Subagents: {[s["name"] for s in subagents]}')
 
-    # Create the Deep Agent
+    # Create the Deep Agent with CUSTOM SUBAGENT architecture
+    # Each A2A agent is a pre-created react agent (CustomSubAgent) with ONE A2ARemoteAgentConnectTool
+    # Benefits:
+    # - Main supervisor has NO direct A2A tools (avoids conflicts with write_todos)
+    # - Proper task delegation via task() tool (supervisor manages TODOs, delegates to subagents)
+    # - Token-by-token streaming from subagents
+    # - A2A protocol maintained (each subagent uses its A2ARemoteAgentConnectTool)
+
     deep_agent = async_create_deep_agent(
-      tools=all_agents,
-      instructions=system_prompt,
-      subagents=subagents,
-      model=base_model
-      # response_format=PlatformEngineerResponse
+      tools=all_tools,  # A2A tools + reflect_on_output for validation
+      instructions=system_prompt,  # System prompt enforces TODO-based execution workflow
+      subagents=subagents,  # CustomSubAgents for proper task() delegation
+      model=base_model,
+      # response_format=PlatformEngineerResponse  # Removed: Causes embedded JSON in streaming output
+      # Sub-agent DataParts (like Jarvis forms) still work - they're forwarded independently
     )
 
     # Check if LANGGRAPH_DEV is defined in the environment
@@ -171,4 +205,75 @@ class AIPlatformEngineerMAS:
     except Exception as e:
       logger.error(f"Error in serve method: {e}")
       raise Exception(str(e))
+
+  async def serve_stream(self, prompt: str):
+    """
+    Processes the input prompt and streams responses from the graph.
+    This allows the UI to show the todo list as it's created, before tool calls are made.
+
+    Args:
+        prompt (str): The input prompt to be processed by the graph.
+    Yields:
+        dict: Streaming events from the graph including agent responses and tool calls.
+    """
+    try:
+      logger.debug(f"Received streaming prompt: {prompt}")
+      if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("Prompt must be a non-empty string.")
+
+      graph = self.get_graph()
+      thread_id = str(uuid.uuid4())
+
+      # Stream events from the graph
+      async for event in graph.astream_events(
+          {
+              "messages": [
+                  {
+                      "role": "user",
+                      "content": prompt
+                  }
+              ],
+          },
+          {"configurable": {"thread_id": thread_id}},
+          version="v2"
+      ):
+        # Stream agent response chunks (includes todo list planning)
+        if event["event"] == "on_chat_model_stream":
+          chunk = event.get("data", {}).get("chunk")
+          if chunk and hasattr(chunk, "content") and chunk.content:
+            yield {
+              "type": "content",
+              "data": chunk.content
+            }
+
+        # Stream tool call start events
+        elif event["event"] == "on_tool_start":
+          tool_name = event.get("name", "unknown")
+          yield {
+            "type": "tool_start",
+            "tool": tool_name,
+            "data": f"\n\n🔧 Calling {tool_name}...\n"
+          }
+
+        # Stream tool results
+        elif event["event"] == "on_tool_end":
+          tool_name = event.get("name", "unknown")
+          yield {
+            "type": "tool_end",
+            "tool": tool_name,
+            "data": f"✅ {tool_name} completed\n"
+          }
+
+    except ValueError as ve:
+      logger.error(f"ValueError in serve_stream method: {ve}")
+      yield {
+        "type": "error",
+        "data": str(ve)
+      }
+    except Exception as e:
+      logger.error(f"Error in serve_stream method: {e}")
+      yield {
+        "type": "error",
+        "data": str(e)
+      }
 

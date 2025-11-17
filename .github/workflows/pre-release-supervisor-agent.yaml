@@ -8,14 +8,14 @@ on:
       - 'build/**'
       - 'ai_platform_engineering/multi_agents/**'
       - 'ai_platform_engineering/utils/**'
-      - 'ai_platform_engineering/common/**'
+      - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/knowledge_bases/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'ai_platform_engineering/__init__.py'
       - '.github/**'
 env:
-  IMAGE_NAME: cnoe-io/prebuild/ai-platform-engineering
+  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/ai-platform-engineering
 
 jobs:
   determine-changes:
@@ -42,7 +42,7 @@ jobs:
               - '.github/**'
               - 'ai_platform_engineering/multi_agents/**'
               - 'ai_platform_engineering/utils/**'
-              - 'ai_platform_engineering/common/**'
+              - 'ai_platform_engineering/utils/**'
               - 'ai_platform_engineering/knowledge_bases/**'
               - 'pyproject.toml'
               - 'uv.lock'

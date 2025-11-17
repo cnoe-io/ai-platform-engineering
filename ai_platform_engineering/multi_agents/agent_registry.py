@@ -15,7 +15,7 @@ import time
 import threading
 from typing import Dict, Any, Optional, Callable, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ai_platform_engineering.utils.a2a.a2a_remote_agent_connect import (
+from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
 from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import AgntcySlimRemoteAgentConnectTool
@@ -80,10 +80,10 @@ class AgentRegistry:
         logger.info(f"Enabled agents: {enabled_agents}")
         return enabled_agents
 
-    def get_agent_address_mapping(self, agnet_names: List[str]) -> Dict[str, str]:
+    def get_agent_address_mapping(self, agent_names: List[str]) -> Dict[str, str]:
         """Get the address mapping for all enabled agents."""
         address_mapping = {}
-        for agent in agnet_names:
+        for agent in agent_names:
             host = os.getenv(f"{agent.upper()}_AGENT_HOST", "localhost")
             port = os.getenv(f"{agent.upper()}_AGENT_PORT", "8000")
             address_mapping[agent] = f"http://{host}:{port}"
@@ -115,8 +115,22 @@ class AgentRegistry:
 
         return sanitized
 
-    def generate_subagents(self, agent_prompts) -> List[Dict[str, Any]]:
-        """Generate the subagents for all enabled agents."""
+    def generate_subagents(self, agent_prompts, model) -> List[Dict[str, Any]]:
+        """
+        Generate Deep Agent CustomSubAgents for all enabled A2A agents.
+
+        Creates react agents where each has ONE A2ARemoteAgentConnectTool.
+        This enables proper task delegation and streaming while maintaining A2A protocol.
+
+        Args:
+            agent_prompts: Dict of agent-specific prompt overrides
+            model: LLM model to use for subagents
+
+        Returns:
+            List of CustomSubAgent dicts with keys: name, description, graph
+        """
+        from langgraph.prebuilt import create_react_agent
+
         subagents = []
         for agent in self._agents:
             system_prompt_override = agent_prompts.get(agent, {}).get("system_prompt")
@@ -132,10 +146,25 @@ class AgentRegistry:
             if sanitized_name != agent_name:
                 logger.warning(f"Subagent: Sanitized name from '{agent_name}' to '{sanitized_name}' to match OpenAI pattern requirements")
 
+            # Get the A2A tool for this agent
+            if agent not in self._tools:
+                logger.warning(f"Tool not found for agent {agent}, skipping subagent creation")
+                continue
+
+            a2a_tool = self._tools[agent]
+
+            # Create a react agent with ONLY this A2A tool
+            subagent_graph = create_react_agent(
+                model,
+                prompt=prompt,
+                tools=[a2a_tool],  # Single A2A tool
+                checkpointer=False,
+            )
+
             subagents.append({
                 "name": sanitized_name,
                 "description": description,
-                "prompt": prompt
+                "graph": subagent_graph  # CustomSubAgent with pre-created graph
             })
         return subagents
 
@@ -290,7 +319,7 @@ class AgentRegistry:
                 # Use synchronous HTTP client to avoid event loop conflicts
                 with httpx.Client(timeout=httpx.Timeout(self._connectivity_timeout)) as client:
                     # Try to fetch the agent card endpoint - this tests connectivity
-                    card_url = f"{agent_url.rstrip('/')}/.well-known/agent.json"
+                    card_url = f"{agent_url.rstrip('/')}/.well-known/agent-card.json"
                     logger.debug(f"🌐 Testing URL: {card_url}")
 
                     response = client.get(card_url)
@@ -481,9 +510,100 @@ class AgentRegistry:
             logger.warning(f"Unreachable agents excluded: {', '.join(unreachable_agents)}")
             logger.info("To skip connectivity checks, set SKIP_AGENT_CONNECTIVITY_CHECK=true")
 
+        # Store results for later table printing
+        self._connectivity_results = connectivity_results
+        self._agent_cards = agent_cards
+
         self._agents = agents
         self._tools = tools
         self._loaded_modules = {}  # No longer using loaded modules
+
+    def print_connectivity_table(self) -> None:
+        """Print a formatted table of agent connectivity status (public method)."""
+        if not hasattr(self, '_connectivity_results') or not hasattr(self, '_agent_cards'):
+            logger.warning("Connectivity results not available yet")
+            return
+        self._print_connectivity_table(self._connectivity_results, self._agent_cards)
+
+    def _print_connectivity_table(self, connectivity_results: Dict[str, bool], agent_cards: Dict[str, Dict[str, Any]]) -> None:
+        """Print a formatted table of agent connectivity status."""
+        # Table configuration
+        col_widths = {
+            'name': 20,
+            'url': 45,
+            'status': 12,
+            'description': 30
+        }
+        total_width = sum(col_widths.values()) + 13  # 13 for separators and padding
+
+        # Sort agents: reachable first, then unreachable
+        sorted_agents = sorted(
+            connectivity_results.items(),
+            key=lambda x: (not x[1], x[0])  # False (unreachable) comes after True (reachable)
+        )
+
+        # Build table lines
+        lines = []
+        lines.append("")
+        lines.append("╔" + "═" * (total_width - 2) + "╗")
+        lines.append("║" + "📊 AGENT CONNECTIVITY STATUS".center(total_width - 2) + "║")
+        lines.append("╠" + "═" * (total_width - 2) + "╣")
+
+        # Header row
+        header = (
+            f"║ {'Agent Name':<{col_widths['name']}} │ "
+            f"{'URL':<{col_widths['url']}} │ "
+            f"{'Status':<{col_widths['status']}} │ "
+            f"{'Description':<{col_widths['description']}} ║"
+        )
+        lines.append(header)
+        lines.append("╟" + "─" * (col_widths['name'] + 1) + "┼" +
+                    "─" * (col_widths['url'] + 2) + "┼" +
+                    "─" * (col_widths['status'] + 2) + "┼" +
+                    "─" * (col_widths['description'] + 2) + "╢")
+
+        # Data rows
+        for agent_name, is_reachable in sorted_agents:
+            agent_url = self.AGENT_ADDRESS_MAPPING.get(agent_name, "N/A")
+            status = "✅ ONLINE" if is_reachable else "❌ OFFLINE"
+
+            # Get description from agent card if available
+            description = "N/A"
+            if agent_name in agent_cards:
+                description = agent_cards[agent_name].get('description', 'N/A')
+                # Truncate long descriptions
+                if len(description) > col_widths['description']:
+                    description = description[:col_widths['description']-3] + "..."
+
+            # Truncate URL if too long
+            if len(agent_url) > col_widths['url']:
+                agent_url = agent_url[:col_widths['url']-3] + "..."
+
+            # Truncate agent name if too long
+            if len(agent_name) > col_widths['name']:
+                agent_name = agent_name[:col_widths['name']-3] + "..."
+
+            row = (
+                f"║ {agent_name:<{col_widths['name']}} │ "
+                f"{agent_url:<{col_widths['url']}} │ "
+                f"{status:<{col_widths['status']}} │ "
+                f"{description:<{col_widths['description']}} ║"
+            )
+            lines.append(row)
+
+        # Summary footer
+        reachable = sum(1 for r in connectivity_results.values() if r)
+        total = len(connectivity_results)
+        summary_text = f"Summary: {reachable}/{total} agents online"
+
+        lines.append("╠" + "═" * (total_width - 2) + "╣")
+        lines.append("║" + summary_text.center(total_width - 2) + "║")
+        lines.append("╚" + "═" * (total_width - 2) + "╝")
+        lines.append("")
+
+        # Print all lines without timestamps
+        for line in lines:
+            print(line)
 
     def _check_connectivity_for_modules(self) -> tuple[Dict[str, bool], Dict[str, Dict[str, Any]]]:
         """Check connectivity for a set of loaded modules."""

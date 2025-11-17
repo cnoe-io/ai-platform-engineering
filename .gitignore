@@ -128,6 +128,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.jarvis
 .venv
 env/
 venv/
@@ -231,4 +232,10 @@ node_modules/
 
 # Claude Code configuration
 .claude/
+
+# UI Core (local development)
+caipe-ui-core/
+
+# Coverage reports
+coverage.json
 

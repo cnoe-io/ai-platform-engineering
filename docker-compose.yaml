@@ -1,76 +1,60 @@
+# ============================================================================
+# FLEXIBLE DOCKER COMPOSE CONFIGURATION
+# ============================================================================
+# This flexible docker-compose file supports both P2P and SLIM transport protocols
+# through Docker Compose profiles.
+#
+# Usage:
+#   docker compose -f docker-compose.yaml --profile a2a-p2p up           # A2A peer-to-peer transport
+#   docker compose -f docker-compose.yaml --profile a2a-over-slim up     # A2A over SLIM transport
+#
+# Agent selection is controlled through environment variables, see .env file
+# ============================================================================
+
 services:
-  ####################################################################################################
-  #                                 AI Platform Engineer A2A P2P                                  #
-  ####################################################################################################
+  # Main Platform Engineer - P2P
   platform-engineer-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-p2p
     volumes:
       - ./prompt_config.yaml:/app/prompt_config.yaml
-    profiles:
-      - p2p
-      - p2p-basic
-      - p2p-tracing
-      - rag_only
-    # The following block uses the extended 'depends_on' syntax to specify that these agent services are not strictly required for the platform-engineer container to start.
-    # Each agent is marked with 'required: false', so platform-engineer will start even if the agent is missing.
-    # 'condition: service_started' means Docker Compose will wait until the service has started (not necessarily healthy) before starting platform-engineer.
-    depends_on:
-      - agent-argocd-p2p
-      - agent-aws-p2p
-      - agent-backstage-p2p
-      - agent-confluence-p2p
-      - agent-github-p2p
-      - agent-jira-p2p
-      - agent-komodor-p2p
-      - agent-pagerduty-p2p
-      - agent-petstore-p2p
-      - agent_rag
-      - agent-slack-p2p
-      - agent-splunk-p2p
-      - agent-weather-p2p
-      - agent-webex-p2p
     env_file:
       - .env
     ports:
-      # Expose the AI Platform Engineer agent on port 8000
       - "8000:8000"
     environment:
-      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true # Routinely checks each subagent connectivity to add or remove any from existing tools list.
-      - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
-      - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
-
-      # Agent hosts
-      - ARGOCD_AGENT_HOST=agent-argocd-p2p
-      - AWS_AGENT_HOST=agent-aws-p2p
-      - BACKSTAGE_AGENT_HOST=agent-backstage-p2p
-      - CONFLUENCE_AGENT_HOST=agent-confluence-p2p
+      - A2A_TRANSPORT=p2p
+      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true
+      - AGENT_PROTOCOL=a2a
+      - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
       - GITHUB_AGENT_HOST=agent-github-p2p
+      - WEATHER_AGENT_HOST=agent-weather-p2p
+      - BACKSTAGE_AGENT_HOST=agent-backstage-p2p
+      - ARGOCD_AGENT_HOST=agent-argocd-p2p
+      - CONFLUENCE_AGENT_HOST=agent-confluence-p2p
       - JIRA_AGENT_HOST=agent-jira-p2p
       - KOMODOR_AGENT_HOST=agent-komodor-p2p
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-p2p
-      - PETSTORE_AGENT_HOST=agent-petstore-p2p
-      - RAG_AGENT_HOST=agent_rag
       - SLACK_AGENT_HOST=agent-slack-p2p
       - SPLUNK_AGENT_HOST=agent-splunk-p2p
-      - WEATHER_AGENT_HOST=agent-weather-p2p
       - WEBEX_AGENT_HOST=agent-webex-p2p
-      # Enable agents
-      - ENABLE_ARGOCD=true
-      - ENABLE_AWS=true
-      - ENABLE_BACKSTAGE=true
-      - ENABLE_CONFLUENCE=true
-      - ENABLE_GITHUB=true
-      - ENABLE_JIRA=true
-      - ENABLE_KOMODOR=true
-      - ENABLE_PAGERDUTY=true
-      - ENABLE_SLACK=true
-      - ENABLE_SPLUNK=true
-      - ENABLE_WEATHER_AGENT=true
-      - ENABLE_WEBEX_AGENT=true
-      - ENABLE_PETSTORE_AGENT=true
-      - ENABLE_RAG=true
-      # Tracing
+      - AWS_AGENT_HOST=agent-aws-p2p
+      - PETSTORE_AGENT_HOST=agent-petstore-p2p
+      - RAG_AGENT_HOST=agent_rag
+      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
+      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
+      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
+      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
+      - ENABLE_JIRA=${ENABLE_JIRA:-false}
+      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
+      - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
+      - ENABLE_SLACK=${ENABLE_SLACK:-false}
+      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
+      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
+      - ENABLE_AWS=false
+      - ENABLE_PETSTORE=false
+      - ENABLE_RAG=false
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
@@ -78,231 +62,117 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
     command: platform-engineer
+    profiles:
+      - a2a-p2p
 
-  ####################################################################################################
-  #                                      PLATFORM ENGINEER A2A over SLIM                              #
-  ####################################################################################################
+  # Main Platform Engineer - SLIM
   platform-engineer-slim:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: platform-engineer-slim
     volumes:
       - ./prompt_config.yaml:/app/prompt_config.yaml
-    profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-      - agent-argocd-slim
-      - agent-aws-slim
-      - agent-backstage-slim
-      - agent-confluence-slim
-      - agent-github-slim
-      - agent-jira-slim
-      - agent-komodor-slim
-      - agent-pagerduty-slim
-      - agent-petstore-slim
-      - agent-slack-slim
-      - agent-splunk-slim
-      - agent-weather-slim
     env_file:
       - .env
     ports:
-      # Expose the AI Platform Engineer agent on port 8000
       - "8000:8000"
     environment:
       - A2A_TRANSPORT=slim
-      - ARGOCD_AGENT_HOST=agent-argocd-slim
-      - AWS_AGENT_HOST=agent-aws-slim
-      - BACKSTAGE_AGENT_HOST=agent-backstage-slim
-      - CONFLUENCE_AGENT_HOST=agent-confluence-slim
+      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true
+      - AGENT_PROTOCOL=a2a
+      - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - GITHUB_AGENT_HOST=agent-github-slim
+      - WEATHER_AGENT_HOST=agent-weather-slim
+      - BACKSTAGE_AGENT_HOST=agent-backstage-slim
+      - ARGOCD_AGENT_HOST=agent-argocd-slim
+      - CONFLUENCE_AGENT_HOST=agent-confluence-slim
       - JIRA_AGENT_HOST=agent-jira-slim
       - KOMODOR_AGENT_HOST=agent-komodor-slim
       - PAGERDUTY_AGENT_HOST=agent-pagerduty-slim
-      - PETSTORE_AGENT_HOST=agent-petstore-slim
       - SLACK_AGENT_HOST=agent-slack-slim
       - SPLUNK_AGENT_HOST=agent-splunk-slim
       - WEBEX_AGENT_HOST=agent-webex-slim
-      - WEATHER_AGENT_HOST=agent-weather-slim
-      # Enable agents
-      - ENABLE_AWS=${ENABLE_AWS:-true}
-      - ENABLE_KOMODOR=true
-      - ENABLE_PETSTORE_AGENT=${ENABLE_PETSTORE_AGENT:-true}
-      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
+      - AWS_AGENT_HOST=agent-aws-slim
+      - PETSTORE_AGENT_HOST=agent-petstore-slim
+      - RAG_AGENT_HOST=agent_rag
+      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
+      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
+      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
+      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
+      - ENABLE_JIRA=${ENABLE_JIRA:-false}
+      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
+      - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
+      - ENABLE_SLACK=${ENABLE_SLACK:-false}
+      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
+      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
+      - ENABLE_AWS=false
+      - ENABLE_PETSTORE=false
+      - ENABLE_RAG=false
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-platform-engineer}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+    depends_on:
+      - slim-dataplane
+      - slim-control-plane
     command: platform-engineer
-
-  ####################################################################################################
-  #                                            SLIM Dataplane and control plane                      #
-  ####################################################################################################
+    profiles:
+      - a2a-over-slim
+  # SLIM Infrastructure
   slim-dataplane:
     image: ghcr.io/agntcy/slim:0.3.15
     container_name: slim-dataplane
-    profiles:
-      - slim
-      - slim-tracing
-    ports:
-      - "46357:46357"
+    ports: ["46357:46357"]
     environment:
       - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
       - CONFIG_PATH=/config.yaml
-    volumes:
-      - ./slim-config.yaml:/config.yaml
+    volumes: ["./slim-config.yaml:/config.yaml"]
     command: ["/slim", "--config", "/config.yaml"]
+    profiles:
+      - a2a-over-slim
+
   slim-control-plane:
     image: ghcr.io/agntcy/slim/control-plane:0.0.1
     container_name: slim-control-plane
-    profiles:
-      - slim
-      - slim-tracing
-    ports:
-      - "50051:50051"
-      - "50052:50052"
+    ports: ["50051:50051", "50052:50052"]
     environment:
       - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
       - CONFIG_PATH=/config.yaml
-    volumes:
-      - ./slim-config.yaml:/config.yaml
+    volumes: ["./slim-config.yaml:/config.yaml"]
     command: ["/slim", "--config", "/config.yaml"]
-
-  ####################################################################################################
-  #                                           MCP ARGOCD                                            #
-  ####################################################################################################
-  mcp-argocd:
-    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-latest}
-    container_name: mcp-argocd
     profiles:
-      - p2p
-      - p2p-tracing
-      - slim
-      - slim-tracing
-    env_file:
-      - .env
-    ports:
-      - "18000:8000"
-    environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=mcp-argocd
-      - MCP_PORT=8000
+      - a2a-over-slim
 
-  ####################################################################################################
-  #                                      AGENT ARGOCD A2A over SLIM                                  #
-  ####################################################################################################
-  agent-argocd-slim:
-    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-latest}
-    container_name: agent-argocd-slim
-    profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-      - mcp-argocd
-    env_file:
-      - .env
-    ports:
-      - "8001:8000"
-    environment:
-      - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-argocd
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      AGENT ARGOCD A2A P2P                                        #
-  ####################################################################################################
-  agent-argocd-p2p:
-    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-latest}
-    container_name: agent-argocd-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    depends_on:
-      - mcp-argocd
-    env_file:
-      - .env
-    ports:
-      - "8001:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-argocd
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      AGENT AWS A2A over SLIM                                     #
-  ####################################################################################################
-  agent-aws-slim:
-    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-latest}
-    container_name: agent-aws-slim
-    profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    ports:
-      - "8002:8000"
-    environment:
-      - A2A_TRANSPORT=slim
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      # AWS Configuration
-      - AWS_REGION=${AWS_REGION}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      # MCP Configuration
-      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
-      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
-      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
-      - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
-      - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
-      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
-      - LLM_PROVIDER=${LLM_PROVIDER}
-      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
-      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
-      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
-      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
-
-  ####################################################################################################
-  #                                      AGENT AWS A2A P2P                                           #
-  ####################################################################################################
+  # AWS Agents
   agent-aws-p2p:
-    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-stable}
     container_name: agent-aws-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8002:8000"
+    env_file: [.env]
+    ports: ["8012:8000"]
     environment:
       - A2A_TRANSPORT=p2p
+      - MCP_MODE=http
+    profiles:
+      - a2a-p2p
+
+  agent-aws-slim:
+    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-stable}
+    container_name: agent-aws-slim
+    env_file: [.env]
+    ports: ["8012:8000"]
+    environment:
+      - A2A_TRANSPORT=slim
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      # AWS Configuration
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      # MCP Configuration
       - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
       - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
       - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
@@ -314,888 +184,573 @@ services:
       - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
       - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
-
-  ####################################################################################################
-  #                                      AGENT BACKSTAGE A2A over SLIM                               #
-  ####################################################################################################
-  agent-backstage-slim:
-    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-latest}
-    container_name: agent-backstage-slim
+    depends_on: [slim-dataplane]
     profiles:
-      - slim
-      - slim-tracing
-    env_file:
-      - .env
-    depends_on:
-      - slim-dataplane
-    ports:
-      - "8003:8000"
-    environment:
-      - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-backstage
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      AGENT BACKSTAGE A2A P2P                                     #
-  ####################################################################################################
-  agent-backstage-p2p:
-    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-latest}
-    container_name: agent-backstage-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8003:8000"
+      - a2a-over-slim
+  # Petstore Agents
+  agent-petstore-p2p:
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
+    container_name: agent-petstore-p2p
+    env_file: [.env]
+    ports: ["8013:8000"]
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-backstage
+      - MCP_MODE=http
+      - MCP_PORT=443
+      - MCP_HOST=petstore.outshift.io
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+    profiles:
+      - a2a-p2p
+
+  agent-petstore-slim:
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
+    container_name: agent-petstore-slim
+    env_file: [.env]
+    ports: ["8013:8000"]
+    environment:
+      - A2A_TRANSPORT=slim
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_PORT=443
+      - MCP_HOST=petstore.outshift.io
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      MCP BACKSTAGE                                               #
-  ####################################################################################################
-  mcp-backstage:
-    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-latest}
-    container_name: mcp-backstage
+    depends_on: [slim-dataplane]
     profiles:
-      - p2p
-      - p2p-tracing
-      - slim
-      - slim-tracing
-    env_file:
-      - .env
-    ports:
-      - "18001:8000"
+      - a2a-over-slim
+  # GitHub Agents
+  agent-github-p2p:
+    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-stable}
+    container_name: agent-github-p2p
+    env_file: [.env]
+    ports: ["8001:8000"]
     environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=http
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+    profiles:
+      - a2a-p2p
 
-  ####################################################################################################
-  #                                      AGENT CONFLUENCE A2A over SLIM                              #
-  ####################################################################################################
+  agent-github-slim:
+    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-stable}
+    container_name: agent-github-slim
+    env_file: [.env]
+    ports: ["8001:8000"]
+    environment:
+      - A2A_TRANSPORT=slim
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+    depends_on: [slim-dataplane]
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+    profiles:
+      - a2a-over-slim
+  # Weather Agents
+  agent-weather-p2p:
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
+    container_name: agent-weather-p2p
+    env_file: [.env]
+    ports: ["8002:8000"]
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=http
+      - MCP_HOST=weather.outshift.io
+      - MCP_PORT=8000
+    profiles:
+      - a2a-p2p
+
+  agent-weather-slim:
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
+    container_name: agent-weather-slim
+    env_file: [.env]
+    ports: ["8002:8000"]
+    environment:
+      - A2A_TRANSPORT=slim
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_HOST=weather.outshift.io
+      - MCP_PORT=8000
+    depends_on: [slim-dataplane]
+    profiles:
+      - a2a-over-slim
+  # Backstage Agents
+  agent-backstage-p2p:
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
+    container_name: agent-backstage-p2p
+    env_file: [.env]
+    ports: ["8003:8000"]
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=http
+      - MCP_HOST=mcp-backstage
+      - MCP_PORT=8000
+    depends_on: [mcp-backstage]
+    profiles:
+      - a2a-p2p
+
+  agent-backstage-slim:
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
+    container_name: agent-backstage-slim
+    env_file: [.env]
+    ports: ["8003:8000"]
+    environment:
+      - A2A_TRANSPORT=slim
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-backstage
+      - MCP_PORT=8000
+    depends_on: [mcp-backstage, slim-dataplane]
+    profiles:
+      - a2a-over-slim
+
+  # ArgoCD Agents
+  agent-argocd-p2p:
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
+    container_name: agent-argocd-p2p
+    env_file: [.env]
+    ports: ["8004:8000"]
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=http
+      - MCP_HOST=mcp-argocd
+      - MCP_PORT=8000
+    depends_on: [mcp-argocd]
+    profiles:
+      - a2a-p2p
+
+  agent-argocd-slim:
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
+    container_name: agent-argocd-slim
+    env_file: [.env]
+    ports: ["8004:8000"]
+    environment:
+      - A2A_TRANSPORT=slim
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-argocd
+      - MCP_PORT=8000
+    depends_on: [mcp-argocd, slim-dataplane]
+    profiles:
+      - a2a-over-slim
+  # Confluence Agents
+  agent-confluence-p2p:
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
+    container_name: agent-confluence-p2p
+    env_file: [.env]
+    ports: ["8005:8000"]
+    environment:
+      - A2A_TRANSPORT=p2p
+      - MCP_MODE=http
+      - MCP_HOST=mcp-confluence
+      - MCP_PORT=8000
+    depends_on: [mcp-confluence]
+    profiles:
+      - a2a-p2p
 
   agent-confluence-slim:
-    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
     container_name: agent-confluence-slim
-    profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    ports:
-      - "8005:8000"
+    env_file: [.env]
+    ports: ["8005:8000"]
     environment:
       - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
       - MCP_HOST=mcp-confluence
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      AGENT CONFLUENCE A2A P2P                                    #
-  ####################################################################################################
-  agent-confluence-p2p:
-    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-latest}
-    container_name: agent-confluence-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8005:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
       - MCP_PORT=8000
-      - MCP_HOST=mcp-confluence
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      MCP CONFLUENCE                                             #
-  ####################################################################################################
-  mcp-confluence:
-    image: ghcr.io/cnoe-io/mcp-confluence:${IMAGE_TAG:-latest}
-    container_name: mcp-confluence
+    depends_on: [mcp-confluence, slim-dataplane]
     profiles:
-      - p2p
-      - p2p-tracing
-      - slim
+      - a2a-over-slim
 
-      - slim-tracing
-    env_file:
-      - .env
-    ports:
-      - "18002:8000"
-    environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-
-  ####################################################################################################
-  #                                      AGENT GITHUB A2A over SLIM                                  #
-  ####################################################################################################
-  agent-github-slim:
-    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-latest}
-    container_name: agent-github-slim
-    profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    ports:
-      - "8007:8000"
-    environment:
-      - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-github-agent}
-      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-github-agent}
-
-  ####################################################################################################
-  #                                      AGENT GITHUB A2A P2P                                        #
-  ####################################################################################################
-  agent-github-p2p:
-    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-latest}
-    container_name: agent-github-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    env_file:
-      - .env
-    ports:
-      - "8007:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-
-  ####################################################################################################
-  #                                      AGENT JIRA SLIM                                             #
-  ####################################################################################################
-  agent-jira-slim:
-    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-latest}
-    container_name: agent-jira-slim
-    profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    ports:
-      - "8009:8000"
-    environment:
-      - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-jira
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-jira-agent}
-      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-jira-agent}
-
-  ####################################################################################################
-  #                                      AGENT JIRA A2A P2P                                          #
-  ####################################################################################################
+  # Jira Agents
   agent-jira-p2p:
-    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
     container_name: agent-jira-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8009:8000"
+    env_file: [.env]
+    ports: ["8006:8000"]
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
+      - MCP_MODE=http
       - MCP_HOST=mcp-jira
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-jira-agent}
-
-  ####################################################################################################
-  #                                      MCP JIRA                                                    #
-  ####################################################################################################
-  mcp-jira:
-    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-latest}
-    container_name: mcp-jira
-    profiles:
-      - p2p
-      - p2p-tracing
-      - slim
-      - slim-tracing
-    env_file:
-      - .env
-    ports:
-      - "18003:8000"
-    environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-
-  ####################################################################################################
-  #                                      AGENT KOMODOR A2A over SLIM                                 #
-  ####################################################################################################
-  agent-komodor-slim:
-    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-latest}
-    container_name: agent-komodor-slim
+    depends_on: [mcp-jira]
     profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    ports:
-      - "8011:8000"
+      - a2a-p2p
+
+  agent-jira-slim:
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
+    container_name: agent-jira-slim
+    env_file: [.env]
+    ports: ["8006:8000"]
     environment:
       - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-jira
       - MCP_PORT=8000
-      - MCP_HOST=mcp-komodor
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+    depends_on: [mcp-jira, slim-dataplane]
+    profiles:
+      - a2a-over-slim
 
-  ####################################################################################################
-  #                                      AGENT KOMODOR A2A P2P                                       #
-  ####################################################################################################
+  # Komodor Agents
   agent-komodor-p2p:
-    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
     container_name: agent-komodor-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8011:8000"
+    env_file: [.env]
+    ports: ["8007:8000"]
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
+      - MCP_MODE=http
       - MCP_HOST=mcp-komodor
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      MCP KOMODOR                                                 #
-  ####################################################################################################
-  mcp-komodor:
-    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-latest}
-    container_name: mcp-komodor
-    profiles:
-      - p2p
-      - p2p-tracing
-      - slim
-      - slim-tracing
-    env_file:
-      - .env
-    ports:
-      - "18004:8000"
-    environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-
-  ####################################################################################################
-  #                                      AGENT PAGERDUTY A2A over SLIM                               #
-  ####################################################################################################
-  agent-pagerduty-slim:
-    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-latest}
-    container_name: agent-pagerduty-slim
+    depends_on: [mcp-komodor]
     profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    ports:
-      - "8013:8000"
+      - a2a-p2p
+
+  agent-komodor-slim:
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
+    container_name: agent-komodor-slim
+    env_file: [.env]
+    ports: ["8007:8000"]
     environment:
       - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-komodor
       - MCP_PORT=8000
-      - MCP_HOST=mcp-pagerduty
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      AGENT PAGERDUTY A2A P2P                                     #
-  ####################################################################################################
+    depends_on: [mcp-komodor, slim-dataplane]
+    profiles:
+      - a2a-over-slim
+  # PagerDuty Agents
   agent-pagerduty-p2p:
-    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
     container_name: agent-pagerduty-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8013:8000"
+    env_file: [.env]
+    ports: ["8008:8000"]
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
+      - MCP_MODE=http
       - MCP_HOST=mcp-pagerduty
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      MCP PAGERDUTY                                             #
-  ####################################################################################################
-  mcp-pagerduty:
-    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-latest}
-    container_name: mcp-pagerduty
-    profiles:
-      - p2p
-      - p2p-tracing
-      - slim
-      - slim-tracing
-    env_file:
-      - .env
-    ports:
-      - "18005:8000"
-    environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-
-  ####################################################################################################
-  #                                      AGENT SLACK A2A over SLIM                                   #
-  ####################################################################################################
-  agent-slack-slim:
-    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-latest}
-    container_name: agent-slack-slim
+    depends_on: [mcp-pagerduty]
     profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    ports:
-      - "8015:8000"
+      - a2a-p2p
+
+  agent-pagerduty-slim:
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
+    container_name: agent-pagerduty-slim
+    env_file: [.env]
+    ports: ["8008:8000"]
     environment:
       - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-pagerduty
       - MCP_PORT=8000
-      - MCP_HOST=mcp-slack
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-slack-agent}
-      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-slack-agent}
+    depends_on: [mcp-pagerduty, slim-dataplane]
+    profiles:
+      - a2a-over-slim
 
-  ####################################################################################################
-  #                                      AGENT SLACK A2A P2P                                         #
-  ####################################################################################################
+  # Slack Agents
   agent-slack-p2p:
-    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
     container_name: agent-slack-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8015:8000"
+    env_file: [.env]
+    ports: ["8009:8000"]
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
+      - MCP_MODE=http
       - MCP_HOST=mcp-slack
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      MCP SLACK                                                   #
-  ####################################################################################################
-  mcp-slack:
-    image: ghcr.io/cnoe-io/mcp-slack:${IMAGE_TAG:-latest}
-    container_name: mcp-slack
-    profiles:
-      - p2p
-      - p2p-tracing
-      - slim
-      - slim-tracing
-    env_file:
-      - .env
-    ports:
-      - "18006:8000"
-    environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-
-  ####################################################################################################
-  #                                      AGENT WEBEX A2A P2P                                         #
-  ####################################################################################################
-  agent-webex-p2p:
-    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-latest}
-    container_name: agent-webex-p2p
+    depends_on: [mcp-slack]
     profiles:
-      - webex
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8017:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-webex
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - a2a-p2p
 
-  ####################################################################################################
-  #                                      AGENT WEBEX A2A over SLIM                                   #
-  ####################################################################################################
-  agent-webex-slim:
-    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-latest}
-    container_name: agent-webex-slim
-    profiles:
-      - webex-slim
-    env_file:
-      - .env
-    depends_on:
-      - slim-dataplane
-    ports:
-      - "8017:8000"
-    environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
-      - MCP_HOST=mcp-webex
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      MCP WEBEX                                                   #
-  ####################################################################################################
-  mcp-webex:
-    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-latest}
-    container_name: mcp-webex
-    profiles:
-      - webex
-      - webex-slim
-      - p2p
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "18007:8000"
-    environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-
-  ####################################################################################################
-  #                                      MCP SPLUNK                                                  #
-  ####################################################################################################
-  mcp-splunk:
-    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-latest}
-
-    container_name: mcp-splunk
-    profiles:
-      - slim
-      - p2p
-      - p2p-tracing
-      - slim-tracing
-    env_file:
-      - .env
-    ports:
-      - "18008:8000"
-    environment:
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-
-  ####################################################################################################
-  #                                      AGENT SPLUNK A2A over SLIM                                  #
-  ####################################################################################################
-  agent-splunk-slim:
-    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-latest}
-    container_name: agent-splunk-slim
-    profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    ports:
-      - "8019:8000"
+  agent-slack-slim:
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
+    container_name: agent-slack-slim
+    env_file: [.env]
+    ports: ["8009:8000"]
     environment:
       - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-slack
       - MCP_PORT=8000
-      - MCP_HOST=mcp-splunk
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+    depends_on: [mcp-slack, slim-dataplane]
+    profiles:
+      - a2a-over-slim
 
-  ####################################################################################################
-  #                                      AGENT SPLUNK A2A P2P                                        #
-  ####################################################################################################
+  # Splunk Agents
   agent-splunk-p2p:
-    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-latest}
-
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-stable}
     container_name: agent-splunk-p2p
-    profiles:
-      - p2p
-      - p2p-tracing
-    depends_on:
-      - mcp-splunk
-    env_file:
-      - .env
-    ports:
-      - "8019:8000"
+    env_file: [.env]
+    ports: ["8010:8000"]
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=8000
+      - MCP_MODE=http
       - MCP_HOST=mcp-splunk
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-
-  ####################################################################################################
-  #                                      AGENT WEATHER A2A over SLIM                                 #
-  ####################################################################################################
-  agent-weather-slim:
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-latest}
-    container_name: agent-weather-slim
+      - MCP_PORT=8000
+    depends_on: [mcp-splunk]
     profiles:
-      - weather
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    ports:
-      - "8021:8000"
+      - a2a-p2p
+
+  agent-splunk-slim:
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-stable}
+    container_name: agent-splunk-slim
+    env_file: [.env]
+    ports: ["8010:8000"]
     environment:
       - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-weather-agent}
-      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-weather-agent}
-
-  ####################################################################################################
-  #                                      AGENT WEATHER A2A P2P                                       #
-  ####################################################################################################
-  agent-weather-p2p:
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-latest}
-    container_name: agent-weather-p2p
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-splunk
+      - MCP_PORT=8000
+    depends_on: [mcp-splunk, slim-dataplane]
     profiles:
-      - p2p
-      - p2p-basic
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8021:8000"
+      - a2a-over-slim
+
+  # Webex Agents
+  agent-webex-p2p:
+    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-stable}
+    container_name: agent-webex-p2p
+    env_file: [.env]
+    ports: ["8011:8000"]
     environment:
       - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=443
-      - MCP_HOST=weather.outshift.io
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-
-  ####################################################################################################
-  #                                      AGENT PETSTORE A2A over SLIM                                #
-  ####################################################################################################
-  agent-petstore-slim:
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-latest}
-    container_name: agent-petstore-slim
+      - MCP_MODE=http
+      - MCP_HOST=mcp-webex
+      - MCP_PORT=8000
+    depends_on: [mcp-webex]
     profiles:
-      - slim
-      - slim-tracing
-    depends_on:
-      - slim-dataplane
-    env_file:
-      - .env
-    ports:
-      - "8023:8000"
+      - a2a-p2p
+
+  agent-webex-slim:
+    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-stable}
+    container_name: agent-webex-slim
+    env_file: [.env]
+    ports: ["8011:8000"]
     environment:
       - A2A_TRANSPORT=slim
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=443
-      - MCP_HOST=petstore.outshift.io
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-
-  ####################################################################################################
-  #                                      AGENT PETSTORE A2A P2P                                       #
-  ####################################################################################################
-  agent-petstore-p2p:
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-latest}
-    container_name: agent-petstore-p2p
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - MCP_MODE=http
+      - MCP_HOST=mcp-webex
+      - MCP_PORT=8000
+    depends_on: [mcp-webex, slim-dataplane]
     profiles:
-      - p2p
-      - p2p-basic
-      - p2p-tracing
-    env_file:
-      - .env
-    ports:
-      - "8023:8000"
-    environment:
-      - A2A_TRANSPORT=p2p
-      - MCP_MODE=${MCP_MODE:-http}
-      - MCP_PORT=443
-      - MCP_HOST=petstore.outshift.io
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - a2a-over-slim
+  # MCP Services (conditional deployment based on agent needs)
+  mcp-backstage:
+    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-stable}
+    container_name: mcp-backstage
+    env_file: [.env]
+    ports: ["18001:8000"]
+    environment: [MCP_MODE=http]
+    profiles:
+      - a2a-p2p
+      - a2a-over-slim
 
-  ####################################################################################################
-  #                                      BACKSTAGE AGENT FORGE                                       #
-  ####################################################################################################
+  mcp-argocd:
+    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-stable}
+    container_name: mcp-argocd
+    env_file: [.env]
+    ports: ["18002:8000"]
+    environment: [MCP_MODE=http]
+    profiles:
+      - a2a-p2p
+      - a2a-over-slim
+
+  mcp-confluence:
+    image: ghcr.io/cnoe-io/mcp-confluence:${IMAGE_TAG:-stable}
+    container_name: mcp-confluence
+    env_file: [.env]
+    ports: ["18003:8000"]
+    environment: [MCP_MODE=http]
+    profiles:
+      - a2a-p2p
+      - a2a-over-slim
+
+  mcp-jira:
+    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-stable}
+    container_name: mcp-jira
+    env_file: [.env]
+    ports: ["18004:8000"]
+    environment: [MCP_MODE=http]
+    profiles:
+      - a2a-p2p
+      - a2a-over-slim
+
+  mcp-komodor:
+    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-stable}
+    container_name: mcp-komodor
+    env_file: [.env]
+    ports: ["18005:8000"]
+    environment: [MCP_MODE=http]
+    profiles:
+      - a2a-p2p
+      - a2a-over-slim
+
+  mcp-pagerduty:
+    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-stable}
+    container_name: mcp-pagerduty
+    env_file: [.env]
+    ports: ["18006:8000"]
+    environment: [MCP_MODE=http]
+    profiles:
+      - a2a-p2p
+      - a2a-over-slim
+
+  mcp-slack:
+    image: ghcr.io/cnoe-io/mcp-slack:${IMAGE_TAG:-stable}
+    container_name: mcp-slack
+    env_file: [.env]
+    ports: ["18007:8000"]
+    environment: [MCP_MODE=http]
+    profiles:
+      - a2a-p2p
+      - a2a-over-slim
+
+  mcp-splunk:
+    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-stable}
+    container_name: mcp-splunk
+    env_file: [.env]
+    ports: ["18008:8000"]
+    environment: [MCP_MODE=http]
+    profiles:
+      - a2a-p2p
+      - a2a-over-slim
+
+  mcp-webex:
+    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-stable}
+    container_name: mcp-webex
+    env_file: [.env]
+    ports: ["18009:8000"]
+    environment: [MCP_MODE=http]
+    profiles:
+      - a2a-p2p
+      - a2a-over-slim
+  # Backstage Plugin (Agent Forge)
   backstage-agent-forge:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
-    ports:
-      - "13000:3000"
+    ports: ["13000:3000"]
+    environment: [NODE_ENV=development]
 
-  ####################################################################################################
-  #                                             RAG SERVICES                                         #
-  ####################################################################################################
+  # RAG Services
   rag_server:
-    ports:
-      - "9446:9446"
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
+    container_name: rag_server
+    ports: ["9446:9446"]
     environment:
-        LOG_LEVEL: DEBUG
-        REDIS_URL: redis://rag-redis:6379/0
-        NEO4J_ADDR: neo4j://neo4j:7687
-        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7688
-        NEO4J_USERNAME: neo4j
-        NEO4J_PASSWORD: dummy_password
-        MILVUS_URI: http://milvus-standalone:19530
-        ONTOLOGY_AGENT_RESTAPI_ADDR: http://agent_ontology:8098
-        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
-        CLEANUP_INTERVAL: 86400
+      - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://rag-redis:6379/0
+      - NEO4J_ADDR=neo4j://neo4j:7687
+      - NEO4J_ONTOLOGY_ADDR=neo4j://neo4j-ontology:7688
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=dummy_password
+      - MILVUS_URI=http://milvus-standalone:19530
+      - ONTOLOGY_AGENT_RESTAPI_ADDR=http://agent_ontology:8098
+      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-true}
+      - CLEANUP_INTERVAL=86400
     restart: unless-stopped
-    env_file:
-      - .env
-    depends_on:
-      - rag-redis
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-latest}
-    profiles:
-      - rag_p2p
-      - rag_no_graph_p2p
-      - p2p
-      - p2p-tracing
+    env_file: [.env]
+    depends_on: [rag-redis]
 
   agent_rag:
+    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-stable}
     container_name: agent_rag
-    ports:
-      - "8099:8099"
-    env_file:
-      - .env
+    ports: ["8099:8099"]
+    env_file: [.env]
     environment:
-        # LOG_LEVEL: DEBUG
-        REDIS_URL: redis://rag-redis:6379/0
-        NEO4J_ADDR: neo4j://neo4j:7687
-        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7688
-        NEO4J_USERNAME: neo4j
-        NEO4J_PASSWORD: dummy_password
-        RAG_SERVER_URL: http://rag_server:9446
-        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
+      - REDIS_URL=redis://rag-redis:6379/0
+      - NEO4J_ADDR=neo4j://neo4j:7687
+      - NEO4J_ONTOLOGY_ADDR=neo4j://neo4j-ontology:7688
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=dummy_password
+      - RAG_SERVER_URL=http://rag_server:9446
+      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-true}
     restart: unless-stopped
-    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-latest}
-    profiles:
-      - rag_p2p
-      - rag_no_graph_p2p
-      - p2p
-      - p2p-tracing
+
   agent_ontology:
-    ports:
-      - "8098:8098"
+    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
+    container_name: agent_ontology
+    ports: ["8098:8098"]
     environment:
-        LOG_LEVEL: DEBUG
-        REDIS_URL: redis://rag-redis:6379/0
-        NEO4J_ADDR: neo4j://neo4j:7687
-        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7688
-        NEO4J_USERNAME: neo4j
-        NEO4J_PASSWORD: dummy_password
-        SYNC_INTERVAL: 86400 # 24 hours
-    env_file:
-      - .env
+      - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://rag-redis:6379/0
+      - NEO4J_ADDR=neo4j://neo4j:7687
+      - NEO4J_ONTOLOGY_ADDR=neo4j://neo4j-ontology:7688
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=dummy_password
+      - SYNC_INTERVAL=86400
+    env_file: [.env]
     restart: unless-stopped
-    depends_on:
-      - rag_server
-      - neo4j
-      - neo4j-ontology
-      - rag-redis
-    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-latest}
-    profiles:
-      - rag_p2p
+    depends_on: [rag_server, neo4j, neo4j-ontology, rag-redis]
 
   rag_webui:
-    build:
-      context: ai_platform_engineering/knowledge_bases/rag
-      dockerfile: ./build/Dockerfile.webui
+    image: ghcr.io/cnoe-io/caipe-rag-webui:${IMAGE_TAG:-stable}
     container_name: rag-webui
     environment:
-      RAG_SERVER_URL: http://rag_server:9446
-      NGINX_ENVSUBST_TEMPLATE_SUFFIX: ".conf"
-    depends_on:
-      - rag_server
-    ports:
-      - "9447:80"
-    profiles:
-      - rag_p2p
-      - rag_no_graph_p2p
-      - p2p
-      - p2p-tracing
-
-
-  ###########################################
-  # Dependent services for RAG              #
-  ###########################################
+      - RAG_SERVER_URL=http://rag_server:9446
+      - NGINX_ENVSUBST_TEMPLATE_SUFFIX=".conf"
+    depends_on: [rag_server]
+    ports: ["9447:80"]
+  # RAG Dependencies
   neo4j:
     image: neo4j:latest
     container_name: neo4j
     volumes:
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/logs:/logs
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/config:/config
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/data:/data
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/plugins:/plugins
-    ports:
-      - "7474:7474"
-      - "7687:7687"
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/logs:/logs
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/config:/config
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/data:/data
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/plugins:/plugins
+    ports: ["7474:7474", "7687:7687"]
     restart: unless-stopped
-    profiles:
-      - rag_p2p
-      - p2p
-      - p2p-tracing
     environment:
-      NEO4J_AUTH: neo4j/dummy_password
-      NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
+      - NEO4J_AUTH=neo4j/dummy_password
+      - NEO4J_PLUGINS='["apoc"]'
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
 
   neo4j-ontology:
     image: neo4j:latest
     container_name: neo4j-ontology
     volumes:
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/logs:/logs
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/config:/config
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/data:/data
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/plugins:/plugins
-    ports:
-      - "7688:7687"
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/logs:/logs
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/config:/config
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/data:/data
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/plugins:/plugins
+    ports: ["7688:7687"]
     restart: unless-stopped
     environment:
-      NEO4J_AUTH: neo4j/dummy_password
-      NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
-    profiles:
-      - rag_p2p
-      - p2p
-      - p2p-tracing
+      - NEO4J_AUTH=neo4j/dummy_password
+      - NEO4J_PLUGINS='["apoc"]'
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
 
   rag-redis:
     image: redis
-    command:
-      - /bin/sh
-      - -c
-      - redis-server
-    ports:
-      - ":6379"
+    container_name: rag-redis
+    command: ["/bin/sh", "-c", "redis-server"]
+    ports: [":6379"]
     restart: unless-stopped
-    profiles:
-      - rag_p2p
-      - rag_no_graph_p2p
-      - p2p
-      - p2p-tracing
 
   milvus-standalone:
-    container_name: milvus-standalone
     image: milvusdb/milvus:v2.6.0
+    container_name: milvus-standalone
     command: ["milvus", "run", "standalone"]
-    profiles:
-      - rag_p2p
-      - rag_no_graph_p2p
-      - p2p
-      - p2p-tracing
-    security_opt:
-      - seccomp:unconfined
+    security_opt: [seccomp:unconfined]
     environment:
-      MINIO_REGION: us-east-1
-      ETCD_ENDPOINTS: etcd:2379
-      MINIO_ADDRESS: milvus-minio:9000
-      LOG_LEVEL: error
+      - MINIO_REGION=us-east-1
+      - ETCD_ENDPOINTS=etcd:2379
+      - MINIO_ADDRESS=milvus-minio:9000
+      - LOG_LEVEL=error
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
     healthcheck:
@@ -1204,21 +759,12 @@ services:
       start_period: 90s
       timeout: 20s
       retries: 3
-    ports:
-      - ":19530"
-      - ":9091"
-    depends_on:
-      - etcd
-      - milvus-minio
+    ports: [":19530", ":9091"]
+    depends_on: [etcd, milvus-minio]
 
   etcd:
-    container_name: milvus-etcd
     image: quay.io/coreos/etcd:v3.5.18
-    profiles:
-      - rag_p2p
-      - rag_no_graph_p2p
-      - p2p
-      - p2p-tracing
+    container_name: milvus-etcd
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
@@ -1234,19 +780,12 @@ services:
       retries: 3
 
   milvus-minio:
-    container_name: milvus-minio
     image: minio/minio:RELEASE.2024-05-28T17-19-04Z
-    profiles:
-      - rag_p2p
-      - rag_no_graph_p2p
-      - p2p
-      - p2p-tracing
+    container_name: milvus-minio
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-    ports:
-      - ":9001"
-      - ":9000"
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    ports: [":9001", ":9000"]
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
@@ -1255,18 +794,11 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-
-  ####################################################################################################
-  #                                      LANGFUSE TRACING SERVICES                                   #
-  ####################################################################################################
-  # Langfuse Tracing Services (use ENABLE_TRACING=true to enable)
+  # Langfuse Tracing Services
   langfuse-worker:
     image: langfuse/langfuse-worker:3
     container_name: langfuse-worker
     restart: always
-    profiles:
-      - p2p-tracing
-      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -1276,43 +808,37 @@ services:
         condition: service_healthy
       langfuse-clickhouse:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:3030:3030"
+    ports: ["127.0.0.1:3030:3030"]
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@langfuse-postgres:5432/postgres
-      SALT: "mysalt"
-      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
-      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
-      CLICKHOUSE_CLUSTER_ENABLED: "false"
-      # S3 Event Upload Configuration (Required for tracing)
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: "events/"
-      # S3 Media Upload Configuration
-      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: "media/"
-      REDIS_HOST: langfuse-redis
-      REDIS_AUTH: myredissecret
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-postgres:5432/postgres
+      - SALT=mysalt
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://langfuse-clickhouse:9000
+      - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_PREFIX=events/
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media/
+      - REDIS_HOST=langfuse-redis
+      - REDIS_AUTH=myredissecret
 
   langfuse-web:
     image: langfuse/langfuse:3
     container_name: langfuse-web
     restart: always
-    profiles:
-      - p2p-tracing
-      - slim-tracing
     depends_on:
       langfuse-postgres:
         condition: service_healthy
@@ -1322,57 +848,49 @@ services:
         condition: service_healthy
       langfuse-clickhouse:
         condition: service_healthy
-    ports:
-      - "3000:3000"
+    ports: ["3000:3000"]
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@langfuse-postgres:5432/postgres
-      SALT: "mysalt"
-      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
-      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
-      CLICKHOUSE_USER: clickhouse
-      HOSTNAME: "0.0.0.0"
-      CLICKHOUSE_PASSWORD: clickhouse
-      CLICKHOUSE_CLUSTER_ENABLED: "false"
-      # S3 Event Upload Configuration (Required for tracing)
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: "events/"
-      # S3 Media Upload Configuration
-      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: "media/"
-      REDIS_HOST: langfuse-redis
-      REDIS_AUTH: myredissecret
-      NEXTAUTH_URL: http://localhost:3000
-      NEXTAUTH_SECRET: mysecret
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-postgres:5432/postgres
+      - SALT=mysalt
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://langfuse-clickhouse:9000
+      - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
+      - CLICKHOUSE_USER=clickhouse
+      - HOSTNAME=0.0.0.0
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_PREFIX=events/
+      - LANGFUSE_S3_MEDIA_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_MEDIA_UPLOAD_REGION=us-east-1
+      - LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=miniosecret
+      - LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media/
+      - REDIS_HOST=langfuse-redis
+      - REDIS_AUTH=myredissecret
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=mysecret
 
   langfuse-clickhouse:
     image: clickhouse/clickhouse-server
     container_name: langfuse-clickhouse
     restart: always
-    profiles:
-      - p2p-tracing
-      - slim-tracing
     user: "101:101"
     environment:
-      CLICKHOUSE_DB: default
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
+      - CLICKHOUSE_DB=default
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
     volumes:
       - langfuse_clickhouse_data:/var/lib/clickhouse
       - langfuse_clickhouse_logs:/var/log/clickhouse-server
-    ports:
-      - "127.0.0.1:8123:8123"
-      - "127.0.0.1:9000:9000"
+    ports: ["127.0.0.1:8123:8123", "127.0.0.1:9000:9000"]
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 5s
@@ -1384,17 +902,12 @@ services:
     image: minio/minio
     container_name: langfuse-minio
     restart: always
-    profiles:
-      - p2p-tracing
-      - slim-tracing
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: miniosecret
-    ports:
-      - "9090:9000"
-      - "127.0.0.1:9091:9001"
+      - MINIO_ROOT_USER=minio
+      - MINIO_ROOT_PASSWORD=miniosecret
+    ports: ["9090:9000", "127.0.0.1:9091:9001"]
     volumes:
       - langfuse_minio_data:/data
     healthcheck:
@@ -1408,13 +921,8 @@ services:
     image: redis:7
     container_name: langfuse-redis
     restart: always
-    profiles:
-      - p2p-tracing
-      - slim-tracing
-    command: >
-      --requirepass ${REDIS_AUTH:-myredissecret}
-    ports:
-      - "127.0.0.1:6379:6379"
+    command: --requirepass ${REDIS_AUTH:-myredissecret}
+    ports: ["127.0.0.1:6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
@@ -1425,43 +933,31 @@ services:
     image: postgres:15
     container_name: langfuse-postgres
     restart: always
-    profiles:
-      - p2p-tracing
-      - slim-tracing
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s
       timeout: 3s
       retries: 10
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: postgres
-    ports:
-      - "127.0.0.1:5432:5432"
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    ports: ["127.0.0.1:5432:5432"]
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
 
-  ####################################################################################################
-  #                                      EVALUATION WEBHOOK SERVICE                                   #
-  ####################################################################################################
+  # Evaluation Webhook Service
   evaluation-webhook:
     build:
       context: ./evals
       dockerfile: Dockerfile
     container_name: evaluation-webhook
     restart: unless-stopped
-    profiles:
-      - slim-tracing
-      - p2p-tracing
-      - evaluation
     depends_on:
       langfuse-web:
         condition: service_started
-    ports:
-      - "8024:8000"
-    env_file:
-      - .env
+    ports: ["8024:8000"]
+    env_file: [.env]
     environment:
       - PLATFORM_ENGINEER_URL=http://platform-engineering:8000
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
@@ -1470,7 +966,6 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
-      # Mount datasets for development
       - ./evals/datasets:/app/datasets
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

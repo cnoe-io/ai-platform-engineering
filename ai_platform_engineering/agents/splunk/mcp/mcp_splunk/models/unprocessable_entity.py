@@ -4,8 +4,9 @@
 
 """Model for Unprocessableentity"""
 
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
+
 from .base import APIResponse, PaginationInfo
 
 
@@ -16,11 +17,11 @@ class Unprocessableentity(BaseModel):
 class UnprocessableentityResponse(APIResponse):
     """Response model for Unprocessableentity"""
 
-    data: Optional[Unprocessableentity] = None
+    data: Unprocessableentity | None = None
 
 
 class UnprocessableentityListResponse(APIResponse):
     """List response model for Unprocessableentity"""
 
-    data: List[Unprocessableentity] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+    data: list[Unprocessableentity] = Field(default_factory=list)
+    pagination: PaginationInfo | None = None

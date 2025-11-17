@@ -1,9 +1,12 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 import os
 import httpx
 from dotenv import load_dotenv
+
+from ai_platform_engineering.utils.logging_config import configure_logging
 
 
 from starlette.middleware.cors import CORSMiddleware
@@ -30,6 +33,8 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   agent_skill_examples
 )
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
+
+logger = logging.getLogger(__name__)
 
 def get_agent_card(host: str, port: int, external_url: str = None):
   capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -66,6 +71,9 @@ def get_agent_card(host: str, port: int, external_url: str = None):
 
 # Load environment variables from a .env file if present
 load_dotenv()
+
+# Configure logging to suppress noisy health check logs
+configure_logging()
 
 # Check environment variables for host and port if not provided via CLI
 env_host = os.getenv('A2A_HOST')
@@ -113,25 +121,31 @@ A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
 
 A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY')
 
-# Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
-app.add_middleware(
-  CORSMiddleware,
-  allow_origins=["*"],  # Allow all origins
-  allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-  allow_headers=["*"],  # Allow all headers
-)
-
 if A2A_AUTH_SHARED_KEY:
-  from ai_platform_engineering.common.auth.shared_key_middleware import SharedKeyMiddleware
+  logger.info("Using shared key authentication")
+  from ai_platform_engineering.utils.auth.shared_key_middleware import SharedKeyMiddleware
   app.add_middleware(
     SharedKeyMiddleware,
     agent_card=get_agent_card(host, port, external_url),
     public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
   )
 elif A2A_AUTH_OAUTH2:
-  from ai_platform_engineering.common.auth.oauth2_middleware import OAuth2Middleware
+  logger.info("Using OAuth2 authentication")
+  from ai_platform_engineering.utils.auth.oauth2_middleware import OAuth2Middleware
   app.add_middleware(
     OAuth2Middleware,
     agent_card=get_agent_card(host, port, external_url),
     public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
   )
+else:
+  logger.info("Using no authentication")
+
+# Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
+# Note: Added AFTER auth middleware so it executes BEFORE auth (middleware runs in reverse order)
+app.add_middleware(
+  CORSMiddleware,
+  allow_origins=["*"],  # Allow all origins
+  allow_credentials=True,  # Allow credentials (cookies, authorization headers, etc.)
+  allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+  allow_headers=["*"],  # Allow all headers
+)
