@@ -1,15 +1,15 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+import contextvars
 import logging
 import uuid
-import re
 import httpx
 import asyncio
 import os
 import ast
 import json
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, List, Dict, Any
 from typing_extensions import override
 from enum import Enum
 from dataclasses import dataclass
@@ -21,11 +21,9 @@ from a2a.types import (
     Message as A2AMessage,
     Task as A2ATask,
     TaskArtifactUpdateEvent,
-    TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent,
     SendStreamingMessageRequest,
     MessageSendParams,
     Artifact,
@@ -44,9 +42,202 @@ import json
 
 logger = logging.getLogger(__name__)
 
-# Feature flag: Enable structured output with DataPart (A2A Protocol best practice)
-ENABLE_STRUCTURED_OUTPUT = os.getenv("ENABLE_STRUCTURED_OUTPUT", "false").lower() == "true"
-logger.info(f"🔧 ENABLE_STRUCTURED_OUTPUT: {ENABLE_STRUCTURED_OUTPUT}")
+# Debug mode: Enable detailed event tracking
+DEBUG_EVENT_TRACKING = os.getenv("DEBUG_EVENT_TRACKING", "false").lower() in ["true", "1", "yes"]
+
+# Import context variables from shared module to avoid circular imports
+from ai_platform_engineering.utils.a2a_common.context_vars import (
+    _event_queue_ctx,
+    _task_ctx,
+)
+
+
+@dataclass
+class EventRecord:
+    """Record of an event for debugging purposes"""
+    sequence: int
+    event_type: str  # 'streaming_chunk', 'artifact_update', 'status_update', 'accumulation'
+    artifact_name: Optional[str] = None
+    artifact_id: Optional[str] = None  # Artifact ID for tracking append operations
+    content_length: int = 0
+    content_preview: str = ""
+    was_accumulated: bool = False
+    accumulator_state: Optional[str] = None  # "X chunks, Y chars"
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class EventTracker:
+    """Tracks all events during execution for debugging duplication issues"""
+
+    def __init__(self, enabled: bool = False):
+        self.enabled = enabled
+        self.events: List[EventRecord] = []
+        self.sequence = 0
+
+    def record_streaming_chunk(
+        self,
+        event_type: str,
+        content: Optional[str] = None,
+        artifact_name: Optional[str] = None,
+        artifact_id: Optional[str] = None,
+        was_accumulated: bool = False,
+        accumulator_state: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ):
+        """Record a streaming chunk event"""
+        if not self.enabled:
+            return
+
+        self.sequence += 1
+        content_len = len(content) if content else 0
+        content_preview = content if content else ""  # Store full content
+
+        self.events.append(EventRecord(
+            sequence=self.sequence,
+            event_type=event_type,
+            artifact_name=artifact_name,
+            artifact_id=artifact_id,
+            content_length=content_len,
+            content_preview=content_preview,
+            was_accumulated=was_accumulated,
+            accumulator_state=accumulator_state,
+            metadata=metadata or {}
+        ))
+
+    def record_event_enqueued(
+        self,
+        event_class_name: str,
+        content: Optional[str] = None,
+        artifact_name: Optional[str] = None,
+        artifact_id: Optional[str] = None,
+        was_accumulated: bool = False,
+        accumulator_state: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ):
+        """Record an event that was enqueued to the event queue (TaskArtifactUpdateEvent, TaskStatusUpdateEvent, etc.)"""
+        if not self.enabled:
+            return
+
+        self.sequence += 1
+        content_len = len(content) if content else 0
+        content_preview = content if content else ""  # Store full content
+
+        self.events.append(EventRecord(
+            sequence=self.sequence,
+            event_type=event_class_name,  # Use actual event class name
+            artifact_name=artifact_name,
+            artifact_id=artifact_id,
+            content_length=content_len,
+            content_preview=content_preview,
+            was_accumulated=was_accumulated,
+            accumulator_state=accumulator_state,
+            metadata=metadata or {}
+        ))
+
+    def record_accumulation(
+        self,
+        chunk_num: int,
+        content: str,
+        accumulator_state: str,
+        was_duplicate: bool = False
+    ):
+        """Record an accumulation event"""
+        if not self.enabled:
+            return
+
+        self.sequence += 1
+        self.events.append(EventRecord(
+            sequence=self.sequence,
+            event_type='accumulation',
+            content_length=len(content),
+            content_preview=content,  # Store full content, not just preview
+            was_accumulated=True,
+            accumulator_state=accumulator_state,
+            metadata={'chunk_num': chunk_num, 'was_duplicate': was_duplicate}
+        ))
+
+    def record_partial_result(
+        self,
+        final_content: str,
+        chunk_count: int,
+        total_before_join: int,
+        artifact_id: Optional[str] = None
+    ):
+        """Record partial_result creation"""
+        if not self.enabled:
+            return
+
+        self.sequence += 1
+        self.events.append(EventRecord(
+            sequence=self.sequence,
+            event_type='partial_result_creation',
+            artifact_name='partial_result',
+            artifact_id=artifact_id,
+            content_length=len(final_content),
+            content_preview=final_content,  # Store full content
+            was_accumulated=False,
+            accumulator_state=f"{chunk_count} chunks, {total_before_join} chars before join",
+            metadata={'final_length': len(final_content), 'chunk_count': chunk_count}
+        ))
+
+    def generate_table(self) -> str:
+        """Generate a formatted table of all events with full content"""
+        if not self.enabled or not self.events:
+            return ""
+
+        lines = []
+        lines.append("=" * 120)
+        lines.append("EVENT TRACKING TABLE (DEBUG MODE)")
+        lines.append("=" * 120)
+        lines.append("")
+        lines.append(f"{'#':<4} {'Event Type':<30} {'Artifact':<20} {'Artifact ID':<38} {'Len':<6} {'Accum?':<7} {'Accumulator State':<25}")
+        lines.append("-" * 150)
+
+        for event in self.events:
+            accum_str = "YES" if event.was_accumulated else "NO"
+            artifact_str = event.artifact_name or "-"
+            artifact_id_str = (event.artifact_id or "-")[:36]  # Truncate long IDs
+            accum_state_str = event.accumulator_state or "-"
+
+            # Header row
+            lines.append(
+                f"{event.sequence:<4} {event.event_type:<30} {artifact_str:<20} {artifact_id_str:<38} "
+                f"{event.content_length:<6} {accum_str:<7} {accum_state_str:<25}"
+            )
+
+            # Content row(s) - show full content, wrap if needed
+            if event.content_preview:
+                content_display = event.content_preview.replace('\n', '\\n').replace('\r', '\\r')
+                # Split into multiple lines if content is long
+                max_line_length = 110
+                if len(content_display) <= max_line_length:
+                    lines.append(f"     Content: {content_display}")
+                else:
+                    # Wrap content across multiple lines
+                    words = content_display.split()
+                    current_line = "     Content: "
+                    for word in words:
+                        if len(current_line) + len(word) + 1 <= max_line_length:
+                            current_line += word + " "
+                        else:
+                            lines.append(current_line.rstrip())
+                            current_line = "     " + word + " "
+                    if current_line.strip() != "Content:":
+                        lines.append(current_line.rstrip())
+
+            # Add separator between events
+            lines.append("-" * 150)
+
+        lines.append(f"Total Events: {len(self.events)}")
+        lines.append("=" * 150)
+
+        return "\n".join(lines)
+
+    def log_table(self):
+        """Log the event table"""
+        if self.enabled:
+            table = self.generate_table()
+            logger.info(f"\n{table}\n")
 
 
 def new_data_artifact(name: str, description: str, data: dict, artifact_id: str = None) -> Artifact:
@@ -73,21 +264,6 @@ def new_data_artifact(name: str, description: str, data: dict, artifact_id: str 
     )
 
 
-class RoutingType(Enum):
-    """Types of routing strategies for query execution"""
-    DIRECT = "direct"          # Single sub-agent, direct streaming
-    PARALLEL = "parallel"      # Multiple sub-agents, parallel streaming
-    COMPLEX = "complex"        # Requires Deep Agent orchestration
-
-
-@dataclass
-class RoutingDecision:
-    """Routing decision for query execution"""
-    type: RoutingType
-    agents: List[Tuple[str, str]]  # List of (agent_name, agent_url)
-    reason: str = ""
-
-
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor with streaming support for A2A sub-agents."""
 
@@ -99,496 +275,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         self._execution_plan_artifact_id = None
         self._latest_execution_plan: list[dict[str, str]] = []
 
-        # Feature flags for different routing approaches
-        # Default to DEEP_AGENT_PARALLEL_ORCHESTRATION mode (best performance: 4.94s avg, 29% faster than ENHANCED_STREAMING)
-        self.enhanced_streaming_enabled = os.getenv('ENABLE_ENHANCED_STREAMING', 'false').lower() == 'true'
-        self.force_deep_agent_orchestration = os.getenv('FORCE_DEEP_AGENT_ORCHESTRATION', 'true').lower() == 'true'
-        self.enhanced_orchestration_enabled = os.getenv('ENABLE_ENHANCED_ORCHESTRATION', 'false').lower() == 'true'
-
-        # Determine routing mode based on flags (priority order)
-        if self.enhanced_orchestration_enabled:
-            self.routing_mode = "DEEP_AGENT_ENHANCED_ORCHESTRATION"
-            logger.info("🎛️  Routing Mode: DEEP_AGENT_ENHANCED_ORCHESTRATION - Smart routing + orchestration hints (EXPERIMENTAL)")
-        elif self.force_deep_agent_orchestration:
-            self.routing_mode = "DEEP_AGENT_PARALLEL_ORCHESTRATION"
-            logger.info("🎛️  Routing Mode: DEEP_AGENT_PARALLEL_ORCHESTRATION - All queries via Deep Agent with parallel orchestration (DEFAULT - best performance)")
-        elif self.enhanced_streaming_enabled:
-            self.routing_mode = "DEEP_AGENT_INTELLIGENT_ROUTING"
-            logger.info("🎛️  Routing Mode: DEEP_AGENT_INTELLIGENT_ROUTING - Intelligent routing (DIRECT/PARALLEL/COMPLEX)")
-        else:
-            self.routing_mode = "DEEP_AGENT_SEQUENTIAL_ORCHESTRATION"
-            logger.info("🎛️  Routing Mode: DEEP_AGENT_SEQUENTIAL_ORCHESTRATION - All queries via Deep Agent (original behavior)")
-
-        # Configurable routing keywords via environment variables
-        self.knowledge_base_keywords = self._parse_env_keywords(
-            'KNOWLEDGE_BASE_KEYWORDS',
-            'docs:,@docs'  # Default: docs: or @docs prefix
-        )
-        self.orchestration_keywords = self._parse_env_keywords(
-            'ORCHESTRATION_KEYWORDS',
-            'analyze,compare,if,then,create,update,based on,depending on,which,that have'
-        )
-
-        logger.info(f"📚 Knowledge base keywords: {self.knowledge_base_keywords}")
-        logger.info(f"🔧 Orchestration keywords: {self.orchestration_keywords}")
-
-    def _parse_env_keywords(self, env_var: str, default: str) -> List[str]:
-        """Parse comma-separated keywords from environment variable."""
-        keywords_str = os.getenv(env_var, default)
-        keywords = [kw.strip() for kw in keywords_str.split(',') if kw.strip()]
-        return keywords
-
-    def _detect_sub_agent_query(self, query: str) -> Optional[Tuple[str, str]]:
-        """
-        Detect if a query is targeting a specific A2A sub-agent.
-
-        Returns: (agent_name, agent_url) if detected, None otherwise
-
-        Patterns detected:
-        - "show me komodor clusters" -> komodor
-        - "list github repos" -> github
-        - "using komodor agent" -> komodor
-        """
-        query_lower = query.lower()
-        logger.info(f"🔍 Detecting sub-agent in query: '{query_lower}'")
-
-        # Get all available agents from registry
-        available_agents = platform_registry.AGENT_ADDRESS_MAPPING
-        logger.info(f"🔍 Available agents: {list(available_agents.keys())}")
-
-        # Check for explicit "using X agent" pattern
-        using_pattern = r'using\s+(\w+)\s+agent'
-        match = re.search(using_pattern, query_lower)
-        if match:
-            agent_name = match.group(1)
-            logger.info(f"🔍 Found 'using X agent' pattern: {agent_name}")
-            if agent_name in available_agents:
-                return (agent_name, available_agents[agent_name])
-
-        # Check for agent name mentions in the query
-        for agent_name, agent_url in available_agents.items():
-            agent_name_lower = agent_name.lower()
-            logger.info(f"🔍 Checking if '{agent_name_lower}' is in query...")
-            if agent_name_lower in query_lower:
-                logger.info(f"🎯 Detected direct sub-agent query for: {agent_name}")
-                return (agent_name, agent_url)
-
-        logger.info("🔍 No sub-agent detected in query")
-        return None
-
-    def _route_query(self, query: str) -> RoutingDecision:
-        """
-        Enhanced routing logic to determine query execution strategy.
-
-        Returns:
-            RoutingDecision with type (DIRECT/PARALLEL/COMPLEX) and target agents
-
-        Examples:
-            - "show me komodor clusters" → DIRECT (komodor - explicit mention)
-            - "list github repos and komodor clusters" → PARALLEL (github + komodor - explicit mentions)
-            - "analyze clusters and create jira tickets" → COMPLEX (needs Deep Agent orchestration)
-            - "who is on call for SRE" → COMPLEX (no explicit agent - Deep Agent will route to PagerDuty + RAG)
-        """
-        query_lower = query.lower()
-        available_agents = platform_registry.AGENT_ADDRESS_MAPPING
-
-        # Check for explicit knowledge base queries (direct to RAG)
-        # Use configurable keywords for knowledge base requests
-        is_knowledge_base_query = any(
-            query_lower.startswith(keyword.lower()) for keyword in self.knowledge_base_keywords
-        )
-
-        if is_knowledge_base_query:
-            # Direct route to RAG agent for knowledge base queries
-            rag_agent_url = available_agents.get('RAG')
-            if rag_agent_url:
-                logger.info("🎯 Knowledge base query detected, routing directly to RAG")
-                return RoutingDecision(
-                    type=RoutingType.DIRECT,
-                    agents=[('RAG', rag_agent_url)],
-                    reason=f"Knowledge base query (matched: {[k for k in self.knowledge_base_keywords if query_lower.startswith(k.lower())][0]}) - direct to RAG"
-                )
-
-        # Detect explicitly mentioned agents (by name only)
-        # Let Deep Agent handle semantic routing for all other cases
-        mentioned_agents = []
-
-        # Check direct agent name mentions
-        for agent_name, agent_url in available_agents.items():
-            agent_name_lower = agent_name.lower()
-            if agent_name_lower in query_lower:
-                if (agent_name, agent_url) not in mentioned_agents:
-                    mentioned_agents.append((agent_name, agent_url))
-                    logger.info(f"🔍 Explicit agent mention: '{agent_name_lower}' → {agent_name}")
-
-        logger.info(f"🎯 Routing analysis: found {len(mentioned_agents)} explicit agent mentions")
-
-        # Routing logic
-        # - Knowledge base keywords → Direct to RAG (fast path)
-        # - No explicit agents → Deep Agent (handles semantic routing + RAG)
-        # - One explicit agent → Direct streaming (fast path)
-        # - Multiple explicit agents → Parallel or Deep Agent (depends on complexity)
-
-        if len(mentioned_agents) == 0:
-            # No explicit agents mentioned - use Deep Agent for intelligent routing
-            # Deep Agent will decide which agents/RAG to query based on the improved prompt
-            return RoutingDecision(
-                type=RoutingType.COMPLEX,
-                agents=[],
-                reason="No explicit agents mentioned, using Deep Agent for intelligent routing"
-            )
-
-        elif len(mentioned_agents) == 1:
-            # Single explicit agent mention, use direct streaming (fast path)
-            agent_name, agent_url = mentioned_agents[0]
-            return RoutingDecision(
-                type=RoutingType.DIRECT,
-                agents=mentioned_agents,
-                reason=f"Direct streaming from {agent_name}"
-            )
-
-        else:
-            # Multiple explicit agents mentioned
-            # Check if query requires orchestration using configurable keywords
-            needs_orchestration = any(keyword.lower() in query_lower for keyword in self.orchestration_keywords)
-
-            if needs_orchestration:
-                # Needs Deep Agent for intelligent orchestration
-                return RoutingDecision(
-                    type=RoutingType.COMPLEX,
-                    agents=mentioned_agents,
-                    reason=f"Query requires orchestration across {len(mentioned_agents)} agents"
-                )
-            else:
-                # Simple multi-agent query, can stream in parallel
-                # E.g., "show me github repos and komodor clusters"
-                agent_names = [name for name, _ in mentioned_agents]
-                return RoutingDecision(
-                    type=RoutingType.PARALLEL,
-                    agents=mentioned_agents,
-                    reason=f"Parallel streaming from {', '.join(agent_names)}"
-                )
-
-    async def _stream_from_sub_agent(
-        self,
-        agent_url: str,
-        query: str,
-        task: A2ATask,
-        event_queue: EventQueue,
-        trace_id: Optional[str] = None
-    ) -> None:
-        """
-        Stream directly from an A2A sub-agent, bypassing Deep Agent.
-        This enables token-by-token streaming from the sub-agent to the client.
-        """
-        logger.info(f"🌊 Streaming directly from sub-agent at {agent_url}")
-
-        httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
-        try:
-            # Fetch agent card
-            resolver = A2ACardResolver(httpx_client=httpx_client, base_url=agent_url)
-            agent_card = await resolver.get_agent_card()
-
-            # Override the agent card's URL with the correct external URL
-            # (agent cards often contain internal URLs like http://0.0.0.0:8000)
-            agent_card.url = agent_url
-            logger.debug(f"Overriding agent card URL to: {agent_url}")
-
-            # Create A2A client
-            client = A2AClient(httpx_client=httpx_client, agent_card=agent_card)
-
-            # Prepare message payload
-            message_payload = {
-                "message": {
-                "role": "user",
-                "parts": [{"kind": "text", "text": query}],
-                "message_id": str(uuid.uuid4()),
-                }
-            }
-
-            # Add trace_id to metadata if available
-            if trace_id:
-                message_payload["message"]["metadata"] = {"trace_id": trace_id}
-
-            # Create streaming request
-            streaming_request = SendStreamingMessageRequest(
-                id=str(uuid.uuid4()),
-                params=MessageSendParams(**message_payload),
-            )
-
-            # Send initial working status
-            await self._safe_enqueue_event(
-                event_queue,
-                TaskStatusUpdateEvent(
-                    status=TaskStatus(
-                        state=TaskState.working,
-                        message=new_agent_text_message(
-                            "Processing query...",
-                            task.context_id,
-                            task.id,
-                        ),
-                    ),
-                    final=False,
-                    context_id=task.context_id,
-                    task_id=task.id,
-                )
-            )
-
-            # Stream chunks from sub-agent
-            accumulated_text = []
-            chunk_count = 0
-            first_artifact_sent = False  # Track if we've sent the initial artifact
-            sub_agent_streaming_artifact_id = None  # Shared artifact ID for sub-agent streaming chunks
-            async for response_wrapper in client.send_message_streaming(streaming_request):
-                chunk_count += 1
-                wrapper_type = type(response_wrapper).__name__
-                logger.debug(f"📦 Received stream response #{chunk_count}: {wrapper_type}")
-
-                # Extract event data from Pydantic response model
-                try:
-                    response_dict = response_wrapper.model_dump()
-                    result_data = response_dict.get('result', {})
-                    event_kind = result_data.get('kind', '')
-                    logger.debug(f"   └─ Event kind: {event_kind}")
-
-                    # Handle artifact-update events (these contain the streaming content!)
-                    if event_kind == 'artifact-update':
-                        artifact_data = result_data.get('artifact', {})
-                        parts_data = artifact_data.get('parts', [])
-
-                        # Extract text from parts
-                        texts = []
-                        for part in parts_data:
-                            if isinstance(part, dict):
-                                text_content = part.get('text', '')
-                                if text_content:
-                                    texts.append(text_content)
-
-                        combined_text = ''.join(texts)
-                        if combined_text:
-                            logger.debug(f"📝 Extracted {len(combined_text)} chars from artifact")
-                            accumulated_text.append(combined_text)
-
-                            # A2A protocol: first artifact must have append=False to create it
-                            # Subsequent artifacts use append=True to append to existing artifact
-                            if not first_artifact_sent:
-                                # First chunk - create new artifact with unique ID
-                                artifact = new_text_artifact(
-                                    name='streaming_result',
-                                    description='Streaming result from sub-agent',
-                                    text=combined_text,
-                                )
-                                sub_agent_streaming_artifact_id = artifact.artifact_id
-                                first_artifact_sent = True
-                                use_append = False
-                                logger.debug(f"📝 Sending FIRST artifact (append=False) with ID: {sub_agent_streaming_artifact_id}")
-                            else:
-                                # Subsequent chunks - reuse the same artifact ID
-                                artifact = new_text_artifact(
-                                    name='streaming_result',
-                                    description='Streaming result from sub-agent',
-                                    text=combined_text,
-                                )
-                                artifact.artifact_id = sub_agent_streaming_artifact_id
-                                use_append = True
-                                logger.debug(f"📝 Appending to existing artifact (append=True) with ID: {sub_agent_streaming_artifact_id}")
-
-                            # Forward chunk immediately to client (streaming!)
-                            #
-# Add small delay after first artifact to ensure it's registered
-                            # before subsequent append operations (prevents A2A SDK warnings)
-                            if use_append is False:
-                                await self._safe_enqueue_event(
-                                    event_queue,
-                                    TaskArtifactUpdateEvent(
-                                        append=use_append,
-                                        context_id=task.context_id,
-                                        task_id=task.id,
-                                        last_chunk=False,
-                                        artifact=artifact,
-                                    )
-                                )
-                                # Small delay to ensure artifact is registered in A2A SDK
-                                await asyncio.sleep(0.01)  # 10ms
-                                logger.debug(f"✅ Streamed FIRST chunk to client (with 10ms buffer): {combined_text[:50]}...")
-                            else:
-                                await self._safe_enqueue_event(
-                                    event_queue,
-                                    TaskArtifactUpdateEvent(
-                                        append=use_append,
-                                        context_id=task.context_id,
-                                        task_id=task.id,
-                                        last_chunk=False,
-                                        artifact=artifact,
-                                    )
-                                )
-                                logger.debug(f"✅ Streamed chunk to client: {combined_text[:50]}...")
-
-                    # Handle status-update events (task completion and content)
-                    elif event_kind == 'status-update':
-                        status_data = result_data.get('status', {})
-                        state = status_data.get('state', '')
-                        logger.debug(f"📊 Status update: {state}")
-
-                        # Extract content from status message (if any)
-                        # Note: message can be None when status is "completed"
-                        message_data = status_data.get('message')
-                        parts_data = message_data.get('parts', []) if message_data else []
-
-                        texts = []
-                        for part in parts_data:
-                            if isinstance(part, dict):
-                                text_content = part.get('text', '')
-                                if text_content:
-                                    texts.append(text_content)
-
-                        combined_text = ''.join(texts)
-                        if combined_text:
-                            logger.debug(f"📝 Extracted {len(combined_text)} chars from status message")
-                            accumulated_text.append(combined_text)
-
-                            # A2A protocol: first artifact must have append=False to create it
-                            if not first_artifact_sent:
-                                # First chunk - create new artifact with unique ID
-                                artifact = new_text_artifact(
-                                    name='streaming_result',
-                                    description='Streaming result from sub-agent',
-                                    text=combined_text,
-                                )
-                                sub_agent_streaming_artifact_id = artifact.artifact_id
-                                first_artifact_sent = True
-                                use_append = False
-                                logger.debug(f"📝 Sending FIRST artifact (append=False) from status message with ID: {sub_agent_streaming_artifact_id}")
-                            else:
-                                # Subsequent chunks - reuse the same artifact ID
-                                artifact = new_text_artifact(
-                                    name='streaming_result',
-                                    description='Streaming result from sub-agent',
-                                    text=combined_text,
-                                )
-                                artifact.artifact_id = sub_agent_streaming_artifact_id
-                                use_append = True
-                                logger.debug(f"📝 Appending status content to artifact (append=True) with ID: {sub_agent_streaming_artifact_id}")
-
-                            # Forward status message content to client
-                            await self._safe_enqueue_event(
-                                event_queue,
-                                TaskArtifactUpdateEvent(
-                                    append=use_append,  # First: False (create), subsequent: True (append)
-                                    context_id=task.context_id,
-                                    task_id=task.id,
-                                    last_chunk=False,
-                                    artifact=artifact,
-                                )
-                            )
-                            logger.debug(f"✅ Streamed status content to client: {combined_text[:50]}...")
-
-                        if state == 'completed':
-                            logger.info(f"🎉 Sub-agent completed with {chunk_count} chunks")
-                            # Send final artifact with complete accumulated text
-                            # For streaming clients: redundant but safe (they already got chunks)
-                            # For non-streaming clients: essential (only way to get complete text)
-                            final_text = ''.join(accumulated_text)
-                            logger.debug(f"📦 Sending final artifact with {len(final_text)} chars")
-                            await self._safe_enqueue_event(
-                                event_queue,
-                                TaskArtifactUpdateEvent(
-                                    append=False,
-                                    context_id=task.context_id,
-                                    task_id=task.id,
-                                    last_chunk=True,
-                                    artifact=new_text_artifact(
-                                        name='final_result',
-                                        description='Complete result from sub-agent',
-                                        text=final_text,  # Complete accumulated text for non-streaming clients
-                                    ),
-                                )
-                            )
-                            await self._safe_enqueue_event(
-                                event_queue,
-                                TaskStatusUpdateEvent(
-                                    status=TaskStatus(state=TaskState.completed),
-                                    final=True,
-                                    context_id=task.context_id,
-                                    task_id=task.id,
-                                )
-                            )
-                            return
-
-                except Exception as e:
-                    logger.error(f"   └─ Error processing stream chunk: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-
-            # If we exit the loop without receiving 'completed' status, stream ended prematurely
-            # Send any accumulated text as final result
-            if accumulated_text:
-                logger.warning(f"⚠️  Stream ended without completion status, sending {len(accumulated_text)} partial chunks")
-                await self._safe_enqueue_event(
-                    event_queue,
-                    TaskArtifactUpdateEvent(
-                        append=False,
-                        context_id=task.context_id,
-                        task_id=task.id,
-                        last_chunk=True,
-                        artifact=new_text_artifact(
-                            name='partial_result',
-                            description='Partial result from sub-agent (stream ended prematurely)',
-                            text=" ".join(accumulated_text),
-                        ),
-                    )
-                )
-                await self._safe_enqueue_event(
-                    event_queue,
-                    TaskStatusUpdateEvent(
-                        status=TaskStatus(state=TaskState.completed),
-                        final=True,
-                        context_id=task.context_id,
-                        task_id=task.id,
-                    )
-                )
-                logger.info("🏁 Sub-agent streaming completed (with partial results)")
-            else:
-                logger.warning("⚠️  Stream ended without any results")
-                raise Exception("Stream ended without receiving any results")
-
-        except httpx.HTTPStatusError as e:
-            # HTTP errors (503, 500, etc.) - these are recoverable, let caller handle fallback
-            logger.error(f"❌ HTTP error streaming from sub-agent: {e.response.status_code} - {str(e)}")
-            # Don't send failed status - let the caller decide whether to fall back to Deep Agent
-            # Just re-raise so the caller can catch and fall back
-            raise
-        except httpx.RemoteProtocolError as e:
-            # Connection closed prematurely (incomplete chunked read, etc.)
-            logger.error(f"❌ Connection error streaming from sub-agent: {str(e)}")
-            # If we got partial results, send them before re-raising
-            if accumulated_text:
-                logger.warning(f"⚠️  Sending {len(accumulated_text)} partial chunks before failing over")
-                await self._safe_enqueue_event(
-                    event_queue,
-                    TaskStatusUpdateEvent(
-                        status=TaskStatus(
-                            state=TaskState.working,
-                            message=new_agent_text_message(
-                                "Connection lost, falling back to alternative method...",
-                                task.context_id,
-                                task.id,
-                            ),
-                        ),
-                        final=False,
-                        context_id=task.context_id,
-                        task_id=task.id,
-                    )
-                )
-            raise
-        except Exception as e:
-            # Other unexpected errors
-            logger.error(f"❌ Unexpected error streaming from sub-agent: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            raise
-        finally:
-            await httpx_client.aclose()
 
     def _extract_text_from_artifact(self, artifact) -> str:
         """Extract text content from an A2A artifact."""
@@ -602,221 +288,28 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     texts.append(text)
         return " ".join(texts)
 
-    async def _stream_from_multiple_agents(
-        self,
-        agents: List[Tuple[str, str]],
-        query: str,
-        task: A2ATask,
-        event_queue: EventQueue,
-        trace_id: Optional[str] = None
-    ) -> None:
-        """
-        Stream from multiple sub-agents in parallel.
-        Results are aggregated and streamed to the client with source annotations.
-
-        Args:
-            agents: List of (agent_name, agent_url) tuples
-            query: The user query
-            task: The A2A task
-            event_queue: Queue for sending events to client
-            trace_id: Optional trace ID for debugging
-        """
-        logger.info(f"🌊🌊 Parallel streaming from {len(agents)} sub-agents")
-
-        # Send initial status
-        await self._safe_enqueue_event(
-            event_queue,
-            TaskStatusUpdateEvent(
-                status=TaskStatus(
-                    state=TaskState.working,
-                    message=new_agent_text_message(
-                        f"Fetching data from {', '.join([name for name, _ in agents])}...",
-                        task.context_id,
-                        task.id,
-                    ),
-                ),
-                final=False,
-                context_id=task.context_id,
-                task_id=task.id,
-            )
-        )
-
-        # Create tasks for parallel execution
-        async def stream_single_agent(agent_name: str, agent_url: str) -> Dict[str, any]:
-            """Stream from a single agent and collect results"""
-            logger.info(f"🔄 Starting stream from {agent_name}")
-            httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
-            accumulated_text = []
-
-            try:
-                # Fetch agent card
-                resolver = A2ACardResolver(httpx_client=httpx_client, base_url=agent_url)
-                agent_card = await resolver.get_agent_card()
-
-                # Override agent card URL
-                agent_card.url = agent_url
-
-                # Create A2A client
-                client = A2AClient(httpx_client=httpx_client, agent_card=agent_card)
-
-                # Prepare message
-                message_payload = {
-                    "message": {
-                "role": "user",
-                "parts": [{"kind": "text", "text": query}],
-                "message_id": str(uuid.uuid4()),
-                    }
-                }
-
-                if trace_id:
-                    message_payload["message"]["metadata"] = {"trace_id": trace_id}
-
-                streaming_request = SendStreamingMessageRequest(
-                    id=str(uuid.uuid4()),
-                    params=MessageSendParams(**message_payload),
-                )
-
-                # Stream and collect results
-                async for response_wrapper in client.send_message_streaming(streaming_request):
-                    response_dict = response_wrapper.model_dump()
-                    result_data = response_dict.get('result', {})
-                    event_kind = result_data.get('kind', '')
-
-                    # Handle artifact-update events (incremental chunks)
-                    if event_kind == 'artifact-update':
-                        artifact_data = result_data.get('artifact', {})
-                        parts_data = artifact_data.get('parts', [])
-
-                        for part in parts_data:
-                            if isinstance(part, dict):
-                                text_content = part.get('text', '')
-                                if text_content:
-                                    accumulated_text.append(text_content)
-                                    logger.debug(f"  {agent_name}: collected {len(text_content)} chars")
-
-                    # Handle status-update with completed state (final artifact might be here)
-                    elif event_kind == 'status-update':
-                        status_data = result_data.get('status', {})
-                        state = status_data.get('state', '')
-
-                        if state == 'completed':
-                            # Some agents send final artifact in status-update
-                            # Try to extract any remaining content
-                            logger.debug(f"  {agent_name}: received completed status")
-
-                result_text = ''.join(accumulated_text)
-                logger.info(f"✅ {agent_name} completed: {len(result_text)} chars (from {len(accumulated_text)} chunks)")
-
-                return {
-                    "agent_name": agent_name,
-                    "status": "success",
-                    "content": result_text,
-                    "error": None
-                }
-
-            except Exception as e:
-                logger.error(f"❌ Error streaming from {agent_name}: {e}")
-                return {
-                    "agent_name": agent_name,
-                    "status": "error",
-                    "content": "",
-                    "error": str(e)
-                }
-            finally:
-                await httpx_client.aclose()
-
-        # Execute all streams in parallel
-        tasks_list = [stream_single_agent(name, url) for name, url in agents]
-        results = await asyncio.gather(*tasks_list, return_exceptions=True)
-
-        # Aggregate and send results
-        combined_output = []
-        successful_agents = []
-        failed_agents = []
-
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                agent_name = agents[i][0]
-                failed_agents.append(agent_name)
-                combined_output.append(f"\n## ❌ {agent_name.upper()} Error\n\n{str(result)}\n")
-                logger.warning(f"Agent {agent_name} failed with exception: {result}")
-            elif result.get("status") == "success":
-                agent_name = result["agent_name"]
-                content = result.get("content", "")
-
-                if content and content.strip():
-                    # Add source annotation with content
-                    combined_output.append(f"\n## 📊 {agent_name.upper()} Results\n\n{content}\n")
-                    successful_agents.append(agent_name)
-                    logger.info(f"Agent {agent_name} returned {len(content)} chars")
-                else:
-                    # Agent succeeded but returned empty content
-                    combined_output.append(f"\n## 📊 {agent_name.upper()} Results\n\n_No results returned_\n")
-                    successful_agents.append(f"{agent_name} (empty)")
-                    logger.warning(f"Agent {agent_name} completed but returned no content")
-            else:
-                agent_name = result.get("agent_name", "Unknown")
-                error = result.get("error", "Unknown error")
-                failed_agents.append(agent_name)
-                combined_output.append(f"\n## ❌ {agent_name.upper()} Error\n\n{error}\n")
-                logger.warning(f"Agent {agent_name} failed: {error}")
-
-        final_text = "".join(combined_output)
-
-        logger.info(f"📊 Aggregation complete: {len(successful_agents)} successful, {len(failed_agents)} failed")
-        logger.info(f"   Success: {', '.join(successful_agents)}")
-        if failed_agents:
-            logger.info(f"   Failed: {', '.join(failed_agents)}")
-
-        # Generate descriptive title for the artifact
-        agent_names = [name for name, _ in agents]
-        artifact_name = f"Multi-Agent Results: {', '.join(agent_names)}"
-        artifact_description = f"Parallel execution results from {len(agents)} agents: {', '.join(agent_names)}"
-
-        logger.info(f"📦 Sending aggregated results ({len(final_text)} chars total)")
-
-        # Send final aggregated result
-        await self._safe_enqueue_event(
-            event_queue,
-            TaskArtifactUpdateEvent(
-                append=False,
-                context_id=task.context_id,
-                task_id=task.id,
-                lastChunk=True,
-                artifact=new_text_artifact(
-                    name=artifact_name,
-                    description=artifact_description,
-                    text=final_text,
-                ),
-            )
-        )
-
-        await self._safe_enqueue_event(
-            event_queue,
-            TaskStatusUpdateEvent(
-                status=TaskStatus(state=TaskState.completed),
-                final=True,
-                context_id=task.context_id,
-                task_id=task.id,
-            )
-        )
-
-        logger.info(f"🎉 Parallel streaming completed from {len(agents)} agents")
-
-    # _clean_json_wrapper() method removed - Frontend now handles JSON parsing
-    # to support structured metadata and dynamic form generation
-
     async def _safe_enqueue_event(self, event_queue: EventQueue, event) -> None:
         """Safely enqueue an event, handling closed queue gracefully."""
+        event_type_name = type(event).__name__
+        event_task_id = getattr(event, 'task_id', 'N/A')
+        event_context_id = getattr(event, 'context_id', 'N/A')
+
+        # Check if queue is closed before attempting to enqueue
+        if event_queue.is_closed():
+            logger.warning(f"⚠️ Queue is closed, cannot enqueue event: {event_type_name} (task_id={event_task_id})")
+            return
+
         try:
+            logger.info(f"🔍 _safe_enqueue_event: Enqueuing {event_type_name} (task_id={event_task_id}, context_id={event_context_id})")
             await event_queue.enqueue_event(event)
+            logger.info(f"🔍 _safe_enqueue_event: Successfully enqueued {event_type_name}")
         except Exception as e:
             # Check if the error is related to queue being closed
             if "Queue is closed" in str(e) or "QueueEmpty" in str(e):
-                logger.warning(f"Queue is closed, cannot enqueue event: {type(event).__name__}")
+                logger.warning(f"⚠️ Queue is closed, cannot enqueue event: {event_type_name} (task_id={event_task_id})")
                 # Don't re-raise the exception for closed queue - this is expected during shutdown
             else:
-                logger.error(f"Failed to enqueue event {type(event).__name__}: {e}")
+                logger.error(f"❌ Failed to enqueue event {event_type_name}: {e}")
                 raise
 
     @override
@@ -873,105 +366,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         else:
             logger.info(f"🔍 Platform Engineer Executor: Using trace_id from context: {trace_id}")
 
-        # ROUTING STRATEGY: Determine execution path based on routing mode
-        # DEEP_AGENT_ENHANCED_ORCHESTRATION: Smart routing + orchestration hints (EXPERIMENTAL)
-        # DEEP_AGENT_PARALLEL_ORCHESTRATION: All via Deep Agent with parallel orchestration hints
-        # DEEP_AGENT_INTELLIGENT_ROUTING: Intelligent routing (DIRECT/PARALLEL/COMPLEX)
-        # DEEP_AGENT_SEQUENTIAL_ORCHESTRATION: All via Deep Agent (original behavior)
+        # All queries go through Deep Agent with parallel orchestration
+        # Analyze query to detect mentioned agents for logging
+        available_agents = platform_registry.AGENT_ADDRESS_MAPPING
+        mentioned_agents = []
+        for agent_name, agent_url in available_agents.items():
+            if agent_name.lower() in query.lower():
+                mentioned_agents.append(agent_name)
 
-        if self.routing_mode == "DEEP_AGENT_ENHANCED_ORCHESTRATION":
-            # NEW EXPERIMENTAL MODE: Combines smart routing with orchestration hints
-            routing = self._route_query(query)
-            logger.info(f"🎯 Routing decision: {routing.type.value} - {routing.reason}")
-
-            # Handle DIRECT streaming (single sub-agent, fast path)
-            if routing.type == RoutingType.DIRECT:
-                agent_name, agent_url = routing.agents[0]
-                logger.info(f"🚀 DIRECT MODE: Streaming from {agent_name} at {agent_url}")
-                try:
-                    await self._stream_from_sub_agent(agent_url, query, task, event_queue, trace_id)
-                    return
-                except Exception as e:
-                    logger.warning(f"⚠️  Direct streaming failed: {str(e)[:100]}")
-                    logger.info("🔄 Falling back to Deep Agent with orchestration hints")
-                    # Fall through to Deep Agent WITH orchestration hints (key improvement)
-
-            # Handle PARALLEL streaming (multiple sub-agents)
-            elif routing.type == RoutingType.PARALLEL:
-                agent_names = [name for name, _ in routing.agents]
-                logger.info(f"🌊 PARALLEL MODE: Streaming from {', '.join(agent_names)}")
-                try:
-                    await self._stream_from_multiple_agents(routing.agents, query, task, event_queue, trace_id)
-                    return
-                except Exception as e:
-                    logger.warning(f"⚠️  Parallel streaming failed: {str(e)[:100]}")
-                    logger.info("🔄 Falling back to Deep Agent with orchestration hints")
-                    # Fall through to Deep Agent WITH orchestration hints (key improvement)
-
-            # COMPLEX mode OR fallback from DIRECT/PARALLEL failures
-            # ADD ORCHESTRATION HINTS (this is the key innovation)
-            logger.info("🧠 ENHANCED_ORCHESTRATION: Adding orchestration hints to Deep Agent")
-
-            # Analyze query to provide orchestration hints (logging only - agent.stream() doesn't accept config)
-            available_agents = platform_registry.AGENT_ADDRESS_MAPPING
-            mentioned_agents = []
-            for agent_name, agent_url in available_agents.items():
-                if agent_name.lower() in query.lower():
-                    mentioned_agents.append(agent_name)
-
-            if mentioned_agents:
-                logger.info(f"🤖 Detected agents in query for enhanced orchestration: {mentioned_agents}")
-            else:
-                logger.info("🤖 No specific agents detected - Deep Agent will determine best orchestration strategy")
-
-            # Continue to Deep Agent execution below (with orchestration hints now added)
-
-        elif self.routing_mode == "DEEP_AGENT_INTELLIGENT_ROUTING":
-            routing = self._route_query(query)
-            logger.info(f"🎯 Routing decision: {routing.type.value} - {routing.reason}")
-
-            # Handle DIRECT streaming (single sub-agent, fast path)
-            if routing.type == RoutingType.DIRECT:
-                agent_name, agent_url = routing.agents[0]
-                logger.info(f"🚀 DIRECT MODE: Streaming from {agent_name} at {agent_url}")
-                try:
-                    await self._stream_from_sub_agent(agent_url, query, task, event_queue, trace_id)
-                    return
-                except Exception as e:
-                    logger.warning(f"⚠️  Direct streaming failed: {str(e)[:100]}")
-                    logger.info("🔄 Falling back to Deep Agent for intelligent orchestration")
-                    # Fall through to Deep Agent (no need to notify user, just continue)
-
-            # Handle PARALLEL streaming (multiple sub-agents)
-            elif routing.type == RoutingType.PARALLEL:
-                agent_names = [name for name, _ in routing.agents]
-                logger.info(f"🌊 PARALLEL MODE: Streaming from {', '.join(agent_names)}")
-                try:
-                    await self._stream_from_multiple_agents(routing.agents, query, task, event_queue, trace_id)
-                    return
-                except Exception as e:
-                    logger.warning(f"⚠️  Parallel streaming failed: {str(e)[:100]}")
-                    logger.info("🔄 Falling back to Deep Agent for intelligent orchestration")
-                    # Fall through to Deep Agent (no need to notify user, just continue)
-
-            # COMPLEX mode falls through to Deep Agent naturally
-
-        elif self.routing_mode == "DEEP_AGENT_PARALLEL_ORCHESTRATION":
-            # Force all queries through Deep Agent with parallel orchestration hints
-            logger.info("🎛️  DEEP_AGENT_PARALLEL_ORCHESTRATION mode: Routing to Deep Agent with parallel orchestration hints")
-
-            # Analyze query to provide orchestration hints in logs
-            available_agents = platform_registry.AGENT_ADDRESS_MAPPING
-            mentioned_agents = []
-            for agent_name, agent_url in available_agents.items():
-                if agent_name.lower() in query.lower():
-                    mentioned_agents.append(agent_name)
-
-            if mentioned_agents:
-                logger.info(f"🤖 Detected agents in query for parallel orchestration: {mentioned_agents}")
-
-        else:  # DEEP_AGENT_ONLY
-            logger.info("🎛️  DEEP_AGENT_ONLY mode: All queries via Deep Agent (original behavior)")
+        if mentioned_agents:
+            logger.info(f"🤖 Detected agents in query: {mentioned_agents}")
 
         # Track streaming state for proper A2A protocol
         first_artifact_sent = False
@@ -979,8 +383,20 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         sub_agent_accumulated_content = []  # Track content from sub-agent artifacts
         sub_agent_sent_datapart = False  # Track if sub-agent sent structured DataPart
         streaming_artifact_id = None  # Shared artifact ID for all streaming chunks
+        streaming_result_sent = False  # Track if we sent any streaming_result chunks
         # seen_artifact_ids - removed # THIS WILL BREAK JAVIS SAYING ERROR
+
+
+        # Debug event tracking
+        event_tracker = EventTracker(enabled=DEBUG_EVENT_TRACKING)
+        if DEBUG_EVENT_TRACKING:
+            logger.info("🔍 DEBUG_EVENT_TRACKING enabled - will generate event table at end")
+
         try:
+            # Set context variables so tools can access event_queue and task directly
+            _event_queue_ctx.set(event_queue)
+            _task_ctx.set(task)
+
             # invoke the underlying agent, using streaming results
             # NOTE: Pass task to maintain task ID consistency across sub-agents
             async for event in self.agent.stream(query, context_id, trace_id):
@@ -1020,11 +436,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     continue
 
                 # Handle typed A2A events - TRANSFORM APPEND FLAG FOR FORWARDED EVENTS
-                if isinstance(event, (A2ATaskArtifactUpdateEvent, A2ATaskStatusUpdateEvent)):
+                if isinstance(event, (TaskArtifactUpdateEvent, TaskStatusUpdateEvent)):
                     logger.debug(f"Executor: Processing streamed A2A event: {type(event).__name__}")
 
                     # Fix forwarded TaskArtifactUpdateEvent to handle append flag correctly
-                    if isinstance(event, A2ATaskArtifactUpdateEvent):
+                    if isinstance(event, TaskArtifactUpdateEvent):
+                        # Check if this is a streaming_result artifact from sub-agent
+                        if hasattr(event, 'artifact') and event.artifact and hasattr(event.artifact, 'name'):
+                            if event.artifact.name == 'streaming_result':
+                                streaming_result_sent = True  # Mark that we forwarded streaming_result from sub-agent
+                                logger.debug(f"📝 Forwarded streaming_result from sub-agent - marking streaming_result_sent=True")
+
                         # Transform the event to use our first_artifact_sent logic
                         use_append = first_artifact_sent
                         if not first_artifact_sent:
@@ -1044,12 +466,38 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         await self._safe_enqueue_event(event_queue, transformed_event)
                     else:
                         # Forward status events with corrected task ID
-                        if isinstance(event, A2ATaskStatusUpdateEvent):
+                        if isinstance(event, TaskStatusUpdateEvent):
+                            # Extract metadata from sub-agent event
+                            event_metadata = getattr(event, 'metadata', None) or {}
+                            # Use generic 'tool_notification' if this is a tool notification event
+                            artifact_name = 'tool_notification' if event_metadata.get('tool_notification') else None
+
+                            # Track forwarded status event
+                            if DEBUG_EVENT_TRACKING:
+                                # Extract message text from status for tracking
+                                status_message_text = ""
+                                if hasattr(event.status, 'message') and event.status.message:
+                                    if hasattr(event.status.message, 'parts'):
+                                        for part in event.status.message.parts:
+                                            if hasattr(part, 'root') and hasattr(part.root, 'text'):
+                                                status_message_text += part.root.text
+
+                                event_tracker.record_event_enqueued(
+                                    event_class_name='TaskStatusUpdateEvent',
+                                    content=status_message_text,
+                                    artifact_name=artifact_name,  # Use generic 'tool_notification' if applicable
+                                    artifact_id=None,
+                                    was_accumulated=False,
+                                    metadata=event_metadata
+                                )
+
                             # Update the task ID to match the original client task
+                            # Preserve metadata (including tool_notification) from sub-agent
                             corrected_status_event = TaskStatusUpdateEvent(
                                 context_id=event.context_id,
                                 task_id=task.id,  # ✅ Use the ORIGINAL task ID from client
-                                status=event.status
+                                status=event.status,
+                                metadata=event_metadata,  # Preserve metadata including tool_notification
                             )
                             await self._safe_enqueue_event(event_queue, corrected_status_event)
                         else:
@@ -1090,13 +538,113 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     await self._safe_enqueue_event(event_queue, event)
                     continue
 
-                # Check if this is a custom event from writer() (e.g., sub-agent streaming via artifact-update)
-                if isinstance(event, dict) and 'type' in event and event.get('type') == 'artifact-update':
-                    # Custom artifact-update event from sub-agent (via writer() in a2a_remote_agent_connect.py)
-                    result = event.get('result', {})
-                    artifact = result.get('artifact')
+                # Check if this is a custom event from writer() (e.g., sub-agent streaming via artifact-update or status-update)
+                if isinstance(event, dict) and 'type' in event:
+                    event_type = event.get('type')
 
-                    if artifact:
+                    # Handle status-update events from sub-agents
+                    if event_type == 'status-update':
+                        result = event.get('result', {})
+                        metadata = result.get('metadata', {})
+                        is_tool_notification = metadata.get('tool_notification', False)
+                        tool_name = metadata.get('tool_name', 'N/A')
+                        tool_status = metadata.get('status', 'N/A')
+                        logger.info(f"🎯 Supervisor: Received status-update from sub-agent (tool_notification={is_tool_notification}, tool_name={tool_name}, status={tool_status})")
+                        if result:
+                            # Convert JSON result to TaskStatusUpdateEvent object (standard A2A SDK name)
+                            # The supervisor will forward it with correct task ID and preserved metadata
+                            # Note: TaskStatus, TaskState, and new_agent_text_message are already imported at module level
+
+                            status_dict = result.get('status', {})
+                            context_id = result.get('contextId')
+                            task_id = result.get('taskId')
+                            metadata = result.get('metadata', {})
+
+                            # Build TaskStatus from JSON
+                            state_str = status_dict.get('state', 'working')
+                            state = TaskState[state_str] if hasattr(TaskState, state_str) else TaskState.working
+
+                            # Build message from JSON
+                            message_dict = status_dict.get('message', {})
+                            message = None
+                            if message_dict:
+                                parts = message_dict.get('parts', [])
+                                text_parts = [p.get('text', '') for p in parts if isinstance(p, dict) and p.get('text')]
+                                if text_parts:
+                                    message = new_agent_text_message(
+                                        '\n'.join(text_parts),
+                                        context_id or task.context_id,
+                                        task_id or task.id,
+                                    )
+
+                            status_obj = TaskStatus(state=state, message=message) if message else TaskStatus(state=state)
+
+                            # Create TaskStatusUpdateEvent from sub-agent (standard A2A SDK name)
+                            sub_agent_status_event = TaskStatusUpdateEvent(
+                                status=status_obj,
+                                final=result.get('final', False),
+                                context_id=context_id or task.context_id,
+                                task_id=task_id or task.id,
+                                metadata=metadata,  # Preserve metadata including tool_notification
+                            )
+
+                            logger.debug(f"🎯 Platform Engineer: Converted status-update from sub-agent to TaskStatusUpdateEvent (metadata: {metadata})")
+
+                            # Extract metadata for tracking
+                            event_metadata = metadata
+                            artifact_name = 'tool_notification' if event_metadata.get('tool_notification') else None
+
+                            # Track forwarded status event
+                            if DEBUG_EVENT_TRACKING:
+                                # Extract message text from status for tracking
+                                status_message_text = ""
+                                if message:
+                                    if hasattr(message, 'parts'):
+                                        for part in message.parts:
+                                            if hasattr(part, 'root') and hasattr(part.root, 'text'):
+                                                status_message_text += part.root.text
+
+                                event_tracker.record_event_enqueued(
+                                    event_class_name='TaskStatusUpdateEvent',
+                                    content=status_message_text,
+                                    artifact_name=artifact_name,
+                                    artifact_id=None,
+                                    was_accumulated=False,
+                                    metadata=event_metadata
+                                )
+
+                            # Forward to client with corrected task ID and context ID (use supervisor's task context)
+                            corrected_status_event = TaskStatusUpdateEvent(
+                                context_id=task.context_id,  # ✅ Use the ORIGINAL context ID from supervisor's task
+                                task_id=task.id,  # ✅ Use the ORIGINAL task ID from client
+                                status=sub_agent_status_event.status,
+                                metadata=event_metadata,  # Preserve metadata including tool_notification
+                                final=sub_agent_status_event.final,
+                            )
+                            logger.info(f"📤 Forwarding sub-agent tool notification to client: {tool_name} - {tool_status} (task_id={task.id}, context_id={task.context_id})")
+                            logger.info(f"🔍 Event details before enqueue: task_id={corrected_status_event.task_id}, context_id={corrected_status_event.context_id}, final={corrected_status_event.final}, metadata={corrected_status_event.metadata}")
+                            logger.info(f"🔍 EventQueue state before enqueue: is_closed={event_queue.is_closed()}, queue_size={event_queue.queue.qsize() if hasattr(event_queue.queue, 'qsize') else 'N/A'}")
+                            try:
+                                await self._safe_enqueue_event(event_queue, corrected_status_event)
+                                logger.info(f"✅ Successfully enqueued sub-agent tool notification: {tool_name} (event type: {type(corrected_status_event).__name__})")
+                                logger.info(f"🔍 EventQueue state after enqueue: is_closed={event_queue.is_closed()}, queue_size={event_queue.queue.qsize() if hasattr(event_queue.queue, 'qsize') else 'N/A'}")
+                            except Exception as e:
+                                logger.error(f"❌ Failed to enqueue sub-agent tool notification: {tool_name} - {e}")
+                                import traceback
+                                logger.error(traceback.format_exc())
+                            continue  # Skip rest of loop, event has been processed
+
+                    # Handle artifact-update events from sub-agents
+                    elif event_type == 'artifact-update':
+                        # Custom artifact-update event from sub-agent (via writer() in a2a_remote_agent_connect.py)
+                        result = event.get('result', {})
+                        artifact = result.get('artifact')
+
+                        if not artifact:
+                            logger.warning("⚠️ Received artifact-update event but artifact is None, skipping")
+                            continue
+
+                        # Process artifact
                         # Extract text length for logging
                         parts = artifact.get('parts', [])
                         text_len = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict))
@@ -1104,28 +652,36 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         logger.debug(f"🎯 Platform Engineer: Forwarding artifact-update from sub-agent ({text_len} chars)")
 
                         # Accumulate sub-agent content for final result
+                        # NOTE: Only accumulate DataPart (structured data) - NOT streaming_result TextPart chunks
+                        # streaming_result chunks are already forwarded to the client, accumulating them would cause duplication
                         artifact_name = artifact.get('name', 'streaming_result')
                         logger.debug(f"🔍 Processing artifact: name={artifact_name}, parts_count={len(parts)}")
                         if artifact_name in ['streaming_result', 'partial_result', 'final_result', 'complete_result']:
                             for p in parts:
                                 if isinstance(p, dict):
                                     logger.debug(f"🔍 Part keys: {list(p.keys())}")
-                                    # Handle both TextPart and DataPart
-                                    if p.get('text'):
-                                        sub_agent_accumulated_content.append(p.get('text'))
-                                        logger.debug(f"📝 Accumulated sub-agent TextPart: {len(p.get('text'))} chars")
-                                    elif p.get('data'):
+                                    # Only accumulate DataPart (structured data) - NOT TextPart from streaming_result
+                                    # TextPart from streaming_result is already forwarded to client, accumulating would duplicate
+                                    if p.get('data'):
                                         # DataPart with structured data - store as JSON string
+                                        # This is the only content we accumulate - it needs to be sent as partial_result/final_result
                                         json_str = json.dumps(p.get('data'))
                                         sub_agent_accumulated_content.append(json_str)
                                         sub_agent_sent_datapart = True  # Mark that sub-agent sent structured data
                                         logger.info(f"📝 Accumulated sub-agent DataPart: {len(json_str)} chars - MARKING sub_agent_sent_datapart=True")
-
-                                        # CRITICAL: Clear supervisor's accumulated content - we ONLY want the sub-agent's DataPart
-                                        # The supervisor may have already streamed partial text before we received the DataPart
-                                        if accumulated_content:
-                                            logger.info(f"🗑️ CLEARING {len(accumulated_content)} supervisor content chunks - using ONLY sub-agent DataPart")
-                                            accumulated_content.clear()
+                                    elif p.get('text'):
+                                        # TextPart from streaming_result - Accumulate for partial_result
+                                        # We forward streaming_result chunks to client for real-time display,
+                                        # but we also need to accumulate the content to send as partial_result
+                                        # so the client can replace token-by-token streaming with clean formatted markdown
+                                        text_content = p.get('text', '')
+                                        if artifact_name == 'streaming_result':
+                                            sub_agent_accumulated_content.append(text_content)
+                                            logger.debug(f"📝 Accumulated streaming_result TextPart: {len(text_content)} chars (for partial_result)")
+                                        else:
+                                            # For non-streaming artifacts (partial_result, final_result), accumulate as well
+                                            sub_agent_accumulated_content.append(text_content)
+                                            logger.debug(f"📝 Accumulated TextPart from {artifact_name}: {len(text_content)} chars")
                                     else:
                                         logger.warning(f"⚠️ Part has neither 'text' nor 'data' key: {p}")
 
@@ -1147,6 +703,30 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             parts=artifact_parts
                         )
 
+                        # Track sub-agent artifact forwarding
+                        if DEBUG_EVENT_TRACKING:
+                            # Extract content from parts for tracking
+                            tracked_content = ""
+                            for p in parts:
+                                if isinstance(p, dict):
+                                    if p.get('text'):
+                                        tracked_content += p.get('text', '')
+                                    elif p.get('data'):
+                                        tracked_content += json.dumps(p.get('data'))
+                            event_tracker.record_event_enqueued(
+                                event_class_name='TaskArtifactUpdateEvent',
+                                content=tracked_content,
+                                artifact_name=artifact_name,
+                                artifact_id=artifact_obj.artifact_id,
+                                was_accumulated=False,
+                                metadata={'source': 'sub-agent', 'append': first_artifact_sent}
+                            )
+
+                        # Track if we're forwarding streaming_result from sub-agent
+                        if artifact_name == 'streaming_result':
+                            streaming_result_sent = True  # Mark that we forwarded streaming_result from sub-agent
+                            logger.debug(f"📝 Forwarded streaming_result from sub-agent (custom event) - marking streaming_result_sent=True")
+
                         # Use first_artifact_sent logic for append flag
                         use_append = first_artifact_sent
                         if not first_artifact_sent:
@@ -1161,7 +741,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                 artifact=artifact_obj,
                             )
                         )
-                    continue
+                        continue  # Skip rest of loop, event has been processed
 
                 # Normalize content to string (handle cases where AWS Bedrock returns list)
                 # This is due to AWS Bedrock having a different format for the content for streaming compared to Azure OpenAI.
@@ -1181,17 +761,27 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif not isinstance(content, str):
                     content = str(content) if content else ''
 
-                logger.info(f"🔍 EXECUTOR: Received event with is_task_complete={event.get('is_task_complete')}, require_user_input={event.get('require_user_input')}")
+                logger.debug(f"🔍 EXECUTOR: Received event with is_task_complete={event.get('is_task_complete')}, require_user_input={event.get('require_user_input')}")
+
+                # Track streaming chunk event
+                if DEBUG_EVENT_TRACKING and content:
+                    event_tracker.record_streaming_chunk(
+                        event_type='streaming_chunk',
+                        content=content,
+                        artifact_id=streaming_artifact_id,  # Use current streaming artifact ID if available
+                        was_accumulated=False,  # Will be updated when accumulation happens
+                        metadata={'is_task_complete': event.get('is_task_complete', False)}
+                    )
 
                 if event['is_task_complete']:
+                    # Supervisor's own completion - proceed with final result
                     await self._ensure_execution_plan_completed(event_queue, task)
                     logger.info("✅ EXECUTOR: Task complete event received! Enqueuing FINAL_RESULT artifact.")
 
                     # Send final artifact with all accumulated content for non-streaming clients
                     # Content selection strategy (PRIORITY ORDER):
                     # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                    # 2. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's structured response (PlatformEngineerResponse)
-                    # 3. Otherwise: Use sub-agent's content (backward compatible)
+                    # 2. Otherwise: Use sub-agent's content or supervisor's content (backward compatible)
 
                     require_user_input = event.get('require_user_input', False)
 
@@ -1199,10 +789,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         # Sub-agent sent structured DataPart - use it directly (highest priority)
                         final_content = ''.join(sub_agent_accumulated_content)
                         logger.info(f"📦 Using sub-agent DataPart for final_result ({len(final_content)} chars) - sub_agent_sent_datapart=True")
-                    elif ENABLE_STRUCTURED_OUTPUT and accumulated_content:
-                        # Structured output enabled - use supervisor's accumulated content
-                        final_content = ''.join(accumulated_content)
-                        logger.info(f"📝 Using supervisor accumulated content for final_result ({len(final_content)} chars) - structured output enabled")
                     elif sub_agent_accumulated_content:
                         # Fallback to sub-agent content
                         final_content = ''.join(sub_agent_accumulated_content)
@@ -1216,41 +802,12 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         final_content = content
                         logger.info(f"📝 Using current event content for final_result ({len(final_content)} chars)")
 
-                    # Choose artifact format based on ENABLE_STRUCTURED_OUTPUT feature flag
-                    artifact = None
-
-                    if ENABLE_STRUCTURED_OUTPUT:
-                        # Try to detect and use DataPart for structured responses
-                        try:
-                            # Try to parse as JSON
-                            response_data = json.loads(final_content)
-
-                            # Validate against PlatformEngineerResponse schema
-                            response_obj = PlatformEngineerResponse.model_validate(response_data)
-
-                            # Success! Use DataPart for structured response
-                            logger.info(f"✅ Detected PlatformEngineerResponse schema - using DataPart")
-                            artifact = new_data_artifact(
-                                name='final_result',
-                                description='Structured result from Platform Engineer (PlatformEngineerResponse schema)',
-                                data=response_data,
-                            )
-                        except (json.JSONDecodeError, ValueError, Exception) as e:
-                            # Not valid JSON or doesn't match schema - fall back to TextPart
-                            logger.info(f"ℹ️ Response is not structured JSON (using TextPart fallback): {type(e).__name__}")
-                            artifact = new_text_artifact(
-                                name='final_result',
-                                description='Complete result from Platform Engineer.',
-                                text=final_content,
-                            )
-                    else:
-                        # Feature flag disabled: Always use TextPart (backward compatible)
-                        logger.debug(f"ℹ️ Using TextPart for final_result (ENABLE_STRUCTURED_OUTPUT=false)")
-                        artifact = new_text_artifact(
-                            name='final_result',
-                            description='Complete result from Platform Engineer.',
-                            text=final_content,
-                        )
+                    # Always use TextPart for final_result
+                    artifact = new_text_artifact(
+                        name='final_result',
+                        description='Complete result from Platform Engineer.',
+                        text=final_content,
+                    )
 
                     await self._safe_enqueue_event(
                         event_queue,
@@ -1292,77 +849,156 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     )
                     logger.info(f"Task {task.id} requires user input.")
                 else:
+                    # Handle tool_call and tool_result events using TaskStatusUpdateEvent (correct A2A protocol)
+                    if 'tool_call' in event:
+                        tool_info = event['tool_call']
+                        tool_name = tool_info.get('name', 'unknown')
+                        logger.info(f"Tool call detected: {tool_name}")
+
+                        # Send tool notification as TaskStatusUpdateEvent with tool information in message
+                        tool_message_text = f"🔧 Supervisor: Calling tool: {tool_name}"
+
+                        # Track event
+                        if DEBUG_EVENT_TRACKING:
+                            event_tracker.record_event_enqueued(
+                                event_class_name='TaskStatusUpdateEvent',
+                                content=tool_message_text,
+                                artifact_name='tool_notification',
+                                artifact_id=None,
+                                was_accumulated=False,
+                                metadata={'tool_name': tool_name, 'status': 'started', 'event_source': 'tool_call'}
+                            )
+
+                        await self._safe_enqueue_event(
+                            event_queue,
+                            TaskStatusUpdateEvent(
+                                status=TaskStatus(
+                                    state=TaskState.working,
+                                    message=new_agent_text_message(
+                                        tool_message_text,
+                                        task.context_id,
+                                        task.id,
+                                    ),
+                                ),
+                                final=False,
+                                context_id=task.context_id,
+                                task_id=task.id,
+                                metadata={'tool_notification': True, 'tool_name': tool_name, 'status': 'started'},
+                            )
+                        )
+                        continue
+
+                    elif 'tool_result' in event:
+                        tool_info = event['tool_result']
+                        tool_name = tool_info.get('name', 'unknown')
+                        is_error = tool_info.get('is_error', False) or tool_info.get('status') == 'failed'
+                        status_text = 'failed' if is_error else 'completed'
+                        logger.info(f"Tool result detected: {tool_name} ({status_text})")
+
+                        # Send tool completion notification as TaskStatusUpdateEvent
+                        icon = "❌" if status_text == 'failed' else "✅"
+                        tool_result_message_text = f"{icon} Supervisor: Tool {tool_name} {status_text}"
+
+                        # Track event
+                        if DEBUG_EVENT_TRACKING:
+                            event_tracker.record_event_enqueued(
+                                event_class_name='TaskStatusUpdateEvent',
+                                content=tool_result_message_text,
+                                artifact_name='tool_notification',
+                                artifact_id=None,
+                                was_accumulated=False,
+                                metadata={'tool_name': tool_name, 'status': status_text, 'event_source': 'tool_result'}
+                            )
+
+                        await self._safe_enqueue_event(
+                            event_queue,
+                            TaskStatusUpdateEvent(
+                                status=TaskStatus(
+                                    state=TaskState.working,
+                                    message=new_agent_text_message(
+                                        tool_result_message_text,
+                                        task.context_id,
+                                        task.id,
+                                    ),
+                                ),
+                                final=False,
+                                context_id=task.context_id,
+                                task_id=task.id,
+                                metadata={'tool_notification': True, 'tool_name': tool_name, 'status': status_text},
+                            )
+                        )
+                        continue
+
                     # This is a streaming chunk - forward it immediately to the client!
                     logger.debug(f"🔍 Processing streaming chunk: has_content={bool(content)}, content_length={len(content) if content else 0}")
                     if content:  # Only send artifacts with actual content
-                       # Check if this is a tool notification (both metadata-based and content-based)
-                       is_tool_notification = (
-                           # Metadata-based tool notifications (from tool_call/tool_result events)
-                           'tool_call' in event or 'tool_result' in event or
-                           # Content-based tool notifications (from streamed text)
-                           '🔍 Querying ' in content or
-                           '🔍 Checking ' in content or
-                           '🔧 Calling ' in content or
-                           ('✅ ' in content and 'completed' in content.lower()) or
-                           content.strip().startswith('🔍') or
-                           content.strip().startswith('🔧') or
-                           (content.strip().startswith('✅') and 'completed' in content.lower())
-                       )
-
-                       # Accumulate non-notification content for final UI response
+                       # This is regular streaming content (not a tool notification - those are handled above)
+                       # Accumulate content for final UI response
                        # Streaming artifacts are for real-time display, final response for clean UI display
                        # CRITICAL: If sub-agent sent DataPart, DON'T accumulate supervisor's streaming text
                        # We want ONLY the sub-agent's structured response, not the supervisor's rewrite
-                       if not is_tool_notification:
+                       if content:
                            if not sub_agent_sent_datapart:
-                               accumulated_content.append(content)
-                               logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
+                               # 🔍 DEBUG: Track accumulation to find duplication
+                               content_preview = content[:100].replace('\n', '\\n')
+                               accumulator_state = f"{len(accumulated_content)} chunks, {sum(len(c) for c in accumulated_content)} chars"
+
+                               logger.debug(f"📝 ACCUMULATING chunk #{len(accumulated_content)+1}: {len(content)} chars | Preview: {content_preview}...")
+                               logger.debug(f"📝 ACCUMULATOR STATE: {accumulator_state}")
+
+                               # Check for duplicate content
+                               skip_duplicate = False
+                               if accumulated_content:
+                                   accumulated_text = ''.join(accumulated_content)
+                                   last_chunk = accumulated_content[-1]
+
+                                   # Check 1: Current chunk matches last chunk (exact duplicate)
+                                   if content.strip() == last_chunk.strip() and len(content.strip()) > 50:
+                                       logger.warning(f"⚠️ DUPLICATE DETECTED: Current content matches last chunk! Skipping accumulation.")
+                                       logger.warning(f"⚠️ Last chunk: {last_chunk[:100]}...")
+                                       logger.warning(f"⚠️ Current chunk: {content[:100]}...")
+                                       skip_duplicate = True
+                                   # Check 2: Current chunk contains all accumulated content (LLM sent full text again)
+                                   elif accumulated_text.strip() and accumulated_text.strip() in content.strip():
+                                       logger.warning(f"⚠️ FULL TEXT DUPLICATE: Current chunk contains all accumulated content! Skipping accumulation.")
+                                       logger.warning(f"⚠️ Accumulated: {accumulated_text[:100]}... ({len(accumulated_text)} chars)")
+                                       logger.warning(f"⚠️ Current chunk: {content[:100]}... ({len(content)} chars)")
+                                       skip_duplicate = True
+                                   # Check 3: Current chunk is substring of accumulated content (might be legitimate repetition)
+                                   elif content.strip() in accumulated_text.strip():
+                                       logger.debug(f"⚠️ CONTENT ALREADY EXISTS: Current content appears in accumulated content! May cause duplication.")
+                                       # Don't skip - might be legitimate repetition
+                               else:
+                                   logger.info(f"📝 First chunk being accumulated")
+
+                               # Track event
+                               event_tracker.record_accumulation(
+                                   chunk_num=len(accumulated_content)+1,
+                                   content=content,
+                                   accumulator_state=accumulator_state,
+                                   was_duplicate=skip_duplicate
+                               )
+
+                               if not skip_duplicate:
+                                   accumulated_content.append(content)
+                               else:
+                                   logger.warning(f"⚠️ SKIPPED duplicate chunk - not adding to accumulator")
+
+                               after_state = f"{len(accumulated_content)} chunks, {sum(len(c) for c in accumulated_content)} chars"
+                               logger.debug(f"📝 AFTER ACCUMULATION: {after_state}")
                            else:
                                logger.info(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
-                       else:
-                           logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
+
+                       # Send result content as streaming_result
+                       artifact_name = 'streaming_result'
+                       artifact_description = 'Streaming result from Platform Engineer'
 
                        # A2A protocol: first artifact must have append=False, subsequent use append=True
                        use_append = first_artifact_sent
                        logger.debug(f"🔍 first_artifact_sent={first_artifact_sent}, use_append={use_append}")
 
-                       artifact_name = 'streaming_result'
-                       artifact_description = 'Streaming result from Platform Engineer'
-
-                       if is_tool_notification:
-                           if 'tool_call' in event:
-                               tool_info = event['tool_call']
-                               artifact_name = 'tool_notification_start'
-                               artifact_description = f'Tool call started: {tool_info.get("name", "unknown")}'
-                               logger.debug(f"🔧 Tool call notification: {tool_info}")
-                           elif 'tool_result' in event:
-                               tool_info = event['tool_result']
-                               artifact_name = 'tool_notification_end'
-                               artifact_description = f'Tool call completed: {tool_info.get("name", "unknown")}'
-                               logger.debug(f"✅ Tool result notification: {tool_info}")
-                           else:
-                              # Content-based tool notification
-                              if ('✅' in content and 'completed' in content.lower()) or (content.strip().startswith('✅') and 'completed' in content.lower()):
-                                  artifact_name = 'tool_notification_end'
-                                  artifact_description = 'Tool operation completed'
-                                  logger.debug(f"✅ Tool completion notification: {content.strip()}")
-                              else:
-                                  # Assume it's a start notification (🔍 Querying, 🔍 Checking, 🔧 Calling)
-                                  artifact_name = 'tool_notification_start'
-                                  artifact_description = 'Tool operation started'
-                                  logger.debug(f"🔍 Tool start notification: {content.strip()}")
-
                        # Create shared artifact ID once for all streaming chunks
-                       if is_tool_notification:
-                           # Tool notifications always get their own artifact IDs
-                           artifact = new_text_artifact(
-                               name=artifact_name,
-                               description=artifact_description,
-                               text=content,
-                           )
-                           use_append = False
-                           logger.debug(f"📝 Creating separate tool notification artifact: {artifact.artifact_id}")
-                       elif streaming_artifact_id is None:
+                       if streaming_artifact_id is None:
                            # First regular content chunk - create new artifact with unique ID
                            artifact = new_text_artifact(
                                name=artifact_name,
@@ -1384,6 +1020,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                            use_append = True
                            logger.debug(f"📝 Appending streaming chunk (append=True) to artifact: {streaming_artifact_id}")
 
+                       # Track result artifact (after artifact is created so we have artifact_id)
+                       if DEBUG_EVENT_TRACKING:
+                           event_tracker.record_event_enqueued(
+                               event_class_name='TaskArtifactUpdateEvent',
+                               content=content,
+                               artifact_name=artifact_name,
+                               artifact_id=artifact.artifact_id,
+                               was_accumulated=not sub_agent_sent_datapart,
+                               accumulator_state=f"{len(accumulated_content)} chunks",
+                               metadata={'is_tool_notification': False}
+                           )
+
                        # Forward chunk immediately to client (STREAMING!)
                        await self._safe_enqueue_event(
                            event_queue,
@@ -1395,7 +1043,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                artifact=artifact,
                            )
                        )
-                       logger.debug(f"✅ Streamed chunk to A2A client: {content[:50]}...")
+                       streaming_result_sent = True  # Mark that we sent streaming_result chunks
+                       logger.debug(f"✅ Streamed result chunk to A2A client: {content[:50]}...")
 
                        # Skip status updates for ALL streaming content to eliminate duplicates
                        # Artifacts already provide the content, status updates are redundant during streaming
@@ -1405,6 +1054,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             # BUT: If require_user_input=True, the task IS complete (just waiting for input) - don't send partial_result
             logger.info(f"🔍 EXECUTOR: Stream loop exited. Last event is_task_complete={event.get('is_task_complete', False) if event else 'N/A'}, require_user_input={event.get('require_user_input', False) if event else 'N/A'}")
 
+            # Log event table if debug tracking is enabled
+            if DEBUG_EVENT_TRACKING:
+                event_tracker.log_table()
+
             # Skip partial_result if task is waiting for user input (task is effectively complete)
             if event and event.get('require_user_input', False):
                 logger.info("✅ EXECUTOR: Task is waiting for user input (require_user_input=True) - NOT sending partial_result")
@@ -1412,12 +1065,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
             if (accumulated_content or sub_agent_accumulated_content) and not event.get('is_task_complete', False):
                 await self._ensure_execution_plan_completed(event_queue, task)
-                logger.warning("❌ EXECUTOR: Stream ended WITHOUT is_task_complete=True, sending PARTIAL_RESULT (THIS IS THE BUG!)")
+
+                # Always send partial_result as a clean final result, even if streaming_result chunks were sent
+                # The client uses partial_result to replace token-by-token streaming content with properly formatted markdown
+                logger.info(f"📝 Sending partial_result for final display (streaming_result_sent={streaming_result_sent})")
+
+                logger.warning("❌ EXECUTOR: Stream ended WITHOUT is_task_complete=True, sending PARTIAL_RESULT")
 
                 # Content selection strategy (PRIORITY ORDER):
                 # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                # 2. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's structured response (PlatformEngineerResponse)
-                # 3. Otherwise: Use sub-agent's content (backward compatible)
+                # 2. Otherwise: Use sub-agent's content or supervisor's content (backward compatible)
 
                 require_user_input = event.get('require_user_input', False)
 
@@ -1425,53 +1082,54 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     # Sub-agent sent structured DataPart - use it directly (highest priority)
                     final_content = ''.join(sub_agent_accumulated_content)
                     logger.info(f"📦 Using sub-agent DataPart for partial_result ({len(final_content)} chars) - sub_agent_sent_datapart=True")
-                elif ENABLE_STRUCTURED_OUTPUT and accumulated_content:
-                    # Structured output enabled - use supervisor's accumulated content
-                    final_content = ''.join(accumulated_content)
-                    logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars) - structured output enabled")
                 elif sub_agent_accumulated_content:
                     # Fallback to sub-agent content
                     final_content = ''.join(sub_agent_accumulated_content)
                     logger.info(f"📝 Using sub-agent accumulated content for partial_result ({len(final_content)} chars)")
-                else:
+                elif accumulated_content:
                     # Final fallback to supervisor content
+                    # 🔍 DEBUG: Log accumulation details before joining
+                    logger.info(f"📝 ACCUMULATOR BEFORE JOIN: {len(accumulated_content)} chunks")
+                    for i, chunk in enumerate(accumulated_content):
+                        logger.info(f"📝   Chunk {i+1}: {len(chunk)} chars | Preview: {chunk[:80].replace(chr(10), '\\n')}...")
+
+                    total_before_join = sum(len(c) for c in accumulated_content)
+                    logger.info(f"📝 Total chars before join: {total_before_join}")
+
                     final_content = ''.join(accumulated_content)
-                    logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars) - fallback")
+                    logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars)")
 
-                # Choose artifact format based on ENABLE_STRUCTURED_OUTPUT feature flag (same as final_result)
-                artifact = None
-
-                if ENABLE_STRUCTURED_OUTPUT:
-                    # Try to detect and use DataPart for structured responses
-                    try:
-                        # Try to parse as JSON
-                        response_data = json.loads(final_content)
-
-                        # Validate against PlatformEngineerResponse schema
-                        response_obj = PlatformEngineerResponse.model_validate(response_data)
-
-                        # Success! Use DataPart for structured response
-                        logger.info(f"✅ Detected PlatformEngineerResponse schema in partial_result - using DataPart")
-                        artifact = new_data_artifact(
-                            name='partial_result',
-                            description='Structured result from Platform Engineer (PlatformEngineerResponse schema, requires user input)',
-                            data=response_data,
-                        )
-                    except (json.JSONDecodeError, ValueError, Exception) as e:
-                        # Not valid JSON or doesn't match schema - fall back to TextPart
-                        logger.info(f"ℹ️ partial_result is not structured JSON (using TextPart fallback): {type(e).__name__}")
-                        artifact = new_text_artifact(
-                            name='partial_result',
-                            description='Partial result from Platform Engineer (stream ended)',
-                            text=final_content,
-                        )
+                    # 🔍 DEBUG: Check for duplication in final content
+                    if len(final_content) > 100:
+                        # Check if first half matches second half (simple duplication check)
+                        half_point = len(final_content) // 2
+                        first_half = final_content[:half_point].strip()
+                        second_half = final_content[half_point:].strip()
+                        if first_half and second_half and first_half == second_half:
+                            logger.warning(f"⚠️ DUPLICATION IN FINAL CONTENT: First half matches second half! ({len(first_half)} chars each)")
+                        elif len(final_content) != total_before_join:
+                            logger.warning(f"⚠️ SIZE MISMATCH: final_content={len(final_content)} chars, sum of chunks={total_before_join} chars")
                 else:
-                    # Feature flag disabled: Always use TextPart (backward compatible)
-                    logger.debug(f"ℹ️ Using TextPart for partial_result (ENABLE_STRUCTURED_OUTPUT=false)")
-                    artifact = new_text_artifact(
-                        name='partial_result',
-                        description='Partial result from Platform Engineer (stream ended)',
-                        text=final_content,
+                    # Final fallback to current event content
+                    final_content = content
+                    logger.info(f"📝 Using current event content for partial_result ({len(final_content)} chars)")
+
+                # Always use TextPart for partial_result
+                artifact = new_text_artifact(
+                    name='partial_result',
+                    description='Partial result from Platform Engineer (stream ended)',
+                    text=final_content,
+                )
+
+                # Track partial_result creation (after artifact is created so we have artifact_id)
+                if DEBUG_EVENT_TRACKING:
+                    chunk_count = len(sub_agent_accumulated_content) if sub_agent_accumulated_content else len(accumulated_content) if accumulated_content else 0
+                    total_before_join = len(final_content)
+                    event_tracker.record_partial_result(
+                        final_content=final_content,
+                        chunk_count=chunk_count,
+                        total_before_join=total_before_join,
+                        artifact_id=artifact.artifact_id
                     )
 
                 await self._safe_enqueue_event(
@@ -1497,6 +1155,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         except Exception as e:
             logger.error(f"Error during agent execution: {e}")
+            # Log event table even on error if debug tracking is enabled
+            if DEBUG_EVENT_TRACKING:
+                event_tracker.log_table()
             # Try to enqueue a failure status if the queue is still open
             try:
                 await self._safe_enqueue_event(

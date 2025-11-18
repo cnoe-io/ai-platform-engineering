@@ -102,6 +102,7 @@ class BaseStrandsAgentExecutor(AgentExecutor):
             # Process events and send to A2A event queue
             async for event in self.agent.stream_chat(query):
                 # Handle tool call start events
+                # Use TaskStatusUpdateEvent (correct A2A protocol) instead of TaskArtifactUpdateEvent with emoji text
                 if "tool_call" in event:
                     tool_info = event["tool_call"]
                     tool_name = tool_info.get("name", "unknown")
@@ -114,21 +115,24 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                         seen_tool_calls.add(tool_id)
 
                     tool_name_formatted = tool_name.title()
-                    tool_notification = f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n"
                     logger.info(f"Tool call started: {tool_name}")
 
-                    # Send tool start notification
+                    # Send tool notification as TaskStatusUpdateEvent with tool information in message
+                    tool_message_text = f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}"
                     await event_queue.enqueue_event(
-                        TaskArtifactUpdateEvent(
-                            append=False,
+                        TaskStatusUpdateEvent(
+                            status=TaskStatus(
+                                state=TaskState.working,
+                                message=new_agent_text_message(
+                                    tool_message_text,
+                                    task.context_id,
+                                    task.id,
+                                ),
+                            ),
+                            final=False,
                             context_id=task.context_id,
                             task_id=task.id,
-                            last_chunk=False,
-                            artifact=new_text_artifact(
-                                name='tool_notification_start',
-                                description=f'Tool call started: {tool_name}',
-                                text=tool_notification,
-                            ),
+                            metadata={'tool_notification': True, 'tool_name': tool_name, 'status': 'started'},
                         )
                     )
 
@@ -138,24 +142,27 @@ class BaseStrandsAgentExecutor(AgentExecutor):
                     tool_name = tool_info.get("name", "unknown")
                     is_error = tool_info.get("is_error", False)
 
-                    icon = "❌" if is_error else "✅"
                     status = "failed" if is_error else "completed"
                     tool_name_formatted = tool_name.title()
-                    tool_notification = f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n"
                     logger.info(f"Tool call {status}: {tool_name}")
 
-                    # Send tool completion notification
+                    # Send tool completion notification as TaskStatusUpdateEvent
+                    icon = "❌" if status == 'failed' else "✅"
+                    tool_result_message_text = f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}"
                     await event_queue.enqueue_event(
-                        TaskArtifactUpdateEvent(
-                            append=False,
+                        TaskStatusUpdateEvent(
+                            status=TaskStatus(
+                                state=TaskState.working,
+                                message=new_agent_text_message(
+                                    tool_result_message_text,
+                                    task.context_id,
+                                    task.id,
+                                ),
+                            ),
+                            final=False,
                             context_id=task.context_id,
                             task_id=task.id,
-                            last_chunk=False,
-                            artifact=new_text_artifact(
-                                name='tool_notification_end',
-                                description=f'Tool call {status}: {tool_name}',
-                                text=tool_notification,
-                            ),
+                            metadata={'tool_notification': True, 'tool_name': tool_name, 'status': status},
                         )
                     )
 

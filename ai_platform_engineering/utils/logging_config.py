@@ -1,76 +1,53 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Logging configuration utilities for reducing noise from health check endpoints.
-"""
-
 import logging
-import re
+import os
 
 
 class HealthCheckFilter(logging.Filter):
-    """
-    Filter that downgrades health check and agent-card endpoint logs to DEBUG level.
-
-    This prevents noisy INFO-level logs from uvicorn access logger for health checks
-    while still allowing them to be visible when DEBUG logging is enabled.
-    """
-
-    # Patterns for health check endpoints
-    HEALTH_PATTERNS = [
-        r'GET\s+/\.well-known/agent-card\.json',
-        r'GET\s+/healthz',
-        r'GET\s+/health\b',
-        r'POST\s+/mcp/v1.*\b(ping|health)',
-    ]
-
-    def __init__(self, name=''):
-        super().__init__(name)
-        self.health_regex = re.compile('|'.join(self.HEALTH_PATTERNS), re.IGNORECASE)
+    """Filter to suppress INFO-level logs for health check endpoints."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """
-        Return False to filter out (suppress) INFO-level health check logs.
-        DEBUG-level logs will still pass through if DEBUG logging is enabled.
-        """
-        # Only filter INFO level logs
-        if record.levelno != logging.INFO:
+        """Filter out health check logs at INFO level."""
+        # Allow DEBUG and above, but filter INFO for health checks
+        if record.levelno > logging.INFO:
             return True
 
-        # Check if the message matches health check patterns
+        # Get the log message
         message = record.getMessage()
-        if self.health_regex.search(message):
-            # Downgrade to DEBUG by preventing INFO-level logging
-            return False
 
+        # Filter out health check endpoints
+        health_check_paths = [
+            '/.well-known/agent-card.json',
+            '/healthz',
+            '/health',
+            '/mcp/v1',
+        ]
+
+        # Check if this is a health check log
+        for path in health_check_paths:
+            if path in message:
+                # Check if it's a ping/health operation for MCP
+                if path == '/mcp/v1' and ('ping' in message.lower() or 'health' in message.lower()):
+                    return False
+                elif path != '/mcp/v1':
+                    return False
+
+        # Allow all other logs
         return True
 
 
 def configure_logging():
-    """
-    Configure logging to suppress health check endpoint logs at INFO level
-    and suppress noisy A2A SDK warnings.
+    """Configure logging to suppress noisy health check logs."""
+    # Get the root logger
+    root_logger = logging.getLogger()
 
-    Call this early in your application startup (after basic logging setup).
-    """
-    # Add filter to uvicorn access logger
-    access_logger = logging.getLogger("uvicorn.access")
-    access_logger.addFilter(HealthCheckFilter())
+    # Add the health check filter to all handlers
+    health_check_filter = HealthCheckFilter()
+    for handler in root_logger.handlers:
+        handler.addFilter(health_check_filter)
 
-    # Also filter uvicorn.error logger which may log similar messages
-    error_logger = logging.getLogger("uvicorn.error")
-    error_logger.addFilter(HealthCheckFilter())
-
-    # Filter FastAPI/Starlette access logs
-    starlette_logger = logging.getLogger("starlette.access")
-    starlette_logger.addFilter(HealthCheckFilter())
-
-    # Reduce noise from A2A SDK loggers while keeping important warnings visible
-    # These loggers can be verbose during normal operation
-    # Set to WARNING instead of ERROR to still see important warnings
-    for log_name in ["sse_starlette.sse", "a2a.server.events.event_queue", "a2a.utils.helpers"]:
-        a2a_logger = logging.getLogger(log_name)
-        a2a_logger.setLevel(logging.WARNING)
-        # Keep propagate=True to allow parent loggers to handle these messages
-
+    # Also configure a2a.utils.helpers logger to DEBUG (as per previous configuration)
+    a2a_helpers_logger = logging.getLogger('a2a.utils.helpers')
+    a2a_helpers_logger.setLevel(logging.DEBUG)
