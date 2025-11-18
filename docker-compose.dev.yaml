@@ -100,7 +100,7 @@ services:
       # Structured output with A2A DataPart (native JSON schema support)
       # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
       # When disabled, all responses are sent as TextPart (backward compatible)
-      - ENABLE_STRUCTURED_OUTPUT=true
+      - ENABLE_STRUCTURED_OUTPUT=false
       # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
       # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
       # When enabled, the platform engineer will stream sub-agent responses token-by-token
@@ -209,7 +209,7 @@ services:
       # Structured output with A2A DataPart (native JSON schema support)
       # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
       # When disabled, all responses are sent as TextPart (backward compatible)
-      - ENABLE_STRUCTURED_OUTPUT=true
+      - ENABLE_STRUCTURED_OUTPUT=false
       # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
       # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
       # When enabled, the platform engineer will stream sub-agent responses token-by-token
