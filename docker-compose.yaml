@@ -696,7 +696,7 @@ services:
     container_name: rag-webui
     environment:
       - RAG_SERVER_URL=http://rag_server:9446
-      - NGINX_ENVSUBST_TEMPLATE_SUFFIX=".conf"
+      - NGINX_ENVSUBST_TEMPLATE_SUFFIX=.conf
     depends_on: [rag_server]
     ports: ["9447:80"]
   # RAG Dependencies
