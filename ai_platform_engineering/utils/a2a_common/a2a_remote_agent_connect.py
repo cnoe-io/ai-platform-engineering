@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -13,18 +14,31 @@ import pprint
 import httpx
 
 from a2a.client import A2ACardResolver, A2AClient
+from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
     AgentCard,
+    Task,
     SendMessageRequest,
     SendStreamingMessageRequest,
     MessageSendParams,
+    TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
 )
+from a2a.utils import new_agent_text_message
 
 from langchain_core.tools import BaseTool
 from langgraph.config import get_stream_writer
 
+from ai_platform_engineering.utils.models.generic_agent import Output
 from cnoe_agent_utils.tracing import TracingManager
 from pydantic import BaseModel, Field
+
+# Import context variables from shared module to avoid circular imports
+from ai_platform_engineering.utils.a2a_common.context_vars import (
+    _event_queue_ctx,
+    _task_ctx,
+)
 
 
 logger = logging.getLogger("a2a.client.tool")
@@ -184,7 +198,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
             await asyncio.sleep(retry_delay)
             continue
           self._notify_failure(writer, last_error)
-          return f"ERROR: {last_error}"
+          return Output(response=f"ERROR: {last_error}")
 
         return output
 
@@ -199,12 +213,12 @@ class A2ARemoteAgentConnectTool(BaseTool):
           await asyncio.sleep(retry_delay)
           continue
         self._notify_failure(writer, last_error)
-        return f"ERROR: {last_error}"
+        return Output(response=f"ERROR: {last_error}")
 
     # Should never reach here, but return the last error as a fallback
     fallback = last_error or "Unknown error"
     self._notify_failure(writer, fallback)
-    return f"ERROR: {fallback}"
+    return Output(response=f"ERROR: {fallback}")
 
   async def _execute_once(
       self,
@@ -212,7 +226,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
       trace_id: Optional[str],
       context_id: Optional[str],
       writer,
-  ) -> tuple[str, Optional[str], Optional[str]]:
+  ) -> tuple[Output, Optional[str], Optional[str]]:
     """Execute a single remote agent streaming call and return output with status info."""
 
     logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}, context_id: {context_id}")
@@ -313,46 +327,69 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 else:
                   logger.debug(f"🔍 part has neither 'text' nor 'data' key: {list(part.keys())}")
 
-                # Stream artifact if enabled (for both TextPart and DataPart)
+                # Always stream artifact-update events from sub-agents so supervisor can forward them to client
                 if text or data:
-                  enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
-
-                  if enable_artifact_streaming:
-                    writer({"type": "artifact-update", "result": result})
-                    content_type = "DataPart" if data else "TextPart"
-                    logger.info(f"✅ Streamed artifact-update event ({content_type}, ENABLE_ARTIFACT_STREAMING=true)")
-                  else:
-                    logger.debug("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
+                  writer({"type": "artifact-update", "result": result})
+                  content_type = "DataPart" if data else "TextPart"
+                  logger.debug(f"✅ Streamed artifact-update event ({content_type}) from sub-agent")
 
         elif kind == "status-update":
-          logger.debug(f"Received status-update event: {result}")
-          status = result.get('status')
-          if status and isinstance(status, dict):
-            message = status.get('message')
-            if message and isinstance(message, dict):
-              parts = message.get('parts', [])
-              for part in parts:
-                if isinstance(part, dict):
-                  text = part.get('text')
-                  if text:
-                    accumulated_text.append(text)
+          logger.info(f"📥 Received status-update event from sub-agent: {result.get('metadata', {})}")
 
-                    stream_tool_output = os.getenv("STREAM_SUB_AGENT_TOOL_OUTPUT", "false").lower() == "true"
-                    is_tool_notification = '🔧' in text or '✅' in text
-                    is_tool_output = '📄' in text
-                    should_stream = is_tool_notification or (is_tool_output and stream_tool_output)
+          # Check metadata first - tool notifications are marked with metadata.tool_notification=True
+          # This avoids parsing text patterns
+          event_metadata = result.get('metadata') or {}
+          is_tool_notification = event_metadata.get('tool_notification', False)
+          tool_name = event_metadata.get('tool_name', 'N/A')
+          tool_status = event_metadata.get('status', 'N/A')
+          logger.info(f"📥 Status-update details: tool_notification={is_tool_notification}, tool_name={tool_name}, status={tool_status}")
 
-                    if should_stream:
-                      clean_text = text.replace('**', '')
-                      writer({"type": "a2a_event", "data": clean_text})
-                      if is_tool_output:
-                        logger.info(f"✅ Streamed tool output from status-update (STREAM_SUB_AGENT_TOOL_OUTPUT=true): {len(clean_text)} chars")
-                      else:
-                        logger.info(f"✅ Streamed tool notification from status-update: {len(clean_text)} chars")
-                    elif is_tool_output:
-                      logger.debug(f"⏭️  Skipped streaming tool output (STREAM_SUB_AGENT_TOOL_OUTPUT=false): {len(text)} chars")
-                    else:
-                      logger.debug(f"⏭️  Skipped streaming content from status-update (not a tool message): {len(text)} chars")
+          # Filter out completion signals from sub-agents to prevent supervisor from treating them as its own completion
+          # Sub-agents should not send final=True or state=TaskState.completed - only the supervisor should complete
+          status = result.get('status', {})
+          is_final = result.get('final', False)
+          task_state = status.get('state') if isinstance(status, dict) else None
+          is_completed = task_state == 'completed' or is_final
+
+          if is_completed:
+            logger.debug(f"⏭️ Skipping completion signal from sub-agent (final={is_final}, state={task_state}) - supervisor will complete its own task")
+            # Still accumulate text if present, but don't forward the completion signal
+            if isinstance(status, dict):
+              message = status.get('message')
+              if message and isinstance(message, dict):
+                parts = message.get('parts', [])
+                for part in parts:
+                  if isinstance(part, dict):
+                    text = part.get('text')
+                    if text:
+                      accumulated_text.append(text)
+                      logger.debug(f"Accumulated text from skipped completion status-update: {len(text)} chars")
+            continue
+
+          # Forward non-completion status-update events via writer() (goes through LangGraph stream)
+          # The supervisor executor will process them and forward to client with correct task ID
+          # Note: Direct forwarding to event queue doesn't work reliably because tools run in
+          # a different async context. Using writer() ensures events go through LangGraph's stream
+          # and are processed by the executor in the correct context.
+          writer({"type": "status-update", "result": result})
+
+          if is_tool_notification:
+            # Tool notifications are forwarded as TaskStatusUpdateEvent objects (not text)
+            logger.info(f"✅ Forwarded tool notification via writer(): {tool_name} - {tool_status}")
+          else:
+            logger.info(f"Forwarded non-tool status-update from sub-agent")
+            # Non-tool-notification status-update: also accumulate text for final response
+            status = result.get('status')
+            if status and isinstance(status, dict):
+              message = status.get('message')
+              if message and isinstance(message, dict):
+                parts = message.get('parts', [])
+                for part in parts:
+                  if isinstance(part, dict):
+                    text = part.get('text')
+                    if text:
+                      accumulated_text.append(text)
+                      logger.debug(f"Accumulated text from status-update: {len(text)} chars")
       except Exception as e:  # noqa: BLE001
         logger.warning(f"Non-fatal error while handling stream chunk: {e}")
         import traceback
@@ -380,16 +417,9 @@ class A2ARemoteAgentConnectTool(BaseTool):
     if not clean_text and status_message:
       clean_text = status_message
 
-    # CRITICAL: Return the FULL content to the LLM so it can extract data for sequential workflows
-    # The supervisor needs the actual response to extract values (emails, IDs, names, etc.)
-    # and pass them to subsequent agent calls
-    # The content was already streamed to UI via writer(), but LLM needs it in message history
-    if clean_text:
-      return clean_text, status, status_message
-    else:
-      # Fallback if no content - return success message
-      completion_message = f"✅ {self.name} completed successfully"
-      return completion_message, status, status_message
+    output_text = clean_text or final_response
+
+    return Output(response=output_text), status, status_message
 
   def _split_status_payload(self, response_text: str) -> tuple[str, Optional[str], Optional[str]]:
     """Split combined text/JSON payload returned by remote agent."""
@@ -564,15 +594,14 @@ class A2ARemoteAgentConnectTool(BaseTool):
                     if root:
                       text = getattr(root, 'text', None)
                       if text:
-                        # Skip tool status messages (🔧, ✅)
-                        if not text.startswith('🔧') and not text.startswith('✅'):
-                          texts.append(text)
-                          logging.info(f"Extracted text from history.message.part.root.text: {text[:100]}...")
+                        # Include all text from history (tool notifications now use TaskStatusUpdateEvent, not emoji text)
+                        texts.append(text)
+                        logging.info(f"Extracted text from history.message.part.root.text: {text[:100]}...")
 
                     # Fallback: check if part itself has text (for direct text parts)
                     if not root:
                       text = getattr(part, 'text', None)
-                      if text and not text.startswith('🔧') and not text.startswith('✅'):
+                      if text:
                         texts.append(text)
                         logging.info(f"Extracted text from history.message.part.text: {text[:100]}...")
 
