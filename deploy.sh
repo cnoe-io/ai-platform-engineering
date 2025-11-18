@@ -142,7 +142,12 @@ fi
 
 # Add RAG services if enabled
 if [ "$ENABLE_RAG" = "true" ]; then
-    SHOULD_RUN="$SHOULD_RUN rag_server agent_rag agent_ontology rag_webui neo4j neo4j-ontology rag-redis milvus-standalone etcd milvus-minio"
+    SHOULD_RUN="$SHOULD_RUN rag_server agent_rag rag_webui rag-redis milvus-standalone etcd milvus-minio"
+fi
+
+# Add GraphRAG services if enabled
+if [ "$ENABLE_GRAPH_RAG" = "true" ]; then
+    SHOULD_RUN="$SHOULD_RUN rag_server agent_rag rag_webui rag-redis milvus-standalone etcd milvus-minio agent_ontology neo4j neo4j-ontology"
 fi
 
 if [ "$ENABLE_TRACING" = "true" ]; then
