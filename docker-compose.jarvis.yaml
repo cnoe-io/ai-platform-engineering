@@ -1487,6 +1487,7 @@ services:
     container_name: agent-jarvis-p2p
     restart: unless-stopped
     profiles:
+      - p2p
       - p2p-no-rag
       - p2p-no-rag-tracing
     env_file:
