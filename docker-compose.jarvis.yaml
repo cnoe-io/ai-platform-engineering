@@ -8,7 +8,7 @@ services:
       dockerfile: build/Dockerfile
     container_name: caipe-p2p-with-rag
     volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.deep_agent_jarvis.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
     # The 'extra_hosts' option below maps the hostname 'hub.docker.local' to the Docker host's gateway IP.
     # This enables services running inside this container to access other agents or services that are
@@ -60,11 +60,9 @@ services:
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true # Routinely checks each subagent connectivity to add or remove any from existing tools list.
       - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
       - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
-      - ENABLE_ENHANCED_STREAMING=${ENABLE_ENHANCED_STREAMING:-false} # Enable enhanced streaming with intelligent routing (DIRECT/PARALLEL/COMPLEX modes)
-      - FORCE_DEEP_AGENT_ORCHESTRATION=${FORCE_DEEP_AGENT_ORCHESTRATION:-true} # Force all queries through Deep Agent with parallel orchestration hints (DEFAULT - best performance)
-      - ENABLE_ENHANCED_ORCHESTRATION=${ENABLE_ENHANCED_ORCHESTRATION:-false} # EXPERIMENTAL: Smart routing + orchestration hints (4th mode for comparison)
+      # Debug Configuration
+      - DEBUG_EVENT_TRACKING=${DEBUG_EVENT_TRACKING:-false} # Enable detailed event tracking table for debugging duplication issues
       # Streaming Configuration
-      - STREAM_SUB_AGENT_TOOL_OUTPUT=${STREAM_SUB_AGENT_TOOL_OUTPUT:-false} # Stream intermediate tool outputs (📄) from sub-agents to end user (disabled by default to reduce verbosity)
 
       # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
@@ -83,6 +81,9 @@ services:
       - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
       - WEBEX_AGENT_PORT=8000
+      # Jarvis A2A agent running in docker-compose
+      - JARVIS_AGENT_HOST=agent-jarvis-p2p
+      - JARVIS_AGENT_PORT=58000
       # Enable agents
       - ENABLE_ARGOCD=true
       - ENABLE_AWS=true
@@ -97,14 +98,7 @@ services:
       - ENABLE_WEATHER=true
       - ENABLE_WEBEX=true
       - ENABLE_RAG=true
-      # Structured output with A2A DataPart (native JSON schema support)
-      # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
-      # When disabled, all responses are sent as TextPart (backward compatible)
-      - ENABLE_STRUCTURED_OUTPUT=true
-      # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
-      # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
-      # When enabled, the platform engineer will stream sub-agent responses token-by-token
-      - ENABLE_ARTIFACT_STREAMING=true
+      - ENABLE_JARVIS=true
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -169,11 +163,9 @@ services:
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true # Routinely checks each subagent connectivity to add or remove any from existing tools list.
       - AGENT_PROTOCOL=a2a # Use A2A protocol for agent-to-agent communication.
       - SKIP_AGENT_CONNECTIVITY_CHECK=false # Do not skip the connectivity check; supervisor agent will check each subagent is reachable and only add reachable tools.
-      - ENABLE_ENHANCED_STREAMING=${ENABLE_ENHANCED_STREAMING:-false} # Enable enhanced streaming with intelligent routing (DIRECT/PARALLEL/COMPLEX modes)
-      - FORCE_DEEP_AGENT_ORCHESTRATION=${FORCE_DEEP_AGENT_ORCHESTRATION:-true} # Force all queries through Deep Agent with parallel orchestration hints (DEFAULT - best performance)
-      - ENABLE_ENHANCED_ORCHESTRATION=${ENABLE_ENHANCED_ORCHESTRATION:-false} # EXPERIMENTAL: Smart routing + orchestration hints (4th mode for comparison)
+      # Debug Configuration
+      - DEBUG_EVENT_TRACKING=${DEBUG_EVENT_TRACKING:-false} # Enable detailed event tracking table for debugging duplication issues
       # Streaming Configuration
-      - STREAM_SUB_AGENT_TOOL_OUTPUT=${STREAM_SUB_AGENT_TOOL_OUTPUT:-false} # Stream intermediate tool outputs (📄) from sub-agents to end user (disabled by default to reduce verbosity)
 
       # Agent hosts
       - ARGOCD_AGENT_HOST=agent-argocd-p2p
@@ -212,14 +204,6 @@ services:
       - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
       - ENABLE_JARVIS=true
-      # Structured output with A2A DataPart (native JSON schema support)
-      # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
-      # When disabled, all responses are sent as TextPart (backward compatible)
-      - ENABLE_STRUCTURED_OUTPUT=true
-      # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
-      # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
-      # When enabled, the platform engineer will stream sub-agent responses token-by-token
-      - ENABLE_ARTIFACT_STREAMING=true
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -510,8 +494,6 @@ services:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=stdio
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      # Enable token streaming (artifact-update events)
-      - ENABLE_ARTIFACT_STREAMING=true
       # 🆕 Add newline after each chunk
       - STREAM_CHUNK_NEWLINES=true    # Default: false
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}

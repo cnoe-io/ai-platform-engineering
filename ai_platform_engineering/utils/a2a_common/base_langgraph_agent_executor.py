@@ -211,22 +211,29 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                         kind = 'text_chunk'
 
                 # Check if this is a tool call or tool result message
+                # Use TaskStatusUpdateEvent (correct A2A protocol) instead of TaskArtifactUpdateEvent with emoji text
                 if kind == 'tool_call' or 'tool_call' in event:
                     tool_info = event.get('tool_call', {})
                     tool_name = tool_info.get('name', 'unknown')
-                    description = f"Tool call started: {tool_name}"
-                    logger.info(f"{agent_name}: 🔧 Tool call - {tool_name}")
+                    tool_id = tool_info.get('id', '')
+                    logger.info(f"{agent_name}: Tool call - {tool_name}")
+
+                    # Send tool notification as TaskStatusUpdateEvent with tool information in message
+                    tool_message_text = f"🔧 {agent_name}: Calling tool: {tool_name}"
                     await event_queue.enqueue_event(
-                        TaskArtifactUpdateEvent(
-                            append=False,
+                        TaskStatusUpdateEvent(
+                            status=TaskStatus(
+                                state=TaskState.working,
+                                message=new_agent_text_message(
+                                    tool_message_text,
+                                    task.context_id,
+                                    task.id,
+                                ),
+                            ),
+                            final=False,
                             context_id=task.context_id,
                             task_id=task.id,
-                            last_chunk=False,
-                            artifact=new_text_artifact(
-                                name='tool_notification_start',
-                                description=description,
-                                text=content or description,
-                            ),
+                            metadata={'tool_notification': True, 'tool_name': tool_name, 'status': 'started'},
                         )
                     )
                     continue
@@ -236,19 +243,25 @@ class BaseLangGraphAgentExecutor(AgentExecutor, ABC):
                     tool_name = tool_info.get('name', 'unknown')
                     is_error = tool_info.get('is_error', False) or tool_info.get('status') == 'failed'
                     status_text = 'failed' if is_error else tool_info.get('status', 'completed')
-                    description = f"Tool call {status_text}: {tool_name}"
-                    logger.info(f"{agent_name}: ✅ Tool result - {tool_name} ({status_text})")
+                    logger.info(f"{agent_name}: Tool result - {tool_name} ({status_text})")
+
+                    # Send tool completion notification as TaskStatusUpdateEvent
+                    icon = "❌" if status_text == 'failed' else "✅"
+                    tool_result_message_text = f"{icon} {agent_name}: Tool {tool_name} {status_text}"
                     await event_queue.enqueue_event(
-                        TaskArtifactUpdateEvent(
-                            append=False,
+                        TaskStatusUpdateEvent(
+                            status=TaskStatus(
+                                state=TaskState.working,
+                                message=new_agent_text_message(
+                                    tool_result_message_text,
+                                    task.context_id,
+                                    task.id,
+                                ),
+                            ),
+                            final=False,
                             context_id=task.context_id,
                             task_id=task.id,
-                            last_chunk=False,
-                            artifact=new_text_artifact(
-                                name='tool_notification_end',
-                                description=description,
-                                text=content or description,
-                            ),
+                            metadata={'tool_notification': True, 'tool_name': tool_name, 'status': status_text},
                         )
                     )
                     continue
