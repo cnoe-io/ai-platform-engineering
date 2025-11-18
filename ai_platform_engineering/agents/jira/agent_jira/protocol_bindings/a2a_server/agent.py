@@ -26,6 +26,8 @@ class JiraAgent(BaseLangGraphAgent):
         service_name="Jira",
         service_operations="manage issues, projects, and workflows",
         additional_guidelines=[
+            "handle_user_operations has TWO actions: (1) action='search_users' with query parameter for email/name search, (2) action='get_user' with identifier parameter for account ID lookup",
+            "To convert email to account ID: use action='search_users', NOT action='get_user'",
             "Perform CRUD operations on Jira issues, projects, and related resources",
             "When searching or filtering issues by date (created, updated, resolved), calculate date ranges based on the current date provided above",
             "Always convert relative dates (today, this week, last month) to absolute dates in YYYY-MM-DD format for JQL queries",
@@ -36,8 +38,8 @@ class JiraAgent(BaseLangGraphAgent):
             "NEVER return API endpoint URLs like /rest/api/3/issue/{issue_id} - these are not user-friendly",
             "Extract the issue key (e.g., CAIPE-67) from API responses and construct the proper browse URL",
 
-            "CRITICAL: Do NOT add issueType filter to JQL queries unless the user explicitly specifies an issue type (Bug, Story, Task, Epic, etc.)",
-            "When searching for 'issues', return ALL issue types - do not default to issueType=Bug or any specific type",
+            "NEVER add 'issuetype' or 'issueType' to JQL queries",
+            "Return ALL issue types (Bug, Story, Task, Epic, etc.) - no filtering by type",
 
             "CRITICAL: When JQL search results are paginated, inform the user about pagination status",
             "If there are more issues available beyond the current page, clearly tell the user: 'There are [X] more issues available. Would you like me to fetch them?'",

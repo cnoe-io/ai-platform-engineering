@@ -44,6 +44,15 @@ async def search(
     Returns:
         JiraSearchResult object representing the search results.
     """
+    # Auto-correct: remove issuetype filters from JQL (unless explicitly wanted by user)
+    import re
+    if jql and re.search(r'\bAND\s+issuetype\s*=\s*\w+', jql, re.IGNORECASE):
+        original_jql = jql
+        jql = re.sub(r'\s+AND\s+issuetype\s*=\s*\w+', '', jql, flags=re.IGNORECASE)
+        logger.warning(f"Auto-correcting: removed issuetype filter from JQL")
+        logger.debug(f"Original: {original_jql}")
+        logger.debug(f"Corrected: {jql}")
+
     # Get credentials from environment
     import os
     email = os.getenv("ATLASSIAN_EMAIL")
