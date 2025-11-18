@@ -45,7 +45,7 @@ import json
 logger = logging.getLogger(__name__)
 
 # Feature flag: Enable structured output with DataPart (A2A Protocol best practice)
-ENABLE_STRUCTURED_OUTPUT = os.getenv("ENABLE_STRUCTURED_OUTPUT", "true").lower() == "true"
+ENABLE_STRUCTURED_OUTPUT = os.getenv("ENABLE_STRUCTURED_OUTPUT", "false").lower() == "true"
 logger.info(f"🔧 ENABLE_STRUCTURED_OUTPUT: {ENABLE_STRUCTURED_OUTPUT}")
 
 
