@@ -543,7 +543,9 @@ services:
     image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
     container_name: backstage-agent-forge
     ports: ["13000:3000"]
-    environment: [NODE_ENV=development]
+    environment: 
+      - NODE_ENV=development
+      - AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
     profiles:
       - agentforge
       - all-agents
