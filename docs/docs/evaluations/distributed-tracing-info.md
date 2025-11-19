@@ -448,12 +448,12 @@ result = await self.graph.ainvoke(inputs, config=runnable_config)
 
 **Development with Tracing**:
 ```bash
-docker-compose -f docker-compose.dev.yaml --profile build-tracing up
+docker compose -f docker-compose.dev.yaml --profile p2p-tracing up
 ```
 
 **Production with Tracing**:
 ```bash
-docker-compose --profile tracing up
+docker compose --profile tracing up
 ```
 
 ## Recent Improvements

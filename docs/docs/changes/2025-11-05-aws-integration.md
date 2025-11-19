@@ -19,7 +19,7 @@ The AWS agent supports two backend implementations:
 ### Usage:
 ```bash
 # Default - no configuration needed
-docker-compose -f docker-compose.dev.yaml up agent-aws-p2p
+docker compose -f docker-compose.dev.yaml up agent-aws-p2p
 
 # Or explicitly set
 export AWS_AGENT_BACKEND=langgraph
@@ -53,7 +53,7 @@ Found 3 EKS clusters in us-west-2:
 ### Usage:
 ```bash
 export AWS_AGENT_BACKEND=strands
-docker-compose -f docker-compose.dev.yaml up agent-aws-p2p
+docker compose -f docker-compose.dev.yaml up agent-aws-p2p
 ```
 
 ### Example Output:
@@ -164,7 +164,7 @@ curl -X POST http://localhost:8002 \
 ```bash
 export AWS_AGENT_BACKEND=strands
 # Restart agent
-docker-compose -f docker-compose.dev.yaml restart agent-aws-p2p
+docker compose -f docker-compose.dev.yaml restart agent-aws-p2p
 
 curl -X POST http://localhost:8002 \
   -H "Content-Type: application/json" \

@@ -4,8 +4,8 @@ This script is designed to set up and manage a multi-container application envir
 
 1. **Environment Setup**: Ensure Docker and Docker Compose are installed on your machine.
 2. **Service Configuration**: Define the required services in a `docker-compose.yml` file.
-3. **Start Services**: Use the `docker-compose up -d` command to initialize and run the services in detached mode.
-4. **Service Verification**: Check the status of running services using `docker-compose ps`.
+3. **Start Services**: Use the `docker compose up -d` command to initialize and run the services in detached mode.
+4. **Service Verification**: Check the status of running services using `docker compose ps`.
 
 Follow these steps to deploy and manage your application efficiently.
 
@@ -13,9 +13,19 @@ Follow these steps to deploy and manage your application efficiently.
 2. Create a `docker-compose.yml` file with the required services.
 3. Run the following command to start the services:
   ```bash
-  docker-compose --profile=p2p up
+  COMPOSE_PROFILES=all docker compose up
   ```
+
+   **Or start with specific profiles:**
+   ```bash
+   # Start with GitHub agent and SLIM dataplane
+   COMPOSE_PROFILES="slim,github" docker compose up
+
+   # Start with multiple agents
+   COMPOSE_PROFILES="github,aws,rag" docker compose up
+   ```
+
 1. Verify the services are running:
   ```bash
-  docker-compose ps
+  docker compose ps
   ```
