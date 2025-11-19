@@ -17,7 +17,7 @@ from a2a.types import (
 )
 
 from langchain_core.tools import BaseTool
-from graph.models import Input, Output
+from graph.models import Input
 
 logger = logging.getLogger("a2a.client.tool")
 
@@ -117,7 +117,8 @@ class A2ARemoteAgentConnectTool(BaseTool):
       input (Input): The input containing the prompt to send to the agent.
 
     Returns:
-      Output: The response from the agent.
+      str: The response from the agent as a string. Returns error string if execution fails.
+      LangGraph's ChatAgentExecutor expects tools to return strings directly to create ToolMessages.
     """
     try:
       # logger.info("\n" + "="*50 + "\nInput Received:\n" + f"{str(input)}" + "\n" + "="*50)
@@ -125,14 +126,20 @@ class A2ARemoteAgentConnectTool(BaseTool):
       prompt = input['prompt'] if isinstance(input, dict) else input.prompt
       logger.info(f"Received prompt: {prompt}")
       if not prompt:
-        logger.error("Invalid input: Prompt must be a non-empty string.")
-        raise ValueError("Invalid input: Prompt must be a non-empty string.")
+        error_msg = "Invalid input: Prompt must be a non-empty string."
+        logger.error(error_msg)
+        # Return error string directly (not wrapped) so LangGraph can create ToolMessage
+        return f"ERROR: {error_msg}"
       response = await self.send_message(prompt)
-      return Output(response=response)
+      # Return string directly so LangGraph can properly create ToolMessage
+      return response
     except Exception as e:
       print(input)
-      logger.error(f"Failed to execute A2A client tool: {str(e)}")
-      raise RuntimeError(f"Failed to execute A2A client tool: {str(e)}")
+      error_msg = f"Failed to execute A2A client tool: {str(e)}"
+      logger.error(error_msg)
+      # Return error string directly instead of raising to ensure LangGraph creates ToolMessage
+      # This prevents "Found AIMessages with tool_calls that do not have a corresponding ToolMessage" errors
+      return f"ERROR: {error_msg}"
 
   async def send_message(self, prompt: str) -> str:
     """
@@ -142,11 +149,17 @@ class A2ARemoteAgentConnectTool(BaseTool):
       prompt (str): The user input prompt to send to the agent.
 
     Returns:
-      str: The response returned by the agent.
+      str: The response returned by the agent. Returns error string if connection or execution fails.
     """
     if self._client is None:
       logger.info("A2AClient not initialized. Connecting now...")
-      await self._connect()
+      try:
+        await self._connect()
+      except Exception as e:
+        error_msg = f"Failed to connect to remote agent: {str(e)}"
+        logger.error(error_msg)
+        # Return error string instead of raising to ensure LangGraph creates ToolMessage
+        return f"ERROR: {error_msg}"
 
     send_message_payload = {
         'message': {
@@ -165,9 +178,15 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
     logger.info(f"Request to send message: {request}")
     pprint.pprint(request)
-    response = await self._client.send_message(request)
-    logger.info(f"Response received from A2A agent: {response}")
-    pprint.pprint(response)
+    try:
+      response = await self._client.send_message(request)
+      logger.info(f"Response received from A2A agent: {response}")
+      pprint.pprint(response)
+    except Exception as e:
+      error_msg = f"Failed to send message to A2A agent: {str(e)}"
+      logger.error(error_msg, exc_info=True)
+      # Return error string instead of raising to ensure LangGraph creates ToolMessage
+      return f"ERROR: {error_msg}"
 
     def extract_text_from_parts(artifacts):
       """Extract all text fields from artifact parts."""
@@ -213,9 +232,15 @@ class A2ARemoteAgentConnectTool(BaseTool):
       logger.info(f"Extracted texts from artifacts: {texts}")
       return " ".join(texts)
     elif response.root.error:
-      raise Exception(f"A2A error: {response.root.error.message}")
+      error_msg = f"A2A error: {response.root.error.message}"
+      logger.error(error_msg)
+      # Return error string instead of raising to ensure LangGraph creates ToolMessage
+      return f"ERROR: {error_msg}"
 
-    raise Exception("Unknown response type")
+    error_msg = "Unknown response type"
+    logger.error(error_msg)
+    # Return error string instead of raising to ensure LangGraph creates ToolMessage
+    return f"ERROR: {error_msg}"
 
   async def __aexit__(self, exc_type, exc_val, exc_tb):
     if self._httpx_client:
