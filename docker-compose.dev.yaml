@@ -1900,12 +1900,14 @@ services:
     image: redis:7
     container_name: langfuse-redis
     restart: always
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/langfuse-redis:/data
     profiles:
       - p2p-tracing
       - slim-tracing
       - p2p-no-rag-tracing
     command: >
-      --requirepass ${REDIS_AUTH:-myredissecret}
+      --requirepass ${REDIS_AUTH:-myredissecret} --appendonly yes
     ports:
       - "127.0.0.1:6379:6379"
     healthcheck:
