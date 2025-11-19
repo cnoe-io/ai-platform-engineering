@@ -572,6 +572,7 @@ services:
     depends_on: [rag-redis]
     profiles:
       - rag
+      - graph_rag
 
   agent_rag:
     image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-stable}
@@ -589,6 +590,7 @@ services:
     restart: unless-stopped
     profiles:
       - rag
+      - graph_rag
 
   agent_ontology:
     image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
@@ -606,7 +608,7 @@ services:
     restart: unless-stopped
     depends_on: [rag_server, neo4j, neo4j-ontology, rag-redis]
     profiles:
-      - donotstart
+      - graph_rag
 
   rag_webui:
     image: ghcr.io/cnoe-io/caipe-rag-webui:${IMAGE_TAG:-stable}
@@ -618,6 +620,7 @@ services:
     ports: ["9447:80"]
     profiles:
       - rag
+      - graph_rag
 
   # RAG Dependencies
   neo4j:
@@ -637,7 +640,7 @@ services:
       - NEO4J_apoc_import_file_enabled=true
       - NEO4J_apoc_import_file_use__neo4j__config=true
     profiles:
-      - rag
+      - graph_rag
 
   neo4j-ontology:
     image: neo4j:latest
@@ -656,7 +659,7 @@ services:
       - NEO4J_apoc_import_file_enabled=true
       - NEO4J_apoc_import_file_use__neo4j__config=true
     profiles:
-      - rag
+      - graph_rag
 
   rag-redis:
     image: redis
@@ -668,6 +671,7 @@ services:
     restart: unless-stopped
     profiles:
       - rag
+      - graph_rag
 
   milvus-standalone:
     image: milvusdb/milvus:v2.6.0
@@ -691,6 +695,7 @@ services:
     depends_on: [etcd, milvus-minio]
     profiles:
       - rag
+      - graph_rag
 
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
@@ -710,6 +715,7 @@ services:
       retries: 3
     profiles:
       - rag
+      - graph_rag
 
   milvus-minio:
     image: minio/minio:RELEASE.2024-05-28T17-19-04Z
@@ -728,6 +734,7 @@ services:
       retries: 3
     profiles:
       - rag
+      - graph_rag
 
   # Langfuse Tracing Services
   langfuse-worker:
