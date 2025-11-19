@@ -1319,20 +1319,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                        )
 
                        # Check if this is the final response event (contains full accumulated content)
-                       # The final response from agent.py contains the full content, so we shouldn't accumulate it again
-                       # to avoid duplication. We detect this by checking if the content is a large chunk that contains
-                       # the accumulated content (indicating it's the full response, not a streaming chunk)
+                       # The final response from agent.py contains the full accumulated content, so we shouldn't accumulate it again
+                       # to avoid duplication. We detect this deterministically by checking if accumulated content is a substring.
                        existing_accumulated_text = ''.join(accumulated_content) if accumulated_content else ''
-                       existing_length = len(existing_accumulated_text)
-                       content_length = len(content)
 
-                       # Detect final response: content contains accumulated content (indicating it's the full response)
-                       # Streaming chunks are typically small (token-by-token, <50 chars), while final response
-                       # contains the full accumulated content (hundreds/thousands of chars)
-                       # We check if accumulated content is contained in this event's content
+                       # Deterministic check: if accumulated content is contained in this event's content, it's the final response
+                       # The final response from agent.py contains the full accumulated content, so we shouldn't accumulate it again
+                       # We check if accumulated content is a substring of this event's content (deterministic, no thresholds)
                        is_final_response_event = (
-                           existing_length > 50 and  # We have substantial accumulated content to compare
-                           existing_accumulated_text[:min(100, existing_length)] in content  # First 100 chars of accumulated are in content
+                           existing_accumulated_text and  # We have accumulated content to compare
+                           existing_accumulated_text in content  # Accumulated content is contained in this event (deterministic substring check)
                        )
 
                        # Accumulate non-notification content for final UI response
@@ -1481,12 +1477,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 require_user_input = event.get('require_user_input', False)
                 final_event_content = event.get('content', '') if event else ''
 
-                # Check if final event content is the full response (longer than typical chunks)
-                # If so, use it directly to avoid duplication from accumulated_content
+                # Deterministic check: if accumulated content is contained in final event content, it's the final response
+                # This avoids duplication - the final event from agent.py contains the full accumulated content
+                # We check if accumulated content is a substring of final event content (deterministic, no thresholds)
+                accumulated_text_for_comparison = ''.join(accumulated_content) if accumulated_content else ''
                 use_final_event_content = (
                     final_event_content and
-                    len(final_event_content) > 200 and  # Long enough to be full response
-                    (not accumulated_content or len(final_event_content) >= len(''.join(accumulated_content)) * 0.9)  # At least 90% of accumulated length
+                    accumulated_text_for_comparison and  # We have accumulated content to compare
+                    accumulated_text_for_comparison in final_event_content  # Accumulated content is contained in final event (deterministic substring check)
                 )
 
                 if sub_agent_sent_datapart and sub_agent_accumulated_content:
