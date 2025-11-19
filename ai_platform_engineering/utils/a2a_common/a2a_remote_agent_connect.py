@@ -320,12 +320,36 @@ class A2ARemoteAgentConnectTool(BaseTool):
                   if enable_artifact_streaming:
                     writer({"type": "artifact-update", "result": result})
                     content_type = "DataPart" if data else "TextPart"
-                    logger.info(f"✅ Streamed artifact-update event ({content_type}, ENABLE_ARTIFACT_STREAMING=true)")
+                    logger.debug(f"✅ Streamed artifact-update event ({content_type}, ENABLE_ARTIFACT_STREAMING=true)")
                   else:
                     logger.debug("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
 
         elif kind == "status-update":
           logger.debug(f"Received status-update event: {result}")
+
+          # Filter out completion signals from sub-agents to prevent supervisor from treating them as its own completion
+          # Sub-agents should not send final=True or state=TaskState.completed - only the supervisor should complete
+          status = result.get('status', {})
+          is_final = result.get('final', False)
+          task_state = status.get('state') if isinstance(status, dict) else None
+          is_completed = task_state == 'completed' or is_final
+
+          if is_completed:
+            logger.debug(f"⏭️ Skipping completion signal from sub-agent (final={is_final}, state={task_state}) - supervisor will complete its own task")
+            # Still accumulate text if present, but don't forward the completion signal
+            if isinstance(status, dict):
+              message = status.get('message')
+              if message and isinstance(message, dict):
+                parts = message.get('parts', [])
+                for part in parts:
+                  if isinstance(part, dict):
+                    text = part.get('text')
+                    if text:
+                      accumulated_text.append(text)
+                      logger.debug(f"Accumulated text from skipped completion status-update: {len(text)} chars")
+            continue
+
+          # Forward non-completion status-update events
           status = result.get('status')
           if status and isinstance(status, dict):
             message = status.get('message')
