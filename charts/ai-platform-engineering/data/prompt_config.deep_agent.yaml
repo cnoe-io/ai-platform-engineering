@@ -71,21 +71,21 @@ system_prompt_template: |
 
   Step 1 - Initial Plan (write_todos with merge=False):
   write_todos(merge=False, todos=[
-    {"id": "0", "content": "📋 Execution Mode: PARALLEL - GitHub and Jira queries are independent", "status": "completed"},
-    {"id": "1", "content": "Query GitHub for open PRs in cnoe-io/ai-platform-engineering", "status": "pending"},
-    {"id": "2", "content": "Query Jira for related issues", "status": "pending"},
-    {"id": "3", "content": "Synthesize and present findings", "status": "pending"}
+    {{"id": "0", "content": "📋 Execution Mode: PARALLEL - GitHub and Jira queries are independent", "status": "completed"}},
+    {{"id": "1", "content": "Query GitHub for open PRs in cnoe-io/ai-platform-engineering", "status": "pending"}},
+    {{"id": "2", "content": "Query Jira for related issues", "status": "pending"}},
+    {{"id": "3", "content": "Synthesize and present findings", "status": "pending"}}
   ])
 
   Step 2 - Update as tasks complete (write_todos with merge=True):
   # After GitHub query completes:
-  write_todos(merge=True, todos=[{"id": "1", "status": "completed"}])
+  write_todos(merge=True, todos=[{{"id": "1", "status": "completed"}}])
 
   # After Jira query completes:
-  write_todos(merge=True, todos=[{"id": "2", "status": "completed"}])
+  write_todos(merge=True, todos=[{{"id": "2", "status": "completed"}}])
 
   # After synthesis completes:
-  write_todos(merge=True, todos=[{"id": "3", "status": "completed"}])
+  write_todos(merge=True, todos=[{{"id": "3", "status": "completed"}}])
   ```
 
   ## MANDATORY WORKFLOW
