@@ -30,4 +30,24 @@ RUN yarn install || \
 
 EXPOSE 3000
 
+# Add entrypoint script to substitute env variables
+COPY <<'EOF' /app/entrypoint.sh
+#!/bin/bash
+set -e
+
+# Default value if not provided
+AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
+
+# Find and update app-config.yaml - only replace baseUrl under agentForge block
+if [ -f "app-config.yaml" ]; then
+  sed -i '/^agentForge:/,/^[^ ]/ s|baseUrl:.*|baseUrl: '"${AGENT_FORGE_BASE_URL}"'|' app-config.yaml
+fi
+
+# Execute the main command
+exec "$@"
+EOF
+
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["yarn", "start"]
