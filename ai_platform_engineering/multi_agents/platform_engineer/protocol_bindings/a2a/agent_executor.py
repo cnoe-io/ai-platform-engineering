@@ -1190,7 +1190,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif not isinstance(content, str):
                     content = str(content) if content else ''
 
-                logger.info(f"🔍 EXECUTOR: Received event with is_task_complete={event.get('is_task_complete')}, require_user_input={event.get('require_user_input')}")
+                logger.debug(f"🔍 EXECUTOR: Received event with is_task_complete={event.get('is_task_complete')}, require_user_input={event.get('require_user_input')}")
 
                 if event['is_task_complete']:
                     await self._ensure_execution_plan_completed(event_queue, task)
@@ -1318,16 +1318,36 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                            (content.strip().startswith('✅') and 'completed' in content.lower())
                        )
 
+                       # Check if this is the final response event (contains full accumulated content)
+                       # The final response from agent.py contains the full content, so we shouldn't accumulate it again
+                       # to avoid duplication. We detect this by checking if the content is a large chunk that contains
+                       # the accumulated content (indicating it's the full response, not a streaming chunk)
+                       existing_accumulated_text = ''.join(accumulated_content) if accumulated_content else ''
+                       existing_length = len(existing_accumulated_text)
+                       content_length = len(content)
+
+                       # Detect final response: content contains accumulated content (indicating it's the full response)
+                       # Streaming chunks are typically small (token-by-token, <50 chars), while final response
+                       # contains the full accumulated content (hundreds/thousands of chars)
+                       # We check if accumulated content is contained in this event's content
+                       is_final_response_event = (
+                           existing_length > 50 and  # We have substantial accumulated content to compare
+                           existing_accumulated_text[:min(100, existing_length)] in content  # First 100 chars of accumulated are in content
+                       )
+
                        # Accumulate non-notification content for final UI response
                        # Streaming artifacts are for real-time display, final response for clean UI display
                        # CRITICAL: If sub-agent sent DataPart, DON'T accumulate supervisor's streaming text
                        # We want ONLY the sub-agent's structured response, not the supervisor's rewrite
-                       if not is_tool_notification:
+                       # CRITICAL: Don't accumulate final response event content - it's already the full accumulated content
+                       if not is_tool_notification and not is_final_response_event:
                            if not sub_agent_sent_datapart:
                                accumulated_content.append(content)
                                logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
                            else:
                                logger.info(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
+                       elif is_final_response_event:
+                           logger.info(f"⏭️ SKIPPING final response event content (already accumulated) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
                        else:
                            logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
 
@@ -1454,15 +1474,29 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                 # Content selection strategy (PRIORITY ORDER):
                 # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                # 2. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's structured response (PlatformEngineerResponse)
-                # 3. Otherwise: Use sub-agent's content (backward compatible)
+                # 2. If final event has content (from agent.py final response): Use that (avoids duplication)
+                # 3. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's accumulated content
+                # 4. Otherwise: Use sub-agent's content (backward compatible)
 
                 require_user_input = event.get('require_user_input', False)
+                final_event_content = event.get('content', '') if event else ''
+
+                # Check if final event content is the full response (longer than typical chunks)
+                # If so, use it directly to avoid duplication from accumulated_content
+                use_final_event_content = (
+                    final_event_content and
+                    len(final_event_content) > 200 and  # Long enough to be full response
+                    (not accumulated_content or len(final_event_content) >= len(''.join(accumulated_content)) * 0.9)  # At least 90% of accumulated length
+                )
 
                 if sub_agent_sent_datapart and sub_agent_accumulated_content:
                     # Sub-agent sent structured DataPart - use it directly (highest priority)
                     final_content = ''.join(sub_agent_accumulated_content)
                     logger.info(f"📦 Using sub-agent DataPart for partial_result ({len(final_content)} chars) - sub_agent_sent_datapart=True")
+                elif use_final_event_content:
+                    # Use final event content directly (avoids duplication)
+                    final_content = final_event_content
+                    logger.info(f"📝 Using final event content for partial_result ({len(final_content)} chars) - avoids duplication")
                 elif ENABLE_STRUCTURED_OUTPUT and accumulated_content:
                     # Structured output enabled - use supervisor's accumulated content
                     final_content = ''.join(accumulated_content)
