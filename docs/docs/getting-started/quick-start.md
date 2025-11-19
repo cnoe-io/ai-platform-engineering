@@ -6,8 +6,8 @@ sidebar_position: 2
 
 Get started with CAIPE quickly using Docker Compose on your laptop or VM.
 
-<div style={{paddingBottom: '50%', position: 'relative', display: 'block', width: '100%'}}>
-	<iframe src="https://app.vidcast.io/share/embed/3f890fa0-8d33-41ef-934e-f2fc5968b573?mute=1&autoplay=1" width="100%" height="100%" title="CAIPE Getting Started with Docker Compose Demo" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
+<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
+	<iframe src="https://app.vidcast.io/share/embed/40364232-f609-43d7-9578-07aef9c25893?mute=1&autoplay=1&disableCopyDropdown=1" width="100%" height="100%" title="CAIPE Getting Started with Docker Compose Demo" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
 </div>
 
 ## Prerequisites
@@ -236,4 +236,5 @@ Enable observability and evaluation with Langfuse v3:
 - **Configure Authentication**: See [Docker Compose Setup](docker-compose/setup.md) for A2A authentication options
 - **User Interfaces**: Learn about [Agent Chat CLI](user-interfaces.md#agent-chat-cli) and [Agent Forge Backstage Plugin](user-interfaces.md#agent-forge-backstage-plugin)
 - **Deploy to Kubernetes**: Check out [Helm Setup](helm/setup.md) or [EKS Setup](eks/setup.md) for production deployments
+
 
