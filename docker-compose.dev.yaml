@@ -765,8 +765,6 @@ services:
     environment:
       - A2A_TRANSPORT=slim
       - MCP_MODE=${MCP_MODE:-http}
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-      - SLIM_ROUTABLE_NAME=${SLIM_ROUTABLE_NAME:-cnoe/agents/github}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}

@@ -13,7 +13,7 @@ Follow these steps to deploy and manage your application efficiently.
 2. Create a `docker-compose.yml` file with the required services.
 3. Run the following command to start the services:
   ```bash
-  COMPOSE_PROFILES=all docker compose up
+  COMPOSE_PROFILES=all-agents docker compose up
   ```
 
    **Or start with specific profiles:**
