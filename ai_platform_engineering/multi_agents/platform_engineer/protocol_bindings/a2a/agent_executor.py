@@ -1336,10 +1336,20 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                        # CRITICAL: If sub-agent sent DataPart, DON'T accumulate supervisor's streaming text
                        # We want ONLY the sub-agent's structured response, not the supervisor's rewrite
                        # CRITICAL: Don't accumulate final response event content - it's already the full accumulated content
+                       # CRITICAL: If we have sub-agent accumulated content, don't accumulate supervisor content that matches it (avoids duplicates)
+                       # Deterministic check: if supervisor content is contained in sub-agent content (or vice versa), it's a duplicate
+                       sub_agent_text_so_far = ''.join(sub_agent_accumulated_content) if sub_agent_accumulated_content else ''
+                       is_duplicate_of_sub_agent = (
+                           sub_agent_text_so_far and  # We have sub-agent content
+                           (content in sub_agent_text_so_far or sub_agent_text_so_far in content)  # Content matches sub-agent content (deterministic substring check)
+                       )
+
                        if not is_tool_notification and not is_final_response_event:
-                           if not sub_agent_sent_datapart:
+                           if not sub_agent_sent_datapart and not is_duplicate_of_sub_agent:
                                accumulated_content.append(content)
                                logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
+                           elif is_duplicate_of_sub_agent:
+                               logger.info(f"⏭️ SKIPPING supervisor content - duplicates sub-agent content: {content[:50]}...")
                            else:
                                logger.info(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
                        elif is_final_response_event:
@@ -1479,12 +1489,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                 # Deterministic check: if accumulated content is contained in final event content, it's the final response
                 # This avoids duplication - the final event from agent.py contains the full accumulated content
+                # Priority: check sub-agent content first (if available), then supervisor content
                 # We check if accumulated content is a substring of final event content (deterministic, no thresholds)
+                sub_agent_text_for_comparison = ''.join(sub_agent_accumulated_content) if sub_agent_accumulated_content else ''
                 accumulated_text_for_comparison = ''.join(accumulated_content) if accumulated_content else ''
+
+                # Prefer checking sub-agent content if available (avoids duplicates from supervisor echoing sub-agent responses)
+                text_to_check = sub_agent_text_for_comparison if sub_agent_text_for_comparison else accumulated_text_for_comparison
                 use_final_event_content = (
                     final_event_content and
-                    accumulated_text_for_comparison and  # We have accumulated content to compare
-                    accumulated_text_for_comparison in final_event_content  # Accumulated content is contained in final event (deterministic substring check)
+                    text_to_check and  # We have accumulated content to compare
+                    text_to_check in final_event_content  # Accumulated content is contained in final event (deterministic substring check)
                 )
 
                 if sub_agent_sent_datapart and sub_agent_accumulated_content:
