@@ -18,7 +18,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "${SUPERVISOR_PORT:-8000}:8000"
     environment:
       # A2A transport configuration (p2p or slim)
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
