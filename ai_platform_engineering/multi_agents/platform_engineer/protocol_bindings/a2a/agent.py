@@ -306,6 +306,18 @@ class AIPlatformEngineerA2ABinding:
       except asyncio.CancelledError:
           logging.warning("⚠️ Primary stream cancelled by client disconnection - parsing final response before exit")
           # Don't return immediately - let post-stream parsing run below
+      except ValueError as ve:
+          # Handle LangGraph validation errors (e.g., orphaned tool_calls)
+          # Yield error event but keep queue open for follow-up questions
+          error_msg = f"Validation error: {str(ve)}"
+          logging.error(f"❌ {error_msg}")
+          yield {
+              "is_task_complete": False,  # Keep queue open - allow follow-up questions
+              "require_user_input": False,
+              "content": f"❌ Error: {error_msg}\n\nPlease try again or ask a follow-up question.",
+          }
+          # Don't yield completion event - keep queue open for follow-up questions
+          return
       # Fallback to old method if astream doesn't work
       except Exception as e:
           logging.warning(f"Token-level streaming failed, falling back to message-level: {e}")

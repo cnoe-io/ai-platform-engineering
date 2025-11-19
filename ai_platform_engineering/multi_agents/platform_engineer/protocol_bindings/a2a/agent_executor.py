@@ -1423,6 +1423,33 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
             if (accumulated_content or sub_agent_accumulated_content) and not event.get('is_task_complete', False):
                 await self._ensure_execution_plan_completed(event_queue, task)
+
+                # Check if this is an error message - if so, don't send final status to keep queue open
+                last_content = ''.join(accumulated_content) if accumulated_content else (''.join(sub_agent_accumulated_content) if sub_agent_accumulated_content else '')
+                is_error = '❌ Error:' in last_content or 'Validation error:' in last_content or 'Error:' in event.get('content', '')
+
+                if is_error:
+                    logger.info("⚠️ EXECUTOR: Error detected in content - sending error message but keeping queue open for follow-up questions")
+                    # Send error as artifact but don't send final status - keep queue open
+                    error_artifact = new_text_artifact(
+                        name='error_result',
+                        description='Error message from Platform Engineer',
+                        text=last_content or event.get('content', ''),
+                    )
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskArtifactUpdateEvent(
+                            append=False,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            last_chunk=True,
+                            artifact=error_artifact,
+                        )
+                    )
+                    # Don't send final status - keep queue open for follow-up questions
+                    logger.info(f"Task {task.id} error message sent. Queue kept open for follow-up questions.")
+                    return
+
                 logger.warning("❌ EXECUTOR: Stream ended WITHOUT is_task_complete=True, sending PARTIAL_RESULT (THIS IS THE BUG!)")
 
                 # Content selection strategy (PRIORITY ORDER):
@@ -1506,6 +1533,34 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 )
                 logger.info(f"Task {task.id} marked as completed with {len(final_content)} chars total.")
 
+        except ValueError as ve:
+            # Handle ValueError (e.g., LangGraph validation errors) - agent.py should have yielded error event
+            # Don't raise - let the error event be processed and queue stay open
+            error_msg = str(ve)
+            logger.error(f"ValueError during agent execution (should have been handled by agent): {error_msg}")
+            # Only enqueue failure status if error event wasn't already sent
+            # Check if we already processed an error event by checking if stream ended normally
+            try:
+                await self._safe_enqueue_event(
+                    event_queue,
+                    TaskStatusUpdateEvent(
+                        status=TaskStatus(
+                            state=TaskState.failed,
+                            message=new_agent_text_message(
+                                f"Validation error: {error_msg}",
+                                task.context_id,
+                                task.id,
+                            ),
+                        ),
+                        final=True,
+                        context_id=task.context_id,
+                        task_id=task.id,
+                    )
+                )
+            except Exception as enqueue_error:
+                logger.error(f"Failed to enqueue error status: {enqueue_error}")
+            # Don't raise - allow queue to stay open for any pending events
+            return
         except Exception as e:
             logger.error(f"Error during agent execution: {e}")
             # Try to enqueue a failure status if the queue is still open
@@ -1528,7 +1583,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 )
             except Exception as enqueue_error:
                 logger.error(f"Failed to enqueue error status: {enqueue_error}")
-            raise
+            # Don't raise - allow queue to stay open for any pending tool events
+            # The A2A framework will handle cleanup
+            return
 
     def _parse_execution_plan_text(self, text: str) -> list[dict[str, str]]:
         if not text:
