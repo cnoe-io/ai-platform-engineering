@@ -8,7 +8,7 @@ services:
       dockerfile: build/Dockerfile
     container_name: caipe-p2p-with-rag
     volumes:
-      - ./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
+      - ./charts/ai-platform-engineering/data/prompt_config.deep_agent_jarvis.yaml:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
     # The 'extra_hosts' option below maps the hostname 'hub.docker.local' to the Docker host's gateway IP.
     # This enables services running inside this container to access other agents or services that are
@@ -83,6 +83,9 @@ services:
       - WEATHER_AGENT_PORT=8000
       - WEBEX_AGENT_HOST=agent-webex-p2p
       - WEBEX_AGENT_PORT=8000
+      # Jarvis A2A agent running in docker-compose
+      - JARVIS_AGENT_HOST=agent-jarvis-p2p
+      - JARVIS_AGENT_PORT=58000
       # Enable agents
       - ENABLE_ARGOCD=true
       - ENABLE_AWS=true
@@ -97,6 +100,7 @@ services:
       - ENABLE_WEATHER=true
       - ENABLE_WEBEX=true
       - ENABLE_RAG=true
+      - ENABLE_JARVIS=true
       # Structured output with A2A DataPart (native JSON schema support)
       # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
       # When disabled, all responses are sent as TextPart (backward compatible)
@@ -1511,11 +1515,11 @@ services:
   ####################################################################################################
   #                                      BACKSTAGE AGENT FORGE                                       #
   ####################################################################################################
-  # backstage-agent-forge:
-  #   image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
-  #   container_name: backstage-agent-forge
-  #   ports:
-  #     - "13000:3000"
+  backstage-agent-forge:
+    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+    container_name: backstage-agent-forge
+    ports:
+      - "13000:3000"
 
   ####################################################################################################
   #                                             RAG SERVICES                                         #
