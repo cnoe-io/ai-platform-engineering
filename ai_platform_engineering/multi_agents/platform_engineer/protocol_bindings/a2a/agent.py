@@ -306,6 +306,72 @@ class AIPlatformEngineerA2ABinding:
       except asyncio.CancelledError:
           logging.warning("⚠️ Primary stream cancelled by client disconnection - parsing final response before exit")
           # Don't return immediately - let post-stream parsing run below
+      except ValueError as ve:
+          # Handle LangGraph validation error for orphaned tool_calls
+          if "tool_calls that do not have a corresponding ToolMessage" in str(ve):
+              logging.error(f"❌ LangGraph validation error: orphaned tool_calls detected in state. Using fresh thread_id to avoid corruption...")
+              # Use a fresh thread_id to avoid state corruption from previous failed execution
+              import uuid
+              original_thread_id = config.get('configurable', {}).get('thread_id', context_id)
+              config['configurable']['thread_id'] = f"{context_id}-{uuid.uuid4()}"
+              logging.info(f"🔄 Retrying with fresh thread_id: {config['configurable']['thread_id']} (was: {original_thread_id})")
+              # Retry with fresh thread_id - this will start with clean state
+              try:
+                  async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+                      # Process items the same way as the main loop above
+                      if item_type == 'custom' and isinstance(item, dict):
+                          if item.get("type") == "a2a_event":
+                              custom_text = item.get("data", "")
+                              if custom_text:
+                                  yield {
+                                      "is_task_complete": False,
+                                      "require_user_input": False,
+                                      "content": custom_text,
+                                  }
+                              continue
+                          elif item.get("type") == "human_prompt":
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": True,
+                                  "content": item.get("prompt", ""),
+                                  "metadata": {"options": item.get("options", [])} if item.get("options") else {},
+                              }
+                              continue
+                          elif item.get("type") == "artifact-update":
+                              yield item
+                              continue
+
+                      if item_type == 'messages' and item:
+                          message = item[0]
+                          # Handle message types (same logic as main loop)
+                          if isinstance(message, AIMessageChunk) and hasattr(message, 'content') and message.content:
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": str(message.content),
+                              }
+                          elif isinstance(message, ToolMessage):
+                              tool_content = message.content if hasattr(message, 'content') else ""
+                              if tool_content:
+                                  yield {
+                                      "is_task_complete": False,
+                                      "require_user_input": False,
+                                      "content": tool_content + "\n",
+                                  }
+                          elif isinstance(message, AIMessage) and hasattr(message, 'content') and message.content:
+                              accumulated_ai_content.append(str(message.content))
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": str(message.content),
+                              }
+                  return
+              except Exception as retry_error:
+                  logging.error(f"Retry with fresh thread_id also failed: {retry_error}")
+                  raise ve  # Re-raise original error
+          else:
+              # Re-raise if it's a different ValueError
+              raise
       # Fallback to old method if astream doesn't work
       except Exception as e:
           logging.warning(f"Token-level streaming failed, falling back to message-level: {e}")
