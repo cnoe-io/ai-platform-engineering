@@ -55,19 +55,19 @@ if [ "$USE_SLIM" = "true" ]; then
     sleep 5
 fi
 
-# Deploy other services (exclude platform-engineer)
+# Deploy other services (exclude caipe-supervisor)
 OTHER_PROFILES=$(echo "$PROFILES" | sed 's/slim,\?//')
 if [ -n "$OTHER_PROFILES" ]; then
     echo "Starting supporting services with profiles: $OTHER_PROFILES"
-    COMPOSE_PROFILES="$OTHER_PROFILES" docker compose up -d --scale platform-engineer=0
+    COMPOSE_PROFILES="$OTHER_PROFILES" docker compose up -d --scale caipe-supervisor=0
     echo "Waiting for services to be ready..."
     sleep 3
 fi
 
-# Deploy platform-engineer last
-echo "Starting platform-engineer..."
+# Deploy caipe-supervisor  last
+echo "Starting caipe-supervisor..."
 if [ "$1" = "--no-detach" ] || [ "$1" = "-f" ]; then
-    COMPOSE_PROFILES="$PROFILES" docker compose up platform-engineer
+    COMPOSE_PROFILES="$PROFILES" docker compose up caipe-supervisor
 else
-    COMPOSE_PROFILES="$PROFILES" docker compose up -d platform-engineer
+    COMPOSE_PROFILES="$PROFILES" docker compose up -d caipe-supervisor
 fi
