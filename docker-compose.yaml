@@ -1,48 +1,82 @@
-services:
+# ============================================================================
+# CAIPE DOCKER COMPOSE CONFIGURATION
+# ============================================================================
+# For setup instructions and agent orchestration details, refer to:
+#   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
+#
+# This docker-compose file supports P2P and SLIM transport via profiles.
+# Agent selection and configuration are controlled through environment variables
+# in the .env file—see documentation for full list and descriptions.
+# ============================================================================
 
-  platform-engineer:
+services:
+  caipe-supervisor:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
-    container_name: platform-engineer
+    container_name: caipe-supervisor
     volumes:
-      - ./prompt_config.yaml:/app/prompt_config.yaml
+      - ${PROMPT_CONFIG_PATH:-./prompt_config.yaml}:/app/prompt_config.yaml
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
+      # A2A transport configuration (p2p or slim)
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=true
-      - AGENT_PROTOCOL=a2a
-      - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
+      # Prompt configuration file path
+      - PROMPT_CONFIG_PATH=${PROMPT_CONFIG_PATH:-./prompt_config.yaml}
+
+      # Slim dataplane endpoint configuration
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-      - GITHUB_AGENT_HOST=agent-github
-      - WEATHER_AGENT_HOST=agent-weather
-      - BACKSTAGE_AGENT_HOST=agent-backstage
+
+      # Agent connectivity configuration
+      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
+      - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
+
+      # Agent hostname mappings for agent connectivity.
+      # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.
+      # If you add new agents/services, include a corresponding *_AGENT_HOST assignment below.
       - ARGOCD_AGENT_HOST=agent-argocd
+      - AWS_AGENT_HOST=agent-aws
+      - BACKSTAGE_AGENT_HOST=agent-backstage
       - CONFLUENCE_AGENT_HOST=agent-confluence
+      - GITHUB_AGENT_HOST=agent-github
       - JIRA_AGENT_HOST=agent-jira
       - KOMODOR_AGENT_HOST=agent-komodor
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - SLACK_AGENT_HOST=agent-slack
-      - SPLUNK_AGENT_HOST=agent-splunk
-      - WEBEX_AGENT_HOST=agent-webex
-      - AWS_AGENT_HOST=agent-aws
       - PETSTORE_AGENT_HOST=agent-petstore
       - RAG_AGENT_HOST=agent_rag
-      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
-      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
-      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
+      - SLACK_AGENT_HOST=agent-slack
+      - SPLUNK_AGENT_HOST=agent-splunk
+      - WEATHER_AGENT_HOST=agent-weather
+      - WEBEX_AGENT_HOST=agent-webex
+
+
+      # Agent ports
+      # Add an exception for the RAG agent port to 8099. All other agents use the default port 8000.
+      - RAG_AGENT_PORT=${RAG_AGENT_PORT:-8099}
+
+      # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
+      # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
+      # Example: ENABLE_ARGOCD=true enables the ArgoCD agent, allowing the platform engineer to route tasks related to Kubernetes application management.
+      # These flags allow you to fine-tune which domain-specific agents are available as tools to the main platform engineer agent at runtime.
+      # Update these variables as needed based on your deployment requirements, security posture, or available agent containers.
       - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
+      - ENABLE_AWS=${ENABLE_AWS:-false}
+      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
       - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
+      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
       - ENABLE_JIRA=${ENABLE_JIRA:-false}
       - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
       - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
+      - ENABLE_PETSTORE=${ENABLE_PETSTORE:-false}
+      - ENABLE_RAG=${ENABLE_RAG:-false}
       - ENABLE_SLACK=${ENABLE_SLACK:-false}
       - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
-      - ENABLE_AWS=false
-      - ENABLE_PETSTORE=false
-      - ENABLE_RAG=false
+      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
+      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+
+      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
@@ -53,7 +87,7 @@ services:
 
   # SLIM Infrastructure
   slim-dataplane:
-    image: ghcr.io/agntcy/slim:0.3.15
+    image: ghcr.io/agntcy/slim:0.6.1
     container_name: slim-dataplane
     ports: ["46357:46357"]
     environment:
@@ -99,13 +133,9 @@ services:
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
-      - LLM_PROVIDER=${LLM_PROVIDER}
-      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
-      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
-      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
-      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
     profiles:
       - aws
+      - all-agents
 
   # Petstore Agent
   agent-petstore:
@@ -125,6 +155,7 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
     profiles:
       - petstore
+      - all-agents
 
   # GitHub
   agent-github:
@@ -136,11 +167,19 @@ services:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+    # Docker socket mount is only needed when MCP_MODE=stdio
+    # For local Github Offical MCP server execution.
+    # Uncomment this when MCP_MODE=stdio is supported
+    # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
     profiles:
       - github
+      - all-agents
 
-  # Weather Agents
+  # Weather Agent
   agent-weather:
     image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
     container_name: agent-weather
@@ -154,8 +193,9 @@ services:
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     profiles:
       - weather
+      - all-agents
 
-  # Backstage Agents
+  # Backstage Agent
   agent-backstage:
     image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
     container_name: agent-backstage
@@ -167,18 +207,31 @@ services:
       - MCP_HOST=mcp-backstage
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on: [mcp-backstage]
+    depends_on:
+      mcp-backstage:
+        condition: service_healthy
     profiles:
       - backstage
+      - all-agents
 
   mcp-backstage:
     image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-stable}
     container_name: mcp-backstage
     env_file: [.env]
     ports: ["18001:8000"]
-    environment: [MCP_MODE=http]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
       - backstage
+      - all-agents
 
   # ArgoCD Agents
   agent-argocd:
@@ -192,18 +245,31 @@ services:
       - MCP_HOST=mcp-argocd
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on: [mcp-argocd]
+    depends_on:
+      mcp-argocd:
+        condition: service_healthy
     profiles:
       - argocd
+      - all-agents
 
   mcp-argocd:
     image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-stable}
     container_name: mcp-argocd
     env_file: [.env]
     ports: ["18002:8000"]
-    environment: [MCP_MODE=http]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
       - argocd
+      - all-agents
 
   # Confluence Agents
   agent-confluence:
@@ -217,18 +283,31 @@ services:
       - MCP_HOST=mcp-confluence
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on: [mcp-confluence]
+    depends_on:
+      mcp-confluence:
+        condition: service_healthy
     profiles:
       - confluence
+      - all-agents
 
   mcp-confluence:
     image: ghcr.io/cnoe-io/mcp-confluence:${IMAGE_TAG:-stable}
     container_name: mcp-confluence
     env_file: [.env]
     ports: ["18003:8000"]
-    environment: [MCP_MODE=http]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
       - confluence
+      - all-agents
 
   # Jira Agent
   agent-jira:
@@ -242,18 +321,31 @@ services:
       - MCP_HOST=mcp-jira
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on: [mcp-jira]
+    depends_on:
+      mcp-jira:
+        condition: service_healthy
     profiles:
       - jira
+      - all-agents
 
   mcp-jira:
     image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-stable}
     container_name: mcp-jira
     env_file: [.env]
     ports: ["18004:8000"]
-    environment: [MCP_MODE=http]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
       - jira
+      - all-agents
 
   # Komodor Agent
   agent-komodor:
@@ -267,18 +359,31 @@ services:
       - MCP_HOST=mcp-komodor
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on: [mcp-komodor]
+    depends_on:
+      mcp-komodor:
+        condition: service_healthy
     profiles:
       - komodor
+      - all-agents
 
   mcp-komodor:
     image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-stable}
     container_name: mcp-komodor
     env_file: [.env]
     ports: ["18005:8000"]
-    environment: [MCP_MODE=http]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
       - komodor
+      - all-agents
 
   # PagerDuty Agent
   agent-pagerduty:
@@ -291,19 +396,32 @@ services:
       - MCP_MODE=http
       - MCP_HOST=mcp-pagerduty
       - MCP_PORT=8000
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}      
-    depends_on: [mcp-pagerduty]
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+    depends_on:
+      mcp-pagerduty:
+        condition: service_healthy
     profiles:
       - pagerduty
+      - all-agents
 
   mcp-pagerduty:
     image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-stable}
     container_name: mcp-pagerduty
     env_file: [.env]
     ports: ["18006:8000"]
-    environment: [MCP_MODE=http]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
       - pagerduty
+      - all-agents
 
   # Slack Agent
   agent-slack:
@@ -317,18 +435,31 @@ services:
       - MCP_HOST=mcp-slack
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on: [mcp-slack]
+    depends_on:
+      mcp-slack:
+        condition: service_healthy
     profiles:
       - slack
+      - all-agents
 
   mcp-slack:
     image: ghcr.io/cnoe-io/mcp-slack:${IMAGE_TAG:-stable}
     container_name: mcp-slack
     env_file: [.env]
     ports: ["18007:8000"]
-    environment: [MCP_MODE=http]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
       - slack
+      - all-agents
 
   # Splunk
   agent-splunk:
@@ -342,18 +473,31 @@ services:
       - MCP_HOST=mcp-splunk
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on: [mcp-splunk]
+    depends_on:
+      mcp-splunk:
+        condition: service_healthy
     profiles:
       - splunk
+      - all-agents
 
   mcp-splunk:
     image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-stable}
     container_name: mcp-splunk
     env_file: [.env]
     ports: ["18008:8000"]
-    environment: [MCP_MODE=http]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
       - splunk
+      - all-agents
 
   # Webex
   agent-webex:
@@ -367,18 +511,31 @@ services:
       - MCP_HOST=mcp-webex
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-    depends_on: [mcp-webex]
+    depends_on:
+      mcp-webex:
+        condition: service_healthy
     profiles:
       - webex
+      - all-agents
 
   mcp-webex:
     image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-stable}
     container_name: mcp-webex
     env_file: [.env]
     ports: ["18009:8000"]
-    environment: [MCP_MODE=http]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     profiles:
       - webex
+      - all-agents
 
 
   # Backstage Plugin (Agent Forge)
@@ -389,6 +546,7 @@ services:
     environment: [NODE_ENV=development]
     profiles:
       - agentforge
+      - all-agents
 
   # RAG Services
   rag_server:
@@ -446,7 +604,7 @@ services:
     restart: unless-stopped
     depends_on: [rag_server, neo4j, neo4j-ontology, rag-redis]
     profiles:
-      - rag
+      - donotstart
 
   rag_webui:
     image: ghcr.io/cnoe-io/caipe-rag-webui:${IMAGE_TAG:-stable}
@@ -501,7 +659,9 @@ services:
   rag-redis:
     image: redis
     container_name: rag-redis
-    command: ["/bin/sh", "-c", "redis-server"]
+    volumes:
+      - rag_redis_data:/data
+    command: ["/bin/sh", "-c", "redis-server --save 60 1 --appendonly yes"]
     ports: [":6379"]
     restart: unless-stopped
     profiles:
@@ -702,7 +862,9 @@ services:
     image: redis:7
     container_name: langfuse-redis
     restart: always
-    command: --requirepass ${REDIS_AUTH:-myredissecret}
+    volumes:
+      - langfuse_redis_data:/data
+    command: --requirepass ${REDIS_AUTH:-myredissecret} --appendonly yes
     ports: ["127.0.0.1:6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -759,7 +921,7 @@ services:
       retries: 3
       start_period: 10s
     profiles:
-      - tracing
+      - evaluation
 
 volumes:
   langfuse_postgres_data:
@@ -769,6 +931,10 @@ volumes:
   langfuse_clickhouse_logs:
     driver: local
   langfuse_minio_data:
+    driver: local
+  langfuse_redis_data:
+    driver: local
+  rag_redis_data:
     driver: local
   milvus_etcd:
     driver: local

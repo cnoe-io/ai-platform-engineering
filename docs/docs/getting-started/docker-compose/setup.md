@@ -4,7 +4,9 @@ sidebar_position: 1
 
 # Run with Docker Compose 🚀🧑‍💻
 
-Setup CAIPE to run in a docker environment on a latop or a virtual machine like EC2 instance.
+Setup CAIPE to run in a docker environment on a laptop or a virtual machine like EC2 instance.
+
+## Prerequisites
 
 1. **Clone the repository**
 
@@ -19,8 +21,9 @@ Setup CAIPE to run in a docker environment on a latop or a virtual machine like 
    cp .env.example .env
    ```
 
-   Update `.env` with your configuration.
-   📚 See the [Setup LLM Providers](configure-llms.md) for more details.
+   Update `.env` with your configuration. For detailed `.env` examples and LLM provider setup, see:
+   - [Setup LLM Providers](configure-llms.md) for LLM configuration
+   - [Quick Start Guide](../quick-start.md) for detailed `.env` examples and agent-specific configurations
 
 3. **Configure A2A Authentication (Optional)**
 
@@ -102,36 +105,54 @@ Setup CAIPE to run in a docker environment on a latop or a virtual machine like 
 
 ## 🏁 Getting Started
 
-4. **Launch with Docker Compose (AI Platform Engineer)**
+4. **Launch with Docker Compose**
 
    ```bash
    docker compose up
    ```
 
-   **Launch with Docker Compose (AI Incident Engineer)**
+5. **Connect to the A2A agent**
 
-   ```bash
-   docker compose -f docker-compose.incident_engineer.yaml up
-   ```
+   Once the Docker Compose services are running, connect using one of these methods:
 
-5. **Connect to the A2A agent (host network)**
-
+   **Option A: Using Docker (host network)**
    ```bash
    docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
    ```
 
-   *Or, clone and run the chat client:*
-
+   **Option B: Using uvx**
    ```bash
    uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
    ```
-6. [Optional] Connect to A2A Agent via backstage agent-forge plug-in
 
-    ```bash
-    # Once the container is started, open agent-forge in browser (in test mode)
-    https://localhost:3000
-    ```
+   > 💡 For more connection options and troubleshooting, see the [Quick Start Guide](../quick-start.md).
+
+6. **[Optional] Connect via Backstage Agent-Forge Plugin**
+
+   Run the Agent Forge plugin with Docker:
+
+   ```bash
+   docker run -d \
+     --name backstage-agent-forge \
+     -p 13000:3000 \
+     -e NODE_ENV=development \
+     ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+   ```
+
+   **Or with Docker Compose:**
+
+   ```bash
+   COMPOSE_PROFILES="agentforge" docker compose up
+   ```
+
+   Once the container is started, open agent-forge in your browser:
+   ```
+   http://localhost:13000
+   ```
+
+   > 💡 Learn more about [Agent Forge Backstage Plugin](../user-interfaces.md#agent-forge-backstage-plugin).
 
 ---
 
-> 🛠️ *For local development setup, check out the [Local Development Guide](../local-development.md).*
+> 🛠️ *For Docker Compose profiles, agent selection, and advanced configuration, check out the [Quick Start Guide](../quick-start.md).*
+

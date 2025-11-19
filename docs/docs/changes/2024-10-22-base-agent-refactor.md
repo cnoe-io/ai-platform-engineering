@@ -64,12 +64,12 @@ from ai_platform_engineering.utils.a2a_common.base_strands_agent_executor import
 
 1. **Rebuild the Docker containers:**
    ```bash
-   docker-compose -f docker-compose.dev.yaml build agent-aws-slim
+   docker compose -f docker-compose.dev.yaml build agent-aws-slim
    ```
 
 2. **Start the AWS agent:**
    ```bash
-   docker-compose -f docker-compose.dev.yaml up agent-aws-slim
+   docker compose -f docker-compose.dev.yaml up agent-aws-slim
    ```
 
 3. **Verify the agent starts without import errors**

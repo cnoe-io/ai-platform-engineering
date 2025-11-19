@@ -30,10 +30,6 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
-          id: 'getting-started/local-development',
-        },
-        {
-          type: 'doc',
           id: 'getting-started/user-interfaces',
         },
         {
