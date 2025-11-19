@@ -979,7 +979,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         sub_agent_accumulated_content = []  # Track content from sub-agent artifacts
         sub_agent_sent_datapart = False  # Track if sub-agent sent structured DataPart
         streaming_artifact_id = None  # Shared artifact ID for all streaming chunks
-        # seen_artifact_ids - removed # THIS WILL BREAK JAVIS SAYING ERROR
+        seen_artifact_ids = set()  # Track which artifact IDs have been sent (for append=False/True logic)
         try:
             # invoke the underlying agent, using streaming results
             # NOTE: Pass task to maintain task ID consistency across sub-agents
@@ -1147,10 +1147,19 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             parts=artifact_parts
                         )
 
-                        # Use first_artifact_sent logic for append flag
-                        use_append = first_artifact_sent
-                        if not first_artifact_sent:
-                            first_artifact_sent = True
+                        # Track each artifact ID separately for append flag
+                        artifact_id = artifact.get('artifactId')
+                        if artifact_id not in seen_artifact_ids:
+                            # First time seeing this artifact ID - send with append=False
+                            use_append = False
+                            seen_artifact_ids.add(artifact_id)
+                            first_artifact_sent = True  # Mark that we've sent at least one artifact
+                            logger.info(f"📝 Forwarding FIRST chunk of sub-agent artifact (append=False) with ID: {artifact_id}")
+                        else:
+                            # Subsequent chunks of this artifact ID - send with append=True
+                            use_append = True
+                            logger.debug(f"📝 Forwarding subsequent chunk of sub-agent artifact (append=True) with ID: {artifact_id}")
+
                         await self._safe_enqueue_event(
                             event_queue,
                             TaskArtifactUpdateEvent(
@@ -1361,6 +1370,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                text=content,
                            )
                            use_append = False
+                           seen_artifact_ids.add(artifact.artifact_id)  # Track this tool notification artifact
                            logger.debug(f"📝 Creating separate tool notification artifact: {artifact.artifact_id}")
                        elif streaming_artifact_id is None:
                            # First regular content chunk - create new artifact with unique ID
@@ -1370,6 +1380,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                text=content,
                            )
                            streaming_artifact_id = artifact.artifact_id  # Save for subsequent chunks
+                           seen_artifact_ids.add(streaming_artifact_id)  # Track this artifact ID
                            first_artifact_sent = True
                            use_append = False
                            logger.info(f"📝 Sending FIRST streaming artifact (append=False) with ID: {streaming_artifact_id}")
