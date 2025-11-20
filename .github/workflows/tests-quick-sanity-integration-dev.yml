@@ -105,7 +105,12 @@ jobs:
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
+          # uv installs to ~/.cargo/bin or ~/.local/bin depending on system
+          # Add both to PATH to ensure uv is found
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          # Verify uv is installed and accessible
+          $HOME/.cargo/bin/uv --version || $HOME/.local/bin/uv --version || uv --version
 
       - name: Start services
         run: |
