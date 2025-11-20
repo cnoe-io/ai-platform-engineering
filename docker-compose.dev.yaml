@@ -97,8 +97,7 @@ services:
       - ENABLE_WEATHER=true
       - ENABLE_WEBEX=true
       - ENABLE_RAG=true
-      # Structured output with A2A DataPart (native JSON schema support)
-      # Artifact streaming is now always enabled (no flag needed)
+
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
