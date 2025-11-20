@@ -101,8 +101,11 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
             last_chunk = result.get('lastChunk', False)
 
             artifact_text = ''
+            artifact_data = None
+            has_datapart = False
             for part in parts:
                 if isinstance(part, dict):
+                    # Handle TextPart
                     text = part.get('text', '')
                     if text:
                         artifact_text += text
@@ -112,15 +115,27 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                             partial_result_content = text if not partial_result_content else partial_result_content + text
                         elif artifact_name == 'final_result':
                             final_content = text if not final_content else final_content + text
+                    # Handle DataPart
+                    data = part.get('data')
+                    if data:
+                        has_datapart = True
+                        artifact_data = data
+                        # Convert DataPart to JSON string for accumulation tracking
+                        json_str = json.dumps(data)
+                        if artifact_name in ['complete_result', 'final_result', 'partial_result']:
+                            sub_agent_accumulated.append(json_str)
+                        # Also add to artifact_text for display
+                        artifact_text += f"\n[DataPart JSON]: {json_str}"
 
-            if artifact_text:
+            if artifact_text or artifact_data:
                 accumulation_log.append({
                     'step': len(accumulation_log) + 1,
-                    'event_type': f'artifact-update ({artifact_name})',
+                    'event_type': f'artifact-update ({artifact_name})' + (' [DataPart]' if has_datapart else ''),
                     'artifact_id': artifact_id[:8] + '...' if len(artifact_id) > 8 else artifact_id,
                     'append': append,
                     'last_chunk': last_chunk,
                     'content_chunk': artifact_text,  # No truncation
+                    'data_part': json.dumps(artifact_data) if artifact_data else None,
                     'sub_agent_accumulated': ''.join(sub_agent_accumulated),  # No truncation
                     'supervisor_accumulated': ''.join(supervisor_accumulated),  # No truncation
                     'total_sub_agent': len(''.join(sub_agent_accumulated)),
@@ -132,7 +147,9 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                     'id': artifact_id,
                     'append': append,
                     'last_chunk': last_chunk,
-                    'text_length': len(artifact_text)
+                    'text_length': len(artifact_text),
+                    'has_datapart': has_datapart,
+                    'data_part': artifact_data
                 })
 
         elif kind == 'status-update':
@@ -202,6 +219,11 @@ def generate_markdown_report(query: str, analysis: Dict[str, Any], output_file: 
 
     for artifact_name, count in artifact_counts.items():
         markdown += f"- **{artifact_name}**: {count} events\n"
+    
+    # Count DataPart artifacts
+    datapart_artifacts = [a for a in artifact_updates if a.get('has_datapart')]
+    if datapart_artifacts:
+        markdown += f"\n- **DataPart Artifacts**: {len(datapart_artifacts)} artifacts with structured JSON data\n"
 
     markdown += "\n## Accumulation Flow\n\n"
     markdown += "| Step | Event Type | Artifact ID | Append | Last Chunk | Content Chunk | Sub-Agent Accumulated | Supervisor Accumulated | Sub-Agent Total | Supervisor Total |\n"
