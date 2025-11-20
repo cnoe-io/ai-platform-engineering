@@ -313,16 +313,13 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 else:
                   logger.debug(f"🔍 part has neither 'text' nor 'data' key: {list(part.keys())}")
 
-                # Stream artifact if enabled (for both TextPart and DataPart)
+                # Stream artifact to supervisor (for both TextPart and DataPart)
+                # Artifacts are always streamed so supervisor can forward them to clients
                 if text or data:
-                  enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
-
-                  if enable_artifact_streaming:
-                    writer({"type": "artifact-update", "result": result})
-                    content_type = "DataPart" if data else "TextPart"
-                    logger.debug(f"✅ Streamed artifact-update event ({content_type}, ENABLE_ARTIFACT_STREAMING=true)")
-                  else:
-                    logger.debug("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
+                  writer({"type": "artifact-update", "result": result})
+                  content_type = "DataPart" if data else "TextPart"
+                  artifact_name = artifact.get('name', '')
+                  logger.debug(f"✅ Streamed artifact-update event: {artifact_name} ({content_type})")
 
         elif kind == "status-update":
           logger.debug(f"Received status-update event: {result}")
