@@ -179,7 +179,7 @@ Implement custom streaming handling in the executor for A2A sub-agents while kee
 ### Current State (Not Streaming)
 
 ```bash
-uvx git+https://github.com/cnoe-io/agent-chat-cli a2a \
+uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a \
   --host 10.99.255.178 --port 8000
 
 # Type: show me komodor clusters

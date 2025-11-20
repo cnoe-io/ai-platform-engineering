@@ -219,7 +219,7 @@ pip install uv
 Now you can use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
 
 ```bash
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
 
 ## Local Development
