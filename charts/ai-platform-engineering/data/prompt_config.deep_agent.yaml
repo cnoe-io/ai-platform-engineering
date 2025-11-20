@@ -39,7 +39,7 @@ system_prompt_template: |
 
   ## AVAILABLE TOOLS
 
-  **Agents**: ArgoCD, AWS, Jira, GitHub, PagerDuty, Komodor, Slack, Splunk, Backstage, Confluence, Webex, Weather, RAG
+  **Agents**: Dynamically provided based on connected agents (see tool instructions below)
   **Task Management**: `write_todos`, `task`
   **Workspace**: `clear_workspace()`, `write_workspace_file()`, `read_workspace_file()`, `list_workspace_files()`
   **Utility**: `get_current_date()`
