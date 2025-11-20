@@ -172,7 +172,7 @@ docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
 
 **Option B: Using uvx**
 ```bash
-uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
+uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
 
 **Option C: Using Agent Forge Backstage Plugin**
