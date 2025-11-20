@@ -6,4 +6,4 @@
 
 """Tools package."""
 
-from . import api_version
+from . import api_version as api_version

@@ -13,7 +13,6 @@ from cnoe_agent_utils import LLMFactory
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
-from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from ai_platform_engineering.multi_agents.tools import (
     reflect_on_output,
     format_markdown,

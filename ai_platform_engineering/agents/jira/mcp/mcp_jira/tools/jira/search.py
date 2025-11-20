@@ -49,7 +49,7 @@ async def search(
     if jql and re.search(r'\bAND\s+issuetype\s*=\s*\w+', jql, re.IGNORECASE):
         original_jql = jql
         jql = re.sub(r'\s+AND\s+issuetype\s*=\s*\w+', '', jql, flags=re.IGNORECASE)
-        logger.warning(f"Auto-correcting: removed issuetype filter from JQL")
+        logger.warning("Auto-correcting: removed issuetype filter from JQL")
         logger.debug(f"Original: {original_jql}")
         logger.debug(f"Corrected: {jql}")
 
