@@ -452,7 +452,15 @@ class TestAgentCommunication:
 
         logger.info(f"✅ Prompt '{prompt_id}' ({category}) successful - response: {response}")
         if expected_keywords:
-            assert len(found_keywords) > 0, f"None of expected keywords {expected_keywords} found in response for {prompt_id}"
+            if len(found_keywords) == 0:
+                # Log detailed failure information for debugging
+                logger.error(f"❌ Prompt '{prompt_id}' failed - response (first 500 chars): {response[:500]}")
+                logger.error(f"❌ Expected keywords: {expected_keywords}")
+                logger.error(f"❌ Response length: {len(response)}")
+                # Check if this looks like a notification/intermediate message
+                if len(response) < 100 and ("calling" in response_lower or "supervisor" in response_lower or "agent" in response_lower):
+                    logger.warning(f"⚠️ Response appears to be an intermediate notification, not final result")
+            assert len(found_keywords) > 0, f"None of expected keywords {expected_keywords} found in response for {prompt_id}. Response (first 500 chars): {response[:500]}"
             logger.info(f"✅ Prompt '{prompt_id}' ({category}) successful - found keywords: {found_keywords}")
         else:
             logger.info(f"✅ Prompt '{prompt_id}' ({category}) successful - response length: {len(response)}")
