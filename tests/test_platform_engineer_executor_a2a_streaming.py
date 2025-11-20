@@ -830,6 +830,694 @@ class TestA2AArtifactStreaming:
             assert len(artifact_events) > 0, "Should send some artifact on error"
 
 
+class TestRealWorldQueryScenarios:
+    """Test real-world query scenarios with mock agent responses."""
+
+    @pytest.fixture
+    def executor(self):
+        """Create executor instance."""
+        return AIPlatformEngineerA2AExecutor()
+
+    @pytest.fixture
+    def mock_context(self):
+        """Create mock RequestContext."""
+        context = Mock(spec=RequestContext)
+        message = Mock(spec=Message)
+        message.context_id = "test-context-123"
+        message.parts = [Part(root=TextPart(text="test query", kind="text"))]
+
+        task = Mock()
+        task.id = "test-task-456"
+        task.context_id = "test-context-123"
+        task.query = "test query"
+
+        context.message = message
+        context.current_task = task
+        context.get_user_input.return_value = "test query"
+        context.parent_task = None
+
+        return context
+
+    @pytest.fixture
+    def mock_event_queue(self):
+        """Create mock EventQueue."""
+        queue = Mock(spec=EventQueue)
+        queue.enqueue_event = AsyncMock()
+        return queue
+
+    @pytest.mark.asyncio
+    async def test_argocd_version_query(self, executor, mock_context, mock_event_queue):
+        """Test 'show argocd version' query - simulates ArgoCD agent response."""
+        mock_context.get_user_input.return_value = "show argocd version"
+
+        async def mock_agent_stream():
+            # Simulate ArgoCD agent streaming response
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "argocd-version-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "ArgoCD ", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "argocd-version-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "v2.10.0", "kind": "text"}],
+                    },
+                },
+            }
+            # Complete result with structured data
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": True,
+                    "artifact": {
+                        "artifactId": "argocd-version-complete",
+                        "name": "complete_result",
+                        "parts": [
+                            {
+                                "data": {
+                                    "version": "v2.10.0",
+                                    "build_date": "2024-01-15",
+                                    "git_commit": "abc123",
+                                },
+                                "kind": "data",
+                            }
+                        ],
+                    },
+                },
+            }
+            # Final completion
+            yield {
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "",
+            }
+
+        with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
+            await executor.execute(mock_context, mock_event_queue)
+
+            calls = mock_event_queue.enqueue_event.call_args_list
+            artifact_events = [
+                call[0][0]
+                for call in calls
+                if isinstance(call[0][0], TaskArtifactUpdateEvent)
+            ]
+
+            # Verify streaming_result chunks were forwarded
+            streaming_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "streaming_result"
+            ]
+            assert len(streaming_events) == 2, "Should forward streaming_result chunks"
+
+            # Verify complete_result with DataPart was sent
+            complete_result_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact")
+                and e.artifact.name == "complete_result"
+                and len(e.artifact.parts) > 0
+                and isinstance(e.artifact.parts[0].root, DataPart)
+            ]
+            assert len(complete_result_events) > 0, "Should send complete_result with DataPart"
+
+    @pytest.mark.asyncio
+    async def test_github_profile_query(self, executor, mock_context, mock_event_queue):
+        """Test 'show my github profile' query - simulates GitHub agent response."""
+        mock_context.get_user_input.return_value = "show my github profile"
+
+        # Define chunks outside function for assertion
+        chunks = [
+            "GitHub ",
+            "Profile: ",
+            "sraradhy\n",
+            "Name: ",
+            "Sri Aradhyula\n",
+            "Repositories: ",
+            "42\n",
+            "Followers: ",
+            "128",
+        ]
+
+        async def mock_agent_stream():
+            # Simulate GitHub agent streaming response
+            for i, chunk in enumerate(chunks):
+                yield {
+                    "type": "artifact-update",
+                    "result": {
+                        "kind": "artifact-update",
+                        "append": i > 0,
+                        "lastChunk": False,
+                        "artifact": {
+                            "artifactId": "github-profile-123",
+                            "name": "streaming_result",
+                            "parts": [{"text": chunk, "kind": "text"}],
+                        },
+                    },
+                }
+            # Complete result
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": True,
+                    "artifact": {
+                        "artifactId": "github-profile-complete",
+                        "name": "complete_result",
+                        "parts": [
+                            {
+                                "text": "".join(chunks),
+                                "kind": "text",
+                            }
+                        ],
+                    },
+                },
+            }
+            # Final completion
+            yield {
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "",
+            }
+
+        with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
+            await executor.execute(mock_context, mock_event_queue)
+
+            calls = mock_event_queue.enqueue_event.call_args_list
+            artifact_events = [
+                call[0][0]
+                for call in calls
+                if isinstance(call[0][0], TaskArtifactUpdateEvent)
+            ]
+
+            # Verify all streaming chunks were forwarded
+            streaming_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "streaming_result"
+            ]
+            # Note: Executor forwards streaming_result chunks
+            assert len(streaming_events) > 0, f"Should forward streaming chunks. Got {len(streaming_events)}"
+
+            # Verify complete_result was sent
+            complete_result_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "complete_result"
+            ]
+            assert len(complete_result_events) > 0, "Should send complete_result"
+
+            # Verify complete_result contains full text
+            final_text = complete_result_events[0].artifact.parts[0].root.text
+            assert "Sri Aradhyula" in final_text, "Complete result should contain full profile"
+
+    @pytest.mark.asyncio
+    async def test_jira_issues_query(self, executor, mock_context, mock_event_queue):
+        """Test 'get my jiras' query - simulates Jira agent response with multiple issues."""
+        mock_context.get_user_input.return_value = "get my jiras"
+
+        async def mock_agent_stream():
+            # Simulate Jira agent streaming response
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "jira-issues-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "Found ", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "jira-issues-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "3 issues:\n", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "jira-issues-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "1. PROJ-123: Fix bug\n", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "jira-issues-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "2. PROJ-456: Add feature\n", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "jira-issues-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "3. PROJ-789: Review PR\n", "kind": "text"}],
+                    },
+                },
+            }
+            # Complete result with structured data
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": True,
+                    "artifact": {
+                        "artifactId": "jira-issues-complete",
+                        "name": "complete_result",
+                        "parts": [
+                            {
+                                "data": {
+                                    "issues": [
+                                        {"key": "PROJ-123", "summary": "Fix bug"},
+                                        {"key": "PROJ-456", "summary": "Add feature"},
+                                        {"key": "PROJ-789", "summary": "Review PR"},
+                                    ],
+                                    "total": 3,
+                                },
+                                "kind": "data",
+                            }
+                        ],
+                    },
+                },
+            }
+            # Final completion
+            yield {
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "",
+            }
+
+        with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
+            await executor.execute(mock_context, mock_event_queue)
+
+            calls = mock_event_queue.enqueue_event.call_args_list
+            artifact_events = [
+                call[0][0]
+                for call in calls
+                if isinstance(call[0][0], TaskArtifactUpdateEvent)
+            ]
+
+            # Verify streaming chunks were forwarded (5 chunks)
+            streaming_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "streaming_result"
+            ]
+            assert len(streaming_events) == 5, "Should forward all streaming chunks"
+
+            # Verify complete_result with DataPart was sent
+            complete_result_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact")
+                and e.artifact.name == "complete_result"
+                and len(e.artifact.parts) > 0
+                and isinstance(e.artifact.parts[0].root, DataPart)
+            ]
+            assert len(complete_result_events) > 0, "Should send complete_result with DataPart"
+
+            # Verify DataPart contains structured issue data
+            datapart_data = complete_result_events[0].artifact.parts[0].root.data
+            assert "issues" in datapart_data, "DataPart should contain issues array"
+            assert len(datapart_data["issues"]) == 3, "Should have 3 issues"
+
+    @pytest.mark.asyncio
+    async def test_oncall_person_query(self, executor, mock_context, mock_event_queue):
+        """Test 'show oncall personne' query - simulates PagerDuty/oncall agent response."""
+        mock_context.get_user_input.return_value = "show oncall personne"
+
+        async def mock_agent_stream():
+            # Simulate oncall agent streaming response
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "oncall-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "Current ", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "oncall-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "on-call ", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "oncall-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "person: ", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "oncall-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "John Doe (john.doe@example.com)", "kind": "text"}],
+                    },
+                },
+            }
+            # Complete result
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": True,
+                    "artifact": {
+                        "artifactId": "oncall-complete",
+                        "name": "complete_result",
+                        "parts": [
+                            {
+                                "text": "Current on-call person: John Doe (john.doe@example.com)",
+                                "kind": "text",
+                            }
+                        ],
+                    },
+                },
+            }
+            # Final completion
+            yield {
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "",
+            }
+
+        with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
+            await executor.execute(mock_context, mock_event_queue)
+
+            calls = mock_event_queue.enqueue_event.call_args_list
+            artifact_events = [
+                call[0][0]
+                for call in calls
+                if isinstance(call[0][0], TaskArtifactUpdateEvent)
+            ]
+
+            # Verify streaming chunks were forwarded
+            streaming_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "streaming_result"
+            ]
+            assert len(streaming_events) == 4, "Should forward all streaming chunks"
+
+            # Verify complete_result was sent
+            complete_result_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "complete_result"
+            ]
+            assert len(complete_result_events) > 0, "Should send complete_result"
+
+            # Verify complete_result contains full oncall info
+            final_text = complete_result_events[0].artifact.parts[0].root.text
+            assert "John Doe" in final_text, "Complete result should contain oncall person name"
+            assert "john.doe@example.com" in final_text, "Complete result should contain email"
+
+    @pytest.mark.asyncio
+    async def test_multi_agent_parallel_query(self, executor, mock_context, mock_event_queue):
+        """Test parallel query to multiple agents - simulates 'show github repos and komodor clusters'."""
+        mock_context.get_user_input.return_value = "show github repos and komodor clusters"
+
+        async def mock_agent_stream():
+            # Simulate parallel responses from multiple agents
+            # First agent (GitHub) response
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "github-repos-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "GitHub Repos:\n", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "github-repos-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": "- repo1\n- repo2\n", "kind": "text"}],
+                    },
+                },
+            }
+            # Second agent (Komodor) response
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "komodor-clusters-456",
+                        "name": "streaming_result",
+                        "parts": [{"text": "Komodor Clusters:\n", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "komodor-clusters-456",
+                        "name": "streaming_result",
+                        "parts": [{"text": "- cluster1\n- cluster2\n", "kind": "text"}],
+                    },
+                },
+            }
+            # Complete result combining both
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": True,
+                    "artifact": {
+                        "artifactId": "parallel-complete",
+                        "name": "complete_result",
+                        "parts": [
+                            {
+                                "text": "GitHub Repos:\n- repo1\n- repo2\n\nKomodor Clusters:\n- cluster1\n- cluster2\n",
+                                "kind": "text",
+                            }
+                        ],
+                    },
+                },
+            }
+            # Final completion
+            yield {
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "",
+            }
+
+        with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
+            await executor.execute(mock_context, mock_event_queue)
+
+            calls = mock_event_queue.enqueue_event.call_args_list
+            artifact_events = [
+                call[0][0]
+                for call in calls
+                if isinstance(call[0][0], TaskArtifactUpdateEvent)
+            ]
+
+            # Verify streaming chunks from both agents were forwarded
+            streaming_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "streaming_result"
+            ]
+            assert len(streaming_events) == 4, "Should forward streaming chunks from both agents"
+
+            # Verify complete_result was sent with combined content
+            complete_result_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "complete_result"
+            ]
+            assert len(complete_result_events) > 0, "Should send complete_result"
+
+            # Verify complete_result contains content from both agents
+            final_text = complete_result_events[0].artifact.parts[0].root.text
+            assert "GitHub Repos" in final_text, "Should contain GitHub content"
+            assert "Komodor Clusters" in final_text, "Should contain Komodor content"
+
+    @pytest.mark.asyncio
+    async def test_query_with_premature_end(self, executor, mock_context, mock_event_queue):
+        """Test query that ends prematurely without complete_result - simulates timeout/error."""
+        mock_context.get_user_input.return_value = "show argocd applications"
+
+        async def mock_agent_stream():
+            # First, send some supervisor content (this will be accumulated)
+            yield {
+                "is_task_complete": False,
+                "require_user_input": False,
+                "content": "Fetching",
+            }
+            # Simulate partial response then premature end
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": "argocd-apps-123",
+                        "name": "streaming_result",
+                        "parts": [{"text": " applications...", "kind": "text"}],
+                    },
+                },
+            }
+            # Stream ends without complete_result (simulating timeout/error)
+            # No is_task_complete=True event
+
+        with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
+            await executor.execute(mock_context, mock_event_queue)
+
+            calls = mock_event_queue.enqueue_event.call_args_list
+            artifact_events = [
+                call[0][0]
+                for call in calls
+                if isinstance(call[0][0], TaskArtifactUpdateEvent)
+            ]
+
+            # Verify streaming chunks were forwarded
+            streaming_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "streaming_result"
+            ]
+            assert len(streaming_events) == 2, "Should forward streaming chunks"
+
+            # Verify partial_result was sent (premature end)
+            partial_result_events = [
+                e
+                for e in artifact_events
+                if hasattr(e, "artifact") and e.artifact.name == "partial_result"
+            ]
+            assert len(partial_result_events) > 0, "Should send partial_result on premature end"
+
+    @pytest.mark.asyncio
+    async def test_query_with_error_response(self, executor, mock_context, mock_event_queue):
+        """Test query that returns an error - simulates agent error response."""
+        mock_context.get_user_input.return_value = "show invalid resource"
+
+        async def mock_agent_stream():
+            # Simulate error response
+            yield {
+                "is_task_complete": False,
+                "require_user_input": False,
+                "content": "❌ Error: Resource not found",
+            }
+            yield {
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "",
+            }
+
+        with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
+            await executor.execute(mock_context, mock_event_queue)
+
+            calls = mock_event_queue.enqueue_event.call_args_list
+            artifact_events = [
+                call[0][0]
+                for call in calls
+                if isinstance(call[0][0], TaskArtifactUpdateEvent)
+            ]
+
+            # Should send some artifact (error_result or final_result with error content)
+            assert len(artifact_events) > 0, "Should send artifact on error"
+
+            # Check if error content is present
+            all_text = ""
+            for event in artifact_events:
+                if hasattr(event, "artifact") and event.artifact.parts:
+                    for part in event.artifact.parts:
+                        if hasattr(part, "root") and hasattr(part.root, "text"):
+                            all_text += part.root.text
+
+            assert "Error" in all_text or "error" in all_text.lower(), "Should contain error message"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
 
