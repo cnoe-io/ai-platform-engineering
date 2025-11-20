@@ -111,7 +111,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             logger.info("🎛️  Routing Mode: DEEP_AGENT_ENHANCED_ORCHESTRATION - Smart routing + orchestration hints (EXPERIMENTAL)")
         elif self.force_deep_agent_orchestration:
             self.routing_mode = "DEEP_AGENT_PARALLEL_ORCHESTRATION"
-            logger.info("🎛️  Routing Mode: DEEP_AGENT_PARALLEL_ORCHESTRATION - All queries via Deep Agent with parallel orchestration (DEFAULT - best performance)")
+            logger.debug("🎛️  Routing Mode: DEEP_AGENT_PARALLEL_ORCHESTRATION - All queries via Deep Agent with parallel orchestration (DEFAULT - best performance)")
         elif self.enhanced_streaming_enabled:
             self.routing_mode = "DEEP_AGENT_INTELLIGENT_ROUTING"
             logger.info("🎛️  Routing Mode: DEEP_AGENT_INTELLIGENT_ROUTING - Intelligent routing (DIRECT/PARALLEL/COMPLEX)")
@@ -129,8 +129,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             'analyze,compare,if,then,create,update,based on,depending on,which,that have'
         )
 
-        logger.info(f"📚 Knowledge base keywords: {self.knowledge_base_keywords}")
-        logger.info(f"🔧 Orchestration keywords: {self.orchestration_keywords}")
+        logger.debug(f"📚 Knowledge base keywords: {self.knowledge_base_keywords}")
+        logger.debug(f"🔧 Orchestration keywords: {self.orchestration_keywords}")
 
     def _parse_env_keywords(self, env_var: str, default: str) -> List[str]:
         """Parse comma-separated keywords from environment variable."""
