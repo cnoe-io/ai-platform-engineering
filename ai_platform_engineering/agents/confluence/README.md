@@ -70,7 +70,7 @@ docker run -p 0.0.0.0:8000:8000 -it\
 Use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
 
 ```bash
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
 
 ## 🏗️ Architecture
