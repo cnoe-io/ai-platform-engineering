@@ -102,6 +102,11 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
       - name: Start services
         run: |
           set -euo pipefail
