@@ -15,7 +15,6 @@ services:
     container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
-      - ./ai_platform_engineering:/app/ai_platform_engineering
     env_file:
       - .env
     ports:
