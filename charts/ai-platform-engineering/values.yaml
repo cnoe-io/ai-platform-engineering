@@ -234,7 +234,7 @@ rag-stack:
   rag-server:
     enabled: true
     image:
-      repository: "ghcr.io/cnoe-io/rag-server"
+      repository: "ghcr.io/cnoe-io/caipe-rag-server"
       tag: "stable"
       pullPolicy: "Always"
 
