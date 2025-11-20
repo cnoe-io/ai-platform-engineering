@@ -28,7 +28,7 @@ class PetStoreAgentExecutor(AgentExecutor):
     ) -> None:
         query = context.get_user_input()
         task = context.current_task
-        context_id = context.message.contextId if context.message else None
+        context_id = context.message.context_id if context.message else None
 
         if not context.message:
             raise Exception('No message provided')
@@ -42,7 +42,7 @@ class PetStoreAgentExecutor(AgentExecutor):
                 await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         append=False,
-                        contextId=task.contextId,
+                        contextId=task.context_id,
                         taskId=task.id,
                         lastChunk=True,
                         artifact=new_text_artifact(
@@ -56,7 +56,7 @@ class PetStoreAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         status=TaskStatus(state=TaskState.completed),
                         final=True,
-                        contextId=task.contextId,
+                        contextId=task.context_id,
                         taskId=task.id,
                     )
                 )
@@ -67,12 +67,12 @@ class PetStoreAgentExecutor(AgentExecutor):
                             state=TaskState.input_required,
                             message=new_agent_text_message(
                                 event['content'],
-                                task.contextId,
+                                task.context_id,
                                 task.id,
                             ),
                         ),
                         final=True,
-                        contextId=task.contextId,
+                        contextId=task.context_id,
                         taskId=task.id,
                     )
                 )
@@ -83,12 +83,12 @@ class PetStoreAgentExecutor(AgentExecutor):
                             state=TaskState.working,
                             message=new_agent_text_message(
                                 event['content'],
-                                task.contextId,
+                                task.context_id,
                                 task.id,
                             ),
                         ),
                         final=False,
-                        contextId=task.contextId,
+                        contextId=task.context_id,
                         taskId=task.id,
                     )
                 )
