@@ -85,6 +85,8 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     partial_result_content = None
     status_updates = []
     artifact_updates = []
+    # Track streaming_result by artifact_id to prevent duplication
+    streaming_by_id = {}  # artifact_id -> accumulated_text
 
     for i, event in enumerate(events):
         result = event.get('result', {})
@@ -101,6 +103,8 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
             artifact_text = ''
             artifact_data = None
             has_datapart = False
+            is_duplicate = False
+            duplicate_info = None
             for part in parts:
                 if isinstance(part, dict):
                     # Handle different part formats:
@@ -120,12 +124,6 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                     # Handle TextPart
                     if text:
                         artifact_text += text
-                        if artifact_name == 'streaming_result':
-                            sub_agent_accumulated.append(text)
-                        elif artifact_name == 'partial_result':
-                            partial_result_content = text if not partial_result_content else partial_result_content + text
-                        elif artifact_name == 'final_result':
-                            final_content = text if not final_content else final_content + text
 
                     # Handle DataPart
                     if data:
@@ -133,25 +131,97 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                         artifact_data = data if artifact_data is None else artifact_data  # Keep first DataPart
                         # Convert DataPart to JSON string for accumulation tracking
                         json_str = json.dumps(data)
-                        if artifact_name in ['complete_result', 'final_result', 'partial_result']:
-                            sub_agent_accumulated.append(json_str)
                         # Also add to artifact_text for display
                         artifact_text += f"\n[DataPart JSON]: {json_str}"
 
+            # Handle accumulation for streaming_result - DETECT duplicates but accumulate everything
+            if artifact_name == 'streaming_result':
+                if artifact_id not in streaming_by_id:
+                    # First chunk for this artifact_id
+                    streaming_by_id[artifact_id] = ''
+
+                accumulated_so_far = streaming_by_id[artifact_id]
+                is_duplicate = False
+                duplicate_info = None
+
+                # DETECTION: Check if accumulated content is already in artifact_text (but still accumulate)
+                if append and accumulated_so_far:
+                    if artifact_text.startswith(accumulated_so_far):
+                        # artifact_text contains accumulated content at the start - DUPLICATE DETECTED
+                        duplicate_length = len(accumulated_so_far)
+                        new_text = artifact_text[len(accumulated_so_far):]
+                        is_duplicate = True
+                        duplicate_info = f"Prefix duplicate: {duplicate_length} chars already seen, {len(new_text)} new chars"
+                        streaming_by_id[artifact_id] = artifact_text  # Update tracking
+                        sub_agent_accumulated.append(artifact_text)  # Still accumulate full content to show the problem
+                    elif accumulated_so_far in artifact_text:
+                        # accumulated content is embedded in artifact_text - DUPLICATE DETECTED
+                        duplicate_length = len(accumulated_so_far)
+                        is_duplicate = True
+                        duplicate_info = f"Embedded duplicate: {duplicate_length} chars found in middle of {len(artifact_text)} chars"
+                        streaming_by_id[artifact_id] = artifact_text  # Update tracking
+                        sub_agent_accumulated.append(artifact_text)  # Still accumulate full content
+                    elif artifact_text == accumulated_so_far:
+                        # Exact duplicate - DUPLICATE DETECTED
+                        is_duplicate = True
+                        duplicate_info = f"Exact duplicate: {len(artifact_text)} chars identical to previous"
+                        sub_agent_accumulated.append(artifact_text)  # Still accumulate to show the problem
+                    else:
+                        # New content to append
+                        streaming_by_id[artifact_id] += artifact_text
+                        sub_agent_accumulated.append(artifact_text)
+                elif not append:
+                    # append=False means replace/reset
+                    streaming_by_id[artifact_id] = artifact_text
+                    sub_agent_accumulated.append(artifact_text)
+                else:
+                    # First chunk (no accumulated content yet)
+                    streaming_by_id[artifact_id] = artifact_text
+                    sub_agent_accumulated.append(artifact_text)
+
+                # Store duplicate detection info in accumulation log
+                if is_duplicate:
+                    accumulation_log.append({
+                        'step': len(accumulation_log) + 1,
+                        'event_type': f'artifact-update ({artifact_name}) [DUPLICATE DETECTED]',
+                        'artifact_id': artifact_id[:8] + '...' if len(artifact_id) > 8 else artifact_id,
+                        'append': append,
+                        'last_chunk': last_chunk,
+                        'content_chunk': artifact_text,
+                        'data_part': json.dumps(artifact_data) if artifact_data else None,
+                        'duplicate_info': duplicate_info,
+                        'sub_agent_accumulated': ''.join(sub_agent_accumulated),
+                        'supervisor_accumulated': ''.join(supervisor_accumulated),
+                        'total_sub_agent': len(''.join(sub_agent_accumulated)),
+                        'total_supervisor': len(''.join(supervisor_accumulated))
+                    })
+                    continue  # Skip normal accumulation log entry, we already added duplicate detection entry
+            elif artifact_name == 'partial_result':
+                partial_result_content = artifact_text if not partial_result_content else partial_result_content + artifact_text
+            elif artifact_name == 'final_result':
+                final_content = artifact_text if not final_content else final_content + artifact_text
+            elif artifact_name in ['complete_result']:
+                # Handle complete_result similar to streaming_result
+                if artifact_data:
+                    json_str = json.dumps(artifact_data)
+                    sub_agent_accumulated.append(json_str)
+
             if artifact_text or artifact_data:
-                accumulation_log.append({
-                    'step': len(accumulation_log) + 1,
-                    'event_type': f'artifact-update ({artifact_name})' + (' [DataPart]' if has_datapart else ''),
-                    'artifact_id': artifact_id[:8] + '...' if len(artifact_id) > 8 else artifact_id,
-                    'append': append,
-                    'last_chunk': last_chunk,
-                    'content_chunk': artifact_text,  # No truncation
-                    'data_part': json.dumps(artifact_data) if artifact_data else None,
-                    'sub_agent_accumulated': ''.join(sub_agent_accumulated),  # No truncation
-                    'supervisor_accumulated': ''.join(supervisor_accumulated),  # No truncation
-                    'total_sub_agent': len(''.join(sub_agent_accumulated)),
-                    'total_supervisor': len(''.join(supervisor_accumulated))
-                })
+                # Only add to accumulation_log if not already added (for duplicates)
+                if artifact_name != 'streaming_result' or not is_duplicate:
+                    accumulation_log.append({
+                        'step': len(accumulation_log) + 1,
+                        'event_type': f'artifact-update ({artifact_name})' + (' [DataPart]' if has_datapart else ''),
+                        'artifact_id': artifact_id[:8] + '...' if len(artifact_id) > 8 else artifact_id,
+                        'append': append,
+                        'last_chunk': last_chunk,
+                        'content_chunk': artifact_text,  # No truncation
+                        'data_part': json.dumps(artifact_data) if artifact_data else None,
+                        'sub_agent_accumulated': ''.join(sub_agent_accumulated),  # No truncation
+                        'supervisor_accumulated': ''.join(supervisor_accumulated),  # No truncation
+                        'total_sub_agent': len(''.join(sub_agent_accumulated)),
+                        'total_supervisor': len(''.join(supervisor_accumulated))
+                    })
 
                 artifact_updates.append({
                     'name': artifact_name,
@@ -160,7 +230,9 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                     'last_chunk': last_chunk,
                     'text_length': len(artifact_text),
                     'has_datapart': has_datapart,
-                    'data_part': artifact_data
+                    'data_part': artifact_data,
+                    'is_duplicate': is_duplicate if artifact_name == 'streaming_result' else False,
+                    'duplicate_info': duplicate_info if artifact_name == 'streaming_result' and is_duplicate else None
                 })
 
         elif kind == 'status-update':
@@ -236,6 +308,11 @@ def generate_markdown_report(query: str, analysis: Dict[str, Any], output_file: 
     if datapart_artifacts:
         markdown += f"\n- **DataPart Artifacts**: {len(datapart_artifacts)} artifacts with structured JSON data\n"
 
+    # Count duplicates detected
+    duplicates_detected = [a for a in artifact_updates if a.get('is_duplicate')]
+    if duplicates_detected:
+        markdown += f"\n- **⚠️ DUPLICATES DETECTED**: {len(duplicates_detected)} duplicate events found in streaming_result artifacts\n"
+
     markdown += "\n## Accumulation Flow\n\n"
     markdown += "| Step | Event Type | Artifact ID | Append | Last Chunk | Content Chunk | Sub-Agent Accumulated | Supervisor Accumulated | Sub-Agent Total | Supervisor Total |\n"
     markdown += "|------|------------|-------------|--------|------------|---------------|------------------------|------------------------|-----------------|------------------|\n"
@@ -245,15 +322,17 @@ def generate_markdown_report(query: str, analysis: Dict[str, Any], output_file: 
     show_last = 10
 
     for i, log in enumerate(accumulation_log[:show_first]):
-        markdown += "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n".format(
+        duplicate_note = f" ({log.get('duplicate_info', '')})" if log.get('duplicate_info') else ""
+        markdown += "| {} | {}{} | {} | {} | {} | {} | {} | {} | {} | {} |\n".format(
             log['step'],
             log['event_type'],
+            duplicate_note,
             log.get('artifact_id', ''),
             log.get('append', False),
             log.get('last_chunk', False),
-            log['content_chunk'].replace('|', '\\|').replace('\n', ' '),
-            log['sub_agent_accumulated'].replace('|', '\\|').replace('\n', ' '),
-            log['supervisor_accumulated'].replace('|', '\\|').replace('\n', ' '),
+            log['content_chunk'].replace('|', '\\|').replace('\n', ' ')[:200] + '...' if len(log['content_chunk']) > 200 else log['content_chunk'].replace('|', '\\|').replace('\n', ' '),
+            log['sub_agent_accumulated'].replace('|', '\\|').replace('\n', ' ')[:100] + '...' if len(log['sub_agent_accumulated']) > 100 else log['sub_agent_accumulated'].replace('|', '\\|').replace('\n', ' '),
+            log['supervisor_accumulated'].replace('|', '\\|').replace('\n', ' ')[:100] + '...' if len(log['supervisor_accumulated']) > 100 else log['supervisor_accumulated'].replace('|', '\\|').replace('\n', ' '),
             log['total_sub_agent'],
             log['total_supervisor']
         )
@@ -261,18 +340,30 @@ def generate_markdown_report(query: str, analysis: Dict[str, Any], output_file: 
     if len(accumulation_log) > show_first:
         markdown += "| ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |\n"
         for log in accumulation_log[-show_last:]:
-            markdown += "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n".format(
+            duplicate_note = f" ({log.get('duplicate_info', '')})" if log.get('duplicate_info') else ""
+            markdown += "| {} | {}{} | {} | {} | {} | {} | {} | {} | {} | {} |\n".format(
                 log['step'],
                 log['event_type'],
+                duplicate_note,
                 log.get('artifact_id', ''),
                 log.get('append', False),
                 log.get('last_chunk', False),
-                log['content_chunk'].replace('|', '\\|').replace('\n', ' '),
-                log['sub_agent_accumulated'].replace('|', '\\|').replace('\n', ' '),
-                log['supervisor_accumulated'].replace('|', '\\|').replace('\n', ' '),
+                log['content_chunk'].replace('|', '\\|').replace('\n', ' ')[:200] + '...' if len(log['content_chunk']) > 200 else log['content_chunk'].replace('|', '\\|').replace('\n', ' '),
+                log['sub_agent_accumulated'].replace('|', '\\|').replace('\n', ' ')[:100] + '...' if len(log['sub_agent_accumulated']) > 100 else log['sub_agent_accumulated'].replace('|', '\\|').replace('\n', ' '),
+                log['supervisor_accumulated'].replace('|', '\\|').replace('\n', ' ')[:100] + '...' if len(log['supervisor_accumulated']) > 100 else log['supervisor_accumulated'].replace('|', '\\|').replace('\n', ' '),
                 log['total_sub_agent'],
                 log['total_supervisor']
             )
+
+    # Duplicate detection section
+    duplicates_detected = [a for a in artifact_updates if a.get('is_duplicate')]
+    if duplicates_detected:
+        markdown += "\n## ⚠️ Duplicate Detection\n\n"
+        markdown += f"**Found {len(duplicates_detected)} duplicate events in streaming_result artifacts:**\n\n"
+        for dup in duplicates_detected:
+            markdown += f"- **Event {dup.get('id', 'unknown')[:8]}...**: {dup.get('duplicate_info', 'Unknown duplicate type')}\n"
+            markdown += f"  - Text length: {dup.get('text_length', 0)} chars\n"
+            markdown += f"  - Append flag: {dup.get('append', False)}\n\n"
 
     # Status updates section
     if status_updates:
