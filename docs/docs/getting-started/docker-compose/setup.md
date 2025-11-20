@@ -122,7 +122,7 @@ Setup CAIPE to run in a docker environment on a laptop or a virtual machine like
 
    **Option B: Using uvx**
    ```bash
-   uvx https://github.com/cnoe-io/agent-chat-cli.git <a2a|mcp>
+   uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
    ```
 
    > 💡 For more connection options and troubleshooting, see the [Quick Start Guide](../quick-start.md).
