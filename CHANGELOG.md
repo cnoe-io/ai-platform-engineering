@@ -1,3 +1,72 @@
+## Unreleased
+
+### BREAKING CHANGE
+
+- incident_engineer module is no longer available
+- Platform engineer agent now uses structured outputs
+exclusively. Legacy response formats are no longer supported.
+
+### Feat
+
+- **template**: add PetStore MCP server implementation
+- **prompts**: add error handling and security guardrails
+- bump chart
+- much shorter system prompt for deep supervisor agent
+- cahrt bump for prompt config
+- **tools**: add workspace operations and utility tools
+- **mcp**: add standardized entry points for MCP servers
+- **structured-outputs**: implement structured output support for agents
+- **platform-engineer**: implement structured outputs and workspace tools
+
+### Fix
+
+- **docker**: update prompt config path and fix whitespace
+- **ci**: correct workflow ID in trigger script
+- **ci**: correct workflow ID in trigger script
+- **integration**: resolve make quick-sanity test failures
+- **logging**: reduce log noise
+- **platform-engineer**: filter sub-agent completion signals and preserve DataPart artifacts
+- wip 2045
+- **prompt**: escape curly braces in TODO example to prevent format() errors
+- **executor**: prevent duplicate messages from final response events
+- remove tests
+- updates
+- **agent**: handle tool failures and LangGraph validation errors
+- Add 'graph_rag' profile to docker-compose services
+- **dev**: updates to jarvis docker-compose
+- deal with unseen artifact err
+- jira agent tools to hardcode fix for wrong tool calls with params
+- **docs**: updates to agent-ops
+- **ci**: trigger agent-forge manually
+- **docs**: vidcast updates
+- reconcile
+- reconcile
+- **docker-compose**: add MCP host bindings, healthchecks, and configurable prompt path
+- deploy script to include GraphRAG services and exclude by default
+- embeddings_model typo
+- docker-compose: NGINX_ENVSUBST_TEMPLATE_SUFFIX formatting
+- **docker-compose**: update profile
+- **a2a**: disable structured output by default
+- better deep agent prompt and etc
+- work with jarvis will required/optional fields
+- maintain context id
+- don't build the webui image in main docker-compose
+- backstage JWT token is using ES256
+- resolve structured outputs compatibility issues
+- **a2a**: return brief completion message to prevent content duplication
+- **config**: escape template placeholders in YAML prompt config
+- **helm**: bump v0.4.5
+- **ci**: remove invalid branch prefix from agent-forge SHA tags
+- **ci**: ignore argocd and komodor agent tests with missing dependencies
+- **docker**: correct agent template name and improve extra_hosts docs
+- **docker**: correct agent name for petstore services in docker-compose
+
+### Refactor
+
+- **executor**: make duplicate detection deterministic and update prompt configs
+- **petstore**: migrate to BaseLangGraphAgent and shared utilities
+- remove agent initialization capabilities greeting and improve prompt config
+
 ## 0.2.1 (2025-11-07)
 
 ### BREAKING CHANGE
