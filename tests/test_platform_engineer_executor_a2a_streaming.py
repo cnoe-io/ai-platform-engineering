@@ -17,6 +17,7 @@ Usage:
 
 import pytest
 import asyncio
+import os
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import List, Dict, Any
 
@@ -43,7 +44,9 @@ class TestA2AArtifactStreaming:
     @pytest.fixture
     def executor(self):
         """Create executor instance."""
-        return AIPlatformEngineerA2AExecutor()
+        # Set LLM_PROVIDER environment variable for executor initialization
+        with patch.dict(os.environ, {"LLM_PROVIDER": "azure-openai"}):
+            return AIPlatformEngineerA2AExecutor()
 
     @pytest.fixture
     def mock_context(self):
@@ -836,7 +839,9 @@ class TestRealWorldQueryScenarios:
     @pytest.fixture
     def executor(self):
         """Create executor instance."""
-        return AIPlatformEngineerA2AExecutor()
+        # Set LLM_PROVIDER environment variable for executor initialization
+        with patch.dict(os.environ, {"LLM_PROVIDER": "azure-openai"}):
+            return AIPlatformEngineerA2AExecutor()
 
     @pytest.fixture
     def mock_context(self):
