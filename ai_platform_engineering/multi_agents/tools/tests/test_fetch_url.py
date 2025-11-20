@@ -6,18 +6,17 @@ Unit tests for the fetch_url tool.
 
 Tests cover:
 - URL validation
-- Successful fetches (text, markdown, raw)
+- Successful fetches (text, raw)
 - HTTP error handling
 - Timeout handling
 - Content type detection
-- HTML to markdown conversion
 - HTML to text extraction
 - Redirect following
 """
 
 import unittest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
-from ai_platform_engineering.multi_agents.tools.fetch_url import fetch_url, _fetch_url_async
+from unittest.mock import Mock, patch
+from ai_platform_engineering.multi_agents.tools.fetch_url import fetch_url
 
 
 class TestFetchUrlValidation(unittest.TestCase):
@@ -52,8 +51,8 @@ class TestFetchUrlValidation(unittest.TestCase):
 class TestFetchUrlSuccess(unittest.TestCase):
     """Test successful fetch operations with mocked responses."""
 
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_fetch_plain_text(self, mock_client):
+    @patch('requests.get')
+    def test_fetch_plain_text(self, mock_get):
         """Test fetching plain text content."""
         # Mock response
         mock_response = Mock()
@@ -63,12 +62,7 @@ class TestFetchUrlSuccess(unittest.TestCase):
         mock_response.url = "https://example.com/text.txt"
         mock_response.raise_for_status = Mock()
 
-        # Mock async context manager
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(return_value=mock_response)
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
+        mock_get.return_value = mock_response
 
         result = fetch_url.invoke({
             "url": "https://example.com/text.txt",
@@ -80,8 +74,8 @@ class TestFetchUrlSuccess(unittest.TestCase):
         self.assertEqual(result['status_code'], 200)
         print("✓ Plain text fetch works")
 
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_fetch_json_content(self, mock_client):
+    @patch('requests.get')
+    def test_fetch_json_content(self, mock_get):
         """Test fetching JSON content."""
         mock_response = Mock()
         mock_response.text = '{"key": "value"}'
@@ -90,11 +84,7 @@ class TestFetchUrlSuccess(unittest.TestCase):
         mock_response.url = "https://api.example.com/data"
         mock_response.raise_for_status = Mock()
 
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(return_value=mock_response)
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
+        mock_get.return_value = mock_response
 
         result = fetch_url.invoke({
             "url": "https://api.example.com/data"
@@ -105,9 +95,9 @@ class TestFetchUrlSuccess(unittest.TestCase):
         self.assertEqual(result['format'], 'json')
         print("✓ JSON content fetch works")
 
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.BeautifulSoup')
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_fetch_html_as_text(self, mock_client, mock_bs):
+    @patch('bs4.BeautifulSoup')
+    @patch('requests.get')
+    def test_fetch_html_as_text(self, mock_get, mock_bs):
         """Test fetching HTML and converting to text."""
         html_content = "<html><body><h1>Title</h1><p>Paragraph</p></body></html>"
 
@@ -118,17 +108,14 @@ class TestFetchUrlSuccess(unittest.TestCase):
         mock_response.url = "https://example.com/page.html"
         mock_response.raise_for_status = Mock()
 
+        mock_get.return_value = mock_response
+
         # Mock BeautifulSoup
         mock_soup = Mock()
         mock_soup.get_text.return_value = "Title\nParagraph"
-        mock_soup.__call__ = Mock(return_value=[])  # For script/style removal
+        # Make soup callable - when called with ["script", "style"], return empty list
+        mock_soup.return_value = []
         mock_bs.return_value = mock_soup
-
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(return_value=mock_response)
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
 
         result = fetch_url.invoke({
             "url": "https://example.com/page.html",
@@ -139,41 +126,8 @@ class TestFetchUrlSuccess(unittest.TestCase):
         self.assertIn('Title', result['content'])
         print("✓ HTML to text conversion works")
 
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.html2text.HTML2Text')
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_fetch_html_as_markdown(self, mock_client, mock_html2text):
-        """Test fetching HTML and converting to markdown."""
-        html_content = "<html><body><h1>Title</h1><p>Paragraph</p></body></html>"
-
-        mock_response = Mock()
-        mock_response.text = html_content
-        mock_response.status_code = 200
-        mock_response.headers = {'content-type': 'text/html'}
-        mock_response.url = "https://example.com/page.html"
-        mock_response.raise_for_status = Mock()
-
-        # Mock html2text
-        mock_converter = Mock()
-        mock_converter.handle.return_value = "# Title\n\nParagraph"
-        mock_html2text.return_value = mock_converter
-
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(return_value=mock_response)
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
-
-        result = fetch_url.invoke({
-            "url": "https://example.com/page.html",
-            "format": "markdown"
-        })
-
-        self.assertTrue(result['success'])
-        self.assertEqual(result['format'], 'markdown')
-        print("✓ HTML to markdown conversion works")
-
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_fetch_raw_html(self, mock_client):
+    @patch('requests.get')
+    def test_fetch_raw_html(self, mock_get):
         """Test fetching raw HTML content."""
         html_content = "<html><body><h1>Title</h1></body></html>"
 
@@ -184,11 +138,7 @@ class TestFetchUrlSuccess(unittest.TestCase):
         mock_response.url = "https://example.com/page.html"
         mock_response.raise_for_status = Mock()
 
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(return_value=mock_response)
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
+        mock_get.return_value = mock_response
 
         result = fetch_url.invoke({
             "url": "https://example.com/page.html",
@@ -204,26 +154,19 @@ class TestFetchUrlSuccess(unittest.TestCase):
 class TestFetchUrlErrors(unittest.TestCase):
     """Test error handling for various failure scenarios."""
 
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_http_404_error(self, mock_client):
+    @patch('requests.get')
+    def test_http_404_error(self, mock_get):
         """Test handling of 404 Not Found."""
-        import httpx
+        import requests
 
         mock_response = Mock()
         mock_response.status_code = 404
         mock_response.reason_phrase = "Not Found"
 
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(
-            side_effect=httpx.HTTPStatusError(
-                "404",
-                request=Mock(),
-                response=mock_response
-            )
-        )
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
+        # Create HTTPError with response
+        http_error = requests.exceptions.HTTPError("404 Not Found")
+        http_error.response = mock_response
+        mock_get.side_effect = http_error
 
         result = fetch_url.invoke({
             "url": "https://example.com/notfound"
@@ -234,16 +177,12 @@ class TestFetchUrlErrors(unittest.TestCase):
         self.assertIn('404', result['message'])
         print("✓ HTTP 404 error handled")
 
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_timeout_error(self, mock_client):
+    @patch('requests.get')
+    def test_timeout_error(self, mock_get):
         """Test handling of timeout."""
-        import httpx
+        import requests
 
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
+        mock_get.side_effect = requests.exceptions.Timeout("Request timed out")
 
         result = fetch_url.invoke({
             "url": "https://example.com/slow",
@@ -251,21 +190,15 @@ class TestFetchUrlErrors(unittest.TestCase):
         })
 
         self.assertFalse(result['success'])
-        self.assertIn('timeout', result['message'].lower())
+        self.assertIn('timed out', result['message'].lower())
         print("✓ Timeout error handled")
 
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_network_error(self, mock_client):
+    @patch('requests.get')
+    def test_network_error(self, mock_get):
         """Test handling of network errors."""
-        import httpx
+        import requests
 
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(
-            side_effect=httpx.RequestError("Connection refused")
-        )
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
+        mock_get.side_effect = requests.exceptions.RequestException("Connection refused")
 
         result = fetch_url.invoke({
             "url": "https://example.com/unreachable"
@@ -279,8 +212,8 @@ class TestFetchUrlErrors(unittest.TestCase):
 class TestFetchUrlFeatures(unittest.TestCase):
     """Test additional features like redirects and custom timeout."""
 
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_follows_redirects(self, mock_client):
+    @patch('requests.get')
+    def test_follows_redirects(self, mock_get):
         """Test that redirects are followed."""
         mock_response = Mock()
         mock_response.text = "Final content"
@@ -289,11 +222,7 @@ class TestFetchUrlFeatures(unittest.TestCase):
         mock_response.url = "https://example.com/final"  # After redirect
         mock_response.raise_for_status = Mock()
 
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(return_value=mock_response)
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
+        mock_get.return_value = mock_response
 
         result = fetch_url.invoke({
             "url": "https://example.com/redirect"
@@ -303,8 +232,8 @@ class TestFetchUrlFeatures(unittest.TestCase):
         self.assertEqual(result['url'], "https://example.com/final")
         print("✓ Redirects are followed")
 
-    @patch('ai_platform_engineering.multi_agents.tools.fetch_url.httpx.AsyncClient')
-    def test_custom_timeout(self, mock_client):
+    @patch('requests.get')
+    def test_custom_timeout(self, mock_get):
         """Test custom timeout parameter."""
         mock_response = Mock()
         mock_response.text = "Content"
@@ -313,11 +242,7 @@ class TestFetchUrlFeatures(unittest.TestCase):
         mock_response.url = "https://example.com"
         mock_response.raise_for_status = Mock()
 
-        mock_client_instance = Mock()
-        mock_client_instance.get = AsyncMock(return_value=mock_response)
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock()
-        mock_client.return_value = mock_client_instance
+        mock_get.return_value = mock_response
 
         result = fetch_url.invoke({
             "url": "https://example.com",
@@ -325,9 +250,9 @@ class TestFetchUrlFeatures(unittest.TestCase):
         })
 
         self.assertTrue(result['success'])
-        # Verify AsyncClient was created with custom timeout
-        mock_client.assert_called_once()
-        call_kwargs = mock_client.call_args[1]
+        # Verify requests.get was called with custom timeout
+        mock_get.assert_called_once()
+        call_kwargs = mock_get.call_args[1]
         self.assertEqual(call_kwargs['timeout'], 10)
         print("✓ Custom timeout parameter works")
 
