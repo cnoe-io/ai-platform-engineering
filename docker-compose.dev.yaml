@@ -97,14 +97,7 @@ services:
       - ENABLE_WEATHER=true
       - ENABLE_WEBEX=true
       - ENABLE_RAG=true
-      # Structured output with A2A DataPart (native JSON schema support)
-      # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
-      # When disabled, all responses are sent as TextPart (backward compatible)
-      - ENABLE_STRUCTURED_OUTPUT=false
-      # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
-      # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
-      # When enabled, the platform engineer will stream sub-agent responses token-by-token
-      - ENABLE_ARTIFACT_STREAMING=true
+
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -207,13 +200,7 @@ services:
       - ENABLE_PETSTORE=true
       - ENABLE_RAG=true
       # Structured output with A2A DataPart (native JSON schema support)
-      # When enabled, final responses matching PlatformEngineerResponse schema are sent as DataPart (native structured data)
-      # When disabled, all responses are sent as TextPart (backward compatible)
-      - ENABLE_STRUCTURED_OUTPUT=false
-      # Artifact streaming for sub-agents (AWS, etc.) that use artifact-update events
-      # Set to "true" to enable real-time streaming of artifact-update chunks from sub-agents
-      # When enabled, the platform engineer will stream sub-agent responses token-by-token
-      - ENABLE_ARTIFACT_STREAMING=true
+      # Artifact streaming is now always enabled (no flag needed)
       # Tracing
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
@@ -504,8 +491,6 @@ services:
       - A2A_TRANSPORT=p2p
       - MCP_MODE=stdio
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      # Enable token streaming (artifact-update events)
-      - ENABLE_ARTIFACT_STREAMING=true
       # 🆕 Add newline after each chunk
       - STREAM_CHUNK_NEWLINES=true    # Default: false
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
