@@ -233,6 +233,20 @@ def validate_artifacts(analysis: Dict[str, Any], verbose: bool = False) -> List[
             elif partial_content in sub_content:
                 issues.append("⚠️ Partial duplication: partial_result content is contained in sub-agent")
 
+    # Check for duplicates in streaming_result artifacts
+    if 'streaming_result' in analysis['artifacts']:
+        streaming_data = analysis['artifacts']['streaming_result']
+        for message in streaming_data.get('messages', []):
+            duplicate_count = message.get('duplicate_count', 0)
+            if duplicate_count > 0:
+                duplicate_details = message.get('duplicate_details', [])
+                issues.append(
+                    f"⚠️ DUPLICATE DETECTED in streaming_result (artifact_id={message.get('artifact_id', 'unknown')[:8]}...): "
+                    f"{duplicate_count} duplicate chunk(s) found"
+                )
+                for detail in duplicate_details:
+                    issues.append(f"   - {detail}")
+
     # Check for corruption (embedded JSON status payloads)
     for artifact_name, artifact_data in analysis['artifacts'].items():
         for message in artifact_data.get('messages', []):
@@ -483,23 +497,21 @@ def generate_markdown_report(query: str, events: List[Dict[str, Any]], analysis_
 
                     if text:
                         artifact_text += text
-                        if artifact_name == 'streaming_result':
-                            sub_agent_accumulated.append(text)
-                        elif artifact_name == 'partial_result':
-                            partial_result_content = text if not partial_result_content else partial_result_content + text
-                        elif artifact_name == 'final_result':
-                            final_content = text if not final_content else final_content + text
 
                     if data:
                         has_datapart = True
                         artifact_data = data if artifact_data is None else artifact_data
                         json_str = json.dumps(data)
-                        if artifact_name in ['complete_result', 'final_result', 'partial_result']:
-                            sub_agent_accumulated.append(json_str)
                         artifact_text += f"\n[DataPart JSON]: {json_str}"
 
+            # Handle accumulation for different artifact types
+            if artifact_name == 'partial_result':
+                partial_result_content = artifact_text if not partial_result_content else partial_result_content + artifact_text
+            elif artifact_name == 'final_result':
+                final_content = artifact_text if not final_content else final_content + artifact_text
+
             if artifact_text or artifact_data:
-                # For streaming_result, accumulate by artifact_id
+                # For streaming_result, accumulate by artifact_id with deduplication
                 if artifact_name == 'streaming_result':
                     if artifact_id not in streaming_by_id:
                         streaming_by_id[artifact_id] = {
@@ -508,12 +520,66 @@ def generate_markdown_report(query: str, events: List[Dict[str, Any]], analysis_
                             'first_append': append,
                             'last_chunk': False
                         }
-                    streaming_by_id[artifact_id]['chunks'].append({
-                        'text': artifact_text,
-                        'append': append,
-                        'last_chunk': last_chunk
-                    })
-                    streaming_by_id[artifact_id]['total_text'] += artifact_text
+
+                    accumulated_so_far = streaming_by_id[artifact_id]['total_text']
+
+                    # Deduplication: Check if accumulated content is already in artifact_text
+                    if append and accumulated_so_far:
+                        if artifact_text.startswith(accumulated_so_far):
+                            # artifact_text contains accumulated content at the start - only add new part
+                            new_text = artifact_text[len(accumulated_so_far):]
+                            if new_text:
+                                streaming_by_id[artifact_id]['chunks'].append({
+                                    'text': new_text,
+                                    'append': append,
+                                    'last_chunk': last_chunk
+                                })
+                                streaming_by_id[artifact_id]['total_text'] = artifact_text
+                                sub_agent_accumulated.append(new_text)
+                        elif accumulated_so_far in artifact_text:
+                            # accumulated content is embedded in artifact_text - replace with full content
+                            if len(artifact_text) > len(accumulated_so_far):
+                                new_text = artifact_text[len(accumulated_so_far):]
+                                streaming_by_id[artifact_id]['chunks'].append({
+                                    'text': new_text,
+                                    'append': append,
+                                    'last_chunk': last_chunk
+                                })
+                                streaming_by_id[artifact_id]['total_text'] = artifact_text
+                                sub_agent_accumulated.append(new_text)
+                            # else: artifact_text is shorter or same, skip
+                        elif artifact_text == accumulated_so_far:
+                            # Exact duplicate - skip
+                            pass
+                        else:
+                            # New content to append
+                            streaming_by_id[artifact_id]['chunks'].append({
+                                'text': artifact_text,
+                                'append': append,
+                                'last_chunk': last_chunk
+                            })
+                            streaming_by_id[artifact_id]['total_text'] += artifact_text
+                            sub_agent_accumulated.append(artifact_text)
+                    elif not append:
+                        # append=False means replace/reset
+                        streaming_by_id[artifact_id]['chunks'] = [{
+                            'text': artifact_text,
+                            'append': append,
+                            'last_chunk': last_chunk
+                        }]
+                        streaming_by_id[artifact_id]['total_text'] = artifact_text
+                        streaming_by_id[artifact_id]['first_append'] = append
+                        sub_agent_accumulated.append(artifact_text)
+                    else:
+                        # First chunk (no accumulated content yet)
+                        streaming_by_id[artifact_id]['chunks'].append({
+                            'text': artifact_text,
+                            'append': append,
+                            'last_chunk': last_chunk
+                        })
+                        streaming_by_id[artifact_id]['total_text'] = artifact_text
+                        sub_agent_accumulated.append(artifact_text)
+
                     streaming_by_id[artifact_id]['last_chunk'] = last_chunk
                     # Don't add to accumulation_log yet - we'll add accumulated version later
                 else:
@@ -859,7 +925,7 @@ def analyze_artifacts_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any
                         has_datapart = True
                         artifact_data = data if artifact_data is None else artifact_data
 
-            # Special handling for streaming_result: accumulate chunks
+            # Special handling for streaming_result: DETECT duplicates but accumulate everything
             if artifact_name == 'streaming_result':
                 if artifact_id not in streaming_accumulator:
                     streaming_accumulator[artifact_id] = {
@@ -871,13 +937,94 @@ def analyze_artifacts_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any
                         'artifact_data': None
                     }
 
-                streaming_accumulator[artifact_id]['chunks'].append({
-                    'append': append,
-                    'last_chunk': last_chunk,
-                    'text': artifact_text,
-                    'content_length': len(artifact_text)
-                })
-                streaming_accumulator[artifact_id]['total_text'] += artifact_text
+                accumulated_so_far = streaming_accumulator[artifact_id]['total_text']
+                is_duplicate = False
+                duplicate_info = None
+
+                # DETECTION: Check if accumulated content is already in artifact_text (but still accumulate)
+                if append and accumulated_so_far:
+                    if artifact_text.startswith(accumulated_so_far):
+                        # artifact_text contains accumulated content at the start - DUPLICATE DETECTED
+                        duplicate_length = len(accumulated_so_far)
+                        new_text = artifact_text[len(accumulated_so_far):]
+                        is_duplicate = True
+                        duplicate_info = f"Prefix duplicate: {duplicate_length} chars already seen, {len(new_text)} new chars"
+                        streaming_accumulator[artifact_id]['total_text'] = artifact_text  # Update tracking
+                        # Still accumulate full content to show the problem
+                        streaming_accumulator[artifact_id]['chunks'].append({
+                            'append': append,
+                            'last_chunk': last_chunk,
+                            'text': artifact_text,  # Full content including duplicate
+                            'content_length': len(artifact_text),
+                            'is_duplicate': True,
+                            'duplicate_info': duplicate_info
+                        })
+                        artifacts[artifact_name]['total_text_length'] += len(artifact_text)  # Count full content
+                    elif accumulated_so_far in artifact_text:
+                        # accumulated content is embedded in artifact_text - DUPLICATE DETECTED
+                        duplicate_length = len(accumulated_so_far)
+                        is_duplicate = True
+                        duplicate_info = f"Embedded duplicate: {duplicate_length} chars found in middle of {len(artifact_text)} chars"
+                        streaming_accumulator[artifact_id]['total_text'] = artifact_text  # Update tracking
+                        # Still accumulate full content
+                        streaming_accumulator[artifact_id]['chunks'].append({
+                            'append': append,
+                            'last_chunk': last_chunk,
+                            'text': artifact_text,  # Full content including duplicate
+                            'content_length': len(artifact_text),
+                            'is_duplicate': True,
+                            'duplicate_info': duplicate_info
+                        })
+                        artifacts[artifact_name]['total_text_length'] += len(artifact_text)
+                    elif artifact_text == accumulated_so_far:
+                        # Exact duplicate - DUPLICATE DETECTED
+                        is_duplicate = True
+                        duplicate_info = f"Exact duplicate: {len(artifact_text)} chars identical to previous"
+                        # Still accumulate to show the problem
+                        streaming_accumulator[artifact_id]['chunks'].append({
+                            'append': append,
+                            'last_chunk': last_chunk,
+                            'text': artifact_text,  # Full duplicate content
+                            'content_length': len(artifact_text),
+                            'is_duplicate': True,
+                            'duplicate_info': duplicate_info
+                        })
+                        artifacts[artifact_name]['total_text_length'] += len(artifact_text)
+                    else:
+                        # New content to append
+                        streaming_accumulator[artifact_id]['chunks'].append({
+                            'append': append,
+                            'last_chunk': last_chunk,
+                            'text': artifact_text,
+                            'content_length': len(artifact_text),
+                            'is_duplicate': False
+                        })
+                        streaming_accumulator[artifact_id]['total_text'] += artifact_text
+                        artifacts[artifact_name]['total_text_length'] += len(artifact_text)
+                elif not append:
+                    # append=False means replace/reset
+                    streaming_accumulator[artifact_id]['chunks'] = [{
+                        'append': append,
+                        'last_chunk': last_chunk,
+                        'text': artifact_text,
+                        'content_length': len(artifact_text),
+                        'is_duplicate': False
+                    }]
+                    streaming_accumulator[artifact_id]['total_text'] = artifact_text
+                    streaming_accumulator[artifact_id]['first_append'] = append
+                    artifacts[artifact_name]['total_text_length'] = len(artifact_text)
+                else:
+                    # First chunk (no accumulated content yet)
+                    streaming_accumulator[artifact_id]['chunks'].append({
+                        'append': append,
+                        'last_chunk': last_chunk,
+                        'text': artifact_text,
+                        'content_length': len(artifact_text),
+                        'is_duplicate': False
+                    })
+                    streaming_accumulator[artifact_id]['total_text'] = artifact_text
+                    artifacts[artifact_name]['total_text_length'] += len(artifact_text)
+
                 streaming_accumulator[artifact_id]['last_chunk'] = last_chunk
 
                 if has_datapart:
@@ -886,7 +1033,6 @@ def analyze_artifacts_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any
 
                 # Don't add individual messages for streaming_result yet - we'll add accumulated ones later
                 artifacts[artifact_name]['count'] += 1
-                artifacts[artifact_name]['total_text_length'] += len(artifact_text)
             else:
                 # For non-streaming artifacts, add each event as a separate message
                 artifacts[artifact_name]['count'] += 1
@@ -932,6 +1078,11 @@ def analyze_artifacts_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any
             chunk_count = len(accumulator['chunks'])
             total_text = accumulator['total_text']
 
+            # Count duplicates in chunks
+            duplicate_chunks = [c for c in accumulator['chunks'] if c.get('is_duplicate')]
+            duplicate_count = len(duplicate_chunks)
+            duplicate_details = [c.get('duplicate_info') for c in duplicate_chunks if c.get('duplicate_info')]
+
             artifacts['streaming_result']['messages'].append({
                 'artifact_id': artifact_id,
                 'append': accumulator['first_append'],
@@ -941,7 +1092,9 @@ def analyze_artifacts_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any
                 'has_datapart': accumulator['has_datapart'],
                 'full_content': total_text,
                 'chunk_count': chunk_count,  # Number of chunks accumulated
-                'artifact_data': accumulator.get('artifact_data')
+                'artifact_data': accumulator.get('artifact_data'),
+                'duplicate_count': duplicate_count,
+                'duplicate_details': duplicate_details
             })
 
             # Update datapart if present
