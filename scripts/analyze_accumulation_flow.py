@@ -105,8 +105,21 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
             has_datapart = False
             for part in parts:
                 if isinstance(part, dict):
+                    # Handle different part formats:
+                    # 1. Direct format: {"text": "...", "data": {...}}
+                    # 2. Root format: {"root": {"text": "..."}} or {"root": {"data": {...}}}
+                    # 3. Kind format: {"kind": "text", "text": "..."} or {"kind": "data", "data": {...}}
+
+                    # Check for root format first
+                    root = part.get('root', {})
+                    if isinstance(root, dict):
+                        text = root.get('text', '') or part.get('text', '')
+                        data = root.get('data') or part.get('data')
+                    else:
+                        text = part.get('text', '')
+                        data = part.get('data')
+
                     # Handle TextPart
-                    text = part.get('text', '')
                     if text:
                         artifact_text += text
                         if artifact_name == 'streaming_result':
@@ -115,11 +128,11 @@ def analyze_accumulation(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                             partial_result_content = text if not partial_result_content else partial_result_content + text
                         elif artifact_name == 'final_result':
                             final_content = text if not final_content else final_content + text
+
                     # Handle DataPart
-                    data = part.get('data')
                     if data:
                         has_datapart = True
-                        artifact_data = data
+                        artifact_data = data if artifact_data is None else artifact_data  # Keep first DataPart
                         # Convert DataPart to JSON string for accumulation tracking
                         json_str = json.dumps(data)
                         if artifact_name in ['complete_result', 'final_result', 'partial_result']:
@@ -219,7 +232,7 @@ def generate_markdown_report(query: str, analysis: Dict[str, Any], output_file: 
 
     for artifact_name, count in artifact_counts.items():
         markdown += f"- **{artifact_name}**: {count} events\n"
-    
+
     # Count DataPart artifacts
     datapart_artifacts = [a for a in artifact_updates if a.get('has_datapart')]
     if datapart_artifacts:
@@ -318,22 +331,41 @@ def generate_markdown_report(query: str, analysis: Dict[str, Any], output_file: 
             elif status['text'] in sub_agent_full:
                 markdown += f"⚠️ **DUPLICATE IN STATUS UPDATE {i+1}**: Status update text found in sub-agent content\n\n"
 
+    # DataPart artifacts section
+    if datapart_artifacts:
+        markdown += "\n## DataPart Artifacts (Structured JSON)\n\n"
+        for artifact in datapart_artifacts:
+            markdown += f"""
+### {artifact['name']} (ID: {artifact['id'][:8]}...)
+- **Has DataPart**: ✅ Yes
+- **Text Length**: {artifact['text_length']} chars
+- **DataPart JSON**:
+```json
+{json.dumps(artifact['data_part'], indent=2)}
+```
+"""
+    else:
+        markdown += "\n## DataPart Artifacts\n\n*No DataPart artifacts found - all artifacts are TextPart only.*\n\n"
+
     # Artifact details
     if artifact_updates:
         markdown += "\n## Artifact Details\n\n"
-        markdown += "| Artifact Name | Count | Total Text Length |\n"
-        markdown += "|---------------|-------|-------------------|\n"
+        markdown += "| Artifact Name | Count | Total Text Length | Has DataPart |\n"
+        markdown += "|---------------|-------|-------------------|--------------|\n"
 
         artifact_stats = {}
         for artifact in artifact_updates:
             name = artifact['name']
             if name not in artifact_stats:
-                artifact_stats[name] = {'count': 0, 'total_length': 0}
+                artifact_stats[name] = {'count': 0, 'total_length': 0, 'has_datapart': False}
             artifact_stats[name]['count'] += 1
             artifact_stats[name]['total_length'] += artifact['text_length']
+            if artifact.get('has_datapart'):
+                artifact_stats[name]['has_datapart'] = True
 
         for name, stats in artifact_stats.items():
-            markdown += f"| {name} | {stats['count']} | {stats['total_length']} chars |\n"
+            datapart_indicator = "✅" if stats['has_datapart'] else "❌"
+            markdown += f"| {name} | {stats['count']} | {stats['total_length']} chars | {datapart_indicator} |\n"
 
     return markdown
 
