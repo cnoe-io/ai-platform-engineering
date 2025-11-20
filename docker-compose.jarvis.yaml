@@ -1470,7 +1470,6 @@ services:
     env_file:
       - .env
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ./ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
     ports:
       - "8023:8000"
@@ -1492,6 +1491,7 @@ services:
     restart: unless-stopped
     profiles:
       - p2p
+      - p2p-tracing
       - p2p-no-rag
       - p2p-no-rag-tracing
     env_file:

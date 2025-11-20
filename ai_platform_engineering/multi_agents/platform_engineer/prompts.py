@@ -16,10 +16,9 @@ def load_prompt_config(path="prompt_config.yaml"):
     return {}
 
 config = load_prompt_config()
-print("DEBUG: config keys:", list(config.keys()))
-print("DEBUG: system_prompt_template length:", len(config.get('system_prompt_template', '')))
-print("DEBUG: system_prompt_template content:")
-print(repr(config.get('system_prompt_template', '')))
+logger.debug("config keys: %s", list(config.keys()))
+logger.debug("system_prompt_template length: %d", len(config.get('system_prompt_template', '')))
+logger.debug("system_prompt_template content: %r", config.get('system_prompt_template', ''))
 
 agent_name = config.get("agent_name", "AI Platform Engineer")
 agent_description = config.get("agent_description", (
@@ -77,7 +76,7 @@ def generate_system_prompt(agents: Dict[str, Any]):
   tool_instructions = []
   for agent_key, agent_card in agents.items():
 
-    logger.info(f"Generating tool instruction for agent_key: {agent_key}")
+    logger.debug(f"Generating tool instruction for agent_key: {agent_key}")
 
     # Check if agent and agent_card are available
     if agent_card is None:
@@ -88,7 +87,7 @@ def generate_system_prompt(agents: Dict[str, Any]):
       if agent_card is None:
         logger.warning(f"Agent {agent_key} has no agent card, skipping...")
         continue
-      print(f"agent_card 1: {agent_card}")
+      logger.debug(f"agent_card 1: {agent_card}")
       description = agent_card['description']
     except AttributeError as e:
       logger.warning(f"Agent {agent_key} does not have agent_card method or description: {e}, skipping...")
@@ -115,7 +114,7 @@ def generate_system_prompt(agents: Dict[str, Any]):
 
   yaml_template = config.get("system_prompt_template")
 
-  logger.info(f"System Prompt Template: {yaml_template}")
+  logger.debug(f"System Prompt Template: {yaml_template}")
 
   if yaml_template:
       return yaml_template.format(
@@ -136,9 +135,9 @@ LLM Instructions:
 # Generate the system prompt
 system_prompt = generate_system_prompt(agents)
 
-logger.info("="*50)
-logger.info(f"System Prompt Generated:\n{system_prompt}")
-logger.info("="*50)
+logger.debug("="*50)
+logger.debug(f"System Prompt Generated:\n{system_prompt}")
+logger.debug("="*50)
 
 # 📊 Print connectivity table after system prompt
 platform_registry.print_connectivity_table()

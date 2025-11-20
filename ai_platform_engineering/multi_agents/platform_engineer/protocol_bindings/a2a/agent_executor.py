@@ -44,10 +44,6 @@ import json
 
 logger = logging.getLogger(__name__)
 
-# Feature flag: Enable structured output with DataPart (A2A Protocol best practice)
-ENABLE_STRUCTURED_OUTPUT = os.getenv("ENABLE_STRUCTURED_OUTPUT", "false").lower() == "true"
-logger.info(f"🔧 ENABLE_STRUCTURED_OUTPUT: {ENABLE_STRUCTURED_OUTPUT}")
-
 
 def new_data_artifact(name: str, description: str, data: dict, artifact_id: str = None) -> Artifact:
     """
@@ -978,6 +974,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         accumulated_content = []
         sub_agent_accumulated_content = []  # Track content from sub-agent artifacts
         sub_agent_sent_datapart = False  # Track if sub-agent sent structured DataPart
+        sub_agent_datapart_data = None  # Store original DataPart data dict (for recreating DataPart artifacts)
         streaming_artifact_id = None  # Shared artifact ID for all streaming chunks
         seen_artifact_ids = set()  # Track which artifact IDs have been sent (for append=False/True logic)
         try:
@@ -1106,20 +1103,26 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         # Accumulate sub-agent content for final result
                         artifact_name = artifact.get('name', 'streaming_result')
                         logger.debug(f"🔍 Processing artifact: name={artifact_name}, parts_count={len(parts)}")
-                        if artifact_name in ['streaming_result', 'partial_result', 'final_result', 'complete_result']:
+
+                        # Only accumulate final results (complete_result, final_result) - these contain clean, complete content
+                        # Forward streaming_result chunks to client but DON'T accumulate (prevents duplication)
+                        if artifact_name in ['complete_result', 'final_result']:
+                            # Only accumulate final results - these contain clean, complete content
                             for p in parts:
                                 if isinstance(p, dict):
                                     logger.debug(f"🔍 Part keys: {list(p.keys())}")
                                     # Handle both TextPart and DataPart
                                     if p.get('text'):
                                         sub_agent_accumulated_content.append(p.get('text'))
-                                        logger.debug(f"📝 Accumulated sub-agent TextPart: {len(p.get('text'))} chars")
+                                        logger.info(f"📝 Accumulated sub-agent final result: {len(p.get('text'))} chars (artifact={artifact_name})")
                                     elif p.get('data'):
-                                        # DataPart with structured data - store as JSON string
-                                        json_str = json.dumps(p.get('data'))
+                                        # DataPart with structured data - store original data dict
+                                        data_dict = p.get('data')
+                                        sub_agent_datapart_data = data_dict  # Store original data dict for recreating DataPart
+                                        json_str = json.dumps(data_dict)
                                         sub_agent_accumulated_content.append(json_str)
                                         sub_agent_sent_datapart = True  # Mark that sub-agent sent structured data
-                                        logger.info(f"📝 Accumulated sub-agent DataPart: {len(json_str)} chars - MARKING sub_agent_sent_datapart=True")
+                                        logger.info(f"📝 Accumulated sub-agent DataPart: {len(json_str)} chars - MARKING sub_agent_sent_datapart=True, stored data dict with keys: {list(data_dict.keys()) if isinstance(data_dict, dict) else 'not a dict'}")
 
                                         # CRITICAL: Clear supervisor's accumulated content - we ONLY want the sub-agent's DataPart
                                         # The supervisor may have already streamed partial text before we received the DataPart
@@ -1128,6 +1131,26 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                             accumulated_content.clear()
                                     else:
                                         logger.warning(f"⚠️ Part has neither 'text' nor 'data' key: {p}")
+                        elif artifact_name == 'streaming_result':
+                            # Forward streaming chunks to client but DON'T accumulate (prevents duplication from full-content chunks)
+                            # Streaming chunks are for real-time display only, final results will be used for partial_result/final_result
+                            total_chunk_size = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict) and p.get('text'))
+                            logger.debug(f"📤 Forwarding streaming_result chunk ({total_chunk_size} chars) - NOT accumulating (will use complete_result/final_result)")
+                        elif artifact_name == 'partial_result':
+                            # Partial result from sub-agent - accumulate it (it's a final result)
+                            for p in parts:
+                                if isinstance(p, dict):
+                                    if p.get('text'):
+                                        sub_agent_accumulated_content.append(p.get('text'))
+                                        logger.info(f"📝 Accumulated sub-agent partial_result: {len(p.get('text'))} chars")
+                                    elif p.get('data'):
+                                        # DataPart with structured data - store original data dict
+                                        data_dict = p.get('data')
+                                        sub_agent_datapart_data = data_dict  # Store original data dict for recreating DataPart
+                                        json_str = json.dumps(data_dict)
+                                        sub_agent_accumulated_content.append(json_str)
+                                        sub_agent_sent_datapart = True
+                                        logger.info(f"📝 Accumulated sub-agent partial_result DataPart: {len(json_str)} chars, stored data dict")
 
                         # Convert dict to proper Artifact object - preserve both TextPart and DataPart
                         from a2a.types import Artifact, TextPart, DataPart, Part
@@ -1190,7 +1213,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif not isinstance(content, str):
                     content = str(content) if content else ''
 
-                logger.info(f"🔍 EXECUTOR: Received event with is_task_complete={event.get('is_task_complete')}, require_user_input={event.get('require_user_input')}")
+                logger.debug(f"🔍 EXECUTOR: Received event with is_task_complete={event.get('is_task_complete')}, require_user_input={event.get('require_user_input')}")
 
                 if event['is_task_complete']:
                     await self._ensure_execution_plan_completed(event_queue, task)
@@ -1204,57 +1227,36 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                     require_user_input = event.get('require_user_input', False)
 
-                    if sub_agent_sent_datapart and sub_agent_accumulated_content:
-                        # Sub-agent sent structured DataPart - use it directly (highest priority)
-                        final_content = ''.join(sub_agent_accumulated_content)
-                        logger.info(f"📦 Using sub-agent DataPart for final_result ({len(final_content)} chars) - sub_agent_sent_datapart=True")
-                    elif ENABLE_STRUCTURED_OUTPUT and accumulated_content:
-                        # Structured output enabled - use supervisor's accumulated content
-                        final_content = ''.join(accumulated_content)
-                        logger.info(f"📝 Using supervisor accumulated content for final_result ({len(final_content)} chars) - structured output enabled")
+                    if sub_agent_sent_datapart and sub_agent_datapart_data:
+                        # Sub-agent sent structured DataPart - recreate DataPart artifact (highest priority)
+                        logger.info(f"📦 Creating DataPart artifact for final_result - sub_agent_sent_datapart=True")
+                        artifact = new_data_artifact(
+                            name='final_result',
+                            description='Complete structured result from Platform Engineer',
+                            data=sub_agent_datapart_data,
+                        )
                     elif sub_agent_accumulated_content:
                         # Fallback to sub-agent content
                         final_content = ''.join(sub_agent_accumulated_content)
                         logger.info(f"📝 Using sub-agent accumulated content for final_result ({len(final_content)} chars)")
+                        artifact = new_text_artifact(
+                            name='final_result',
+                            description='Complete result from Platform Engineer.',
+                            text=final_content,
+                        )
                     elif accumulated_content:
                         # Fallback to supervisor content
                         final_content = ''.join(accumulated_content)
                         logger.info(f"📝 Using supervisor accumulated content for final_result ({len(final_content)} chars) - fallback")
+                        artifact = new_text_artifact(
+                            name='final_result',
+                            description='Complete result from Platform Engineer.',
+                            text=final_content,
+                        )
                     else:
                         # Final fallback to current event content
                         final_content = content
                         logger.info(f"📝 Using current event content for final_result ({len(final_content)} chars)")
-
-                    # Choose artifact format based on ENABLE_STRUCTURED_OUTPUT feature flag
-                    artifact = None
-
-                    if ENABLE_STRUCTURED_OUTPUT:
-                        # Try to detect and use DataPart for structured responses
-                        try:
-                            # Try to parse as JSON
-                            response_data = json.loads(final_content)
-
-                            # Validate against PlatformEngineerResponse schema
-                            response_obj = PlatformEngineerResponse.model_validate(response_data)
-
-                            # Success! Use DataPart for structured response
-                            logger.info(f"✅ Detected PlatformEngineerResponse schema - using DataPart")
-                            artifact = new_data_artifact(
-                                name='final_result',
-                                description='Structured result from Platform Engineer (PlatformEngineerResponse schema)',
-                                data=response_data,
-                            )
-                        except (json.JSONDecodeError, ValueError, Exception) as e:
-                            # Not valid JSON or doesn't match schema - fall back to TextPart
-                            logger.info(f"ℹ️ Response is not structured JSON (using TextPart fallback): {type(e).__name__}")
-                            artifact = new_text_artifact(
-                                name='final_result',
-                                description='Complete result from Platform Engineer.',
-                                text=final_content,
-                            )
-                    else:
-                        # Feature flag disabled: Always use TextPart (backward compatible)
-                        logger.debug(f"ℹ️ Using TextPart for final_result (ENABLE_STRUCTURED_OUTPUT=false)")
                         artifact = new_text_artifact(
                             name='final_result',
                             description='Complete result from Platform Engineer.',
@@ -1318,16 +1320,42 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                            (content.strip().startswith('✅') and 'completed' in content.lower())
                        )
 
+                       # Check if this is the final response event (contains full accumulated content)
+                       # The final response from agent.py contains the full accumulated content, so we shouldn't accumulate it again
+                       # to avoid duplication. We detect this deterministically by checking if accumulated content is a substring.
+                       existing_accumulated_text = ''.join(accumulated_content) if accumulated_content else ''
+
+                       # Deterministic check: if accumulated content is contained in this event's content, it's the final response
+                       # The final response from agent.py contains the full accumulated content, so we shouldn't accumulate it again
+                       # We check if accumulated content is a substring of this event's content (deterministic, no thresholds)
+                       is_final_response_event = (
+                           existing_accumulated_text and  # We have accumulated content to compare
+                           existing_accumulated_text in content  # Accumulated content is contained in this event (deterministic substring check)
+                       )
+
                        # Accumulate non-notification content for final UI response
                        # Streaming artifacts are for real-time display, final response for clean UI display
                        # CRITICAL: If sub-agent sent DataPart, DON'T accumulate supervisor's streaming text
                        # We want ONLY the sub-agent's structured response, not the supervisor's rewrite
-                       if not is_tool_notification:
-                           if not sub_agent_sent_datapart:
+                       # CRITICAL: Don't accumulate final response event content - it's already the full accumulated content
+                       # CRITICAL: If we have sub-agent accumulated content, don't accumulate supervisor content that matches it (avoids duplicates)
+                       # Deterministic check: if supervisor content is contained in sub-agent content (or vice versa), it's a duplicate
+                       sub_agent_text_so_far = ''.join(sub_agent_accumulated_content) if sub_agent_accumulated_content else ''
+                       is_duplicate_of_sub_agent = (
+                           sub_agent_text_so_far and  # We have sub-agent content
+                           (content in sub_agent_text_so_far or sub_agent_text_so_far in content)  # Content matches sub-agent content (deterministic substring check)
+                       )
+
+                       if not is_tool_notification and not is_final_response_event:
+                           if not sub_agent_sent_datapart and not is_duplicate_of_sub_agent:
                                accumulated_content.append(content)
                                logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
+                           elif is_duplicate_of_sub_agent:
+                               logger.info(f"⏭️ SKIPPING supervisor content - duplicates sub-agent content: {content[:50]}...")
                            else:
                                logger.info(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
+                       elif is_final_response_event:
+                           logger.info(f"⏭️ SKIPPING final response event content (already accumulated) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
                        else:
                            logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
 
@@ -1454,58 +1482,46 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                 # Content selection strategy (PRIORITY ORDER):
                 # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                # 2. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's structured response (PlatformEngineerResponse)
-                # 3. Otherwise: Use sub-agent's content (backward compatible)
+                # 2. If sub-agent accumulated content exists: Use it (from complete_result/final_result - clean)
+                # 3. Otherwise: Use supervisor's accumulated content
 
                 require_user_input = event.get('require_user_input', False)
 
-                if sub_agent_sent_datapart and sub_agent_accumulated_content:
-                    # Sub-agent sent structured DataPart - use it directly (highest priority)
-                    final_content = ''.join(sub_agent_accumulated_content)
-                    logger.info(f"📦 Using sub-agent DataPart for partial_result ({len(final_content)} chars) - sub_agent_sent_datapart=True")
-                elif ENABLE_STRUCTURED_OUTPUT and accumulated_content:
-                    # Structured output enabled - use supervisor's accumulated content
-                    final_content = ''.join(accumulated_content)
-                    logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars) - structured output enabled")
+                # DEBUG: Log the state before creating partial_result
+                logger.info(f"🔍 DEBUG partial_result creation: sub_agent_sent_datapart={sub_agent_sent_datapart}, sub_agent_datapart_data={'present' if sub_agent_datapart_data else 'None'}, sub_agent_accumulated_len={len(sub_agent_accumulated_content) if sub_agent_accumulated_content else 0}, supervisor_accumulated_len={len(accumulated_content) if accumulated_content else 0}")
+
+                if sub_agent_sent_datapart and sub_agent_datapart_data:
+                    # Sub-agent sent structured DataPart - recreate DataPart artifact (highest priority)
+                    logger.info(f"📦 Creating DataPart artifact for partial_result - sub_agent_sent_datapart=True, data keys: {list(sub_agent_datapart_data.keys())}")
+                    artifact = new_data_artifact(
+                        name='partial_result',
+                        description='Partial structured result from Platform Engineer (stream ended)',
+                        data=sub_agent_datapart_data,
+                    )
+                    # DEBUG: Log artifact structure to verify DataPart is present
+                    logger.info(f"🔍 DEBUG: Artifact parts count: {len(artifact.parts)}, first part type: {type(artifact.parts[0].root) if artifact.parts else 'None'}, is DataPart: {isinstance(artifact.parts[0].root, DataPart) if artifact.parts else False}")
                 elif sub_agent_accumulated_content:
-                    # Fallback to sub-agent content
+                    # Prefer sub-agent accumulated content (from complete_result/final_result) - it's clean
                     final_content = ''.join(sub_agent_accumulated_content)
-                    logger.info(f"📝 Using sub-agent accumulated content for partial_result ({len(final_content)} chars)")
-                else:
-                    # Final fallback to supervisor content
+                    logger.info(f"📝 Using sub-agent accumulated content for partial_result ({len(final_content)} chars) - from complete_result/final_result")
+                    artifact = new_text_artifact(
+                        name='partial_result',
+                        description='Partial result from Platform Engineer (stream ended)',
+                        text=final_content,
+                    )
+                elif accumulated_content:
+                    # Fallback to supervisor content
                     final_content = ''.join(accumulated_content)
                     logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars) - fallback")
-
-                # Choose artifact format based on ENABLE_STRUCTURED_OUTPUT feature flag (same as final_result)
-                artifact = None
-
-                if ENABLE_STRUCTURED_OUTPUT:
-                    # Try to detect and use DataPart for structured responses
-                    try:
-                        # Try to parse as JSON
-                        response_data = json.loads(final_content)
-
-                        # Validate against PlatformEngineerResponse schema
-                        response_obj = PlatformEngineerResponse.model_validate(response_data)
-
-                        # Success! Use DataPart for structured response
-                        logger.info(f"✅ Detected PlatformEngineerResponse schema in partial_result - using DataPart")
-                        artifact = new_data_artifact(
-                            name='partial_result',
-                            description='Structured result from Platform Engineer (PlatformEngineerResponse schema, requires user input)',
-                            data=response_data,
-                        )
-                    except (json.JSONDecodeError, ValueError, Exception) as e:
-                        # Not valid JSON or doesn't match schema - fall back to TextPart
-                        logger.info(f"ℹ️ partial_result is not structured JSON (using TextPart fallback): {type(e).__name__}")
-                        artifact = new_text_artifact(
-                            name='partial_result',
-                            description='Partial result from Platform Engineer (stream ended)',
-                            text=final_content,
-                        )
+                    artifact = new_text_artifact(
+                        name='partial_result',
+                        description='Partial result from Platform Engineer (stream ended)',
+                        text=final_content,
+                    )
                 else:
-                    # Feature flag disabled: Always use TextPart (backward compatible)
-                    logger.debug(f"ℹ️ Using TextPart for partial_result (ENABLE_STRUCTURED_OUTPUT=false)")
+                    # Final fallback - should not happen
+                    final_content = ''
+                    logger.warning(f"⚠️ No content available for partial_result")
                     artifact = new_text_artifact(
                         name='partial_result',
                         description='Partial result from Platform Engineer (stream ended)',
