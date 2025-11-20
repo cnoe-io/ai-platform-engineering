@@ -148,6 +148,7 @@ services:
       - MCP_MODE=http
       - MCP_PORT=443
       - MCP_HOST=petstore.outshift.io
+      - PETSTORE_API_KEY=${PETSTORE_API_KEY}
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
