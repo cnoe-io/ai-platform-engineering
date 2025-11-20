@@ -188,18 +188,18 @@ test-rag-scale: setup-venv ## Run RAG module scale tests with memory monitoring
 quick-sanity: setup-venv  ## Run all integration tests
 	@echo "Running AI Platform Engineering integration tests..."
 	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
-	cd integration && A2A_PROMPTS_FILE=test_prompts_quick_sanity.yaml uv run pytest -o log_cli=true -o log_cli_level=DEBUG
+	cd integration && PYTHONPATH=.. A2A_PROMPTS_FILE=test_prompts_quick_sanity.yaml uv run pytest a2a_client_integration_test.py -o log_cli=true
 
 argocd-sanity: setup-venv  ## Run argocd agent integration tests
 	@echo "Running argocd agent integration tests..."
 	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
-	cd integration && A2A_PROMPTS_FILE=test_prompts_argocd_sanity.yaml uv run pytest -o log_cli=true -o log_cli_level=INFO
+	cd integration && PYTHONPATH=.. A2A_PROMPTS_FILE=test_prompts_argocd_sanity.yaml uv run pytest a2a_client_integration_test.py -o log_cli=true -o log_cli_level=INFO
 
 detailed-sanity: detailed-test ## Run tests with verbose output and detailed logs
 detailed-test: setup-venv ## Run tests with verbose output and detailed logs
 	@echo "Running integration tests with verbose output..."
 	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
-	cd integration && A2A_PROMPTS_FILE=test_prompts_detailed.yaml uv run pytest -o log_cli=true -o log_cli_level=INFO
+	cd integration && PYTHONPATH=.. A2A_PROMPTS_FILE=test_prompts_detailed.yaml uv run pytest a2a_client_integration_test.py -o log_cli=true -o log_cli_level=INFO
 
 validate:
 	@echo "Validating code..."

@@ -11,7 +11,7 @@ Usage:
     # Parse markdown file
     python scripts/validate_artifacts.py scripts/supervisor_argocd_version_8000.md
     python scripts/validate_artifacts.py scripts/supervisor_argocd_version_8000.md --show-messages
-    
+
     # Run curl and validate live (generates both .md and .json files)
     python scripts/validate_artifacts.py --query "show argocd version" --host localhost --port 8000
     python scripts/validate_artifacts.py --query "show argocd version" --host localhost --port 8000 --output /tmp/my_validation
@@ -23,11 +23,9 @@ import json
 import re
 import subprocess
 import sys
-import tempfile
 import os
-from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from datetime import datetime
 
 
@@ -254,7 +252,7 @@ def validate_artifacts(analysis: Dict[str, Any], verbose: bool = False) -> List[
 def print_artifact_summary(analysis: Dict[str, Any], show_messages: bool = False):
     """Print formatted artifact summary."""
     print("=" * 80)
-    print(f"Artifact Validation Report")
+    print("Artifact Validation Report")
     print("=" * 80)
     print(f"\nQuery: {analysis.get('query', 'N/A')}")
     print(f"Generated: {analysis.get('generated', 'N/A')}")
@@ -980,13 +978,11 @@ def main():
     args = parser.parse_args()
 
     # Determine mode: curl or file parsing
-    temp_md_file = None
     if args.query:
         # Run curl, generate markdown report, then validate it
         print(f"🔍 Validating query: \"{args.query}\"")
         print(f"📡 Connecting to {args.host}:{args.port}...")
 
-        temp_md_file = None
         try:
             raw_response = run_curl_query(args.query, args.host, args.port, args.timeout)
             if not raw_response.strip():
@@ -1005,7 +1001,7 @@ def main():
             # Generate markdown report similar to analyze_accumulation_flow.py
             analysis_data = analyze_artifacts_from_events(events)
             markdown_content = generate_markdown_report(args.query, events, analysis_data)
-            
+
             # Determine output filenames
             if args.output:
                 base_filename = args.output
@@ -1015,32 +1011,32 @@ def main():
             else:
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 base_filename = f"/tmp/validate_artifacts_{timestamp}"
-            
+
             md_file = f"{base_filename}.md"
             json_file = f"{base_filename}.json"
-            
+
             # Write markdown file
             with open(md_file, 'w') as f:
                 f.write(markdown_content)
-            
+
             print(f"💾 Markdown file: {md_file}")
-            
+
             # Now parse and validate the markdown file
             print("🔬 Validating markdown report...")
             analysis = parse_markdown_analysis(md_file)
-            
+
             # Generate JSON validation object
             print("📋 Generating JSON validation object...")
             json_validation = generate_json_validation(args.query, events, analysis, analysis_data)
-            
+
             # Write JSON file
             with open(json_file, 'w') as f:
                 json.dump(json_validation, f, indent=2)
-            
+
             print(f"💾 JSON file: {json_file}")
-            
+
             print_artifact_summary(analysis, show_messages=args.show_messages)
-            
+
             # Print JSON validation summary
             print("\n" + "-" * 80)
             print("JSON VALIDATION SUMMARY")
@@ -1052,8 +1048,8 @@ def main():
                 'has_datapart': json_validation['summary']['has_datapart'],
                 'issues_count': len(json_validation['validation']['issues'])
             }, indent=2))
-            
-            print(f"\n✅ Generated artifacts:")
+
+            print("\n✅ Generated artifacts:")
             print(f"   - Markdown: {md_file}")
             print(f"   - JSON: {json_file}")
 

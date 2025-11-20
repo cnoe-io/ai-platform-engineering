@@ -30,7 +30,6 @@ from a2a.types import (
     MessageSendParams,
     Artifact,
     Part,
-    TextPart,
     DataPart,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
@@ -38,9 +37,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2
     AIPlatformEngineerA2ABinding
 )
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
-from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -1161,7 +1158,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                     artifact_parts.append(Part(root=TextPart(text=p.get('text'))))
                                 elif p.get('data'):
                                     artifact_parts.append(Part(root=DataPart(data=p.get('data'))))
-                                    logger.info(f"📦 Forwarding DataPart to client")
+                                    logger.info("📦 Forwarding DataPart to client")
 
                         artifact_obj = Artifact(
                             artifactId=artifact.get('artifactId'),
@@ -1225,11 +1222,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     # 2. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's structured response (PlatformEngineerResponse)
                     # 3. Otherwise: Use sub-agent's content (backward compatible)
 
-                    require_user_input = event.get('require_user_input', False)
-
                     if sub_agent_sent_datapart and sub_agent_datapart_data:
                         # Sub-agent sent structured DataPart - recreate DataPart artifact (highest priority)
-                        logger.info(f"📦 Creating DataPart artifact for final_result - sub_agent_sent_datapart=True")
+                        logger.info("📦 Creating DataPart artifact for final_result - sub_agent_sent_datapart=True")
                         artifact = new_data_artifact(
                             name='final_result',
                             description='Complete structured result from Platform Engineer',
@@ -1485,10 +1480,17 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 # 2. If sub-agent accumulated content exists: Use it (from complete_result/final_result - clean)
                 # 3. Otherwise: Use supervisor's accumulated content
 
-                require_user_input = event.get('require_user_input', False)
-
                 # DEBUG: Log the state before creating partial_result
-                logger.info(f"🔍 DEBUG partial_result creation: sub_agent_sent_datapart={sub_agent_sent_datapart}, sub_agent_datapart_data={'present' if sub_agent_datapart_data else 'None'}, sub_agent_accumulated_len={len(sub_agent_accumulated_content) if sub_agent_accumulated_content else 0}, supervisor_accumulated_len={len(accumulated_content) if accumulated_content else 0}")
+                sub_agent_data_status = 'present' if sub_agent_datapart_data else 'None'
+                sub_agent_len = len(sub_agent_accumulated_content) if sub_agent_accumulated_content else 0
+                supervisor_len = len(accumulated_content) if accumulated_content else 0
+                logger.info(
+                    f"🔍 DEBUG partial_result creation: "
+                    f"sub_agent_sent_datapart={sub_agent_sent_datapart}, "
+                    f"sub_agent_datapart_data={sub_agent_data_status}, "
+                    f"sub_agent_accumulated_len={sub_agent_len}, "
+                    f"supervisor_accumulated_len={supervisor_len}"
+                )
 
                 if sub_agent_sent_datapart and sub_agent_datapart_data:
                     # Sub-agent sent structured DataPart - recreate DataPart artifact (highest priority)
@@ -1521,7 +1523,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 else:
                     # Final fallback - should not happen
                     final_content = ''
-                    logger.warning(f"⚠️ No content available for partial_result")
+                    logger.warning("⚠️ No content available for partial_result")
                     artifact = new_text_artifact(
                         name='partial_result',
                         description='Partial result from Platform Engineer (stream ended)',

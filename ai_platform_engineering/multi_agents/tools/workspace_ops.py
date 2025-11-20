@@ -27,12 +27,11 @@ USE CASE:
 """
 
 import logging
-import os
 import shutil
 import tempfile
 import threading
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from langchain_core.tools import tool
 
 # Set up logger

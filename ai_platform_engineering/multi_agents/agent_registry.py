@@ -456,6 +456,10 @@ class AgentRegistry:
         connectivity_results = {}
         agent_cards = {}
 
+        # Early return if there are no agents to check
+        if not self.AGENT_ADDRESS_MAPPING:
+            return connectivity_results, agent_cards
+
         # Use thread pool for parallel connectivity checks
         max_workers = min(len(self.AGENT_ADDRESS_MAPPING), 10)  # Limit concurrent connections
 

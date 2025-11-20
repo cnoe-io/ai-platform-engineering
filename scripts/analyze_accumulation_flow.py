@@ -18,8 +18,6 @@ import argparse
 import json
 import subprocess
 import sys
-import tempfile
-from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
@@ -421,7 +419,7 @@ def main():
         f.write(markdown)
 
     print(f"✅ Report saved to {output_file}")
-    print(f"\n📊 Summary:")
+    print("\n📊 Summary:")
     print(f"   - Sub-agent content: {len(''.join(analysis['sub_agent_accumulated']))} chars")
     print(f"   - Supervisor content: {len(''.join(analysis['supervisor_accumulated']))} chars")
     print(f"   - Accumulation steps: {len(analysis['accumulation_log'])}")
