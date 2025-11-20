@@ -89,6 +89,7 @@ def format_markdown(
             has_issues = formatted.strip() != markdown_text.strip()
 
             return {
+                'success': True,
                 'validation': {
                     'valid': not has_issues,
                     'issues': ['Markdown formatting issues detected - tables, spacing, or structure need fixing'] if has_issues else [],
@@ -98,6 +99,7 @@ def format_markdown(
             }
         except ImportError as e:
             return {
+                'success': False,
                 'validation': {
                     'valid': False,
                     'issues': [str(e)],
@@ -107,6 +109,7 @@ def format_markdown(
             }
         except Exception as e:
             return {
+                'success': False,
                 'validation': {
                     'valid': False,
                     'issues': [f'Validation error: {str(e)}'],
@@ -124,6 +127,7 @@ def format_markdown(
         fixed_count = 1 if has_changes else 0
 
         return {
+            'success': True,
             'formatted_text': formatted,
             'validation': {
                 'valid': True,
@@ -137,6 +141,7 @@ def format_markdown(
     except ImportError as e:
         # mdformat not installed - return original text with warning
         return {
+            'success': False,
             'formatted_text': markdown_text,
             'validation': {
                 'valid': False,
@@ -150,6 +155,7 @@ def format_markdown(
     except Exception as e:
         # Formatting failed - return original text
         return {
+            'success': False,
             'formatted_text': markdown_text,
             'validation': {
                 'valid': False,
