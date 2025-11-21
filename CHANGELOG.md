@@ -1,3 +1,24 @@
+## 0.2.2-workshop (2025-11-20)
+
+### Feat
+
+- bump chart
+
+### Fix
+
+- **workaround**: add ENABLE_ARTIFACT_STREAMING to docker-compose
+- updates
+- set LLM_PROVIDER env var in test fixtures
+- improve complete_result handling and remove ENABLE_ARTIFACT_STREAMING flag
+- make agent to dynamically decide available agents
+- correct rag-server image repository and bump chart to 0.4.10
+- **ci**: prevent docs deployment on tag pushes
+- chart was not bumped with prompt config change
+
+### Refactor
+
+- change logger.info to logger.debug for detailed streaming logs
+
 ## 0.2.2 (2025-11-20)
 
 ### BREAKING CHANGE
