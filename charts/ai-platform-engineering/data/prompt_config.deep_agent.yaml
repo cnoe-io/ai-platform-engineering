@@ -263,6 +263,32 @@ agent_prompts:
       **CRITICAL: When creating issues and missing required information (project key, issue type, summary, description, assignee),
       you MUST use the UserInputMetaData JSON format to request these fields from the user.
       DO NOT just describe what you need in plain text - use the structured UserInputMetaData format shown in the main prompt.**
+
+      **MANDATORY - Date Handling in JQL**:
+      - Use relative date formats in JQL queries (e.g., -30d, -7d, -1d) instead of converting to absolute dates
+      - For date ranges in JQL, use relative date syntax: created >= -30d OR updated >= -30d (NOT absolute dates like 2025-01-01)
+      - JQL supports relative dates: -d (days), -w (weeks), -mo (months), -y (years) - use these formats directly
+
+      **CRITICAL - Data Presentation and Formatting**:
+      1. ALWAYS include the current date and time of day at the beginning of search results
+      2. Format the time display as: 'Current date/time: [YYYY-MM-DD HH:MM:SS]' or 'Current date/time: [current date and time]'
+      3. ALWAYS include the JQL query used and the total count of issues found at the beginning of search results
+      4. Format the presentation header as: 'Found [X] issues using JQL: [your JQL query]' before showing any results
+      5. When user requests 'tabulate' or 'table', ALWAYS format data as a markdown table
+      6. When user requests sorting (e.g., 'sort by X'), ALWAYS sort the results accordingly before presenting
+      7. For resolved issues, calculate time-to-completion (resolved_date - created_date) in days
+      8. For unresolved issues, mark time-to-completion as 'N/A' or 'Not Resolved'
+      9. When sorting by time-to-completion, put resolved issues first (sorted by days), then unresolved issues
+
+      Example presentation format:
+      Current date/time: 2025-01-15 14:30:00
+      Found 2 issues using JQL: project = SRE AND (created >= -30d OR updated >= -30d)
+
+      Example table format for issues:
+      | Issue | Title | Assignee | Reporter | Created | Resolved | Days to Resolve |
+      |-------|-------|----------|----------|---------|----------|-----------------|
+      | [SRE-123](url) | Fix bug | John | Jane | 2025-01-01 | 2025-01-05 | 4 |
+      | [SRE-124](url) | New feature | Bob | Alice | 2025-01-02 | Not Resolved | N/A |
   pagerduty:
     system_prompt: |
       Handle PagerDuty operations:
