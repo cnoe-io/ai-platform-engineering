@@ -6,11 +6,11 @@ from common.graph_db.base import GraphDB
 import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
-from common.constants import KV_HEURISTICS_VERSION_ID_KEY, PROP_DELIMITER, HEURISTICS_VERSION_ID_KEY
+from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOGY_VERSION_ID_KEY
 from common.models.graph import EntityIdentifier
 import traceback
 from server.query_service import VectorDBQueryService
-from common.models.rag import valid_metadata_keys, doc_types, VectorDBBaseMetadata, VectorDBTextMetadata, DocTypeText
+from common.models.rag import valid_metadata_keys
 from fastmcp import FastMCP
 
 # Load environment variables from .env file
@@ -42,7 +42,7 @@ class AgentTools:
         Search for relevant documents and graph entities using semantic search in the vector databases.
         Args:
             query (str): The search query (Use full sentences for better results)
-            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}. Valid `doc_type` values are: {', '.join(doc_types)}.
+            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
             limit (int): Maximum number of results to return (default: 5)
             similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
             thought (str): Your thoughts for choosing this tool
@@ -51,13 +51,16 @@ class AgentTools:
             str: JSON encoded search results containing documents, graph entities, and their scores
         """
         else:
-            valid_filter_keys = valid_metadata_keys([VectorDBTextMetadata, VectorDBBaseMetadata]) # exclude graph metadata keys
+            valid_filter_keys = valid_metadata_keys() # exclude graph metadata keys
+            # remove any graph-related keys
+            valid_filter_keys = [key for key in valid_filter_keys if "graph_entity" not in key]
+
             logger.info(f"Valid filter keys for search tool: {valid_filter_keys}")
             search_description =f"""
         Search for relevant documents using semantic search in the vector databases.
         Args:
             query (str): The search query (Use full sentences for better results)
-            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}. Valid `doc_type` value is only: {DocTypeText}.
+            filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
             limit (int): Maximum number of results to return (default: 5)
             similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
             thought (str): Your thoughts for choosing this tool
@@ -84,6 +87,9 @@ class AgentTools:
         
         logger.info(f"Registered MCP tools: {await mcp.get_tools()}")
        
+    ####################
+    # Search tool     #
+    ####################
 
     async def search(self, query: str, filters: Optional[dict]=None, limit: int = 5, similarity_threshold: float = 0.3, thought: str = "") -> str:
         """
@@ -108,7 +114,7 @@ class AgentTools:
             logger.error(f"Error during search: {e}")
             return f"Error during search: {e}"
 
-        logger.info(f"search results: total_documents {len(results.results)}")
+        logger.info(f"search results: total_documents {len(results)}")
         return json_encode(results)
 
     #####################
@@ -248,14 +254,13 @@ class AgentTools:
             if not is_ontology_generated:
                 return "Error: the ontology is not generated yet, this tool is unavailable."
 
-            # Fetch the latest heuristics id
-            heuristics_version_id = await self.redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
-            if heuristics_version_id is None:
+            # Fetch the latest ontology id
+            ontology_version_id = await self.redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
+            if ontology_version_id is None:
                 return "Error: the ontology is not generated yet, this tool is unavailable."
-            heuristics_version_id = heuristics_version_id.decode("utf-8")
 
-            entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, heuristics_version_id]))
-            entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, heuristics_version_id]))
+            entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
+            entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
 
             paths = await self.ontology_graphdb.shortest_path(
                 entity_a=entity_a_id,
@@ -316,21 +321,20 @@ class AgentTools:
         if self.ontology_graphdb is None:
             logger.error("Graph database is not available, Is graph RAG enabled?")
             return False
-        heuristics_version_id = await self.redis_client.get(KV_HEURISTICS_VERSION_ID_KEY)
-        if heuristics_version_id is None:
+        ontology_version_id = await self.redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
+        if ontology_version_id is None:
             return False
-        heuristics_version_id = heuristics_version_id.decode("utf-8")
-        logger.info(f"Found heuristics version id: {heuristics_version_id}")
+        logger.info(f"Found ontology version id: {ontology_version_id}")
 
-        # Check if the ontology is generated - there should be at least one relation with the heuristics version id
+        # Check if the ontology is generated - there should be at least one relation with the ontology version id
         relation = await self.ontology_graphdb.find_relations(None, None, None, {
-            HEURISTICS_VERSION_ID_KEY: heuristics_version_id
+            ONTOLOGY_VERSION_ID_KEY: ontology_version_id
         }, 1)
         
         if len(relation) > 0:
             return True
 
-        logger.warning(f"No relations found in ontology with the current heuristics version id: {heuristics_version_id}")
+        logger.warning(f"No relations found in ontology with the current heuristics version id: {ontology_version_id}")
         return False
 
     async def graph_raw_query(self, query: str, thought: str) -> str:

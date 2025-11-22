@@ -14,6 +14,8 @@ DURATION_DAY = 60 * 60 * 24
 DURATION_HOUR = 60 * 60
 DURATION_MINUTE = 60
 
+DEFAULT_FRESH_UNTIL = int(os.getenv("DEFAULT_FRESH_UNTIL_SECONDS", DURATION_DAY * 7))  # Default TTL is one week
+
 class ObjEncoder(JSONEncoder):
     def __init__(self, *args, **argv):
         super().__init__(*args, **argv)
@@ -96,6 +98,18 @@ def sanitize_url(url: str) -> str:
         raise ValueError("Invalid URL: missing domain name")
     url = parsed.geturl() # Reconstruct the URL to ensure it's properly formatted
     return url
+
+def generate_datasource_id_from_url(url: str) -> str:
+        """Generate a unique source ID based on URL"""
+        source_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+        # Replace non-alphanumeric characters with underscore
+        clean_url = ''.join(c if c.isalnum() else '_' for c in url)
+        return f"src_{clean_url}_{source_hash}"
+
+def generate_document_id_from_url(datasource_id: str, url: str) -> str:
+        """Generate a unique document ID based on datasource ID and URL"""
+        url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+        return f"{datasource_id}_doc_{url_hash}"
 
 class CustomFormatter(logging.Formatter):
     """
@@ -184,7 +198,7 @@ def get_default_fresh_until() -> int:
     Get the default fresh until timestamp (one week)
     :return: fresh until timestamp
     """
-    return int(time.time()) + (7 * DURATION_DAY)
+    return int(time.time()) + DEFAULT_FRESH_UNTIL
 
 def get_uuid():
     """
@@ -222,6 +236,40 @@ def retry_function(func, retries=20, delay=5, *args, **kwargs):
                 except KeyboardInterrupt:
                     logging.info("Keyboard interrupt received, stopping retry...")
                     exit(0)
+
+
+async def retry_function_async(func, retries=20, delay=5, *args, **kwargs):
+    """
+    Async version: Tries to execute the given async function up to `max_retries` times.
+    If the function raises an exception, it waits `delay` seconds before retrying.
+
+    :param func: The async function to execute.
+    :param retries: Maximum number of retry attempts.
+    :param delay: Delay between retries in seconds.
+    :param args: Positional arguments for the function.
+    :param kwargs: Keyword arguments for the function.
+    :raises: The last exception encountered if the function fails all attempts.
+    """
+    attempt = 0
+    func_name = getattr(func, '__name__', str(func))
+    
+    while attempt < retries:
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            attempt += 1
+            logging.warning(f"Attempt {attempt} failed: {e}")
+            logging.error(f"Cool down of {delay} seconds, before retrying...")
+            if attempt >= retries:
+                logging.error(f"Function '{func_name}' failed after {retries} attempts.")
+                raise e
+            for i in range(delay):
+                logging.info(f"Retrying '{func_name}' in {delay-i} seconds...")
+                try:
+                    await asyncio.sleep(1)
+                except asyncio.CancelledError:
+                    logging.info("Task cancelled, stopping retry...")
+                    raise
 
 
 def flatten_dict(d: dict, wildcard_index=True) -> dict[str, str]:

@@ -13,13 +13,16 @@
     "@xyflow/react": "^12.8.5",
     "axios": "^1.7.2",
     "dagre": "^0.8.5",
+    "date-fns": "^4.1.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-syntax-highlighter": "^16.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.11",
     "@types/react": "^18.2.65",
     "@types/react-dom": "^18.2.22",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.41",

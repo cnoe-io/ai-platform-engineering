@@ -13,8 +13,7 @@ import asyncio
 import common.utils as utils
 
 from common.graph_db.base import GraphDB
-from common.constants import ALL_IDS_KEY, ALL_IDS_PROPS_KEY, FRESH_UNTIL_KEY, PRIMARY_ID_KEY, LAST_UPDATED_KEY, \
-    ENTITY_TYPE_KEY, DEFAULT_LABEL, UPDATED_BY_KEY, PROP_DELIMITER
+from common.constants import ALL_IDS_KEY, ALL_IDS_PROPS_KEY, PRIMARY_ID_KEY, ENTITY_TYPE_KEY, DEFAULT_LABEL, PROP_DELIMITER, FRESH_UNTIL_KEY
 
 from common.models.graph import Entity, EntityIdentifier, Relation
 
@@ -67,6 +66,23 @@ class Neo4jDB(GraphDB):
 
         # await self._create_unique_constraint_relation(["relation_id"]) # TODO
 
+    async def status(self) -> bool:
+        """
+        Check the status of the graph database connection
+        :return: True if the connection is healthy, False otherwise
+        """
+        try:
+            async with self.driver.session(default_access_mode=neo4j.READ_ACCESS, database=self.database) as session:
+                result = await session.run("RETURN 1 AS ok") # type: ignore
+                record = await result.single()
+                if record and record["ok"] == 1:
+                    return True
+                else:
+                    return False
+        except Exception as e:
+            logger.error(f"Neo4j connection check failed: {e}", exc_info=True)
+            return False
+
     async def fuzzy_search(self, keywords: List[List[Union[str, Tuple[float, str]]]],
                            type_filter: List[str],
                            num_record_per_type: int = 0,
@@ -91,7 +107,7 @@ class Neo4jDB(GraphDB):
         Returns:
             List of (Entity, score) tuples sorted by relevance score
         """
-        logger.info(f"Executing fuzzy_search with keywords={keywords}, type_filter={type_filter}, num_record_per_type={num_record_per_type}, require_single_match_per_type={require_single_match_per_type}, strict={strict}, max_results={max_results}")
+        logger.debug(f"Executing fuzzy_search with keywords={keywords}, type_filter={type_filter}, num_record_per_type={num_record_per_type}, require_single_match_per_type={require_single_match_per_type}, strict={strict}, max_results={max_results}")
         query_keywords = []
         # escape keywords for the query and AND/OR them together
         for kwlist in keywords:
@@ -169,7 +185,7 @@ class Neo4jDB(GraphDB):
         """
         Gets all entity types in the database
         """
-        logger.info(f"Executing get_all_entity_types with max_results={max_results}")
+        logger.debug(f"Executing get_all_entity_types with max_results={max_results}")
         query = "CALL db.labels();"
         logger.debug(query)
         async with self.driver.session(default_access_mode=neo4j.READ_ACCESS, database=self.database) as session:
@@ -193,7 +209,7 @@ class Neo4jDB(GraphDB):
         Returns:
             List[str]: A list of all properties for the specified entity type
         """
-        logger.info(f"Executing get_entity_type_properties with entity_type={entity_type}, max_results={max_results}")
+        logger.debug(f"Executing get_entity_type_properties with entity_type={entity_type}, max_results={max_results}")
         query = f"MATCH (n:{entity_type}) UNWIND keys(n) AS property RETURN DISTINCT property"
         logger.debug(query)
         async with self.driver.session(default_access_mode=neo4j.READ_ACCESS, database=self.database) as session:
@@ -223,7 +239,7 @@ class Neo4jDB(GraphDB):
         Returns:
             List[Relation]: List of matching relations
         """
-        logger.info(f"Executing find_relations with from_entity_type={from_entity_type}, to_entity_type={to_entity_type}, relation_name={relation_name}, properties={properties}, max_results={max_results}")
+        logger.debug(f"Executing find_relations with from_entity_type={from_entity_type}, to_entity_type={to_entity_type}, relation_name={relation_name}, properties={properties}, max_results={max_results}")
         # Build the match pattern
         from_pattern = f"(a:{from_entity_type})" if from_entity_type else "(a)"
         to_pattern = f"(b:{to_entity_type})" if to_entity_type else "(b)"
@@ -278,14 +294,9 @@ class Neo4jDB(GraphDB):
                 relation = Relation(
                     from_entity=EntityIdentifier(entity_type=str(from_entity_type), primary_key=str(from_entity_pk)),
                     to_entity=EntityIdentifier(entity_type=str(to_entity_type), primary_key=str(to_entity_pk)),
-                    primary_key_properties=None,
                     relation_name=rel.type,
                     relation_properties=relation_props
                 )
-
-                primary_key_properties = relation_props.get(ALL_IDS_KEY, None)
-                if primary_key_properties is not None:
-                    relation.primary_key_properties = primary_key_properties
                 
                 relations.append(relation)
             
@@ -293,7 +304,7 @@ class Neo4jDB(GraphDB):
         
 
     async def find_entity(self, entity_type: str|None, properties: dict|None, max_results=10000) -> List[Entity]:
-        logger.info(f"Executing find_entity with entity_type={entity_type}, properties={properties}, max_results={max_results}")
+        logger.debug(f"Executing find_entity with entity_type={entity_type}, properties={properties}, max_results={max_results}")
         if entity_type is None or entity_type == "":
             labels = []
         else:
@@ -334,7 +345,7 @@ class Neo4jDB(GraphDB):
         return entities
 
     async def fetch_entity(self, entity_type:str, primary_key_value: str) -> (Entity | None):
-        logger.info(f"Executing fetch_entity with entity_type={entity_type}, primary_key_value={primary_key_value}")
+        logger.debug(f"Executing fetch_entity with entity_type={entity_type}, primary_key_value={primary_key_value}")
         entities = await self.find_entity(entity_type, {PRIMARY_ID_KEY: primary_key_value})
         if len(entities) == 0:
             return None
@@ -342,7 +353,7 @@ class Neo4jDB(GraphDB):
             return entities[0]
 
     async def fetch_entity_relations(self, entity_type: str, entity_pk: str, max_results: int = 10000) -> List[Relation]:
-        logger.info(f"Executing fetch_entity_relations with entity_type={entity_type}, entity_pk={entity_pk}, max_results={max_results}")
+        logger.debug(f"Executing fetch_entity_relations with entity_type={entity_type}, entity_pk={entity_pk}, max_results={max_results}")
         # build the query
         qb = QueryBuilder()
 
@@ -395,28 +406,21 @@ class Neo4jDB(GraphDB):
 
                 relation = Relation(from_entity=from_entity.get_identifier(),
                                           to_entity=to_entity.get_identifier(),
-                                          primary_key_properties=None,
                                           relation_name=relation_name,
                                           relation_properties=relation_props)
-                
-                primary_key_properties = relation_props.get(ALL_IDS_KEY, None)
-                if primary_key_properties is not None:
-                    relation.primary_key_properties = primary_key_properties
 
                 relations.append(relation)
 
             return relations
 
-    async def update_entity(self, entity_type: str, entities: List[Entity], client_name: str, fresh_until: int):
+    async def update_entity(self, entity_type: str, entities: List[Entity]):
         """
         Create or update a list of entities in the database using a batch UNWIND query.
 
         :param entity_type: The primary label for all entities in the batch.
         :param entities: The list of entities to create/update.
-        :param client_name: The name of the client creating/updating the entities.
-        :param fresh_until: The fresh until timestamp.
         """
-        logger.info(f"Updating {len(entities)} entities of type '{entity_type}' for client='{client_name}'")
+        logger.debug(f"Updating {len(entities)} entities of type '{entity_type}'")
         
         # Return if no entities provided
         if not entities:
@@ -450,10 +454,7 @@ class Neo4jDB(GraphDB):
                 # 3. Assemble the complete properties dictionary for the query
                 entity_params = entity.all_properties.copy()
                 entity_params.update({
-                    FRESH_UNTIL_KEY: fresh_until,
                     ENTITY_TYPE_KEY: entity.entity_type,
-                    LAST_UPDATED_KEY: unix_timestamp,
-                    UPDATED_BY_KEY: client_name,
                     ALL_IDS_KEY: all_id_vals,
                     ALL_IDS_PROPS_KEY: all_id_props,
                     PRIMARY_ID_KEY: primary_key_val
@@ -481,7 +482,7 @@ class Neo4jDB(GraphDB):
         """
 
         params = {"batch": batch_params}
-        logger.info(f"Executing batch update for {len(batch_params)} entities with labels: {labels_str}")
+        logger.debug(f"Executing batch update for {len(batch_params)} entities with labels: {labels_str}")
         logger.debug(query)
         logger.debug(params)
 
@@ -500,71 +501,38 @@ class Neo4jDB(GraphDB):
                     logger.error(f"Neo4j batch query failed after {max_retries} attempts: {e}", exc_info=True)
                     raise
 
-    async def update_relation(self, relation: Relation, fresh_until: int, ignore_direction=False, client_name=None):
-        logger.info(f"Executing update_relation with relation={relation.relation_name}, from_entity={relation.from_entity}, to_entity={relation.to_entity}, fresh_until={fresh_until}, ignore_direction={ignore_direction}, client_name={client_name}")
+    async def update_relation(self, relation: Relation):
+        logger.debug(f"Executing update_relation with relation={relation.relation_name}, from_entity={relation.from_entity}, to_entity={relation.to_entity}")
         properties = {}
         if relation.relation_properties is not None:
             properties = relation.relation_properties
 
         relationship_ref = 'r'
-        unix_timestamp = int(time.time())
 
-        if client_name is not None:
-            properties[UPDATED_BY_KEY] = client_name
-            properties[FRESH_UNTIL_KEY] = fresh_until
-            properties[LAST_UPDATED_KEY] = unix_timestamp
-                
-        properties[ALL_IDS_KEY] = relation.primary_key_properties # we only store primary keys unlike entities where we store all ids
-        
         # Format all the properties for the write query
         properties_with_ref = {}
         for k,v in properties.items():
             properties_with_ref[f"{relationship_ref}.{k}"] = v 
 
-        if relation.from_entity is None or relation.to_entity is None:
-            raise ValueError("from_entity and to_entity must be set")
         if relation.from_entity.entity_type is None or relation.to_entity.entity_type is None:
             raise ValueError("from_entity and to_entity must have entity_type set")
 
-        if ignore_direction:
-            builder = (
-                QueryBuilder()
-                .match()
-                .node(labels=[relation.from_entity.entity_type], ref_name='f', properties={PRIMARY_ID_KEY: relation.from_entity.primary_key}) # type: ignore
-                .match()
-                .node(labels=[relation.to_entity.entity_type], ref_name='t', properties={PRIMARY_ID_KEY: relation.to_entity.primary_key}) # type: ignore
-                .merge()
-                .node(ref_name='f')
-                .related(ref_name=relationship_ref, label=relation.relation_name)
-                .node(ref_name='t')
-                .set(properties_with_ref)
-            )
-        else:
-            builder = (
-                QueryBuilder()
-                .match()
-                .node(labels=[relation.from_entity.entity_type], ref_name='f', properties={PRIMARY_ID_KEY: relation.from_entity.primary_key})  # type: ignore
-                .match()
-                .node(labels=[relation.to_entity.entity_type], ref_name='t', properties={PRIMARY_ID_KEY: relation.to_entity.primary_key}) # type: ignore
-                
-            )
-        
-        # If primary key properties are provided, use them to check uniqueness of the relationship BETWEEN the from and to entities
-        if relation.primary_key_properties is not None:
-            primary_key = PROP_DELIMITER.join([properties[k] for k in relation.primary_key_properties])
-            builder = (builder
-                        .merge()
-                        .node(ref_name='f')
-                        .related_to(ref_name=relationship_ref, label=relation.relation_name, properties={PRIMARY_ID_KEY: primary_key})
-                        .node(ref_name='t')
-                        .set(properties_with_ref))
-        else:
-            builder = (builder
-                        .merge()
-                        .node(ref_name='f')
-                        .related(ref_name=relationship_ref, label=relation.relation_name)
-                        .node(ref_name='t')
-                        .set(properties_with_ref))
+        # Build the query for matching the nodes part
+        builder = (
+            QueryBuilder()
+            .match()
+            .node(labels=[relation.from_entity.entity_type], ref_name='f', properties={PRIMARY_ID_KEY: relation.from_entity.primary_key})  # type: ignore
+            .match()
+            .node(labels=[relation.to_entity.entity_type], ref_name='t', properties={PRIMARY_ID_KEY: relation.to_entity.primary_key}) # type: ignore
+        )
+
+        # Build the merge/create relationship part
+        builder = (builder
+                    .merge()
+                    .node(ref_name='f')
+                    .related(ref_name=relationship_ref, label=relation.relation_name)
+                    .node(ref_name='t')
+                    .set(properties_with_ref))
 
         query = str(builder)
         logger.debug(query)
@@ -581,7 +549,7 @@ class Neo4jDB(GraphDB):
         :param max_depth: Maximum path length to search
         :return: A list of tuples, each containing (entities_path, relations_path)
         """
-        logger.info(f"Executing shortest_path with entity_a={entity_a}, entity_b={entity_b}, ignore_direction={ignore_direction}, max_depth={max_depth}")
+        logger.debug(f"Executing shortest_path with entity_a={entity_a}, entity_b={entity_b}, ignore_direction={ignore_direction}, max_depth={max_depth}")
         if ignore_direction:
             relationship_pattern = f"-[*1..{max_depth}]-"
         else:
@@ -651,7 +619,6 @@ class Neo4jDB(GraphDB):
                     relation = Relation(
                         from_entity=from_entity_id,
                         to_entity=to_entity_id,
-                        primary_key_properties=relation_props.get(ALL_IDS_KEY, None),
                         relation_name=relationship.type,
                         relation_properties=relation_props
                     )
@@ -668,7 +635,7 @@ class Neo4jDB(GraphDB):
         :param entity_type: type of the entity to remove
         :param properties: dict of properties to match
         """
-        logger.info(f"Executing remove_entity with entity_type={entity_type}, properties={properties}")
+        logger.debug(f"Executing remove_entity with entity_type={entity_type}, properties={properties}")
         # Build the MATCH clause
         if entity_type is None or entity_type == "":
             match_clause = "MATCH (n)"
@@ -705,7 +672,7 @@ class Neo4jDB(GraphDB):
         :param relation_name: name of the relation to remove
         :param properties: dict of properties to match
         """
-        logger.info(f"Executing remove_relation with relation_name={relation_name}, properties={properties}")
+        logger.debug(f"Executing remove_relation with relation_name={relation_name}, properties={properties}")
         if properties is None or len(properties) == 0:
             where_str = ""
         else:
@@ -730,9 +697,9 @@ class Neo4jDB(GraphDB):
 
     async def remove_stale_entities(self):
         """
-        Periodically clean up the database by removing entities that are older than the fresh_until timestamp
+        Periodically clean up the database by removing entities that are older than the fresh until timestamp
         """
-        logger.info("Removing stale entities from the database")
+        logger.debug("Removing stale entities from the database")
         query = f"""
         MATCH (n:{DEFAULT_LABEL}) WHERE n.{FRESH_UNTIL_KEY}<{int(time.time())} DETACH DELETE n
         """
@@ -741,9 +708,9 @@ class Neo4jDB(GraphDB):
             await session.run(query) # type: ignore
             logger.info("Removed stale entities from the database")
 
-    async def relate_entities_by_property(self, client_name: str, entity_a_type: str, entity_b_type: str, relation_type: str,
+    async def relate_entities_by_property(self, entity_a_type: str, entity_b_type: str, relation_type: str,
                                           matching_properties: dict, relation_properties: (dict | None) = None):
-        logger.info(f"Executing relate_entities_by_property with client_name={client_name}, entity_a_type={entity_a_type}, entity_b_type={entity_b_type}, relation_type={relation_type}, matching_properties={matching_properties}, relation_properties={relation_properties}")
+        logger.debug(f"Executing relate_entities_by_property with entity_a_type={entity_a_type}, entity_b_type={entity_b_type}, relation_type={relation_type}, matching_properties={matching_properties}, relation_properties={relation_properties}")
 
         if matching_properties is None or len(matching_properties) == 0:
             raise ValueError("matching_properties must be set and not empty")
@@ -770,14 +737,12 @@ class Neo4jDB(GraphDB):
                     f"MATCH (t:{entity_b_type}) " + \
                     f"{where_str} " + \
                     f"MERGE (f)-[r:{relation_type}]-(t) " + \
-                    f"SET r.`{UPDATED_BY_KEY}`='{client_name}' " +\
-                    f"SET r.`{LAST_UPDATED_KEY}`={time.time()} " +\
                     f"{set_str}"
         logger.debug(query)
         await self.raw_query(query)
 
     async def get_property_value_count(self, entity_type: str, property_name: str, property_value: Optional[str]) -> int:
-        logger.info(f"Executing get_property_value_count with entity_type={entity_type}, property_name={property_name}, property_value={property_value}")
+        logger.debug(f"Executing get_property_value_count with entity_type={entity_type}, property_name={property_name}, property_value={property_value}")
         if property_value is not None:
             query = f"""
             MATCH (n:{entity_type}) WHERE n.`{property_name}`='{property_value}'
@@ -795,7 +760,7 @@ class Neo4jDB(GraphDB):
 
     async def get_values_of_matching_property(self, entity_type_a: str, entity_a_property: str,
                                               entity_type_b: str,  matching_properties: dict, max_results: int=10) -> List[str]:
-        logger.info(f"Executing get_values_of_matching_property with entity_type_a={entity_type_a}, entity_a_property={entity_a_property}, entity_type_b={entity_type_b}, matching_properties={matching_properties}, max_results={max_results}")
+        logger.debug(f"Executing get_values_of_matching_property with entity_type_a={entity_type_a}, entity_a_property={entity_a_property}, entity_type_b={entity_type_b}, matching_properties={matching_properties}, max_results={max_results}")
 
         where_str = "WHERE "
         for matching_property_a, matching_property_b in matching_properties.items():
@@ -822,7 +787,7 @@ class Neo4jDB(GraphDB):
         return vals
 
     async def raw_query(self, query: str, readonly=False, max_results=10000) -> dict:
-        logger.info(f"Executing raw_query with query_length={len(query)}, readonly={readonly}, max_results={max_results}")
+        logger.debug(f"Executing raw_query with query_length={len(query)}, readonly={readonly}, max_results={max_results}")
         if readonly:
             session = self.driver.session(default_access_mode=neo4j.READ_ACCESS, database=self.database)
         else:
