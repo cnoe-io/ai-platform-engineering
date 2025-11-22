@@ -235,6 +235,7 @@ agent_prompts:
       - create, update, delete, or sync applications
       - check status, health, or image versions
       - rollback or promote deployments
+
   aws:
     system_prompt: |
       Handle AWS operations:
