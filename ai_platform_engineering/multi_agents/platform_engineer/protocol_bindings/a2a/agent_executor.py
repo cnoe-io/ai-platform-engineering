@@ -1387,11 +1387,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                accumulated_content.append(content)
                                logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
                            elif is_duplicate_of_sub_agent:
-                               logger.info(f"⏭️ SKIPPING supervisor content - duplicates sub-agent content: {content[:50]}...")
+                               logger.debug(f"⏭️ SKIPPING supervisor content - duplicates sub-agent content: {content[:50]}...")
                            else:
-                               logger.info(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
+                               logger.debug(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
                        elif is_final_response_event:
-                           logger.info(f"⏭️ SKIPPING final response event content (already accumulated) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
+                           logger.debug(f"⏭️ SKIPPING final response event content (already accumulated) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
                        else:
                            logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
 

@@ -51,7 +51,7 @@ async def search(
         jql = re.sub(r'\s+AND\s+issuetype\s*=\s*\w+', '', jql, flags=re.IGNORECASE)
         logger.warning("Auto-correcting: removed issuetype filter from JQL")
         logger.debug(f"Original: {original_jql}")
-        logger.debug(f"Corrected: {jql}")
+        logger.info(f"Corrected: {jql}")
 
     # Get credentials from environment
     import os
@@ -60,7 +60,8 @@ async def search(
     base_url = os.getenv("ATLASSIAN_API_URL")
 
     if not all([email, token, base_url]):
-        raise ValueError("Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL")
+        logger.error("Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL")
+        return "Error: Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL"
 
     # Prepare fields list
     fields_list: Optional[List[str]] = None

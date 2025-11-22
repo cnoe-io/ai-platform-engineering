@@ -15,6 +15,7 @@ services:
     container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ./ai_platform_engineering:/app/ai_platform_engineering
     env_file:
       - .env
     ports:
@@ -242,6 +243,9 @@ services:
     container_name: agent-argocd
     env_file: [.env]
     ports: ["8004:8000"]
+    volumes:
+      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/ai_platform_engineering/agents/agent/agent_argocd
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
@@ -264,6 +268,8 @@ services:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
+    volumes:
+      - ./ai_platform_engineering/agents/argocd/mcp/mcp_argocd:/app/mcp_argocd
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
       interval: 10s
@@ -318,6 +324,9 @@ services:
     container_name: agent-jira
     env_file: [.env]
     ports: ["8006:8000"]
+    volumes:
+      - ./ai_platform_engineering/agents/jira/agent_jira:/app/ai_platform_engineering/agents/agent/agent_jira
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
