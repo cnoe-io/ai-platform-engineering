@@ -152,7 +152,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
   async def _arun(self, prompt: str, trace_id: Optional[str] = None, context_id: Optional[str] = None) -> Any:
     """Execute remote agent call with retry, error detection, and human-in-loop support."""
 
-    max_attempts = int(os.getenv("A2A_REMOTE_MAX_RETRIES", "3"))
+    max_attempts = int(os.getenv("A2A_REMOTE_MAX_RETRIES", "2"))
     retry_delay = float(os.getenv("A2A_REMOTE_RETRY_DELAY_SECONDS", "5.0"))
     writer = get_stream_writer()
 
