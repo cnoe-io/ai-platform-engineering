@@ -332,6 +332,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             chunk_count = 0
             first_artifact_sent = False  # Track if we've sent the initial artifact
             sub_agent_streaming_artifact_id = None  # Shared artifact ID for sub-agent streaming chunks
+            sub_agent_sent_complete_result = False  # Track if sub-agent sent complete_result (task is complete)
+            sub_agent_accumulated_content = []  # Track content from sub-agent artifacts
             logger.debug(f"🔄 _stream_from_sub_agent: Starting stream loop for sub-agent at {agent_url}")
             logger.debug(f"🔄 _stream_from_sub_agent: Initial state - sub_agent_sent_complete_result={sub_agent_sent_complete_result}, sub_agent_accumulated_len={len(sub_agent_accumulated_content)}")
 
@@ -1387,11 +1389,11 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                accumulated_content.append(content)
                                logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
                            elif is_duplicate_of_sub_agent:
-                               logger.info(f"⏭️ SKIPPING supervisor content - duplicates sub-agent content: {content[:50]}...")
+                               logger.debug(f"⏭️ SKIPPING supervisor content - duplicates sub-agent content: {content[:50]}...")
                            else:
-                               logger.info(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
+                               logger.debug(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
                        elif is_final_response_event:
-                           logger.info(f"⏭️ SKIPPING final response event content (already accumulated) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
+                           logger.debug(f"⏭️ SKIPPING final response event content (already accumulated) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
                        else:
                            logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
 
