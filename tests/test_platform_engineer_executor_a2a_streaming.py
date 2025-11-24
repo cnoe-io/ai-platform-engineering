@@ -17,7 +17,7 @@ Usage:
 
 import pytest
 import os
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import Dict, Any
 
 # Import the executor and related types
@@ -41,8 +41,13 @@ class TestA2AArtifactStreaming:
     @pytest.fixture
     def executor(self):
         """Create executor instance."""
-        # Set LLM_PROVIDER environment variable for executor initialization
-        with patch.dict(os.environ, {"LLM_PROVIDER": "azure-openai"}):
+        # Mock LLMFactory.get_llm() to avoid requiring actual LLM credentials
+        # This is more reliable than patching environment variables in CI
+        mock_llm = MagicMock()
+        with patch('ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory') as mock_factory:
+            mock_factory_instance = MagicMock()
+            mock_factory_instance.get_llm.return_value = mock_llm
+            mock_factory.return_value = mock_factory_instance
             return AIPlatformEngineerA2AExecutor()
 
     @pytest.fixture
@@ -828,8 +833,13 @@ class TestRealWorldQueryScenarios:
     @pytest.fixture
     def executor(self):
         """Create executor instance."""
-        # Set LLM_PROVIDER environment variable for executor initialization
-        with patch.dict(os.environ, {"LLM_PROVIDER": "azure-openai"}):
+        # Mock LLMFactory.get_llm() to avoid requiring actual LLM credentials
+        # This is more reliable than patching environment variables in CI
+        mock_llm = MagicMock()
+        with patch('ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory') as mock_factory:
+            mock_factory_instance = MagicMock()
+            mock_factory_instance.get_llm.return_value = mock_llm
+            mock_factory.return_value = mock_factory_instance
             return AIPlatformEngineerA2AExecutor()
 
     @pytest.fixture
