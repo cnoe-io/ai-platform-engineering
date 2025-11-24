@@ -16,10 +16,9 @@ Usage:
 """
 
 import pytest
-import asyncio
 import os
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import List, Dict, Any
+from unittest.mock import Mock, AsyncMock, patch
+from typing import Dict, Any
 
 # Import the executor and related types
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import (
@@ -33,8 +32,6 @@ from a2a.types import (
     TextPart,
     DataPart,
     TaskArtifactUpdateEvent,
-    TaskStatusUpdateEvent,
-    Task as A2ATask,
 )
 
 
@@ -818,14 +815,6 @@ class TestA2AArtifactStreaming:
                 call[0][0]
                 for call in calls
                 if isinstance(call[0][0], TaskArtifactUpdateEvent)
-            ]
-
-            # Should send error_result (or handle error appropriately)
-            error_events = [
-                e
-                for e in artifact_events
-                if hasattr(e, "artifact")
-                and ("error" in e.artifact.name.lower() or "Error" in str(e.artifact))
             ]
 
             # Note: Current implementation may send partial_result with error content

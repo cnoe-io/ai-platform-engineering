@@ -938,7 +938,6 @@ def analyze_artifacts_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any
                     }
 
                 accumulated_so_far = streaming_accumulator[artifact_id]['total_text']
-                is_duplicate = False
                 duplicate_info = None
 
                 # DETECTION: Check if accumulated content is already in artifact_text (but still accumulate)
@@ -947,7 +946,6 @@ def analyze_artifacts_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any
                         # artifact_text contains accumulated content at the start - DUPLICATE DETECTED
                         duplicate_length = len(accumulated_so_far)
                         new_text = artifact_text[len(accumulated_so_far):]
-                        is_duplicate = True
                         duplicate_info = f"Prefix duplicate: {duplicate_length} chars already seen, {len(new_text)} new chars"
                         streaming_accumulator[artifact_id]['total_text'] = artifact_text  # Update tracking
                         # Still accumulate full content to show the problem
@@ -963,7 +961,6 @@ def analyze_artifacts_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any
                     elif accumulated_so_far in artifact_text:
                         # accumulated content is embedded in artifact_text - DUPLICATE DETECTED
                         duplicate_length = len(accumulated_so_far)
-                        is_duplicate = True
                         duplicate_info = f"Embedded duplicate: {duplicate_length} chars found in middle of {len(artifact_text)} chars"
                         streaming_accumulator[artifact_id]['total_text'] = artifact_text  # Update tracking
                         # Still accumulate full content
@@ -978,7 +975,6 @@ def analyze_artifacts_from_events(events: List[Dict[str, Any]]) -> Dict[str, Any
                         artifacts[artifact_name]['total_text_length'] += len(artifact_text)
                     elif artifact_text == accumulated_so_far:
                         # Exact duplicate - DUPLICATE DETECTED
-                        is_duplicate = True
                         duplicate_info = f"Exact duplicate: {len(artifact_text)} chars identical to previous"
                         # Still accumulate to show the problem
                         streaming_accumulator[artifact_id]['chunks'].append({
