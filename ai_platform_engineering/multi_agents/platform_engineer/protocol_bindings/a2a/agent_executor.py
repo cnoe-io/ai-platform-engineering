@@ -332,6 +332,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             chunk_count = 0
             first_artifact_sent = False  # Track if we've sent the initial artifact
             sub_agent_streaming_artifact_id = None  # Shared artifact ID for sub-agent streaming chunks
+            sub_agent_sent_complete_result = False  # Track if sub-agent sent complete_result (task is complete)
+            sub_agent_accumulated_content = []  # Track content from sub-agent artifacts
             logger.debug(f"🔄 _stream_from_sub_agent: Starting stream loop for sub-agent at {agent_url}")
             logger.debug(f"🔄 _stream_from_sub_agent: Initial state - sub_agent_sent_complete_result={sub_agent_sent_complete_result}, sub_agent_accumulated_len={len(sub_agent_accumulated_content)}")
 

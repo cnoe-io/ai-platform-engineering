@@ -10,11 +10,9 @@ on names, descriptions, labels, annotations, etc.
 from typing import Dict, Any, List
 import re
 import logging
-import os
-from urllib.parse import urlparse
 from mcp_argocd.tools.api_v1_applications import (
     list_applications,
-    _construct_argocd_app_link,
+    _get_argocd_base_url,
     _add_argocd_link_to_app
 )
 from mcp_argocd.tools.api_v1_projects import project_list
@@ -27,39 +25,6 @@ logger = logging.getLogger(__name__)
 # Safety limits to prevent OOM
 MAX_SEARCH_RESULTS = 1000  # Never return more than 1000 items total across all resource types
 WARN_SEARCH_RESULTS = 500  # Log warning if search returns more than this
-
-
-def _get_argocd_base_url() -> str:
-    """Extract ArgoCD base URL from ARGOCD_API_URL environment variable."""
-    api_url = os.getenv("ARGOCD_API_URL") or os.getenv("ARGOCD_URL")
-    if not api_url:
-        logger.warning("ARGOCD_API_URL environment variable is not set. Using default: http://localhost:8080")
-        return "http://localhost:8080"
-
-    # Remove /api suffix if present
-    if api_url.endswith("/api"):
-        api_url = api_url[:-4]
-    elif api_url.endswith("/api/"):
-        api_url = api_url[:-5]
-
-    # Parse URL to get scheme and netloc
-    parsed = urlparse(api_url)
-    if parsed.scheme and parsed.netloc:
-        return f"{parsed.scheme}://{parsed.netloc}"
-    elif parsed.netloc:
-        return f"https://{parsed.netloc}"
-    else:
-        logger.warning(f"Invalid ARGOCD_API_URL format: {api_url}. Using default: http://localhost:8080")
-        return "http://localhost:8080"
-
-
-def _construct_argocd_app_link(app_name: str, namespace: str = None) -> str:
-    """Construct ArgoCD application link URL."""
-    base_url = _get_argocd_base_url()
-    namespace = namespace or "argocd"  # Default namespace
-
-    # Format: https://base-url/applications/namespace/app-name
-    return f"{base_url}/applications/{namespace}/{app_name}"
 
 
 async def search_argocd_resources(
