@@ -1,6 +1,6 @@
 apiVersion: v2
 # pyproject.toml version
-appVersion: 0.2.1 # Do NOT bump this unless actually bumping pyproject.toml version
+appVersion: 0.2.3 # Do NOT bump this unless actually bumping pyproject.toml version
 name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:

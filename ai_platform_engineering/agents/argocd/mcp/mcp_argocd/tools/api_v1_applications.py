@@ -6,6 +6,8 @@
 
 from typing import Dict, Any, List, Optional
 import logging
+import os
+from urllib.parse import urlparse
 from mcp_argocd.api.client import make_api_request
 from mcp_argocd.models.applications import (
     application_to_api_format,
@@ -18,6 +20,108 @@ from mcp_argocd.models.applications import (
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
+
+
+def _get_argocd_base_url() -> str:
+    """Extract ArgoCD base URL from ARGOCD_API_URL environment variable."""
+    api_url = os.getenv("ARGOCD_API_URL") or os.getenv("ARGOCD_URL")
+    logger.debug(f"_get_argocd_base_url: ARGOCD_API_URL={api_url}, ARGOCD_URL={os.getenv('ARGOCD_URL')}")
+
+    if not api_url:
+        logger.warning("ARGOCD_API_URL environment variable is not set. Using default: http://localhost:8080")
+        return "http://localhost:8080"
+
+    original_url = api_url
+    # Remove /api suffix if present
+    if api_url.endswith("/api"):
+        api_url = api_url[:-4]
+        logger.debug(f"_get_argocd_base_url: Removed /api suffix: {original_url} -> {api_url}")
+    elif api_url.endswith("/api/"):
+        api_url = api_url[:-5]
+        logger.debug(f"_get_argocd_base_url: Removed /api/ suffix: {original_url} -> {api_url}")
+
+    # Parse URL to get scheme and netloc
+    parsed = urlparse(api_url)
+    logger.debug(f"_get_argocd_base_url: Parsed URL - scheme: {parsed.scheme}, netloc: {parsed.netloc}, path: {parsed.path}")
+
+    if parsed.scheme and parsed.netloc:
+        result = f"{parsed.scheme}://{parsed.netloc}"
+        logger.debug(f"_get_argocd_base_url: Returning: {result}")
+        return result
+    elif parsed.netloc:
+        result = f"https://{parsed.netloc}"
+        logger.debug(f"_get_argocd_base_url: No scheme found, using https. Returning: {result}")
+        return result
+    else:
+        logger.warning(f"Invalid ARGOCD_API_URL format: {api_url}. Using default: http://localhost:8080")
+        return "http://localhost:8080"
+
+
+def _construct_argocd_app_link(app_name: str, namespace: str = None) -> str:
+    """Construct ArgoCD application link URL."""
+    base_url = _get_argocd_base_url()
+    namespace = namespace or "argocd"  # Default namespace
+
+    # Format: https://base-url/applications/namespace/app-name
+    link = f"{base_url}/applications/{namespace}/{app_name}"
+    logger.debug(f"_construct_argocd_app_link: Constructed link - app_name: {app_name}, namespace: {namespace}, link: {link}")
+    return link
+
+
+def _add_argocd_link_to_app(app_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Add ArgoCD link and base URL to application data structure.
+
+    This helper function extracts the application name and namespace from the data
+    structure and adds argocd_link and argocd_base_url fields. Always adds argocd_base_url
+    so the LLM can construct links even if automatic link construction fails.
+
+    Args:
+        app_data: Application data dictionary (can be full app or summary)
+
+    Returns:
+        Modified application data with argocd_link (if possible) and argocd_base_url added
+    """
+    logger.debug(f"_add_argocd_link_to_app called with app_data keys: {list(app_data.keys()) if isinstance(app_data, dict) else 'not a dict'}")
+
+    if not isinstance(app_data, dict) or "error" in app_data:
+        logger.debug(f"_add_argocd_link_to_app: Skipping - not a dict or contains error. Type: {type(app_data)}, Has error: {'error' in app_data if isinstance(app_data, dict) else False}")
+        return app_data
+
+    # Always add base URL so LLM can construct links
+    base_url = _get_argocd_base_url()
+    app_data["argocd_base_url"] = base_url
+    logger.debug(f"_add_argocd_link_to_app: Added argocd_base_url: {base_url}")
+
+    # Extract app name and namespace from various possible structures
+    app_name = None
+    app_namespace = None
+
+    # Try metadata structure (full app data)
+    if "metadata" in app_data:
+        app_name = app_data.get("metadata", {}).get("name", "")
+        app_namespace = app_data.get("metadata", {}).get("namespace", "")
+        logger.debug(f"_add_argocd_link_to_app: Found metadata structure - name: {app_name}, namespace: {app_namespace}")
+    # Try direct name field (summary data)
+    elif "name" in app_data:
+        app_name = app_data.get("name", "")
+        app_namespace = app_data.get("namespace", "")
+        logger.debug(f"_add_argocd_link_to_app: Found direct name field - name: {app_name}, namespace: {app_namespace}")
+    else:
+        logger.warning(f"_add_argocd_link_to_app: Could not find app name in data structure. Available keys: {list(app_data.keys())}")
+
+    # Add link if we have an app name
+    if app_name:
+        constructed_link = _construct_argocd_app_link(app_name, app_namespace)
+        app_data["argocd_link"] = constructed_link
+        # Also add name and namespace fields explicitly for LLM convenience
+        app_data["_argocd_app_name"] = app_name
+        app_data["_argocd_app_namespace"] = app_namespace or "argocd"
+        logger.debug(f"_add_argocd_link_to_app: Successfully added link - argocd_link: {constructed_link}, app_name: {app_name}, app_namespace: {app_namespace or 'argocd'}")
+    else:
+        logger.warning(f"_add_argocd_link_to_app: No app name found, cannot construct link. Only argocd_base_url added: {base_url}")
+
+    return app_data
 
 
 async def list_applications(
@@ -143,10 +247,13 @@ async def list_applications(
     # If summary_only is True, return only essential information
     if summary_only:
         summary_items = []
+        argocd_base_url = _get_argocd_base_url()
         for app in paginated_items:
+            app_name = app.get("metadata", {}).get("name", "")
+            app_namespace = app.get("metadata", {}).get("namespace", "")
             summary_item = {
-                "name": app.get("metadata", {}).get("name", ""),
-                "namespace": app.get("metadata", {}).get("namespace", ""),
+                "name": app_name,
+                "namespace": app_namespace,
                 "project": app.get("spec", {}).get("project", ""),
                 "repo": app.get("spec", {}).get("source", {}).get("repoURL", ""),
                 "path": app.get("spec", {}).get("source", {}).get("path", ""),
@@ -155,17 +262,28 @@ async def list_applications(
                 "health_status": app.get("status", {}).get("health", {}).get("status", ""),
                 "phase": app.get("status", {}).get("phase", ""),
             }
+            # Add ArgoCD link using common helper
+            summary_item = _add_argocd_link_to_app(summary_item)
             summary_items.append(summary_item)
 
+        # Ensure base URL is in response
         return {
             "items": summary_items,
             "pagination": pagination_meta,
-            "summary_only": True
+            "summary_only": True,
+            "argocd_base_url": argocd_base_url
         }
 
+    # Add ArgoCD links to full items using common helper
+    argocd_base_url = _get_argocd_base_url()
+    for app in paginated_items:
+        _add_argocd_link_to_app(app)
+
+    # Ensure base URL is in response
     return {
         "items": paginated_items,
-        "pagination": pagination_meta
+        "pagination": pagination_meta,
+        "argocd_base_url": argocd_base_url
     }
 
 
@@ -198,7 +316,8 @@ async def get_application_details(
     success, data = await make_api_request(f"/api/v1/applications/{name}", params=params)
 
     if success:
-        return data
+        # Add ArgoCD link using common helper
+        return _add_argocd_link_to_app(data)
     else:
         return {
             "error": data.get(
@@ -280,7 +399,8 @@ async def create_application(
 
     if success:
         logger.info(f"Application '{name}' created successfully")
-        return response
+        # Add ArgoCD link using common helper
+        return _add_argocd_link_to_app(response)
     else:
         logger.error(f"Failed to create application '{name}': {response.get('error')}")
         return {"error": response.get("error", "Failed to create application")}
@@ -388,7 +508,8 @@ async def update_application(
 
     if success:
         logger.info(f"Application '{name}' updated successfully")
-        return response
+        # Add ArgoCD link using common helper
+        return _add_argocd_link_to_app(response)
     else:
         logger.error(f"Failed to update application '{name}': {response.get('error')}")
         return {
