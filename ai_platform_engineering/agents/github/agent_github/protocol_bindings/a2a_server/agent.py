@@ -34,7 +34,7 @@ class GitHubAgent(BaseLangGraphAgent):
 
     SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
         service_name="GitHub",
-        service_operations="interact with GitHub repositories, issues, pull requests, and other GitHub features",
+        service_operations="interact with GitHub repositories, issues, pull requests, Actions workflows, code security, Dependabot, Projects, Organizations, Users, Gists, Discussions, Notifications, Stargazers, and Git operations",
         additional_guidelines=[
             "Before executing any tool, ensure that all required parameters are provided",
             "If any required parameters are missing, ask the user to provide them",
@@ -43,7 +43,8 @@ class GitHubAgent(BaseLangGraphAgent):
             "**IMPORTANT - Repository References:** When the user mentions a repository name without specifying the organization/owner, "
             "ALWAYS ask them to clarify the organization name. DO NOT assume the organization name is the same as the repository name. "
             "Example: If user says 'show PRs in ai-platform-engineering', ask 'Which organization is the ai-platform-engineering repository under?' DO NOT assume it's 'ai-platform-engineering/ai-platform-engineering'",
-            "Repository format is always 'organization/repository' or 'owner/repository'. Never duplicate the repository name as both organization and repository name"
+            "Repository format is always 'organization/repository' or 'owner/repository'. Never duplicate the repository name as both organization and repository name",
+            "**GitHub Actions Logs**: When workflow runs return log URLs, use `fetch_url` tool to download and present log content to users"
         ],
         include_error_handling=True,  # Real GitHub API calls
         include_date_handling=True    # Enable date handling

@@ -16,10 +16,8 @@ Usage:
 """
 
 import pytest
-import asyncio
-import os
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 # Import the executor and related types
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import (
@@ -33,8 +31,6 @@ from a2a.types import (
     TextPart,
     DataPart,
     TaskArtifactUpdateEvent,
-    TaskStatusUpdateEvent,
-    Task as A2ATask,
 )
 
 
@@ -44,8 +40,13 @@ class TestA2AArtifactStreaming:
     @pytest.fixture
     def executor(self):
         """Create executor instance."""
-        # Set LLM_PROVIDER environment variable for executor initialization
-        with patch.dict(os.environ, {"LLM_PROVIDER": "azure-openai"}):
+        # Mock LLMFactory.get_llm() to avoid requiring actual LLM credentials
+        # This is more reliable than patching environment variables in CI
+        mock_llm = MagicMock()
+        with patch('ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory') as mock_factory:
+            mock_factory_instance = MagicMock()
+            mock_factory_instance.get_llm.return_value = mock_llm
+            mock_factory.return_value = mock_factory_instance
             return AIPlatformEngineerA2AExecutor()
 
     @pytest.fixture
@@ -820,14 +821,6 @@ class TestA2AArtifactStreaming:
                 if isinstance(call[0][0], TaskArtifactUpdateEvent)
             ]
 
-            # Should send error_result (or handle error appropriately)
-            error_events = [
-                e
-                for e in artifact_events
-                if hasattr(e, "artifact")
-                and ("error" in e.artifact.name.lower() or "Error" in str(e.artifact))
-            ]
-
             # Note: Current implementation may send partial_result with error content
             # This test documents the behavior
             assert len(artifact_events) > 0, "Should send some artifact on error"
@@ -839,8 +832,13 @@ class TestRealWorldQueryScenarios:
     @pytest.fixture
     def executor(self):
         """Create executor instance."""
-        # Set LLM_PROVIDER environment variable for executor initialization
-        with patch.dict(os.environ, {"LLM_PROVIDER": "azure-openai"}):
+        # Mock LLMFactory.get_llm() to avoid requiring actual LLM credentials
+        # This is more reliable than patching environment variables in CI
+        mock_llm = MagicMock()
+        with patch('ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory') as mock_factory:
+            mock_factory_instance = MagicMock()
+            mock_factory_instance.get_llm.return_value = mock_llm
+            mock_factory.return_value = mock_factory_instance
             return AIPlatformEngineerA2AExecutor()
 
     @pytest.fixture
