@@ -328,6 +328,8 @@ services:
       args:
         - AGENT_NAME=argocd
     container_name: mcp-argocd
+    volumes:
+      - ./ai_platform_engineering/agents/argocd/mcp/mcp_argocd:/app/mcp_argocd
     profiles:
       - p2p
       - p2p-tracing
@@ -839,6 +841,9 @@ services:
       args:
         - AGENT_NAME=jira
     container_name: agent-jira-p2p
+    volumes:
+      - ./ai_platform_engineering/agents/jira/agent_jira:/app/ai_platform_engineering/agents/agent/agent_jira
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     profiles:
       - p2p
       - p2p-tracing

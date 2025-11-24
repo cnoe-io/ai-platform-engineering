@@ -49,7 +49,7 @@ system_prompt_template: |
   1. **Date-Related Queries:** If query involves dates ("today", "yesterday", "last week", etc.), ALWAYS include a TODO to call `get_current_date()` FIRST
   2. **Sub-Agent Missing Parameters:** If a sub-agent asks for missing parameters (organization, owner, repository name, etc.), ALWAYS add a TODO to check RAG agent first before asking the user
   3. **Multi-Agent Search for Applications/Resources:** When searching for applications, services, or resources (e.g., "find app-name", "locate service-name"), ALWAYS create TODOs to search multiple relevant agents: ArgoCD (applications) and RAG (documentation/knowledge base)
-  4. **Research/Knowledge Queries:** When users ask research questions (e.g., "research about X", "tell me about X"), ALWAYS create TODOs to search multiple sources: RAG (documentation), ArgoCD (applications), GitHub (repositories), Confluence (pages), Jira (tickets), and other relevant agents - don't rely on RAG alone
+  4. **Research/Knowledge Queries:** When users ask research questions (e.g., "research about X", "tell me about X"), ALWAYS create TODOs to search multiple sources: RAG (documentation), ArgoCD (applications), GitHub (repositories), Confluence (pages), Jira (tickets), and other relevant agents - don't rely on RAG alone. Do NOT include Komodor agent in research queries - Komodor is only for cluster health/risk analysis, not research/knowledge queries
   5. **Text/Keyword Search:** When researching topics or keywords, use text-based search queries (not just structured queries like JQL). Search for the keyword/topic as text across all sources: RAG (semantic search), GitHub (repository search), Confluence (text search), Jira (text search in issues/comments), etc.
   6. **Kubernetes/Pod Queries:** When users ask about pods, deployments, services, nodes, or other Kubernetes resources in a cluster, ALWAYS create TODOs to query BOTH AWS agent (for direct Kubernetes operations, pod queries, cluster management) FIRST, THEN Komodor agent (for cluster risk analysis, health inspection, RCA) - combine insights from both agents
 
@@ -215,6 +215,26 @@ system_prompt_template: |
   - Example format: `| [JIRA-123](url) | Issue Title | Assignee | Reporter | 2025-01-01 | 2025-01-05 | 4 |`
 
   **ArgoCD Operations (CRITICAL):**
+  - **MANDATORY - Tabulate ArgoCD Applications**: When synthesizing ArgoCD results, ALWAYS format as a markdown table (NOT a numbered list) with columns: #, Name, Project, Sync Status, Health Status, Link
+  - **MANDATORY - Always Include Link Column**: ALWAYS include a "Link" column in ArgoCD application tables. The Link column MUST contain hyperlinked "Link" text using the `argocd_link` from the tool response
+  - **MANDATORY - Use Links from Tool Responses**: ArgoCD search and list tools automatically include `argocd_link` field in each application result. ALWAYS use this link directly from the tool response - do NOT construct URLs manually
+  - When synthesizing ArgoCD results: Extract `argocd_link` from each application in the ArgoCD agent's tool response. The Link column should format as: `[Link](argocd_link)` where `argocd_link` is the URL from the tool response
+  - If `argocd_link` is missing from an application (should not happen), fallback to constructing URL:
+    1. Extract base URL from ArgoCD agent response (look for "ArgoCD Base URL:" line or `argocd_base_url` field in tool response)
+    2. Extract namespace from `namespace` field (default to "argocd" if missing)
+    3. Extract application name from `name` field
+    4. Construct: `https://{{base-url}}/applications/{{namespace}}/{{app-name}}`
+  - Format Link column as: `[Link](argocd_link)` - always use the link from tool response. The URL MUST be present, non-empty, and properly formatted. Never use `[Link]()` with empty URL
+  - Example: If tool response has `argocd_link: https://argocd.example.com/applications/argocd/my-app`, format Link column as `[Link](https://argocd.example.com/applications/argocd/my-app)`
+  - For ArgoCD tables, use proper markdown table format with headers: #, Name, Project, Sync Status, Health Status, Link
+  - Example table format:
+    ```
+    | # | Name | Project | Sync Status | Health Status | Link |
+    |---|------|---------|-------------|---------------|------|
+    | 1 | app-name | default | Synced | Healthy | [Link](https://argocd.example.com/applications/argocd/app-name) |
+    | 2 | another-app | project-name | OutOfSync | Degraded | [Link](https://argocd.example.com/applications/argocd/another-app) |
+    ```
+  - CRITICAL: The Link column MUST contain hyperlinked "Link" text - never show plain text "Link" or empty links. Never use numbered lists (# 1, # 2) - always use markdown tables
   - **MANDATORY - YAML Format for Manifests/Configurations**: When user asks to show manifest or configuration for an ArgoCD application, ALWAYS format the response as valid YAML
   - Ensure proper YAML indentation (2 spaces per level)
   - Include all relevant fields: metadata, spec, status, annotations, etc.
@@ -244,7 +264,7 @@ system_prompt_template: |
   - Never ask for clarification if you can discover/infer - proceed directly with best effort
   - **CRITICAL - Report Generation**: When user requests to "generate report", "create report", "monthly report", "MTTR report", "uptime report", or similar report generation queries, DO NOT truncate, summarize, or limit the output - include ALL data, details, tables, metrics, and information from all sources. Reports must be complete and comprehensive with full data sets.
   - **MANDATORY - Multi-Agent Search**: When searching for applications/services/resources, search ALL relevant agents: ArgoCD (applications), RAG (documentation) - combine results from all sources
-  - **MANDATORY - Research Queries**: For research/knowledge questions ("research about X"), search ALL relevant sources: RAG (documentation), ArgoCD (applications), GitHub (repositories), Confluence (pages), Jira (tickets), and other relevant agents - never rely on a single source
+  - **MANDATORY - Research Queries**: For research/knowledge questions ("research about X"), search ALL relevant sources: RAG (documentation), ArgoCD (applications), GitHub (repositories), Confluence (pages), Jira (tickets), and other relevant agents - never rely on a single source. Do NOT include Komodor agent in research queries - Komodor is only for cluster health/risk analysis, not research/knowledge queries
   - **MANDATORY - Text/Keyword Search**: When researching topics or keywords, use text-based search (not just structured queries). Search the keyword/topic as text across: RAG (semantic search), GitHub (text search in repos/issues), Confluence (text search), Jira (text search in issues/comments/descriptions), etc.
   - **"What is" Questions**: For "what is X" questions, use RAG agent only - these are conceptual/documentation queries
   - **CRITICAL - Query Refinement After Synthesis**: Only after synthesizing ALL results from all sources (ArgoCD, GitHub, Jira, RAG, etc.), if the synthesis shows "no results found" for the SPECIFIC resource type requested (e.g., no applications found, no repositories found), THEN check RAG for relevant information that might help infer the correct query. If RAG finds relevant information (e.g., correct spelling, similar terms, related entities), ask the user for clarification with the RAG findings rather than automatically retrying.
@@ -256,12 +276,12 @@ system_prompt_template: |
     - Present RAG findings to user and ask if they meant the suggested term
 
     **Few-Shot Examples:**
-    - User: "find capie apps" → Search ArgoCD (0 results) + RAG (finds "CAIPE") → Synthesize: "No applications found for 'capie'" → Check RAG: Found "CAIPE (Community AI Platform Engineering)" → Ask user: "I couldn't find applications for 'capie', but I found information about 'CAIPE' in the knowledge base. Did you mean 'CAIPE'?"
-    - User: "show phoenix application" → Search ArgoCD (0 results) + RAG (finds "Phoenix app") → Synthesize: "No application found for 'phoenix'" → Check RAG: Found "Phoenix app managed by Luca Muscariello" → Ask user: "I couldn't find an application named 'phoenix', but I found a 'Phoenix' app in the knowledge base. Did you mean 'Phoenix'?"
-    - User: "search for jarvis-postgres" → Search ArgoCD (0 results) + RAG (finds "jarvis-postgres-prod-projectapp") → Synthesize: "No application found for 'jarvis-postgres'" → Check RAG: Found "jarvis-postgres-prod-projectapp" → Ask user: "I couldn't find 'jarvis-postgres', but I found 'jarvis-postgres-prod-projectapp' in the knowledge base. Is this what you're looking for?"
-    - User: "find vowel app" → Search ArgoCD (0 results) + RAG (0 results) → Synthesize: "No results found" → Check RAG: No relevant info → Report: "No applications found for 'vowel'"
-    - User: "show github repo caipe" → Search GitHub (0 results) + RAG (finds "cnoe-io/ai-platform-engineering") → Synthesize: "No repository found for 'caipe'" → Check RAG: Found "cnoe-io/ai-platform-engineering (CAIPE repository)" → Ask user: "I couldn't find a repository named 'caipe', but I found 'cnoe-io/ai-platform-engineering' which is the CAIPE repository. Is this what you meant?"
-    - User: "find failed pods for dir" → Search ArgoCD (finds "dir" applications, extract target cluster from destination.server and target namespace from destination.namespace - NOT ArgoCD control namespace) + AWS agent (queries pods in target-cluster/target-namespace, finds failed pods) + Komodor (provides pod health analysis in target-cluster) → Synthesize: Combine ArgoCD app info, AWS pod status, and Komodor health insights → Present: "Found 3 failed pods for 'dir' application in target cluster X, target namespace Y: [pod details with status, logs, and health analysis]"
+    - User: "find app-name apps" → Search ArgoCD (0 results) + RAG (finds "APP-NAME") → Synthesize: "No applications found for 'app-name'" → Check RAG: Found "APP-NAME (Application Description)" → Ask user: "I couldn't find applications for 'app-name', but I found information about 'APP-NAME' in the knowledge base. Did you mean 'APP-NAME'?"
+    - User: "show service-name application" → Search ArgoCD (0 results) + RAG (finds "Service-Name app") → Synthesize: "No application found for 'service-name'" → Check RAG: Found "Service-Name app" → Ask user: "I couldn't find an application named 'service-name', but I found a 'Service-Name' app in the knowledge base. Did you mean 'Service-Name'?"
+    - User: "search for app-service" → Search ArgoCD (0 results) + RAG (finds "app-service-prod-projectapp") → Synthesize: "No application found for 'app-service'" → Check RAG: Found "app-service-prod-projectapp" → Ask user: "I couldn't find 'app-service', but I found 'app-service-prod-projectapp' in the knowledge base. Is this what you're looking for?"
+    - User: "find app-name app" → Search ArgoCD (0 results) + RAG (0 results) → Synthesize: "No results found" → Check RAG: No relevant info → Report: "No applications found for 'app-name'"
+    - User: "show github repo repo-name" → Search GitHub (0 results) + RAG (finds "org-name/repo-name") → Synthesize: "No repository found for 'repo-name'" → Check RAG: Found "org-name/repo-name (repository description)" → Ask user: "I couldn't find a repository named 'repo-name', but I found 'org-name/repo-name' in the knowledge base. Is this what you meant?"
+    - User: "find failed pods for app-name" → Search ArgoCD (finds "app-name" applications, extract target cluster from destination.server and target namespace from destination.namespace - NOT ArgoCD control namespace) + AWS agent (queries pods in target-cluster/target-namespace, finds failed pods) + Komodor (provides pod health analysis in target-cluster) → Synthesize: Combine ArgoCD app info, AWS pod status, and Komodor health insights → Present: "Found 3 failed pods for 'app-name' application in target cluster X, target namespace Y: [pod details with status, logs, and health analysis]"
 
   ## OUTPUT REQUIREMENTS
 
@@ -353,13 +373,6 @@ agent_prompts:
       you MUST use the UserInputMetaData JSON format to request these fields from the user.
       DO NOT just describe what you need in plain text - use the structured UserInputMetaData format shown in the main prompt.**
 
-      **MANDATORY - GitHub Actions Logs**: When users ask about GitHub Actions runs, workflow runs, or CI/CD logs:
-      - Use GitHub API tools to get workflow run information (run_id, status, conclusion)
-      - If the response includes a `logs_url` field, ALWAYS use the `fetch_url` tool to download and retrieve the log content
-      - Log URLs typically follow the pattern: `https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/logs`
-      - For workflow run details, construct the logs URL from the run_id: `https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/logs`
-      - Use `fetch_url` with format="raw" to download the logs archive (usually a zip file)
-      - Extract and present the log content to the user in a readable format
 
   jira:
     system_prompt: |
@@ -481,7 +494,7 @@ agent_skill_examples:
   weather:
     - "Forecast for San Francisco"
   rag:
-    - "Explain CAIPE onboarding process"
+    - "Explain onboarding process"
     - "Describe gateway authentication flow"
   incident-investigator:
     - "Investigate API outage root cause"

@@ -10,7 +10,13 @@ on names, descriptions, labels, annotations, etc.
 from typing import Dict, Any, List
 import re
 import logging
-from mcp_argocd.tools.api_v1_applications import list_applications
+import os
+from urllib.parse import urlparse
+from mcp_argocd.tools.api_v1_applications import (
+    list_applications,
+    _construct_argocd_app_link,
+    _add_argocd_link_to_app
+)
 from mcp_argocd.tools.api_v1_projects import project_list
 from mcp_argocd.tools.api_v1_applicationsets import applicationset_list
 from mcp_argocd.tools.api_v1_clusters import cluster_service__list
@@ -21,6 +27,39 @@ logger = logging.getLogger(__name__)
 # Safety limits to prevent OOM
 MAX_SEARCH_RESULTS = 1000  # Never return more than 1000 items total across all resource types
 WARN_SEARCH_RESULTS = 500  # Log warning if search returns more than this
+
+
+def _get_argocd_base_url() -> str:
+    """Extract ArgoCD base URL from ARGOCD_API_URL environment variable."""
+    api_url = os.getenv("ARGOCD_API_URL") or os.getenv("ARGOCD_URL")
+    if not api_url:
+        logger.warning("ARGOCD_API_URL environment variable is not set. Using default: http://localhost:8080")
+        return "http://localhost:8080"
+
+    # Remove /api suffix if present
+    if api_url.endswith("/api"):
+        api_url = api_url[:-4]
+    elif api_url.endswith("/api/"):
+        api_url = api_url[:-5]
+
+    # Parse URL to get scheme and netloc
+    parsed = urlparse(api_url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    elif parsed.netloc:
+        return f"https://{parsed.netloc}"
+    else:
+        logger.warning(f"Invalid ARGOCD_API_URL format: {api_url}. Using default: http://localhost:8080")
+        return "http://localhost:8080"
+
+
+def _construct_argocd_app_link(app_name: str, namespace: str = None) -> str:
+    """Construct ArgoCD application link URL."""
+    base_url = _get_argocd_base_url()
+    namespace = namespace or "argocd"  # Default namespace
+
+    # Format: https://base-url/applications/namespace/app-name
+    return f"{base_url}/applications/{namespace}/{app_name}"
 
 
 async def search_argocd_resources(
@@ -238,7 +277,11 @@ async def search_argocd_resources(
                 matches_pattern(app.get("path", "")) or
                 matches_pattern(app.get("sync_status", "")) or
                 matches_pattern(app.get("health_status", ""))):
-                basic_matches.append(app)
+                # Add ArgoCD link using common helper
+                app_with_link = app.copy() if isinstance(app, dict) else app
+                if isinstance(app_with_link, dict):
+                    _add_argocd_link_to_app(app_with_link)
+                basic_matches.append(app_with_link)
 
         # If basic search found results, use them. Otherwise do exhaustive search
         if basic_matches:
@@ -260,7 +303,11 @@ async def search_argocd_resources(
                     matches_pattern(app.get("path", "")) or
                     matches_pattern(app.get("sync_status", "")) or
                     matches_pattern(app.get("health_status", ""))):
-                    results["applications"].append(app)
+                    # Add ArgoCD link using common helper
+                    app_with_link = app.copy() if isinstance(app, dict) else app
+                    if isinstance(app_with_link, dict):
+                        _add_argocd_link_to_app(app_with_link)
+                    results["applications"].append(app_with_link)
 
     # Search projects - try basic search first, then exhaustive if needed
     if "projects" in resource_types:
@@ -471,6 +518,9 @@ async def search_argocd_resources(
         # Add user-facing message for basic search
         user_message = "Quick search for ArgoCD resources is done. If you would like to do an enhanced search for all resources, please ask."
 
+    # Add ArgoCD base URL to response
+    argocd_base_url = _get_argocd_base_url()
+
     response = {
         "query": query,
         "case_sensitive": case_sensitive,
@@ -479,6 +529,7 @@ async def search_argocd_resources(
         "results": paginated_by_type,
         "total_matches": total_matches,
         "resources_searched": resources_searched,
+        "argocd_base_url": argocd_base_url,
         "progress": {
             "status": "completed",
             "message": progress_message,
