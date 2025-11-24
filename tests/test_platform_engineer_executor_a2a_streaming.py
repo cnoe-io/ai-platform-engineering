@@ -16,7 +16,6 @@ Usage:
 """
 
 import pytest
-import os
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from typing import Dict, Any
 
