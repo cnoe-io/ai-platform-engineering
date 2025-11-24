@@ -1,6 +1,19 @@
-## 0.2.3 (2025-11-21)
+## Unreleased
 
-## 0.2.2-workshop (2025-11-20)
+### Feat
+
+- **argocd**: add Link column to ArgoCD application tables
+- enhance agent prompts and capabilities
+- **argocd**: implement two-tier search with automatic exhaustive fallback
+- update agents and configuration files
+
+### Fix
+
+- **tests**: ensure test file changes are committed
+- **tests**: mock LLMFactory instead of patching env vars for CI reliability
+- resolve linting errors
+
+## 0.2.3 (2025-11-21)
 
 ### Feat
 
