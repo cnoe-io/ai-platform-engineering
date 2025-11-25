@@ -92,7 +92,18 @@ async def get_health_risks(
 
       param_offset (int): OpenAPI parameter corresponding to 'param_offset'
 
-      param_check_type (List[Literal['throttledCPU', 'requestsLimitsRatio', 'deprecatedApis', 'kubernetesEndOfLife', 'noisyNeighbor', 'kubernetesVersionDeprecated', 'nodeTerminationAutoScaling', 'nodeTerminationSpotInstance', 'restartingContainers', 'HPAMax', 'underProvisionedWorkloads', 'singlePointOfFailure', 'deploymentMissingReplicas', 'missingPDB', 'missingTopologySpreadConstraint', 'HPAMinAvailability', 'missingHPA', 'priorityClassNotSet', 'cpuRequestsMissing', 'cpuLimitsMissing', 'memoryRequestsMissing', 'memoryLimitsMissing', 'livenessProbeMissing', 'readinessProbeMissing', 'certificateExpiration', 'idleGpu', 'syntheticDegradedService', 'syntheticNodePressure', 'syntheticEOLDeprecationOutdated', 'cascadingFailure', 'unhealthyService', 'unhealthyWorkflow', 'failedJob', 'failedCronJob', 'unhealthyNode', 'unhealthyPVC', 'externalDNSNotSynced', 'scaleDownImpact']]): OpenAPI parameter corresponding to 'param_check_type'
+      param_check_type (List[Literal['throttledCPU', 'requestsLimitsRatio', 'deprecatedApis',
+          'kubernetesEndOfLife', 'noisyNeighbor', 'kubernetesVersionDeprecated',
+          'nodeTerminationAutoScaling', 'nodeTerminationSpotInstance', 'restartingContainers',
+          'HPAMax', 'underProvisionedWorkloads', 'singlePointOfFailure',
+          'deploymentMissingReplicas', 'missingPDB', 'missingTopologySpreadConstraint',
+          'HPAMinAvailability', 'missingHPA', 'priorityClassNotSet', 'cpuRequestsMissing',
+          'cpuLimitsMissing', 'memoryRequestsMissing', 'memoryLimitsMissing',
+          'livenessProbeMissing', 'readinessProbeMissing', 'certificateExpiration', 'idleGpu',
+          'syntheticDegradedService', 'syntheticNodePressure', 'syntheticEOLDeprecationOutdated',
+          'cascadingFailure', 'unhealthyService', 'unhealthyWorkflow', 'failedJob', 'failedCronJob',
+          'unhealthyNode', 'unhealthyPVC', 'externalDNSNotSynced', 'scaleDownImpact']]):
+          OpenAPI parameter corresponding to 'param_check_type'
 
       param_status (List[Literal['open', 'confirmed', 'resolved', 'dismissed', 'ignored', 'manually_resolved']]): OpenAPI parameter corresponding to 'param_status'
 
