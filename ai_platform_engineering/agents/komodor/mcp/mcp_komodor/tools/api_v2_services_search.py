@@ -51,7 +51,10 @@ async def post_api_v2_svcs_search(
 
       body_status (Literal['healthy', 'unhealthy', 'unknown']): The health status of the service
 
-      body_issue_reason_category (List[Literal['NonZeroExitCode', 'Unhealthy', 'OOMKilled', 'Creating/Initializing', 'BackOff', 'Infrastructure', 'Pending', 'Image', 'Volume/Secret/ConfigMap', 'Container Creation', 'Pod Termination', 'Completed', 'Other']]): OpenAPI parameter corresponding to 'body_issue_reason_category'
+      body_issue_reason_category (List[Literal['NonZeroExitCode', 'Unhealthy', 'OOMKilled',
+          'Creating/Initializing', 'BackOff', 'Infrastructure', 'Pending', 'Image',
+          'Volume/Secret/ConfigMap', 'Container Creation', 'Pod Termination', 'Completed', 'Other']]):
+          OpenAPI parameter corresponding to 'body_issue_reason_category'
 
       body_latest_deploy_status (Literal['success', 'failure', 'pending', 'unknown']): The status of the latest deployment
 
