@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Statement(BaseModel):
-    """Statement model"""
+  """Statement model"""
 
 
 class StatementResponse(APIResponse):
-    """Response model for Statement"""
+  """Response model for Statement"""
 
-    data: Optional[Statement] = None
+  data: Optional[Statement] = None
 
 
 class StatementListResponse(APIResponse):
-    """List response model for Statement"""
+  """List response model for Statement"""
 
-    data: List[Statement] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Statement] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

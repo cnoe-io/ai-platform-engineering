@@ -1,87 +1,97 @@
 """Tools for /mgmt/v1/rbac/users/roles operations"""
 
 import logging
-from typing import Dict, Any
+from typing import Any
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def rbac_user_roles_controller_v1_post(
-    body_userId: str, body_roleId: str, body_expiration: str
-) -> Dict[str, Any]:
-    '''
-    Assigns a role to a user with an optional expiration date.
+async def post_rbac_user_post(body_user_id: str, body_role_id: str, body_expiration: str) -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/users/roles` instead.
 
-    Args:
-        body_userId (str): The ID of the user to whom the role will be assigned.
-        body_roleId (str): The ID of the role to be assigned to the user.
-        body_expiration (str): The expiration date for the role assignment in ISO 8601 format. Optional.
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/users/roles` API instead for new implementations and better validation and error handling.
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call, containing the result of the role assignment.
+  Args:
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
-    logger.debug("Making POST request to /mgmt/v1/rbac/users/roles")
+      body_user_id (str): OpenAPI parameter corresponding to 'body_user_id'
 
-    params = {}
-    data = {}
+      body_role_id (str): OpenAPI parameter corresponding to 'body_role_id'
 
-    flat_body = {}
-    if body_userId is not None:
-        flat_body["userId"] = body_userId
-    if body_roleId is not None:
-        flat_body["roleId"] = body_roleId
-    if body_expiration is not None:
-        flat_body["expiration"] = body_expiration
-    data = assemble_nested_body(flat_body)
-
-    success, response = await make_api_request("/mgmt/v1/rbac/users/roles", method="POST", params=params, data=data)
-
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+      body_expiration (str): OpenAPI parameter corresponding to 'body_expiration'
 
 
-async def rbac_user_roles_controller_v1_delete(
-    body_userId: str, body_roleId: str, body_expiration: str
-) -> Dict[str, Any]:
-    '''
-    Deletes a user role in the RBAC system.
+  Returns:
+      Any: The JSON response from the API call.
 
-    Args:
-        body_userId (str): The ID of the user whose role is to be deleted.
-        body_roleId (str): The ID of the role to be deleted from the user.
-        body_expiration (str): The expiration date for the role assignment.
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making POST request to /mgmt/v1/rbac/users/roles")
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call, containing the result of the deletion operation.
+  params = {}
+  data = {}
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
-    logger.debug("Making DELETE request to /mgmt/v1/rbac/users/roles")
+  flat_body = {}
+  if body_user_id is not None:
+    flat_body["user_id"] = body_user_id
+  if body_role_id is not None:
+    flat_body["role_id"] = body_role_id
+  if body_expiration is not None:
+    flat_body["expiration"] = body_expiration
+  data = assemble_nested_body(flat_body)
 
-    params = {}
-    data = {}
+  success, response = await make_api_request("/mgmt/v1/rbac/users/roles", method="POST", params=params, data=data)
 
-    flat_body = {}
-    if body_userId is not None:
-        flat_body["userId"] = body_userId
-    if body_roleId is not None:
-        flat_body["roleId"] = body_roleId
-    if body_expiration is not None:
-        flat_body["expiration"] = body_expiration
-    data = assemble_nested_body(flat_body)
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response
 
-    success, response = await make_api_request("/mgmt/v1/rbac/users/roles", method="DELETE", params=params, data=data)
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+async def del_rbac_user_del(body_user_id: str, body_role_id: str, body_expiration: str) -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/users/roles` instead.
+
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/users/roles` API instead for new implementations and better validation and error handling.
+
+  Args:
+
+      body_user_id (str): OpenAPI parameter corresponding to 'body_user_id'
+
+      body_role_id (str): OpenAPI parameter corresponding to 'body_role_id'
+
+      body_expiration (str): OpenAPI parameter corresponding to 'body_expiration'
+
+
+  Returns:
+      Any: The JSON response from the API call.
+
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making DELETE request to /mgmt/v1/rbac/users/roles")
+
+  params = {}
+  data = {}
+
+  flat_body = {}
+  if body_user_id is not None:
+    flat_body["user_id"] = body_user_id
+  if body_role_id is not None:
+    flat_body["role_id"] = body_role_id
+  if body_expiration is not None:
+    flat_body["expiration"] = body_expiration
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/mgmt/v1/rbac/users/roles", method="DELETE", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response

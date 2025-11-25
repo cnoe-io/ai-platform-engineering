@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Singlepointoffailuresupportingdata(BaseModel):
-    """Singlepointoffailuresupportingdata model"""
+  """Singlepointoffailuresupportingdata model"""
 
 
 class SinglepointoffailuresupportingdataResponse(APIResponse):
-    """Response model for Singlepointoffailuresupportingdata"""
+  """Response model for Singlepointoffailuresupportingdata"""
 
-    data: Optional[Singlepointoffailuresupportingdata] = None
+  data: Optional[Singlepointoffailuresupportingdata] = None
 
 
 class SinglepointoffailuresupportingdataListResponse(APIResponse):
-    """List response model for Singlepointoffailuresupportingdata"""
+  """List response model for Singlepointoffailuresupportingdata"""
 
-    data: List[Singlepointoffailuresupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Singlepointoffailuresupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Link(BaseModel):
-    """A URL link to more information"""
+  """A URL link to more information"""
 
 
 class LinkResponse(APIResponse):
-    """Response model for Link"""
+  """Response model for Link"""
 
-    data: Optional[Link] = None
+  data: Optional[Link] = None
 
 
 class LinkListResponse(APIResponse):
-    """List response model for Link"""
+  """List response model for Link"""
 
-    data: List[Link] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Link] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

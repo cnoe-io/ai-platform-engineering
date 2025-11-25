@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Editresourcemetadata(BaseModel):
-    """Editresourcemetadata model"""
+  """Editresourcemetadata model"""
 
 
 class EditresourcemetadataResponse(APIResponse):
-    """Response model for Editresourcemetadata"""
+  """Response model for Editresourcemetadata"""
 
-    data: Optional[Editresourcemetadata] = None
+  data: Optional[Editresourcemetadata] = None
 
 
 class EditresourcemetadataListResponse(APIResponse):
-    """List response model for Editresourcemetadata"""
+  """List response model for Editresourcemetadata"""
 
-    data: List[Editresourcemetadata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Editresourcemetadata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

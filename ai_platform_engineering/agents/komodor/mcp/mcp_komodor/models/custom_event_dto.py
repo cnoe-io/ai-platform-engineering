@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Customeventdto(BaseModel):
-    """Customeventdto model"""
+  """Customeventdto model"""
 
 
 class CustomeventdtoResponse(APIResponse):
-    """Response model for Customeventdto"""
+  """Response model for Customeventdto"""
 
-    data: Optional[Customeventdto] = None
+  data: Optional[Customeventdto] = None
 
 
 class CustomeventdtoListResponse(APIResponse):
-    """List response model for Customeventdto"""
+  """List response model for Customeventdto"""
 
-    data: List[Customeventdto] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Customeventdto] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

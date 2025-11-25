@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Createroledto(BaseModel):
-    """Createroledto model"""
+  """Createroledto model"""
 
 
 class CreateroledtoResponse(APIResponse):
-    """Response model for Createroledto"""
+  """Response model for Createroledto"""
 
-    data: Optional[Createroledto] = None
+  data: Optional[Createroledto] = None
 
 
 class CreateroledtoListResponse(APIResponse):
-    """List response model for Createroledto"""
+  """List response model for Createroledto"""
 
-    data: List[Createroledto] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Createroledto] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

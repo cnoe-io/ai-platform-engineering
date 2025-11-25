@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Violationstatusrequestparam(BaseModel):
-    """Violationstatusrequestparam model"""
+  """Violationstatusrequestparam model"""
 
 
 class ViolationstatusrequestparamResponse(APIResponse):
-    """Response model for Violationstatusrequestparam"""
+  """Response model for Violationstatusrequestparam"""
 
-    data: Optional[Violationstatusrequestparam] = None
+  data: Optional[Violationstatusrequestparam] = None
 
 
 class ViolationstatusrequestparamListResponse(APIResponse):
-    """List response model for Violationstatusrequestparam"""
+  """List response model for Violationstatusrequestparam"""
 
-    data: List[Violationstatusrequestparam] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Violationstatusrequestparam] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

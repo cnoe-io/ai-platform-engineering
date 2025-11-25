@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Clusterscopewrapper(BaseModel):
-    """Clusterscopewrapper model"""
+  """Clusterscopewrapper model"""
 
 
 class ClusterscopewrapperResponse(APIResponse):
-    """Response model for Clusterscopewrapper"""
+  """Response model for Clusterscopewrapper"""
 
-    data: Optional[Clusterscopewrapper] = None
+  data: Optional[Clusterscopewrapper] = None
 
 
 class ClusterscopewrapperListResponse(APIResponse):
-    """List response model for Clusterscopewrapper"""
+  """List response model for Clusterscopewrapper"""
 
-    data: List[Clusterscopewrapper] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Clusterscopewrapper] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

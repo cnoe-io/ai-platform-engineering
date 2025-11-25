@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Issuereasoncategory(BaseModel):
-    """Categories for reasons related to issues with containers, pods, and deployments."""
+  """Categories for reasons related to issues with containers, pods, and deployments."""
 
 
 class IssuereasoncategoryResponse(APIResponse):
-    """Response model for Issuereasoncategory"""
+  """Response model for Issuereasoncategory"""
 
-    data: Optional[Issuereasoncategory] = None
+  data: Optional[Issuereasoncategory] = None
 
 
 class IssuereasoncategoryListResponse(APIResponse):
-    """List response model for Issuereasoncategory"""
+  """List response model for Issuereasoncategory"""
 
-    data: List[Issuereasoncategory] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Issuereasoncategory] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

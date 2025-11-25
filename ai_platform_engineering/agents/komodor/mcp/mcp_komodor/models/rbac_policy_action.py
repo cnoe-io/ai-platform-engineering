@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Rbacpolicyaction(BaseModel):
-    """Rbacpolicyaction model"""
+  """Rbacpolicyaction model"""
 
 
 class RbacpolicyactionResponse(APIResponse):
-    """Response model for Rbacpolicyaction"""
+  """Response model for Rbacpolicyaction"""
 
-    data: Optional[Rbacpolicyaction] = None
+  data: Optional[Rbacpolicyaction] = None
 
 
 class RbacpolicyactionListResponse(APIResponse):
-    """List response model for Rbacpolicyaction"""
+  """List response model for Rbacpolicyaction"""
 
-    data: List[Rbacpolicyaction] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Rbacpolicyaction] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None
