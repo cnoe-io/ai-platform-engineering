@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Getmonitorsdata(BaseModel):
-    """Getmonitorsdata model"""
+  """Getmonitorsdata model"""
 
 
 class GetmonitorsdataResponse(APIResponse):
-    """Response model for Getmonitorsdata"""
+  """Response model for Getmonitorsdata"""
 
-    data: Optional[Getmonitorsdata] = None
+  data: Optional[Getmonitorsdata] = None
 
 
 class GetmonitorsdataListResponse(APIResponse):
-    """List response model for Getmonitorsdata"""
+  """List response model for Getmonitorsdata"""
 
-    data: List[Getmonitorsdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Getmonitorsdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

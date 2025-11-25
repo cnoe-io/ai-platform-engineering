@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Scaledownimpactsupportingdata(BaseModel):
-    """Scaledownimpactsupportingdata model"""
+  """Scaledownimpactsupportingdata model"""
 
 
 class ScaledownimpactsupportingdataResponse(APIResponse):
-    """Response model for Scaledownimpactsupportingdata"""
+  """Response model for Scaledownimpactsupportingdata"""
 
-    data: Optional[Scaledownimpactsupportingdata] = None
+  data: Optional[Scaledownimpactsupportingdata] = None
 
 
 class ScaledownimpactsupportingdataListResponse(APIResponse):
-    """List response model for Scaledownimpactsupportingdata"""
+  """List response model for Scaledownimpactsupportingdata"""
 
-    data: List[Scaledownimpactsupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Scaledownimpactsupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

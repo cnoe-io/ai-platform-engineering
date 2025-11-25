@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class K8seolsupportingdata(BaseModel):
-    """K8seolsupportingdata model"""
+  """K8seolsupportingdata model"""
 
 
 class K8seolsupportingdataResponse(APIResponse):
-    """Response model for K8seolsupportingdata"""
+  """Response model for K8seolsupportingdata"""
 
-    data: Optional[K8seolsupportingdata] = None
+  data: Optional[K8seolsupportingdata] = None
 
 
 class K8seolsupportingdataListResponse(APIResponse):
-    """List response model for K8seolsupportingdata"""
+  """List response model for K8seolsupportingdata"""
 
-    data: List[K8seolsupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[K8seolsupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

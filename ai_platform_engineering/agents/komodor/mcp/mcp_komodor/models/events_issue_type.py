@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Eventsissuetype(BaseModel):
-    """The type of the event"""
+  """The type of the event"""
 
 
 class EventsissuetypeResponse(APIResponse):
-    """Response model for Eventsissuetype"""
+  """Response model for Eventsissuetype"""
 
-    data: Optional[Eventsissuetype] = None
+  data: Optional[Eventsissuetype] = None
 
 
 class EventsissuetypeListResponse(APIResponse):
-    """List response model for Eventsissuetype"""
+  """List response model for Eventsissuetype"""
 
-    data: List[Eventsissuetype] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Eventsissuetype] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

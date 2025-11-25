@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Servicestateyamlresponse(BaseModel):
-    """Servicestateyamlresponse model"""
+  """Servicestateyamlresponse model"""
 
 
 class ServicestateyamlresponseResponse(APIResponse):
-    """Response model for Servicestateyamlresponse"""
+  """Response model for Servicestateyamlresponse"""
 
-    data: Optional[Servicestateyamlresponse] = None
+  data: Optional[Servicestateyamlresponse] = None
 
 
 class ServicestateyamlresponseListResponse(APIResponse):
-    """List response model for Servicestateyamlresponse"""
+  """List response model for Servicestateyamlresponse"""
 
-    data: List[Servicestateyamlresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Servicestateyamlresponse] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Singleservice(BaseModel):
-    """Singleservice model"""
+  """Singleservice model"""
 
 
 class SingleserviceResponse(APIResponse):
-    """Response model for Singleservice"""
+  """Response model for Singleservice"""
 
-    data: Optional[Singleservice] = None
+  data: Optional[Singleservice] = None
 
 
 class SingleserviceListResponse(APIResponse):
-    """List response model for Singleservice"""
+  """List response model for Singleservice"""
 
-    data: List[Singleservice] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Singleservice] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

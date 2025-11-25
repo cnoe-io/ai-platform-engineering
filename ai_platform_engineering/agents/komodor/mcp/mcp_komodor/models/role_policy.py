@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Rolepolicy(BaseModel):
-    """Rolepolicy model"""
+  """Rolepolicy model"""
 
 
 class RolepolicyResponse(APIResponse):
-    """Response model for Rolepolicy"""
+  """Response model for Rolepolicy"""
 
-    data: Optional[Rolepolicy] = None
+  data: Optional[Rolepolicy] = None
 
 
 class RolepolicyListResponse(APIResponse):
-    """List response model for Rolepolicy"""
+  """List response model for Rolepolicy"""
 
-    data: List[Rolepolicy] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Rolepolicy] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

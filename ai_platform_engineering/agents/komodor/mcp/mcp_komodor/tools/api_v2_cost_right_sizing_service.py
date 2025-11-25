@@ -1,85 +1,94 @@
 """Tools for /api/v2/cost/right-sizing/service operations"""
 
 import logging
-from typing import Dict, Any, List
+from typing import Any, List, Literal
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_cost_right_sizing_per_service(
-    param_optimizationStrategy: str,
-    param_pageSize: int,
-    param_filterBy: str = None,
-    param_filterValueEquals: str = None,
-    param_sortOrder: str = None,
-    param_sortBy: str = None,
-    param_clusterScope: List[str] = None,
-) -> Dict[str, Any]:
-    '''
-    Get cost right-sizing recommendations per service.
+async def get_cost_right_sizing_per_svc(
+  param_optimization_strategy: Literal["conservative", "moderate", "aggressive"],
+  param_page_size: int,
+  param_pagination_token: str = None,
+  param_filter_by: Literal["clusterName", "namespace", "komodorServiceName", "komodorServiceKind"] = None,
+  param_filter_value_equals: str = None,
+  param_sort_order: Literal["asc", "desc"] = None,
+  param_sort_by: Literal["clusterName", "namespace", "service", "komodorServiceKind", "optimizationScore", "potentialSaving"] = None,
+  param_cluster_scope: List[str] = None,
+) -> Any:
+  """
+  Get cost right-sizing recommendations per service.
 
-    Args:
-        param_optimizationStrategy (str): The optimization strategy to use.
-        param_pageSize (int): The number of items to return per page.
-        param_filterBy (str, optional): The column to filter by for right-sizing. Defaults to None.
-        param_filterValueEquals (str, optional): The value to filter by. Defaults to None.
-        param_sortOrder (str, optional): The order of sorting for the cost allocation data. Defaults to None.
-        param_sortBy (str, optional): The column by which to sort the right-sizing data. Defaults to None.
-        param_clusterScope (List[str], optional): Filter by specific clusters. Defaults to None.
+  OpenAPI Description:
+      Get recommended CPU and memory request adjustments per service to optimize cost.
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call containing recommended CPU and memory request adjustments per service.
+  Args:
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
-    logger.debug("Making GET request to /api/v2/cost/right-sizing/service")
+      param_optimization_strategy (Literal['conservative', 'moderate', 'aggressive']): The optimization strategy to use.
 
-    params = {}
-    data = {}
+      param_page_size (int): The number of items to return per page.
 
-    if param_optimizationStrategy is not None:
-        params["optimizationStrategy"] = (
-            str(param_optimizationStrategy).lower()
-            if isinstance(param_optimizationStrategy, bool)
-            else param_optimizationStrategy
-        )
+      param_pagination_token (str): The pagination token for the next page of results.
 
-    if param_pageSize is not None:
-        params["pageSize"] = str(param_pageSize).lower() if isinstance(param_pageSize, bool) else param_pageSize
+      param_filter_by (Literal['clusterName', 'namespace', 'komodorServiceName', 'komodorServiceKind']): filterByRightSizingColumn
 
-    if param_filterBy is not None:
-        params["filterBy"] = str(param_filterBy).lower() if isinstance(param_filterBy, bool) else param_filterBy
+      param_filter_value_equals (str): The value to filter by.
 
-    if param_filterValueEquals is not None:
-        params["filterValueEquals"] = (
-            str(param_filterValueEquals).lower()
-            if isinstance(param_filterValueEquals, bool)
-            else param_filterValueEquals
-        )
+      param_sort_order (Literal['asc', 'desc']): The order of sorting for the cost allocation data.
 
-    if param_sortOrder is not None:
-        params["sortOrder"] = str(param_sortOrder).lower() if isinstance(param_sortOrder, bool) else param_sortOrder
+      param_sort_by (Literal['clusterName', 'namespace', 'service', 'komodorServiceKind', 'optimizationScore', 'potentialSaving']): The column by which to sort the right-sizing data.
 
-    if param_sortBy is not None:
-        params["sortBy"] = str(param_sortBy).lower() if isinstance(param_sortBy, bool) else param_sortBy
+      param_cluster_scope (List[str]): Filter by specific clusters.
 
-    if param_clusterScope is not None:
-        params["clusterScope"] = (
-            str(param_clusterScope).lower() if isinstance(param_clusterScope, bool) else param_clusterScope
-        )
 
-    flat_body = {}
-    data = assemble_nested_body(flat_body)
+  Returns:
+      Any: The JSON response from the API call.
 
-    success, response = await make_api_request(
-        "/api/v2/cost/right-sizing/service", method="GET", params=params, data=data
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making GET request to /api/v2/cost/right-sizing/service")
+
+  params = {}
+  data = {}
+
+  if param_optimization_strategy is not None:
+    params["optimization_strategy"] = (
+      str(param_optimization_strategy).lower() if isinstance(param_optimization_strategy, bool) else param_optimization_strategy
     )
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+  if param_page_size is not None:
+    params["page_size"] = str(param_page_size).lower() if isinstance(param_page_size, bool) else param_page_size
+
+  if param_pagination_token is not None:
+    params["pagination_token"] = str(param_pagination_token).lower() if isinstance(param_pagination_token, bool) else param_pagination_token
+
+  if param_filter_by is not None:
+    params["filter_by"] = str(param_filter_by).lower() if isinstance(param_filter_by, bool) else param_filter_by
+
+  if param_filter_value_equals is not None:
+    params["filter_value_equals"] = (
+      str(param_filter_value_equals).lower() if isinstance(param_filter_value_equals, bool) else param_filter_value_equals
+    )
+
+  if param_sort_order is not None:
+    params["sort_order"] = str(param_sort_order).lower() if isinstance(param_sort_order, bool) else param_sort_order
+
+  if param_sort_by is not None:
+    params["sort_by"] = str(param_sort_by).lower() if isinstance(param_sort_by, bool) else param_sort_by
+
+  if param_cluster_scope is not None:
+    params["cluster_scope"] = str(param_cluster_scope).lower() if isinstance(param_cluster_scope, bool) else param_cluster_scope
+
+  flat_body = {}
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/api/v2/cost/right-sizing/service", method="GET", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response

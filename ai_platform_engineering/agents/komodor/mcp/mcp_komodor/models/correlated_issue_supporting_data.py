@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Correlatedissuesupportingdata(BaseModel):
-    """Correlatedissuesupportingdata model"""
+  """Correlatedissuesupportingdata model"""
 
 
 class CorrelatedissuesupportingdataResponse(APIResponse):
-    """Response model for Correlatedissuesupportingdata"""
+  """Response model for Correlatedissuesupportingdata"""
 
-    data: Optional[Correlatedissuesupportingdata] = None
+  data: Optional[Correlatedissuesupportingdata] = None
 
 
 class CorrelatedissuesupportingdataListResponse(APIResponse):
-    """List response model for Correlatedissuesupportingdata"""
+  """List response model for Correlatedissuesupportingdata"""
 
-    data: List[Correlatedissuesupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Correlatedissuesupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Optionalclusterscope(BaseModel):
-    """Optionalclusterscope model"""
+  """Optionalclusterscope model"""
 
 
 class OptionalclusterscopeResponse(APIResponse):
-    """Response model for Optionalclusterscope"""
+  """Response model for Optionalclusterscope"""
 
-    data: Optional[Optionalclusterscope] = None
+  data: Optional[Optionalclusterscope] = None
 
 
 class OptionalclusterscopeListResponse(APIResponse):
-    """List response model for Optionalclusterscope"""
+  """List response model for Optionalclusterscope"""
 
-    data: List[Optionalclusterscope] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Optionalclusterscope] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

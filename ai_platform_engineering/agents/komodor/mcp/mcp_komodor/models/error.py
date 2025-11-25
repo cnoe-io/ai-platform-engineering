@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Error(BaseModel):
-    """Error model"""
+  """Error model"""
 
 
 class ErrorResponse(APIResponse):
-    """Response model for Error"""
+  """Response model for Error"""
 
-    data: Optional[Error] = None
+  data: Optional[Error] = None
 
 
 class ErrorListResponse(APIResponse):
-    """List response model for Error"""
+  """List response model for Error"""
 
-    data: List[Error] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Error] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

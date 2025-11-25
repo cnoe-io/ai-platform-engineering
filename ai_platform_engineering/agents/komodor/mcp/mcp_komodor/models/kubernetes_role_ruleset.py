@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Kubernetesroleruleset(BaseModel):
-    """Kubernetesroleruleset model"""
+  """Kubernetesroleruleset model"""
 
 
 class KubernetesrolerulesetResponse(APIResponse):
-    """Response model for Kubernetesroleruleset"""
+  """Response model for Kubernetesroleruleset"""
 
-    data: Optional[Kubernetesroleruleset] = None
+  data: Optional[Kubernetesroleruleset] = None
 
 
 class KubernetesrolerulesetListResponse(APIResponse):
-    """List response model for Kubernetesroleruleset"""
+  """List response model for Kubernetesroleruleset"""
 
-    data: List[Kubernetesroleruleset] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Kubernetesroleruleset] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

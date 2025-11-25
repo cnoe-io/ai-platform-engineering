@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Epochtime(BaseModel):
-    """Unix timestamp in seconds"""
+  """Unix timestamp in seconds"""
 
 
 class EpochtimeResponse(APIResponse):
-    """Response model for Epochtime"""
+  """Response model for Epochtime"""
 
-    data: Optional[Epochtime] = None
+  data: Optional[Epochtime] = None
 
 
 class EpochtimeListResponse(APIResponse):
-    """List response model for Epochtime"""
+  """List response model for Epochtime"""
 
-    data: List[Epochtime] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Epochtime] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

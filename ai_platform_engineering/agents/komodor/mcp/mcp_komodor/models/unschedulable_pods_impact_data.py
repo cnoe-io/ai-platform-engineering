@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Unschedulablepodsimpactdata(BaseModel):
-    """Unschedulablepodsimpactdata model"""
+  """Unschedulablepodsimpactdata model"""
 
 
 class UnschedulablepodsimpactdataResponse(APIResponse):
-    """Response model for Unschedulablepodsimpactdata"""
+  """Response model for Unschedulablepodsimpactdata"""
 
-    data: Optional[Unschedulablepodsimpactdata] = None
+  data: Optional[Unschedulablepodsimpactdata] = None
 
 
 class UnschedulablepodsimpactdataListResponse(APIResponse):
-    """List response model for Unschedulablepodsimpactdata"""
+  """List response model for Unschedulablepodsimpactdata"""
 
-    data: List[Unschedulablepodsimpactdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Unschedulablepodsimpactdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

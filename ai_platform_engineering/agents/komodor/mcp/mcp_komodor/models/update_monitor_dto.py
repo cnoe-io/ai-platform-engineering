@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Updatemonitordto(BaseModel):
-    """Updatemonitordto model"""
+  """Updatemonitordto model"""
 
 
 class UpdatemonitordtoResponse(APIResponse):
-    """Response model for Updatemonitordto"""
+  """Response model for Updatemonitordto"""
 
-    data: Optional[Updatemonitordto] = None
+  data: Optional[Updatemonitordto] = None
 
 
 class UpdatemonitordtoListResponse(APIResponse):
-    """List response model for Updatemonitordto"""
+  """List response model for Updatemonitordto"""
 
-    data: List[Updatemonitordto] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Updatemonitordto] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None
