@@ -5,39 +5,81 @@ from typing import Dict, Any, List
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def post_api_v2_rbac_policies(body_name: str, body_statements: List[str]) -> Dict[str, Any]:
-    '''
-    Create a new RBAC policy.
+async def get_api_v2_rbac_policies() -> Any:
+  """
+  Get All Policies
 
-    Args:
-        body_name (str): The name of the policy to be created.
-        body_statements (List[str]): A list of statements that define the policy rules.
+  OpenAPI Description:
+      Get all policies for the account
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call, containing details of the created policy.
+  Args:
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
-    logger.debug("Making POST request to /api/v2/rbac/policies")
 
-    params = {}
-    data = {}
+  Returns:
+      Any: The JSON response from the API call.
 
-    flat_body = {}
-    if body_name is not None:
-        flat_body["name"] = body_name
-    if body_statements is not None:
-        flat_body["statements"] = body_statements
-    data = assemble_nested_body(flat_body)
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making GET request to /api/v2/rbac/policies")
 
-    success, response = await make_api_request("/api/v2/rbac/policies", method="POST", params=params, data=data)
+  params = {}
+  data = {}
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+  flat_body = {}
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/api/v2/rbac/policies", method="GET", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response
+
+
+async def post_api_v2_rbac_policies(body_name: str, body_statements: List[Dict[str, Any]], body_description: str = None) -> Any:
+  """
+  Create Policy
+
+  OpenAPI Description:
+      Create Policy
+
+  Args:
+
+      body_name (str): OpenAPI parameter corresponding to 'body_name'
+
+      body_description (str): OpenAPI parameter corresponding to 'body_description'
+
+      body_statements (List[Dict[str, Any]]): OpenAPI parameter corresponding to 'body_statements'
+
+
+  Returns:
+      Any: The JSON response from the API call.
+
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making POST request to /api/v2/rbac/policies")
+
+  params = {}
+  data = {}
+
+  flat_body = {}
+  if body_name is not None:
+    flat_body["name"] = body_name
+  if body_statements is not None:
+    flat_body["statements"] = body_statements
+  if body_description is not None:
+    flat_body["description"] = body_description
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/api/v2/rbac/policies", method="POST", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response

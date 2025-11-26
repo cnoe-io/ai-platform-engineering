@@ -1,42 +1,45 @@
 """Tools for /mgmt/v1/integrations/kubernetes operations"""
 
 import logging
-from typing import Dict, Any
+from typing import Any
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def cluster_controller_post(body_clusterName: str) -> Dict[str, Any]:
-    '''
-    Makes an asynchronous POST request to the Kubernetes integration endpoint.
+async def post_clust_controller_post(body_cluster_name: str) -> Any:
+  """
+  Deprecated: Use `/api/v2/integrations/kubernetes` instead.
 
-    Args:
-        body_clusterName (str): The name of the cluster to be used in the request.
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/integrations/kubernetes` API instead for new implementations and better validation and error handling.
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call, containing the result of the operation.
+  Args:
 
-    Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
-    '''
-    logger.debug("Making POST request to /mgmt/v1/integrations/kubernetes")
+      body_cluster_name (str): The name of the cluster
 
-    params = {}
-    data = {}
 
-    flat_body = {}
-    if body_clusterName is not None:
-        flat_body["clusterName"] = body_clusterName
-    data = assemble_nested_body(flat_body)
+  Returns:
+      Any: The JSON response from the API call.
 
-    success, response = await make_api_request(
-        "/mgmt/v1/integrations/kubernetes", method="POST", params=params, data=data
-    )
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making POST request to /mgmt/v1/integrations/kubernetes")
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+  params = {}
+  data = {}
+
+  flat_body = {}
+  if body_cluster_name is not None:
+    flat_body["cluster_name"] = body_cluster_name
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/mgmt/v1/integrations/kubernetes", method="POST", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response

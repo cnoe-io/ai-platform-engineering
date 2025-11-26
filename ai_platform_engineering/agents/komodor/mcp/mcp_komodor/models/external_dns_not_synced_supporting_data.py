@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Externaldnsnotsyncedsupportingdata(BaseModel):
-    """Externaldnsnotsyncedsupportingdata model"""
+  """Externaldnsnotsyncedsupportingdata model"""
 
 
 class ExternaldnsnotsyncedsupportingdataResponse(APIResponse):
-    """Response model for Externaldnsnotsyncedsupportingdata"""
+  """Response model for Externaldnsnotsyncedsupportingdata"""
 
-    data: Optional[Externaldnsnotsyncedsupportingdata] = None
+  data: Optional[Externaldnsnotsyncedsupportingdata] = None
 
 
 class ExternaldnsnotsyncedsupportingdataListResponse(APIResponse):
-    """List response model for Externaldnsnotsyncedsupportingdata"""
+  """List response model for Externaldnsnotsyncedsupportingdata"""
 
-    data: List[Externaldnsnotsyncedsupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Externaldnsnotsyncedsupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

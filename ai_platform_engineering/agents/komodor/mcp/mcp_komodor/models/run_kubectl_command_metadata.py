@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Runkubectlcommandmetadata(BaseModel):
-    """Runkubectlcommandmetadata model"""
+  """Runkubectlcommandmetadata model"""
 
 
 class RunkubectlcommandmetadataResponse(APIResponse):
-    """Response model for Runkubectlcommandmetadata"""
+  """Response model for Runkubectlcommandmetadata"""
 
-    data: Optional[Runkubectlcommandmetadata] = None
+  data: Optional[Runkubectlcommandmetadata] = None
 
 
 class RunkubectlcommandmetadataListResponse(APIResponse):
-    """List response model for Runkubectlcommandmetadata"""
+  """List response model for Runkubectlcommandmetadata"""
 
-    data: List[Runkubectlcommandmetadata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Runkubectlcommandmetadata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

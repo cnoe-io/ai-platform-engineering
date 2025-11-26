@@ -1,23 +1,28 @@
 [project]
-name = "mcp-komodor"
+name = "mcp_komodor"
 version = "0.1.0"
-description = "Komodor MCP server for Public API from OpenAPI specification"
+description = "Generated komodor MCP server"
+license = "Apache-2.0"
 authors = [
-  { name = "Arthur Drozdov", email = "adrozdov@cisco.com" }
+  { name = "Unspecified", email = "auto@example.com" }
 ]
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = [
-  "httpx>=0.24.0",
-  "python-dotenv>=1.0.0",
-  "pydantic>=2.0.0",
-  "mcp>=1.12.3",
-  "fastmcp>=2.11.1"
-]
 
 [tool.poetry.scripts]
-mcp_komodor = "mcp_komodor.server:main"
+mcp_argocd = "mcp_komodor.server:main"
 
+[tool.setuptools]
+packages = ["mcp_komodor"]
+
+[tool.poetry.dependencies]
+
+      python = ">=3.13,<4.0"
+      httpx = ">=0.24.0"
+      python-dotenv = ">=1.0.0"
+      pydantic = ">=2.0.0"
+      mcp = ">=1.9.0"
+      fastmcp = ">=2.0.0"
+    
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

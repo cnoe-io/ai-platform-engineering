@@ -29,3 +29,5 @@ debug backstage app in comn-dev-use2-1 using komodor
 who is on call sre
 
 what splunk events do you see in the last week?
+
+show all the caipe apps in argocd, derive service name and then and debug them with komodor if they are unhealthy

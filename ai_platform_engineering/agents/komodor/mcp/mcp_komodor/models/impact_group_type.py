@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Impactgrouptype(BaseModel):
-    """Impactgrouptype model"""
+  """Impactgrouptype model"""
 
 
 class ImpactgrouptypeResponse(APIResponse):
-    """Response model for Impactgrouptype"""
+  """Response model for Impactgrouptype"""
 
-    data: Optional[Impactgrouptype] = None
+  data: Optional[Impactgrouptype] = None
 
 
 class ImpactgrouptypeListResponse(APIResponse):
-    """List response model for Impactgrouptype"""
+  """List response model for Impactgrouptype"""
 
-    data: List[Impactgrouptype] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Impactgrouptype] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Fielderror(BaseModel):
-    """Fielderror model"""
+  """Fielderror model"""
 
 
 class FielderrorResponse(APIResponse):
-    """Response model for Fielderror"""
+  """Response model for Fielderror"""
 
-    data: Optional[Fielderror] = None
+  data: Optional[Fielderror] = None
 
 
 class FielderrorListResponse(APIResponse):
-    """List response model for Fielderror"""
+  """List response model for Fielderror"""
 
-    data: List[Fielderror] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Fielderror] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

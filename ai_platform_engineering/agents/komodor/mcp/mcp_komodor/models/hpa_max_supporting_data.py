@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Hpamaxsupportingdata(BaseModel):
-    """Hpamaxsupportingdata model"""
+  """Hpamaxsupportingdata model"""
 
 
 class HpamaxsupportingdataResponse(APIResponse):
-    """Response model for Hpamaxsupportingdata"""
+  """Response model for Hpamaxsupportingdata"""
 
-    data: Optional[Hpamaxsupportingdata] = None
+  data: Optional[Hpamaxsupportingdata] = None
 
 
 class HpamaxsupportingdataListResponse(APIResponse):
-    """List response model for Hpamaxsupportingdata"""
+  """List response model for Hpamaxsupportingdata"""
 
-    data: List[Hpamaxsupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Hpamaxsupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Resource(BaseModel):
-    """Resource model"""
+  """Resource model"""
 
 
 class ResourceResponse(APIResponse):
-    """Response model for Resource"""
+  """Response model for Resource"""
 
-    data: Optional[Resource] = None
+  data: Optional[Resource] = None
 
 
 class ResourceListResponse(APIResponse):
-    """List response model for Resource"""
+  """List response model for Resource"""
 
-    data: List[Resource] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Resource] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

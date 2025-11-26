@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Pattern(BaseModel):
-    """Pattern model"""
+  """Pattern model"""
 
 
 class PatternResponse(APIResponse):
-    """Response model for Pattern"""
+  """Response model for Pattern"""
 
-    data: Optional[Pattern] = None
+  data: Optional[Pattern] = None
 
 
 class PatternListResponse(APIResponse):
-    """List response model for Pattern"""
+  """List response model for Pattern"""
 
-    data: List[Pattern] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Pattern] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None
