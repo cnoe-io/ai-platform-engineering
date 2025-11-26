@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Restartreason(BaseModel):
-    """Restartreason model"""
+  """Restartreason model"""
 
 
 class RestartreasonResponse(APIResponse):
-    """Response model for Restartreason"""
+  """Response model for Restartreason"""
 
-    data: Optional[Restartreason] = None
+  data: Optional[Restartreason] = None
 
 
 class RestartreasonListResponse(APIResponse):
-    """List response model for Restartreason"""
+  """List response model for Restartreason"""
 
-    data: List[Restartreason] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Restartreason] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

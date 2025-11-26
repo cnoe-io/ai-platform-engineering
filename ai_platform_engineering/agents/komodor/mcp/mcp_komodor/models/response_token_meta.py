@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Responsetokenmeta(BaseModel):
-    """Responsetokenmeta model"""
+  """Responsetokenmeta model"""
 
 
 class ResponsetokenmetaResponse(APIResponse):
-    """Response model for Responsetokenmeta"""
+  """Response model for Responsetokenmeta"""
 
-    data: Optional[Responsetokenmeta] = None
+  data: Optional[Responsetokenmeta] = None
 
 
 class ResponsetokenmetaListResponse(APIResponse):
-    """List response model for Responsetokenmeta"""
+  """List response model for Responsetokenmeta"""
 
-    data: List[Responsetokenmeta] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Responsetokenmeta] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

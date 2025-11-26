@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Costallocationresponse(BaseModel):
-    """Costallocationresponse model"""
+  """Costallocationresponse model"""
 
 
 class CostallocationresponseResponse(APIResponse):
-    """Response model for Costallocationresponse"""
+  """Response model for Costallocationresponse"""
 
-    data: Optional[Costallocationresponse] = None
+  data: Optional[Costallocationresponse] = None
 
 
 class CostallocationresponseListResponse(APIResponse):
-    """List response model for Costallocationresponse"""
+  """List response model for Costallocationresponse"""
 
-    data: List[Costallocationresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Costallocationresponse] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

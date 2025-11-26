@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Issuestatus(BaseModel):
-    """The status of the event. Open indicates the event is ongoing, closed indicates the event has been resolved or finished."""
+  """The status of the event. Open indicates the event is ongoing, closed indicates the event has been resolved or finished."""
 
 
 class IssuestatusResponse(APIResponse):
-    """Response model for Issuestatus"""
+  """Response model for Issuestatus"""
 
-    data: Optional[Issuestatus] = None
+  data: Optional[Issuestatus] = None
 
 
 class IssuestatusListResponse(APIResponse):
-    """List response model for Issuestatus"""
+  """List response model for Issuestatus"""
 
-    data: List[Issuestatus] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Issuestatus] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Errorwrapper(BaseModel):
-    """Errorwrapper model"""
+  """Errorwrapper model"""
 
 
 class ErrorwrapperResponse(APIResponse):
-    """Response model for Errorwrapper"""
+  """Response model for Errorwrapper"""
 
-    data: Optional[Errorwrapper] = None
+  data: Optional[Errorwrapper] = None
 
 
 class ErrorwrapperListResponse(APIResponse):
-    """List response model for Errorwrapper"""
+  """List response model for Errorwrapper"""
 
-    data: List[Errorwrapper] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Errorwrapper] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Klaudiarcaresponse(BaseModel):
-    """Klaudiarcaresponse model"""
+  """Klaudiarcaresponse model"""
 
 
 class KlaudiarcaresponseResponse(APIResponse):
-    """Response model for Klaudiarcaresponse"""
+  """Response model for Klaudiarcaresponse"""
 
-    data: Optional[Klaudiarcaresponse] = None
+  data: Optional[Klaudiarcaresponse] = None
 
 
 class KlaudiarcaresponseListResponse(APIResponse):
-    """List response model for Klaudiarcaresponse"""
+  """List response model for Klaudiarcaresponse"""
 
-    data: List[Klaudiarcaresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Klaudiarcaresponse] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

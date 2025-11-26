@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Policycreaterequest(BaseModel):
-    """Policycreaterequest model"""
+  """Policycreaterequest model"""
 
 
 class PolicycreaterequestResponse(APIResponse):
-    """Response model for Policycreaterequest"""
+  """Response model for Policycreaterequest"""
 
-    data: Optional[Policycreaterequest] = None
+  data: Optional[Policycreaterequest] = None
 
 
 class PolicycreaterequestListResponse(APIResponse):
-    """List response model for Policycreaterequest"""
+  """List response model for Policycreaterequest"""
 
-    data: List[Policycreaterequest] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Policycreaterequest] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

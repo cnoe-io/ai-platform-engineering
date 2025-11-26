@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Costrightsizingpercontainerresponse(BaseModel):
-    """Costrightsizingpercontainerresponse model"""
+  """Costrightsizingpercontainerresponse model"""
 
 
 class CostrightsizingpercontainerresponseResponse(APIResponse):
-    """Response model for Costrightsizingpercontainerresponse"""
+  """Response model for Costrightsizingpercontainerresponse"""
 
-    data: Optional[Costrightsizingpercontainerresponse] = None
+  data: Optional[Costrightsizingpercontainerresponse] = None
 
 
 class CostrightsizingpercontainerresponseListResponse(APIResponse):
-    """List response model for Costrightsizingpercontainerresponse"""
+  """List response model for Costrightsizingpercontainerresponse"""
 
-    data: List[Costrightsizingpercontainerresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Costrightsizingpercontainerresponse] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

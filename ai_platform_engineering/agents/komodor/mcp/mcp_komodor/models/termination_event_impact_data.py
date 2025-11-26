@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Terminationeventimpactdata(BaseModel):
-    """Terminationeventimpactdata model"""
+  """Terminationeventimpactdata model"""
 
 
 class TerminationeventimpactdataResponse(APIResponse):
-    """Response model for Terminationeventimpactdata"""
+  """Response model for Terminationeventimpactdata"""
 
-    data: Optional[Terminationeventimpactdata] = None
+  data: Optional[Terminationeventimpactdata] = None
 
 
 class TerminationeventimpactdataListResponse(APIResponse):
-    """List response model for Terminationeventimpactdata"""
+  """List response model for Terminationeventimpactdata"""
 
-    data: List[Terminationeventimpactdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Terminationeventimpactdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

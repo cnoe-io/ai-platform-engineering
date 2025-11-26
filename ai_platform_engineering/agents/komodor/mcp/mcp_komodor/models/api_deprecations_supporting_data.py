@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Apideprecationssupportingdata(BaseModel):
-    """Apideprecationssupportingdata model"""
+  """Apideprecationssupportingdata model"""
 
 
 class ApideprecationssupportingdataResponse(APIResponse):
-    """Response model for Apideprecationssupportingdata"""
+  """Response model for Apideprecationssupportingdata"""
 
-    data: Optional[Apideprecationssupportingdata] = None
+  data: Optional[Apideprecationssupportingdata] = None
 
 
 class ApideprecationssupportingdataListResponse(APIResponse):
-    """List response model for Apideprecationssupportingdata"""
+  """List response model for Apideprecationssupportingdata"""
 
-    data: List[Apideprecationssupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Apideprecationssupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

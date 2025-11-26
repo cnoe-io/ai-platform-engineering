@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Noisyneighborsupportingdata(BaseModel):
-    """Noisyneighborsupportingdata model"""
+  """Noisyneighborsupportingdata model"""
 
 
 class NoisyneighborsupportingdataResponse(APIResponse):
-    """Response model for Noisyneighborsupportingdata"""
+  """Response model for Noisyneighborsupportingdata"""
 
-    data: Optional[Noisyneighborsupportingdata] = None
+  data: Optional[Noisyneighborsupportingdata] = None
 
 
 class NoisyneighborsupportingdataListResponse(APIResponse):
-    """List response model for Noisyneighborsupportingdata"""
+  """List response model for Noisyneighborsupportingdata"""
 
-    data: List[Noisyneighborsupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Noisyneighborsupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

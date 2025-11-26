@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class SchemasResourcesscope(BaseModel):
-    """SchemasResourcesscope model"""
+  """SchemasResourcesscope model"""
 
 
 class SchemasResourcesscopeResponse(APIResponse):
-    """Response model for SchemasResourcesscope"""
+  """Response model for SchemasResourcesscope"""
 
-    data: Optional[SchemasResourcesscope] = None
+  data: Optional[SchemasResourcesscope] = None
 
 
 class SchemasResourcesscopeListResponse(APIResponse):
-    """List response model for SchemasResourcesscope"""
+  """List response model for SchemasResourcesscope"""
 
-    data: List[SchemasResourcesscope] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[SchemasResourcesscope] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

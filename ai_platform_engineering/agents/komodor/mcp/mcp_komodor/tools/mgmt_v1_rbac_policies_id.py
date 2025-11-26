@@ -5,75 +5,81 @@ from typing import Dict, Any, List
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_tools")
 
 
-async def policies_controller_v1_get(path_id: str) -> Dict[str, Any]:
-    '''
-    Fetches the details of a specific policy using its UUID.
+async def get_policies_controller_v1_get(path_id: str) -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/policies/{id_or_name}` instead.
 
-    Args:
-        path_id (str): The UUID of the policy to retrieve.
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/policies/{id_or_name}` API instead for new implementations and better validation and error handling.
 
-    Returns:
-        Dict[str, Any]: A dictionary containing the JSON response from the API call, which includes the policy details.
+  Args:
 
-    Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
-    '''
-    logger.debug("Making GET request to /mgmt/v1/rbac/policies/{id}")
-
-    params = {}
-    data = {}
-
-    flat_body = {}
-    data = assemble_nested_body(flat_body)
-
-    success, response = await make_api_request(
-        f"/mgmt/v1/rbac/policies/{path_id}", method="GET", params=params, data=data
-    )
-
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+      path_id (str): uuid of a policy
 
 
-async def policies_controller_v1_update_policy(
-    path_id: str, body_name: str, body_statements: List[str]
-) -> Dict[str, Any]:
-    '''
-    Updates a policy in the RBAC management system.
+  Returns:
+      Any: The JSON response from the API call.
 
-    Args:
-        path_id (str): The UUID of the policy to be updated.
-        body_name (str): The name of the policy as specified in the request body.
-        body_statements (List[str]): A list of statements associated with the policy as specified in the request body.
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making GET request to /mgmt/v1/rbac/policies/{id}")
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call, containing the updated policy details or an error message.
+  params = {}
+  data = {}
 
-    Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
-    '''
-    logger.debug("Making PUT request to /mgmt/v1/rbac/policies/{id}")
+  flat_body = {}
+  data = assemble_nested_body(flat_body)
 
-    params = {}
-    data = {}
+  success, response = await make_api_request(f"/mgmt/v1/rbac/policies/{path_id}", method="GET", params=params, data=data)
 
-    flat_body = {}
-    if body_name is not None:
-        flat_body["name"] = body_name
-    if body_statements is not None:
-        flat_body["statements"] = body_statements
-    data = assemble_nested_body(flat_body)
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response
 
-    success, response = await make_api_request(
-        f"/mgmt/v1/rbac/policies/{path_id}", method="PUT", params=params, data=data
-    )
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+async def put_policies_controller_policy(path_id: str, body_name: str, body_statements: List[Dict[str, Any]]) -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/policies/{id_or_name}` instead.
+
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/policies/{id_or_name}` API instead for new implementations and better validation and error handling.
+
+  Args:
+
+      path_id (str): uuid of a policy
+
+      body_name (str): OpenAPI parameter corresponding to 'body_name'
+
+      body_statements (List[Dict[str, Any]]): OpenAPI parameter corresponding to 'body_statements'
+
+
+  Returns:
+      Any: The JSON response from the API call.
+
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making PUT request to /mgmt/v1/rbac/policies/{id}")
+
+  params = {}
+  data = {}
+
+  flat_body = {}
+  if body_name is not None:
+    flat_body["name"] = body_name
+  if body_statements is not None:
+    flat_body["statements"] = body_statements
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request(f"/mgmt/v1/rbac/policies/{path_id}", method="PUT", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response

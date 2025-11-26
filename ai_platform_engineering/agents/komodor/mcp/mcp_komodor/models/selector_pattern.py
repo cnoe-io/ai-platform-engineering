@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Selectorpattern(BaseModel):
-    """Selectorpattern model"""
+  """Selectorpattern model"""
 
 
 class SelectorpatternResponse(APIResponse):
-    """Response model for Selectorpattern"""
+  """Response model for Selectorpattern"""
 
-    data: Optional[Selectorpattern] = None
+  data: Optional[Selectorpattern] = None
 
 
 class SelectorpatternListResponse(APIResponse):
-    """List response model for Selectorpattern"""
+  """List response model for Selectorpattern"""
 
-    data: List[Selectorpattern] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Selectorpattern] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

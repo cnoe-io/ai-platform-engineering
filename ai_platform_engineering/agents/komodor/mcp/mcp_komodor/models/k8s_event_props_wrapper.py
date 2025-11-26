@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class K8seventpropswrapper(BaseModel):
-    """K8seventpropswrapper model"""
+  """K8seventpropswrapper model"""
 
 
 class K8seventpropswrapperResponse(APIResponse):
-    """Response model for K8seventpropswrapper"""
+  """Response model for K8seventpropswrapper"""
 
-    data: Optional[K8seventpropswrapper] = None
+  data: Optional[K8seventpropswrapper] = None
 
 
 class K8seventpropswrapperListResponse(APIResponse):
-    """List response model for K8seventpropswrapper"""
+  """List response model for K8seventpropswrapper"""
 
-    data: List[K8seventpropswrapper] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[K8seventpropswrapper] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

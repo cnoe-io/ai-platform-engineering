@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Overprovisionedclustergroupeddata(BaseModel):
-    """Overprovisionedclustergroupeddata model"""
+  """Overprovisionedclustergroupeddata model"""
 
 
 class OverprovisionedclustergroupeddataResponse(APIResponse):
-    """Response model for Overprovisionedclustergroupeddata"""
+  """Response model for Overprovisionedclustergroupeddata"""
 
-    data: Optional[Overprovisionedclustergroupeddata] = None
+  data: Optional[Overprovisionedclustergroupeddata] = None
 
 
 class OverprovisionedclustergroupeddataListResponse(APIResponse):
-    """List response model for Overprovisionedclustergroupeddata"""
+  """List response model for Overprovisionedclustergroupeddata"""
 
-    data: List[Overprovisionedclustergroupeddata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Overprovisionedclustergroupeddata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

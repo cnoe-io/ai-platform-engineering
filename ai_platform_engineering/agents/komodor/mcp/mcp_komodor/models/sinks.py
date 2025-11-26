@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Sinks(BaseModel):
-    """Sinks model"""
+  """Sinks model"""
 
 
 class SinksResponse(APIResponse):
-    """Response model for Sinks"""
+  """Response model for Sinks"""
 
-    data: Optional[Sinks] = None
+  data: Optional[Sinks] = None
 
 
 class SinksListResponse(APIResponse):
-    """List response model for Sinks"""
+  """List response model for Sinks"""
 
-    data: List[Sinks] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Sinks] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

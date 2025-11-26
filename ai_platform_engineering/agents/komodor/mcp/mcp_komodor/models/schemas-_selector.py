@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class SchemasSelector(BaseModel):
-    """SchemasSelector model"""
+  """SchemasSelector model"""
 
 
 class SchemasSelectorResponse(APIResponse):
-    """Response model for SchemasSelector"""
+  """Response model for SchemasSelector"""
 
-    data: Optional[SchemasSelector] = None
+  data: Optional[SchemasSelector] = None
 
 
 class SchemasSelectorListResponse(APIResponse):
-    """List response model for SchemasSelector"""
+  """List response model for SchemasSelector"""
 
-    data: List[SchemasSelector] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[SchemasSelector] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None
