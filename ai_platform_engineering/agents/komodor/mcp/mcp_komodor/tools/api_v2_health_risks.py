@@ -1,11 +1,11 @@
 """Tools for /api/v2/health/risks operations"""
 
 import logging
-from typing import Any, List, Literal
+from typing import Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -56,10 +56,10 @@ async def get_health_risks(
     ]
   ] = None,
   param_status: List[Literal["open", "confirmed", "resolved", "dismissed", "ignored", "manually_resolved"]] = None,
-  param_cluster_name: List[str] = None,
-  param_namespace: List[str] = None,
-  param_short_resource_name_search_term: str = None,
-  param_short_resource_name: List[str] = None,
+  param_cluster_name: Optional[List[str]] = None,
+  param_namespace: Optional[List[str]] = None,
+  param_short_resource_name_search_term: Optional[str] = None,
+  param_short_resource_name: Optional[List[str]] = None,
   param_impact_group_id: List[
     Literal[
       "DegradedService",
@@ -74,10 +74,10 @@ async def get_health_risks(
     ]
   ] = None,
   param_severity: List[Literal["high", "medium", "low"]] = None,
-  param_komodor_uid: List[str] = None,
-  param_resource_type: List[str] = None,
-  param_created_from_epoch: str = None,
-  param_created_to_epoch: str = None,
+  param_komodor_uid: Optional[List[str]] = None,
+  param_resource_type: Optional[List[str]] = None,
+  param_created_from_epoch: Optional[str] = None,
+  param_created_to_epoch: Optional[str] = None,
   param_check_category: List[Literal["workload", "infrastructure"]] = None,
 ) -> Any:
   """

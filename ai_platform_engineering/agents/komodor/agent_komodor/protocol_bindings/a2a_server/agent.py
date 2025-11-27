@@ -78,7 +78,10 @@ class KomodorAgent(BaseLangGraphAgent):
         capabilities=KOMODOR_CAPABILITIES,
         response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES + [
             "When searching for events, audit logs, or issues with time ranges, use the current date provided above as reference",
-            "For queries like 'today's issues' or 'last hour's events', calculate the time range from the current date/time"
+            "For queries like 'today's issues' or 'last hour's events', calculate the time range from the current date/time",
+            "When searching services by health status, ONLY use: 'healthy', 'unhealthy', or 'unknown'. Never use 'Progressing' or other values",
+            "To find services with deployments in progress, use the latest_deploy_status parameter with value 'pending', not the health status filter",
+            "CLUSTER NAME WORKFLOW: If the user provides a service/application name but no cluster name: (1) First call post_api_v2_svcs_search WITHOUT body_scope_cluster to search across all clusters, (2) Extract the cluster name from the response, (3) Use that cluster name for subsequent operations (health checks, events, RCA). If the user provides the cluster name directly, use it immediately. If neither service name nor cluster name is provided, ask the user for at least one of them"
         ],
         important_notes=DATE_HANDLING_NOTES,
         graceful_error_handling=graceful_error_handling_template("Komodor")

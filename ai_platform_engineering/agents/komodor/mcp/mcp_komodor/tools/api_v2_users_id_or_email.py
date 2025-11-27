@@ -1,11 +1,11 @@
 """Tools for /api/v2/users/{id_or_email} operations"""
 
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -44,7 +44,7 @@ async def get_api_v2_users_id_or_email(path_id_or_email: str) -> Any:
 
 
 async def put_api_v2_users_id_or_email(
-  path_id_or_email: str, body_display_name: str = None, body_role_ids: List[str] = None, body_role_names: List[str] = None
+  path_id_or_email: str, body_display_name: Optional[str] = None, body_role_ids: Optional[List[str]] = None, body_role_names: Optional[List[str]] = None
 ) -> Any:
   """
   Update a User by id or email

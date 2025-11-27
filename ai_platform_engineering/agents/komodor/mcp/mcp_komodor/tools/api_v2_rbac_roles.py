@@ -1,11 +1,11 @@
 """Tools for /api/v2/rbac/roles operations"""
 
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -41,7 +41,7 @@ async def get_api_v2_rbac_roles() -> Any:
   return response
 
 
-async def post_api_v2_rbac_roles(body_name: str, body_is_default: bool = None, body_policy_ids: List[str] = None) -> Any:
+async def post_api_v2_rbac_roles(body_name: str, body_is_default: Optional[bool] = None, body_policy_ids: Optional[List[str]] = None) -> Any:
   """
   Create Role
 

@@ -1,11 +1,11 @@
 """Tools for /api/v2/cost/allocation operations"""
 
 import logging
-from typing import Any, List, Literal
+from typing import Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -13,10 +13,10 @@ async def get_cost_allocation(
   param_time_frame: Literal["Yesterday", "Past_7_days", "Past_14_days", "Past_30_days"],
   param_group_by: Literal["clusterName", "namespace", "komodorServiceName"],
   param_page_size: int,
-  param_cluster_scope: List[str] = None,
+  param_cluster_scope: Optional[List[str]] = None,
   param_filter_by: Literal["clusterName", "namespace", "komodorServiceName", "komodorServiceKind"] = None,
-  param_filter_value_equals: str = None,
-  param_pagination_token: str = None,
+  param_filter_value_equals: Optional[str] = None,
+  param_pagination_token: Optional[str] = None,
   param_sort_order: Literal["asc", "desc"] = None,
   param_sort_by: Literal[
     "clusterName",

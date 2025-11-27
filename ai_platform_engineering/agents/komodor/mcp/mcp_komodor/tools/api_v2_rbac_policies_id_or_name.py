@@ -1,11 +1,11 @@
 """Tools for /api/v2/rbac/policies/{id_or_name} operations"""
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -44,7 +44,7 @@ async def get_get_api_name(path_id_or_name: str) -> Any:
 
 
 async def put_put_api_name(
-  path_id_or_name: str, body_name: str = None, body_description: str = None, body_statements: List[Dict[str, Any]] = None
+  path_id_or_name: str, body_name: Optional[str] = None, body_description: Optional[str] = None, body_statements: List[Dict[str, Any]] = None
 ) -> Any:
   """
   Update Policy by Id or Name
