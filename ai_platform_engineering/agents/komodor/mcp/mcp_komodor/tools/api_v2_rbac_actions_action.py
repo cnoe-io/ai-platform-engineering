@@ -1,11 +1,11 @@
 """Tools for /api/v2/rbac/actions/{action} operations"""
 
 import logging
-from typing import Any
+from typing import Any, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 

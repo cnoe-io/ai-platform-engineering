@@ -1,11 +1,11 @@
 """Tools for /api/v2/health/risks/{id} operations"""
 
 import logging
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 

@@ -1,34 +1,35 @@
 """Tools for /api/v2/klaudia/rca/sessions operations"""
 
 import logging
-from typing import Any
+from typing import Any, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
 async def post_trigger_klaudia_rca(
-  body_kind: str, body_name: str, body_namespace: str, body_cluster_name: str, body_issue_id: str = None
+  body_kind: str, body_name: str, body_namespace: str, body_cluster_name: str, body_issue_id: Optional[str] = None
 ) -> Any:
   """
   Trigger a new RCA investigation
 
   OpenAPI Description:
-
+      IMPORTANT: Cluster name is REQUIRED for RCA investigations. If you don't have the cluster name,
+      first search for the service using post_api_v2_svcs_search to discover it.
 
   Args:
 
-      body_kind (str): OpenAPI parameter corresponding to 'body_kind'
+      body_kind (str): The Kubernetes resource kind (e.g., 'Deployment', 'StatefulSet')
 
-      body_name (str): OpenAPI parameter corresponding to 'body_name'
+      body_name (str): The name of the resource
 
-      body_namespace (str): OpenAPI parameter corresponding to 'body_namespace'
+      body_namespace (str): The namespace of the resource
 
-      body_cluster_name (str): OpenAPI parameter corresponding to 'body_cluster_name'
+      body_cluster_name (str): REQUIRED - The cluster name where the resource is located
 
-      body_issue_id (str): OpenAPI parameter corresponding to 'body_issue_id'
+      body_issue_id (str): Optional issue ID to associate with the RCA
 
 
   Returns:
@@ -37,6 +38,12 @@ async def post_trigger_klaudia_rca(
   Raises:
       Exception: If the API request fails or returns an error.
   """
+  # Validate required cluster_name parameter
+  if not body_cluster_name:
+    error_msg = "Cluster name is required for RCA investigations. Please provide the cluster name or search for the service first to discover it."
+    logger.error(error_msg)
+    return {"error": error_msg}
+  
   logger.debug("Making POST request to /api/v2/klaudia/rca/sessions")
 
   params = {}

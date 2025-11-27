@@ -1,28 +1,28 @@
 """Tools for /api/v2/audit-log operations"""
 
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
 async def get_api_v2_audit_log(
-  param_id: str = None,
-  param_user_ids: List[str] = None,
-  param_actions: List[str] = None,
-  param_categories: List[str] = None,
-  param_operations: List[str] = None,
-  param_entity_types: List[str] = None,
-  param_entity_name: str = None,
-  param_start_time: str = None,
-  param_end_time: str = None,
-  param_status: str = None,
-  param_page: int = None,
-  param_page_size: int = None,
-  param_sort: str = None,
+  param_id: Optional[str] = None,
+  param_user_ids: Optional[List[str]] = None,
+  param_actions: Optional[List[str]] = None,
+  param_categories: Optional[List[str]] = None,
+  param_operations: Optional[List[str]] = None,
+  param_entity_types: Optional[List[str]] = None,
+  param_entity_name: Optional[str] = None,
+  param_start_time: Optional[str] = None,
+  param_end_time: Optional[str] = None,
+  param_status: Optional[str] = None,
+  param_page: Optional[int] = None,
+  param_page_size: Optional[int] = None,
+  param_sort: Optional[str] = None,
 ) -> Any:
   """
   Query Audit Logs

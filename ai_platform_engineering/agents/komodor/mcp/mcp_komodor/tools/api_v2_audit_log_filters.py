@@ -1,15 +1,15 @@
 """Tools for /api/v2/audit-log/filters operations"""
 
 import logging
-from typing import Any
+from typing import Any, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_v2_audit_log_filters(param_start_time: str = None, param_end_time: str = None) -> Any:
+async def get_api_v2_audit_log_filters(param_start_time: Optional[str] = None, param_end_time: Optional[str] = None) -> Any:
   """
   Get available filter values for Query Audit Logs
 

@@ -1,16 +1,16 @@
 """Tools for /api/v2/rbac/actions/{id} operations"""
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
 async def put_api_v2_rbac_actions_id(
-  path_id: str, body_action: str = None, body_description: str = None, body_k8s_ruleset: List[Dict[str, Any]] = None
+  path_id: str, body_action: Optional[str] = None, body_description: Optional[str] = None, body_k8s_ruleset: List[Dict[str, Any]] = None
 ) -> Any:
   """
   Update Custom K8s Action by ID

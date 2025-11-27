@@ -1,21 +1,21 @@
 """Tools for /api/v2/jobs/search operations"""
 
 import logging
-from typing import Any, List, Literal
+from typing import Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
 async def post_api_v2_jobs_search(
-  body_scope_cluster: str = None,
-  body_scope_namespaces: List[str] = None,
+  body_scope_cluster: Optional[str] = None,
+  body_scope_namespaces: Optional[List[str]] = None,
   body_types: List[Literal["job", "cronjob"]] = None,
   body_status: Literal["failed", "running", "completed", "resumed", "suspended", "unknown"] = None,
-  body_pagination_page_size: int = None,
-  body_pagination_page: int = None,
+  body_pagination_page_size: Optional[int] = None,
+  body_pagination_page: Optional[int] = None,
 ) -> Any:
   """
   Search for jobs and cron jobs

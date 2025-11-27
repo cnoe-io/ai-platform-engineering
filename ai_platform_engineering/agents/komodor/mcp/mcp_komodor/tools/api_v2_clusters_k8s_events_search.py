@@ -1,22 +1,22 @@
 """Tools for /api/v2/clusters/k8s-events/search operations"""
 
 import logging
-from typing import Any, List, Literal
+from typing import Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
 async def post_post_api_search(
   body_scope_cluster: str,
   body_props_type: Literal["deploy", "node-terminated", "node-created"],
-  body_scope_namespaces: List[str] = None,
-  body_props_from_epoch: int = None,
-  body_props_to_epoch: int = None,
-  body_pagination_page_size: int = None,
-  body_pagination_token: str = None,
+  body_scope_namespaces: Optional[List[str]] = None,
+  body_props_from_epoch: Optional[int] = None,
+  body_props_to_epoch: Optional[int] = None,
+  body_pagination_page_size: Optional[int] = None,
+  body_pagination_token: Optional[str] = None,
 ) -> Any:
   """
   Search for k8s events in cluster scope

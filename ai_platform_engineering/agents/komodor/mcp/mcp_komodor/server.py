@@ -133,6 +133,14 @@ def main():
 
   # Configure logging
   logging.basicConfig(level=logging.INFO)
+  
+  # Suppress DEBUG logs from MCP and SSE libraries
+  logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.WARNING)
+  logging.getLogger("sse_starlette.sse").setLevel(logging.WARNING)
+  logging.getLogger("mcp.server.streamable_http").setLevel(logging.WARNING)
+  logging.getLogger("httpcore.connection").setLevel(logging.WARNING)
+  logging.getLogger("httpcore.http11").setLevel(logging.WARNING)
+  logging.getLogger("mcp_komodor").setLevel(logging.INFO)
 
   # Get MCP configuration from environment variables
   MCP_MODE = os.getenv("MCP_MODE", "stdio").lower()
