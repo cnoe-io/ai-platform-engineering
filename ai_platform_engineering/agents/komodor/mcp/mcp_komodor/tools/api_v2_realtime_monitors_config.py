@@ -1,11 +1,11 @@
 """Tools for /api/v2/realtime-monitors/config operations"""
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -44,11 +44,11 @@ async def get_api_config() -> Any:
 async def post_api_config(
   body_sensors: List[Dict[str, Any]],
   body_type: str,
-  body_name: str = None,
+  body_name: Optional[str] = None,
   body_sinks: Dict[str, Any] = None,
-  body_active: bool = None,
+  body_active: Optional[bool] = None,
   body_variables: Dict[str, Any] = None,
-  body_sinks_options_notify_on: List[str] = None,
+  body_sinks_options_notify_on: Optional[List[str]] = None,
 ) -> Any:
   """
 

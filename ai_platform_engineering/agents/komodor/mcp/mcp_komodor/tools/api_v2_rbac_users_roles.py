@@ -1,15 +1,15 @@
 """Tools for /api/v2/rbac/users/roles operations"""
 
 import logging
-from typing import Any
+from typing import Any, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
-async def post_api_v2_rbac_users_roles(body_user_id: str, body_role_id: str, body_expiration: str = None) -> Any:
+async def post_api_v2_rbac_users_roles(body_user_id: str, body_role_id: str, body_expiration: Optional[str] = None) -> Any:
   """
   Attach User to Role
 

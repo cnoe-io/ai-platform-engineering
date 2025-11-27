@@ -1,11 +1,11 @@
 """Tools for /api/v2/rbac/policies operations"""
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -41,7 +41,7 @@ async def get_api_v2_rbac_policies() -> Any:
   return response
 
 
-async def post_api_v2_rbac_policies(body_name: str, body_statements: List[Dict[str, Any]], body_description: str = None) -> Any:
+async def post_api_v2_rbac_policies(body_name: str, body_statements: List[Dict[str, Any]], body_description: Optional[str] = None) -> Any:
   """
   Create Policy
 
