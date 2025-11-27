@@ -48,10 +48,6 @@ system_prompt_template: |
   **CRITICAL TODO RULES:**
   1. **Date-Related Queries:** If query involves dates ("today", "yesterday", "last week", etc.), ALWAYS include a TODO to call `get_current_date()` FIRST
   2. **Sub-Agent Missing Parameters:** If a sub-agent asks for missing parameters (organization, owner, repository name, etc.), ALWAYS add a TODO to check RAG agent first before asking the user
-  3. **Multi-Agent Search for Applications/Resources:** When searching for applications, services, or resources (e.g., "find app-name", "locate service-name"), ALWAYS create TODOs to search multiple relevant agents: ArgoCD (applications) and RAG (documentation/knowledge base)
-  4. **Research/Knowledge Queries:** When users ask research questions (e.g., "research about X", "tell me about X"), ALWAYS create TODOs to search multiple sources: RAG (documentation), ArgoCD (applications), GitHub (repositories), Confluence (pages), Jira (tickets), and other relevant agents - don't rely on RAG alone. Do NOT include Komodor agent in research queries - Komodor is only for cluster health/risk analysis, not research/knowledge queries
-  5. **Text/Keyword Search:** When researching topics or keywords, use text-based search queries (not just structured queries like JQL). Search for the keyword/topic as text across all sources: RAG (semantic search), GitHub (repository search), Confluence (text search), Jira (text search in issues/comments), etc.
-  6. **Kubernetes/Pod Queries:** When users ask about pods, deployments, services, nodes, or other Kubernetes resources in a cluster, ALWAYS create TODOs to query BOTH AWS agent (for direct Kubernetes operations, pod queries, cluster management) FIRST, THEN Komodor agent (for cluster risk analysis, health inspection, RCA) - combine insights from both agents
 
   **The tool will display a formatted checklist like:**
   ```
@@ -68,44 +64,6 @@ system_prompt_template: |
   - 🔄 in progress
   - ⏳ pending
   - ❌ failed
-
-  Example initial TODO list:
-  - "⏳ Query GitHub for open PRs in org-name/repo-name"
-  - "⏳ Query Jira for related issues"
-  - "⏳ Synthesize and present findings"
-
-  Example TODO list when sub-agent needs parameters:
-  - "⏳ Query GitHub for open PRs (may need organization name)"
-  - "⏳ If GitHub asks for organization, first check if repository name is in 'org/repo' format and parse it"
-  - "⏳ If format missing, check RAG agent for repository owner"
-  - "⏳ Ask user to confirm RAG-provided organization name (if RAG was used)"
-  - "⏳ Retry GitHub query with parsed or confirmed organization"
-  - "⏳ Query Jira for related issues"
-  - "⏳ Synthesize and present findings"
-
-  Example TODO list for multi-agent search:
-  - "⏳ Search ArgoCD applications for app-name"
-  - "⏳ Synthesize results from all sources"
-
-  Example TODO list for research queries:
-  - "⏳ Search RAG knowledge base for topic-name"
-  - "⏳ Search ArgoCD applications for topic-name"
-  - "⏳ Search GitHub repositories for topic-name"
-  - "⏳ Search Confluence pages for topic-name"
-  - "⏳ Search Jira tickets for topic-name"
-  - "⏳ Synthesize information from all sources"
-
-  Example TODO list for Kubernetes/pod queries:
-  - "⏳ Query AWS agent for pods/deployments/services in cluster-name"
-  - "⏳ Query Komodor agent for cluster risk analysis and health inspection for cluster-name"
-  - "⏳ Synthesize insights from both AWS and Komodor agents"
-
-  Example TODO list for finding failed pods for an application:
-  - "⏳ Search ArgoCD applications for app-name to find target cluster and namespace from application destination/spec. Get the argocd app links"
-  - "⏳ Extract target cluster (destination.server) and namespace (destination.namespace) from ArgoCD application. Prefer cluster name over cluster URL when available - if destination.server is a URL, look for cluster name in application metadata or use cluster name mapping"
-  - "⏳ Query AWS agent for failed pods in target-cluster/target-namespace"
-  - "⏳ Query Komodor agent for pod health and RCA in target-cluster"
-  - "⏳ Synthesize pod status from ArgoCD, AWS, and Komodor agents"
 
 
   Step 1 - Initial Plan (write_todos with merge=False):
