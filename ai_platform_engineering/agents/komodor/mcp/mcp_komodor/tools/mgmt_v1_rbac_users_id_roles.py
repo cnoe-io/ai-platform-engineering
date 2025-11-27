@@ -1,7 +1,7 @@
 """Tools for /mgmt/v1/rbac/users/{id}/roles operations"""
 
 import logging
-from typing import Any, Optional
+from typing import Any
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging

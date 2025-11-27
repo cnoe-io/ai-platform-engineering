@@ -1,7 +1,7 @@
 """Tools for /api/v2/service/yaml operations"""
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
