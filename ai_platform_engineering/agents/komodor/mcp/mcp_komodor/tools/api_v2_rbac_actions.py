@@ -1,20 +1,20 @@
 """Tools for /api/v2/rbac/actions operations"""
 
 import logging
-from typing import Dict, Any, List, Literal
+from typing import Dict, Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
 async def get_api_v2_rbac_actions(
-  param_account_id: str = None,
-  param_actions: List[str] = None,
-  param_scoping_methods: List[str] = None,
-  param_limit: int = None,
-  param_offset: int = None,
+  param_account_id: Optional[str] = None,
+  param_actions: Optional[List[str]] = None,
+  param_scoping_methods: Optional[List[str]] = None,
+  param_limit: Optional[int] = None,
+  param_offset: Optional[int] = None,
   param_sort: Literal["ASC", "DESC"] = None,
 ) -> Any:
   """
@@ -78,7 +78,7 @@ async def get_api_v2_rbac_actions(
   return response
 
 
-async def post_api_v2_rbac_actions(body_action: str, body_k8s_ruleset: List[Dict[str, Any]], body_description: str = None) -> Any:
+async def post_api_v2_rbac_actions(body_action: str, body_k8s_ruleset: List[Dict[str, Any]], body_description: Optional[str] = None) -> Any:
   """
   Create Custom K8s Action
 

@@ -1,11 +1,11 @@
 """Tools for /api/v2/services/k8s-events operations"""
 
 import logging
-from typing import Dict, Any, List, Literal
+from typing import Dict, Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -13,9 +13,9 @@ async def post_api_v2_svcs_k8s_events(
   body_event_type: str,
   body_summary: str,
   body_severity: Literal["information", "warning", "error"] = None,
-  body_scope_clusters: List[str] = None,
-  body_scope_services_names: List[str] = None,
-  body_scope_namespaces: List[str] = None,
+  body_scope_clusters: Optional[List[str]] = None,
+  body_scope_services_names: Optional[List[str]] = None,
+  body_scope_namespaces: Optional[List[str]] = None,
   body_scope_details: Dict[str, Any] = None,
 ) -> Any:
   """

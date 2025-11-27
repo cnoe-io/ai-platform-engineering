@@ -1,11 +1,11 @@
 """Tools for /api/v2/rbac/roles/{id_or_name} operations"""
 
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -45,10 +45,10 @@ async def get_api_name(path_id_or_name: str) -> Any:
 
 async def put_api_name(
   path_id_or_name: str,
-  body_name: str = None,
-  body_is_default: bool = None,
-  body_policy_ids: List[str] = None,
-  body_policy_names: List[str] = None,
+  body_name: Optional[str] = None,
+  body_is_default: Optional[bool] = None,
+  body_policy_ids: Optional[List[str]] = None,
+  body_policy_names: Optional[List[str]] = None,
 ) -> Any:
   """
   Update Role by ID or Name

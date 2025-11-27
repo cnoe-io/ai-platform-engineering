@@ -1,23 +1,23 @@
 """Tools for /api/v2/cost/right-sizing/service operations"""
 
 import logging
-from typing import Any, List, Literal
+from typing import Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
 async def get_cost_right_sizing_per_svc(
   param_optimization_strategy: Literal["conservative", "moderate", "aggressive"],
   param_page_size: int,
-  param_pagination_token: str = None,
+  param_pagination_token: Optional[str] = None,
   param_filter_by: Literal["clusterName", "namespace", "komodorServiceName", "komodorServiceKind"] = None,
-  param_filter_value_equals: str = None,
+  param_filter_value_equals: Optional[str] = None,
   param_sort_order: Literal["asc", "desc"] = None,
   param_sort_by: Literal["clusterName", "namespace", "service", "komodorServiceKind", "optimizationScore", "potentialSaving"] = None,
-  param_cluster_scope: List[str] = None,
+  param_cluster_scope: Optional[List[str]] = None,
 ) -> Any:
   """
   Get cost right-sizing recommendations per service.

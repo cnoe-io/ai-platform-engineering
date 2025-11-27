@@ -1,15 +1,15 @@
 """Tools for /api/v2/users operations"""
 
 import logging
-from typing import Any
+from typing import Any, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_v2_users(param_display_name: str = None, param_email: str = None, param_is_deleted: bool = False) -> Any:
+async def get_api_v2_users(param_display_name: Optional[str] = None, param_email: Optional[str] = None, param_is_deleted: bool = False) -> Any:
   """
   Get Users
 
@@ -56,7 +56,7 @@ async def get_api_v2_users(param_display_name: str = None, param_email: str = No
   return response
 
 
-async def post_api_v2_users(body_display_name: str, body_email: str, body_restore_if_deleted: bool = None) -> Any:
+async def post_api_v2_users(body_display_name: str, body_email: str, body_restore_if_deleted: Optional[bool] = None) -> Any:
   """
   Create a User
 

@@ -1,11 +1,11 @@
 """Tools for /mgmt/v1/monitors/config/{id} operations"""
 
 import logging
-from typing import Dict, Any, List, Literal
+from typing import Dict, Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
@@ -50,16 +50,16 @@ async def put_monitors_controller_v1_put(
   body_active: bool,
   body_sensors: List[Dict[str, Any]],
   body_is_deleted: bool,
-  body_variables_duration: float = None,
-  body_variables_min_available: str = None,
-  body_variables_categories: List[str] = None,
-  body_variables_cron_job_condition: str = None,
-  body_variables_resolve_after: float = None,
-  body_variables_ignore_after: float = None,
-  body_variables_reasons: List[str] = None,
-  body_variables_node_creation_threshold: str = None,
-  body_sinks: str = None,
-  body_sinks_options_notify_on: List[str] = None,
+  body_variables_duration: Optional[float] = None,
+  body_variables_min_available: Optional[str] = None,
+  body_variables_categories: Optional[List[str]] = None,
+  body_variables_cron_job_condition: Optional[str] = None,
+  body_variables_resolve_after: Optional[float] = None,
+  body_variables_ignore_after: Optional[float] = None,
+  body_variables_reasons: Optional[List[str]] = None,
+  body_variables_node_creation_threshold: Optional[str] = None,
+  body_sinks: Optional[str] = None,
+  body_sinks_options_notify_on: Optional[List[str]] = None,
 ) -> Any:
   """
      Deprecated: Use `/api/v2/realtime-monitors/config` instead.

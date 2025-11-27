@@ -1,15 +1,15 @@
 """Tools for /api/v2/clusters operations"""
 
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_v2_clusts(param_cluster_name: List[str] = None, param_tags: List[str] = None) -> Any:
+async def get_api_v2_clusts(param_cluster_name: Optional[List[str]] = None, param_tags: Optional[List[str]] = None) -> Any:
   """
   Get list of clusters
 

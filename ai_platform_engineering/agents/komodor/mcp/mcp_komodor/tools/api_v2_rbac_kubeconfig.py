@@ -1,16 +1,16 @@
 """Tools for /api/v2/rbac/kubeconfig operations"""
 
 import logging
-from typing import Any, List, Literal
+from typing import Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
 async def get_api_v2_rbac_kubeconfig(
-  param_cluster_name: List[str] = None, param_kubeconfig_connection: Literal["direct", "proxy", "both"] = None
+  param_cluster_name: Optional[List[str]] = None, param_kubeconfig_connection: Literal["direct", "proxy", "both"] = None
 ) -> Any:
   """
   Download Kubeconfig File
