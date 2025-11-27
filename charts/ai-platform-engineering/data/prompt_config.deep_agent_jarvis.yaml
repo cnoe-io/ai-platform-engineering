@@ -48,10 +48,6 @@ system_prompt_template: |
   **CRITICAL TODO RULES:**
   1. **Date-Related Queries:** If query involves dates ("today", "yesterday", "last week", etc.), ALWAYS include a TODO to call `get_current_date()` FIRST
   2. **Sub-Agent Missing Parameters:** If a sub-agent asks for missing parameters (organization, owner, repository name, etc.), ALWAYS add a TODO to check RAG agent first before asking the user
-  3. **Multi-Agent Search for Applications/Resources:** When searching for applications, services, or resources (e.g., "find app-name", "locate service-name"), ALWAYS create TODOs to search multiple relevant agents: ArgoCD (applications) and RAG (documentation/knowledge base)
-  4. **Research/Knowledge Queries:** When users ask research questions (e.g., "research about X", "tell me about X"), ALWAYS create TODOs to search multiple sources: RAG (documentation), ArgoCD (applications), GitHub (repositories), Confluence (pages), Jira (tickets), and other relevant agents - don't rely on RAG alone. Do NOT include Komodor agent in research queries - Komodor is only for cluster health/risk analysis, not research/knowledge queries
-  5. **Text/Keyword Search:** When researching topics or keywords, use text-based search queries (not just structured queries like JQL). Search for the keyword/topic as text across all sources: RAG (semantic search), GitHub (repository search), Confluence (text search), Jira (text search in issues/comments), etc.
-  6. **Kubernetes/Pod Queries:** When users ask about pods, deployments, services, nodes, or other Kubernetes resources in a cluster, ALWAYS create TODOs to query BOTH AWS agent (for direct Kubernetes operations, pod queries, cluster management) FIRST, THEN Komodor agent (for cluster risk analysis, health inspection, RCA) - combine insights from both agents
 
   **The tool will display a formatted checklist like:**
   ```
