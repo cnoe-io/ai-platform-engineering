@@ -36,7 +36,7 @@ services:
     ports:
       - "9446:9446"
     environment:
-        # LOG_LEVEL: DEBUG
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
         REDIS_URL: redis://rag-redis:6379/0
         NEO4J_ADDR: neo4j://neo4j:7687
         NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
@@ -58,33 +58,129 @@ services:
       - apps
       - rag_no_graph
 
-  agent_rag:
-    ports:
-      - "8099:8099"
-    env_file:
-      - ../../../.env
+  web_ingestor:
     environment:
-        # LOG_LEVEL: DEBUG
+        INGESTOR_TYPE: webloader
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
         REDIS_URL: redis://rag-redis:6379/0
-        NEO4J_ADDR: neo4j://neo4j:7687
-        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
-        NEO4J_USERNAME: neo4j
-        NEO4J_PASSWORD: dummy_password
         RAG_SERVER_URL: http://rag_server:9446
-        ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
+        MAX_CONCURRENT_JOBS: ${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
     restart: unless-stopped
+    depends_on:
+      - rag_server
     build:
       context: .
-      dockerfile: ./build/Dockerfile.agent-rag
+      dockerfile: ./build/Dockerfile.ingestors
     profiles:
       - apps
       - rag_no_graph
+
+  backstage_ingestor:
+    environment:
+        INGESTOR_TYPE: backstage
+        BACKSTAGE_URL: ${BACKSTAGE_URL}
+        BACKSTAGE_API_TOKEN: ${BACKSTAGE_API_TOKEN}
+        RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.ingestors
+    profiles:
+      - backstage
+
+  aws_ingestor:
+    environment:
+        INGESTOR_TYPE: aws
+        AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+        AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+        AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+        AWS_REGION: ${AWS_REGION:-}
+        AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-2}
+        AWS_PROFILE: ${AWS_PROFILE:-}
+        AWS_DEFAULT_PROFILE: ${AWS_DEFAULT_PROFILE:-}
+        RESOURCE_TYPES: ${AWS_RESOURCE_TYPES:-iam:user,ec2:instance,ec2:volume,ec2:natgateway,ec2:vpc,ec2:subnet,ec2:security-group,eks:cluster,s3:bucket,elasticloadbalancing:loadbalancer,route53:hostedzone,rds:db,lambda:function,dynamodb:table}
+        RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    volumes:
+      - ${HOME}/.aws:/home/app/.aws:ro
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.ingestors
+    profiles:
+      - aws
+
+  k8s_ingestor:
+    environment:
+        INGESTOR_TYPE: k8s
+        CLUSTER_NAME: ${CLUSTER_NAME}
+        KUBECONFIG: ${KUBECONFIG:-/home/app/.kube/config}
+        KUBE_CONTEXT: ${KUBE_CONTEXT:-}
+        IN_CLUSTER: ${K8S_IN_CLUSTER:-false}
+        RESOURCE_LIST: ${K8S_RESOURCE_LIST:-Certificate,ClusterIssuer,CronJob,DaemonSet,Deployment,Ingress,IngressClass,Issuer,Job,Namespace,Node,Service,StatefulSet,StorageClass}
+        IGNORE_FIELD_LIST: ${K8S_IGNORE_FIELD_LIST:-metadata.annotations.kubectl.kubernetes.io,metadata.labels.app.kubernetes.io,metadata.managedFields,metadata.selfLink}
+        RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    volumes:
+      - ~/.kube/config:/home/app/.kube/config:ro
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.ingestors
+    profiles:
+      - k8s
+
+  slack_ingestor:
+    environment:
+        INGESTOR_TYPE: slack
+        SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+        SLACK_BOT_NAME: ${SLACK_BOT_NAME}
+        SLACK_WORKSPACE_URL: ${SLACK_WORKSPACE_URL:-https://slack.com}
+        SLACK_CHANNELS: ${SLACK_CHANNELS:-{}}
+        RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+        SLACK_SYNC_INTERVAL: ${SLACK_SYNC_INTERVAL:-900}
+        SLACK_INIT_DELAY_SECONDS: ${SLACK_INIT_DELAY_SECONDS:-0}
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.ingestors
+    profiles:
+      - slack
+
+  # agent_rag:
+  #   ports:
+  #     - "8099:8099"
+  #   env_file:
+  #     - ../../../.env
+  #   environment:
+  #       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  #       REDIS_URL: redis://rag-redis:6379/0
+  #       NEO4J_ADDR: neo4j://neo4j:7687
+  #       NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
+  #       NEO4J_USERNAME: neo4j
+  #       NEO4J_PASSWORD: dummy_password
+  #       RAG_SERVER_URL: http://rag_server:9446
+  #       ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
+  #   restart: unless-stopped
+  #   build:
+  #     context: .
+  #     dockerfile: ./build/Dockerfile.agent-rag
+  #   profiles:
+  #     - apps
+  #     - rag_no_graph
 
   agent_ontology:
     ports:
       - "8098:8098"
     environment:
-        # LOG_LEVEL: DEBUG
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
         REDIS_URL: redis://rag-redis:6379/0
         NEO4J_ADDR: neo4j://neo4j:7687
         NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
@@ -251,7 +347,38 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+  
+#####################
+# Test services
+#####################
 
+  testwebsite:
+    image: nginx:alpine
+    container_name: test-website
+    ports:
+      - "8080:80"
+    volumes:
+      - ./tests/rag_test:/usr/share/nginx/html
+    profiles:
+      - dummy_site
+      - apps
+
+  dummy_graph_ingestor:
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.ingestors
+    container_name: dummy-ingestor
+    volumes:
+      - ./tests/rag_graph_test:/app/data:ro
+    environment:
+      RAG_SERVER_URL: http://rag_server:9446
+      INGESTOR_NAME: dummy_ingestor
+      DUMMY_ENTITIES_FILE: /app/data/dummy_entities.json
+    depends_on:
+      - rag_server
+    profiles:
+      - dummy_ingestor
+  
   # dex:
   #     image: ghcr.io/dexidp/dex:latest
   #     container_name: dex

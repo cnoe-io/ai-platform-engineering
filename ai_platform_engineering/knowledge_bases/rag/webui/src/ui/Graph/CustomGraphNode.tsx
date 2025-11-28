@@ -41,7 +41,7 @@ const getEntityLabel = (entityData: any) => {
 // Internal styling function
 const getNodeStyle = (entity: any, isSelected: boolean = false, nodeWidth: number = 180, nodeHeight: number = 40) => {
     // Determine the label for color selection
-    const label = entity.entity_type || entity.all_properties?._primary_key || entity.primary_key || 'Entity';
+    const label = entity.entity_type || entity.all_properties?._entity_pk || entity._entity_pk || entity.primary_key || 'Entity';
     const backgroundColor = getColorForNode(label);
     
     const baseStyle = {

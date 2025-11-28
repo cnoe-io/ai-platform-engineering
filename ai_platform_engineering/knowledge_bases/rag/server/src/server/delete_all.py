@@ -1,16 +1,18 @@
 
+import os
 from pymilvus import MilvusClient
 import redis.asyncio as redis
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from server.restapi import milvus_uri, default_collection_name_docs, graph_rag_enabled, redis_url, neo4j_addr, ontology_neo4j_addr
-redis_client = redis.from_url(redis_url)
+redis_client = redis.from_url(redis_url, decode_responses=True)
 
 legacy_default_collection_name_graph = "graph_rag_default"
+delete_delay_seconds = int(os.getenv("DELETE_DELAY_SECONDS", "20"))
 
 async def clear_all():
     print("🛑 WARNING 🛑 This will DELETE ALL DATA in the Vector databases, Graph databases, and Redis. 🛑 Proceed with caution!🛑")
 
-    for i in range(20, 0, -1):
+    for i in range(delete_delay_seconds, 0, -1):
         print(f"DELETING ALL in {i} seconds... Press Ctrl+C to abort")
         import time
         time.sleep(1)

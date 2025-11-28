@@ -1,11 +1,14 @@
 from enum import Enum
 from typing import List, Optional
 import redis.asyncio as redis
-import redis.exceptions as redis_exceptions
 from common.utils import get_logger
-import datetime
+import time
 from pydantic import BaseModel, Field
-import asyncio
+from common.constants import (
+    REDIS_JOB_PREFIX,
+    REDIS_JOB_DATASOURCE_INDEX_PREFIX,
+    REDIS_JOB_ERRORS_SUFFIX,
+)
 
 logger = get_logger(__name__)
 
@@ -20,155 +23,368 @@ class JobStatus(str, Enum):
 class JobInfo(BaseModel):
     job_id: str = Field(description="Job ID")
     status: JobStatus = Field(description="Job status")
-    message: Optional[str] = Field(description="Current message")
-    processed_counter: Optional[int] = Field(description="Processed counter")
-    failed_counter: Optional[int] = Field(description="Failed counter")
-    created_at: datetime.datetime = Field(description="Created at")
-    completed_at: Optional[datetime.datetime] = Field(description="Completed at")
-    total: Optional[int] = Field(description="Total items to process")
-    errors: Optional[List[str]] = Field(description="Error messages if any")
+    message: Optional[str] = Field(description="Current message", default=None)
+    created_at: int = Field(description="Created at")
+    completed_at: Optional[int] = Field(description="Completed at", default=None)
+    total: Optional[int] = Field(description="Total items to process", default=None)
+    progress_counter: Optional[int] = Field(description="Number of items processed", default=0)
+    failed_counter: Optional[int] = Field(description="Number of items failed", default=0)
+    error_msgs: Optional[List[str]] = Field(description="Error messages if any", default_factory=list)
+    datasource_id: Optional[str] = Field(description="Associated datasource ID", default=None)
 
 class JobManager:
-    """Manages job status updates in Redis with locking to prevent race conditions."""
+    """Manages job status updates in Redis using atomic operations."""
 
-    def __init__(self, redis_client: redis.Redis):
+    def __init__(self, redis_client: redis.Redis, max_jobs_per_datasource: int = 10):
         """
         Initializes the JobManager with a Redis client.
 
         :param redis_client: An asynchronous Redis client instance.
+        :param max_jobs_per_datasource: Maximum number of jobs to keep per datasource (default: 10).
         """
         self.redis_client = redis_client
-        self._job_key_prefix = "job_info"
-        self._lock_key_prefix = "job_lock"
+        self.max_jobs_per_datasource = max_jobs_per_datasource
 
     def _get_job_key(self, job_id: str) -> str:
-        """Constructs the Redis key for storing job information."""
-        return f"{self._job_key_prefix}:{job_id}"
+        """Constructs the Redis key for storing job information (hash)."""
+        return f"{REDIS_JOB_PREFIX}{job_id}"
 
-    def _get_lock_key(self, job_id: str) -> str:
-        """Constructs the Redis key for the job's lock."""
-        return f"{self._lock_key_prefix}:{job_id}"
+    def _get_error_msgs_key(self, job_id: str) -> str:
+        """Constructs the Redis key for error messages list."""
+        return f"{REDIS_JOB_PREFIX}{job_id}{REDIS_JOB_ERRORS_SUFFIX}"
 
-    async def get_job(self, job_id: str) -> Optional[JobInfo]:
-        """Retrieves a job's information from Redis."""
-        job_data = await self.redis_client.get(self._get_job_key(job_id))
-        if not job_data:
-            return None
-        return JobInfo.model_validate_json(job_data)
+    def _get_datasource_index_key(self, datasource_id: str) -> str:
+        """Constructs the Redis key for datasource->job_id index."""
+        return f"{REDIS_JOB_DATASOURCE_INDEX_PREFIX}{datasource_id}"
     
-    async def is_job_terminated(self, job_id: str) -> bool:
-        """Checks if a job is in a terminated state."""
-        job_info = await self.get_job(job_id)
-        if not job_info:
-            return False
-        return job_info.status == JobStatus.TERMINATED
+    async def _cleanup_old_jobs_for_datasource(self, datasource_id: str) -> int:
+        """
+        Removes oldest jobs for a datasource if the count exceeds max_jobs_per_datasource.
+        
+        :param datasource_id: The datasource ID to cleanup jobs for.
+        :return: Number of jobs deleted.
+        """
+        index_key = self._get_datasource_index_key(datasource_id)
+        job_ids = await self.redis_client.smembers(index_key)  # type: ignore
+        
+        if not job_ids or len(job_ids) <= self.max_jobs_per_datasource:
+            return 0
+        
+        # Fetch creation times for all jobs
+        jobs_with_times = []
+        for job_id in job_ids:
+            if isinstance(job_id, bytes):
+                job_id = job_id.decode()
+            
+            job_key = self._get_job_key(job_id)
+            created_at = await self.redis_client.hget(job_key, "created_at")  # type: ignore
+            
+            if created_at:
+                if isinstance(created_at, bytes):
+                    created_at = created_at.decode()
+                jobs_with_times.append((job_id, int(created_at)))
+        
+        # Sort by creation time (oldest first)
+        jobs_with_times.sort(key=lambda x: x[1])
+        
+        # Calculate how many to delete
+        num_to_delete = len(jobs_with_times) - self.max_jobs_per_datasource
+        
+        if num_to_delete <= 0:
+            return 0
+        
+        # Delete oldest jobs
+        deleted_count = 0
+        for job_id, _ in jobs_with_times[:num_to_delete]:
+            if await self.delete_job(job_id):
+                deleted_count += 1
+                logger.info(f"Deleted old job {job_id} from datasource {datasource_id} (cleanup)")
+        
+        return deleted_count
 
-    async def update_job(
+    async def upsert_job(
         self,
         job_id: str,
         *,
         status: Optional[JobStatus] = None,
         message: Optional[str] = None,
-        processed_counter: Optional[int] = None,
-        processed_increment: Optional[int] = None,
-        failed_counter: Optional[int] = None,
-        failed_increment: Optional[int] = None,
         total: Optional[int] = None,
-        errors: Optional[List[str]] = None,
+        datasource_id: Optional[str] = None,
     ) -> bool:
         """
-        Atomically updates a job's information in Redis.
+        Creates a new job or updates an existing job in Redis.
 
-        This method acquires a lock for the job ID, fetches the current job data,
-        applies the updates, and writes the data back to Redis. The lock
-        prevents concurrent modifications from corrupting the job state.
-
-        :param job_id: The ID of the job to update.
-        :param status: The new status of the job.
-        :param message: The new message for the job.
-        :param processed_counter: The processed counter for the job (absolute value).
-        :param processed_increment: The increment for the counter. If provided, the processed_counter is incremented by this value.
-        :param failed_counter: The failed counter for the job (absolute value).
-        :param failed_increment: The increment for the counter. If provided, the failed_counter is incremented by this value.
-        :param errors: A list of error messages if the job failed.
-        :return: True if the update was successful, False otherwise.
+        :param job_id: The ID of the job to create or update.
+        :param status: The status of the job (defaults to PENDING for new jobs).
+        :param message: The message for the job.
+        :param total: The total number of items to process.
+        :param datasource_id: The datasource ID associated with this job.
+        :return: True if the operation was successful, False if job is terminated and cannot be updated.
         """
-        lock_key = self._get_lock_key(job_id)
         job_key = self._get_job_key(job_id)
+        
+        # Check if job exists
+        exists = await self.redis_client.exists(job_key)
+        
+        if not exists:
+            # Job doesn't exist, create a new one
+            hash_data = {
+                "job_id": job_id,
+                "status": status.value if status is not None else JobStatus.PENDING.value,
+                "created_at": str(int(time.time())),
+                "progress_counter": "0",
+                "failed_counter": "0",
+            }
+            
+            if message is not None:
+                hash_data["message"] = message
+            if total is not None:
+                hash_data["total"] = str(total)
+            if datasource_id is not None:
+                hash_data["datasource_id"] = datasource_id
+            
+            # Save as hash (no TTL - jobs are managed via max_jobs_per_datasource limit)
+            await self.redis_client.hset(job_key, mapping=hash_data)  # type: ignore
+            
+            # Add to datasource index if datasource_id provided
+            if datasource_id is not None:
+                index_key = self._get_datasource_index_key(datasource_id)
+                await self.redis_client.sadd(index_key, job_id)  # type: ignore
+                
+                # Cleanup old jobs if limit exceeded
+                await self._cleanup_old_jobs_for_datasource(datasource_id)
+            
+            logger.debug(f"Successfully created job {job_id}")
+            return True
+        else:
+            # Job exists, check if it's terminated
+            job_status = await self.redis_client.hget(job_key, "status")  # type: ignore
+            if job_status == JobStatus.TERMINATED.value and status != JobStatus.TERMINATED:
+                logger.warning(f"Cannot update job {job_id} - job is terminated")
+                return False
+            
+            # Prepare updates
+            updates = {}
+            if status is not None:
+                updates["status"] = status.value
+            if message is not None:
+                updates["message"] = message
+            if total is not None:
+                updates["total"] = str(total)
+            if datasource_id is not None:
+                updates["datasource_id"] = datasource_id
+                # Update datasource index
+                old_datasource_id = await self.redis_client.hget(job_key, "datasource_id")  # type: ignore
+                if old_datasource_id and old_datasource_id != datasource_id:
+                    # Remove from old index
+                    await self.redis_client.srem(self._get_datasource_index_key(old_datasource_id), job_id)  # type: ignore
+                # Add to new index
+                index_key = self._get_datasource_index_key(datasource_id)
+                await self.redis_client.sadd(index_key, job_id)  # type: ignore
+                
+            # Set completed_at if job is completing
+            if status is not None and status in [JobStatus.COMPLETED, JobStatus.COMPLETED_WITH_ERRORS, JobStatus.FAILED, JobStatus.TERMINATED]:
+                updates["completed_at"] = str(int(time.time()))
+            
+            if not updates:
+                logger.debug(f"upsert_job called for job {job_id} with no fields to update")
+                return True
+            
+            # Apply updates to hash
+            await self.redis_client.hset(job_key, mapping=updates)  # type: ignore
+            
+            logger.debug(f"Successfully updated job {job_id} with: {updates}")
+            return True
 
-        # Construct a dictionary of updates from the provided arguments
-        updates = {}
-        if status is not None:
-            updates["status"] = status
-        if message is not None:
-            updates["message"] = message
-        if processed_counter is not None:
-            updates["processed_counter"] = processed_counter
-        if failed_counter is not None:
-            updates["failed_counter"] = failed_counter
-        if total is not None:
-            updates["total"] = total
+    async def increment_progress(self, job_id: str, increment: int = 1) -> int:
+        """
+        Atomically increments the progress counter for a job.
 
-        if status is not None and (status == JobStatus.COMPLETED or status == JobStatus.FAILED):
-            updates["completed_at"] = datetime.datetime.now()
+        :param job_id: The ID of the job.
+        :param increment: The amount to increment by (default: 1).
+        :return: The new progress counter value, or -1 if job is terminated.
+        """
+        job_key = self._get_job_key(job_id)
+        
+        # Check if job is terminated
+        job_status = await self.redis_client.hget(job_key, "status")  # type: ignore
+        if job_status == JobStatus.TERMINATED.value:
+            logger.warning(f"Cannot increment progress for job {job_id} - job is terminated")
+            return -1
+        
+        # Use HINCRBY for atomic increment on hash field
+        new_value = await self.redis_client.hincrby(job_key, "progress_counter", increment)  # type: ignore
+        logger.debug(f"Incremented progress for job {job_id} by {increment}, new value: {new_value}")
+        return new_value
 
-        if not updates:
-            logger.warning(f"update_job called for job {job_id} with no fields to update.")
-            return True # No update was needed, but not an error state
+    async def increment_failure(self, job_id: str, increment: int = 1, message: str = "") -> int:
+        """
+        Atomically increments the failure counter for a job.
 
-        for attempt in range(10):
-            try:
-                # Acquire a lock with a timeout to prevent deadlocks
-                async with self.redis_client.lock(lock_key, timeout=10, blocking_timeout=5):
-                    job_data = await self.redis_client.get(job_key)
-                    
-                    # Job does not exist
-                    if not job_data:
-                        logger.warning(f"Job {job_id} not found in Redis. Creating new job.")
-                        
-                        job_info = JobInfo(
-                            job_id=job_id,
-                            status=JobStatus.PENDING,
-                            created_at=datetime.datetime.now(datetime.timezone.utc),
-                            completed_at=None,
-                            errors=[],
-                            processed_counter=0,
-                            failed_counter=0,
-                            total=0,
-                            message=""
-                        )
-                        await self.redis_client.set(job_key, job_info.model_dump_json())
-                    else:
-                        job_info = JobInfo.model_validate_json(job_data)
+        :param job_id: The ID of the job.
+        :param increment: The amount to increment by (default: 1).
+        :param message: An optional error message to add.
+        :return: The new failure counter value, or -1 if job is terminated.
+        """
+        job_key = self._get_job_key(job_id)
+        
+        # Check if job is terminated
+        job_status = await self.redis_client.hget(job_key, "status")  # type: ignore
+        if job_status == JobStatus.TERMINATED.value:
+            logger.warning(f"Cannot increment failure for job {job_id} - job is terminated")
+            return -1
+        
+        if message:
+            await self.add_error_msg(job_id, message)
+        
+        # Use HINCRBY for atomic increment on hash field
+        new_value = await self.redis_client.hincrby(job_key, "failed_counter", increment)  # type: ignore
+        logger.debug(f"Incremented failure counter for job {job_id} by {increment}, new value: {new_value}")
+        return new_value
 
-                    # Apply the valid updates
-                    updated_job_info = job_info.model_copy(update=updates)
+    async def add_error_msg(self, job_id: str, error_msg: str) -> int:
+        """
+        Adds an error message to the job's error list.
 
-                    # Apply the incrementors
-                    if processed_increment is not None:
-                        if updated_job_info.processed_counter is None:
-                            updated_job_info.processed_counter = 0
-                        updated_job_info.processed_counter += processed_increment
-                    if failed_increment is not None:
-                        if updated_job_info.failed_counter is None:
-                            updated_job_info.failed_counter = 0
-                        updated_job_info.failed_counter += failed_increment
+        :param job_id: The ID of the job.
+        :param error_msg: The error message to add.
+        :return: The new length of the error messages list, or -1 if job is terminated.
+        """
+        job_key = self._get_job_key(job_id)
+        
+        # Check if job is terminated
+        job_status = await self.redis_client.hget(job_key, "status")  # type: ignore
+        if job_status == JobStatus.TERMINATED.value:
+            logger.warning(f"Cannot add error message to job {job_id} - job is terminated")
+            return -1
+        
+        error_msgs_key = self._get_error_msgs_key(job_id)
+        new_length = await self.redis_client.rpush(error_msgs_key, error_msg)  # type: ignore
+        
+        logger.debug(f"Added error message to job {job_id}, new list length: {new_length}")
+        return new_length  # type: ignore
 
-                    # Increment errors
-                    if errors:
-                        if updated_job_info.errors is None:
-                            updated_job_info.errors = []
-                        updated_job_info.errors.extend(errors)
+    async def terminate_job(self, job_id: str) -> bool:
+        """
+        Marks a job as terminated.
 
-                    # Write the updated data back to Redis
-                    await self.redis_client.set(job_key, updated_job_info.model_dump_json())
+        :param job_id: The ID of the job to terminate.
+        :return: True if the termination flag was set successfully.
+        """
+        # Update the job status to terminated
+        await self.upsert_job(job_id, status=JobStatus.TERMINATED)
+        
+        logger.debug(f"Terminated job {job_id}")
+        return True
 
-                    logger.debug(f"Successfully updated job {job_id} with: {updates}")
-                    return True
+    async def is_job_terminated(self, job_id: str) -> bool:
+        """
+        Checks if a job is terminated.
 
-            except redis_exceptions.LockError:
-                logger.debug(f"Could not acquire lock for job {job_id}. Will retry in 1 second... (Attempt {attempt + 1}/30)")
-                await asyncio.sleep(1)
+        :param job_id: The ID of the job to check.
+        :return: True if the job is terminated, False otherwise.
+        """
+        job_key = self._get_job_key(job_id)
+        job_status = await self.redis_client.hget(job_key, "status")  # type: ignore
+        return job_status == JobStatus.TERMINATED.value if job_status else False
 
-        logger.warning(f"Failed to acquire lock for job {job_id} after 30 attempts. Update skipped.")
-        return False
+    async def get_job(self, job_id: str) -> Optional[JobInfo]:
+        """
+        Retrieves a job's information from Redis, including counters and error messages.
+
+        :param job_id: The ID of the job to retrieve.
+        :return: JobInfo object if job exists, None otherwise.
+        """
+        job_key = self._get_job_key(job_id)
+        
+        # Get all hash fields and error messages in parallel
+        pipeline = self.redis_client.pipeline()
+        pipeline.hgetall(job_key)
+        pipeline.lrange(self._get_error_msgs_key(job_id), 0, -1)
+        results = await pipeline.execute()
+        
+        hash_data = results[0]
+        error_msgs = results[1]
+        
+        if not hash_data:
+            return None
+        
+        # Convert hash data to JobInfo
+        job_dict = {
+            "job_id": hash_data.get(b"job_id", b"").decode() if isinstance(hash_data.get(b"job_id"), bytes) else hash_data.get("job_id", ""),
+            "status": hash_data.get(b"status", b"").decode() if isinstance(hash_data.get(b"status"), bytes) else hash_data.get("status", ""),
+            "message": hash_data.get(b"message", b"").decode() if isinstance(hash_data.get(b"message"), bytes) else hash_data.get("message") if hash_data.get("message") or hash_data.get(b"message") else None,
+            "created_at": int(hash_data.get(b"created_at", b"0").decode() if isinstance(hash_data.get(b"created_at"), bytes) else hash_data.get("created_at", "0")),
+            "completed_at": int(hash_data.get(b"completed_at", b"0").decode() if isinstance(hash_data.get(b"completed_at"), bytes) else hash_data.get("completed_at", "0")) if hash_data.get("completed_at") or hash_data.get(b"completed_at") else None,
+            "total": int(hash_data.get(b"total", b"0").decode() if isinstance(hash_data.get(b"total"), bytes) else hash_data.get("total", "0")) if hash_data.get("total") or hash_data.get(b"total") else None,
+            "progress_counter": int(hash_data.get(b"progress_counter", b"0").decode() if isinstance(hash_data.get(b"progress_counter"), bytes) else hash_data.get("progress_counter", "0")),
+            "failed_counter": int(hash_data.get(b"failed_counter", b"0").decode() if isinstance(hash_data.get(b"failed_counter"), bytes) else hash_data.get("failed_counter", "0")),
+            "datasource_id": hash_data.get(b"datasource_id", b"").decode() if isinstance(hash_data.get(b"datasource_id"), bytes) else hash_data.get("datasource_id") if hash_data.get("datasource_id") or hash_data.get(b"datasource_id") else None,
+            "error_msgs": error_msgs if error_msgs else [],
+        }
+        
+        job_info = JobInfo(**job_dict)
+        return job_info
+
+    async def get_jobs_by_datasource(self, datasource_id: str, status_filter: Optional[JobStatus] = None) -> Optional[List[JobInfo]]:
+        """
+        Retrieves jobs associated with a specific datasource. Sorted by creation time descending (latest first).
+        
+        :param datasource_id: The datasource ID to search for.
+        :param status_filter: Optional status to filter by (e.g., JobStatus.IN_PROGRESS).
+        :return: List of JobInfo objects if found, None otherwise.
+        """
+        # Use datasource index for O(1) lookup
+        index_key = self._get_datasource_index_key(datasource_id)
+        job_ids = await self.redis_client.smembers(index_key)  # type: ignore
+        
+        if not job_ids:
+            return None
+        
+        # Fetch all jobs in parallel using pipeline
+        matching_jobs = []
+        
+        for job_id in job_ids:
+            # Decode job_id if it's bytes
+            if isinstance(job_id, bytes):
+                job_id = job_id.decode()
+            
+            job_info = await self.get_job(job_id)
+            if job_info:
+                # Apply status filter if provided
+                if status_filter is None or job_info.status == status_filter:
+                    matching_jobs.append(job_info)
+        
+        # Sort by created_at descending (most recent first)
+        if matching_jobs:
+            matching_jobs.sort(key=lambda j: j.created_at, reverse=True)
+            return matching_jobs
+        
+        return None
+
+    async def delete_job(self, job_id: str) -> bool:
+        """
+        Deletes a job and all its associated data from Redis.
+
+        :param job_id: The ID of the job to delete.
+        :return: True if the job was deleted successfully.
+        """
+        job_key = self._get_job_key(job_id)
+        
+        # Get datasource_id to remove from index
+        datasource_id = await self.redis_client.hget(job_key, "datasource_id")  # type: ignore
+        
+        keys_to_delete = [
+            job_key,
+            self._get_error_msgs_key(job_id),
+        ]
+        
+        # Remove from datasource index
+        if datasource_id:
+            if isinstance(datasource_id, bytes):
+                datasource_id = datasource_id.decode()
+            await self.redis_client.srem(self._get_datasource_index_key(datasource_id), job_id)  # type: ignore
+        
+        deleted_count = await self.redis_client.delete(*keys_to_delete)
+        logger.debug(f"Deleted job {job_id}, removed {deleted_count} keys")
+        return deleted_count > 0

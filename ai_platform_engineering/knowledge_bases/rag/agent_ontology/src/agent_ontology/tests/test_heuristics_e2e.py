@@ -14,16 +14,18 @@ from core.models import Entity
 
 
 from agent_ontology.heuristics import HeuristicsProcessor
-from core.constants import DEFAULT_LABEL, UPDATED_BY_KEY
-
+from core.constants import DEFAULT_LABEL
+ 
 
 TEST_DATA_HEURISTICS_FILE = "test_data_heuristics.json"
 TEST_DATA_FILE = "../../../../test_data.json"
 
+CLIENT_NAME = "test_heuristics_e2e_client"
+
 graph_db = Neo4jDB()
 ontology_graph_db = Neo4jDB("bolt://localhost:7688")
 
-rc = RelationCandidateManager(graph_db=graph_db, ontology_graph_db=ontology_graph_db, heuristics_version_id="test", acceptance_threshold=0.75, rejection_threshold=0.3)
+rc = RelationCandidateManager(graph_db=graph_db, ontology_graph_db=ontology_graph_db, heuristics_version_id="test", client_name=CLIENT_NAME)
 hp = HeuristicsProcessor(graph_db=graph_db)
 
 ground_truth_candidates = {}
@@ -58,7 +60,7 @@ async def initialise():
         with open(f"entities/{i}.json", "w") as ef:
             json.dump(entity.model_dump(), ef, cls=ObjEncoder, indent=2)
 
-        await graph_db.update_entity(entity, client_name=CLIENT_NAME, fresh_until=get_default_fresh_until())
+        await graph_db.update_entity(entity, fresh_until=get_default_fresh_until())
     
     # Process all entities in the database, and compute heuristics
     logging.info("Processing all entities in the database...")
