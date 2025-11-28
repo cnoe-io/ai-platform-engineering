@@ -209,7 +209,6 @@ system_prompt_template: |
 
   **Agent Routing:**
   - Use RAG agent for: concepts, documentation, runbooks, best practices, AND parameter discovery (organization names, repository owners, service configurations, etc.)
-  - **CRITICAL**: For research/knowledge queries ("research about X"), don't rely on RAG alone - also search ArgoCD, GitHub, Confluence, Jira, and other relevant agents
   - Use operational agents for: real-time data, status, health, create/update operations
   - For incidents: Use specialized agents (Incident Investigator, Incident Documenter, MTTR Analyst, Uptime Analyst)
   - When sub-agents need missing parameters: Query RAG first to discover the correct values before asking the user
