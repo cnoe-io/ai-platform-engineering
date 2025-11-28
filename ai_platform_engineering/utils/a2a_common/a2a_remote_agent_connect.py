@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from typing import Any, Optional, Union, List
 from uuid import uuid4
 from pydantic import PrivateAttr
@@ -21,10 +22,13 @@ from a2a.types import (
 )
 
 from langchain_core.tools import BaseTool
-from langgraph.config import get_stream_writer
+from langgraph.config import get_stream_writer, get_config
 
 from cnoe_agent_utils.tracing import TracingManager
 from pydantic import BaseModel, Field
+
+# Import metrics for tracking subagent and MCP tool calls
+from ai_platform_engineering.utils.metrics import record_subagent_call, record_mcp_tool_call
 
 
 logger = logging.getLogger("a2a.client.tool")
@@ -156,26 +160,46 @@ class A2ARemoteAgentConnectTool(BaseTool):
     retry_delay = float(os.getenv("A2A_REMOTE_RETRY_DELAY_SECONDS", "5.0"))
     writer = get_stream_writer()
 
-    # If context_id not explicitly provided, try to extract from LangGraph config metadata
-    if not context_id:
-        try:
-            from langgraph.config import get_config
-            config = get_config()
-            if config and 'metadata' in config and 'context_id' in config['metadata']:
-                context_id = config['metadata']['context_id']
-                logger.info(f"A2ARemoteAgentConnectTool: Extracted context_id from LangGraph config metadata: {context_id}")
-        except Exception as e:
-            logger.debug(f"Could not extract context_id from LangGraph config: {e}")
+    # Track metrics for this subagent call
+    start_time = time.time()
+    call_status = "error"  # Default to error, override on success
+
+    # Extract user email and context_id from LangGraph config metadata if available
+    user_email = ""
+    config = get_config()
+    if config and 'metadata' in config:
+        user_email = config['metadata'].get('user_email', '')
+        if not context_id and 'context_id' in config['metadata']:
+            context_id = config['metadata']['context_id']
+            logger.info(f"A2ARemoteAgentConnectTool: Extracted context_id from LangGraph config metadata: {context_id}")
 
     last_error: Optional[str] = None
 
-    for attempt in range(max_attempts + 1):
-      try:
-        output, status, status_message = await self._execute_once(prompt, trace_id, context_id, writer)
+    try:
+      for attempt in range(max_attempts + 1):
+        try:
+          output, status, status_message = await self._execute_once(prompt, trace_id, context_id, writer, user_email)
 
-        if status and status.lower() == "error":
-          last_error = status_message or "Remote agent returned an error response."
-          logger.warning(f"{self.name} attempt {attempt + 1} failed with status=error: {last_error}")
+          if status and status.lower() == "error":
+            last_error = status_message or "Remote agent returned an error response."
+            logger.warning(f"{self.name} attempt {attempt + 1} failed with status=error: {last_error}")
+            if attempt < max_attempts:
+              writer({
+                "type": "a2a_event",
+                "data": f"⚠️ {self.name}: {last_error} (attempt {attempt + 1}/{max_attempts + 1}). Retrying..."
+              })
+              await asyncio.sleep(retry_delay)
+              continue
+            self._notify_failure(writer, last_error)
+            return f"ERROR: {last_error}"
+
+          # Success!
+          call_status = "success"
+          return output
+
+        except Exception as exc:  # noqa: BLE001
+          last_error = str(exc)
+          logger.error(f"{self.name} attempt {attempt + 1} raised exception: {last_error}")
           if attempt < max_attempts:
             writer({
               "type": "a2a_event",
@@ -186,25 +210,21 @@ class A2ARemoteAgentConnectTool(BaseTool):
           self._notify_failure(writer, last_error)
           return f"ERROR: {last_error}"
 
-        return output
+      # Should never reach here, but return the last error as a fallback
+      fallback = last_error or "Unknown error"
+      self._notify_failure(writer, fallback)
+      return f"ERROR: {fallback}"
 
-      except Exception as exc:  # noqa: BLE001
-        last_error = str(exc)
-        logger.error(f"{self.name} attempt {attempt + 1} raised exception: {last_error}")
-        if attempt < max_attempts:
-          writer({
-            "type": "a2a_event",
-            "data": f"⚠️ {self.name}: {last_error} (attempt {attempt + 1}/{max_attempts + 1}). Retrying..."
-          })
-          await asyncio.sleep(retry_delay)
-          continue
-        self._notify_failure(writer, last_error)
-        return f"ERROR: {last_error}"
-
-    # Should never reach here, but return the last error as a fallback
-    fallback = last_error or "Unknown error"
-    self._notify_failure(writer, fallback)
-    return f"ERROR: {fallback}"
+    finally:
+      # Record subagent call metrics
+      duration = time.time() - start_time
+      record_subagent_call(
+          agent_name=self.name,
+          user_email=user_email,
+          status=call_status,
+          duration=duration,
+      )
+      logger.debug(f"📊 Metrics: subagent={self.name}, status={call_status}, duration={duration:.2f}s")
 
   async def _execute_once(
       self,
@@ -212,6 +232,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
       trace_id: Optional[str],
       context_id: Optional[str],
       writer,
+      user_email: str = "",
   ) -> tuple[str, Optional[str], Optional[str]]:
     """Execute a single remote agent streaming call and return output with status info."""
 
@@ -290,6 +311,22 @@ class A2ARemoteAgentConnectTool(BaseTool):
           logger.debug(f"Received artifact-update event: {result}")
           artifact = result.get('artifact')
           logger.debug(f"🔍 artifact type: {type(artifact)}, is_dict: {isinstance(artifact, dict)}")
+
+          # Track MCP tool calls from artifact names (e.g., "tool_notification_start", "tool_notification_end")
+          if artifact and isinstance(artifact, dict):
+            artifact_name = artifact.get('name', '')
+            if artifact_name == 'tool_notification_end':
+              # Extract tool name from description or parts
+              description = artifact.get('description', '')
+              tool_name = description.replace('Tool call completed: ', '').strip() if 'completed' in description else 'unknown'
+              record_mcp_tool_call(
+                  tool_name=tool_name,
+                  agent_name=self.name,
+                  user_email=user_email,
+                  status="success",
+              )
+              logger.debug(f"📊 Metrics: MCP tool={tool_name}, agent={self.name}")
+
           if artifact and isinstance(artifact, dict):
             parts = artifact.get('parts', [])
             logger.debug(f"🔍 parts count: {len(parts)}")
