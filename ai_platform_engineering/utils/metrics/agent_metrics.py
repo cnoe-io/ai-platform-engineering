@@ -170,7 +170,6 @@ class AgentMetrics:
                 tracker.set_status("success")
         """
         start_time = time.time()
-        status = "error"  # Default to error, override on success
 
         class RequestTracker:
             def __init__(self):
