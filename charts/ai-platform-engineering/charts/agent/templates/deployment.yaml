@@ -75,12 +75,9 @@ spec:
             - secretRef:
                 name: {{ $agentSecretName }}
             {{- end }}
-          {{- if or .Values.env (eq (include "agent.slim.enabled" .) "true") (eq .Values.mcp.mode "http") .Values.metrics.enabled }}
           env:
-            {{- if .Values.metrics.enabled }}
             - name: METRICS_ENABLED
-              value: {{ .Values.metrics.enabled | quote }}
-            {{- end }}
+              value: {{ include "agent.metrics.enabled" . | quote }}
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
@@ -101,7 +98,6 @@ spec:
             - name: MCP_HOST
               value: {{ include "agent.fullname" . }}-mcp
             {{- end }}
-          {{- end }}
           {{- if not (eq (include "agent.slim.enabled" .) "true") }}
           {{- with .Values.livenessProbe }}
           livenessProbe:

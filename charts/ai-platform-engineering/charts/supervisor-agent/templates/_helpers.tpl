@@ -206,3 +206,18 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
     {{- end -}}
     {{- $ref -}}
 {{- end -}}
+
+{{/*
+Determine if metrics are enabled - global takes precedence
+*/}}
+{{- define "supervisorAgent.metrics.enabled" -}}
+    {{- $enabled := (default false .Values.metrics.enabled) -}}
+    {{- with .Values.global -}}
+        {{- with .metrics -}}
+            {{- if hasKey . "enabled" -}}
+                {{- $enabled = .enabled -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $enabled -}}
+{{- end -}}
