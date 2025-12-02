@@ -33,11 +33,12 @@ global:
   rag:
     enableGraphRag: true
 
-# Prometheus metrics configuration
-# Single ServiceMonitor for all ai-platform-engineering components
+  metrics:
+    enabled: false
+
+# ServiceMonitor for scraping all ai-platform-engineering components
+# For agent metrics endpoints, use global.metrics.enabled above
 metrics:
-  # Enable metrics endpoints on all agents
-  enabled: true
   # Path for metrics endpoint
   path: "/metrics"
   # ServiceMonitor configuration for Prometheus Operator
