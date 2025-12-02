@@ -21,8 +21,10 @@ from .agent_metrics import (
     record_request,
     record_subagent_call,
     record_mcp_tool_call,
+    record_mcp_tool_execution,
 )
 from .middleware import PrometheusMetricsMiddleware
+from .callbacks import MetricsCallbackHandler
 
 __all__ = [
     "AgentMetrics",
@@ -30,6 +32,8 @@ __all__ = [
     "record_request",
     "record_subagent_call",
     "record_mcp_tool_call",
+    "record_mcp_tool_execution",
     "PrometheusMetricsMiddleware",
+    "MetricsCallbackHandler",
 ]
 

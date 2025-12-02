@@ -39,6 +39,7 @@ dependencies = [
     "a2a>=0.0.1",
     "fastmcp>=2.11.2",
     "mcp-pagerduty",
+    "prometheus_client>=0.20.0",
 ]
 
 [tool.hatch.build.targets.wheel]
