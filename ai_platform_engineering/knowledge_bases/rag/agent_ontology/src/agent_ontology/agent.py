@@ -3,7 +3,7 @@ import traceback
 
 from common.graph_db.base import GraphDB
 from langgraph.prebuilt import create_react_agent
-from common.agent.tools import fetch_entity
+from common.agent.tools import graph_fetch_entity as fetch_entity
 from agent_ontology.heuristics import HeuristicsProcessor
 from agent_ontology.relation_manager import RelationCandidateManager
 from agent_ontology.prompts import RELATION_PROMPT, SYSTEM_PROMPT_1
