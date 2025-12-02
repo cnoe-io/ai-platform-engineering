@@ -47,15 +47,18 @@ class PrometheusMetricsMiddleware(BaseHTTPMiddleware):
         app: ASGIApp,
         excluded_paths: Optional[list[str]] = None,
         metrics_path: str = "/metrics",
+        agent_name: Optional[str] = None,
     ):
         super().__init__(app)
         self.excluded_paths = set(excluded_paths or ["/health", "/ready", "/healthz"])
         self.metrics_path = metrics_path
+        self.agent_name = agent_name  # If set, this is a subagent
 
         # Add metrics path to excluded paths (we handle it separately)
         self.excluded_paths.add(metrics_path)
 
-        logger.info(f"PrometheusMetricsMiddleware initialized, metrics at {metrics_path}")
+        mode = f"subagent ({agent_name})" if agent_name else "supervisor"
+        logger.info(f"PrometheusMetricsMiddleware initialized as {mode}, metrics at {metrics_path}")
 
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
@@ -99,24 +102,42 @@ class PrometheusMetricsMiddleware(BaseHTTPMiddleware):
         finally:
             duration = time.time() - start_time
 
-            # Record metrics
-            agent_metrics.requests_total.labels(
-                user_email=user_email or "anonymous",
-                user_id=user_id or "",
-                status=status,
-                routing_mode=routing_mode,
-            ).inc()
+            # Record metrics based on whether this is a supervisor or subagent
+            if self.agent_name:
+                # Subagent: track A2A requests from supervisor
+                agent_metrics.subagent_requests_total.labels(
+                    agent_name=self.agent_name,
+                    status=status,
+                ).inc()
 
-            agent_metrics.request_duration_seconds.labels(
-                user_email=user_email or "anonymous",
-                user_id=user_id or "",
-                status=status,
-            ).observe(duration)
+                agent_metrics.subagent_request_duration_seconds.labels(
+                    agent_name=self.agent_name,
+                    status=status,
+                ).observe(duration)
 
-            logger.debug(
-                f"Request: path={path}, user={user_email}, "
-                f"status={status}, duration={duration:.2f}s"
-            )
+                logger.debug(
+                    f"Subagent request: agent={self.agent_name}, path={path}, "
+                    f"status={status}, duration={duration:.2f}s"
+                )
+            else:
+                # Supervisor: track user requests
+                agent_metrics.requests_total.labels(
+                    user_email=user_email or "anonymous",
+                    user_id=user_id or "",
+                    status=status,
+                    routing_mode=routing_mode,
+                ).inc()
+
+                agent_metrics.request_duration_seconds.labels(
+                    user_email=user_email or "anonymous",
+                    user_id=user_id or "",
+                    status=status,
+                ).observe(duration)
+
+                logger.debug(
+                    f"Request: path={path}, user={user_email}, "
+                    f"status={status}, duration={duration:.2f}s"
+                )
 
     def _extract_user_info(self, request: Request) -> tuple[Optional[str], Optional[str]]:
         """

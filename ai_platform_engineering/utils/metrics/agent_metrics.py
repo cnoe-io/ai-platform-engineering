@@ -84,17 +84,47 @@ class AgentMetrics:
         )
 
         # =========================================================================
-        # MCP TOOL METRICS - Track MCP tool usage across subagents
+        # MCP TOOL METRICS (SUPERVISOR) - Track MCP tools observed from streaming
+        # These are best-effort observations from the supervisor side
         # =========================================================================
         self.mcp_tool_calls_total = Counter(
-            "mcp_tool_calls_total",
-            "Total number of MCP tool calls",
+            "mcp_tool_calls_observed_total",
+            "Total number of MCP tool calls observed by supervisor (best-effort)",
             labelnames=["tool_name", "agent_name", "user_email", "status"],
         )
 
         self.mcp_tool_duration_seconds = Histogram(
-            "mcp_tool_duration_seconds",
-            "MCP tool execution duration in seconds",
+            "mcp_tool_duration_observed_seconds",
+            "MCP tool execution duration observed by supervisor (best-effort)",
+            labelnames=["tool_name", "agent_name", "status"],
+            buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, float("inf")),
+        )
+
+        # =========================================================================
+        # SUBAGENT-SIDE METRICS - Used by subagents to track their own activity
+        # =========================================================================
+        self.subagent_requests_total = Counter(
+            "subagent_requests_total",
+            "Total number of A2A requests received by this subagent",
+            labelnames=["agent_name", "status"],
+        )
+
+        self.subagent_request_duration_seconds = Histogram(
+            "subagent_request_duration_seconds",
+            "Subagent request processing duration in seconds",
+            labelnames=["agent_name", "status"],
+            buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, float("inf")),
+        )
+
+        self.mcp_tool_execution_total = Counter(
+            "mcp_tool_execution_total",
+            "Total number of MCP tool executions (actual, from subagent)",
+            labelnames=["tool_name", "agent_name", "status"],
+        )
+
+        self.mcp_tool_execution_duration_seconds = Histogram(
+            "mcp_tool_execution_duration_seconds",
+            "MCP tool execution duration in seconds (actual, from subagent)",
             labelnames=["tool_name", "agent_name", "status"],
             buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, float("inf")),
         )
@@ -259,8 +289,44 @@ class AgentMetrics:
             ).observe(duration)
 
         logger.debug(
-            f"MCP tool call: tool={tool_name}, agent={agent_name}, "
+            f"MCP tool call (observed): tool={tool_name}, agent={agent_name}, "
             f"user={email_label}, status={status}, duration={duration:.2f}s"
+        )
+
+    def record_mcp_tool_execution(
+        self,
+        tool_name: str,
+        agent_name: str,
+        status: str = "success",
+        duration: float = 0.0,
+    ):
+        """
+        Record an MCP tool execution (from subagent side).
+
+        This is the actual tool execution, not an observation from streaming.
+
+        Args:
+            tool_name: Name of the MCP tool (e.g., "list_applications", "get_incidents")
+            agent_name: Name of this subagent
+            status: Status of the tool execution ("success" or "error")
+            duration: Duration of the tool execution in seconds
+        """
+        self.mcp_tool_execution_total.labels(
+            tool_name=tool_name,
+            agent_name=agent_name,
+            status=status,
+        ).inc()
+
+        if duration > 0:
+            self.mcp_tool_execution_duration_seconds.labels(
+                tool_name=tool_name,
+                agent_name=agent_name,
+                status=status,
+            ).observe(duration)
+
+        logger.debug(
+            f"MCP tool execution: tool={tool_name}, agent={agent_name}, "
+            f"status={status}, duration={duration:.2f}s"
         )
 
     def generate_metrics(self) -> bytes:
@@ -330,11 +396,26 @@ def record_mcp_tool_call(
     status: str = "success",
     duration: float = 0.0,
 ):
-    """Record an MCP tool call metric."""
+    """Record an MCP tool call metric (observed by supervisor)."""
     agent_metrics.record_mcp_tool_call(
         tool_name=tool_name,
         agent_name=agent_name,
         user_email=user_email,
+        status=status,
+        duration=duration,
+    )
+
+
+def record_mcp_tool_execution(
+    tool_name: str,
+    agent_name: str,
+    status: str = "success",
+    duration: float = 0.0,
+):
+    """Record an MCP tool execution metric (actual execution in subagent)."""
+    agent_metrics.record_mcp_tool_execution(
+        tool_name=tool_name,
+        agent_name=agent_name,
         status=status,
         duration=duration,
     )

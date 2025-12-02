@@ -30,6 +30,7 @@ dependencies = [
     "fastmcp>=2.11.1",
     "mcp>=1.12.3",
     "mcp-confluence",
+    "prometheus_client>=0.20.0",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]

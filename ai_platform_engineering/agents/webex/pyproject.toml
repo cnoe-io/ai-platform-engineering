@@ -35,6 +35,7 @@ dependencies = [
     "rich (>=14.0.0,<15.0.0)",
     "sseclient (>=0.0.27,<0.0.28)",
     "cnoe-agent-utils==0.3.2",
+    "prometheus_client>=0.20.0",
 ]
 
 [tool.hatch.build.targets.wheel]

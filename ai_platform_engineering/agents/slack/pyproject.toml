@@ -31,6 +31,7 @@ dependencies = [
     "fastmcp>=2.11.2",
     "mcp-slack",
     "python-dotenv>=1.1.0",
+    "prometheus_client>=0.20.0",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]
