@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.prompt_templates import build_system_instruction, graceful_error_handling_template, SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES, HUMAN_IN_LOOP_NOTES, LOGGING_NOTES, DATE_HANDLING_NOTES
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -18,27 +18,17 @@ class ResponseFormat(BaseModel):
     status: Literal['input_required', 'completed', 'error'] = 'input_required'
     message: str
 
+
+# Load prompt configuration from YAML
+_prompt_config = load_subagent_prompt_config("petstore")
+
+
 class PetStoreAgent(BaseLangGraphAgent):
     """Petstore Agent for managing Petstore API operations."""
 
-    SYSTEM_INSTRUCTION = build_system_instruction(
-        agent_name="PETSTORE AGENT",
-        agent_purpose="You are an expert assistant for managing Petstore API operations. Your sole purpose is to help users perform CRUD operations on pets, store orders, and user accounts. Always return any Petstore resource links in markdown format.",
-        response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES + [
-            "Only use the available Petstore tools to interact with the Petstore API",
-            "Do not provide general guidance from your knowledge base unless explicitly asked",
-            "Always send tool results directly to the user without analyzing or interpreting",
-            "When querying pets or resources with date-based filters, use the current date provided above as reference",
-        ],
-        important_notes=HUMAN_IN_LOOP_NOTES + LOGGING_NOTES + DATE_HANDLING_NOTES,
-        graceful_error_handling=graceful_error_handling_template("Petstore")
-    )
+    SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
-    RESPONSE_FORMAT_INSTRUCTION: str = (
-        'Select status as completed if the request is complete. '
-        'Select status as input_required if the input is a question to the user. '
-        'Set response status to error if the input indicates an error.'
-    )
+    RESPONSE_FORMAT_INSTRUCTION: str = _prompt_config.response_format_instruction
 
     def __init__(self):
         # Call parent __init__ first to set up model, tracing, etc.
@@ -107,11 +97,11 @@ class PetStoreAgent(BaseLangGraphAgent):
 
     def get_tool_working_message(self) -> str:
         """Return message shown when calling tools."""
-        return 'Looking up Petstore information...'
+        return _prompt_config.tool_working_message
 
     def get_tool_processing_message(self) -> str:
         """Return message shown when processing tool results."""
-        return 'Processing Petstore data...'
+        return _prompt_config.tool_processing_message
 
     @trace_agent_stream("petstore")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):

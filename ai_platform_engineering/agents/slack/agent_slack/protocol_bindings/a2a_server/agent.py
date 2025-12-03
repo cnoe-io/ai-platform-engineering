@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -19,27 +19,16 @@ class ResponseFormat(BaseModel):
     message: str
 
 
+# Load prompt configuration from YAML
+_prompt_config = load_subagent_prompt_config("slack")
+
+
 class SlackAgent(BaseLangGraphAgent):
     """Slack Agent for workspace and channel management."""
 
-    # Using common utilities - eliminates 19 lines of duplicated code!
-    # Slack makes real API calls, so include error handling
-    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
-        service_name="Slack",
-        service_operations="interact with Slack workspaces, channels, and messages",
-        additional_guidelines=[
-            "Use the available Slack tools to interact with the Slack API",
-            "When searching for messages or filtering by time, use the current date provided above as reference"
-        ],
-        include_error_handling=True,  # Real API calls can fail
-        include_date_handling=True    # Enable date handling
-    )
+    SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
-    RESPONSE_FORMAT_INSTRUCTION: str = (
-        'Select status as completed if the request is complete. '
-        'Select status as input_required if the input is a question to the user. '
-        'Set response status to error if the input indicates an error.'
-    )
+    RESPONSE_FORMAT_INSTRUCTION: str = _prompt_config.response_format_instruction
 
     def get_agent_name(self) -> str:
         """Return the agent's name."""
@@ -79,11 +68,11 @@ class SlackAgent(BaseLangGraphAgent):
 
     def get_tool_working_message(self) -> str:
         """Return message shown when calling tools."""
-        return 'Querying Slack...'
+        return _prompt_config.tool_working_message
 
     def get_tool_processing_message(self) -> str:
         """Return message shown when processing tool results."""
-        return 'Processing Slack data...'
+        return _prompt_config.tool_processing_message
 
     @trace_agent_stream("slack")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):

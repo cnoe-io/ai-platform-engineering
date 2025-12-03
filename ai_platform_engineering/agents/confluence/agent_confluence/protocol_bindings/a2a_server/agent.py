@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -19,24 +19,16 @@ class ResponseFormat(BaseModel):
     message: str
 
 
+# Load prompt configuration from YAML
+_prompt_config = load_subagent_prompt_config("confluence")
+
+
 class ConfluenceAgent(BaseLangGraphAgent):
     """Confluence Agent for wiki and documentation management."""
 
-    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
-        service_name="Confluence",
-        service_operations="manage pages, spaces, and blog posts",
-        additional_guidelines=[
-            "Perform CRUD operations on Confluence content",
-            "When searching or filtering pages by date (created, modified), use the current date provided above as reference",
-            "Help users find recently updated or created documentation"
-        ],
-        include_error_handling=True,  # Real Confluence API calls
-        include_date_handling=True    # Enable date handling
-    )
+    SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
-    RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.
-    Select status as input_required if the input is a question to the user.
-    Set response status to error if the input indicates an error."""
+    RESPONSE_FORMAT_INSTRUCTION = _prompt_config.response_format_instruction
 
     def get_agent_name(self) -> str:
         """Return the agent's name."""
@@ -76,11 +68,11 @@ class ConfluenceAgent(BaseLangGraphAgent):
 
     def get_tool_working_message(self) -> str:
         """Return message shown when calling tools."""
-        return 'Querying Confluence...'
+        return _prompt_config.tool_working_message
 
     def get_tool_processing_message(self) -> str:
         """Return message shown when processing tool results."""
-        return 'Processing Confluence data...'
+        return _prompt_config.tool_processing_message
 
     @trace_agent_stream("confluence")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):

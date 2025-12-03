@@ -345,6 +345,8 @@ services:
       args:
         - AGENT_NAME=argocd
     container_name: agent-argocd-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -377,6 +379,8 @@ services:
       args:
         - AGENT_NAME=argocd
     container_name: agent-argocd-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
     profiles:
       - p2p
       - p2p-tracing
@@ -414,6 +418,8 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -471,6 +477,8 @@ services:
       context: .
       dockerfile: ai_platform_engineering/agents/aws/build/Dockerfile.a2a
     container_name: agent-aws-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.well-known/agent-card.json', timeout=5)"]
@@ -554,6 +562,8 @@ services:
       args:
         - AGENT_NAME=backstage
     container_name: agent-backstage-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -585,6 +595,8 @@ services:
       args:
         - AGENT_NAME=backstage
     container_name: agent-backstage-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
     profiles:
       - p2p
       - p2p-tracing
@@ -644,6 +656,8 @@ services:
       args:
         - AGENT_NAME=confluence
     container_name: agent-confluence-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -675,6 +689,8 @@ services:
       args:
         - AGENT_NAME=confluence
     container_name: agent-confluence-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
     profiles:
       - p2p
       - p2p-tracing
@@ -744,6 +760,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8007:8000"
@@ -775,6 +792,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8007:8000"
@@ -795,6 +813,8 @@ services:
       args:
         - AGENT_NAME=jira
     container_name: agent-jira-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.jira_agent.yaml:/app/prompt_config.jira_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -828,6 +848,8 @@ services:
       args:
         - AGENT_NAME=jira
     container_name: agent-jira-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.jira_agent.yaml:/app/prompt_config.jira_agent.yaml
     profiles:
       - p2p
       - p2p-tracing
@@ -886,6 +908,8 @@ services:
       args:
         - AGENT_NAME=komodor
     container_name: agent-komodor-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -917,6 +941,8 @@ services:
       args:
         - AGENT_NAME=komodor
     container_name: agent-komodor-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
     profiles:
       - p2p
       - p2p-tracing
@@ -974,6 +1000,8 @@ services:
       args:
         - AGENT_NAME=pagerduty
     container_name: agent-pagerduty-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -1005,6 +1033,8 @@ services:
       args:
         - AGENT_NAME=pagerduty
     container_name: agent-pagerduty-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
     profiles:
       - p2p
       - p2p-tracing
@@ -1062,6 +1092,8 @@ services:
       args:
         - AGENT_NAME=slack
     container_name: agent-slack-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -1095,6 +1127,8 @@ services:
       args:
         - AGENT_NAME=slack
     container_name: agent-slack-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
     profiles:
       - p2p
       - p2p-tracing
@@ -1152,6 +1186,8 @@ services:
       args:
         - AGENT_NAME=webex
     container_name: agent-webex-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
     profiles:
       - p2p
       - p2p-tracing
@@ -1182,6 +1218,8 @@ services:
       args:
         - AGENT_NAME=webex
     container_name: agent-webex-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -1265,6 +1303,8 @@ services:
       args:
         - AGENT_NAME=splunk
     container_name: agent-splunk-slim
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
     profiles:
       - slim
       - slim-tracing
@@ -1296,6 +1336,8 @@ services:
       args:
         - AGENT_NAME=splunk
     container_name: agent-splunk-p2p
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
     profiles:
       - p2p
       - p2p-tracing
@@ -1337,6 +1379,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8021:8000"
@@ -1376,6 +1419,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
       - /var/run/docker.sock:/var/run/docker.sock
       - ./ai_platform_engineering/agents/weather/agent_weather:/app/ai_platform_engineering/agents/weather/agent_weather
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
@@ -1410,6 +1454,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
       - /var/run/docker.sock:/var/run/docker.sock
       - ./ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
     ports:
@@ -1445,6 +1490,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
       - /var/run/docker.sock:/var/run/docker.sock
       - ./ai_platform_engineering/agents/template/agent_petstore:/app/agent_petstore
     ports:

@@ -113,10 +113,17 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
+            - name: prompt-config
+              mountPath: /app/prompt_config.{{ include "agent.simpleName" . }}_agent.yaml
+              subPath: prompt_config.{{ include "agent.simpleName" . }}_agent.yaml
+              readOnly: true
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
+        - name: prompt-config
+          configMap:
+            name: prompt-config-{{ include "agent.simpleName" . }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

@@ -5,6 +5,7 @@
 
 import logging
 import os
+import yaml
 from typing import Dict, Any
 
 from pydantic import BaseModel, Field
@@ -12,6 +13,17 @@ from pydantic import BaseModel, Field
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 
 logger = logging.getLogger(__name__)
+
+
+def _load_aws_prompt_config(path="prompt_config.aws_agent.yaml") -> Dict[str, Any]:
+    """Load AWS agent prompt configuration from YAML file."""
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+# Load config at module level
+_aws_prompt_config = _load_aws_prompt_config()
 
 
 class AWSAgentResponse(BaseModel):
@@ -50,115 +62,58 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         return "aws"
 
     def get_system_instruction(self) -> str:
-        """Return the system prompt for the AWS agent."""
-        # Check which capabilities are enabled
-        enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
-        enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "false").lower() == "true"
-        enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "false").lower() == "true"
-        enable_terraform_mcp = os.getenv("ENABLE_TERRAFORM_MCP", "false").lower() == "true"
-        enable_aws_documentation_mcp = os.getenv("ENABLE_AWS_DOCUMENTATION_MCP", "false").lower() == "true"
-        enable_cloudtrail_mcp = os.getenv("ENABLE_CLOUDTRAIL_MCP", "false").lower() == "true"
-        enable_cloudwatch_mcp = os.getenv("ENABLE_CLOUDWATCH_MCP", "false").lower() == "true"
+        """Return the system prompt for the AWS agent, built from YAML config."""
+        config = _aws_prompt_config
 
-        system_prompt_parts = [
-            "You are an AWS AI Assistant specialized in comprehensive AWS management. "
-            "You can help users with:"
-        ]
+        # Start with base prompt
+        base_prompt = config.get("base_prompt",
+            "You are an AWS AI Assistant specialized in comprehensive AWS management. You can help users with:")
+        system_prompt_parts = [base_prompt]
 
-        if enable_eks_mcp:
-            system_prompt_parts.append(
-                "\n\n**EKS & Kubernetes Management:**\n"
-                "- List all EKS clusters in the configured region (use tools without cluster_name parameter)\n"
-                "- Create, describe, and delete specific EKS clusters\n"
-                "- Manage Kubernetes resources (deployments, services, pods)\n"
-                "- Deploy containerized applications\n"
-                "- Retrieve logs and monitor cluster health\n"
-                "- When listing clusters, DO NOT pass a cluster name parameter - list all clusters first"
-            )
+        # Get MCP capabilities from config
+        mcp_capabilities = config.get("mcp_capabilities", {})
 
-        if enable_cost_explorer_mcp:
-            from datetime import datetime
-            current_month_start = datetime.now().replace(day=1).strftime('%Y-%m-%d')
-            current_date = datetime.now().strftime('%Y-%m-%d')
+        # Check each MCP capability and append if enabled
+        # Env var is automatically constructed as ENABLE_{KEY}_MCP
+        for mcp_name, mcp_config in mcp_capabilities.items():
+            env_var = f"ENABLE_{mcp_name.upper()}_MCP"
+            default = mcp_config.get("default", "false")
+            is_enabled = os.getenv(env_var, default).lower() == "true"
 
-            system_prompt_parts.append(
-                "\n\n**Cost Management & FinOps:**\n"
-                "- Analyze AWS spending and costs\n"
-                "- Create cost forecasts and budgets\n"
-                "- Identify cost optimization opportunities\n"
-                "- Generate cost reports and breakdowns\n\n"
-                f"**Default Cost Query Settings:**\n"
-                f"- Use date range: Start={current_month_start}, End={current_date} (current month)\n"
-                "- AWS Cost Explorer only allows queries within the past 14 months\n"
-                "- For dimension queries, end date MUST be the first day of a month if querying beyond 14 months\n"
-                "- Always use recent dates (current or previous month) unless user specifies otherwise\n\n"
-                "**Cost Query Strategies:**\n"
-                "- When user asks for cost of a specific resource name (e.g., 'comn-dev-use2-1', 'my-cluster'):\n"
-                "  * First try filtering by Tags (use tag keys like 'Name', 'kubernetes.io/cluster/*', 'aws:eks:cluster-name')\n"
-                "  * Or group by SERVICE and filter by resource-specific tags\n"
-                "  * Do NOT treat resource names as SERVICE names\n"
-                "- Common AWS services: EC2, S3, RDS, EKS, Lambda, VPC, CloudWatch\n"
-                "- Resource names are NOT service names - they are tag values or resource identifiers"
-            )
+            if is_enabled:
+                prompt = mcp_config.get("prompt", "")
+                if prompt:
+                    system_prompt_parts.append("\n\n" + prompt.strip())
 
-        if enable_iam_mcp:
-            system_prompt_parts.append(
-                "\n\n**IAM & Security:**\n"
-                "- Manage IAM users, roles, and policies\n"
-                "- Review and audit security configurations\n"
-                "- Implement least-privilege access controls"
-            )
+                # Special handling for cost_explorer - append dynamic date settings
+                if mcp_name == "cost_explorer":
+                    from datetime import datetime
+                    current_month_start = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+                    current_date = datetime.now().strftime('%Y-%m-%d')
 
-        if enable_terraform_mcp:
-            system_prompt_parts.append(
-                "\n\n**Infrastructure as Code (Terraform):**\n"
-                "- Generate and manage Terraform configurations\n"
-                "- Plan and apply infrastructure changes\n"
-                "- Manage state and workspaces"
-            )
+                    cost_settings = config.get("cost_query_settings", "")
+                    if cost_settings:
+                        cost_settings = cost_settings.format(
+                            current_month_start=current_month_start,
+                            current_date=current_date
+                        )
+                        system_prompt_parts.append("\n\n" + cost_settings.strip())
 
-        if enable_aws_documentation_mcp:
-            system_prompt_parts.append(
-                "\n\n**AWS Documentation & Knowledge:**\n"
-                "- Search AWS documentation\n"
-                "- Provide best practices and guidance\n"
-                "- Answer AWS service-related questions"
-            )
-
-        if enable_cloudtrail_mcp:
-            system_prompt_parts.append(
-                "\n\n**Audit & Compliance (CloudTrail):**\n"
-                "- Query CloudTrail logs for activity history\n"
-                "- Track resource changes and access patterns\n"
-                "- Generate audit reports"
-            )
-
-        if enable_cloudwatch_mcp:
-            system_prompt_parts.append(
-                "\n\n**Monitoring & Observability (CloudWatch):**\n"
-                "- Query logs and metrics\n"
-                "- Create and manage alarms\n"
-                "- Analyze application and infrastructure performance"
-            )
-
-        # Get the configured AWS region
+        # Add AWS configuration with runtime region
         aws_region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-west-2"))
+        aws_config_template = config.get("aws_config_template",
+            "**AWS Configuration:**\n- Current AWS Region: {aws_region}")
+        system_prompt_parts.append("\n\n" + aws_config_template.format(aws_region=aws_region).strip())
 
-        system_prompt_parts.append(
-            f"\n\n**AWS Configuration:**\n"
-            f"- Current AWS Region: {aws_region}\n"
-            f"- All AWS operations will be performed in this region unless explicitly specified otherwise\n"
-            f"- When users mention a region name (like 'us-east-2', 'us-west-2'), understand it as context about the current region, not as a resource name"
-        )
-
-        system_prompt_parts.append(
-            "\n\n**Important Guidelines:**\n"
+        # Add important guidelines
+        important_guidelines = config.get("important_guidelines",
+            "**Important Guidelines:**\n"
             "- Always verify AWS region and account context\n"
             "- Provide clear explanations of actions taken\n"
             "- Warn users about potentially destructive operations\n"
             "- Follow AWS best practices and security principles\n"
-            "- Be concise but informative in your responses"
-        )
+            "- Be concise but informative in your responses")
+        system_prompt_parts.append("\n\n" + important_guidelines.strip())
 
         return "".join(system_prompt_parts)
 
@@ -290,11 +245,11 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
 
     def get_tool_working_message(self) -> str:
         """Return message shown when calling AWS tools."""
-        return "Looking up AWS Resources..."
+        return _aws_prompt_config.get("tool_working_message", "Looking up AWS Resources...")
 
     def get_tool_processing_message(self) -> str:
         """Return message shown when processing tool results."""
-        return "Processing AWS data..."
+        return _aws_prompt_config.get("tool_processing_message", "Processing AWS data...")
 
     async def _ensure_graph_initialized(self, config: Any) -> None:
         """
