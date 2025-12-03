@@ -22,6 +22,7 @@ dependencies = [
     "agntcy-app-sdk==0.4.0",
     "strands-agents>=0.1.0",
     "mcp>=1.12.3",
+    "prometheus_client>=0.20.0",
 ]
 
 [tool.hatch.build.targets.wheel]

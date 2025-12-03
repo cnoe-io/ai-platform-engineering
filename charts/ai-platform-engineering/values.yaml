@@ -33,6 +33,33 @@ global:
   rag:
     enableGraphRag: true
 
+  metrics:
+    enabled: false
+
+# ServiceMonitor for scraping all ai-platform-engineering components
+# For agent metrics endpoints, use global.metrics.enabled above
+metrics:
+  # Path for metrics endpoint
+  path: "/metrics"
+  # ServiceMonitor configuration for Prometheus Operator
+  serviceMonitor:
+    # Enable ServiceMonitor for automatic Prometheus scraping
+    # This creates ONE ServiceMonitor that scrapes ALL ai-platform-engineering services
+    enabled: false
+    # Scrape interval
+    interval: "30s"
+    # Scrape timeout
+    scrapeTimeout: "10s"
+    # Additional labels for the ServiceMonitor (e.g., to match Prometheus selector)
+    # Example: labels: { release: prometheus }
+    labels: {}
+    # Additional annotations for the ServiceMonitor
+    annotations: {}
+    # Relabelings for metrics
+    relabelings: []
+    # Metric relabelings
+    metricRelabelings: []
+
 # Extra Kubernetes resources to deploy
 extraDeploy: []
 

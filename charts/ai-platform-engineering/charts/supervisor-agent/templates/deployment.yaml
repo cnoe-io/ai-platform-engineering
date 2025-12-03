@@ -75,6 +75,8 @@ spec:
           env:
             - name: AGENT_PROTOCOL
               value: {{ .Values.multiAgentConfig.protocol | quote }}
+            - name: METRICS_ENABLED
+              value: {{ include "supervisorAgent.metrics.enabled" . | quote }}
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
