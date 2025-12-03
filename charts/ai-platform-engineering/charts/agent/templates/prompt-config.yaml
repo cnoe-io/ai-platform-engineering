@@ -1,0 +1,12 @@
+{{- if .Values.customPromptConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prompt-config-{{ include "agent.simpleName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "agent.labels" . | nindent 4 }}
+data:
+  prompt_config.{{ include "agent.simpleName" . }}_agent.yaml: |
+{{ .Values.customPromptConfig | indent 4 }}
+{{- end }}
