@@ -5,6 +5,9 @@ agentExports:
   data:
     enabled: true
 
+# Custom prompt config (overrides the default from data/ files if set)
+customPromptConfig: ""
+
 # This is to override the chart name.
 nameOverride: ""
 fullnameOverride: ""

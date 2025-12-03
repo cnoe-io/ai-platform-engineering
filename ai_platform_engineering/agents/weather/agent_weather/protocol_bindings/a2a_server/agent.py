@@ -11,10 +11,7 @@ from typing import Dict, Any, Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.prompt_templates import (
-    build_system_instruction, graceful_error_handling_template,
-    SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES
-)
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 
 logger = logging.getLogger(__name__)
 
@@ -25,39 +22,16 @@ class ResponseFormat(BaseModel):
     message: str
 
 
+# Load prompt configuration from YAML
+_prompt_config = load_subagent_prompt_config("weather")
+
+
 class WeatherAgent(BaseLangGraphAgent):
     """Weather Agent using BaseLangGraphAgent for consistent streaming."""
 
-    WEATHER_TOOL_USAGE = {
-        "get_current_weather": 'Use for current weather conditions (e.g., "What\'s the weather like now in Paris?")',
-        "get_weather_by_datetime_range": 'Use for future or past weather within a date range (e.g., "Will it rain tomorrow?")'
-    }
+    SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
-    WEATHER_ADDITIONAL_SECTIONS = {
-        "Handling Relative Dates": '''- For "tomorrow", "next week", "yesterday" queries, use the current date/time provided at the top of your instructions
-- Calculate target date(s) based on the provided current date and use get_weather_by_datetime_range
-- Always use YYYY-MM-DD format for dates in API calls
-- For "tomorrow" queries, set start_date and end_date to the same date''',
-        
-        "Examples": '''- "Will it rain tomorrow in Paris?" → Calculate tomorrow's date from provided current date → get_weather_by_datetime_range
-- "What's the weather now?" → get_current_weather(city="[location]")
-- "Weather forecast for this weekend?" → Calculate weekend dates from provided current date → get_weather_by_datetime_range'''
-    }
-
-    SYSTEM_INSTRUCTION = build_system_instruction(
-        agent_name="WEATHER AGENT",
-        agent_purpose="You are an expert assistant for Weather integration and operations. Your purpose is to help users get weather information. Show weather in Fahrenheit for US cities and Celsius for European cities.",
-        tool_usage_guidelines=WEATHER_TOOL_USAGE,
-        response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES,
-        additional_sections=WEATHER_ADDITIONAL_SECTIONS,
-        graceful_error_handling=graceful_error_handling_template("Weather", "API")
-    )
-
-    RESPONSE_FORMAT_INSTRUCTION = (
-        'Select status as completed if the request is complete. '
-        'Select status as input_required if the input is a question to the user. '
-        'Set response status to error if the input indicates an error.'
-    )
+    RESPONSE_FORMAT_INSTRUCTION = _prompt_config.response_format_instruction
 
     def __init__(self):
         """Initialize Weather agent."""
@@ -146,8 +120,8 @@ class WeatherAgent(BaseLangGraphAgent):
 
     def get_tool_working_message(self) -> str:
         """Return the message shown when a tool is being invoked."""
-        return "🔧 Calling tool: **{tool_name}**"
+        return _prompt_config.tool_working_message
 
     def get_tool_processing_message(self) -> str:
         """Return the message shown when processing tool results."""
-        return "✅ Tool **{tool_name}** completed"
+        return _prompt_config.tool_processing_message
