@@ -1,0 +1,34 @@
+{{- /*
+  Creates ConfigMaps for sub-agent prompt configurations from data/ files.
+  Skips agents that have customPromptConfig set (subchart handles those).
+*/ -}}
+
+{{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
+{{- if $enabled }}
+{{- $agentValues := index $.Values (printf "agent-%s" $name) }}
+{{- $hasCustomConfig := false }}
+{{- if $agentValues }}
+{{- if $agentValues.customPromptConfig }}
+{{- $hasCustomConfig = true }}
+{{- end }}
+{{- end }}
+{{- if not $hasCustomConfig }}
+{{- $configContent := $.Files.Get (printf "data/prompt_config.%s_agent.yaml" $name) }}
+{{- if $configContent }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prompt-config-{{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "ai-platform-engineering.name" $ }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/component: agent-{{ $name }}
+data:
+  prompt_config.{{ $name }}_agent.yaml: |
+{{ $configContent | indent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
