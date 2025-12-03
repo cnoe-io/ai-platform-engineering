@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 
 logger = logging.getLogger(__name__)
 
@@ -29,32 +29,16 @@ class ResponseFormat(BaseModel):
     message: str
 
 
+# Load prompt configuration from YAML
+_prompt_config = load_subagent_prompt_config("github")
+
+
 class GitHubAgent(BaseLangGraphAgent):
     """GitHub Agent using BaseLangGraphAgent for consistent streaming."""
 
-    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
-        service_name="GitHub",
-        service_operations="interact with GitHub repositories, issues, pull requests, Actions workflows, code security, Dependabot, Projects, Organizations, Users, Gists, Discussions, Notifications, Stargazers, and Git operations",
-        additional_guidelines=[
-            "Before executing any tool, ensure that all required parameters are provided",
-            "If any required parameters are missing, ask the user to provide them",
-            "Always use the most appropriate tool for the requested operation and validate parameters",
-            "When filtering issues, pull requests, or commits by date, use the current date provided above as reference",
-            "**IMPORTANT - Repository References:** When the user mentions a repository name without specifying the organization/owner, "
-            "ALWAYS ask them to clarify the organization name. DO NOT assume the organization name is the same as the repository name. "
-            "Example: If user says 'show PRs in ai-platform-engineering', ask 'Which organization is the ai-platform-engineering repository under?' DO NOT assume it's 'ai-platform-engineering/ai-platform-engineering'",
-            "Repository format is always 'organization/repository' or 'owner/repository'. Never duplicate the repository name as both organization and repository name",
-            "**GitHub Actions Logs**: When workflow runs return log URLs, use `fetch_url` tool to download and present log content to users"
-        ],
-        include_error_handling=True,  # Real GitHub API calls
-        include_date_handling=True    # Enable date handling
-    )
+    SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
-    RESPONSE_FORMAT_INSTRUCTION = (
-        'Select status as completed if the request is complete. '
-        'Select status as input_required if the input is a question to the user. '
-        'Set response status to error if the input indicates an error.'
-    )
+    RESPONSE_FORMAT_INSTRUCTION = _prompt_config.response_format_instruction
 
     def __init__(self):
         """Initialize GitHub agent with token validation."""
@@ -113,9 +97,9 @@ class GitHubAgent(BaseLangGraphAgent):
 
     def get_tool_working_message(self) -> str:
         """Return the message shown when a tool is being invoked."""
-        return "🔧 Calling tool: **{tool_name}**"
+        return _prompt_config.tool_working_message
 
     def get_tool_processing_message(self) -> str:
         """Return the message shown when processing tool results."""
-        return "✅ Tool **{tool_name}** completed"
+        return _prompt_config.tool_processing_message
 
