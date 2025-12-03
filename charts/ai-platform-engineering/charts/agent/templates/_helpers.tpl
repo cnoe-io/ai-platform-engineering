@@ -314,3 +314,12 @@ Determine if metrics are enabled - global takes precedence
     {{- end -}}
     {{- $enabled -}}
 {{- end -}}
+
+{{/*
+Get simple agent name (strips "agent-" prefix from nameOverride)
+e.g., "agent-argocd" -> "argocd"
+*/}}
+{{- define "agent.simpleName" -}}
+{{- $name := include "agent.name" . -}}
+{{- $name | trimPrefix "agent-" -}}
+{{- end }}

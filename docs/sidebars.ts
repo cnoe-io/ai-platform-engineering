@@ -415,52 +415,42 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Workshop - Mars Colony',
+      label: 'Workshop - CAIPE',
       items: [
         {
           type: 'doc',
-          id: 'workshop/flyer',
-          label: 'Register',
+          id: 'workshop/caipeintro',
+          label: 'Introduction to CAIPE',
         },
         {
           type: 'doc',
-          id: 'workshop/README',
-          label: 'Workshop Overview',
+          id: 'workshop/agent',
+          label: 'Introduction to AI Agents',
         },
         {
           type: 'doc',
-          id: 'workshop/overview',
-          label: 'Mission Overview',
+          id: 'workshop/mas',
+          label: 'Multi-Agent System',
         },
         {
           type: 'doc',
-          id: 'workshop/mission1',
-          label: 'Mission 1: Start Ignition',
+          id: 'workshop/rag',
+          label: 'RAG (Retrieval-Augmented Generation)',
         },
         {
           type: 'doc',
-          id: 'workshop/mission2',
-          label: 'Mission 2: Run Standalone Petstore Agent',
+          id: 'workshop/idpbuilder',
+          label: 'IDP Builder',
         },
         {
           type: 'doc',
-          id: 'workshop/mission3',
-          label: 'Mission 3: Multi-Agent System',
+          id: 'workshop/tracing',
+          label: 'Tracing',
         },
         {
           type: 'doc',
-          id: 'workshop/mission4',
-          label: 'Mission 4: Reconnaissance & Reporting',
-        },
-        {
-          type: 'doc',
-          id: 'workshop/mission6',
-          label: 'Mission 6: Deploy CAIPE with IDPBuilder',
-        },
-        {
-          type: 'doc',
-          id: 'workshop/mission7',
-          label: 'Mission 7: Tracing and Evaluation',
+          id: 'workshop/conclusion',
+          label: 'Conclusion',
         }
       ],
     },

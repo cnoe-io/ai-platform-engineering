@@ -116,6 +116,8 @@ services:
   agent-aws:
     image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-stable}
     container_name: agent-aws
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
     env_file: [.env]
     ports: ["8012:8000"]
     environment:
@@ -143,6 +145,8 @@ services:
   agent-petstore:
     image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-stable}
     container_name: agent-petstore
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
     env_file: [.env]
     ports: ["8013:8000"]
     environment:
@@ -164,6 +168,8 @@ services:
   agent-github:
     image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-stable}
     container_name: agent-github
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
     env_file: [.env]
     ports: ["8001:8000"]
     environment:
@@ -186,6 +192,8 @@ services:
   agent-weather:
     image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-stable}
     container_name: agent-weather
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
     env_file: [.env]
     ports: ["8002:8000"]
     environment:
@@ -202,6 +210,8 @@ services:
   agent-backstage:
     image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-stable}
     container_name: agent-backstage
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
     env_file: [.env]
     ports: ["8003:8000"]
     environment:
@@ -240,6 +250,8 @@ services:
   agent-argocd:
     image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-stable}
     container_name: agent-argocd
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
     env_file: [.env]
     ports: ["8004:8000"]
     environment:
@@ -278,6 +290,8 @@ services:
   agent-confluence:
     image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-stable}
     container_name: agent-confluence
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
     env_file: [.env]
     ports: ["8005:8000"]
     environment:
@@ -316,6 +330,8 @@ services:
   agent-jira:
     image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-stable}
     container_name: agent-jira
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.jira_agent.yaml:/app/prompt_config.jira_agent.yaml
     env_file: [.env]
     ports: ["8006:8000"]
     environment:
@@ -354,6 +370,8 @@ services:
   agent-komodor:
     image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-stable}
     container_name: agent-komodor
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
     env_file: [.env]
     ports: ["8007:8000"]
     environment:
@@ -392,6 +410,8 @@ services:
   agent-pagerduty:
     image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-stable}
     container_name: agent-pagerduty
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
     env_file: [.env]
     ports: ["8008:8000"]
     environment:
@@ -430,6 +450,8 @@ services:
   agent-slack:
     image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-stable}
     container_name: agent-slack
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
     env_file: [.env]
     ports: ["8009:8000"]
     environment:
@@ -468,6 +490,8 @@ services:
   agent-splunk:
     image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-stable}
     container_name: agent-splunk
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
     env_file: [.env]
     ports: ["8010:8000"]
     environment:
@@ -506,6 +530,8 @@ services:
   agent-webex:
     image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-stable}
     container_name: agent-webex
+    volumes:
+      - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
     env_file: [.env]
     ports: ["8011:8000"]
     environment:
