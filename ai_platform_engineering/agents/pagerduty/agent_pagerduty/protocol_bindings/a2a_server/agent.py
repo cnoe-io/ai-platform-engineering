@@ -4,12 +4,15 @@
 """PagerDuty Agent implementation using common A2A base classes."""
 
 import os
+import logging
 from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from cnoe_agent_utils.tracing import trace_agent_stream
+
+logger = logging.getLogger(__name__)
 
 
 class ResponseFormat(BaseModel):
@@ -20,7 +23,23 @@ class ResponseFormat(BaseModel):
 
 
 # Load prompt configuration from YAML
+print("[PagerDuty Agent] Loading prompt configuration...")  # Print for early startup visibility
+logger.info("Loading PagerDuty agent prompt configuration...")
 _prompt_config = load_subagent_prompt_config("pagerduty")
+
+# Log loaded config details (print + logger for visibility at different stages)
+_config_summary = f"""
+[PagerDuty Agent] Prompt config loaded:
+  - agent_name: {_prompt_config.agent_name}
+  - agent_purpose: {_prompt_config.agent_purpose}
+  - raw_config keys: {list(_prompt_config.raw_config.keys())}
+  - using_defaults: {len(_prompt_config.raw_config) == 0}
+"""
+print(_config_summary)
+logger.info(_config_summary)
+logger.info(f"PagerDuty prompt config - response_format_instruction: {_prompt_config.response_format_instruction}")
+logger.info(f"PagerDuty prompt config - tool_working_message: {_prompt_config.tool_working_message}")
+logger.debug(f"PagerDuty prompt config - full raw_config: {_prompt_config.raw_config}")
 
 
 class PagerDutyAgent(BaseLangGraphAgent):

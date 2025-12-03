@@ -69,6 +69,7 @@ class SubAgentPromptConfig:
         # If we have capabilities, tool_usage_guidelines, or additional_sections,
         # use the full build_system_instruction
         if self.capabilities or self.tool_usage_guidelines or self.additional_sections:
+            logger.info(f"Using build_system_instruction for {self.agent_name}")
             # Build important notes list
             important_notes = []
             if self.include_human_in_loop:
@@ -91,6 +92,7 @@ class SubAgentPromptConfig:
             )
         else:
             # Use scope_limited_agent_instruction for simpler agents
+            logger.info(f"Using scope_limited_agent_instruction for {self.agent_name}")
             return scope_limited_agent_instruction(
                 service_name=self.agent_name,
                 service_operations=self.agent_purpose,
@@ -133,19 +135,33 @@ def load_subagent_prompt_config(
     """
     # Determine config file path
     yaml_path = config_path if config_path else f"prompt_config.{agent_name}_agent.yaml"
+    abs_yaml_path = os.path.abspath(yaml_path)
+    cwd = os.getcwd()
+
+    logger.info(f"[{agent_name}] Loading subagent prompt config...")
+    logger.info(f"[{agent_name}] Current working directory: {cwd}")
+    logger.info(f"[{agent_name}] Looking for config file: {yaml_path}")
+    logger.info(f"[{agent_name}] Absolute path: {abs_yaml_path}")
 
     if not os.path.exists(yaml_path):
+        logger.warning(f"[{agent_name}] Config file NOT FOUND at: {abs_yaml_path}")
+        logger.warning(f"[{agent_name}] Returning DEFAULT config (YAML file missing)")
         return _get_default_config(agent_name)
+
+    logger.info(f"[{agent_name}] Config file FOUND at: {abs_yaml_path}")
 
     # Load YAML config
     try:
         with open(yaml_path, "r") as f:
             config = yaml.safe_load(f) or {}
+        logger.info(f"[{agent_name}] Successfully loaded YAML config")
     except Exception as e:
-        logger.error(f"Error loading prompt config for {agent_name}: {e}")
+        logger.error(f"[{agent_name}] Error loading prompt config: {e}")
+        logger.warning(f"[{agent_name}] Returning DEFAULT config due to load error")
         return _get_default_config(agent_name)
 
-    logger.debug(f"Loaded {agent_name} agent config keys: {list(config.keys())}")
+    logger.info(f"[{agent_name}] Loaded config keys: {list(config.keys())}")
+    logger.debug(f"[{agent_name}] Full config content: {config}")
 
     # Parse capabilities if present
     capabilities_raw = config.get("capabilities", [])
@@ -179,6 +195,7 @@ def load_subagent_prompt_config(
 
 def _get_default_config(agent_name: str) -> SubAgentPromptConfig:
     """Return a default configuration for an agent when no YAML is found."""
+    logger.info(f"[{agent_name}] Creating DEFAULT SubAgentPromptConfig (no YAML loaded)")
     return SubAgentPromptConfig(
         agent_name=agent_name.title(),
         agent_description=f"{agent_name.title()} Agent",
