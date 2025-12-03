@@ -11,7 +11,7 @@ from typing import Dict, Any, Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 
 logger = logging.getLogger(__name__)
 
@@ -22,25 +22,16 @@ class ResponseFormat(BaseModel):
     message: str
 
 
+# Load prompt configuration from YAML
+_prompt_config = load_subagent_prompt_config("webex")
+
+
 class WebexAgent(BaseLangGraphAgent):
     """Webex Agent using BaseLangGraphAgent for consistent streaming."""
 
-    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
-        service_name="Webex",
-        service_operations="look up rooms, send messages to users or spaces or rooms",
-        additional_guidelines=[
-            "Always use the available Webex tools to interact with users on Webex",
-            "When searching for messages or rooms by time, use the current date provided above as reference"
-        ],
-        include_error_handling=True,  # Real Webex API calls
-        include_date_handling=True    # Enable date handling
-    )
+    SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
-    RESPONSE_FORMAT_INSTRUCTION = (
-        "Select status as completed if the request is complete. "
-        "Select status as input_required if the input is a question to the user. "
-        "Set response status to error if the input indicates an error."
-    )
+    RESPONSE_FORMAT_INSTRUCTION = _prompt_config.response_format_instruction
 
     def __init__(self):
         """Initialize Webex agent."""
@@ -121,8 +112,8 @@ class WebexAgent(BaseLangGraphAgent):
 
     def get_tool_working_message(self) -> str:
         """Return the message shown when a tool is being invoked."""
-        return "🔧 Calling tool: **{tool_name}**"
+        return _prompt_config.tool_working_message
 
     def get_tool_processing_message(self) -> str:
         """Return the message shown when processing tool results."""
-        return "✅ Tool **{tool_name}** completed"
+        return _prompt_config.tool_processing_message
