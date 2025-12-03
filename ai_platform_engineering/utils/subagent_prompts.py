@@ -133,22 +133,18 @@ def load_subagent_prompt_config(
         config = load_subagent_prompt_config("argocd")
         system_instruction = config.get_system_instruction()
     """
-    # Determine config file path
-    yaml_path = config_path if config_path else f"prompt_config.{agent_name}_agent.yaml"
-    abs_yaml_path = os.path.abspath(yaml_path)
-    cwd = os.getcwd()
+    # Determine config file path - use /app/ where ConfigMap is mounted
+    yaml_path = config_path if config_path else f"/app/prompt_config.{agent_name}_agent.yaml"
 
     logger.info(f"[{agent_name}] Loading subagent prompt config...")
-    logger.info(f"[{agent_name}] Current working directory: {cwd}")
     logger.info(f"[{agent_name}] Looking for config file: {yaml_path}")
-    logger.info(f"[{agent_name}] Absolute path: {abs_yaml_path}")
 
     if not os.path.exists(yaml_path):
-        logger.warning(f"[{agent_name}] Config file NOT FOUND at: {abs_yaml_path}")
+        logger.warning(f"[{agent_name}] Config file NOT FOUND at: {yaml_path}")
         logger.warning(f"[{agent_name}] Returning DEFAULT config (YAML file missing)")
         return _get_default_config(agent_name)
 
-    logger.info(f"[{agent_name}] Config file FOUND at: {abs_yaml_path}")
+    logger.info(f"[{agent_name}] Config file FOUND at: {yaml_path}")
 
     # Load YAML config
     try:
