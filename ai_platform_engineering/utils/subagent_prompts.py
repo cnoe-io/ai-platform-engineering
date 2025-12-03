@@ -66,6 +66,10 @@ class SubAgentPromptConfig:
         tool_usage_guidelines, or additional_sections.
         Uses scope_limited_agent_instruction for simpler agents.
         """
+        # some basic logging for agent_name, agent_purpose
+        logger.info(f"Agent name: {self.agent_name}")
+        logger.info(f"Agent purpose: {self.agent_purpose}")
+
         # If we have capabilities, tool_usage_guidelines, or additional_sections,
         # use the full build_system_instruction
         if self.capabilities or self.tool_usage_guidelines or self.additional_sections:
