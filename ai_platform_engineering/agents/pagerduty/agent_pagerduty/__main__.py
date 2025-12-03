@@ -33,11 +33,13 @@ from a2a.server.tasks import (
 )
 
 from starlette.middleware.cors import CORSMiddleware
+from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
 
 load_dotenv()
 
 A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
 SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
 
 # We can't use click decorators for async functions so we wrap the main function in a sync function
 @click.command()
@@ -90,6 +92,15 @@ async def async_main(host: str, port: int):
             allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
             allow_headers=["*"],  # Allow all headers
         )
+
+        # Add Prometheus metrics middleware if enabled
+        if METRICS_ENABLED:
+            app.add_middleware(
+                PrometheusMetricsMiddleware,
+                excluded_paths=["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/ready"],
+                metrics_path="/metrics",
+                agent_name="pagerduty",
+            )
 
         # Configure uvicorn access log to DEBUG level for health checks
         access_logger = logging.getLogger("uvicorn.access")

@@ -18,8 +18,11 @@ from a2a.types import (
 )
 
 from starlette.middleware.cors import CORSMiddleware
+from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
 
 load_dotenv()
+
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
 
 
 @click.command()
@@ -50,6 +53,15 @@ def main(host: str | None, port: int | None):
         allow_methods=["*"],  # Allow all HTTP methods
         allow_headers=["*"],  # Allow all headers
     )
+
+    # Add Prometheus metrics middleware if enabled
+    if METRICS_ENABLED:
+        app.add_middleware(
+            PrometheusMetricsMiddleware,
+            excluded_paths=["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/ready"],
+            metrics_path="/metrics",
+            agent_name="aws",
+        )
 
     import uvicorn
     uvicorn.run(app, host=host, port=port)

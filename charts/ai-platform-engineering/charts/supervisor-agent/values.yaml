@@ -160,3 +160,10 @@ slim:
   enabled: false
   endpoint: "http://ai-platform-engineering-slim:46357"
   transport: "slim"
+
+# Prometheus metrics configuration
+# The agent exposes metrics at /metrics endpoint
+# Note: ServiceMonitor is managed at the parent chart level (one for all)
+metrics:
+  # Enable metrics endpoint
+  enabled: true

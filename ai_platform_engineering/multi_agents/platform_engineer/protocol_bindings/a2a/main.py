@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from ai_platform_engineering.utils.logging_config import configure_logging
-
+from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware, agent_metrics
 
 from starlette.middleware.cors import CORSMiddleware
 
@@ -182,3 +182,25 @@ app.add_middleware(
   allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
   allow_headers=["*"],  # Allow all headers
 )
+
+################################################################################
+# Add Prometheus metrics middleware
+################################################################################
+METRICS_ENABLED = os.getenv('METRICS_ENABLED', 'false').lower() == 'true'
+
+if METRICS_ENABLED:
+  logger.info("Enabling Prometheus metrics at /metrics endpoint")
+  app.add_middleware(
+    PrometheusMetricsMiddleware,
+    excluded_paths=['/.well-known/agent.json', '/.well-known/agent-card.json', '/health', '/ready'],
+    metrics_path='/metrics',
+  )
+
+  # Set agent info for metrics
+  agent_metrics.set_agent_info(
+    version=get_version(),
+    routing_mode=os.getenv('ROUTING_MODE', 'DEEP_AGENT_PARALLEL_ORCHESTRATION'),
+    enabled_agents=platform_registry.AGENT_NAMES,
+  )
+else:
+  logger.info("Prometheus metrics disabled (METRICS_ENABLED=false)")
