@@ -71,10 +71,18 @@ class TestGetEpicLinkField:
                 {"id": "summary", "name": "Summary", "custom": False, "schema": {"type": "string"}}
             ])
         
-        from mcp_jira.api import client
-        monkeypatch.setattr(client, "make_api_request", mock_request_no_epic)
+        # Need to patch in both locations
+        import mcp_jira.api.client
+        import mcp_jira.utils.field_discovery
+        monkeypatch.setattr(mcp_jira.api.client, "make_api_request", mock_request_no_epic)
+        monkeypatch.setattr(mcp_jira.utils.field_discovery, "make_api_request", mock_request_no_epic)
         
+        # Create fresh discovery instance
         discovery = FieldDiscovery()
+        # Clear any cached data
+        discovery._fields_cache = None
+        discovery._cache_timestamp = None
+        
         field_id = await discovery.get_epic_link_field_id()
         
         assert field_id is None
