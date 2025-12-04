@@ -1,23 +1,42 @@
 import logging
 import os
 import traceback
+import asyncio
 
 from common.graph_db.base import GraphDB
+from common import constants
 from langchain_core.tools.structured import StructuredTool
 from langgraph.prebuilt import create_react_agent
+from langmem.short_term import SummarizationNode
+from langchain_core.messages.utils import count_tokens_approximately
 from agent_ontology.heuristics import HeuristicsProcessor
 from agent_ontology.relation_manager import RelationCandidateManager
-from agent_ontology.prompts import RELATION_PROMPT, SYSTEM_PROMPT_1
-from common.models.ontology import RelationCandidate, FkeyEvaluationResult
+from agent_ontology.prompts import SYSTEM_PROMPT_1
+from agent_ontology.agent_worker import AgentWorker
+from common.models.ontology import (
+    FkeyDirectionality,
+    RelationCandidate, 
+    FkeyEvaluationResult,
+    ValueMatchType,
+    PropertyMappingRule,
+    RelationCandidateGroup,
+    CandidateGroupData,
+    EntityExample,
+)
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import PromptTemplate
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt.chat_agent_executor import AgentState
 import gc
 import redis.asyncio as redis
 import common.utils as utils
 from common import constants
 from cnoe_agent_utils import LLMFactory
+from langfuse import get_client as get_langfuse_client
+from langfuse.langchain import CallbackHandler
+from typing import Any
 
+langfuse_client = get_langfuse_client()
 
 
 class OntologyAgent:
@@ -27,7 +46,7 @@ class OntologyAgent:
     """
 
     def __init__(self, graph_db: GraphDB, ontology_graph_db: GraphDB, redis : redis.Redis, min_count_for_eval: int, 
-                 count_change_threshold_ratio: float, max_concurrent_processing: int, max_concurrent_evaluation: int, agent_recursion_limit: int):
+                 count_change_threshold_ratio: float, max_concurrent_evaluation: int, agent_recursion_limit: int):
         """
         Initializes the OntologyAgent with the given parameters.
         Args:
@@ -35,17 +54,16 @@ class OntologyAgent:
             ontology_graph_db (GraphDB): The ontology graph database to use.
             min_count_for_eval (int): The minimum count of matches to consider the heuristic for evaluation.
             count_change_threshold_ratio (float): The ratio of count change needed to trigger re-evaluation (0.0-1.0, e.g., 0.1 = 10% change).
-            max_concurrent_processing (int): The maximum number of concurrent processing tasks.
             max_concurrent_evaluation (int): The maximum number of concurrent evaluation tasks.
             agent_recursion_limit (int): The maximum number of recursive calls to the agent.
         """
         self.redis = redis
-        self.graph_db = graph_db
+        self.data_graph_db = graph_db
         self.ontology_graph_db = ontology_graph_db
         self.logger = utils.get_logger("ontology_agent")
+        self.evaluation_logger = utils.get_logger("ontology_agent_evaluation")
         self.min_count_for_eval = min_count_for_eval
         self.count_change_threshold_ratio = count_change_threshold_ratio
-        self.max_concurrent_processing = max_concurrent_processing
         self.max_concurrent_evaluation = max_concurrent_evaluation
         self.agent_recursion_limit = agent_recursion_limit
         self.agent_name = "OntologyAgent"
@@ -54,17 +72,11 @@ class OntologyAgent:
         # status flags
         self.is_processing = False # Avoid parallel processing/evaluation
         self.is_evaluating = False
-        self.processing_tasks_total = 0
-        self.processed_tasks_count = 0
-        self.evaluation_tasks_total = 0
-        self.evaluated_tasks_count = 0
+        
+        self.agent_status_msg = "Idle"
+        self.evaluation_count = 0  # Track number of evaluations made
 
         self.debug = os.getenv("DEBUG_AGENT", "false").lower() in ("true", "1", "yes")
-        
-        # Current relation candidate manager for tool context
-        self._eval_relation_manager: RelationCandidateManager | None = None
-        
-        self.agent = self.create_agent()
 
     async def sync_all_relations(self, rc_manager: RelationCandidateManager):
         """
@@ -72,100 +84,9 @@ class OntologyAgent:
         """
         self.logger.info("Syncing all relations with the graph database...")
         candidates = await rc_manager.fetch_all_candidates()
-        for _, candidate in candidates.items():
+        for idx, (relation_id, candidate) in enumerate(candidates.items(), 1):
+            self.agent_status_msg = f"Syncing [{idx}/{len(candidates)}] relation {candidate.relation_id}"
             await rc_manager.sync_relation(candidate.relation_id)
-            # TODO: Gather relations that are no longer candidates, but still exist in the graph database, and remove them
-
-    async def fetch_entity(self, entity_type: str, primary_key_id: str, thought: str) -> str:
-        """
-        Fetches a single entity and returns all its properties from the graph database.
-        Args:
-            entity_type (str): The type of entity
-            primary_key_id (str):  The primary key id of the entity
-            thought (str): Your thoughts for choosing this tool
-
-        Returns:
-            str: The properties of the entity
-        """
-        self.logger.info(f"Fetching entity of type {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
-        if self.graph_db is None:
-            self.logger.error("Graph database is not available, Is graph RAG enabled?")
-            return "Error: graph database is not available."
-        try:
-            entity = await self.graph_db.fetch_entity(entity_type, primary_key_id)
-            if entity is None:
-                return f"no entity of type {entity_type} with primary_key_id {primary_key_id}"
-            return utils.json_encode(entity.get_external_properties())
-        except Exception as e:
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
-            self.logger.error(f"Error fetching entity {entity_type} with primary_key_id {primary_key_id}: {e}")
-            return f"Error fetching entity {entity_type} with primary_key_id {primary_key_id}: {e}"
-
-    async def accept_relation(self, relation_id: str, relation_name: str, justification: str) -> str:
-        """
-        Accepts a relation candidate by updating its evaluation to ACCEPTED.
-        Args:
-            relation_id (str): The ID of the relation to accept
-            relation_name (str): The name of the relation
-            justification (str): Justification for accepting the relation
-
-        Returns:
-            str: Success or error message
-        """
-        self.logger.debug(f"Accepting relation {relation_id} with name '{relation_name}'")
-        try:
-            # Get the current relation candidate manager (this assumes we're in evaluation context)
-            if not hasattr(self, '_eval_relation_manager') or self._eval_relation_manager is None:
-                return "Error: No relation candidate manager available in current context"
-            
-            if relation_name.strip() == "":
-                return "Error: Relation name cannot be empty when accepting a relation. Please provide a valid relation name."
-
-            await self._eval_relation_manager.update_evaluation(
-                relation_id=relation_id,
-                relation_name=relation_name.replace(" ", "_").upper(),
-                result=FkeyEvaluationResult.ACCEPTED,
-                justification=justification,
-                thought="",
-                is_manual=True
-            )
-            self.logger.info(f"Successfully accepted relation {relation_id}")
-            return f"Successfully accepted relation {relation_id} with name '{relation_name}'"
-        except Exception as e:
-            self.logger.error(traceback.format_exc())
-            self.logger.error(f"Error accepting relation {relation_id}: {e}")
-            return f"Error accepting relation {relation_id}: {e}"
-
-    async def reject_relation(self, relation_id: str, justification: str) -> str:
-        """
-        Rejects a relation candidate by updating its evaluation to REJECTED.
-        Args:
-            relation_id (str): The ID of the relation to reject
-            justification (str): Justification for rejecting the relation
-
-        Returns:
-            str: Success or error message
-        """
-        self.logger.debug(f"Rejecting relation {relation_id}, Justification: {justification}")
-        try:
-            # Get the current relation candidate manager (this assumes we're in evaluation context)
-            if not hasattr(self, '_eval_relation_manager') or self._eval_relation_manager is None:
-                return "Error: No relation candidate manager available in current context"
-            
-            await self._eval_relation_manager.update_evaluation(
-                relation_id=relation_id,
-                relation_name=self._eval_relation_manager.generate_placeholder_relation_name(relation_id),
-                result=FkeyEvaluationResult.REJECTED,
-                justification=justification,
-                thought="",
-                is_manual=True,
-            )
-            self.logger.info(f"Successfully rejected relation {relation_id}")
-            return f"Successfully rejected relation {relation_id}'"
-        except Exception as e:
-            self.logger.error(traceback.format_exc())
-            self.logger.error(f"Error rejecting relation {relation_id}: {e}")
-            return f"Error rejecting relation {relation_id}: {e}"
 
     async def process_and_evaluate_all(self):
         self.logger.info("Running heuristics processing and the evaluation...")
@@ -176,13 +97,27 @@ class OntologyAgent:
         self.logger.info(f"Created new ontology version: {new_ontology_version_id}")
 
         # use the new ontology version for processing and evaluation
-        rc_manager_new_version = RelationCandidateManager(self.graph_db, self.ontology_graph_db, new_ontology_version_id, self.agent_name)
+        rc_manager_new_version = RelationCandidateManager(
+            self.data_graph_db, 
+            self.ontology_graph_db, 
+            new_ontology_version_id, 
+            self.agent_name,
+            redis_client=self.redis,
+            heuristics_key_prefix=constants.REDIS_GRAPH_RELATION_HEURISTICS_PREFIX
+        )
 
         # fetch the current ontology version
         current_ontology_version_id = await self.redis.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
         rc_manager_current_version = None
         if current_ontology_version_id:
-            rc_manager_current_version = RelationCandidateManager(self.graph_db, self.ontology_graph_db, current_ontology_version_id, self.agent_name)
+            rc_manager_current_version = RelationCandidateManager(
+                self.data_graph_db, 
+                self.ontology_graph_db, 
+                current_ontology_version_id, 
+                self.agent_name,
+                redis_client=self.redis,
+                heuristics_key_prefix=constants.REDIS_GRAPH_RELATION_HEURISTICS_PREFIX
+            )
             self.logger.info(f"Current ontology version: {current_ontology_version_id}, new version: {new_ontology_version_id}")
         else:
             self.logger.info("No current ontology version found, this seems to be the first run.")
@@ -198,9 +133,12 @@ class OntologyAgent:
         # set the new ontology version as the current ontology version
         self.logger.info(f"Setting new ontology version: {new_ontology_version_id}")
         await self.redis.set(constants.KV_ONTOLOGY_VERSION_ID_KEY, new_ontology_version_id)
+        
 
         await self.sync_all_relations(rc_manager_new_version) # sync all relations with the graph database, just in case some relations were not updated
         await rc_manager_new_version.cleanup() # Clear all previous ontology
+
+        self.agent_status_msg = "Idle"
 
         # invoke the garbage collector to free up memory
         gc.collect()
@@ -219,320 +157,599 @@ class OntologyAgent:
         self.processing_tasks_total = 0
         self.processed_tasks_count = 0
 
-        heuristics_processor = HeuristicsProcessor(self.graph_db)
-        entity_types = await self.graph_db.get_all_entity_types()
-        entities = []
-        for entity_type in entity_types:
-            entities += await self.graph_db.find_entity(entity_type, {}, max_results=10000)
+        try:
+            # Get total entity count for progress tracking
+            total_entities = await self.data_graph_db.get_entity_count()
+            self.processing_tasks_total = total_entities
+            self.logger.info(f"Total entities to process: {total_entities}")
+            
+            # Create progress callback that logs messages
+            async def progress_callback(message: str):
+                self.agent_status_msg = message
+                self.logger.info(message)
+            
+            # Create new efficient heuristics processor
+            heuristics_processor = HeuristicsProcessor(
+                graph_db=self.data_graph_db,
+                rc_manager=rc_manager,
+                entity_batch_size=10_000,
+                index_batch_size=50_000,
+                min_relation_count=3,  # Discard relations with count < 3 to reduce noise
+                progress_callback=progress_callback
+            )
+            
+            # Process all entities efficiently with batching
+            self.logger.info("Starting efficient heuristics processing with batching")
+            await heuristics_processor.process_all_entities()
+            
+            self.logger.info(f"Heuristics processing complete. Stats: {heuristics_processor.stats}")
+            
+        except Exception as e:
+            self.logger.error(traceback.format_exc())
+            self.logger.error(f"Error during heuristics processing: {e}")
+        finally:
+            self.is_processing = False
 
-        self.processing_tasks_total = len(entities)
-        self.logger.info(f"Processing {len(entities)} entities for heuristics")
 
-        async def process_entity_with_tracking(entity):
-            """Wrapper function to track task completion"""
-            try:
-                await heuristics_processor.process(entity, rc_manager)
-            except Exception as e:
-                self.logger.error(traceback.format_exc())
-                self.logger.error(f"Error processing entity {entity.type}:{entity.pk}: {e}")
-            finally:
-                self.processed_tasks_count += 1
+    async def _group_and_filter_candidates(
+        self,
+        rc_manager_current: RelationCandidateManager | None,
+        rc_manager_new: RelationCandidateManager
+    ) -> dict[tuple[str, str], tuple[list[RelationCandidate], list[str], str]]:
+        """
+        Group candidates by entity type pairs and filter by heuristic changes.
+        Also auto-accepts sub-entity relations.
+        
+        Returns:
+            Dictionary mapping (entity_a_type, entity_b_type) to tuple of:
+            - list of candidates to evaluate
+            - list of existing accepted relation names
+            - reason for re-evaluation
+        """
+        self.evaluation_logger.info("Grouping and filtering candidates by entity type pairs")
+        
+        # Fetch current candidates if available
+        current_candidates_by_id = {}
+        if rc_manager_current:
+            current_candidates_by_id = await rc_manager_current.fetch_all_candidates()
+        
+        # Fetch new candidates
+        new_candidates = await rc_manager_new.fetch_all_candidates()
+        self.evaluation_logger.info(f"Found {len(new_candidates)} total relation candidates")
+        
+        # Group by entity type pairs
+        groups: dict[tuple[str, str], list[RelationCandidate]] = {}
+        for candidate in new_candidates.values():
+            key = (candidate.heuristic.entity_a_type, candidate.heuristic.entity_b_type)
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(candidate)
+        
+        self.evaluation_logger.info(f"Grouped into {len(groups)} entity type pairs")
+        
+        # Filter and annotate groups
+        filtered_groups = {}
+        
+        for (entity_a_type, entity_b_type), candidates in groups.items():
+            # Auto-accept sub-entity relations and skip them from evaluation
+            filtered_candidates = []
+            for candidate in candidates:
+                if len(candidate.heuristic.property_mappings) == 1 and \
+                   candidate.heuristic.property_mappings[0].entity_a_property == constants.PARENT_ENTITY_PK_KEY and \
+                   candidate.heuristic.property_mappings[0].entity_b_idkey_property == constants.PRIMARY_ID_KEY:
+                    # Auto-accept sub-entity relation
+                    sub_entity_mapping = [
+                        PropertyMappingRule(
+                            entity_a_property=constants.PARENT_ENTITY_PK_KEY,
+                            entity_b_idkey_property=constants.PRIMARY_ID_KEY,
+                            match_type=ValueMatchType.EXACT
+                        )
+                    ]
+                    await rc_manager_new.update_evaluation(
+                        relation_id=candidate.relation_id,
+                        relation_name=constants.DEFAULT_SUB_ENTITY_RELATION_NAME,
+                        result=FkeyEvaluationResult.ACCEPTED,
+                        justification="Auto-accepted sub-entity relation",
+                        thought="Automatically accepted sub-entity relation",
+                        is_manual=False,
+                        is_sub_entity_relation=True,
+                        directionality=FkeyDirectionality.FROM_B_TO_A,
+                        property_mappings=sub_entity_mapping
+                    )
+                    self.evaluation_logger.info(f"Auto-accepted sub-entity relation {candidate.relation_id}")
+                    continue
+                
+                # Skip if count is below minimum
+                if candidate.heuristic.total_matches < self.min_count_for_eval:
+                    default_mappings = [
+                        PropertyMappingRule(
+                            entity_a_property=pm.entity_a_property,
+                            entity_b_idkey_property=pm.entity_b_idkey_property,
+                            match_type=ValueMatchType.EXACT
+                        )
+                        for pm in candidate.heuristic.property_mappings
+                    ]
+                    await rc_manager_new.update_evaluation(
+                        relation_id=candidate.relation_id,
+                        relation_name=constants.CANDIDATE_RELATION_NAME,
+                        justification=f"Count below minimum threshold for evaluation. ({candidate.heuristic.total_matches} < {self.min_count_for_eval})",
+                        thought="Automatically classed as unsure due to low count.",
+                        result=FkeyEvaluationResult.UNSURE,
+                        is_manual=False,
+                        property_mappings=default_mappings
+                    )
+                    continue
+                            
+                filtered_candidates.append(candidate)
+            
+            if not filtered_candidates:
+                continue
+            
+            # Check if any candidate needs re-evaluation
+            needs_evaluation = False
+            change_reasons = []
+            
+            for candidate in filtered_candidates:
+                current_candidate = current_candidates_by_id.get(candidate.relation_id)
+                
+                # If no current candidate or no evaluation, needs evaluation
+                if not current_candidate or not current_candidate.evaluation:
+                    needs_evaluation = True
+                    change_reasons.append("New candidate")
+                    continue
+                
+                # Skip manual evaluations
+                if current_candidate.evaluation.is_manual:
+                    self.logger.info(f"Skipping {candidate.relation_id} - manual evaluation")
+                    # Copy over the evaluation
+                    await rc_manager_new.update_evaluation(
+                        relation_id=candidate.relation_id,
+                        relation_name=current_candidate.evaluation.relation_name,
+                        justification=current_candidate.evaluation.justification,
+                        thought=current_candidate.evaluation.thought,
+                        result=current_candidate.evaluation.result,
+                        is_manual=current_candidate.evaluation.is_manual,
+                        property_mappings=current_candidate.evaluation.property_mappings
+                    )
+                    continue
+                
+                # Check for heuristic changes
+                count_changed = False
+                quality_changed = False
+                
+                if current_candidate.heuristic.total_matches > 0:
+                    count_ratio = abs(current_candidate.heuristic.total_matches - candidate.heuristic.total_matches) / current_candidate.heuristic.total_matches
+                    if count_ratio >= self.count_change_threshold_ratio:
+                        count_changed = True
+                        change_reasons.append(f"Count changed by {count_ratio:.1%}")
+                
+                value_quality_diff = abs(current_candidate.heuristic.value_match_quality_avg - candidate.heuristic.value_match_quality_avg)
+                if value_quality_diff >= 0.1:
+                    quality_changed = True
+                    change_reasons.append(f"Value quality changed by {value_quality_diff:.2f}")
+                
+                deep_quality_diff = abs(current_candidate.heuristic.deep_match_quality_avg - candidate.heuristic.deep_match_quality_avg)
+                if deep_quality_diff >= 0.1:
+                    quality_changed = True
+                    change_reasons.append(f"Deep quality changed by {deep_quality_diff:.2f}")
+                
+                if count_changed or quality_changed:
+                    needs_evaluation = True
+                else:
+                    # Copy over existing evaluation
+                    await rc_manager_new.update_evaluation(
+                        relation_id=candidate.relation_id,
+                        relation_name=current_candidate.evaluation.relation_name,
+                        justification=current_candidate.evaluation.justification,
+                        thought=current_candidate.evaluation.thought,
+                        result=current_candidate.evaluation.result,
+                        is_manual=current_candidate.evaluation.is_manual,
+                        property_mappings=current_candidate.evaluation.property_mappings
+                    )
+            
+            if needs_evaluation:
+                # Fetch existing accepted relations for this entity type pair
+                existing_relations = await self._fetch_existing_relations(
+                    rc_manager_new,
+                    entity_a_type,
+                    entity_b_type
+                )
+                
+                change_reason = "; ".join(set(change_reasons)) if change_reasons else "Heuristics require evaluation"
+                filtered_groups[(entity_a_type, entity_b_type)] = (filtered_candidates, existing_relations, change_reason)
+        
+        self.evaluation_logger.info(f"Filtered to {len(filtered_groups)} groups requiring evaluation")
+        return filtered_groups
 
-        tasks = []
-        for entity in entities:
-            self.logger.debug(f"Processing entity {entity}")
-            tasks.append(process_entity_with_tracking(entity))
+    async def _fetch_existing_relations(
+        self,
+        rc_manager: RelationCandidateManager,
+        entity_a_type: str,
+        entity_b_type: str
+    ) -> list[str]:
+        """Fetch names of existing accepted relations between two entity types."""
+        try:
+            # Query ontology DB for accepted relations between these types
+            relations = await rc_manager.ontology_graph_db.find_relations(
+                from_entity_type=entity_a_type,
+                to_entity_type=entity_b_type,
+                properties={constants.ONTOLOGY_VERSION_ID_KEY: rc_manager.ontology_version_id}
+            )
+            
+            relation_names = []
+            for rel in relations:
+                if rel.relation_properties and rel.relation_properties.get("eval_result") == FkeyEvaluationResult.ACCEPTED.value:
+                    rel_name = rel.relation_properties.get("eval_relation_name")
+                    if rel_name and rel_name != constants.CANDIDATE_RELATION_NAME:
+                        relation_names.append(rel_name)
+            
+            return list(set(relation_names))
+        except Exception as e:
+            self.evaluation_logger.error(f"Error fetching existing relations: {e}")
+            return []
 
-        self.logger.info(f"{len(tasks)}  entities to be processed, concurrency limit is {self.max_concurrent_processing}")
+    async def prepare_candidate_group_data(
+        self,
+        group: RelationCandidateGroup,
+        rc_manager: RelationCandidateManager
+    ) -> CandidateGroupData:
+        """
+        Prepare complete data for a candidate group including:
+        - 3 example entity pairs with only mapped properties
+        - Sub-entities for both entity types (recursive up to depth 10)
+        - Existing relations between these types
+        
+        Args:
+            group: The candidate group to prepare data for
+            rc_manager: Relation candidate manager for fetching data
+            
+        Returns:
+            CandidateGroupData with all information pre-loaded
+        """
+        self.evaluation_logger.debug(f"Preparing data for group {group.entity_a_type} -> {group.entity_b_type}")
+        
+        # Get up to 3 examples from the first candidate's heuristic
+        examples: list[tuple[EntityExample, EntityExample]] = []
+        if group.candidates:
+            first_candidate = group.candidates[0]
+            example_matches = first_candidate.heuristic.example_matches[:3]
+            
+            # Fetch sub-entity types for both entity types from ontology DB
+            entity_a_sub_types = await rc_manager.fetch_sub_entities_recursive(
+                group.entity_a_type,
+                max_depth=10
+            )
+            entity_b_sub_types = await rc_manager.fetch_sub_entities_recursive(
+                group.entity_b_type,
+                max_depth=10
+            )
+            
+            self.evaluation_logger.debug(f"Found {len(entity_a_sub_types)} sub-types for {group.entity_a_type}")
+            self.evaluation_logger.debug(f"Found {len(entity_b_sub_types)} sub-types for {group.entity_b_type}")
+            
+            # Get the property mappings to filter properties
+            property_mappings = first_candidate.heuristic.property_mappings
+            entity_a_props = {pm.entity_a_property for pm in property_mappings}
+            entity_b_props = {pm.entity_b_idkey_property for pm in property_mappings}
+            
+            # Fetch each example pair
+            for example in example_matches:
+                try:
+                    # Fetch entity A
+                    entity_a = await self.data_graph_db.fetch_entity(
+                        group.entity_a_type,
+                        example["entity_a_pk"]
+                    )
+                    
+                    # Fetch entity B
+                    entity_b = await self.data_graph_db.fetch_entity(
+                        group.entity_b_type,
+                        example["entity_b_pk"]
+                    )
+                    
+                    if entity_a and entity_b:
+                        # Filter properties to only mapped ones
+                        entity_a_filtered_props = {
+                            k: v for k, v in entity_a.all_properties.items()
+                            if k in entity_a_props
+                        }
+                        entity_b_filtered_props = {
+                            k: v for k, v in entity_b.all_properties.items()
+                            if k in entity_b_props
+                        }
+                        
+                        # Fetch sub-entities for entity A
+                        entity_a_subs = await self._fetch_sub_entities_for_instance(
+                            entity_a,
+                            entity_a_sub_types,
+                            max_depth=10
+                        )
+                        
+                        # Fetch sub-entities for entity B
+                        entity_b_subs = await self._fetch_sub_entities_for_instance(
+                            entity_b,
+                            entity_b_sub_types,
+                            max_depth=10
+                        )
+                        
+                        # Create EntityExample objects
+                        entity_a_example = EntityExample(
+                            entity_type=entity_a.entity_type,
+                            primary_key=entity_a.generate_primary_key(),
+                            properties=entity_a_filtered_props,
+                            sub_entities=entity_a_subs
+                        )
+                        
+                        entity_b_example = EntityExample(
+                            entity_type=entity_b.entity_type,
+                            primary_key=entity_b.generate_primary_key(),
+                            properties=entity_b_filtered_props,
+                            sub_entities=entity_b_subs
+                        )
+                        
+                        examples.append((entity_a_example, entity_b_example))
+                        
+                except Exception as e:
+                    self.evaluation_logger.warning(f"Error fetching example entities: {e}")
+                    continue
+        
+        # Determine heuristic change reason (already computed in grouping)
+        heuristic_change_reason = "Heuristics require evaluation"
+        
+        # Create the CandidateGroupData
+        group_data = CandidateGroupData(
+            group=group,
+            examples=examples,
+            heuristic_change_reason=heuristic_change_reason
+        )
+        
+        self.evaluation_logger.debug(f"Prepared {len(examples)} examples for group {group.entity_a_type} -> {group.entity_b_type}")
+        return group_data
 
-        await utils.gather(self.max_concurrent_processing, *tasks, logger=self.logger)
-
-        self.is_processing = False
-
+    async def _fetch_sub_entities_for_instance(
+        self,
+        entity,
+        sub_entity_types: list[str],
+        max_depth: int = 10,
+        current_depth: int = 0
+    ) -> list[EntityExample]:
+        """
+        Recursively fetch sub-entities for a given entity instance.
+        
+        Args:
+            entity: The parent entity
+            sub_entity_types: List of sub-entity type names to look for
+            max_depth: Maximum recursion depth
+            current_depth: Current recursion depth
+            
+        Returns:
+            List of EntityExample objects representing sub-entities
+        """
+        if current_depth >= max_depth or not sub_entity_types:
+            return []
+        
+        sub_entities = []
+        
+        # Fetch relations from this entity
+        try:
+            relations = await self.data_graph_db.fetch_entity_relations(
+                entity.entity_type,
+                entity.generate_primary_key(),
+                max_results=100
+            )
+            
+            # Find HAS relations (sub-entity relations)
+            for relation in relations:
+                if relation.relation_name == constants.DEFAULT_SUB_ENTITY_RELATION_NAME:
+                    # Check if target is a sub-entity type we're looking for
+                    if relation.to_entity.entity_type in sub_entity_types:
+                        # Fetch the sub-entity
+                        sub_entity = await self.data_graph_db.fetch_entity(
+                            relation.to_entity.entity_type,
+                            relation.to_entity.primary_key
+                        )
+                        
+                        if sub_entity:
+                            # Recursively fetch sub-sub-entities
+                            sub_sub_entities = await self._fetch_sub_entities_for_instance(
+                                sub_entity,
+                                sub_entity_types,
+                                max_depth,
+                                current_depth + 1
+                            )
+                            
+                            # Create EntityExample
+                            sub_entity_example = EntityExample(
+                                entity_type=sub_entity.entity_type,
+                                primary_key=sub_entity.generate_primary_key(),
+                                properties=sub_entity.get_external_properties(),
+                                sub_entities=sub_sub_entities
+                            )
+                            
+                            sub_entities.append(sub_entity_example)
+        except Exception as e:
+            self.evaluation_logger.warning(f"Error fetching sub-entities for {entity.entity_type}: {e}")
+        
+        return sub_entities
 
     async def evaluate_all(self, rc_manager_current: RelationCandidateManager|None, rc_manager_new: RelationCandidateManager):
         """
-        Evaluates all relations in the database.
-        :param rc_manager_current: (Optional) The relation candidate manager for the current ontology version. Used to compare against existing evaluations.
+        Evaluates all relation candidate groups using isolated agent workers.
+        Each worker gets its own queue of groups and processes them independently.
+        
+        :param rc_manager_current: (Optional) The relation candidate manager for the current ontology version.
         :param rc_manager_new: The relation candidate manager for the new ontology version.
-        This is meant to be run periodically to update the relations based on the ontology.
         """        
-        self.logger.info("Evaluating all relations for ontology_version_id: %s", rc_manager_new.ontology_version_id)
+        self.evaluation_logger.info("Evaluating all relations for ontology_version_id: %s", rc_manager_new.ontology_version_id)
         if self.is_evaluating:
-            self.logger.warning("Evaluation is already in progress, skipping this run")
+            self.evaluation_logger.warning("Evaluation is already in progress, skipping this run")
             return
 
         self.is_evaluating = True
-        self.evaluation_tasks_total = 0
-        self.evaluated_tasks_count = 0
-
-        # Create a wrapper function for doing the evaluation (with progress update)
-        async def evaluation_task_with_tracking(task_id, rc_manager, relation_id):
-            """Wrapper function to track evaluation task completion"""
-            try:
-                await self.evaluation_task(task_id, rc_manager, relation_id)
-            except Exception as e:
-                self.logger.error(traceback.format_exc())
-                self.logger.error(f"Error evaluating relation {relation_id}: {e}")
-            finally:
-                self.evaluated_tasks_count += 1
-
-        # Fetch the current relation candidates if available
-        if rc_manager_current:
-            current_relation_candidates = await rc_manager_current.fetch_all_candidates()
-
-        # Get all new relation candidates
-        new_relation_candidates = await rc_manager_new.fetch_all_candidates()
-        self.evaluation_tasks_total = len(new_relation_candidates)
-        self.logger.info(f"Found {len(new_relation_candidates)} relation candidates to evaluate")
-
-        # Create tasks for each relation candidate if they pass requirements
-        tasks = []
-        index = 0
-        for rel_id, new_candidate in new_relation_candidates.items():
-
-            # Check if there is an existing relation candidate
-            current_relation = None
-            if rc_manager_current:
-                current_relation = current_relation_candidates.get(rel_id, None)
-
-            # Check if an existing relation exists and has an evaluation, if so check its validity
-            if current_relation and current_relation.evaluation:
-                
-                is_current_eval_still_valid = False
-
-                # Check if its evaluation is manual
-                if current_relation.evaluation.is_manual:
-                    self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, current evaluation is manual.")
-                    is_current_eval_still_valid = True
-
-                # Check if the heuristic count changed from last time (if the change is less than the threshold ratio, we ignore it)
-                if current_relation.heuristic.count > 0:
-                    count_distance = abs(current_relation.heuristic.count - new_candidate.heuristic.count) / abs(current_relation.heuristic.count)
-                    if count_distance < self.count_change_threshold_ratio:
-                        self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count hasnt changed much since last time (ratio={count_distance:.3f} is below threshold {self.count_change_threshold_ratio}).")
-                        is_current_eval_still_valid = True
-                
-                # If still valid, copy over the evaluation to the new candidate and skip re-evaluation
-                if is_current_eval_still_valid:
-                    await rc_manager_new.update_evaluation(
-                            relation_id=new_candidate.relation_id,
-                            relation_name=current_relation.evaluation.relation_name,
-                            justification=current_relation.evaluation.justification,
-                            thought=current_relation.evaluation.thought,
-                            result=current_relation.evaluation.result,
-                            is_manual=current_relation.evaluation.is_manual
-                        )
-                    continue
-            
-            # Skip if the absolute count is less than the min required
-            if new_candidate.heuristic.count < self.min_count_for_eval:
-                self.logger.info(f"Skipping evaluation for {new_candidate.relation_id}, count is {new_candidate.heuristic.count} which is below the minimum count for evaluation.")
-                await rc_manager_new.update_evaluation(
-                            relation_id=new_candidate.relation_id,
-                            relation_name=rc_manager_new.generate_placeholder_relation_name(new_candidate.relation_id),
-                            justification=f"Count below minimum threshold for evaluation. ({new_candidate.heuristic.count} < {self.min_count_for_eval})",
-                            thought="Automatically classed as unsure due to low count.",
-                            result=FkeyEvaluationResult.UNSURE,
-                            is_manual=False
-                        )
-                continue
-                            
-            
-            # Create the evaluation task
-            self.logger.debug(f"Scheduling evaluation for relation candidate {new_candidate.relation_id}")
-            tasks.append(evaluation_task_with_tracking(index, rc_manager_new, new_candidate.relation_id))
-            index += 1
-
-        # Run the evaluation tasks concurrently
-        await utils.gather(self.max_concurrent_evaluation, *tasks, logger=self.logger)
-
-        self.is_evaluating = False
-
-    async def process(self, rc_manager: RelationCandidateManager, entity_type: str, entity_pk: str):
-        """
-        Processes a single relation candidate. (Used for debugging)
-        """
-        self.logger.info("Processing entity %s[%s] for ontology_version_id: %s", entity_type, entity_pk, rc_manager.ontology_version_id)
-        heuristics_processor = HeuristicsProcessor(self.graph_db)
-        entity = await self.graph_db.fetch_entity(entity_type, entity_pk)
-        if entity is None:
-            self.logger.error(f"Entity {entity_type}:{entity_pk} not found")
-            return
-        await heuristics_processor.process(entity, rc_manager)
-
-    async def evaluation_task(self, task_id, rc_manager: RelationCandidateManager, relation_id):
-        """
-        A worker that picks up entities from the queue and computes heuristics.
-        """
-        logger = utils.get_logger(f"eval-{task_id}")
-        logger.info(f"Evaluating relation candidate {relation_id} for ontology_version_id: {rc_manager.ontology_version_id}")
+        self.evaluation_count = 0
+        
         try:
-            candidate = await rc_manager.fetch_candidate(relation_id)
-            if candidate is None:
-                logger.warning(f"Candidate for relation {relation_id} not found, skipping evaluation.")
+            # Fetch all entity types for the system prompt
+            entity_types = await self.data_graph_db.get_all_entity_types()
+            self.evaluation_logger.info(f"Found {len(entity_types)} entity types")
+            
+            # Step 1: Group and filter candidates by heuristic changes
+            filtered_groups_raw = await self._group_and_filter_candidates(
+                rc_manager_current,
+                rc_manager_new
+            )
+            
+            if not filtered_groups_raw:
+                self.evaluation_logger.info("No candidate groups require evaluation")
+                self.is_evaluating = False
                 return
-            await self.evaluate(logger=logger, rc_manager=rc_manager, candidate=candidate)
+            
+            # Step 2: Prepare CandidateGroupData for each group (with examples and sub-entities)
+            self.evaluation_logger.info(f"Preparing data for {len(filtered_groups_raw)} candidate groups")
+            groups_data_list: list[CandidateGroupData] = []
+            
+            for (entity_a_type, entity_b_type), (candidates, existing_relations, change_reason) in filtered_groups_raw.items():
+                group = RelationCandidateGroup(
+                    entity_a_type=entity_a_type,
+                    entity_b_type=entity_b_type,
+                    candidates=candidates,
+                    existing_relations=existing_relations
+                )
+                
+                # Prepare complete data with examples and sub-entities
+                group_data = await self.prepare_candidate_group_data(group, rc_manager_new)
+                group_data.heuristic_change_reason = change_reason
+                groups_data_list.append(group_data)
+            
+            total_groups = len(groups_data_list)
+            self.evaluation_logger.info(f"Prepared {total_groups} groups for evaluation")
+            
+            # Step 3: Distribute groups among workers
+            num_workers = min(self.max_concurrent_evaluation, total_groups)
+            worker_queues: list[list[CandidateGroupData]] = [[] for _ in range(num_workers)]
+            
+            # Round-robin distribution
+            for idx, group_data in enumerate(groups_data_list):
+                worker_idx = idx % num_workers
+                worker_queues[worker_idx].append(group_data)
+            
+            self.evaluation_logger.info(f"Distributed {total_groups} groups among {num_workers} workers")
+            for i, queue in enumerate(worker_queues):
+                self.evaluation_logger.info(f"  Worker {i}: {len(queue)} groups")
+            
+            # Step 4: Create system prompt
+            entity_types_str = ", ".join(sorted(entity_types))
+            system_prompt = SYSTEM_PROMPT_1.format(entity_types=entity_types_str)
+            
+            # Get base LLM
+            base_llm = LLMFactory().get_llm()
+            
+            # Create shared progress tracker (dict is thread-safe for simple increments in Python)
+            # Using a dict instead of separate variables so workers can update the same object
+            progress_tracker = {
+                'completed_groups': 0,
+                'total_groups': total_groups
+            }
+            
+            # Step 5: Create isolated worker instances and launch them
+            async def run_worker(worker_id: int, worker_queue: list[CandidateGroupData]):
+                """Run a single worker with its own isolated state"""
+                worker_logger = utils.get_logger(f"eval-worker-{worker_id}")
+                
+                if not worker_queue:
+                    worker_logger.info(f"Worker {worker_id} has no groups to process")
+                    return
+                
+                worker_logger.info(f"Worker {worker_id} starting with {len(worker_queue)} groups")
+                
+                try:
+                    # Create isolated AgentWorker instance
+                    agent_worker = AgentWorker(
+                        worker_id=worker_id,
+                        groups_queue=worker_queue.copy(),  # Give worker its own copy of the queue
+                        rc_manager=rc_manager_new,
+                        data_graph_db=self.data_graph_db,
+                        agent_recursion_limit=self.agent_recursion_limit,
+                        progress_tracker=progress_tracker  # Shared progress tracking
+                    )
+                    
+                    # Create agent with tools bound to this worker
+                    agent = agent_worker.create_agent(entity_types, system_prompt, base_llm)
+                    
+                    worker_logger.info(f"Worker {worker_id}: Created agent with {len(worker_queue)} groups in queue")
+                    
+                    # Run agent in a loop to process all groups
+                    langfuse_handler = CallbackHandler()
+                    
+                    # Agent will call fetch_next_relation_candidate repeatedly until queue is empty
+                    resp = await agent.ainvoke(
+                        {"messages": [
+                            HumanMessage(
+                                content=(
+                                    f"You have {len(worker_queue)} relation candidate groups to evaluate. "
+                                    f"For each group:\n"
+                                    f"1. Call fetch_next_relation_candidate to get the group\n"
+                                    f"2. Evaluate ALL candidates in the group\n"
+                                    f"3. Make accept/reject/unsure decisions\n"
+                                    f"4. Repeat until no more groups remain\n\n"
+                                    f"Start by fetching the first group."
+                                )
+                            )
+                        ]},
+                        {"recursion_limit": self.agent_recursion_limit, "callbacks": [langfuse_handler]}
+                    )
+                    
+                    # Collect evaluation count from worker
+                    worker_evaluations = agent_worker.total_evaluation_count
+                    self.evaluation_count += worker_evaluations
+                    
+                    # Update progress with final status
+                    completed = progress_tracker['completed_groups']
+                    total = progress_tracker['total_groups']
+                    self.agent_status_msg = f"Evaluating groups [{completed}/{total}] - Worker {worker_id} completed {worker_evaluations} evaluations"
+                    
+                    worker_logger.info(f"Worker {worker_id} completed - {worker_evaluations} evaluations made")
+                    
+                except Exception as e:
+                    worker_logger.error(f"Worker {worker_id} error: {e}")
+                    worker_logger.error(traceback.format_exc())
+            
+            # Launch all workers concurrently
+            worker_tasks = [
+                run_worker(i, worker_queues[i])
+                for i in range(num_workers)
+            ]
+            
+            self.evaluation_logger.info(f"Launching {len(worker_tasks)} concurrent evaluation workers")
+            await asyncio.gather(*worker_tasks, return_exceptions=True)
+            
+            self.evaluation_logger.info(f"All evaluation workers completed - Total evaluations made: {self.evaluation_count}")
+            self.agent_status_msg = f"Evaluation complete - {self.evaluation_count} relations evaluated"
+            
         except Exception as e:
-            logger.error(traceback.format_exc())
-            logger.error(f"Error evaluating relation {relation_id}: {e}")
-
-
-    def create_agent(self) -> CompiledStateGraph:
-        # Create the agent
-        llm = LLMFactory().get_llm()
-
-        heuristic_schema = ""
-        for prop, details in RelationCandidate.model_json_schema()["properties"].items():
-            if details.get("prompt_exposed", False):
-                heuristic_schema += f"{prop}: {details.get('description', '')}\n"
-
-        self.logger.debug(heuristic_schema)
-
-        system_prompt = PromptTemplate.from_template(SYSTEM_PROMPT_1).format(
-            heuristic_schema=heuristic_schema,
-            database_type=self.graph_db.database_type,
-            query_language=self.graph_db.query_language
-        )
-        tools = [
-            StructuredTool.from_function(coroutine=self.fetch_entity),
-            StructuredTool.from_function(coroutine=self.accept_relation),
-            StructuredTool.from_function(coroutine=self.reject_relation)
-        ]
-        # response_format=("The last message is the evaluation of a relation candidate, using only the evaluation text, generate a structured response. "
-        #                            f"If the evaluation text mentions as a {FkeyEvaluationResult.ACCEPTED} relations then output `{FkeyEvaluationResult.ACCEPTED}` for result, if it mentions {FkeyEvaluationResult.REJECTED} then output `{FkeyEvaluationResult.REJECTED}` for result. "
-        #                            f"For all other cases output `{FkeyEvaluationResult.UNSURE}` for result." 
-        #                            "DO NOT use your own knowledge, only use the evaluation text to generate the response.",
-        #                             AgentOutputFKeyRelation)
-        agent = create_react_agent(llm, tools=tools, prompt=system_prompt)
-        agent.name = self.agent_name
-        return agent
+            self.evaluation_logger.error(f"Error during evaluation: {e}")
+            self.evaluation_logger.error(traceback.format_exc())
+        finally:
+            self.is_evaluating = False
 
     async def evaluate(self, logger: logging.Logger, rc_manager: RelationCandidateManager, relation_id: str = "", candidate: RelationCandidate|None = None):
         """
-        Agentic evaluation of heuristic.
-
+        [DEPRECATED - Single-candidate evaluation is not supported]
+        
+        Single-candidate evaluation has been removed to reduce complexity.
+        Use the batch evaluation system (evaluate_all) instead, which evaluates all candidates in groups.
+        
+        For manual intervention, use the REST API endpoints:
+        - /v1/graph/ontology/agent/relation/accept/{relation_id}
+        - /v1/graph/ontology/agent/relation/reject/{relation_id}
+        
         Args:
-            rc_manager (RelationCandidateManager): Relation candidate manager.
-            relation_id (str, optional): Relation candidate ID. Defaults to "".
-            candidate (RelationCandidate|None, optional): Relation candidate. Defaults to None.
+            logger: Logger instance for this evaluation
+            rc_manager: Relation candidate manager
+            relation_id: Relation candidate ID (optional)
+            candidate: Relation candidate object (optional)
         """
-        logger.info(f"Evaluating relation candidate {relation_id} for ontology_version_id: {rc_manager.ontology_version_id}")
-        if candidate and relation_id != "":
-            raise ValueError("Relation and relation_id cannot both be provided")
-
-        # Fetch the candidate if relation_id is provided
-        if relation_id != "":
-            candidate = await rc_manager.fetch_candidate(relation_id)
-            if candidate is None:
-                logger.error(f"Relation candidate {relation_id} is None, skipping evaluation.")
-                return
-
-        # If candidate is not provided, we cannot evaluate
-        if candidate is None:
-            raise ValueError("Relation candidate is None, cannot evaluate")
-
-        # TODO: Move to long term memory for the LLM
-        # if manually_rejected_relations is None:
-        #     all_heuristics = await self.fetch_all_heuristics()
-        #     manually_rejected_relations =  [rel_id for rel_id, heuristic in all_heuristics.items() if heuristic.state == FKeyHeuristicState.REJECTED and heuristic.manually_intervened]
-
-        # if manually_accepted_relations is None:
-        #     all_heuristics = await self.fetch_all_heuristics()
-        #     manually_accepted_relations =  [rel_id for rel_id, heuristic in all_heuristics.items() if heuristic.state == FKeyHeuristicState.ACCEPTED and heuristic.manually_intervened]
-
-        property_counts = {}
-        property_values = {}
-
-        matching_properties = {}
-        for prop in candidate.heuristic.property_mappings:
-            matching_properties[prop.entity_a_property] = prop.entity_b_idkey_property
-            property_counts[prop.entity_a_property] = await self.graph_db.get_property_value_count(candidate.heuristic.entity_a_type, prop.entity_a_property, None)
-            property_values[prop.entity_a_property] = await self.graph_db.get_values_of_matching_property(
-                candidate.heuristic.entity_a_type,
-                prop.entity_a_property,
-                candidate.heuristic.entity_b_type,
-                matching_properties,
-                max_results=5)
-
-        entity_types = await self.graph_db.get_all_entity_types()
-        entity_types = set(entity_types)
-        entity_types.discard(candidate.heuristic.entity_a_type)
-        entity_types.discard(candidate.heuristic.entity_b_type)
-
-
-        logger.info(f"Evaluating rel_id={candidate.relation_id} with agent")
-        prompt_tpl = PromptTemplate.from_template(RELATION_PROMPT)
-        prompt = prompt_tpl.format(
-            relation_id=candidate.relation_id,
-            entity_a=candidate.heuristic.entity_a_type,
-            entity_b=candidate.heuristic.entity_b_type,
-            property_mappings=utils.json_encode(candidate.heuristic.property_mappings, indent=2),
-            count=candidate.heuristic.count,
-            values=property_values,
-            entity_a_with_property_counts=property_counts,
-            example_matches=utils.json_encode(candidate.heuristic.example_matches, indent=2),
+        raise NotImplementedError(
+            "Single-candidate evaluation is deprecated. "
+            "Use evaluate_all() for batch evaluation or manual accept/reject endpoints for manual intervention."
         )
-
-        logger.debug(prompt)
-        if self.debug:
-            await self.reject_relation(relation_id=candidate.relation_id, justification="Debug mode - auto rejected.")
-        else:
-            # Set the current rc_manager for tool context
-            self._eval_relation_manager = rc_manager
-            
-            # Invoke the agent with the prompt
-            resp = await self.agent.ainvoke(
-                {"messages": [
-                    HumanMessage(
-                        content=prompt
-                    )
-                ]},
-                {"recursion_limit": self.agent_recursion_limit}
-            )
-                        
-            ai_thought = ""
-            for msg in resp["messages"]:
-                if isinstance(msg, AIMessage):
-                    ai_thought += "\n" + str(msg.content)
-            
-            # fetch the relation candidate
-            candidate = await rc_manager.fetch_candidate(relation_id=candidate.relation_id)
-
-            if candidate is None:
-                # this should not happen, but just in case
-                raise ValueError("Relation candidate is None after agent evaluation, skipping update.")
-
-            # check if evaluation was done
-            if candidate.evaluation and candidate.evaluation.last_evaluated > 0:
-                logger.debug(f"Agent evaluation for relation_id={candidate.relation_id}: {candidate.evaluation}")
-                candidate.evaluation.thought = ai_thought
-                try:
-                    await rc_manager.update_evaluation(
-                        relation_id=candidate.relation_id,
-                        relation_name=candidate.evaluation.relation_name,
-                        result=candidate.evaluation.result,
-                        justification=candidate.evaluation.justification,
-                        thought=ai_thought,
-                        is_manual=False
-                        )
-                except Exception as e:
-                    logger.error(traceback.format_exc())
-                    logger.error(f"Error updating evaluation for relation_id={candidate.relation_id}: {e}")
-            else:
-                logger.info(f"No evaluation was made by the agent for relation_id={candidate.relation_id}, marking as UNSURE.")
-                try:
-                    await rc_manager.update_evaluation(
-                        relation_id=candidate.relation_id,
-                        relation_name=rc_manager.generate_placeholder_relation_name(candidate.relation_id),
-                        result=FkeyEvaluationResult.UNSURE,
-                        justification="No evaluation was made by the agent.",
-                        thought=ai_thought,
-                        is_manual=False,
-                    )
-                except Exception as e:
-                    logger.error(traceback.format_exc())
-                    logger.error(f"Error updating evaluation for relation_id={candidate.relation_id}: {e}")
-
-    
-        logger.info(f"Evaluation completed for relation_id={candidate.relation_id}")
