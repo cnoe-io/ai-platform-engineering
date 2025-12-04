@@ -1,5 +1,6 @@
 import os
 from contextlib import asynccontextmanager
+from typing import List
 
 from agent_ontology.agent import OntologyAgent, RelationCandidateManager 
 from common.graph_db.base import GraphDB
@@ -7,7 +8,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from common import constants, utils
 from common.graph_db.neo4j.graph_db import Neo4jDB
-from common.models.ontology import FkeyEvaluationResult
+from common.models.ontology import FkeyEvaluationResult, ValueMatchType, PropertyMappingRule
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 import dotenv
@@ -25,16 +26,16 @@ MIN_COUNT_FOR_EVAL = int(os.getenv('MIN_COUNT_FOR_EVAL', int(3))) # 3 by default
 COUNT_CHANGE_THRESHOLD_RATIO = float(os.getenv('COUNT_CHANGE_THRESHOLD_RATIO', float(0.1))) # 10% by default
 MAX_CONCURRENT_PROCESSING = int(os.getenv('MAX_CONCURRENT_PROCESSING', int(40))) # 40 by default
 MAX_CONCURRENT_EVALUATION = int(os.getenv('MAX_CONCURRENT_EVALUATION', int(10))) # 10 by default
-AGENT_RECURSION_LIMIT = int(os.getenv('AGENT_RECURSION_LIMIT', int(10))) # 10 by default
+AGENT_RECURSION_LIMIT = int(os.getenv('AGENT_RECURSION_LIMIT', int(100))) # 100 by default
 
 scheduler = AsyncIOScheduler()
 
 # Initialize dependencies
 logger.info("Initializing data graph database...")
-graph_db: GraphDB = Neo4jDB()
+graph_db: GraphDB = Neo4jDB(tenant_label=constants.DEFAULT_DATA_LABEL)
 
 logger.info("Initializing ontology graph database...")
-ontology_graph_db: GraphDB = Neo4jDB(uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
+ontology_graph_db: GraphDB = Neo4jDB(tenant_label=constants.DEFAULT_SCHEMA_LABEL)
 
 logger.info("Initializing key-value store...")
 redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
@@ -47,7 +48,6 @@ agent: OntologyAgent = OntologyAgent(graph_db=graph_db,
                                         redis=redis_client,
                                         min_count_for_eval=MIN_COUNT_FOR_EVAL,
                                         count_change_threshold_ratio=COUNT_CHANGE_THRESHOLD_RATIO,
-                                        max_concurrent_processing=MAX_CONCURRENT_PROCESSING,
                                         max_concurrent_evaluation=MAX_CONCURRENT_EVALUATION,
                                         agent_recursion_limit=AGENT_RECURSION_LIMIT
                                     )
@@ -71,77 +71,130 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Ontology Agent Admin Server", lifespan=lifespan)
 
-async def get_rc_manager_with_latest_ontology() -> RelationCandidateManager:
+async def get_rc_manager_with_latest_ontology() -> RelationCandidateManager | None:
     ontology_version_id = await redis_client.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
     if ontology_version_id is None:
-        raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
-    return RelationCandidateManager(graph_db, ontology_graph_db, ontology_version_id, agent.agent_name)
+        logger.error("No ontology version found, cannot get relation candidate manager")
+        return None
+    return RelationCandidateManager(
+        graph_db=graph_db, 
+        ontology_graph_db=ontology_graph_db, 
+        ontology_version_id=ontology_version_id,
+        client_name=agent.agent_name, 
+        redis_client=redis_client)
 
 #####
 # API Endpoints for manual relation management
 #####
 @app.post("/v1/graph/ontology/agent/relation/accept/{relation_id:path}")
-async def accept_relation(relation_id: str, relation_name: str):
+async def accept_relation(relation_id: str, relation_name: str, property_mapping_rules: List[PropertyMappingRule]):
     """
     Accepts a foreign key relation
+    
+    Args:
+        relation_id: The relation ID
+        relation_name: The name of the relation
+        property_mappings: List of property mapping rules
+    
     """
     logger.warning("Accepting foreign key relation %s", relation_id)
     if agent.is_evaluating or agent.is_processing:
         return JSONResponse(status_code=400, content={"message": "Ontology processing/evaluation is in progress"})
 
     rc_manager = await get_rc_manager_with_latest_ontology()
+    if rc_manager is None:
+        raise HTTPException(status_code=404, detail="No ontology found, cannot accept relation")
 
-    # Fetch the candidate
+    # Fetch the candidate
     candidate = await rc_manager.fetch_candidate(relation_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail=f"Relation candidate {relation_id} not found")
-
-    # check if an evaluation already exists
+    
+    # Check if an evaluation already exists
     if candidate.evaluation is not None:
         raise HTTPException(status_code=400, detail=f"Relation candidate {relation_id} already has an evaluation, you must undo it first before accepting")
 
-    # update the evaluation
+
+
+    property_mappings_from_heuristic = candidate.heuristic.property_mappings
+
+    # Validate that the property mappings are the same as the ones from the heuristic
+    # Create sets of property pairs for comparison
+    heuristic_property_pairs = {
+        (pm.entity_a_property, pm.entity_b_idkey_property) 
+        for pm in property_mappings_from_heuristic
+    }
+    request_property_pairs = {
+        (pm.entity_a_property, pm.entity_b_idkey_property) 
+        for pm in property_mapping_rules
+    }
+    if heuristic_property_pairs != request_property_pairs:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Property mappings do not match the heuristic. Expected: {heuristic_property_pairs}, Got: {request_property_pairs}"
+        )
+
+
+    # Update the evaluation
     await rc_manager.update_evaluation(
         relation_id=relation_id,
         relation_name=relation_name,
         result=FkeyEvaluationResult.ACCEPTED,
         justification="Manually accepted by user",
         thought="Manually accepted by user",
-        is_manual=True
+        is_manual=True,
+        property_mappings=property_mapping_rules
     )
 
-    # sync the relation
+    # Sync the relation
     await rc_manager.sync_relation(relation_id)
 
     return JSONResponse(status_code=200, content={"message": "Relation accepted"})
 
 @app.post("/v1/graph/ontology/agent/relation/reject/{relation_id:path}")
-async def reject_relation(relation_id: str):
+async def reject_relation(relation_id: str, justification: str):
     """
     Reject a foreign key relation
+    
+    Args:
+        relation_id: The relation ID
+        justification: Justification for rejecting the relation
     """
     logger.warning("Rejecting foreign key relation %s", relation_id)
     if agent.is_evaluating or agent.is_processing:
         return JSONResponse(status_code=400, content={"message": "Ontology processing/evaluation is in progress"})
     rc_manager = await get_rc_manager_with_latest_ontology()
-
-    # Fetch the candidate
+    if rc_manager is None:
+        raise HTTPException(status_code=404, detail="No ontology found, cannot reject relation")
+    
+    # Fetch the candidate
     candidate = await rc_manager.fetch_candidate(relation_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail=f"Relation candidate {relation_id} not found")
 
-    # check if an evaluation already exists
+    # Check if an evaluation already exists
     if candidate.evaluation is not None:
         raise HTTPException(status_code=400, detail=f"Relation candidate {relation_id} already has an evaluation, you must undo it first before rejecting")
 
-    # Update the evaluation
+    # Convert property mappings to PropertyMappingRule objects with NONE match type
+    property_mapping_rules = [
+        PropertyMappingRule(
+            entity_a_property=pm.entity_a_property,
+            entity_b_idkey_property=pm.entity_b_idkey_property,
+            match_type=ValueMatchType.NONE
+        )
+        for pm in candidate.heuristic.property_mappings
+    ]
+
+    # Update the evaluation
     await rc_manager.update_evaluation(
         relation_id=relation_id,
-        relation_name=rc_manager.generate_placeholder_relation_name(relation_id),
+        relation_name=constants.CANDIDATE_RELATION_NAME,
         result=FkeyEvaluationResult.REJECTED,
-        justification="Manually rejected by user",
+        justification="Manually rejected by user: " + justification,
         thought="Manually rejected by user",
         is_manual=True,
+        property_mappings=property_mapping_rules,
     )
 
     # sync the relation
@@ -158,7 +211,8 @@ async def undo_evaluation(relation_id: str):
         return JSONResponse(status_code=400, content={"message": "Ontology processing/evaluation is in progress"})
 
     rc_manager = await get_rc_manager_with_latest_ontology()
-
+    if rc_manager is None:
+        raise HTTPException(status_code=404, detail="No ontology found, cannot undo evaluation")
     # Remove the evaluation
     await rc_manager.remove_evaluation(relation_id)
 
@@ -169,15 +223,19 @@ async def undo_evaluation(relation_id: str):
 @app.post("/v1/graph/ontology/agent/relation/evaluate/{relation_id:path}")
 async def evaluate_relation(relation_id: str):
     """
-    Asks the agent to reevaluate a single foreign key relation
+    [DEPRECATED] Single-candidate evaluation endpoint
+    
+    This endpoint has been deprecated. Single-candidate evaluation adds unnecessary complexity.
+    
+    Use the following alternatives:
+    - For manual acceptance: POST /v1/graph/ontology/agent/relation/accept/{relation_id}
+    - For manual rejection: POST /v1/graph/ontology/agent/relation/reject/{relation_id}
+    - For batch evaluation: POST /v1/graph/ontology/agent/regenerate_ontology
     """
-    logger.warning("Re-evaluating foreign key relation %s", relation_id)
-    if agent.is_evaluating or agent.is_processing:
-        return JSONResponse(status_code=400, content={"message": "Ontology processing/evaluation is in progress"})
-    rc_manager = await get_rc_manager_with_latest_ontology()
-    await agent.evaluate(logger, rc_manager=rc_manager, relation_id=relation_id)
-    await rc_manager.sync_relation(relation_id)
-    return JSONResponse(status_code=200, content={"message": "Submitted"})
+    raise HTTPException(
+        status_code=501, 
+        detail="Single-candidate evaluation is not implemented. Use manual accept/reject endpoints or batch evaluation instead."
+    )
 
 
 @app.post("/v1/graph/ontology/agent/relation/sync/{relation_id:path}")
@@ -189,8 +247,79 @@ async def sync_relation(relation_id: str):
     if agent.is_evaluating or agent.is_processing:
         return JSONResponse(status_code=400, content={"message": "Ontology processing/evaluation is in progress"})
     rc_manager = await get_rc_manager_with_latest_ontology()
+    if rc_manager is None:
+        raise HTTPException(status_code=404, detail="No ontology found, cannot sync relation")
     await rc_manager.sync_relation(relation_id)
     return JSONResponse(status_code=200, content={"message": "Submitted"})
+
+
+@app.post("/v1/graph/ontology/agent/relation/heuristics/batch")
+async def get_relation_heuristics_batch(relation_ids: List[str]):
+    """
+    Get heuristics for multiple relations in a batch.
+    Returns a dictionary mapping relation_id to heuristic data (counts, examples, quality metrics).
+    
+    Request body: Array of relation IDs
+    Example: ["relation_id_1", "relation_id_2", ...]
+    """
+    logger.info(f"Fetching heuristics for {len(relation_ids)} relations in batch")
+    rc_manager = await get_rc_manager_with_latest_ontology()
+    if rc_manager is None:
+        raise HTTPException(status_code=404, detail="No ontology found, cannot get heuristics")
+    
+    heuristics_dict = await rc_manager.fetch_heuristics_batch(relation_ids)
+    
+    # Convert to JSON-serializable format
+    result = {}
+    for relation_id, heuristic in heuristics_dict.items():
+        if heuristic:
+            result[relation_id] = heuristic.model_dump(mode="json")
+        else:
+            result[relation_id] = None
+    
+    return JSONResponse(status_code=200, content=result)
+
+
+@app.post("/v1/graph/ontology/agent/relation/evaluations/batch")
+async def get_relation_evaluations_batch(relation_ids: List[str]):
+    """
+    Get evaluations and sync status for multiple relations in a batch.
+    Returns a dictionary mapping relation_id to evaluation and sync status data.
+    
+    Request body: Array of relation IDs
+    Example: ["relation_id_1", "relation_id_2", ...]
+    
+    Response format:
+    {
+        "relation_id_1": {
+            "evaluation": {
+                "relation_name": "HAS_ACCOUNT",
+                "result": "ACCEPTED",
+                "justification": "...",
+                "thought": "...",
+                "last_evaluated": 1234567890,
+                "is_manual": true,
+                "is_sub_entity_relation": false,
+                "directionality": "FROM_A_TO_B",
+                "property_mappings": [...]
+            },
+            "sync_status": {
+                "is_synced": true,
+                "last_synced": 1234567890,
+                "error_message": ""
+            }
+        },
+        ...
+    }
+    """
+    logger.info(f"Fetching evaluations and sync status for {len(relation_ids)} relations in batch")
+    rc_manager = await get_rc_manager_with_latest_ontology()
+    if rc_manager is None:
+        raise HTTPException(status_code=404, detail="No ontology found, cannot get evaluations")
+    
+    result = await rc_manager.fetch_evaluations_and_sync_status_batch(relation_ids)
+    
+    return JSONResponse(status_code=200, content=result)
 
 
 @app.post("/v1/graph/ontology/agent/regenerate_ontology")
@@ -214,9 +343,29 @@ async def clear_ontology():
         return JSONResponse(status_code=400, content={"message": "Ontology processing is in progress"})
     ontology_version_id = await redis_client.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
     if ontology_version_id is None:
-        raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
+        raise HTTPException(status_code=404, detail="No ontology version found")
+    
+    # Remove relations and entities from the ontology graph
     await agent.ontology_graph_db.remove_relation(None, {constants.ONTOLOGY_VERSION_ID_KEY: ontology_version_id})
     await agent.ontology_graph_db.remove_entity(None, {constants.ONTOLOGY_VERSION_ID_KEY: ontology_version_id})
+
+    # Remove only the relations from the data graph
+    await agent.data_graph_db.remove_relation(None, {constants.ONTOLOGY_VERSION_ID_KEY: ontology_version_id})
+    await agent.data_graph_db.remove_entity(None, {constants.ONTOLOGY_VERSION_ID_KEY: ontology_version_id})
+    
+    # Clear data from the redis
+    await redis_client.delete(constants.KV_ONTOLOGY_VERSION_ID_KEY)
+    
+    # Delete all relation heuristics keys
+    pattern = f"{constants.REDIS_GRAPH_RELATION_HEURISTICS_PREFIX}*"
+    cursor = 0
+    while True:
+        cursor, keys = await redis_client.scan(cursor, match=pattern, count=100)  # type: ignore
+        if keys:
+            await redis_client.delete(*keys)  # type: ignore
+        if cursor == 0:
+            break
+    
     return JSONResponse(status_code=200, content={"message": "Cleared"})
 
 @app.get("/v1/graph/ontology/agent/ontology_version")
@@ -238,23 +387,14 @@ async def process_all():
     """
     logger.warning("Processing all entities for heuristics")
     rc_manager = await get_rc_manager_with_latest_ontology()
+    if rc_manager is None:
+        raise HTTPException(status_code=404, detail="No ontology found, cannot process entities")
     await agent.process_all(rc_manager)
     return JSONResponse(status_code=200, content={"message": "Submitted for processing"})
 
 #####
 # API Endpoints for debugging
 #####
-@app.post("/v1/graph/ontology/agent/debug/process")
-async def process_entity(entity_type: str, primary_key_value: str):
-    """
-    Asks the agent to process a specific entity for heuristics, this is used for debugging
-    For debugging purposes
-    """
-    logger.warning("Processing entity %s:%s for heuristics", entity_type, primary_key_value)
-    rc_manager = await get_rc_manager_with_latest_ontology()
-    await agent.process(rc_manager, entity_type, primary_key_value)
-    return JSONResponse(status_code=200, content={"message": "Submitted for processing"})
-
 
 @app.post("/v1/graph/ontology/agent/debug/cleanup")
 async def cleanup():
@@ -263,6 +403,8 @@ async def cleanup():
     For debugging purposes
     """
     rc_manager = await get_rc_manager_with_latest_ontology()
+    if rc_manager is None:
+        raise HTTPException(status_code=404, detail="No ontology found, cleanup not possible")
     await rc_manager.cleanup() # This will remove all relations that are no longer candidates, as well as applied relations
     return JSONResponse(status_code=200, content={"message": "Submitted"})
 
@@ -285,10 +427,7 @@ async def healthz():
         "count_change_threshold_ratio": COUNT_CHANGE_THRESHOLD_RATIO,
         "sync_interval_seconds": SYNC_INTERVAL,
         "agent_recursion_limit": AGENT_RECURSION_LIMIT,
-        "processing_tasks_total": agent.processing_tasks_total,
-        "processed_tasks_count": agent.processed_tasks_count,
-        "evaluation_tasks_total": agent.evaluation_tasks_total,
-        "evaluated_tasks_count": agent.evaluated_tasks_count
+        "agent_status_msg": agent.agent_status_msg
     }
 
 if __name__ == "__main__":

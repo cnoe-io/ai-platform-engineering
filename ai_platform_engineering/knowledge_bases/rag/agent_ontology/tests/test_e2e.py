@@ -10,6 +10,7 @@ import requests
 import time
 import pytest
 from common.graph_db.neo4j.graph_db import Neo4jDB
+from common.constants import DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
 from agent_ontology.relation_manager import RelationCandidateManager
 from common.models.ontology import FkeyEvaluationResult
 import pytest_asyncio
@@ -25,9 +26,9 @@ class TestOntologyEndToEnd:
         self.rag_server_url = "http://localhost:9446"  # RAG server URL
         self.test_timeout = 120  # seconds to wait for ingestion
         
-        # Initialize Neo4j database connections
-        self.data_graph_db = Neo4jDB(uri="bolt://localhost:7687")  # Data Neo4j instance
-        self.ontology_graph_db = Neo4jDB(uri="bolt://localhost:7688")  # Ontology Neo4j instance
+        # Initialize Neo4j database connections - both use the same instance with different tenant labels
+        self.data_graph_db = Neo4jDB(tenant_label=DEFAULT_DATA_LABEL, uri="bolt://localhost:7687")
+        self.ontology_graph_db = Neo4jDB(tenant_label=DEFAULT_SCHEMA_LABEL, uri="bolt://localhost:7687")
         
         # Setup databases
         await self.data_graph_db.setup()
