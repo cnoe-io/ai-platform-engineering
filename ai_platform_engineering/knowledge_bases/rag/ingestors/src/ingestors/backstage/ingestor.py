@@ -128,10 +128,10 @@ async def sync_backstage_entities(client: Client):
     for item in filtered_items:
         try:
             kind = item.get("kind", "Unknown")
-            # Flatten the nested dict structure
-            props = utils.flatten_dict(item)
+            # Copy item properties
+            props = item.copy()
             
-            # Create Entity with proper primary and additional keys
+            # Create Entity with proper primary and additional keys using dot notation
             entity = Entity(
                 entity_type=f"Backstage{kind}",
                 all_properties=props,
