@@ -12,6 +12,18 @@ from .oauth import OAuthConfig, configure_oauth_session
 from .ssl import SSLIgnoreAdapter, configure_ssl_verification
 from .urls import is_atlassian_cloud_url
 
+# Export field discovery utilities (new)
+from .field_discovery import FieldDiscovery, get_field_discovery
+
+# Export ADF utilities
+from .adf import (
+    text_to_adf,
+    adf_to_text,
+    is_adf_format,
+    ensure_adf_format,
+    create_empty_adf,
+)
+
 # Export all utility functions for backward compatibility
 __all__ = [
     "SSLIgnoreAdapter",
@@ -23,4 +35,11 @@ __all__ = [
     "parse_iso8601_date",
     "OAuthConfig",
     "configure_oauth_session",
+    "FieldDiscovery",
+    "get_field_discovery",
+    "text_to_adf",
+    "adf_to_text",
+    "is_adf_format",
+    "ensure_adf_format",
+    "create_empty_adf",
 ]
