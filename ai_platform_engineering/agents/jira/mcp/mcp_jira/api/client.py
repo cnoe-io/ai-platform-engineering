@@ -10,15 +10,14 @@ from typing import Optional, Dict, Tuple, Any
 import httpx
 from dotenv import load_dotenv
 
-from mcp_jira.tools.jira.constants import MCP_JIRA_MOCK_RESPONSE
-
 # Load environment variables
 load_dotenv()
 
 # Constants
 # Update the base URL to be specific to Jira API
 
-
+# Read mock mode setting directly here to avoid circular imports
+MCP_JIRA_MOCK_RESPONSE = os.getenv("MCP_JIRA_MOCK_RESPONSE", "false").lower() in ("true", "1", "yes")
 
 # Configure logging
 logging.basicConfig(

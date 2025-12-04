@@ -83,12 +83,15 @@ def mock_api_request_success(monkeypatch):
 def mock_api_request_fields(monkeypatch, mock_jira_fields):
     """Mock make_api_request to return field metadata."""
     async def mock_request(path, method="GET", **kwargs):
-        if "/rest/api/3/field" in path:
+        if "/rest/api/3/field" in path or "field" in path:
             return (True, mock_jira_fields)
         return (True, {"status": "success"})
     
-    from mcp_jira.api import client
-    monkeypatch.setattr(client, "make_api_request", mock_request)
+    import mcp_jira.api.client
+    monkeypatch.setattr(mcp_jira.api.client, "make_api_request", mock_request)
+    # Also patch it in the field_discovery module
+    import mcp_jira.utils.field_discovery
+    monkeypatch.setattr(mcp_jira.utils.field_discovery, "make_api_request", mock_request)
     return mock_request
 
 
