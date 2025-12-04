@@ -6,9 +6,12 @@ interface CustomGraphNodeProps {
     data: any;
     isConnectable: boolean;
     onArrowClick?: (data: any) => void;
+    onFocusClick?: (data: any) => void;
     showArrowButton?: boolean;
+    showFocusButton?: boolean;
     showLabel?: boolean;
     selected?: boolean;
+    explored?: boolean;
     nodeWidth?: number;
     nodeHeight?: number;
 }
@@ -87,9 +90,12 @@ export default function CustomGraphNode({
     data, 
     isConnectable, 
     onArrowClick, 
+    onFocusClick,
     showArrowButton = false, 
+    showFocusButton = false,
     showLabel = true, 
     selected = false,
+    explored = false,
     nodeWidth = 180,
     nodeHeight = 40
 }: CustomGraphNodeProps) {
@@ -100,6 +106,13 @@ export default function CustomGraphNode({
         }
     };
 
+    const handleFocusClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (onFocusClick) {
+            onFocusClick(data);
+        }
+    };
+
     // Get the entity label using the priority logic
     const entityLabel = getEntityLabel(data);
     const entityType = data.entity_type || 'Entity';
@@ -107,6 +120,11 @@ export default function CustomGraphNode({
     // Truncate both texts - show last characters for label, first characters for type
     const truncatedLabel = entityLabel.length > 18 ? '...' + entityLabel.substring(entityLabel.length - 18) : entityLabel;
     const truncatedType = entityType.length > 18 ? entityType.substring(0, 18) + '...' : entityType;
+
+    // Calculate button width based on how many buttons are shown
+    const buttonsShown = (showArrowButton ? 1 : 0) + (showFocusButton ? 1 : 0);
+    const buttonSectionWidth = buttonsShown > 0 ? buttonsShown * 15 : 0;
+    const contentWidth = 100 - buttonSectionWidth;
 
     // Get the computed style for this node
     const computedStyle = getNodeStyle(data, selected, nodeWidth, nodeHeight);
@@ -122,7 +140,7 @@ export default function CustomGraphNode({
             <div className="flex items-center w-full h-full">
                 <div 
                     className="flex flex-col justify-center items-center px-2 py-1" 
-                    style={{ width: showArrowButton ? '85%' : '100%' }}
+                    style={{ width: `${contentWidth}%` }}
                 >
                     <span 
                         className="text-xs font-medium text-center truncate w-full leading-tight" 
@@ -143,11 +161,23 @@ export default function CustomGraphNode({
                 {showArrowButton && (
                     <button
                         onClick={handleArrowClick}
-                        className="h-full flex items-center justify-center text-xs font-bold text-white hover:text-gray-100 hover:bg-white hover:bg-opacity-20 transition-all duration-200 border-l border-white border-opacity-30"
+                        className={`h-full flex items-center justify-center text-xs font-bold text-white transition-all duration-200 border-l border-white border-opacity-30 ${
+                            explored ? 'bg-green-500 bg-opacity-30' : 'hover:bg-white hover:bg-opacity-20'
+                        }`}
                         style={{ width: '15%' }}
-                        title="Explore further"
+                        title="Explore neighborhood (depth 1)"
                     >
                         →
+                    </button>
+                )}
+                {showFocusButton && (
+                    <button
+                        onClick={handleFocusClick}
+                        className="h-full flex items-center justify-center text-xs font-bold text-white hover:bg-white hover:bg-opacity-20 transition-all duration-200 border-l border-white border-opacity-30"
+                        style={{ width: '15%' }}
+                        title="Focus on this node"
+                    >
+                        🔍
                     </button>
                 )}
             </div>
