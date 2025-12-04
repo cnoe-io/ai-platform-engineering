@@ -130,13 +130,7 @@ export const getEntityTypes = async (): Promise<string[]> => {
 // Data Graph API
 // ============================================================================
 
-export const getDataEntity = async (entityType: string, primaryKey: string) => {
-    const response = await api.post('/v1/graph/explore/data/entity', {
-        entity_type: entityType,
-        entity_pk: primaryKey
-    });
-    return response.data;
-};
+// Note: Use exploreDataNeighborhood for data entity exploration
 
 // ============================================================================
 // Ontology Agent API
@@ -161,12 +155,107 @@ export const getOntologyVersion = async () => {
 };
 
 // ============================================================================
+// Ontology and Data Graph Neighborhood Exploration API
+// ============================================================================
+
+export const getOntologyStartNodes = async (n: number = 10): Promise<any[]> => {
+    const response = await api.get('/v1/graph/explore/ontology/entity/start', {
+        params: { n }
+    });
+    return response.data;
+};
+
+export const getDataStartNodes = async (n: number = 10): Promise<any[]> => {
+    const response = await api.get('/v1/graph/explore/data/entity/start', {
+        params: { n }
+    });
+    return response.data;
+};
+
+export const exploreOntologyNeighborhood = async (entityType: string, entityPk: string, depth: number = 1): Promise<any> => {
+    const response = await api.post('/v1/graph/explore/ontology/entity/neighborhood', {
+        entity_type: entityType,
+        entity_pk: entityPk,
+        depth: depth
+    });
+    return response.data;
+};
+
+export const exploreDataNeighborhood = async (entityType: string, entityPk: string, depth: number = 1): Promise<any> => {
+    const response = await api.post('/v1/graph/explore/data/entity/neighborhood', {
+        entity_type: entityType,
+        entity_pk: entityPk,
+        depth: depth
+    });
+    return response.data;
+};
+
+export const getOntologyGraphStats = async (): Promise<{ node_count: number; relation_count: number }> => {
+    const response = await api.get('/v1/graph/explore/ontology/stats');
+    return response.data;
+};
+
+export const getDataGraphStats = async (): Promise<{ node_count: number; relation_count: number }> => {
+    const response = await api.get('/v1/graph/explore/data/stats');
+    return response.data;
+};
+
+// ============================================================================
+// Graph Batch Fetch API
+// ============================================================================
+
+export const fetchOntologyEntitiesBatch = async (params: {
+    offset?: number;
+    limit?: number;
+    entity_type?: string;
+}): Promise<{ entities: any[]; count: number; offset: number; limit: number }> => {
+    const response = await api.get('/v1/graph/explore/ontology/entities/batch', { params });
+    return response.data;
+};
+
+export const fetchOntologyRelationsBatch = async (params: {
+    offset?: number;
+    limit?: number;
+    relation_name?: string;
+}): Promise<{ relations: any[]; count: number; offset: number; limit: number }> => {
+    const response = await api.get('/v1/graph/explore/ontology/relations/batch', { params });
+    return response.data;
+};
+
+export const fetchDataEntitiesBatch = async (params: {
+    offset?: number;
+    limit?: number;
+    entity_type?: string;
+}): Promise<{ entities: any[]; count: number; offset: number; limit: number }> => {
+    const response = await api.get('/v1/graph/explore/data/entities/batch', { params });
+    return response.data;
+};
+
+export const fetchDataRelationsBatch = async (params: {
+    offset?: number;
+    limit?: number;
+    relation_name?: string;
+}): Promise<{ relations: any[]; count: number; offset: number; limit: number }> => {
+    const response = await api.get('/v1/graph/explore/data/relations/batch', { params });
+    return response.data;
+};
+
+// ============================================================================
 // Ontology Relation Management API
 // ============================================================================
 
-export const acceptOntologyRelation = async (relationId: string, relationName: string): Promise<void> => {
-    await api.post(`/v1/graph/ontology/agent/relation/accept/${encodeURIComponent(relationId)}`, null, {
-        params: { relation_name: relationName }
+export const acceptOntologyRelation = async (
+    relationId: string, 
+    relationName: string, 
+    propertyMappings: Array<{
+        entity_a_property: string;
+        entity_b_idkey_property: string;
+        match_type: 'exact' | 'prefix' | 'suffix' | 'subset' | 'superset' | 'contains';
+    }>
+): Promise<void> => {
+    await api.post(`/v1/graph/ontology/agent/relation/accept/${encodeURIComponent(relationId)}`, {
+        relation_name: relationName,
+        property_mappings: propertyMappings
     });
 };
 
@@ -184,6 +273,16 @@ export const evaluateOntologyRelation = async (relationId: string): Promise<void
 
 export const syncOntologyRelation = async (relationId: string): Promise<void> => {
     await api.post(`/v1/graph/ontology/agent/relation/sync/${encodeURIComponent(relationId)}`);
+};
+
+export const getOntologyRelationHeuristicsBatch = async (relationIds: string[]): Promise<Record<string, any>> => {
+    const response = await api.post('/v1/graph/ontology/agent/relation/heuristics/batch', relationIds);
+    return response.data;
+};
+
+export const getOntologyRelationEvaluationsBatch = async (relationIds: string[]): Promise<Record<string, any>> => {
+    const response = await api.post('/v1/graph/ontology/agent/relation/evaluations/batch', relationIds);
+    return response.data;
 };
 
 // ============================================================================
