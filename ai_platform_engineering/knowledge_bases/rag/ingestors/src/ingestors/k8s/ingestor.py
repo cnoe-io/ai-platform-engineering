@@ -31,6 +31,8 @@ logging.basicConfig(level=LOG_LEVEL)
 
 # Configuration
 CLUSTER_NAME = os.environ.get('CLUSTER_NAME')
+if not CLUSTER_NAME:
+    raise ValueError("CLUSTER_NAME environment variable must be set")
 SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 60 * 15))  # sync every 15 minutes by default
 
 # Kubernetes configuration options
@@ -306,8 +308,8 @@ async def sync_k8s_resources(client: Client):
                         logging.debug(f"Processing {resource.kind}: {resource_id}")
                         
                         # Flatten and filter properties
-                        all_properties = utils.flatten_dict(obj.to_dict())
-                        filtered_properties = filter_resource_properties(all_properties)
+                        _all_properties = utils.flatten_dict(obj.to_dict())
+                        filtered_properties = filter_resource_properties(_all_properties)
                         
                         # Add cluster name to properties
                         filtered_properties["cluster_name"] = CLUSTER_NAME
