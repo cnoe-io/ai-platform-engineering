@@ -20,6 +20,7 @@ dependencies = [
     "lxml>=6.0.2",
     "python-dotenv>=1.1.0",
     "redis>=7.0.1",
+    "requests>=2.32.0",
     "slack-sdk>=3.38.0",
 ]
 
