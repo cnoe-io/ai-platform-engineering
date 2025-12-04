@@ -241,7 +241,7 @@ async def get_s3_details(resource_arns: List[str], region: str) -> List[Dict[str
         
         logging.debug(f"Fetching details for S3 bucket: {bucket_name}")
         try:
-            bucket_data = {
+            bucket_data: Dict[str, Any] = {
                 "Arn": arn,
                 "BucketName": bucket_name,
             }
@@ -629,7 +629,8 @@ async def sync_resource_type(
         # Convert to entities
         entities = []
         for resource in inventory:
-            props = utils.flatten_dict(resource)
+            # Copy resource properties and add metadata
+            props = resource.copy()
             props["account_id"] = account_id
             props["region"] = region
             
