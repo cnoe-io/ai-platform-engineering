@@ -9,7 +9,7 @@ from pydantic import Field
 from mcp_jira.api.client import make_api_request
 from mcp_jira.tools.jira.constants import check_read_only
 from mcp_jira.utils.field_discovery import get_field_discovery
-from mcp_jira.utils.adf import ensure_adf_format, is_adf_format
+from mcp_jira.utils.adf import ensure_adf_format
 from mcp_jira.utils.field_handlers import normalize_field_value
 
 

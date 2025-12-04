@@ -10,6 +10,8 @@ from typing import Optional, Dict, Tuple, Any
 import httpx
 from dotenv import load_dotenv
 
+from mcp_jira.tools.jira.constants import MCP_JIRA_MOCK_RESPONSE
+
 # Load environment variables
 load_dotenv()
 
@@ -60,6 +62,20 @@ async def make_api_request(
     Returns:
         Tuple of (success, data) where data is either the response JSON or an error dict
     """
+    # Return mock responses if in mock mode (except for user operations)
+    if MCP_JIRA_MOCK_RESPONSE:
+        # Don't mock user operations - always use real API for users
+        is_user_operation = (
+            "rest/api/3/user" in path or
+            "rest/api/3/user/search" in path
+        )
+
+        if is_user_operation:
+            logger.info(f"🎭 Mock mode: Skipping mock for user operation {method} {path} - using real API")
+        else:
+            logger.info(f"🎭 Mock mode: Returning mock response for {method} {path}")
+            return _get_mock_response(path, method, params, data)
+
     logger.debug(f"Preparing {method} request to {path}")
 
     # Use the utility function to retrieve the token if not provided
@@ -165,3 +181,76 @@ async def make_api_request(
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         return (False, {"error": f"Unexpected error: {str(e)}"})
+
+
+def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tuple[bool, Dict[str, Any]]:
+    """Generate mock responses based on the API path and method.
+
+    Note: User operations (get_user, search_users) are NOT mocked and will use real API.
+    """
+    from mcp_jira.mock.responses import (
+        get_mock_issue,
+        get_mock_created_issue,
+        get_mock_search_results,
+        get_mock_transitions,
+        get_mock_worklog,
+        get_mock_batch_create_response,
+        get_mock_issue_link_types,
+        get_mock_success_response,
+    )
+
+    # Issue operations
+    if "rest/api/3/issue/" in path and method == "GET":
+        if "/transitions" in path:
+            issue_key = path.split("/issue/")[1].split("/")[0]
+            return (True, get_mock_transitions(issue_key))
+        elif "/worklog" in path:
+            return (True, {"worklogs": [get_mock_worklog()]})
+        else:
+            issue_key = path.split("/issue/")[1].split("?")[0]
+            return (True, get_mock_issue(issue_key))
+
+    # Create issue
+    elif path == "rest/api/3/issue" and method == "POST":
+        project_key = data.get("fields", {}).get("project", {}).get("key", "PROJ")
+        summary = data.get("fields", {}).get("summary", "Mock Issue")
+        issue_type = data.get("fields", {}).get("issuetype", {}).get("name", "Task")
+        return (True, get_mock_created_issue(project_key, summary, issue_type))
+
+    # Batch create
+    elif path == "rest/api/3/issue/bulk" and method == "POST":
+        issues = data.get("issueUpdates", [])
+        return (True, get_mock_batch_create_response(issues))
+
+    # Search
+    elif "rest/api/3/search" in path:
+        jql = params.get("jql", "")
+        max_results = params.get("maxResults", 50)
+        return (True, get_mock_search_results(jql, max_results))
+
+    # Transitions
+    elif "/transitions" in path and method == "POST":
+        return (True, {})
+
+    # Worklog
+    elif "/worklog" in path and method == "POST":
+        return (True, get_mock_worklog())
+
+    # Issue links
+    elif "rest/api/3/issueLink" in path:
+        if method == "POST":
+            return (True, {})
+        elif method == "DELETE":
+            return (True, {})
+
+    # Issue link types
+    elif "rest/api/3/issueLinkType" in path:
+        return (True, get_mock_issue_link_types())
+
+    # Delete issue
+    elif "rest/api/3/issue/" in path and method == "DELETE":
+        return (True, {"status": "success"})
+
+    # Default success for any other operation
+    logger.warning(f"🎭 Mock mode: No specific mock for {method} {path}, returning generic success")
+    return (True, get_mock_success_response())
