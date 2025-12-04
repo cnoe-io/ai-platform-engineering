@@ -56,6 +56,11 @@ class WebIngestorCommand(str, Enum):
 # ============================================================================
 # Models for Graph Exploration and Querying
 # ============================================================================
+class ExploreNeighborhoodRequest(BaseModel):
+    entity_type: str = Field(..., description="Type of the entity to explore")
+    entity_pk: str = Field(..., description="Primary key of the entity to explore")
+    depth: int = Field(1, description="Depth of neighborhood to explore (0 = just entity, 1 = direct neighbors, etc.)", ge=0, le=10)
+
 class ExploreDataEntityRequest(BaseModel):
     entity_type: str = Field(..., description="Type of the entity to fetch")
     entity_pk: str = Field(..., description="Primary key of the entity to fetch")

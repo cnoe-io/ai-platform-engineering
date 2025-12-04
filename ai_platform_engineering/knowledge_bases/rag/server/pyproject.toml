@@ -24,7 +24,6 @@ dependencies = [
     "langchain-community",
     "langchain-core>=0.3.60",
     "langchain-milvus>=0.2.1",
-    "langchain-openai>=0.3.18",
     "lxml>=6.0.1",
     "pydantic>=2.0.0",
     "pymilvus>=2.6.0",
@@ -33,6 +32,7 @@ dependencies = [
     "uvicorn>=0.35.0",
     "fastmcp>=2.12.4",
     "aiohttp-retry>=2.9.1",
+    "pyyaml>=6.0.3",
     "common",
 ]
 
@@ -46,6 +46,25 @@ dev = [
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
     "ruff>=0.4.0",
+]
+# Optional embeddings providers - install based on your needs
+embeddings-aws = [
+    "langchain-aws>=0.3.0",  # For AWS Bedrock embeddings
+]
+embeddings-cohere = [
+    "langchain-cohere>=0.3.0",  # For Cohere embeddings
+]
+embeddings-huggingface = [
+    "langchain-huggingface>=0.3.0",  # For local HuggingFace models
+]
+embeddings-ollama = [
+    "langchain-ollama>=0.3.0",  # For local Ollama models
+]
+embeddings-all = [
+    "langchain-aws>=0.3.0",
+    "langchain-cohere>=0.3.0",
+    "langchain-huggingface>=0.3.0",
+    "langchain-ollama>=0.3.0",
 ]
 
 [build-system]

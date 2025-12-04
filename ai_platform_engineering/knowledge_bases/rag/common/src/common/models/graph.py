@@ -84,11 +84,13 @@ class Entity(BaseModel):
 
 class Relation(BaseModel):
     """
-    Represents a relationship between two entities in the graph database
+    Represents a relationship between two entities in the graph database.
+    Uniquely identified by: (from_entity.entity_type, to_entity.entity_type, relation_name, relation_pk)
     """
     from_entity: EntityIdentifier = Field(description="The from entity")
     to_entity: EntityIdentifier = Field(description="The to entity")
     relation_name: str = Field(description="The name of the relation")
+    relation_pk: str = Field(description="The primary key for this relation - used to uniquely identify relations with the same name between the same entity types")
     relation_properties: Optional[dict[str, Any]] = Field(description="(Optional) The properties of the relation")
 
 class EntityTypeMetaRelation(BaseModel):

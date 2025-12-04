@@ -26,30 +26,30 @@ class IngestorInfo(BaseModel):
     ingestor_id: str = Field(..., description="Unique identifier for the ingestor") # TODO: Implement proper ID generation
     ingestor_type: str = Field(..., description="Type of the ingestor")
     ingestor_name: str = Field(..., description="Name of the ingestor")
-    description: Optional[str] = Field("", description="Description of the ingestor")
+    description: Optional[str] = Field(default="", description="Description of the ingestor")
     metadata: Optional[Dict[str, Any]] = Field({}, description="Additional metadata about the ingestor")
     last_seen: Optional[int] = Field(0, description="Last time the ingestor was seen")
 
 class DataSourceInfo(BaseModel):
     datasource_id: str = Field(..., description="Unique identifier for the data source")
     ingestor_id: str = Field(..., description="Ingestor ID this data source belongs to")
-    description: str = Field(..., description="Description of the data source")
+    description: str = Field(default="", description="Description of the data source")
     source_type: str = Field(..., description="Type of the data source")
     last_updated: Optional[int] = Field(..., description="When the data source was last updated")
-    default_chunk_size: int = Field(10000, description="Default chunk size for this data source, applies to all documents unless overridden")
-    default_chunk_overlap: int = Field(2000, description="Default chunk overlap for this data source, applies to all documents unless overridden")
+    default_chunk_size: Optional[int] = Field(default=10000, description="Default chunk size for this data source, applies to all documents unless overridden")
+    default_chunk_overlap: Optional[int] = Field(default=2000, description="Default chunk overlap for this data source, applies to all documents unless overridden")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
 
 class DocumentMetadata(BaseModel):
     document_id: str = Field(..., description="Unique identifier for the document, for graph entities this would be populated automatically based on entity_type and entity_pk")
     datasource_id: str = Field(..., description="Datasource ID this document belongs to")
     ingestor_id: str = Field(..., description="Ingestor ID this datasource belongs to")
-    title: str = Field("", description="Document title")
-    description: str = Field("", description="Document description")
-    is_graph_entity: bool = Field(False, description="Whether this document represents a graph entity")
+    title: str = Field(default="", description="Document title")
+    description: str = Field(default="", description="Document description")
+    is_graph_entity: bool = Field(default=False, description="Whether this document represents a graph entity")
     document_type: str = Field(..., description="Type of the document, e.g. 'text', 'markdown', 'pdf', etc. For graph entities, this would be populated automatically based on entity_type")
     document_ingested_at: Optional[int] = Field(..., description="When the document was ingested")
-    fresh_until: Optional[int] = Field(0, description="Fresh until timestamp for the document, after which it should be re-ingested")
+    fresh_until: Optional[int] = Field(..., description="Fresh until timestamp for the document, after which it should be re-ingested")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
 
 class DocumentChunkMetadata(DocumentMetadata): # Inherits from DocumentMetadata

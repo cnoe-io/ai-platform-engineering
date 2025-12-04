@@ -12,6 +12,12 @@ dependencies = [
     "neo4j>=5.28.1",
     "pydantic>=2.11.7",
     "redis>=6.2.0",
+    # Embedding providers - all included in Docker image
+    "langchain-openai>=0.3.18",
+    "langchain-aws>=0.2.24",
+    "langchain-cohere>=0.3.0",
+    "langchain-huggingface>=0.3.0",
+    "langchain-ollama>=0.3.0",
 ]
 
 [build-system]

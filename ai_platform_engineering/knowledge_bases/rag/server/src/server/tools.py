@@ -1,13 +1,21 @@
 import os
-from typing import Optional
+from typing import Optional, List, Tuple, Set
 
 from common.utils import json_encode, get_logger
 from common.graph_db.base import GraphDB
 import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
-from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOGY_VERSION_ID_KEY
-from common.models.graph import EntityIdentifier
+from common.constants import (
+    KV_ONTOLOGY_VERSION_ID_KEY, 
+    PROP_DELIMITER, 
+    ONTOLOGY_VERSION_ID_KEY,
+    SUB_ENTITY_LABEL,
+    PRIMARY_ID_KEY,
+    ENTITY_TYPE_KEY,
+    ALL_IDS_PROPS_KEY
+)
+from common.models.graph import EntityIdentifier, Entity, Relation
 import traceback
 from server.query_service import VectorDBQueryService
 from common.models.rag import valid_metadata_keys
@@ -76,11 +84,12 @@ class AgentTools:
         if graph_rag_enabled:
             graph_tools = [
                 self.graph_get_entity_types,
-                self.graph_get_entity_properties,
-                self.graph_fetch_entity,
-                self.graph_fetch_entity_details,
-                self.graph_get_relation_path_between_entity_types,
-                self.graph_raw_query,
+                self.graph_explore_ontology_entity,
+                self.graph_explore_data_entity,
+                self.graph_fetch_data_entity_details,
+                self.graph_shortest_path_between_entity_types,
+                self.graph_raw_query_data,
+                self.graph_raw_query_ontology,
             ]
             for tool in graph_tools:
                 mcp.tool(tool)
@@ -134,130 +143,348 @@ class AgentTools:
         logger.info(f"Getting entity types, Thought: {thought}")
         if self.data_graphdb is None:
             logger.error("Graph database is not available, Is graph RAG enabled?")
-            return "Error: graph database is not available."
+            return "Error: Data graph database is not available. Please ensure graph RAG is enabled."
         try:
             entity_types = await self.data_graphdb.get_all_entity_types()
+            if not entity_types:
+                return "No entity types found in the data graph database. The database may be empty."
             return json_encode(entity_types)
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
             logger.error(f"Error getting entity types: {e}")
-            return f"Error getting entity types: {e}"
+            return f"Error getting entity types from data graph database: {str(e)}\nTraceback: {traceback.format_exc()}"
 
-    async def graph_get_entity_properties(self, entity_type: str, thought: str) -> str:
+    async def graph_explore_ontology_entity(self, entity_type: str, thought: str) -> str:
         """
-        Gets all properties for a given entity type in the graph database.
+        Explores an ontology entity and recursively fetches all its sub-entities.
+        Returns the root entity and all nested sub-entities with their properties and relations.
 
         Args:
-            entity_type (str): The type of entity to get properties for
+            entity_type (str): The type of entity to explore
             thought (str): Your thoughts for choosing this tool
 
         Returns:
-            str: A list of all properties for the specified entity type
+            str: JSON containing the root entity, sub-entities, and their relations
         """
-        logger.info(f"Getting entity properties for {entity_type}, Thought: {thought}")
-        if self.data_graphdb is None:
-            logger.error("Graph database is not available, Is graph RAG enabled?")
-            return "Error: graph database is not available."
+        logger.info(f"Exploring ontology entity {entity_type}, Thought: {thought}")
+        if self.ontology_graphdb is None:
+            logger.error("Ontology graph database is not available, Is graph RAG enabled?")
+            return "Error: Ontology graph database is not available. Please ensure graph RAG is enabled."
+        
         try:
-            properties = await self.data_graphdb.get_entity_type_properties(entity_type)
-            return json_encode({"entity_type": entity_type, "properties": properties})
+            # Check if ontology is generated
+            is_ontology_generated = await self._graph_check_if_ontology_generated()
+            if not is_ontology_generated:
+                return "Error: The ontology has not been generated yet. Please generate the ontology first before exploring ontology entities."
+
+            # Fetch the latest ontology id
+            ontology_version_id = await self.redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
+            if ontology_version_id is None:
+                return "Error: Ontology version ID not found in Redis. The ontology may not be generated yet."
+
+            # Build primary key for ontology entity
+            primary_key_id = PROP_DELIMITER.join([entity_type, ontology_version_id])
+            
+            # First check if the entity type exists in ontology
+            all_entity_types = await self.ontology_graphdb.get_all_entity_types()
+            if entity_type not in all_entity_types:
+                return f"Error: Entity type '{entity_type}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
+            
+            # Explore the entity neighborhood recursively
+            result = await self._explore_entity_recursive(
+                graphdb=self.ontology_graphdb,
+                entity_type=entity_type,
+                entity_pk=primary_key_id,
+                max_depth=100
+            )
+            
+            if result["root_entity"] is None:
+                return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the ontology graph database. The entity may not exist or may have been deleted."
+            
+            return json_encode(result)
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Error getting entity properties for {entity_type}: {e}")
-            return f"Error getting entity properties for {entity_type}: {e}"
+            logger.error(f"Error exploring ontology entity {entity_type}: {e}")
+            return f"Error exploring ontology entity '{entity_type}': {str(e)}\nTraceback: {traceback.format_exc()}"
 
-    async def graph_fetch_entity(self, entity_type: str, primary_key_id: str, thought: str) -> str:
+    async def graph_explore_data_entity(self, entity_type: str, primary_key_id: str, thought: str) -> str:
         """
-        Fetches a single entity and returns all its properties from the graph database.
+        Explores a data entity and recursively fetches all its sub-entities.
+        Returns the root entity and all nested sub-entities with their properties and relations.
+
         Args:
-            entity_type (str): The type of entity
-            primary_key_id (str):  The primary key id of the entity
+            entity_type (str): The type of entity to explore
+            primary_key_id (str): The primary key id of the entity
             thought (str): Your thoughts for choosing this tool
 
         Returns:
-            str: The properties of the entity
+            str: JSON containing the root entity, sub-entities, and their relations
         """
-        logger.info(f"Fetching entity of type {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
+        logger.info(f"Exploring data entity {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
         if self.data_graphdb is None:
-            logger.error("Graph database is not available, Is graph RAG enabled?")
-            return "Error: graph database is not available."
+            logger.error("Data graph database is not available, Is graph RAG enabled?")
+            return "Error: Data graph database is not available. Please ensure graph RAG is enabled."
+        
         try:
-            entity = await self.data_graphdb.fetch_entity(entity_type, primary_key_id)
-            if entity is None:
-                return f"no entity of type {entity_type} with primary_key_id {primary_key_id}"
-            return json_encode(entity.get_external_properties())
+            # First check if the entity type exists
+            all_entity_types = await self.data_graphdb.get_all_entity_types()
+            if entity_type not in all_entity_types:
+                return f"Error: Entity type '{entity_type}' does not exist in the data graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
+            
+            # Explore the entity neighborhood recursively
+            result = await self._explore_entity_recursive(
+                graphdb=self.data_graphdb,
+                entity_type=entity_type,
+                entity_pk=primary_key_id,
+                max_depth=100
+            )
+            
+            if result["root_entity"] is None:
+                return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the data graph database. Please verify the entity type and primary key are correct."
+            
+            return json_encode(result)
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Error fetching entity {entity_type} with primary_key_id {primary_key_id}: {e}")
-            return f"Error fetching entity {entity_type} with primary_key_id {primary_key_id}: {e}"
+            logger.error(f"Error exploring data entity {entity_type} with primary_key_id {primary_key_id}: {e}")
+            return f"Error exploring data entity '{entity_type}' with primary_key_id '{primary_key_id}': {str(e)}\nTraceback: {traceback.format_exc()}"
 
-    async def graph_fetch_entity_details(self, entity_type: str, primary_key_id: str, thought: str) -> str:
+    async def _explore_entity_recursive(
+        self, 
+        graphdb: GraphDB, 
+        entity_type: str, 
+        entity_pk: str, 
+        max_depth: int,
+        visited: Optional[Set[str]] = None,
+        current_depth: int = 0
+    ) -> dict:
         """
-        Fetches details of a single entity and returns all its properties, as well as relations from the graph database.
-        You need the primary key id for the entity first (use `search` tool).
+        Recursively explores an entity and its sub-entities.
+        
+        Returns:
+            dict with keys:
+                - root_entity: dict with entity details
+                - sub_entities: list of sub-entity dicts
+                - relations: list of relation tuples (from_pk, relation_name, to_pk)
+        """
+        if visited is None:
+            visited = set()
+        
+        # Prevent infinite recursion
+        if current_depth > max_depth:
+            logger.warning(f"Max recursion depth {max_depth} reached for entity {entity_type}:{entity_pk}")
+            return {"root_entity": None, "sub_entities": [], "relations": []}
+        
+        # Check if already visited
+        entity_key = f"{entity_type}:{entity_pk}"
+        if entity_key in visited:
+            return {"root_entity": None, "sub_entities": [], "relations": []}
+        
+        visited.add(entity_key)
+        
+        # Fetch the entity with depth 1 to get immediate neighbors
+        neighborhood = await graphdb.explore_neighborhood(
+            entity_type=entity_type,
+            entity_pk=entity_pk,
+            depth=1,
+            max_results=1000
+        )
+        
+        if neighborhood["entity"] is None:
+            return {"root_entity": None, "sub_entities": [], "relations": []}
+        
+        root_entity = neighborhood["entity"]
+        
+        # Extract clean entity data (only essential fields)
+        def extract_entity_data(entity: Entity) -> dict:
+            # Get primary key values
+            primary_key_values = {}
+            for prop in entity.primary_key_properties:
+                if prop in entity.all_properties:
+                    primary_key_values[prop] = entity.all_properties[prop]
+            
+            # Get additional key values
+            additional_key_values = []
+            if entity.additional_key_properties:
+                for key_props in entity.additional_key_properties:
+                    key_dict = {}
+                    for prop in key_props:
+                        if prop in entity.all_properties:
+                            key_dict[prop] = entity.all_properties[prop]
+                    if key_dict:
+                        additional_key_values.append(key_dict)
+            
+            # Get all properties except internal ones (those starting with _), but keep _entity_pk
+            properties = {}
+            for key, value in entity.all_properties.items():
+                if key == PRIMARY_ID_KEY:  # Keep _entity_pk
+                    properties[key] = value
+                elif not key.startswith("_"):  # Exclude other internal properties
+                    properties[key] = value
+            
+            return {
+                "entity_type": entity.entity_type,
+                "primary_key_values": primary_key_values,
+                "additional_key_values": additional_key_values,
+                "properties": properties
+            }
+        
+        root_entity_data = extract_entity_data(root_entity)
+        sub_entities = []
+        all_relations = []
+        
+        # Process relations and find sub-entities
+        for relation in neighborhood["relations"]:
+            # Add relation tuple (from_pk, relation_name, to_pk)
+            relation_tuple = (
+                relation.from_entity.primary_key,
+                relation.relation_name,
+                relation.to_entity.primary_key
+            )
+            all_relations.append(relation_tuple)
+            
+            # Check if the related entity is a sub-entity
+            # Look for entities in the neighborhood that are sub-entities
+            for entity in neighborhood["entities"]:
+                if entity.all_properties.get(PRIMARY_ID_KEY) == relation.to_entity.primary_key:
+                    # Check if this entity has the SUB_ENTITY_LABEL
+                    if SUB_ENTITY_LABEL in entity.additional_labels:
+                        # Recursively explore this sub-entity
+                        sub_result = await self._explore_entity_recursive(
+                            graphdb=graphdb,
+                            entity_type=entity.entity_type,
+                            entity_pk=entity.all_properties.get(PRIMARY_ID_KEY, ""),
+                            max_depth=max_depth,
+                            visited=visited,
+                            current_depth=current_depth + 1
+                        )
+                        
+                        # Add the sub-entity
+                        if sub_result["root_entity"]:
+                            sub_entities.append(sub_result["root_entity"])
+                        
+                        # Add nested sub-entities
+                        sub_entities.extend(sub_result["sub_entities"])
+                        
+                        # Add relations from nested exploration
+                        all_relations.extend(sub_result["relations"])
+        
+        return {
+            "root_entity": root_entity_data,
+            "sub_entities": sub_entities,
+            "relations": all_relations
+        }
+
+    async def graph_fetch_data_entity_details(self, entity_type: str, primary_key_id: str, thought: str) -> str:
+        """
+        Fetches details of a single data entity and returns all its properties (excluding internal properties),
+        as well as relations from the graph database.
 
         Args:
             entity_type (str): The type of entity
-            primary_key_id (str):  The primary key id of the entity
+            primary_key_id (str): The primary key id of the entity
             thought (str): Your thoughts for choosing this tool
 
         Returns:
-            str: The properties of the entity, as well as its relations
+            str: The properties of the entity (with key:value pairs), as well as its relations
         """
-        logger.info(f"Fetching entity details of type {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
+        logger.info(f"Fetching data entity details of type {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
         if self.data_graphdb is None:
             logger.error("Graph database is not available, Is graph RAG enabled?")
-            return "Error: graph database is not available."
+            return "Error: Data graph database is not available. Please ensure graph RAG is enabled."
         try:
+            # First check if the entity type exists
+            all_entity_types = await self.data_graphdb.get_all_entity_types()
+            if entity_type not in all_entity_types:
+                return f"Error: Entity type '{entity_type}' does not exist in the data graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
+            
             entity = await self.data_graphdb.fetch_entity(entity_type, primary_key_id)
             if entity is None:
-                return f"no entity of type {entity_type} with primary_key_id {primary_key_id}"
+                return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the data graph database. Please verify the entity type and primary key are correct."
 
-            # Remove internal properties
+            # Remove internal properties (those starting with _)
             clean_properties = {}
             for key, value in entity.all_properties.items():
-                if key[0] == "_":
-                    continue
-                clean_properties[key] = value
-            entity.all_properties = clean_properties
+                if not key.startswith("_"):
+                    clean_properties[key] = value
+            
+            # Get primary key values
+            primary_key_values = {}
+            for prop in entity.primary_key_properties:
+                if prop in entity.all_properties:
+                    primary_key_values[prop] = entity.all_properties[prop]
+            
+            # Get additional key values
+            additional_key_values = []
+            if entity.additional_key_properties:
+                for key_props in entity.additional_key_properties:
+                    key_dict = {}
+                    for prop in key_props:
+                        if prop in entity.all_properties:
+                            key_dict[prop] = entity.all_properties[prop]
+                    if key_dict:
+                        additional_key_values.append(key_dict)
 
-            # get the relations of the entity
+            # Get the relations of the entity
             relations = await self.data_graphdb.fetch_entity_relations(entity_type, primary_key_id)
+            
+            # Format relations as simple dicts
+            relations_data = []
+            for rel in relations:
+                relations_data.append({
+                    "from_entity_type": rel.from_entity.entity_type,
+                    "from_entity_pk": rel.from_entity.primary_key,
+                    "relation_name": rel.relation_name,
+                    "to_entity_type": rel.to_entity.entity_type,
+                    "to_entity_pk": rel.to_entity.primary_key,
+                    "relation_properties": rel.relation_properties
+                })
+            
             return json_encode({
-                "entity_details": clean_properties,
-                "relations": relations,
+                "entity_type": entity.entity_type,
+                "_entity_pk": entity.all_properties.get(PRIMARY_ID_KEY, ""),
+                "primary_key_values": primary_key_values,
+                "additional_key_values": additional_key_values,
+                "properties": clean_properties,
+                "relations": relations_data,
             })
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
             logger.error(f"Error fetching entity details {entity_type} with primary_key_id {primary_key_id}: {e}")
-            return f"Error fetching entity details {entity_type} with primary_key_id {primary_key_id}: {e}"
+            return f"Error fetching data entity details for '{entity_type}' with primary_key_id '{primary_key_id}': {str(e)}\nTraceback: {traceback.format_exc()}"
 
-
-    async def graph_get_relation_path_between_entity_types(self, entity_type_1: str, entity_type_2: str, thought: str) -> str:
+    async def graph_shortest_path_between_entity_types(self, entity_type_1: str, entity_type_2: str, thought: str) -> str:
         """
-        Find relationship paths (indirect or direct) (if any) between any two entity types in the graph database.
+        Find the shortest relationship paths between two entity types in the ontology graph.
+        
         Args:
             entity_type_1 (str): The first entity type
             entity_type_2 (str): The second entity type
             thought (str): Your thoughts for choosing this tool
 
         Returns:
-            str: A cypher-like notation of entity and their relations, none if there is no relation
+            str: A cypher-like notation of entities and their relations, "none" if there is no path
         """
-        logger.info(f"Getting relation path between {entity_type_1} and {entity_type_2}, Thought: {thought}")
+        logger.info(f"Getting shortest path between {entity_type_1} and {entity_type_2}, Thought: {thought}")
         if self.ontology_graphdb is None:
-            logger.error("Graph database is not available, Is graph RAG enabled?")
-            return "Error: graph database is not available."
+            logger.error("Ontology graph database is not available, Is graph RAG enabled?")
+            return "Error: Ontology graph database is not available. Please ensure graph RAG is enabled."
         try:
             # Check if ontology is generated
             is_ontology_generated = await self._graph_check_if_ontology_generated()
             if not is_ontology_generated:
-                return "Error: the ontology is not generated yet, this tool is unavailable."
+                return "Error: The ontology has not been generated yet. Please generate the ontology first before finding paths between entity types."
 
             # Fetch the latest ontology id
             ontology_version_id = await self.redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
             if ontology_version_id is None:
-                return "Error: the ontology is not generated yet, this tool is unavailable."
+                return "Error: Ontology version ID not found in Redis. The ontology may not be generated yet."
+
+            # Check if both entity types exist in ontology
+            all_entity_types = await self.ontology_graphdb.get_all_entity_types()
+            if entity_type_1 not in all_entity_types:
+                return f"Error: Entity type '{entity_type_1}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
+            if entity_type_2 not in all_entity_types:
+                return f"Error: Entity type '{entity_type_2}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
 
             entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
             entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
@@ -268,7 +495,7 @@ class AgentTools:
                 ignore_direction=True,
             )
             if not paths:
-                return "none"
+                return f"No path found between entity types '{entity_type_1}' and '{entity_type_2}' in the ontology graph. These entity types may not be connected."
             
             # Convert paths to cypher notation
             relation_paths = []
@@ -297,26 +524,123 @@ class AgentTools:
                             cypher_path_parts.append(f"<-[{relation.relation_name}]-")
 
                 # Join all parts to create the cypher notation for this path
-                cypher_path = "".join(cypher_path_parts)
-                relation_paths.append(cypher_path)
+                if cypher_path_parts:
+                    cypher_path = "".join(cypher_path_parts)
+                    relation_paths.append(cypher_path)
 
+            if not relation_paths:
+                return f"No applied relationships found between entity types '{entity_type_1}' and '{entity_type_2}'. Paths exist but no relations are marked as applied."
+            
             output = "Paths:\n"
             for i, path in enumerate(relation_paths):
-                output += f"{i+1}. {path}\n\n"
-            logger.debug(f"Relation paths: {output}")
+                output += f"{i+1}. {path}\n"
+            logger.debug(f"Shortest paths: {output}")
             return output
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Error getting relation path between {entity_type_1} and {entity_type_2}: {e}")
-            return f"Error getting relation path between {entity_type_1} and {entity_type_2}: {e}"
+            logger.error(f"Error getting shortest path between {entity_type_1} and {entity_type_2}: {e}")
+            return f"Error finding shortest path between entity types '{entity_type_1}' and '{entity_type_2}': {str(e)}\nTraceback: {traceback.format_exc()}"
 
+    async def graph_raw_query_data(self, query: str, thought: str) -> str:
+        """
+        Executes a raw read-only query on the data graph database.
 
-    # Not a tool, but used internally
+        Args:
+            query (str): The raw Cypher query
+            thought (str): Your thoughts for choosing this tool
+
+        Returns:
+            str: The result of the raw query
+        """
+        logger.info(f"Raw data graph query, Thought: {thought}")
+        if self.data_graphdb is None:
+            logger.error("Data graph database is not available, Is graph RAG enabled?")
+            return "Error: Data graph database is not available. Please ensure graph RAG is enabled."
+        
+        if not query or not query.strip():
+            return "Error: Query cannot be empty. Please provide a valid Cypher query."
+        
+        try:
+            res = await self.data_graphdb.raw_query(query, readonly=True, max_results=max_graph_raw_query_results)
+            notifications = json_encode(res.get("notifications", []))
+            results = json_encode(res.get("results", []))
+
+            # Check for warnings/errors in notifications first
+            if "warning" in notifications.lower() or "error" in notifications.lower():
+                logger.warning(f"Query returned warnings/errors: {notifications}")
+                return f"Query has warnings/errors. PLEASE FIX your query:\nNotifications: {notifications}\n\nQuery executed: {query}"
+            
+            # Check the size of the results, if too large return an error message instead
+            tokens = count_tokens_approximately(results)
+            if tokens > max_graph_raw_query_tokens:
+                logger.warning(f"Raw query result is too large ({tokens} tokens), returning error message instead.")
+                return f"Raw query result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). Please refine your query to return less data:\n- Add LIMIT clause to restrict number of results\n- Select specific properties instead of returning entire nodes\n- Use filters (WHERE clause) to narrow down results\n- Consider using other specialized tools instead\n\nQuery executed: {query}"
+            
+            output = {
+                "results": results,
+                "notifications": notifications
+            }
+            logger.debug(f"Raw query output: {output}")
+            return json_encode(output)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Error executing raw data graph query: {e}")
+            return f"Error executing raw data graph query. PLEASE FIX your query:\n\nError: {error_msg}\n\nQuery executed: {query}\n\nTraceback: {traceback.format_exc()}"
+
+    async def graph_raw_query_ontology(self, query: str, thought: str) -> str:
+        """
+        Executes a raw read-only query on the ontology graph database.
+
+        Args:
+            query (str): The raw Cypher query
+            thought (str): Your thoughts for choosing this tool
+
+        Returns:
+            str: The result of the raw query
+        """
+        logger.info(f"Raw ontology graph query, Thought: {thought}")
+        if self.ontology_graphdb is None:
+            logger.error("Ontology graph database is not available, Is graph RAG enabled?")
+            return "Error: Ontology graph database is not available. Please ensure graph RAG is enabled."
+        
+        if not query or not query.strip():
+            return "Error: Query cannot be empty. Please provide a valid Cypher query."
+        
+        try:
+            res = await self.ontology_graphdb.raw_query(query, readonly=True, max_results=max_graph_raw_query_results)
+            notifications = json_encode(res.get("notifications", []))
+            results = json_encode(res.get("results", []))
+
+            # Check for warnings/errors in notifications first
+            if "warning" in notifications.lower() or "error" in notifications.lower():
+                logger.warning(f"Query returned warnings/errors: {notifications}")
+                return f"Query has warnings/errors. PLEASE FIX your query:\nNotifications: {notifications}\n\nQuery executed: {query}"
+            
+            # Check the size of the results, if too large return an error message instead
+            tokens = count_tokens_approximately(results)
+            if tokens > max_graph_raw_query_tokens:
+                logger.warning(f"Raw query result is too large ({tokens} tokens), returning error message instead.")
+                return f"Raw query result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). Please refine your query to return less data:\n- Add LIMIT clause to restrict number of results\n- Select specific properties instead of returning entire nodes\n- Use filters (WHERE clause) to narrow down results\n- Consider using other specialized tools instead\n\nQuery executed: {query}"
+            
+            output = {
+                "results": results,
+                "notifications": notifications
+            }
+            logger.debug(f"Raw query output: {output}")
+            return json_encode(output)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Error executing raw ontology graph query: {e}")
+            return f"Error executing raw ontology graph query. PLEASE FIX your query:\n\nError: {error_msg}\n\nQuery executed: {query}\n\nTraceback: {traceback.format_exc()}"
+
+    # Not a tool, but used internally
     async def _graph_check_if_ontology_generated(self) -> bool:
         """
         Checks if the ontology is generated for the graph database.
         Returns:
-            str: true if the ontology is generated, false otherwise
+            bool: true if the ontology is generated, false otherwise
         """
         if self.ontology_graphdb is None:
             logger.error("Graph database is not available, Is graph RAG enabled?")
@@ -336,45 +660,3 @@ class AgentTools:
 
         logger.warning(f"No relations found in ontology with the current heuristics version id: {ontology_version_id}")
         return False
-
-    async def graph_raw_query(self, query: str, thought: str) -> str:
-        """
-        Does a raw query on the graph database
-
-        Args:
-            query (str): The raw query
-            thought (str): Your thoughts for choosing this tool
-
-        Returns:
-            str: The result of the raw query
-        """
-        logger.info(f"Raw graph query: {query}, Thought: {thought}")
-        if self.data_graphdb is None:
-            logger.error("Graph database is not available, Is graph RAG enabled?")
-            return "Error: graph database is not available."
-        try:
-            res = await self.data_graphdb.raw_query(query, readonly=True, max_results=max_graph_raw_query_results)
-            notifications = json_encode(res.get("notifications", []))
-            results = json_encode(res.get("results", []))
-
-            # Check for warnings/errors in notifications first
-            if "warning" in notifications.lower() or "error" in notifications.lower():
-                logger.warning(f"Query returned warnings/errors: {notifications}")
-                return f"Query has warnings/errors, PLEASE FIX your query: {notifications}"
-            
-            # Check the size of the results, if too large return an error message instead
-            tokens = count_tokens_approximately(results)
-            if tokens > max_graph_raw_query_tokens:
-                logger.warning(f"Raw query result is too large ({tokens} tokens), returning error message instead.")
-                return "Raw query result is too large, please refine your query to return less data. Try to search for specific entities or properties, or use filters to narrow down the results, or use other tools"
-            
-            output = {
-                "results" : results,
-                "notifications": notifications
-            }
-            logger.debug(f"Raw query output: {output}")
-            return json_encode(output)
-        except Exception as e:
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Error executing raw graph query: {e}")
-            return f"Error executing raw graph query, PLEASE FIX your query: {e}"

@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
-from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOGY_VERSION_ID_KEY
+from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOGY_VERSION_ID_KEY, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
 from common.models.graph import EntityIdentifier
 import traceback
 import httpx
@@ -19,8 +19,8 @@ graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1
 server_url = os.getenv("RAG_SERVER_URL", "http://localhost:9446")
 
 if graph_rag_enabled:
-    data_graphdb = Neo4jDB(readonly=True)
-    ontology_graphdb = Neo4jDB(readonly=True, uri=os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688"))
+    data_graphdb = Neo4jDB(tenant_label=DEFAULT_DATA_LABEL, readonly=True)
+    ontology_graphdb = Neo4jDB(tenant_label=DEFAULT_SCHEMA_LABEL, readonly=True)
     redis_client = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
 
 logger = get_logger(__name__)
