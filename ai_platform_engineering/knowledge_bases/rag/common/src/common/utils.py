@@ -143,10 +143,12 @@ def get_logger(name) -> logging.Logger:
     logger = logging.getLogger(f"rag.{name}")
     logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
 
-    formatter = CustomFormatter()
-    handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    # Only add handler if it doesn't already exist (prevents duplicate logs)
+    if not logger.handlers:
+        formatter = CustomFormatter()
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
     return logger
 
 async def gather(n: int, *coros: asyncio.Future, logger: logging.Logger):
@@ -272,12 +274,106 @@ async def retry_function_async(func, retries=20, delay=5, *args, **kwargs):
                     raise
 
 
-def flatten_dict(d: dict, wildcard_index=True) -> dict[str, str]:
+def format_entity_type_for_display(entity_type: str) -> str:
+    """
+    Convert CamelCase entity type to more readable format using intelligent heuristics.
+    
+    This method automatically detects acronyms (consecutive uppercase letters) and 
+    preserves them while adding spaces between words.
+    
+    Examples:
+    - AWSAccount -> AWS Account
+    - AWSEksCluster -> AWS Eks Cluster
+    - AWSS3Bucket -> AWS S3 Bucket
+    - BackstageComponent -> Backstage Component
+    - K8sNamespace -> K8s Namespace
+    - EC2Instance -> EC2 Instance
+    
+    :param entity_type: The CamelCase entity type string to format
+    :return: A more readable formatted string
+    """
+    if not entity_type:
+        return entity_type
+    
+    # Build the result by analyzing character patterns
+    result = []
+    i = 0
+    
+    while i < len(entity_type):
+        # Check if we're at the start of an acronym (2+ consecutive uppercase letters)
+        if i < len(entity_type) - 1 and entity_type[i].isupper() and entity_type[i + 1].isupper():
+            # Collect consecutive uppercase letters
+            acronym_start = i
+            
+            while i < len(entity_type) and entity_type[i].isupper():
+                if i < len(entity_type) - 1:
+                    next_char = entity_type[i + 1]
+                    
+                    # If next char is lowercase, we've reached the start of a new word
+                    # Keep the last uppercase letter with the new word (e.g., "AWS|Account")
+                    if next_char.islower():
+                        break
+                    
+                    # If next char is a digit, include it (e.g., K8s, EC2)
+                    elif next_char.isdigit():
+                        i += 2  # Include current uppercase and next digit
+                        # If there's more after the digit, continue
+                        if i < len(entity_type):
+                            if entity_type[i].islower():
+                                # End of this acronym (e.g., K8s|Namespace)
+                                break
+                            # Otherwise continue collecting
+                        break
+                i += 1
+            
+            # Extract the acronym
+            acronym = entity_type[acronym_start:i]
+            
+            # For acronyms longer than 3 chars, check if we should split them
+            # (e.g., "AWSS3" -> "AWS" + "S3")
+            if len(acronym) > 3:
+                # Try to find a reasonable split point
+                # Look for a sequence that could be a separate acronym (2-3 chars at the end)
+                for split_point in range(len(acronym) - 1, max(2, len(acronym) - 4), -1):
+                    potential_second = acronym[split_point:]
+                    if len(potential_second) >= 2 and len(potential_second) <= 3:
+                        # Split here
+                        if result and result[-1] != ' ':
+                            result.append(' ')
+                        result.append(acronym[:split_point])
+                        result.append(' ')
+                        result.append(potential_second)
+                        acronym = None
+                        break
+            
+            if acronym:
+                # Add space before acronym if not at start
+                if result and result[-1] != ' ':
+                    result.append(' ')
+                result.append(acronym)
+            
+        # Regular word character (single uppercase letter)
+        elif entity_type[i].isupper():
+            # Add space before uppercase if not at start and previous wasn't a space
+            if result and result[-1] != ' ':
+                result.append(' ')
+            result.append(entity_type[i])
+            i += 1
+        else:
+            # Lowercase or other characters
+            result.append(entity_type[i])
+            i += 1
+    
+    return str(''.join(result).strip())
+
+
+def flatten_dict(d: dict, wildcard_index=True, preserve_list_of_dicts=False) -> dict[str, str]:
     """
     Flattens a nested dictionary, list, or set.
     For lists and sets, the index will be used as the key.
     :param d: The dictionary to flatten.
     :param wildcard_index: Whether to use a wildcard index for lists and sets. If True, all indices will be replaced with `[*]`. Values will be stored as a list.
+    :param preserve_list_of_dicts: If True, lists containing dictionaries are preserved as-is (not flattened).
     :return: A flattened dictionary.
     """
     def _flatten(obj, parent_key=""):
@@ -287,7 +383,11 @@ def flatten_dict(d: dict, wildcard_index=True) -> dict[str, str]:
                 new_key = f"{parent_key}.{k}" if parent_key else k
                 items.extend(_flatten(v, new_key).items())
         elif isinstance(obj, (list, set)):
-            if wildcard_index:
+            # Check if we should preserve this list of dicts
+            if preserve_list_of_dicts and isinstance(obj, list) and len(obj) > 0 and isinstance(obj[0], dict):
+                # Keep list of dicts as-is
+                items.append((parent_key, obj))
+            elif wildcard_index:
                 new_key = f"{parent_key}.[*]" if parent_key else "[*]"
                 vals = []
                 for i, v in enumerate(obj):

@@ -141,12 +141,12 @@ class Client():
                 is_graph_entity=True,
                 document_ingested_at=None, # Will get populated by server
                 fresh_until=fresh_until,
-                metadata={"graph_entity_type": entity.entity_type, "graph_entity_pk": entity.generate_primary_key()}
+                metadata={}  # Will be populated by server with graph_entity_type and graph_entity_pk
             ).model_dump()
 
             
-            entity_json_text = utils.json_encode(entity)
-            print(entity_json_text)
+            # Use Pydantic's own JSON serialization to preserve all fields including additional_key_properties
+            entity_json_text = entity.model_dump_json()
 
             document = Document(
                 page_content=entity_json_text,
@@ -222,15 +222,7 @@ class Client():
                         title = title[:97] + "..."
                     return f"{entity.entity_type}: {title}"
         
-        # Fallback: Use the primary key with entity type
-        primary_key = entity.generate_primary_key()
-        if primary_key and len(primary_key.strip()) > 0:
-            pk_title = str(primary_key).strip()
-            if len(pk_title) > 50:  # Shorter limit for primary keys
-                pk_title = pk_title[:47] + "..."
-            return f"{entity.entity_type}: {pk_title}"
-        
-        # Final fallback: Just the entity type
+        #Fallback: Just the entity type
         return f"Graph Entity {entity.entity_type}"
     
     async def _ingest_documents_batch(self, job_id: str, datasource_id: str, documents: List[Document], fresh_until: int) -> Dict[str, Any]:

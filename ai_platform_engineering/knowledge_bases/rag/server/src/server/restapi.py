@@ -3,7 +3,7 @@ import hashlib
 import traceback
 import uuid
 from common import utils
-from fastapi import FastAPI, status, HTTPException
+from fastapi import FastAPI, status, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastmcp import FastMCP
@@ -16,20 +16,20 @@ import logging
 from langchain_core.documents import Document
 from common.metadata_storage import MetadataStorage
 from common.job_manager import JobManager, JobStatus
-from common.models.server import ExploreDataEntityRequest, ExploreEntityRequest, ExploreRelationsRequest, QueryRequest, QueryResult, DocumentIngestRequest, IngestorPingRequest, IngestorPingResponse, UrlIngestRequest, IngestorRequest, WebIngestorCommand, UrlReloadRequest
+from common.models.server import ExploreDataEntityRequest, ExploreEntityRequest, ExploreRelationsRequest, ExploreNeighborhoodRequest, QueryRequest, QueryResult, DocumentIngestRequest, IngestorPingRequest, IngestorPingResponse, UrlIngestRequest, IngestorRequest, WebIngestorCommand, UrlReloadRequest
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
-from common.constants import ONTOLOGY_VERSION_ID_KEY, KV_ONTOLOGY_VERSION_ID_KEY, INGESTOR_ID_KEY, DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE
+from common.constants import ONTOLOGY_VERSION_ID_KEY, KV_ONTOLOGY_VERSION_ID_KEY, INGESTOR_ID_KEY, DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
+from common.embeddings_factory import EmbeddingsFactory
 import redis.asyncio as redis
-from langchain_openai import AzureOpenAIEmbeddings
 from langchain_milvus import BM25BuiltInFunction, Milvus
 from pymilvus import MilvusClient
 import time
 import os
 import httpx
 from server.query_service import VectorDBQueryService
-from langchain.globals import set_verbose as set_langchain_verbose
+from langchain_core.globals import set_verbose as set_langchain_verbose
 from server.ingestion import DocumentProcessor
 from common.utils import get_default_fresh_until, sanitize_url
 
@@ -54,7 +54,6 @@ redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 milvus_uri = os.getenv("MILVUS_URI", "http://localhost:19530")
 embeddings_model = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
 neo4j_addr = os.getenv("NEO4J_ADDR", "bolt://localhost:7687")
-ontology_neo4j_addr = os.getenv("NEO4J_ONTOLOGY_ADDR", "bolt://localhost:7688")
 skip_init_tests = os.getenv("SKIP_INIT_TESTS", "false").lower() in ("true", "1", "yes") # used when debugging to skip connection tests
 max_ingestion_concurrency = int(os.getenv("MAX_INGESTION_CONCURRENCY", 30)) # max concurrent tasks during ingestion for one datasource
 ui_url = os.getenv("UI_URL", "http://localhost:9447")
@@ -95,7 +94,9 @@ async def app_lifespan(app: FastAPI):
     redis_client = redis.from_url(redis_url, decode_responses=True)
     metadata_storage = MetadataStorage(redis_client=redis_client)
     jobmanager = JobManager(redis_client=redis_client)
-    embeddings = AzureOpenAIEmbeddings(model=embeddings_model)
+    
+    # Use EmbeddingsFactory to get embeddings based on EMBEDDINGS_PROVIDER env var
+    embeddings = EmbeddingsFactory.get_embeddings()
 
     logger.info("SKIP_INIT_TESTS=" + str(skip_init_tests))
     if not skip_init_tests:
@@ -104,14 +105,20 @@ async def app_lifespan(app: FastAPI):
             await init_tests(
                 logger=logger,
                 redis_client=redis_client,
-                embeddings=embeddings,
+                embeddings=EmbeddingsFactory(),
                 milvus_uri=milvus_uri
             )
         except Exception as e:
             logger.error(traceback.format_exc())
             logger.error("Initial connection tests failed, shutting down the app.")
             logger.error(f"Error in init test, sleeping {sleep_on_init_failure} seconds before shutdown...")
-            time.sleep(sleep_on_init_failure)
+            logger.error("Press Ctrl+C to exit immediately...")
+            try:
+                for remaining in range(sleep_on_init_failure, 0, -1):
+                    logger.info(f"Shutting down in {remaining} seconds...")
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                logger.info("Shutdown interrupted by user (Ctrl+C)")
             raise e
 
     # Setup vector db for document data
@@ -128,13 +135,13 @@ async def app_lifespan(app: FastAPI):
     vector_db_query_service = VectorDBQueryService(vector_db=vector_db)
 
     if graph_rag_enabled:
-        # Setup graph dbs
-        data_graph_db = Neo4jDB(uri=neo4j_addr)
+        # Setup graph dbs - both use the same Neo4j instance with different tenant labels
+        data_graph_db = Neo4jDB(tenant_label=DEFAULT_DATA_LABEL, uri=neo4j_addr)
         await data_graph_db.setup()
-        ontology_graph_db = Neo4jDB(uri=ontology_neo4j_addr)
+        ontology_graph_db = Neo4jDB(tenant_label=DEFAULT_SCHEMA_LABEL, uri=neo4j_addr)
         await ontology_graph_db.setup()
 
-        # setup ingestor with graph db
+        # setup ingestor with graph db
         ingestor = DocumentProcessor(
             vstore=vector_db,
             graph_rag_enabled=graph_rag_enabled,
@@ -665,6 +672,12 @@ async def ingest_documents(ingest_request: DocumentIngestRequest):
     if ingest_request.fresh_until is None:
         ingest_request.fresh_until = get_default_fresh_until()
 
+    if datasource_info.default_chunk_overlap is None:
+        datasource_info.default_chunk_overlap = 0
+    
+    if datasource_info.default_chunk_size is None:
+        datasource_info.default_chunk_size = 0 # Don't chunk if chunk size is not set
+
     try:
         await ingestor.ingest_documents(
             ingestor_id=ingest_request.ingestor_id,
@@ -694,67 +707,242 @@ async def list_entity_types():
     e = await ontology_graph_db.get_all_entity_types()
     return JSONResponse(status_code=status.HTTP_200_OK, content=e)
 
-@app.post("/v1/graph/explore/data/entity")
-async def explore_data_entity(explore_data_entity_request: ExploreDataEntityRequest):
+# ====
+# Data Graph Endpoints
+# ====
+@app.get("/v1/graph/explore/data/entities/batch")
+async def fetch_data_entities_batch(
+    offset: int = Query(0, description="Number of entities to skip (for pagination)", ge=0),
+    limit: int = Query(100, description="Maximum number of entities to return", ge=1, le=1000),
+    entity_type: Optional[str] = Query(None, description="Optional filter by entity type")
+):
     """
-    Gets an entity from the database
+    Fetch entities from the data graph in batches for efficient bulk processing.
+    Useful for pagination and bulk export of graph data.
+    Maximum limit is 1000 entities per request.
     """
     if not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
-    logger.debug(f"Finding entity: {explore_data_entity_request.entity_type}, {explore_data_entity_request.entity_pk}")
-    entity = await data_graph_db.fetch_entity(explore_data_entity_request.entity_type, explore_data_entity_request.entity_pk)
-    relations = await data_graph_db.fetch_entity_relations(explore_data_entity_request.entity_type, explore_data_entity_request.entity_pk)
-    if not entity:
-        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": "No entities found"})
-    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder({"entity": entity, "relations": relations}))
+    
+    # Enforce max limit of 1000
+    if limit > 1000:
+        raise HTTPException(status_code=400, detail="Limit cannot exceed 1000 entities per request")
+    
+    logger.debug(f"Fetching data entities batch: offset={offset}, limit={limit}, entity_type={entity_type}")
+    
+    entities = await data_graph_db.fetch_entities_batch(offset=offset, limit=limit, entity_type=entity_type)
+    
+    return JSONResponse(
+        status_code=status.HTTP_200_OK, 
+        content={
+            "entities": jsonable_encoder(entities),
+            "count": len(entities),
+            "offset": offset,
+            "limit": limit
+        }
+    )
 
-@app.post("/v1/graph/explore/ontology/entities")
-async def explore_ontology_entities(explore_entity_request: ExploreEntityRequest):
+@app.get("/v1/graph/explore/data/relations/batch")
+async def fetch_data_relations_batch(
+    offset: int = Query(0, description="Number of relations to skip (for pagination)", ge=0),
+    limit: int = Query(100, description="Maximum number of relations to return", ge=1, le=1000),
+    relation_name: Optional[str] = Query(None, description="Optional filter by relation name")
+):
     """
-    Gets an entity from the database
+    Fetch relations from the data graph in batches for efficient bulk processing.
+    Useful for pagination and bulk export of graph relations.
+    Maximum limit is 1000 relations per request.
     """
-    if not ontology_graph_db:
+    if not data_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
+    
+    # Enforce max limit of 1000
+    if limit > 1000:
+        raise HTTPException(status_code=400, detail="Limit cannot exceed 1000 relations per request")
+    
+    logger.debug(f"Fetching data relations batch: offset={offset}, limit={limit}, relation_name={relation_name}")
+    
+    relations = await data_graph_db.fetch_relations_batch(offset=offset, limit=limit, relation_name=relation_name)
+    
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "relations": jsonable_encoder(relations),
+            "count": len(relations),
+            "offset": offset,
+            "limit": limit
+        }
+    )
 
-    # Fetch the current ontology version id
-    ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
-    if ontology_version_id is None:
-        raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
+@app.post("/v1/graph/explore/data/entity/neighborhood")
+async def explore_data_entity_neighborhood(request: ExploreNeighborhoodRequest):
+    """
+    Explore an entity and its neighborhood in the data graph up to a specified depth.
+    Depth 0 returns just the entity, depth 1 includes direct neighbors, etc.
+    """
+    if not data_graph_db:
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
+    
+    logger.debug(f"Exploring data neighborhood for entity_type={request.entity_type}, entity_pk={request.entity_pk}, depth={request.depth}")
+    
+    result = await data_graph_db.explore_neighborhood(entity_type=request.entity_type, entity_pk=request.entity_pk, depth=request.depth, max_results=1000)
+    
+    if result["entity"] is None:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": "Entity not found"})
+    
+    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(result))
 
-    # Add ontology version to filter properties
-    filter_by_props = explore_entity_request.filter_by_properties or {}
-    filter_by_props[ONTOLOGY_VERSION_ID_KEY] = ontology_version_id
-
-    logger.debug(f"Finding entity: {explore_entity_request.entity_type}, {filter_by_props}")
-
-    entities = await ontology_graph_db.find_entity(explore_entity_request.entity_type, filter_by_props, max_results=1000)
-    if len(entities) < 0:
-        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": "No entities found"})
+@app.get("/v1/graph/explore/data/entity/start")
+async def get_random_start_nodes(
+    n: int = Query(10, description="Number of random nodes to fetch", ge=1, le=100)
+):
+    """
+    Fetch random starting nodes from the data graph.
+    Useful for initializing graph visualization or exploration.
+    """
+    if not data_graph_db:
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
+    
+    logger.debug(f"Fetching {n} random nodes from data graph")
+    
+    entities = await data_graph_db.fetch_random_entities(count=n)
+    
     return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(entities))
 
-@app.post("/v1/graph/explore/ontology/relations")
-async def explore_ontology_relations(explore_relations_request: ExploreRelationsRequest):
+@app.get("/v1/graph/explore/data/stats")
+async def get_data_graph_stats():
     """
-    Gets a relation from the database
+    Get statistics about the data graph (node count, relation count).
+    """
+    if not data_graph_db:
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
+    
+    logger.debug("Fetching data graph statistics")
+    
+    stats = await data_graph_db.get_graph_stats()
+    
+    return JSONResponse(status_code=status.HTTP_200_OK, content=stats)
+
+# ====
+# Ontology Graph Endpoints
+# ====
+
+@app.get("/v1/graph/explore/ontology/entities/batch")
+async def fetch_ontology_entities_batch(
+    offset: int = Query(0, description="Number of entities to skip (for pagination)", ge=0),
+    limit: int = Query(100, description="Maximum number of entities to return", ge=1, le=1000),
+    entity_type: Optional[str] = Query(None, description="Optional filter by entity type")
+):
+    """
+    Fetch entities from the ontology graph in batches for efficient bulk processing.
+    Useful for pagination and bulk export of ontology data.
+    Maximum limit is 1000 entities per request.
     """
     if not ontology_graph_db:
         raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
+    
+    # Enforce max limit of 1000
+    if limit > 1000:
+        raise HTTPException(status_code=400, detail="Limit cannot exceed 1000 entities per request")
+    
+    logger.debug(f"Fetching ontology entities batch: offset={offset}, limit={limit}, entity_type={entity_type}")
+    
+    entities = await ontology_graph_db.fetch_entities_batch(offset=offset, limit=limit, entity_type=entity_type)
+    
+    return JSONResponse(
+        status_code=status.HTTP_200_OK, 
+        content={
+            "entities": jsonable_encoder(entities),
+            "count": len(entities),
+            "offset": offset,
+            "limit": limit
+        }
+    )
 
-    # Fetch the current ontology version id
-    ontology_version_id = await redis_client.get(KV_ONTOLOGY_VERSION_ID_KEY)
-    if ontology_version_id is None:
-        raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
+@app.get("/v1/graph/explore/ontology/relations/batch")
+async def fetch_ontology_relations_batch(
+    offset: int = Query(0, description="Number of relations to skip (for pagination)", ge=0),
+    limit: int = Query(100, description="Maximum number of relations to return", ge=1, le=1000),
+    relation_name: Optional[str] = Query(None, description="Optional filter by relation name")
+):
+    """
+    Fetch relations from the ontology graph in batches for efficient bulk processing.
+    Useful for pagination and bulk export of ontology relations.
+    Maximum limit is 1000 relations per request.
+    """
+    if not ontology_graph_db:
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
+    
+    # Enforce max limit of 1000
+    if limit > 1000:
+        raise HTTPException(status_code=400, detail="Limit cannot exceed 1000 relations per request")
+    
+    logger.debug(f"Fetching ontology relations batch: offset={offset}, limit={limit}, relation_name={relation_name}")
+    
+    relations = await ontology_graph_db.fetch_relations_batch(offset=offset, limit=limit, relation_name=relation_name)
+    
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "relations": jsonable_encoder(relations),
+            "count": len(relations),
+            "offset": offset,
+            "limit": limit
+        }
+    )
 
-    # Add ontology version to filter properties
-    filter_by_props = explore_relations_request.filter_by_properties or {}
-    filter_by_props[ONTOLOGY_VERSION_ID_KEY] = ontology_version_id
+@app.post("/v1/graph/explore/ontology/entity/neighborhood")
+async def explore_ontology_entity_neighborhood(request: ExploreNeighborhoodRequest):
+    """
+    Explore an entity and its neighborhood in the ontology graph up to a specified depth.
+    Depth 0 returns just the entity, depth 1 includes direct neighbors, etc.
+    """
+    if not ontology_graph_db:
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
+    
+    logger.debug(f"Exploring ontology neighborhood for entity_type={request.entity_type}, entity_pk={request.entity_pk}, depth={request.depth}")
+    
+    result = await ontology_graph_db.explore_neighborhood(entity_type=request.entity_type, entity_pk=request.entity_pk, depth=request.depth, max_results=1000)
+    
+    if result["entity"] is None:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": "Entity not found"})
+    
+    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(result))
 
-    logger.debug(f"Finding relation: {explore_relations_request.from_type}, {explore_relations_request.to_type}, {explore_relations_request.relation_name}, {filter_by_props}")
-    relations = await ontology_graph_db.find_relations(explore_relations_request.from_type, explore_relations_request.to_type, explore_relations_request.relation_name, filter_by_props, max_results=1000)
-    if len(relations) < 0:
-        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": "No relations found"})
-    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(relations))
+@app.get("/v1/graph/explore/ontology/entity/start")
+async def get_random_ontology_start_nodes(
+    n: int = Query(10, description="Number of random nodes to fetch", ge=1, le=100)
+):
+    """
+    Fetch random starting nodes from the ontology graph.
+    Useful for initializing graph visualization or exploration.
+    """
+    if not ontology_graph_db:
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
+    
+    logger.debug(f"Fetching {n} random nodes from ontology graph")
+    
+    entities = await ontology_graph_db.fetch_random_entities(count=n)
+    
+    return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(entities))
 
+@app.get("/v1/graph/explore/ontology/stats")
+async def get_ontology_graph_stats():
+    """
+    Get statistics about the ontology graph (node count, relation count).
+    """
+    if not ontology_graph_db:
+        raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
+    
+    logger.debug("Fetching ontology graph statistics")
+    
+    stats = await ontology_graph_db.get_graph_stats()
+    
+    return JSONResponse(status_code=status.HTTP_200_OK, content=stats)
+
+# ====
+# Ontology Agent Reverse Proxy
+# ====
 async def _reverse_proxy(request: Request):
     """Reverse proxy to ontology agent service, which runs a separate FastAPI instance, and is responsible for handling ontology related requests."""
     url = httpx.URL(path=request.url.path,
@@ -770,7 +958,7 @@ async def _reverse_proxy(request: Request):
         background=BackgroundTask(rp_resp.aclose),
     )
 
-if graph_rag_enabled:
+if graph_rag_enabled: # Only add reverse proxy if graph RAG is enabled
     app.add_route("/v1/graph/ontology/agent/{path:path}",
                 _reverse_proxy, ["GET", "POST", "DELETE"])
 
@@ -825,12 +1013,14 @@ async def health_check():
                 "data_graph": {
                     "type": data_graph_db.database_type,
                     "query_language": data_graph_db.query_language,
-                    "uri": neo4j_addr
+                    "uri": neo4j_addr,
+                    "tenant_label": data_graph_db.tenant_label
                 },
                 "ontology_graph": {
                     "type": ontology_graph_db.database_type,
                     "query_language": ontology_graph_db.query_language,
-                    "uri": ontology_neo4j_addr
+                    "uri": neo4j_addr,
+                    "tenant_label": ontology_graph_db.tenant_label
                 },
                 "graph_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else []
             }
@@ -845,7 +1035,7 @@ async def health_check():
 
 async def init_tests(logger: logging.Logger,
                redis_client: redis.Redis,
-               embeddings: AzureOpenAIEmbeddings,
+               embeddings: EmbeddingsFactory,
                milvus_uri: str):
     """
     Run initial tests to ensure connections to check if deps are working.
@@ -858,7 +1048,7 @@ async def init_tests(logger: logging.Logger,
 
     # Test embeddings endpoint
     logger.info(f"2. Testing connections to Azure OpenAI embeddings [{embeddings_model}]...")
-    resp = embeddings.embed_documents(["Test document"])
+    resp = embeddings.get_embeddings().embed_documents(["Test document"])
     logger.info(f"Azure OpenAI embeddings response: {resp}")
 
     # Test vector DB connections
@@ -872,7 +1062,7 @@ async def init_tests(logger: logging.Logger,
 
     # Setup vector db for graph data
     vector_db_test = Milvus(
-        embedding_function=embeddings,
+        embedding_function=embeddings.get_embeddings(),
         collection_name=test_collection_name,
         connection_args=milvus_connection_args,
         index_params=[dense_index_params, sparse_index_params],
@@ -905,7 +1095,7 @@ async def init_tests(logger: logging.Logger,
     logger.info("10. Running enhanced health checks on collections...")
 
     # Get embedding dimensions for validation
-    test_embedding = embeddings.embed_documents(["test"])
+    test_embedding = embeddings.get_embeddings().embed_documents(["test"])
     expected_dim = len(test_embedding[0])
     logger.info(f"Expected embedding dimension: {expected_dim}")
 
