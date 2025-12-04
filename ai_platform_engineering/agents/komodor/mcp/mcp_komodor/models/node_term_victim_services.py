@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Nodetermvictimservices(BaseModel):
-    """Nodetermvictimservices model"""
+  """Nodetermvictimservices model"""
 
 
 class NodetermvictimservicesResponse(APIResponse):
-    """Response model for Nodetermvictimservices"""
+  """Response model for Nodetermvictimservices"""
 
-    data: Optional[Nodetermvictimservices] = None
+  data: Optional[Nodetermvictimservices] = None
 
 
 class NodetermvictimservicesListResponse(APIResponse):
-    """List response model for Nodetermvictimservices"""
+  """List response model for Nodetermvictimservices"""
 
-    data: List[Nodetermvictimservices] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Nodetermvictimservices] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

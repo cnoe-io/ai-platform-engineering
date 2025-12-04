@@ -53,7 +53,7 @@ Pick one of the following methods:
 - **Python CLI:**
 
   ```bash
-  uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+  uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
   ```
 
 ---

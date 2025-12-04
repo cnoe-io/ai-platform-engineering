@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Singlecluster(BaseModel):
-    """Singlecluster model"""
+  """Singlecluster model"""
 
 
 class SingleclusterResponse(APIResponse):
-    """Response model for Singlecluster"""
+  """Response model for Singlecluster"""
 
-    data: Optional[Singlecluster] = None
+  data: Optional[Singlecluster] = None
 
 
 class SingleclusterListResponse(APIResponse):
-    """List response model for Singlecluster"""
+  """List response model for Singlecluster"""
 
-    data: List[Singlecluster] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Singlecluster] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

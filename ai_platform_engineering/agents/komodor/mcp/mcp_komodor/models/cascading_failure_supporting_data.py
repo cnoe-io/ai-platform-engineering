@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Cascadingfailuresupportingdata(BaseModel):
-    """Cascadingfailuresupportingdata model"""
+  """Cascadingfailuresupportingdata model"""
 
 
 class CascadingfailuresupportingdataResponse(APIResponse):
-    """Response model for Cascadingfailuresupportingdata"""
+  """Response model for Cascadingfailuresupportingdata"""
 
-    data: Optional[Cascadingfailuresupportingdata] = None
+  data: Optional[Cascadingfailuresupportingdata] = None
 
 
 class CascadingfailuresupportingdataListResponse(APIResponse):
-    """List response model for Cascadingfailuresupportingdata"""
+  """List response model for Cascadingfailuresupportingdata"""
 
-    data: List[Cascadingfailuresupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Cascadingfailuresupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

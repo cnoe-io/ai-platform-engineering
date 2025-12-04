@@ -3,7 +3,7 @@
 **Status**: 🟢 In-use
 **Category**: Bug Fixes & Performance
 **Date**: November 8, 2025
-**Signed-off-by**: Sri Aradhyula <sraradhy@cisco.com>
+**Signed-off-by**: Sri Aradhyula \<sraradhy@cisco.com\>
 
 ## Overview
 
@@ -304,7 +304,7 @@ async def stream(...):
 1. **Start the Platform Engineer**:
 ```bash
 cd /Users/sraradhy/cisco/eti/sre/cnoe/ai-platform-engineering
-docker-compose -f docker-compose.dev.yaml up --build caipe-p2p-with-rag
+docker compose -f docker-compose.dev.yaml up --build caipe-p2p-with-rag
 ```
 
 2. **Test with curl**:
@@ -401,7 +401,7 @@ Code analysis confirms these features are **actively in use**:
 - [A2A Python SDK - DataPart Examples](https://github.com/a2aproject/a2a-python)
 - [A2A Samples - Marvin Agent Executor](https://github.com/a2aproject/a2a-samples/blob/main/samples/python/agents/marvin/agent_executor.py)
 - [User Input Metadata Format ADR](2025-11-07-user-input-metadata-format.md)
-- [Agent Forge - DataPart Handling](../../../../../community-plugins/workspaces/agent-forge/docs/docs/changes/)
+- [Agent Forge - DataPart Handling](https://github.com/cnoe-io/community-plugins/tree/main/workspaces/agent-forge/docs/docs/changes)
 
 ## References
 

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Scalemetadata(BaseModel):
-    """Scalemetadata model"""
+  """Scalemetadata model"""
 
 
 class ScalemetadataResponse(APIResponse):
-    """Response model for Scalemetadata"""
+  """Response model for Scalemetadata"""
 
-    data: Optional[Scalemetadata] = None
+  data: Optional[Scalemetadata] = None
 
 
 class ScalemetadataListResponse(APIResponse):
-    """List response model for Scalemetadata"""
+  """List response model for Scalemetadata"""
 
-    data: List[Scalemetadata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Scalemetadata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

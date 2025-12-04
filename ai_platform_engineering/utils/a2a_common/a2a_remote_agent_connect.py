@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from typing import Any, Optional, Union, List
 from uuid import uuid4
 from pydantic import PrivateAttr
@@ -21,10 +22,13 @@ from a2a.types import (
 )
 
 from langchain_core.tools import BaseTool
-from langgraph.config import get_stream_writer
+from langgraph.config import get_stream_writer, get_config
 
 from cnoe_agent_utils.tracing import TracingManager
 from pydantic import BaseModel, Field
+
+# Import metrics for tracking subagent and MCP tool calls
+from ai_platform_engineering.utils.metrics import record_subagent_call, record_mcp_tool_call
 
 
 logger = logging.getLogger("a2a.client.tool")
@@ -34,6 +38,7 @@ class A2AToolInput(BaseModel):
   """Input schema for A2A remote agent tool."""
   prompt: str = Field(description="The prompt to send to the agent")
   trace_id: Optional[str] = Field(default=None, description="Optional trace ID for distributed tracing")
+  context_id: Optional[str] = Field(default=None, description="Optional context ID to maintain conversation continuity across multiple calls to the same agent")
 
 
 class A2ARemoteAgentConnectTool(BaseTool):
@@ -145,25 +150,56 @@ class A2ARemoteAgentConnectTool(BaseTool):
     """Returns the skill ID thats invoked on the remote agent."""
     return self._skill_id
 
-  def _run(self, prompt: str, trace_id: Optional[str] = None) -> Any:
+  def _run(self, prompt: str, trace_id: Optional[str] = None, context_id: Optional[str] = None) -> Any:
     raise NotImplementedError("Use _arun for async execution.")
 
-  async def _arun(self, prompt: str, trace_id: Optional[str] = None) -> Any:
+  async def _arun(self, prompt: str, trace_id: Optional[str] = None, context_id: Optional[str] = None) -> Any:
     """Execute remote agent call with retry, error detection, and human-in-loop support."""
 
-    max_attempts = int(os.getenv("A2A_REMOTE_MAX_RETRIES", "3"))
+    max_attempts = int(os.getenv("A2A_REMOTE_MAX_RETRIES", "2"))
     retry_delay = float(os.getenv("A2A_REMOTE_RETRY_DELAY_SECONDS", "5.0"))
     writer = get_stream_writer()
 
+    # Track metrics for this subagent call
+    start_time = time.time()
+    call_status = "error"  # Default to error, override on success
+
+    # Extract user email and context_id from LangGraph config metadata if available
+    user_email = ""
+    config = get_config()
+    if config and 'metadata' in config:
+        user_email = config['metadata'].get('user_email', '')
+        if not context_id and 'context_id' in config['metadata']:
+            context_id = config['metadata']['context_id']
+            logger.info(f"A2ARemoteAgentConnectTool: Extracted context_id from LangGraph config metadata: {context_id}")
+
     last_error: Optional[str] = None
 
-    for attempt in range(max_attempts + 1):
-      try:
-        output, status, status_message = await self._execute_once(prompt, trace_id, writer)
+    try:
+      for attempt in range(max_attempts + 1):
+        try:
+          output, status, status_message = await self._execute_once(prompt, trace_id, context_id, writer, user_email)
 
-        if status and status.lower() == "error":
-          last_error = status_message or "Remote agent returned an error response."
-          logger.warning(f"{self.name} attempt {attempt + 1} failed with status=error: {last_error}")
+          if status and status.lower() == "error":
+            last_error = status_message or "Remote agent returned an error response."
+            logger.warning(f"{self.name} attempt {attempt + 1} failed with status=error: {last_error}")
+            if attempt < max_attempts:
+              writer({
+                "type": "a2a_event",
+                "data": f"⚠️ {self.name}: {last_error} (attempt {attempt + 1}/{max_attempts + 1}). Retrying..."
+              })
+              await asyncio.sleep(retry_delay)
+              continue
+            self._notify_failure(writer, last_error)
+            return f"ERROR: {last_error}"
+
+          # Success!
+          call_status = "success"
+          return output
+
+        except Exception as exc:  # noqa: BLE001
+          last_error = str(exc)
+          logger.error(f"{self.name} attempt {attempt + 1} raised exception: {last_error}")
           if attempt < max_attempts:
             writer({
               "type": "a2a_event",
@@ -174,35 +210,33 @@ class A2ARemoteAgentConnectTool(BaseTool):
           self._notify_failure(writer, last_error)
           return f"ERROR: {last_error}"
 
-        return output
+      # Should never reach here, but return the last error as a fallback
+      fallback = last_error or "Unknown error"
+      self._notify_failure(writer, fallback)
+      return f"ERROR: {fallback}"
 
-      except Exception as exc:  # noqa: BLE001
-        last_error = str(exc)
-        logger.error(f"{self.name} attempt {attempt + 1} raised exception: {last_error}")
-        if attempt < max_attempts:
-          writer({
-            "type": "a2a_event",
-            "data": f"⚠️ {self.name}: {last_error} (attempt {attempt + 1}/{max_attempts + 1}). Retrying..."
-          })
-          await asyncio.sleep(retry_delay)
-          continue
-        self._notify_failure(writer, last_error)
-        return f"ERROR: {last_error}"
-
-    # Should never reach here, but return the last error as a fallback
-    fallback = last_error or "Unknown error"
-    self._notify_failure(writer, fallback)
-    return f"ERROR: {fallback}"
+    finally:
+      # Record subagent call metrics
+      duration = time.time() - start_time
+      record_subagent_call(
+          agent_name=self.name,
+          user_email=user_email,
+          status=call_status,
+          duration=duration,
+      )
+      logger.debug(f"📊 Metrics: subagent={self.name}, status={call_status}, duration={duration:.2f}s")
 
   async def _execute_once(
       self,
       prompt: str,
       trace_id: Optional[str],
+      context_id: Optional[str],
       writer,
+      user_email: str = "",
   ) -> tuple[str, Optional[str], Optional[str]]:
     """Execute a single remote agent streaming call and return output with status info."""
 
-    logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}")
+    logger.info(f"Received prompt: {prompt}, trace_id: {trace_id}, context_id: {context_id}")
     if not prompt:
       logger.error("Invalid input: Prompt must be a non-empty string.")
       raise ValueError("Invalid input: Prompt must be a non-empty string.")
@@ -229,9 +263,20 @@ class A2ARemoteAgentConnectTool(BaseTool):
             "message_id": uuid4().hex,
         }
     }
+
+    # Add metadata for trace_id and context_id to maintain conversation continuity
+    metadata = {}
     if trace_id:
-      message_payload["message"]["metadata"] = {"trace_id": trace_id}
+      metadata["trace_id"] = trace_id
       logger.info(f"Adding trace_id to A2A message: {trace_id}")
+
+    # Add context_id to metadata if provided (for conversation continuity across multiple calls)
+    if context_id:
+      metadata["context_id"] = context_id
+      logger.info(f"Adding context_id to A2A message for conversation continuity: {context_id}")
+
+    if metadata:
+      message_payload["message"]["metadata"] = metadata
 
     streaming_request = SendStreamingMessageRequest(
         id=str(uuid4()),
@@ -266,6 +311,22 @@ class A2ARemoteAgentConnectTool(BaseTool):
           logger.debug(f"Received artifact-update event: {result}")
           artifact = result.get('artifact')
           logger.debug(f"🔍 artifact type: {type(artifact)}, is_dict: {isinstance(artifact, dict)}")
+
+          # Track MCP tool calls from artifact names (e.g., "tool_notification_start", "tool_notification_end")
+          if artifact and isinstance(artifact, dict):
+            artifact_name = artifact.get('name', '')
+            if artifact_name == 'tool_notification_end':
+              # Extract tool name from description or parts
+              description = artifact.get('description', '')
+              tool_name = description.replace('Tool call completed: ', '').strip() if 'completed' in description else 'unknown'
+              record_mcp_tool_call(
+                  tool_name=tool_name,
+                  agent_name=self.name,
+                  user_email=user_email,
+                  status="success",
+              )
+              logger.debug(f"📊 Metrics: MCP tool={tool_name}, agent={self.name}")
+
           if artifact and isinstance(artifact, dict):
             parts = artifact.get('parts', [])
             logger.debug(f"🔍 parts count: {len(parts)}")
@@ -289,19 +350,40 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 else:
                   logger.debug(f"🔍 part has neither 'text' nor 'data' key: {list(part.keys())}")
 
-                # Stream artifact if enabled (for both TextPart and DataPart)
+                # Stream artifact to supervisor (for both TextPart and DataPart)
+                # Artifacts are always streamed so supervisor can forward them to clients
                 if text or data:
-                  enable_artifact_streaming = os.getenv("ENABLE_ARTIFACT_STREAMING", "false").lower() == "true"
-
-                  if enable_artifact_streaming:
-                    writer({"type": "artifact-update", "result": result})
-                    content_type = "DataPart" if data else "TextPart"
-                    logger.info(f"✅ Streamed artifact-update event ({content_type}, ENABLE_ARTIFACT_STREAMING=true)")
-                  else:
-                    logger.debug("⏭️  Artifact streaming disabled (ENABLE_ARTIFACT_STREAMING=false), only accumulating")
+                  writer({"type": "artifact-update", "result": result})
+                  content_type = "DataPart" if data else "TextPart"
+                  artifact_name = artifact.get('name', '')
+                  logger.debug(f"✅ Streamed artifact-update event: {artifact_name} ({content_type})")
 
         elif kind == "status-update":
           logger.debug(f"Received status-update event: {result}")
+
+          # Filter out completion signals from sub-agents to prevent supervisor from treating them as its own completion
+          # Sub-agents should not send final=True or state=TaskState.completed - only the supervisor should complete
+          status = result.get('status', {})
+          is_final = result.get('final', False)
+          task_state = status.get('state') if isinstance(status, dict) else None
+          is_completed = task_state == 'completed' or is_final
+
+          if is_completed:
+            logger.debug(f"⏭️ Skipping completion signal from sub-agent (final={is_final}, state={task_state}) - supervisor will complete its own task")
+            # Still accumulate text if present, but don't forward the completion signal
+            if isinstance(status, dict):
+              message = status.get('message')
+              if message and isinstance(message, dict):
+                parts = message.get('parts', [])
+                for part in parts:
+                  if isinstance(part, dict):
+                    text = part.get('text')
+                    if text:
+                      accumulated_text.append(text)
+                      logger.debug(f"Accumulated text from skipped completion status-update: {len(text)} chars")
+            continue
+
+          # Forward non-completion status-update events
           status = result.get('status')
           if status and isinstance(status, dict):
             message = status.get('message')
@@ -337,7 +419,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
     final_response = "".join(accumulated_text).strip()
     if not final_response:
       logger.info("No accumulated artifact text; falling back to non-streaming send_message to get result.")
-      final_response = await self.send_message(prompt, trace_id)
+      final_response = await self.send_message(prompt, trace_id, context_id)
 
     if not final_response:
       writer({
@@ -356,11 +438,16 @@ class A2ARemoteAgentConnectTool(BaseTool):
     if not clean_text and status_message:
       clean_text = status_message
 
-    # Return brief completion message instead of full content to prevent LLM from echoing it
-    # The actual content (including tool notifications) was already streamed via writer() above
-    completion_message = f"✅ {self.name} completed successfully"
-
-    return completion_message, status, status_message
+    # CRITICAL: Return the FULL content to the LLM so it can extract data for sequential workflows
+    # The supervisor needs the actual response to extract values (emails, IDs, names, etc.)
+    # and pass them to subsequent agent calls
+    # The content was already streamed to UI via writer(), but LLM needs it in message history
+    if clean_text:
+      return clean_text, status, status_message
+    else:
+      # Fallback if no content - return success message
+      completion_message = f"✅ {self.name} completed successfully"
+      return completion_message, status, status_message
 
   def _split_status_payload(self, response_text: str) -> tuple[str, Optional[str], Optional[str]]:
     """Split combined text/JSON payload returned by remote agent."""
@@ -402,12 +489,14 @@ class A2ARemoteAgentConnectTool(BaseTool):
       "options": ["retry", "skip"],
     })
 
-  async def send_message(self, prompt: str, trace_id: str = None) -> str:
+  async def send_message(self, prompt: str, trace_id: str = None, context_id: str = None) -> str:
     """
     Sends a message to the A2A agent and invokes the specified skill.
 
     Args:
       prompt (str): The user input prompt to send to the agent.
+      trace_id (str): Optional trace ID for distributed tracing.
+      context_id (str): Optional context ID to maintain conversation continuity.
 
     Returns:
       str: The response returned by the agent.
@@ -416,7 +505,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
       logger.info("A2AClient not initialized. Connecting now...")
       await self.connect()
 
-    # Build message payload with optional trace_id in metadata
+    # Build message payload with optional trace_id and context_id in metadata
     message_payload = {
         'role': 'user',
         'parts': [
@@ -425,10 +514,16 @@ class A2ARemoteAgentConnectTool(BaseTool):
         'messageId': uuid4().hex,
     }
 
-    # Add trace_id to metadata if provided
+    # Add trace_id and context_id to metadata if provided
+    metadata = {}
     if trace_id:
-        message_payload['metadata'] = {'trace_id': trace_id}
+        metadata['trace_id'] = trace_id
         logger.info(f"Adding trace_id to A2A message: {trace_id}")
+    if context_id:
+        metadata['context_id'] = context_id
+        logger.info(f"Adding context_id to A2A message: {context_id}")
+    if metadata:
+        message_payload['metadata'] = metadata
 
     send_message_payload = {'message': message_payload}
     # logger.info("Sending message to A2A agent with payload:\n" + json.dumps({**send_message_payload, 'message': send_message_payload['message'].dict()}, indent=4))

@@ -144,7 +144,7 @@ run-docker-a2a:   ## Run A2A Docker container
 ## ========== Client Tools ==========
 
 run-a2a-client:   ## Run A2A client
-	@uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+	@uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
 
 ## ========== Help ==========
 

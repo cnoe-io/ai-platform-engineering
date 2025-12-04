@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Actionstate(BaseModel):
-    """Actionstate model"""
+  """Actionstate model"""
 
 
 class ActionstateResponse(APIResponse):
-    """Response model for Actionstate"""
+  """Response model for Actionstate"""
 
-    data: Optional[Actionstate] = None
+  data: Optional[Actionstate] = None
 
 
 class ActionstateListResponse(APIResponse):
-    """List response model for Actionstate"""
+  """List response model for Actionstate"""
 
-    data: List[Actionstate] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Actionstate] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

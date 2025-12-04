@@ -41,6 +41,13 @@ async def handle_user_operations(
         ValueError: If the Jira client is not configured or available (for 'get_user_profile').
         Exception: If the API request fails.
     """
+    # Auto-correct: if action is 'get_user' but identifier looks like email, use 'search_users' instead
+    if action == "get_user" and identifier and "@" in identifier:
+        logger.warning(f"Auto-correcting: get_user with email '{identifier}' → search_users")
+        action = "search_users"
+        query = identifier
+        identifier = None
+
     if action == "get_user_profile":
         logger.debug(f"Fetching user profile for identifier: {identifier}")
         params = {"accountId": identifier}

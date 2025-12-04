@@ -6,7 +6,6 @@ Unit tests for workspace_ops.py - Agent Workspace Tools
 """
 
 import pytest
-import os
 from pathlib import Path
 
 # Import the actual tool instances for testing
@@ -62,18 +61,18 @@ def cleanup_workspaces():
         for context_id in list(_workspaces.keys()):
             try:
                 _workspaces[context_id]['tempdir'].cleanup()
-            except:
+            except Exception:
                 pass
         _workspaces.clear()
-    
+
     yield
-    
+
     # Cleanup after test
     with _workspace_lock:
         for context_id in list(_workspaces.keys()):
             try:
                 _workspaces[context_id]['tempdir'].cleanup()
-            except:
+            except Exception:
                 pass
         _workspaces.clear()
 
@@ -84,7 +83,7 @@ class TestWriteWorkspaceFile:
     def test_write_simple_file(self):
         """Test writing a simple file to workspace."""
         result = write_workspace_file("test.txt", "Hello World")
-        
+
         assert result['success'] is True
         assert result['path'] == "test.txt"
         assert result['size'] == 11
@@ -93,10 +92,10 @@ class TestWriteWorkspaceFile:
     def test_write_file_with_directory(self):
         """Test writing file with directory path."""
         result = write_workspace_file("subdir/test.txt", "Content")
-        
+
         assert result['success'] is True
         assert result['path'] == "subdir/test.txt"
-        
+
         # Verify directory was created
         workspace_root = _get_workspace(None)
         assert Path(workspace_root, "subdir").exists()
@@ -106,9 +105,9 @@ class TestWriteWorkspaceFile:
         """Test writing Unicode content."""
         content = "Hello 世界 🌍 emoji"
         result = write_workspace_file("unicode.txt", content)
-        
+
         assert result['success'] is True
-        
+
         # Verify we can read it back
         read_result = read_workspace_file("unicode.txt")
         assert read_result['success'] is True
@@ -120,9 +119,9 @@ class TestWriteWorkspaceFile:
 Line 2
 Line 3"""
         result = write_workspace_file("multiline.txt", content)
-        
+
         assert result['success'] is True
-        
+
         # Verify content is preserved
         read_result = read_workspace_file("multiline.txt")
         assert read_result['content'] == content
@@ -131,9 +130,9 @@ Line 3"""
         """Test overwriting an existing file."""
         write_workspace_file("test.txt", "Original")
         result = write_workspace_file("test.txt", "Overwritten")
-        
+
         assert result['success'] is True
-        
+
         # Verify new content
         read_result = read_workspace_file("test.txt")
         assert read_result['content'] == "Overwritten"
@@ -141,7 +140,7 @@ Line 3"""
     def test_path_traversal_prevention(self):
         """Test that path traversal attempts are blocked."""
         result = write_workspace_file("../etc/passwd", "malicious")
-        
+
         assert result['success'] is False
         assert 'Path traversal not allowed' in result['message']
 
@@ -149,7 +148,7 @@ Line 3"""
         """Test that paths exceeding MAX_PATH_LENGTH are rejected."""
         long_path = "a" * (MAX_PATH_LENGTH + 1) + ".txt"
         result = write_workspace_file(long_path, "content")
-        
+
         assert result['success'] is False
         assert 'Path too long' in result['message']
 
@@ -157,7 +156,7 @@ Line 3"""
         """Test that files exceeding MAX_FILE_SIZE are rejected."""
         large_content = "x" * (MAX_FILE_SIZE + 1)
         result = write_workspace_file("large.txt", large_content)
-        
+
         assert result['success'] is False
         assert 'Content too large' in result['message']
 
@@ -167,7 +166,7 @@ Line 3"""
         for i in range(MAX_FILES):
             result = write_workspace_file(f"file_{i}.txt", f"content {i}")
             assert result['success'] is True
-        
+
         # Try to write one more
         result = write_workspace_file(f"file_{MAX_FILES}.txt", "extra")
         assert result['success'] is False
@@ -177,18 +176,18 @@ Line 3"""
         """Test that different contexts have isolated workspaces."""
         write_workspace_file("test.txt", "Context 1", context_id="ctx1")
         write_workspace_file("test.txt", "Context 2", context_id="ctx2")
-        
+
         # Verify isolation
         result1 = read_workspace_file("test.txt", context_id="ctx1")
         result2 = read_workspace_file("test.txt", context_id="ctx2")
-        
+
         assert result1['content'] == "Context 1"
         assert result2['content'] == "Context 2"
 
     def test_leading_slash_stripped(self):
         """Test that leading slashes are stripped from paths."""
         result = write_workspace_file("/test.txt", "content")
-        
+
         assert result['success'] is True
         assert result['path'] == "test.txt"
 
@@ -200,7 +199,7 @@ class TestReadWorkspaceFile:
         """Test reading an existing file."""
         write_workspace_file("test.txt", "Hello World")
         result = read_workspace_file("test.txt")
-        
+
         assert result['success'] is True
         assert result['content'] == "Hello World"
         assert result['path'] == "test.txt"
@@ -209,7 +208,7 @@ class TestReadWorkspaceFile:
     def test_read_nonexistent_file(self):
         """Test reading a file that doesn't exist."""
         result = read_workspace_file("nonexistent.txt")
-        
+
         assert result['success'] is False
         assert result['content'] is None
         assert 'File not found' in result['message']
@@ -218,14 +217,14 @@ class TestReadWorkspaceFile:
         """Test that reading a directory fails appropriately."""
         write_workspace_file("subdir/file.txt", "content")
         result = read_workspace_file("subdir")
-        
+
         assert result['success'] is False
         assert 'Path is not a file' in result['message']
 
     def test_read_path_traversal_prevention(self):
         """Test that path traversal is prevented on read."""
         result = read_workspace_file("../etc/passwd")
-        
+
         assert result['success'] is False
         assert 'Path traversal not allowed' in result['message']
 
@@ -233,7 +232,7 @@ class TestReadWorkspaceFile:
         """Test that reading from wrong context returns not found."""
         write_workspace_file("test.txt", "Context 1", context_id="ctx1")
         result = read_workspace_file("test.txt", context_id="ctx2")
-        
+
         assert result['success'] is False
         assert 'File not found' in result['message']
 
@@ -242,7 +241,7 @@ class TestReadWorkspaceFile:
         large_content = "x" * (MAX_FILE_SIZE - 1000)  # Just under limit
         write_workspace_file("large.txt", large_content)
         result = read_workspace_file("large.txt")
-        
+
         assert result['success'] is True
         assert len(result['content']) == len(large_content)
 
@@ -253,7 +252,7 @@ class TestListWorkspaceFiles:
     def test_list_empty_workspace(self):
         """Test listing an empty workspace."""
         result = list_workspace_files()
-        
+
         assert result['success'] is True
         assert result['files'] == []
         assert result['count'] == 0
@@ -263,9 +262,9 @@ class TestListWorkspaceFiles:
         write_workspace_file("file1.txt", "content1")
         write_workspace_file("file2.txt", "content2")
         write_workspace_file("file3.txt", "content3")
-        
+
         result = list_workspace_files()
-        
+
         assert result['success'] is True
         assert result['count'] == 3
         paths = [f['path'] for f in result['files']]
@@ -279,9 +278,9 @@ class TestListWorkspaceFiles:
         write_workspace_file("subdir/file1.txt", "content1")
         write_workspace_file("subdir/file2.txt", "content2")
         write_workspace_file("deep/nested/file.txt", "deep content")
-        
+
         result = list_workspace_files()
-        
+
         assert result['success'] is True
         assert result['count'] == 4
         paths = [f['path'] for f in result['files']]
@@ -294,23 +293,23 @@ class TestListWorkspaceFiles:
         write_workspace_file("subdir/file1.txt", "content1")
         write_workspace_file("subdir/file2.txt", "content2")
         write_workspace_file("other/file.txt", "other")
-        
+
         result = list_workspace_files("subdir")
-        
+
         assert result['success'] is True
         assert result['count'] == 2
 
     def test_list_nonexistent_directory(self):
         """Test listing a directory that doesn't exist."""
         result = list_workspace_files("nonexistent")
-        
+
         assert result['success'] is False
         assert 'Directory not found' in result['message']
 
     def test_list_path_traversal_prevention(self):
         """Test that path traversal is prevented."""
         result = list_workspace_files("../etc")
-        
+
         assert result['success'] is False
         assert 'Path traversal not allowed' in result['message']
 
@@ -318,9 +317,9 @@ class TestListWorkspaceFiles:
         """Test that file sizes are included in listing."""
         write_workspace_file("small.txt", "Hi")
         write_workspace_file("large.txt", "x" * 1000)
-        
+
         result = list_workspace_files()
-        
+
         assert result['success'] is True
         for file_info in result['files']:
             assert 'size' in file_info
@@ -330,10 +329,10 @@ class TestListWorkspaceFiles:
         """Test that listing respects context isolation."""
         write_workspace_file("file1.txt", "ctx1", context_id="ctx1")
         write_workspace_file("file2.txt", "ctx2", context_id="ctx2")
-        
+
         result1 = list_workspace_files(context_id="ctx1")
         result2 = list_workspace_files(context_id="ctx2")
-        
+
         assert result1['count'] == 1
         assert result2['count'] == 1
         assert result1['files'][0]['path'] == "file1.txt"
@@ -346,7 +345,7 @@ class TestClearWorkspace:
     def test_clear_empty_workspace(self):
         """Test clearing an already empty workspace."""
         result = clear_workspace()
-        
+
         assert result['success'] is True
         assert result['files_removed'] == 0
 
@@ -355,12 +354,12 @@ class TestClearWorkspace:
         write_workspace_file("file1.txt", "content1")
         write_workspace_file("file2.txt", "content2")
         write_workspace_file("subdir/file3.txt", "content3")
-        
+
         result = clear_workspace()
-        
+
         assert result['success'] is True
         assert result['files_removed'] == 3
-        
+
         # Verify workspace is empty
         list_result = list_workspace_files()
         assert list_result['count'] == 0
@@ -368,31 +367,31 @@ class TestClearWorkspace:
     def test_clear_workspace_preserves_workspace(self):
         """Test that clearing doesn't delete the workspace instance."""
         write_workspace_file("test.txt", "content")
-        
+
         # Get workspace path before clear
         workspace_path_before = _get_workspace(None)
-        
+
         clear_workspace()
-        
+
         # Get workspace path after clear
         workspace_path_after = _get_workspace(None)
-        
+
         # Should be same workspace instance
         assert workspace_path_before == workspace_path_after
 
     def test_delete_workspace_completely(self):
         """Test deleting entire workspace."""
         write_workspace_file("test.txt", "content", context_id="temp_ctx")
-        
+
         result = clear_workspace(context_id="temp_ctx", delete_workspace=True)
-        
+
         assert result['success'] is True
         assert result['workspace_deleted'] is True
 
     def test_delete_nonexistent_workspace(self):
         """Test deleting workspace that doesn't exist."""
         result = clear_workspace(context_id="nonexistent", delete_workspace=True)
-        
+
         assert result['success'] is False
         assert 'Workspace not found' in result['message']
 
@@ -400,13 +399,13 @@ class TestClearWorkspace:
         """Test clearing a specific context."""
         write_workspace_file("file1.txt", "ctx1", context_id="ctx1")
         write_workspace_file("file2.txt", "ctx2", context_id="ctx2")
-        
+
         clear_workspace(context_id="ctx1")
-        
+
         # ctx1 should be empty
         list1 = list_workspace_files(context_id="ctx1")
         assert list1['count'] == 0
-        
+
         # ctx2 should still have files
         list2 = list_workspace_files(context_id="ctx2")
         assert list2['count'] == 1
@@ -418,7 +417,7 @@ class TestWorkspaceHelpers:
     def test_get_workspace_creates_new(self):
         """Test that _get_workspace creates new workspace."""
         workspace_path = _get_workspace("new_context")
-        
+
         assert workspace_path is not None
         assert Path(workspace_path).exists()
         assert Path(workspace_path).is_dir()
@@ -427,21 +426,21 @@ class TestWorkspaceHelpers:
         """Test that _get_workspace returns existing workspace."""
         path1 = _get_workspace("ctx1")
         path2 = _get_workspace("ctx1")
-        
+
         assert path1 == path2
 
     def test_delete_workspace_cleanup(self):
         """Test that _delete_workspace properly cleans up."""
         workspace_path = _get_workspace("temp")
         write_workspace_file("test.txt", "content", context_id="temp")
-        
+
         # Workspace should exist
         assert Path(workspace_path).exists()
-        
+
         # Delete it
         deleted = _delete_workspace("temp")
         assert deleted is True
-        
+
         # Should not exist anymore (cleaned up by TemporaryDirectory)
         # Note: The directory might still exist briefly due to OS cleanup timing
 
@@ -449,7 +448,7 @@ class TestWorkspaceHelpers:
         """Test that default context is used when none specified."""
         write_workspace_file("test.txt", "content")
         result = read_workspace_file("test.txt")
-        
+
         assert result['success'] is True
         assert result['context_id'] == "default"
 
@@ -463,17 +462,17 @@ class TestWorkspaceIntegration:
         write_workspace_file("argocd_results.md", "# ArgoCD\n- app1: healthy\n- app2: degraded")
         write_workspace_file("jira_results.md", "# Jira\n- PROJ-123: Open\n- PROJ-456: Closed")
         write_workspace_file("aws_results.md", "# AWS\n- i-123: running\n- i-456: stopped")
-        
+
         # List all results
         files = list_workspace_files()
         assert files['count'] == 3
-        
+
         # Combine results
         combined = ""
         for file_info in files['files']:
             content = read_workspace_file(file_info['path'])
             combined += content['content'] + "\n\n"
-        
+
         assert "ArgoCD" in combined
         assert "Jira" in combined
         assert "AWS" in combined
@@ -482,19 +481,19 @@ class TestWorkspaceIntegration:
         """Test progressive analysis with intermediate results."""
         # Step 1: Initial data
         write_workspace_file("step1_raw.txt", "raw data from agent")
-        
+
         # Step 2: Filtered data
         raw = read_workspace_file("step1_raw.txt")
         write_workspace_file("step2_filtered.txt", raw['content'].upper())
-        
+
         # Step 3: Analysis
         filtered = read_workspace_file("step2_filtered.txt")
         write_workspace_file("step3_analysis.txt", f"Analyzed: {filtered['content']}")
-        
+
         # Verify all steps preserved
         files = list_workspace_files()
         assert files['count'] == 3
-        
+
         final = read_workspace_file("step3_analysis.txt")
         assert "RAW DATA FROM AGENT" in final['content']
 
@@ -503,13 +502,13 @@ class TestWorkspaceIntegration:
         # First task
         write_workspace_file("task1_file1.txt", "task 1 content")
         write_workspace_file("task1_file2.txt", "more task 1")
-        
+
         # Clear for new task
         clear_workspace()
-        
+
         # Second task
         write_workspace_file("task2_file1.txt", "task 2 content")
-        
+
         # Should only have task 2 files
         files = list_workspace_files()
         assert files['count'] == 1
@@ -523,12 +522,12 @@ class TestWorkspaceIntegration:
         write_workspace_file("report.md", "User 1 report", context_id="user1")
         write_workspace_file("report.md", "User 2 report", context_id="user2")
         write_workspace_file("report.md", "User 3 report", context_id="user3")
-        
+
         # Verify isolation
         report1 = read_workspace_file("report.md", context_id="user1")
         report2 = read_workspace_file("report.md", context_id="user2")
         report3 = read_workspace_file("report.md", context_id="user3")
-        
+
         assert report1['content'] == "User 1 report"
         assert report2['content'] == "User 2 report"
         assert report3['content'] == "User 3 report"

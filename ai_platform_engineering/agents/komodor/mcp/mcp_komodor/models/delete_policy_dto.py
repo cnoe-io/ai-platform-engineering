@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Deletepolicydto(BaseModel):
-    """Deletepolicydto model"""
+  """Deletepolicydto model"""
 
 
 class DeletepolicydtoResponse(APIResponse):
-    """Response model for Deletepolicydto"""
+  """Response model for Deletepolicydto"""
 
-    data: Optional[Deletepolicydto] = None
+  data: Optional[Deletepolicydto] = None
 
 
 class DeletepolicydtoListResponse(APIResponse):
-    """List response model for Deletepolicydto"""
+  """List response model for Deletepolicydto"""
 
-    data: List[Deletepolicydto] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Deletepolicydto] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

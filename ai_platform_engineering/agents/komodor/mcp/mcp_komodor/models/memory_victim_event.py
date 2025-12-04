@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Memoryvictimevent(BaseModel):
-    """Memoryvictimevent model"""
+  """Memoryvictimevent model"""
 
 
 class MemoryvictimeventResponse(APIResponse):
-    """Response model for Memoryvictimevent"""
+  """Response model for Memoryvictimevent"""
 
-    data: Optional[Memoryvictimevent] = None
+  data: Optional[Memoryvictimevent] = None
 
 
 class MemoryvictimeventListResponse(APIResponse):
-    """List response model for Memoryvictimevent"""
+  """List response model for Memoryvictimevent"""
 
-    data: List[Memoryvictimevent] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Memoryvictimevent] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

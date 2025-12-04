@@ -217,7 +217,7 @@ Your agents will be available at: `http://localhost:[LOCAL_PORT]`
 
 ```bash
 # Install and use the agent chat CLI
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a --host localhost --port [LOCAL_PORT]
+uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a --host localhost --port [LOCAL_PORT]
 ```
 
 ### Option 2: Ingress Deployment (Domain Access)
@@ -285,7 +285,7 @@ You should see a `405 Method Not Allowed` response, which is expected (the agent
 
 ```bash
 # Use the domain name instead of localhost
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a --host agent-[AGENT_NAME].local --port 80
+uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a --host agent-[AGENT_NAME].local --port 80
 ```
 
 ### Uninstall

@@ -5,103 +5,113 @@ from typing import Dict, Any, List
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
-async def policies_controller_v1_get_all() -> Dict[str, Any]:
-    '''
-    Fetches all RBAC policies from the management API.
+async def get_policies_controller_v1_get_all() -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/policies` instead.
 
-    This asynchronous function makes a GET request to the /mgmt/v1/rbac/policies endpoint
-    to retrieve all Role-Based Access Control (RBAC) policies.
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/policies` API instead for new implementations and better validation and error handling.
 
-    Args:
-        None
-
-    Returns:
-        Dict[str, Any]: A dictionary containing the JSON response from the API call, which includes
-        details of all RBAC policies.
-
-    Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
-    '''
-    logger.debug("Making GET request to /mgmt/v1/rbac/policies")
-
-    params = {}
-    data = {}
-
-    flat_body = {}
-    data = assemble_nested_body(flat_body)
-
-    success, response = await make_api_request("/mgmt/v1/rbac/policies", method="GET", params=params, data=data)
-
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+  Args:
 
 
-async def policies_controller_v1_post(body_name: str, body_statements: List[str]) -> Dict[str, Any]:
-    '''
-    Creates a new RBAC policy by making a POST request to the /mgmt/v1/rbac/policies endpoint.
+  Returns:
+      Any: The JSON response from the API call.
 
-    Args:
-        body_name (str): The name of the policy to be created.
-        body_statements (List[str]): A list of statements that define the policy rules.
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making GET request to /mgmt/v1/rbac/policies")
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call, which includes details of the created policy or an error message.
+  params = {}
+  data = {}
 
-    Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
-    '''
-    logger.debug("Making POST request to /mgmt/v1/rbac/policies")
+  flat_body = {}
+  data = assemble_nested_body(flat_body)
 
-    params = {}
-    data = {}
+  success, response = await make_api_request("/mgmt/v1/rbac/policies", method="GET", params=params, data=data)
 
-    flat_body = {}
-    if body_name is not None:
-        flat_body["name"] = body_name
-    if body_statements is not None:
-        flat_body["statements"] = body_statements
-    data = assemble_nested_body(flat_body)
-
-    success, response = await make_api_request("/mgmt/v1/rbac/policies", method="POST", params=params, data=data)
-
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response
 
 
-async def policies_controller_v1_delete(body_id: str) -> Dict[str, Any]:
-    '''
-    Deletes a policy by its ID using the RBAC policies API.
+async def post_policies_controller_v1_post(body_name: str, body_statements: List[Dict[str, Any]]) -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/policies` instead.
 
-    Args:
-        body_id (str): The ID of the policy to be deleted.
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/policies` API instead for new implementations and better validation and error handling.
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call, containing the result of the delete operation.
+  Args:
 
-    Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
-    '''
-    logger.debug("Making DELETE request to /mgmt/v1/rbac/policies")
+      body_name (str): OpenAPI parameter corresponding to 'body_name'
 
-    params = {}
-    data = {}
+      body_statements (List[Dict[str, Any]]): OpenAPI parameter corresponding to 'body_statements'
 
-    flat_body = {}
-    if body_id is not None:
-        flat_body["id"] = body_id
-    data = assemble_nested_body(flat_body)
 
-    success, response = await make_api_request("/mgmt/v1/rbac/policies", method="DELETE", params=params, data=data)
+  Returns:
+      Any: The JSON response from the API call.
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making POST request to /mgmt/v1/rbac/policies")
+
+  params = {}
+  data = {}
+
+  flat_body = {}
+  if body_name is not None:
+    flat_body["name"] = body_name
+  if body_statements is not None:
+    flat_body["statements"] = body_statements
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/mgmt/v1/rbac/policies", method="POST", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response
+
+
+async def del_policies_controller_v1_del(body_id: str) -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/policies/{id_or_name}` instead.
+
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/policies/{id_or_name}` API instead for new implementations and better validation and error handling.
+
+  Args:
+
+      body_id (str): Policy id
+
+
+  Returns:
+      Any: The JSON response from the API call.
+
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making DELETE request to /mgmt/v1/rbac/policies")
+
+  params = {}
+  data = {}
+
+  flat_body = {}
+  if body_id is not None:
+    flat_body["id"] = body_id
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/mgmt/v1/rbac/policies", method="DELETE", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response

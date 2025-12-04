@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Createcustomactiondto(BaseModel):
-    """Createcustomactiondto model"""
+  """Createcustomactiondto model"""
 
 
 class CreatecustomactiondtoResponse(APIResponse):
-    """Response model for Createcustomactiondto"""
+  """Response model for Createcustomactiondto"""
 
-    data: Optional[Createcustomactiondto] = None
+  data: Optional[Createcustomactiondto] = None
 
 
 class CreatecustomactiondtoListResponse(APIResponse):
-    """List response model for Createcustomactiondto"""
+  """List response model for Createcustomactiondto"""
 
-    data: List[Createcustomactiondto] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Createcustomactiondto] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

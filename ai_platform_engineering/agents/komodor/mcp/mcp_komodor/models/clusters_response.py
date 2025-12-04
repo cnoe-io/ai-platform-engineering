@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Clustersresponse(BaseModel):
-    """Clustersresponse model"""
+  """Clustersresponse model"""
 
 
 class ClustersresponseResponse(APIResponse):
-    """Response model for Clustersresponse"""
+  """Response model for Clustersresponse"""
 
-    data: Optional[Clustersresponse] = None
+  data: Optional[Clustersresponse] = None
 
 
 class ClustersresponseListResponse(APIResponse):
-    """List response model for Clustersresponse"""
+  """List response model for Clustersresponse"""
 
-    data: List[Clustersresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Clustersresponse] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Effectivepermission(BaseModel):
-    """Effectivepermission model"""
+  """Effectivepermission model"""
 
 
 class EffectivepermissionResponse(APIResponse):
-    """Response model for Effectivepermission"""
+  """Response model for Effectivepermission"""
 
-    data: Optional[Effectivepermission] = None
+  data: Optional[Effectivepermission] = None
 
 
 class EffectivepermissionListResponse(APIResponse):
-    """List response model for Effectivepermission"""
+  """List response model for Effectivepermission"""
 
-    data: List[Effectivepermission] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Effectivepermission] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

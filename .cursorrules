@@ -501,6 +501,3 @@ For questions:
 - ✅ Write ADRs in `docs/docs/changes/`
 - ✅ Test agents before committing
 - ✅ Consider memory and performance impact
-
-
-

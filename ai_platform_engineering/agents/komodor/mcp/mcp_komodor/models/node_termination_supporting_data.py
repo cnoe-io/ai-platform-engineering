@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Nodeterminationsupportingdata(BaseModel):
-    """Nodeterminationsupportingdata model"""
+  """Nodeterminationsupportingdata model"""
 
 
 class NodeterminationsupportingdataResponse(APIResponse):
-    """Response model for Nodeterminationsupportingdata"""
+  """Response model for Nodeterminationsupportingdata"""
 
-    data: Optional[Nodeterminationsupportingdata] = None
+  data: Optional[Nodeterminationsupportingdata] = None
 
 
 class NodeterminationsupportingdataListResponse(APIResponse):
-    """List response model for Nodeterminationsupportingdata"""
+  """List response model for Nodeterminationsupportingdata"""
 
-    data: List[Nodeterminationsupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Nodeterminationsupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

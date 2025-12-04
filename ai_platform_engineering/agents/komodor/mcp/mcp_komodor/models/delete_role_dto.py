@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Deleteroledto(BaseModel):
-    """Deleteroledto model"""
+  """Deleteroledto model"""
 
 
 class DeleteroledtoResponse(APIResponse):
-    """Response model for Deleteroledto"""
+  """Response model for Deleteroledto"""
 
-    data: Optional[Deleteroledto] = None
+  data: Optional[Deleteroledto] = None
 
 
 class DeleteroledtoListResponse(APIResponse):
-    """List response model for Deleteroledto"""
+  """List response model for Deleteroledto"""
 
-    data: List[Deleteroledto] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Deleteroledto] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

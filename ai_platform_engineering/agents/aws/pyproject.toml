@@ -33,6 +33,7 @@ dependencies = [
     "langchain-mcp-adapters==0.1.11",
     "langgraph==0.5.3",
     "ai-platform-engineering-utils",
+    "prometheus_client>=0.20.0",
 ]
 
 [tool.hatch.build.targets.wheel]

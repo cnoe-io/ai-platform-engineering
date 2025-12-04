@@ -161,7 +161,7 @@ def main():
     mcp.tool()(api_v1_clusters_id_value.cluster_service__get)
     mcp.tool()(api_v1_clusters.cluster_service__list)
 
-    # Search across all resources
+    # Search across all resources (always exhaustive - searches through all pages)
     mcp.tool()(search.search_argocd_resources)
 
     # GPG Keys

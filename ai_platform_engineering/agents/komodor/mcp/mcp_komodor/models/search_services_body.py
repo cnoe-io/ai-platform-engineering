@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Searchservicesbody(BaseModel):
-    """Searchservicesbody model"""
+  """Searchservicesbody model"""
 
 
 class SearchservicesbodyResponse(APIResponse):
-    """Response model for Searchservicesbody"""
+  """Response model for Searchservicesbody"""
 
-    data: Optional[Searchservicesbody] = None
+  data: Optional[Searchservicesbody] = None
 
 
 class SearchservicesbodyListResponse(APIResponse):
-    """List response model for Searchservicesbody"""
+  """List response model for Searchservicesbody"""
 
-    data: List[Searchservicesbody] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Searchservicesbody] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

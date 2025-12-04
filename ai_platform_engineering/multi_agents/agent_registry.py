@@ -81,11 +81,17 @@ class AgentRegistry:
         return enabled_agents
 
     def get_agent_address_mapping(self, agent_names: List[str]) -> Dict[str, str]:
-        """Get the address mapping for all enabled agents."""
+        """Get the address mapping for all enabled agents, skipping TRACING and STREAMING pseudo-agents."""
         address_mapping = {}
         for agent in agent_names:
-            host = os.getenv(f"{agent.upper()}_AGENT_HOST", "localhost")
-            port = os.getenv(f"{agent.upper()}_AGENT_PORT", "8000")
+            upper = agent.upper()
+            # Skip pseudo-agents related to tracing and streaming
+            if upper in ("TRACING", "STREAMING"):
+                logger.info(f"Skipping pseudo-agent '{agent}' (TRACING/STREAMING)")
+                continue
+            host = os.getenv(f"{upper}_AGENT_HOST", "localhost")
+            port = os.getenv(f"{upper}_AGENT_PORT", "8000")
+            logger.info(f"Mapping agent '{agent}' to address http://{host}:{port}")
             address_mapping[agent] = f"http://{host}:{port}"
         return address_mapping
 
@@ -449,6 +455,10 @@ class AgentRegistry:
         """
         connectivity_results = {}
         agent_cards = {}
+
+        # Early return if there are no agents to check
+        if not self.AGENT_ADDRESS_MAPPING:
+            return connectivity_results, agent_cards
 
         # Use thread pool for parallel connectivity checks
         max_workers = min(len(self.AGENT_ADDRESS_MAPPING), 10)  # Limit concurrent connections

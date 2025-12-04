@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Hpaminavailabilitysupportingdata(BaseModel):
-    """Hpaminavailabilitysupportingdata model"""
+  """Hpaminavailabilitysupportingdata model"""
 
 
 class HpaminavailabilitysupportingdataResponse(APIResponse):
-    """Response model for Hpaminavailabilitysupportingdata"""
+  """Response model for Hpaminavailabilitysupportingdata"""
 
-    data: Optional[Hpaminavailabilitysupportingdata] = None
+  data: Optional[Hpaminavailabilitysupportingdata] = None
 
 
 class HpaminavailabilitysupportingdataListResponse(APIResponse):
-    """List response model for Hpaminavailabilitysupportingdata"""
+  """List response model for Hpaminavailabilitysupportingdata"""
 
-    data: List[Hpaminavailabilitysupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Hpaminavailabilitysupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

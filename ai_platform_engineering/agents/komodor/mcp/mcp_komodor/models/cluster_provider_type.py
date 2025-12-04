@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Clusterprovidertype(BaseModel):
-    """Clusterprovidertype model"""
+  """Clusterprovidertype model"""
 
 
 class ClusterprovidertypeResponse(APIResponse):
-    """Response model for Clusterprovidertype"""
+  """Response model for Clusterprovidertype"""
 
-    data: Optional[Clusterprovidertype] = None
+  data: Optional[Clusterprovidertype] = None
 
 
 class ClusterprovidertypeListResponse(APIResponse):
-    """List response model for Clusterprovidertype"""
+  """List response model for Clusterprovidertype"""
 
-    data: List[Clusterprovidertype] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Clusterprovidertype] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Evidence(BaseModel):
-    """Evidence model"""
+  """Evidence model"""
 
 
 class EvidenceResponse(APIResponse):
-    """Response model for Evidence"""
+  """Response model for Evidence"""
 
-    data: Optional[Evidence] = None
+  data: Optional[Evidence] = None
 
 
 class EvidenceListResponse(APIResponse):
-    """List response model for Evidence"""
+  """List response model for Evidence"""
 
-    data: List[Evidence] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Evidence] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

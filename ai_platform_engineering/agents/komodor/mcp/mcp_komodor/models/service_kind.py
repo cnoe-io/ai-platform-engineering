@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Servicekind(BaseModel):
-    """The kind of the service"""
+  """The kind of the service"""
 
 
 class ServicekindResponse(APIResponse):
-    """Response model for Servicekind"""
+  """Response model for Servicekind"""
 
-    data: Optional[Servicekind] = None
+  data: Optional[Servicekind] = None
 
 
 class ServicekindListResponse(APIResponse):
-    """List response model for Servicekind"""
+  """List response model for Servicekind"""
 
-    data: List[Servicekind] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Servicekind] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None
