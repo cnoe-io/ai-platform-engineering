@@ -7,12 +7,19 @@ from .date import parse_date
 from .io import is_read_only_mode
 from .logging import setup_logging
 
-# Export OAuth utilities
-from .oauth import OAuthConfig, configure_oauth_session
+# Export OAuth utilities (optional - requires keyring)
+try:
+    from .oauth import OAuthConfig, configure_oauth_session
+    _oauth_available = True
+except ImportError:
+    _oauth_available = False
+    OAuthConfig = None
+    configure_oauth_session = None
+
 from .ssl import SSLIgnoreAdapter, configure_ssl_verification
 from .urls import is_atlassian_cloud_url
 
-# Export field discovery utilities (new)
+# Export field discovery utilities
 from .field_discovery import FieldDiscovery, get_field_discovery
 
 # Export ADF utilities
@@ -33,8 +40,6 @@ __all__ = [
     "setup_logging",
     "parse_date",
     "parse_iso8601_date",
-    "OAuthConfig",
-    "configure_oauth_session",
     "FieldDiscovery",
     "get_field_discovery",
     "text_to_adf",
@@ -43,3 +48,7 @@ __all__ = [
     "ensure_adf_format",
     "create_empty_adf",
 ]
+
+# Add OAuth to exports if available
+if _oauth_available:
+    __all__.extend(["OAuthConfig", "configure_oauth_session"])
