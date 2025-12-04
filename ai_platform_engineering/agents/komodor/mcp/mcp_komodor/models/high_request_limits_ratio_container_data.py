@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Highrequestlimitsratiocontainerdata(BaseModel):
-    """Highrequestlimitsratiocontainerdata model"""
+  """Highrequestlimitsratiocontainerdata model"""
 
 
 class HighrequestlimitsratiocontainerdataResponse(APIResponse):
-    """Response model for Highrequestlimitsratiocontainerdata"""
+  """Response model for Highrequestlimitsratiocontainerdata"""
 
-    data: Optional[Highrequestlimitsratiocontainerdata] = None
+  data: Optional[Highrequestlimitsratiocontainerdata] = None
 
 
 class HighrequestlimitsratiocontainerdataListResponse(APIResponse):
-    """List response model for Highrequestlimitsratiocontainerdata"""
+  """List response model for Highrequestlimitsratiocontainerdata"""
 
-    data: List[Highrequestlimitsratiocontainerdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Highrequestlimitsratiocontainerdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

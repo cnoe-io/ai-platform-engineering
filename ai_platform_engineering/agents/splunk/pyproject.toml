@@ -39,6 +39,7 @@ dependencies = [
     "a2a>=0.0.1",
     "fastmcp>=2.11.2",
     "mcp-splunk",
+    "prometheus_client>=0.20.0",
 ]
 
 [project.optional-dependencies]

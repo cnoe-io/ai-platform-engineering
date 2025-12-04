@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Singleevent(BaseModel):
-    """Singleevent model"""
+  """Singleevent model"""
 
 
 class SingleeventResponse(APIResponse):
-    """Response model for Singleevent"""
+  """Response model for Singleevent"""
 
-    data: Optional[Singleevent] = None
+  data: Optional[Singleevent] = None
 
 
 class SingleeventListResponse(APIResponse):
-    """List response model for Singleevent"""
+  """List response model for Singleevent"""
 
-    data: List[Singleevent] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Singleevent] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

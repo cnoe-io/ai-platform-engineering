@@ -299,3 +299,27 @@ Get slim transport - global takes precedence
         {{- .Values.slim.transport | default "slim" }}
     {{- end }}
 {{- end }}
+
+{{/*
+Determine if metrics are enabled - global takes precedence
+*/}}
+{{- define "agent.metrics.enabled" -}}
+    {{- $enabled := (default false .Values.metrics.enabled) -}}
+    {{- with .Values.global -}}
+        {{- with .metrics -}}
+            {{- if hasKey . "enabled" -}}
+                {{- $enabled = .enabled -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+    {{- $enabled -}}
+{{- end -}}
+
+{{/*
+Get simple agent name (strips "agent-" prefix from nameOverride)
+e.g., "agent-argocd" -> "argocd"
+*/}}
+{{- define "agent.simpleName" -}}
+{{- $name := include "agent.name" . -}}
+{{- $name | trimPrefix "agent-" -}}
+{{- end }}

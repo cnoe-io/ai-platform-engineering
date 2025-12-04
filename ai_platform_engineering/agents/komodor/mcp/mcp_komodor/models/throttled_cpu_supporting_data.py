@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Throttledcpusupportingdata(BaseModel):
-    """Throttledcpusupportingdata model"""
+  """Throttledcpusupportingdata model"""
 
 
 class ThrottledcpusupportingdataResponse(APIResponse):
-    """Response model for Throttledcpusupportingdata"""
+  """Response model for Throttledcpusupportingdata"""
 
-    data: Optional[Throttledcpusupportingdata] = None
+  data: Optional[Throttledcpusupportingdata] = None
 
 
 class ThrottledcpusupportingdataListResponse(APIResponse):
-    """List response model for Throttledcpusupportingdata"""
+  """List response model for Throttledcpusupportingdata"""
 
-    data: List[Throttledcpusupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Throttledcpusupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -30,7 +30,6 @@ from a2a.types import (
     MessageSendParams,
     Artifact,
     Part,
-    TextPart,
     DataPart,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
@@ -38,15 +37,9 @@ from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2
     AIPlatformEngineerA2ABinding
 )
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
-from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
-import json
 
 logger = logging.getLogger(__name__)
-
-# Feature flag: Enable structured output with DataPart (A2A Protocol best practice)
-ENABLE_STRUCTURED_OUTPUT = os.getenv("ENABLE_STRUCTURED_OUTPUT", "true").lower() == "true"
-logger.info(f"🔧 ENABLE_STRUCTURED_OUTPUT: {ENABLE_STRUCTURED_OUTPUT}")
 
 
 def new_data_artifact(name: str, description: str, data: dict, artifact_id: str = None) -> Artifact:
@@ -111,7 +104,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             logger.info("🎛️  Routing Mode: DEEP_AGENT_ENHANCED_ORCHESTRATION - Smart routing + orchestration hints (EXPERIMENTAL)")
         elif self.force_deep_agent_orchestration:
             self.routing_mode = "DEEP_AGENT_PARALLEL_ORCHESTRATION"
-            logger.info("🎛️  Routing Mode: DEEP_AGENT_PARALLEL_ORCHESTRATION - All queries via Deep Agent with parallel orchestration (DEFAULT - best performance)")
+            logger.debug("🎛️  Routing Mode: DEEP_AGENT_PARALLEL_ORCHESTRATION - All queries via Deep Agent with parallel orchestration (DEFAULT - best performance)")
         elif self.enhanced_streaming_enabled:
             self.routing_mode = "DEEP_AGENT_INTELLIGENT_ROUTING"
             logger.info("🎛️  Routing Mode: DEEP_AGENT_INTELLIGENT_ROUTING - Intelligent routing (DIRECT/PARALLEL/COMPLEX)")
@@ -129,8 +122,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             'analyze,compare,if,then,create,update,based on,depending on,which,that have'
         )
 
-        logger.info(f"📚 Knowledge base keywords: {self.knowledge_base_keywords}")
-        logger.info(f"🔧 Orchestration keywords: {self.orchestration_keywords}")
+        logger.debug(f"📚 Knowledge base keywords: {self.knowledge_base_keywords}")
+        logger.debug(f"🔧 Orchestration keywords: {self.orchestration_keywords}")
 
     def _parse_env_keywords(self, env_var: str, default: str) -> List[str]:
         """Parse comma-separated keywords from environment variable."""
@@ -339,22 +332,55 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             chunk_count = 0
             first_artifact_sent = False  # Track if we've sent the initial artifact
             sub_agent_streaming_artifact_id = None  # Shared artifact ID for sub-agent streaming chunks
+            sub_agent_sent_complete_result = False  # Track if sub-agent sent complete_result (task is complete)
+            sub_agent_accumulated_content = []  # Track content from sub-agent artifacts
+            logger.debug(f"🔄 _stream_from_sub_agent: Starting stream loop for sub-agent at {agent_url}")
+            logger.debug(f"🔄 _stream_from_sub_agent: Initial state - sub_agent_sent_complete_result={sub_agent_sent_complete_result}, sub_agent_accumulated_len={len(sub_agent_accumulated_content)}")
+
             async for response_wrapper in client.send_message_streaming(streaming_request):
                 chunk_count += 1
                 wrapper_type = type(response_wrapper).__name__
-                logger.debug(f"📦 Received stream response #{chunk_count}: {wrapper_type}")
+                logger.debug(f"📦 _stream_from_sub_agent: Received stream response #{chunk_count}: {wrapper_type}")
 
                 # Extract event data from Pydantic response model
                 try:
                     response_dict = response_wrapper.model_dump()
                     result_data = response_dict.get('result', {})
                     event_kind = result_data.get('kind', '')
-                    logger.debug(f"   └─ Event kind: {event_kind}")
+                    logger.debug(f"📦 _stream_from_sub_agent: Event #{chunk_count} kind={event_kind}")
 
                     # Handle artifact-update events (these contain the streaming content!)
                     if event_kind == 'artifact-update':
                         artifact_data = result_data.get('artifact', {})
+                        artifact_name = artifact_data.get('name', 'streaming_result')
                         parts_data = artifact_data.get('parts', [])
+
+                        logger.debug(f"📦 _stream_from_sub_agent: Received artifact-update, name={artifact_name}, chunk_count={chunk_count}")
+
+                        # Handle complete_result/final_result - accumulate but don't forward as streaming_result
+                        if artifact_name in ['complete_result', 'final_result']:
+                            # Mark that sub-agent sent complete_result (task is complete)
+                            sub_agent_sent_complete_result = True
+                            logger.debug(f"✅ Sub-agent sent {artifact_name} - task is complete, accumulating for complete_result")
+
+                            # Extract and accumulate the content
+                            texts = []
+                            for part in parts_data:
+                                if isinstance(part, dict):
+                                    text_content = part.get('text', '')
+                                    if text_content:
+                                        texts.append(text_content)
+
+                            combined_text = ''.join(texts)
+                            if combined_text:
+                                sub_agent_accumulated_content.append(combined_text)
+                                logger.debug(f"📝 Accumulated sub-agent {artifact_name}: {len(combined_text)} chars in _stream_from_sub_agent")
+                            else:
+                                logger.warning(f"⚠️ {artifact_name} has no text content!")
+
+                            # Skip forwarding as streaming_result - will be sent as complete_result at end
+                            logger.debug(f"⏭️ Skipping forwarding {artifact_name} as streaming_result - will be sent as complete_result at end")
+                            continue
 
                         # Extract text from parts
                         texts = []
@@ -428,7 +454,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     elif event_kind == 'status-update':
                         status_data = result_data.get('status', {})
                         state = status_data.get('state', '')
-                        logger.debug(f"📊 Status update: {state}")
+                        final = result_data.get('final', False)
+                        logger.debug(f"📊 _stream_from_sub_agent: Status update #{chunk_count} - state={state}, final={final}")
 
                         # Extract content from status message (if any)
                         # Note: message can be None when status is "completed"
@@ -484,12 +511,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             logger.debug(f"✅ Streamed status content to client: {combined_text[:50]}...")
 
                         if state == 'completed':
-                            logger.info(f"🎉 Sub-agent completed with {chunk_count} chunks")
+                            logger.debug(f"🎉 _stream_from_sub_agent: Sub-agent completed with {chunk_count} chunks")
+                            logger.debug(f"🎉 _stream_from_sub_agent: State at completion - sub_agent_sent_complete_result={sub_agent_sent_complete_result}, sub_agent_accumulated_len={len(sub_agent_accumulated_content)}")
                             # Send final artifact with complete accumulated text
                             # For streaming clients: redundant but safe (they already got chunks)
                             # For non-streaming clients: essential (only way to get complete text)
                             final_text = ''.join(accumulated_text)
-                            logger.debug(f"📦 Sending final artifact with {len(final_text)} chars")
+                            logger.debug(f"📦 _stream_from_sub_agent: Sending final artifact with {len(final_text)} chars")
                             await self._safe_enqueue_event(
                                 event_queue,
                                 TaskArtifactUpdateEvent(
@@ -520,10 +548,15 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     import traceback
                     logger.error(traceback.format_exc())
 
+            # Stream loop exited
+            logger.debug(f"🔄 _stream_from_sub_agent: Stream loop exited after {chunk_count} chunks")
+            logger.debug(f"🔄 _stream_from_sub_agent: Final state - sub_agent_sent_complete_result={sub_agent_sent_complete_result}, sub_agent_accumulated_len={len(sub_agent_accumulated_content)}, accumulated_text_len={len(accumulated_text)}")
+
             # If we exit the loop without receiving 'completed' status, stream ended prematurely
             # Send any accumulated text as final result
             if accumulated_text:
-                logger.warning(f"⚠️  Stream ended without completion status, sending {len(accumulated_text)} partial chunks")
+                logger.warning(f"⚠️  _stream_from_sub_agent: Stream ended without completion status, sending {len(accumulated_text)} partial chunks")
+                logger.warning(f"⚠️  _stream_from_sub_agent: sub_agent_sent_complete_result={sub_agent_sent_complete_result}, sub_agent_accumulated_len={len(sub_agent_accumulated_content)}")
                 await self._safe_enqueue_event(
                     event_queue,
                     TaskArtifactUpdateEvent(
@@ -978,8 +1011,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         accumulated_content = []
         sub_agent_accumulated_content = []  # Track content from sub-agent artifacts
         sub_agent_sent_datapart = False  # Track if sub-agent sent structured DataPart
+        sub_agent_datapart_data = None  # Store original DataPart data dict (for recreating DataPart artifacts)
         streaming_artifact_id = None  # Shared artifact ID for all streaming chunks
-
+        sub_agent_sent_complete_result = False  # Track if sub-agent sent complete_result (task is complete)
+        seen_artifact_ids = set()  # Track which artifact IDs have been sent (for append=False/True logic)
         try:
             # invoke the underlying agent, using streaming results
             # NOTE: Pass task to maintain task ID consistency across sub-agents
@@ -1101,25 +1136,34 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         parts = artifact.get('parts', [])
                         text_len = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict))
 
-                        logger.debug(f"🎯 Platform Engineer: Forwarding artifact-update from sub-agent ({text_len} chars)")
-
                         # Accumulate sub-agent content for final result
                         artifact_name = artifact.get('name', 'streaming_result')
-                        logger.debug(f"🔍 Processing artifact: name={artifact_name}, parts_count={len(parts)}")
-                        if artifact_name in ['streaming_result', 'partial_result', 'final_result', 'complete_result']:
+                        logger.debug(f"🎯 _handle_sub_agent_response: Received artifact-update from writer() - name={artifact_name}, text_len={text_len} chars, parts_count={len(parts)}")
+                        logger.debug(f"🎯 _handle_sub_agent_response: State before processing - sub_agent_sent_complete_result={sub_agent_sent_complete_result}, sub_agent_accumulated_len={len(sub_agent_accumulated_content)}")
+
+                        # Only accumulate final results (complete_result, final_result) - these contain clean, complete content
+                        # Forward streaming_result chunks to client but DON'T accumulate (prevents duplication)
+                        if artifact_name in ['complete_result', 'final_result']:
+                            # Mark that sub-agent sent complete_result (task is complete)
+                            sub_agent_sent_complete_result = True
+                            logger.debug(f"✅ Sub-agent sent {artifact_name} - task is complete, will forward as complete_result")
+
+                            # Only accumulate final results - these contain clean, complete content
                             for p in parts:
                                 if isinstance(p, dict):
                                     logger.debug(f"🔍 Part keys: {list(p.keys())}")
                                     # Handle both TextPart and DataPart
                                     if p.get('text'):
                                         sub_agent_accumulated_content.append(p.get('text'))
-                                        logger.debug(f"📝 Accumulated sub-agent TextPart: {len(p.get('text'))} chars")
+                                        logger.debug(f"📝 Accumulated sub-agent final result: {len(p.get('text'))} chars (artifact={artifact_name})")
                                     elif p.get('data'):
-                                        # DataPart with structured data - store as JSON string
-                                        json_str = json.dumps(p.get('data'))
+                                        # DataPart with structured data - store original data dict
+                                        data_dict = p.get('data')
+                                        sub_agent_datapart_data = data_dict  # Store original data dict for recreating DataPart
+                                        json_str = json.dumps(data_dict)
                                         sub_agent_accumulated_content.append(json_str)
                                         sub_agent_sent_datapart = True  # Mark that sub-agent sent structured data
-                                        logger.info(f"📝 Accumulated sub-agent DataPart: {len(json_str)} chars - MARKING sub_agent_sent_datapart=True")
+                                        logger.debug(f"📝 Accumulated sub-agent DataPart: {len(json_str)} chars - MARKING sub_agent_sent_datapart=True, stored data dict with keys: {list(data_dict.keys()) if isinstance(data_dict, dict) else 'not a dict'}")
 
                                         # CRITICAL: Clear supervisor's accumulated content - we ONLY want the sub-agent's DataPart
                                         # The supervisor may have already streamed partial text before we received the DataPart
@@ -1128,6 +1172,26 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                             accumulated_content.clear()
                                     else:
                                         logger.warning(f"⚠️ Part has neither 'text' nor 'data' key: {p}")
+                        elif artifact_name == 'streaming_result':
+                            # Forward streaming chunks to client but DON'T accumulate (prevents duplication from full-content chunks)
+                            # Streaming chunks are for real-time display only, final results will be used for partial_result/final_result
+                            total_chunk_size = sum(len(p.get('text', '')) for p in parts if isinstance(p, dict) and p.get('text'))
+                            logger.debug(f"📤 Forwarding streaming_result chunk ({total_chunk_size} chars) - NOT accumulating (will use complete_result/final_result)")
+                        elif artifact_name == 'partial_result':
+                            # Partial result from sub-agent - accumulate it (it's a final result)
+                            for p in parts:
+                                if isinstance(p, dict):
+                                    if p.get('text'):
+                                        sub_agent_accumulated_content.append(p.get('text'))
+                                        logger.debug(f"📝 Accumulated sub-agent partial_result: {len(p.get('text'))} chars")
+                                    elif p.get('data'):
+                                        # DataPart with structured data - store original data dict
+                                        data_dict = p.get('data')
+                                        sub_agent_datapart_data = data_dict  # Store original data dict for recreating DataPart
+                                        json_str = json.dumps(data_dict)
+                                        sub_agent_accumulated_content.append(json_str)
+                                        sub_agent_sent_datapart = True
+                                        logger.debug(f"📝 Accumulated sub-agent partial_result DataPart: {len(json_str)} chars, stored data dict")
 
                         # Convert dict to proper Artifact object - preserve both TextPart and DataPart
                         from a2a.types import Artifact, TextPart, DataPart, Part
@@ -1138,7 +1202,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                     artifact_parts.append(Part(root=TextPart(text=p.get('text'))))
                                 elif p.get('data'):
                                     artifact_parts.append(Part(root=DataPart(data=p.get('data'))))
-                                    logger.info(f"📦 Forwarding DataPart to client")
+                                    logger.debug("📦 Forwarding DataPart to client")
 
                         artifact_obj = Artifact(
                             artifactId=artifact.get('artifactId'),
@@ -1147,11 +1211,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             parts=artifact_parts
                         )
 
-                        # Use first_artifact_sent logic for append flag
-                        use_append = first_artifact_sent
-                        if not first_artifact_sent:
-                            first_artifact_sent = True
-                            logger.debug("📝 First sub-agent artifact chunk (append=False)")
+                        # Track each artifact ID separately for append flag
+                        artifact_id = artifact.get('artifactId')
+                        if artifact_id not in seen_artifact_ids:
+                            # First time seeing this artifact ID - send with append=False
+                            use_append = False
+                            seen_artifact_ids.add(artifact_id)
+                            first_artifact_sent = True  # Mark that we've sent at least one artifact
+                            logger.debug(f"📝 Forwarding FIRST chunk of sub-agent artifact (append=False) with ID: {artifact_id}")
+                        else:
+                            # Subsequent chunks of this artifact ID - send with append=True
+                            use_append = True
+                            logger.debug(f"📝 Forwarding subsequent chunk of sub-agent artifact (append=True) with ID: {artifact_id}")
 
                         await self._safe_enqueue_event(
                             event_queue,
@@ -1183,7 +1254,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 elif not isinstance(content, str):
                     content = str(content) if content else ''
 
-                logger.info(f"🔍 EXECUTOR: Received event with is_task_complete={event.get('is_task_complete')}, require_user_input={event.get('require_user_input')}")
+                logger.debug(f"🔍 EXECUTOR: Received event with is_task_complete={event.get('is_task_complete')}, require_user_input={event.get('require_user_input')}")
 
                 if event['is_task_complete']:
                     await self._ensure_execution_plan_completed(event_queue, task)
@@ -1192,62 +1263,38 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     # Send final artifact with all accumulated content for non-streaming clients
                     # Content selection strategy (PRIORITY ORDER):
                     # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                    # 2. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's structured response (PlatformEngineerResponse)
-                    # 3. Otherwise: Use sub-agent's content (backward compatible)
+                    # 2. Otherwise: Use sub-agent's content (backward compatible)
 
-                    require_user_input = event.get('require_user_input', False)
-
-                    if sub_agent_sent_datapart and sub_agent_accumulated_content:
-                        # Sub-agent sent structured DataPart - use it directly (highest priority)
-                        final_content = ''.join(sub_agent_accumulated_content)
-                        logger.info(f"📦 Using sub-agent DataPart for final_result ({len(final_content)} chars) - sub_agent_sent_datapart=True")
-                    elif ENABLE_STRUCTURED_OUTPUT and accumulated_content:
-                        # Structured output enabled - use supervisor's accumulated content
-                        final_content = ''.join(accumulated_content)
-                        logger.info(f"📝 Using supervisor accumulated content for final_result ({len(final_content)} chars) - structured output enabled")
+                    if sub_agent_sent_datapart and sub_agent_datapart_data:
+                        # Sub-agent sent structured DataPart - recreate DataPart artifact (highest priority)
+                        logger.debug("📦 Creating DataPart artifact for final_result - sub_agent_sent_datapart=True")
+                        artifact = new_data_artifact(
+                            name='final_result',
+                            description='Complete structured result from Platform Engineer',
+                            data=sub_agent_datapart_data,
+                        )
                     elif sub_agent_accumulated_content:
                         # Fallback to sub-agent content
                         final_content = ''.join(sub_agent_accumulated_content)
                         logger.info(f"📝 Using sub-agent accumulated content for final_result ({len(final_content)} chars)")
+                        artifact = new_text_artifact(
+                            name='final_result',
+                            description='Complete result from Platform Engineer.',
+                            text=final_content,
+                        )
                     elif accumulated_content:
                         # Fallback to supervisor content
                         final_content = ''.join(accumulated_content)
                         logger.info(f"📝 Using supervisor accumulated content for final_result ({len(final_content)} chars) - fallback")
+                        artifact = new_text_artifact(
+                            name='final_result',
+                            description='Complete result from Platform Engineer.',
+                            text=final_content,
+                        )
                     else:
                         # Final fallback to current event content
                         final_content = content
                         logger.info(f"📝 Using current event content for final_result ({len(final_content)} chars)")
-
-                    # Choose artifact format based on ENABLE_STRUCTURED_OUTPUT feature flag
-                    artifact = None
-
-                    if ENABLE_STRUCTURED_OUTPUT:
-                        # Try to detect and use DataPart for structured responses
-                        try:
-                            # Try to parse as JSON
-                            response_data = json.loads(final_content)
-
-                            # Validate against PlatformEngineerResponse schema
-                            response_obj = PlatformEngineerResponse.model_validate(response_data)
-
-                            # Success! Use DataPart for structured response
-                            logger.info(f"✅ Detected PlatformEngineerResponse schema - using DataPart")
-                            artifact = new_data_artifact(
-                                name='final_result',
-                                description='Structured result from Platform Engineer (PlatformEngineerResponse schema)',
-                                data=response_data,
-                            )
-                        except (json.JSONDecodeError, ValueError, Exception) as e:
-                            # Not valid JSON or doesn't match schema - fall back to TextPart
-                            logger.info(f"ℹ️ Response is not structured JSON (using TextPart fallback): {type(e).__name__}")
-                            artifact = new_text_artifact(
-                                name='final_result',
-                                description='Complete result from Platform Engineer.',
-                                text=final_content,
-                            )
-                    else:
-                        # Feature flag disabled: Always use TextPart (backward compatible)
-                        logger.debug(f"ℹ️ Using TextPart for final_result (ENABLE_STRUCTURED_OUTPUT=false)")
                         artifact = new_text_artifact(
                             name='final_result',
                             description='Complete result from Platform Engineer.',
@@ -1311,16 +1358,42 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                            (content.strip().startswith('✅') and 'completed' in content.lower())
                        )
 
+                       # Check if this is the final response event (contains full accumulated content)
+                       # The final response from agent.py contains the full accumulated content, so we shouldn't accumulate it again
+                       # to avoid duplication. We detect this deterministically by checking if accumulated content is a substring.
+                       existing_accumulated_text = ''.join(accumulated_content) if accumulated_content else ''
+
+                       # Deterministic check: if accumulated content is contained in this event's content, it's the final response
+                       # The final response from agent.py contains the full accumulated content, so we shouldn't accumulate it again
+                       # We check if accumulated content is a substring of this event's content (deterministic, no thresholds)
+                       is_final_response_event = (
+                           existing_accumulated_text and  # We have accumulated content to compare
+                           existing_accumulated_text in content  # Accumulated content is contained in this event (deterministic substring check)
+                       )
+
                        # Accumulate non-notification content for final UI response
                        # Streaming artifacts are for real-time display, final response for clean UI display
                        # CRITICAL: If sub-agent sent DataPart, DON'T accumulate supervisor's streaming text
                        # We want ONLY the sub-agent's structured response, not the supervisor's rewrite
-                       if not is_tool_notification:
-                           if not sub_agent_sent_datapart:
+                       # CRITICAL: Don't accumulate final response event content - it's already the full accumulated content
+                       # CRITICAL: If we have sub-agent accumulated content, don't accumulate supervisor content that matches it (avoids duplicates)
+                       # Deterministic check: if supervisor content is contained in sub-agent content (or vice versa), it's a duplicate
+                       sub_agent_text_so_far = ''.join(sub_agent_accumulated_content) if sub_agent_accumulated_content else ''
+                       is_duplicate_of_sub_agent = (
+                           sub_agent_text_so_far and  # We have sub-agent content
+                           (content in sub_agent_text_so_far or sub_agent_text_so_far in content)  # Content matches sub-agent content (deterministic substring check)
+                       )
+
+                       if not is_tool_notification and not is_final_response_event:
+                           if not sub_agent_sent_datapart and not is_duplicate_of_sub_agent:
                                accumulated_content.append(content)
                                logger.debug(f"📝 Added content to final response accumulator: {content[:50]}...")
+                           elif is_duplicate_of_sub_agent:
+                               logger.debug(f"⏭️ SKIPPING supervisor content - duplicates sub-agent content: {content[:50]}...")
                            else:
-                               logger.info(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
+                               logger.debug(f"⏭️ SKIPPING supervisor content - sub-agent sent DataPart (sub_agent_sent_datapart=True): {content[:50]}...")
+                       elif is_final_response_event:
+                           logger.debug(f"⏭️ SKIPPING final response event content (already accumulated) - length: {len(content)} chars, accumulated: {len(existing_accumulated_text)} chars")
                        else:
                            logger.debug(f"🔧 Skipping tool notification from final response: {content.strip()}")
 
@@ -1363,6 +1436,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                text=content,
                            )
                            use_append = False
+                           seen_artifact_ids.add(artifact.artifact_id)  # Track this tool notification artifact
                            logger.debug(f"📝 Creating separate tool notification artifact: {artifact.artifact_id}")
                        elif streaming_artifact_id is None:
                            # First regular content chunk - create new artifact with unique ID
@@ -1372,6 +1446,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                                text=content,
                            )
                            streaming_artifact_id = artifact.artifact_id  # Save for subsequent chunks
+                           seen_artifact_ids.add(streaming_artifact_id)  # Track this artifact ID
                            first_artifact_sent = True
                            use_append = False
                            logger.info(f"📝 Sending FIRST streaming artifact (append=False) with ID: {streaming_artifact_id}")
@@ -1405,7 +1480,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
             # If we exit the stream loop without receiving 'is_task_complete', send accumulated content
             # BUT: If require_user_input=True, the task IS complete (just waiting for input) - don't send partial_result
-            logger.info(f"🔍 EXECUTOR: Stream loop exited. Last event is_task_complete={event.get('is_task_complete', False) if event else 'N/A'}, require_user_input={event.get('require_user_input', False) if event else 'N/A'}")
+            logger.debug(f"🔍 EXECUTOR: Stream loop exited. Last event is_task_complete={event.get('is_task_complete', False) if event else 'N/A'}, require_user_input={event.get('require_user_input', False) if event else 'N/A'}")
+            logger.debug(f"🔍 EXECUTOR: State check - sub_agent_sent_complete_result={sub_agent_sent_complete_result}, sub_agent_accumulated_len={len(sub_agent_accumulated_content) if sub_agent_accumulated_content else 0}, supervisor_accumulated_len={len(accumulated_content) if accumulated_content else 0}")
 
             # Skip partial_result if task is waiting for user input (task is effectively complete)
             if event and event.get('require_user_input', False):
@@ -1414,65 +1490,99 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
             if (accumulated_content or sub_agent_accumulated_content) and not event.get('is_task_complete', False):
                 await self._ensure_execution_plan_completed(event_queue, task)
-                logger.warning("❌ EXECUTOR: Stream ended WITHOUT is_task_complete=True, sending PARTIAL_RESULT (THIS IS THE BUG!)")
+
+                # Check if this is an error message - if so, don't send final status to keep queue open
+                last_content = ''.join(accumulated_content) if accumulated_content else (''.join(sub_agent_accumulated_content) if sub_agent_accumulated_content else '')
+                is_error = '❌ Error:' in last_content or 'Validation error:' in last_content or 'Error:' in event.get('content', '')
+
+                if is_error:
+                    logger.info("⚠️ EXECUTOR: Error detected in content - sending error message but keeping queue open for follow-up questions")
+                    # Send error as artifact but don't send final status - keep queue open
+                    error_artifact = new_text_artifact(
+                        name='error_result',
+                        description='Error message from Platform Engineer',
+                        text=last_content or event.get('content', ''),
+                    )
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskArtifactUpdateEvent(
+                            append=False,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            last_chunk=True,
+                            artifact=error_artifact,
+                        )
+                    )
+                    # Don't send final status - keep queue open for follow-up questions
+                    logger.info(f"Task {task.id} error message sent. Queue kept open for follow-up questions.")
+                    return
+
+                # If sub-agent sent complete_result, forward it as complete_result (not partial_result)
+                logger.debug(f"🔍 EXECUTOR: Checking complete_result flag - sub_agent_sent_complete_result={sub_agent_sent_complete_result}")
+                if sub_agent_sent_complete_result:
+                    logger.debug("✅ EXECUTOR: Sub-agent sent complete_result - forwarding as complete_result (task is complete)")
+                    artifact_name = 'complete_result'
+                else:
+                    logger.warning("⚠️ EXECUTOR: Stream ended WITHOUT is_task_complete=True and no complete_result from sub-agent - sending PARTIAL_RESULT (premature end)")
+                    logger.warning(f"⚠️ EXECUTOR: Debug - sub_agent_sent_complete_result={sub_agent_sent_complete_result}, sub_agent_accumulated_len={len(sub_agent_accumulated_content) if sub_agent_accumulated_content else 0}")
+                    artifact_name = 'partial_result'
 
                 # Content selection strategy (PRIORITY ORDER):
                 # 1. If sub-agent sent DataPart: Use sub-agent's DataPart (has structured data like JarvisResponse)
-                # 2. If ENABLE_STRUCTURED_OUTPUT=True: Use supervisor's structured response (PlatformEngineerResponse)
-                # 3. Otherwise: Use sub-agent's content (backward compatible)
+                # 2. If sub-agent accumulated content exists: Use it (from complete_result/final_result - clean)
+                # 3. Otherwise: Use supervisor's accumulated content
 
-                require_user_input = event.get('require_user_input', False)
+                # DEBUG: Log the state before creating partial_result
+                sub_agent_data_status = 'present' if sub_agent_datapart_data else 'None'
+                sub_agent_len = len(sub_agent_accumulated_content) if sub_agent_accumulated_content else 0
+                supervisor_len = len(accumulated_content) if accumulated_content else 0
+                logger.info(
+                    f"🔍 DEBUG partial_result creation: "
+                    f"sub_agent_sent_datapart={sub_agent_sent_datapart}, "
+                    f"sub_agent_datapart_data={sub_agent_data_status}, "
+                    f"sub_agent_accumulated_len={sub_agent_len}, "
+                    f"supervisor_accumulated_len={supervisor_len}"
+                )
 
-                if sub_agent_sent_datapart and sub_agent_accumulated_content:
-                    # Sub-agent sent structured DataPart - use it directly (highest priority)
-                    final_content = ''.join(sub_agent_accumulated_content)
-                    logger.info(f"📦 Using sub-agent DataPart for partial_result ({len(final_content)} chars) - sub_agent_sent_datapart=True")
-                elif ENABLE_STRUCTURED_OUTPUT and accumulated_content:
-                    # Structured output enabled - use supervisor's accumulated content
-                    final_content = ''.join(accumulated_content)
-                    logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars) - structured output enabled")
+                if sub_agent_sent_datapart and sub_agent_datapart_data:
+                    # Sub-agent sent structured DataPart - recreate DataPart artifact (highest priority)
+                    description = 'Complete structured result from Platform Engineer' if artifact_name == 'complete_result' else 'Partial structured result from Platform Engineer (stream ended)'
+                    logger.debug(f"📦 Creating DataPart artifact for {artifact_name} - sub_agent_sent_datapart=True, data keys: {list(sub_agent_datapart_data.keys())}")
+                    artifact = new_data_artifact(
+                        name=artifact_name,
+                        description=description,
+                        data=sub_agent_datapart_data,
+                    )
+                    # DEBUG: Log artifact structure to verify DataPart is present
+                    logger.info(f"🔍 DEBUG: Artifact parts count: {len(artifact.parts)}, first part type: {type(artifact.parts[0].root) if artifact.parts else 'None'}, is DataPart: {isinstance(artifact.parts[0].root, DataPart) if artifact.parts else False}")
                 elif sub_agent_accumulated_content:
-                    # Fallback to sub-agent content
+                    # Prefer sub-agent accumulated content (from complete_result/final_result) - it's clean
                     final_content = ''.join(sub_agent_accumulated_content)
-                    logger.info(f"📝 Using sub-agent accumulated content for partial_result ({len(final_content)} chars)")
-                else:
-                    # Final fallback to supervisor content
-                    final_content = ''.join(accumulated_content)
-                    logger.info(f"📝 Using supervisor accumulated content for partial_result ({len(final_content)} chars) - fallback")
-
-                # Choose artifact format based on ENABLE_STRUCTURED_OUTPUT feature flag (same as final_result)
-                artifact = None
-
-                if ENABLE_STRUCTURED_OUTPUT:
-                    # Try to detect and use DataPart for structured responses
-                    try:
-                        # Try to parse as JSON
-                        response_data = json.loads(final_content)
-
-                        # Validate against PlatformEngineerResponse schema
-                        response_obj = PlatformEngineerResponse.model_validate(response_data)
-
-                        # Success! Use DataPart for structured response
-                        logger.info(f"✅ Detected PlatformEngineerResponse schema in partial_result - using DataPart")
-                        artifact = new_data_artifact(
-                            name='partial_result',
-                            description='Structured result from Platform Engineer (PlatformEngineerResponse schema, requires user input)',
-                            data=response_data,
-                        )
-                    except (json.JSONDecodeError, ValueError, Exception) as e:
-                        # Not valid JSON or doesn't match schema - fall back to TextPart
-                        logger.info(f"ℹ️ partial_result is not structured JSON (using TextPart fallback): {type(e).__name__}")
-                        artifact = new_text_artifact(
-                            name='partial_result',
-                            description='Partial result from Platform Engineer (stream ended)',
-                            text=final_content,
-                        )
-                else:
-                    # Feature flag disabled: Always use TextPart (backward compatible)
-                    logger.debug(f"ℹ️ Using TextPart for partial_result (ENABLE_STRUCTURED_OUTPUT=false)")
+                    description = 'Complete result from Platform Engineer' if artifact_name == 'complete_result' else 'Partial result from Platform Engineer (stream ended)'
+                    logger.info(f"📝 Using sub-agent accumulated content for {artifact_name} ({len(final_content)} chars) - from complete_result/final_result")
                     artifact = new_text_artifact(
-                        name='partial_result',
-                        description='Partial result from Platform Engineer (stream ended)',
+                        name=artifact_name,
+                        description=description,
+                        text=final_content,
+                    )
+                elif accumulated_content:
+                    # Fallback to supervisor content
+                    final_content = ''.join(accumulated_content)
+                    description = 'Complete result from Platform Engineer' if artifact_name == 'complete_result' else 'Partial result from Platform Engineer (stream ended)'
+                    logger.info(f"📝 Using supervisor accumulated content for {artifact_name} ({len(final_content)} chars) - fallback")
+                    artifact = new_text_artifact(
+                        name=artifact_name,
+                        description=description,
+                        text=final_content,
+                    )
+                else:
+                    # Final fallback - should not happen
+                    final_content = ''
+                    description = 'Complete result from Platform Engineer' if artifact_name == 'complete_result' else 'Partial result from Platform Engineer (stream ended)'
+                    logger.warning(f"⚠️ No content available for {artifact_name}")
+                    artifact = new_text_artifact(
+                        name=artifact_name,
+                        description=description,
                         text=final_content,
                     )
 
@@ -1497,6 +1607,34 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 )
                 logger.info(f"Task {task.id} marked as completed with {len(final_content)} chars total.")
 
+        except ValueError as ve:
+            # Handle ValueError (e.g., LangGraph validation errors) - agent.py should have yielded error event
+            # Don't raise - let the error event be processed and queue stay open
+            error_msg = str(ve)
+            logger.error(f"ValueError during agent execution (should have been handled by agent): {error_msg}")
+            # Only enqueue failure status if error event wasn't already sent
+            # Check if we already processed an error event by checking if stream ended normally
+            try:
+                await self._safe_enqueue_event(
+                    event_queue,
+                    TaskStatusUpdateEvent(
+                        status=TaskStatus(
+                            state=TaskState.failed,
+                            message=new_agent_text_message(
+                                f"Validation error: {error_msg}",
+                                task.context_id,
+                                task.id,
+                            ),
+                        ),
+                        final=True,
+                        context_id=task.context_id,
+                        task_id=task.id,
+                    )
+                )
+            except Exception as enqueue_error:
+                logger.error(f"Failed to enqueue error status: {enqueue_error}")
+            # Don't raise - allow queue to stay open for any pending events
+            return
         except Exception as e:
             logger.error(f"Error during agent execution: {e}")
             # Try to enqueue a failure status if the queue is still open
@@ -1519,7 +1657,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 )
             except Exception as enqueue_error:
                 logger.error(f"Failed to enqueue error status: {enqueue_error}")
-            raise
+            # Don't raise - allow queue to stay open for any pending tool events
+            # The A2A framework will handle cleanup
+            return
 
     def _parse_execution_plan_text(self, text: str) -> list[dict[str, str]]:
         if not text:

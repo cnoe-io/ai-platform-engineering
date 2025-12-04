@@ -1,6 +1,14 @@
 # Copyright 2025 Cisco
 # SPDX-License-Identifier: Apache-2.0
 
+# =====================================================
+# CRITICAL: Disable a2a tracing BEFORE any a2a imports
+# =====================================================
+from cnoe_agent_utils.tracing import disable_a2a_tracing
+
+# Disable A2A framework tracing to prevent interference with custom tracing
+disable_a2a_tracing()
+
 import asyncio
 import click
 import httpx
@@ -10,14 +18,7 @@ import logging
 from dotenv import load_dotenv
 from agntcy_app_sdk.factory import AgntcyFactory
 from starlette.middleware.cors import CORSMiddleware
-
-# =====================================================
-# CRITICAL: Disable a2a tracing BEFORE any a2a imports
-# =====================================================
-from cnoe_agent_utils.tracing import disable_a2a_tracing
-
-# Disable A2A framework tracing to prevent interference with custom tracing
-disable_a2a_tracing()
+from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
 
 # =====================================================
 # Now safe to import a2a modules
@@ -36,6 +37,7 @@ load_dotenv()
 
 A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
 SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
 
 # We can't use click decorators for async functions so we wrap the main function in a sync function
 @click.command()
@@ -88,6 +90,15 @@ async def async_main(host: str, port: int):
             allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
             allow_headers=["*"],  # Allow all headers
         )
+
+        # Add Prometheus metrics middleware if enabled
+        if METRICS_ENABLED:
+            app.add_middleware(
+                PrometheusMetricsMiddleware,
+                excluded_paths=["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/ready"],
+                metrics_path="/metrics",
+                agent_name="komodor",
+            )
 
         # Configure uvicorn access log to DEBUG level for health checks
         access_logger = logging.getLogger("uvicorn.access")

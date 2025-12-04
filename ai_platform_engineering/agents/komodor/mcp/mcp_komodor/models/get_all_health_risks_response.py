@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Getallhealthrisksresponse(BaseModel):
-    """Getallhealthrisksresponse model"""
+  """Getallhealthrisksresponse model"""
 
 
 class GetallhealthrisksresponseResponse(APIResponse):
-    """Response model for Getallhealthrisksresponse"""
+  """Response model for Getallhealthrisksresponse"""
 
-    data: Optional[Getallhealthrisksresponse] = None
+  data: Optional[Getallhealthrisksresponse] = None
 
 
 class GetallhealthrisksresponseListResponse(APIResponse):
-    """List response model for Getallhealthrisksresponse"""
+  """List response model for Getallhealthrisksresponse"""
 
-    data: List[Getallhealthrisksresponse] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Getallhealthrisksresponse] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -32,6 +32,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
+from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 
 
 logger = logging.getLogger(__name__)
@@ -648,8 +649,12 @@ Use this as the reference point for all date calculations. When users say "today
         if sessionId and "thread_id" not in configurable:
             configurable["thread_id"] = sessionId
 
+        # Add metrics callback handler to track MCP tool calls
+        callbacks = list(config.get("callbacks") or [])
+        callbacks.append(MetricsCallbackHandler(agent_name=agent_name))
+
         config = RunnableConfig(
-            callbacks=config.get("callbacks"),
+            callbacks=callbacks,
             tags=config.get("tags"),
             metadata=config.get("metadata"),
             configurable=configurable,

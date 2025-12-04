@@ -34,7 +34,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Create .env from GitHub Secrets
         run: |
@@ -104,6 +104,11 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Start services
         run: |
@@ -178,7 +183,7 @@ jobs:
       actions: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -212,7 +217,7 @@ jobs:
             const { data: workflowRuns } = await github.rest.actions.listWorkflowRuns({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              workflow_id: 'quick-sanity-integration-tests-stable.yml',
+              workflow_id: 'tests-quick-sanity-integration-on-stable-tag.yml',
               status: 'in_progress',
               per_page: 1
             });
@@ -222,7 +227,7 @@ jobs:
               await github.rest.actions.createWorkflowDispatch({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                workflow_id: 'quick-sanity-integration-tests-stable.yml',
+                workflow_id: 'tests-quick-sanity-integration-on-stable-tag.yml',
                 ref: 'main'
               });
               console.log('Triggered stable integration tests workflow');

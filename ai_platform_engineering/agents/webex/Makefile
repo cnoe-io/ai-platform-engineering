@@ -97,11 +97,11 @@ run-mcp:           ## Run MCP server in SSE mode
 
 run-a2a-client: setup-venv ## Run A2A client script
 	@$(MAKE) check-env
-	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+	@$(venv-run) uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
 
 run-mcp-client: setup-venv ## Run MCP client script
 	@$(MAKE) check-env
-	@$(venv-run) uvx https://github.com/cnoe-io/agent-chat-cli.git mcp
+	@$(venv-run) uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git mcp
 
 ## ========== Docker ==========
 

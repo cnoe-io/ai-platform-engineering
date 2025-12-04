@@ -8,10 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.prompt_templates import (
-    AgentCapability, build_system_instruction, graceful_error_handling_template,
-    SCOPE_LIMITED_GUIDELINES, STANDARD_RESPONSE_GUIDELINES, DATE_HANDLING_NOTES
-)
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -22,73 +19,16 @@ class ResponseFormat(BaseModel):
     message: str
 
 
+# Load prompt configuration from YAML
+_prompt_config = load_subagent_prompt_config("komodor")
+
+
 class KomodorAgent(BaseLangGraphAgent):
     """Komodor Agent for Kubernetes operations."""
 
-    KOMODOR_CAPABILITIES = [
-        AgentCapability(
-            title="Service and Job Management",
-            description="Manage Kubernetes services and jobs",
-            items=[
-                "Search for services or jobs based on criteria like cluster, namespace, type, status",
-                "Retrieve YAML configurations for services",
-                "Search for service-related issues or Kubernetes events"
-            ]
-        ),
-        AgentCapability(
-            title="Cluster and Event Management", 
-            description="Monitor and manage cluster operations",
-            items=[
-                "Search for cluster-level issues or Kubernetes events with specified time ranges",
-                "Fetch details of clusters or download kubeconfig files"
-            ]
-        ),
-        AgentCapability(
-            title="RBAC and User Management",
-            description="Role-based access control and user operations", 
-            items=[
-                "Manage roles, policies, and their associations",
-                "Query audit logs with filters, sort, and pagination options",
-                "Manage users and fetch effective permissions"
-            ]
-        ),
-        AgentCapability(
-            title="Health and Cost Analysis",
-            description="System monitoring and optimization",
-            items=[
-                "Analyze system health risks with filters",
-                "Provide cost allocation breakdowns and right-sizing recommendations",
-                "Trigger RCA investigations and retrieve results"
-            ]
-        ),
-        AgentCapability(
-            title="Configuration and Monitoring",
-            description="Real-time monitoring and event management",
-            items=[
-                "Configure, retrieve, update, or delete real-time monitor settings",
-                "Create custom events with associated details and severity levels",
-                "Validate API keys for operational readiness"
-            ]
-        )
-    ]
+    SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
-    SYSTEM_INSTRUCTION = build_system_instruction(
-        agent_name="KOMODOR AGENT",
-        agent_purpose="You are a Komodor AI agent designed to assist users with Kubernetes environments, system health monitoring, and RBAC configurations.",
-        capabilities=KOMODOR_CAPABILITIES,
-        response_guidelines=SCOPE_LIMITED_GUIDELINES + STANDARD_RESPONSE_GUIDELINES + [
-            "When searching for events, audit logs, or issues with time ranges, use the current date provided above as reference",
-            "For queries like 'today's issues' or 'last hour's events', calculate the time range from the current date/time"
-        ],
-        important_notes=DATE_HANDLING_NOTES,
-        graceful_error_handling=graceful_error_handling_template("Komodor")
-    )
-
-    RESPONSE_FORMAT_INSTRUCTION: str = (
-        'Select status as completed if the request is complete'
-        'Select status as input_required if the input is a question to the user'
-        'Set response status to error if the input indicates an error'
-    )
+    RESPONSE_FORMAT_INSTRUCTION: str = _prompt_config.response_format_instruction
 
     def get_agent_name(self) -> str:
         """Return the agent's name."""
@@ -129,11 +69,11 @@ class KomodorAgent(BaseLangGraphAgent):
 
     def get_tool_working_message(self) -> str:
         """Return message shown when calling tools."""
-        return 'Looking up Komodor Resources...'
+        return _prompt_config.tool_working_message
 
     def get_tool_processing_message(self) -> str:
         """Return message shown when processing tool results."""
-        return 'Processing Komodor Resources...'
+        return _prompt_config.tool_processing_message
 
     @trace_agent_stream("komodor")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):

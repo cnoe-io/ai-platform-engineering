@@ -44,6 +44,15 @@ async def search(
     Returns:
         JiraSearchResult object representing the search results.
     """
+    # Auto-correct: remove issuetype filters from JQL (unless explicitly wanted by user)
+    import re
+    if jql and re.search(r'\bAND\s+issuetype\s*=\s*\w+', jql, re.IGNORECASE):
+        original_jql = jql
+        jql = re.sub(r'\s+AND\s+issuetype\s*=\s*\w+', '', jql, flags=re.IGNORECASE)
+        logger.warning("Auto-correcting: removed issuetype filter from JQL")
+        logger.debug(f"Original: {original_jql}")
+        logger.info(f"Corrected: {jql}")
+
     # Get credentials from environment
     import os
     email = os.getenv("ATLASSIAN_EMAIL")
@@ -51,7 +60,8 @@ async def search(
     base_url = os.getenv("ATLASSIAN_API_URL")
 
     if not all([email, token, base_url]):
-        raise ValueError("Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL")
+        logger.error("Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL")
+        return "Error: Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL"
 
     # Prepare fields list
     fields_list: Optional[List[str]] = None

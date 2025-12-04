@@ -56,10 +56,16 @@ class AIPlatformEngineerA2ABinding:
       inputs = {'messages': [('user', query)]}
       config = self.tracing.create_config(context_id)
 
-      # Ensure trace_id is always in config metadata for tools to access
+      # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:
           config['metadata'] = {}
 
+      # Add context_id to metadata so tools can maintain conversation continuity
+      if context_id:
+          config['metadata']['context_id'] = context_id
+          logging.debug(f"Added context_id to config metadata: {context_id}")
+
+      # Add trace_id to metadata for distributed tracing
       if trace_id:
           config['metadata']['trace_id'] = trace_id
           logging.debug(f"Added trace_id to config metadata: {trace_id}")
@@ -300,6 +306,18 @@ class AIPlatformEngineerA2ABinding:
       except asyncio.CancelledError:
           logging.warning("⚠️ Primary stream cancelled by client disconnection - parsing final response before exit")
           # Don't return immediately - let post-stream parsing run below
+      except ValueError as ve:
+          # Handle LangGraph validation errors (e.g., orphaned tool_calls)
+          # Yield error event but keep queue open for follow-up questions
+          error_msg = f"Validation error: {str(ve)}"
+          logging.error(f"❌ {error_msg}")
+          yield {
+              "is_task_complete": False,  # Keep queue open - allow follow-up questions
+              "require_user_input": False,
+              "content": f"❌ Error: {error_msg}\n\nPlease try again or ask a follow-up question.",
+          }
+          # Don't yield completion event - keep queue open for follow-up questions
+          return
       # Fallback to old method if astream doesn't work
       except Exception as e:
           logging.warning(f"Token-level streaming failed, falling back to message-level: {e}")
@@ -476,7 +494,8 @@ class AIPlatformEngineerA2ABinding:
               {
                 'field_name': f.field_name,
                 'field_description': f.field_description,
-                'field_values': getattr(f, 'field_values', None)
+                'field_values': getattr(f, 'field_values', None),
+                'required': getattr(f, 'required', True)
               }
               for f in (md.input_fields or [])
             ] if getattr(md, 'input_fields', None) else None

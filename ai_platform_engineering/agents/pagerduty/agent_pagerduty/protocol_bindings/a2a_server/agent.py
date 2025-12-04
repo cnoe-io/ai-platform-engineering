@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.prompt_templates import scope_limited_agent_instruction
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from cnoe_agent_utils.tracing import trace_agent_stream
 
 
@@ -19,24 +19,16 @@ class ResponseFormat(BaseModel):
     message: str
 
 
+# Load prompt configuration from YAML
+_prompt_config = load_subagent_prompt_config("pagerduty")
+
+
 class PagerDutyAgent(BaseLangGraphAgent):
     """PagerDuty Agent for incident and schedule management."""
 
-    SYSTEM_INSTRUCTION = scope_limited_agent_instruction(
-        service_name="PagerDuty",
-        service_operations="get information about incidents, services, and schedules",
-        additional_guidelines=[
-            "Perform actions like creating, updating, or resolving incidents",
-            "When querying incidents or on-call schedules, calculate date ranges based on the current date provided above",
-            "Always convert relative dates (today, tomorrow, this week) to absolute dates in YYYY-MM-DD format before calling API tools"
-        ],
-        include_error_handling=True,  # Real PagerDuty API calls
-        include_date_handling=True    # Enable date handling guidelines
-    )
+    SYSTEM_INSTRUCTION = _prompt_config.get_system_instruction()
 
-    RESPONSE_FORMAT_INSTRUCTION = """Select status as completed if the request is complete.
-    Select status as input_required if the input is a question to the user.
-    Set response status to error if the input indicates an error."""
+    RESPONSE_FORMAT_INSTRUCTION = _prompt_config.response_format_instruction
 
     def get_agent_name(self) -> str:
         """Return the agent's name."""
@@ -74,11 +66,11 @@ class PagerDutyAgent(BaseLangGraphAgent):
 
     def get_tool_working_message(self) -> str:
         """Return message shown when calling tools."""
-        return 'Querying PagerDuty...'
+        return _prompt_config.tool_working_message
 
     def get_tool_processing_message(self) -> str:
         """Return message shown when processing tool results."""
-        return 'Processing PagerDuty data...'
+        return _prompt_config.tool_processing_message
 
     @trace_agent_stream("pagerduty")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):

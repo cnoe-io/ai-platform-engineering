@@ -52,7 +52,7 @@ docker run -p 0.0.0.0:8000:8000 -it\
 Use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
 
 ```bash
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
 
 ## 🏗️ Architecture
@@ -132,7 +132,7 @@ Agent: I can help you with Webex tasks such as:
 - Listing messages in rooms or direct messages
 - Listing users in a room
 - Listing rooms you are a member of
-- Listing messages in a thread        
+- Listing messages in a thread
 
 ---
 

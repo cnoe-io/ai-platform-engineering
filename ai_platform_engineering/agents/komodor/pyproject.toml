@@ -30,6 +30,7 @@ dependencies = [
     "cnoe-agent-utils==0.3.2",
     "mcp-komodor",
     "ai-platform-engineering-utils",
+    "prometheus_client>=0.20.0",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]

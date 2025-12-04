@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Configurationvariables(BaseModel):
-    """Configurationvariables model"""
+  """Configurationvariables model"""
 
 
 class ConfigurationvariablesResponse(APIResponse):
-    """Response model for Configurationvariables"""
+  """Response model for Configurationvariables"""
 
-    data: Optional[Configurationvariables] = None
+  data: Optional[Configurationvariables] = None
 
 
 class ConfigurationvariablesListResponse(APIResponse):
-    """List response model for Configurationvariables"""
+  """List response model for Configurationvariables"""
 
-    data: List[Configurationvariables] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Configurationvariables] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

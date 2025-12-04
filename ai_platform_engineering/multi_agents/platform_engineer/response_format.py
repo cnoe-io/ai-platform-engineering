@@ -13,6 +13,7 @@ class InputField(BaseModel):
     field_name: str = Field(description="The exact field name from the tool's request (e.g., 'provider_name', 'model', 'project_name')")
     field_description: str = Field(description="The exact description from the tool's request")
     field_values: Optional[List[str]] = Field(default=None, description="ALL possible values for select/dropdown fields. Preserve all values exactly as provided by the tool.")
+    required: Optional[bool] = Field(default=True, description="Whether this field is required. Defaults to True if not specified.")
 
 
 class Metadata(BaseModel):

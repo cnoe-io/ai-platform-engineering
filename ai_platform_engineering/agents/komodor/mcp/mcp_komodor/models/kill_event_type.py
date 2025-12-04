@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Killeventtype(BaseModel):
-    """Killeventtype model"""
+  """Killeventtype model"""
 
 
 class KilleventtypeResponse(APIResponse):
-    """Response model for Killeventtype"""
+  """Response model for Killeventtype"""
 
-    data: Optional[Killeventtype] = None
+  data: Optional[Killeventtype] = None
 
 
 class KilleventtypeListResponse(APIResponse):
-    """List response model for Killeventtype"""
+  """List response model for Killeventtype"""
 
-    data: List[Killeventtype] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Killeventtype] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Workflowconfigurationsensorfilters(BaseModel):
-    """Workflowconfigurationsensorfilters model"""
+  """Workflowconfigurationsensorfilters model"""
 
 
 class WorkflowconfigurationsensorfiltersResponse(APIResponse):
-    """Response model for Workflowconfigurationsensorfilters"""
+  """Response model for Workflowconfigurationsensorfilters"""
 
-    data: Optional[Workflowconfigurationsensorfilters] = None
+  data: Optional[Workflowconfigurationsensorfilters] = None
 
 
 class WorkflowconfigurationsensorfiltersListResponse(APIResponse):
-    """List response model for Workflowconfigurationsensorfilters"""
+  """List response model for Workflowconfigurationsensorfilters"""
 
-    data: List[Workflowconfigurationsensorfilters] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Workflowconfigurationsensorfilters] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

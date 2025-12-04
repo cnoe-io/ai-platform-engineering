@@ -7,7 +7,6 @@ import click
 import httpx
 import uvicorn
 
-from agent_petstore.protocol_bindings.a2a_server.agent import PetStoreAgent # type: ignore[import-untyped]
 from agent_executor import PetStoreAgentExecutor # type: ignore[import-untyped]
 from dotenv import load_dotenv
 
@@ -71,9 +70,9 @@ def get_agent_card(host: str, port: int):
     name='Pet Store Agent',
     description='Agent for interacting with the Pet Store API to manage pets, orders, and users.',
     url=f'http://{host}:{port}/',
-    version='1.0.0',
-    defaultInputModes=PetStoreAgent.SUPPORTED_CONTENT_TYPES,
-    defaultOutputModes=PetStoreAgent.SUPPORTED_CONTENT_TYPES,
+    version='0.1.0',
+    defaultInputModes=['text', 'text/plain'],
+    defaultOutputModes=['text', 'text/plain'],
     capabilities=capabilities,
     skills=[skill],
     authentication=AgentAuthentication(schemes=['public']),

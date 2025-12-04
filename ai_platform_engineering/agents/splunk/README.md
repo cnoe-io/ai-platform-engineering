@@ -75,7 +75,7 @@ docker run --rm -p 0.0.0.0:8000:8000 -it \
 Use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
 
 ```bash
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
 ```
 
 ---
@@ -176,7 +176,7 @@ flowchart TD
 Search for error logs in the last 24 hours from the web application
 ```
 
-### Alert Management  
+### Alert Management
 ```
 Create an alert for when CPU usage exceeds 80% for more than 5 minutes
 ```
@@ -251,4 +251,4 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## 📄 License
 
-Apache 2.0 
+Apache 2.0

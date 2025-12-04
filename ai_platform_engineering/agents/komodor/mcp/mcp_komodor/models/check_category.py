@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Checkcategory(BaseModel):
-    """Checkcategory model"""
+  """Checkcategory model"""
 
 
 class CheckcategoryResponse(APIResponse):
-    """Response model for Checkcategory"""
+  """Response model for Checkcategory"""
 
-    data: Optional[Checkcategory] = None
+  data: Optional[Checkcategory] = None
 
 
 class CheckcategoryListResponse(APIResponse):
-    """List response model for Checkcategory"""
+  """List response model for Checkcategory"""
 
-    data: List[Checkcategory] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Checkcategory] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

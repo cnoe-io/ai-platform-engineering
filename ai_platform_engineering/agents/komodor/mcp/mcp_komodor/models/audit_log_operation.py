@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Auditlogoperation(BaseModel):
-    """Auditlogoperation model"""
+  """Auditlogoperation model"""
 
 
 class AuditlogoperationResponse(APIResponse):
-    """Response model for Auditlogoperation"""
+  """Response model for Auditlogoperation"""
 
-    data: Optional[Auditlogoperation] = None
+  data: Optional[Auditlogoperation] = None
 
 
 class AuditlogoperationListResponse(APIResponse):
-    """List response model for Auditlogoperation"""
+  """List response model for Auditlogoperation"""
 
-    data: List[Auditlogoperation] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Auditlogoperation] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

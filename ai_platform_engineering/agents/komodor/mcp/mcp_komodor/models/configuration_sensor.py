@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Configurationsensor(BaseModel):
-    """Configurationsensor model"""
+  """Configurationsensor model"""
 
 
 class ConfigurationsensorResponse(APIResponse):
-    """Response model for Configurationsensor"""
+  """Response model for Configurationsensor"""
 
-    data: Optional[Configurationsensor] = None
+  data: Optional[Configurationsensor] = None
 
 
 class ConfigurationsensorListResponse(APIResponse):
-    """List response model for Configurationsensor"""
+  """List response model for Configurationsensor"""
 
-    data: List[Configurationsensor] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Configurationsensor] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

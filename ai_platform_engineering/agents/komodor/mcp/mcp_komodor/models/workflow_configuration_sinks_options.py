@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Workflowconfigurationsinksoptions(BaseModel):
-    """Workflowconfigurationsinksoptions model"""
+  """Workflowconfigurationsinksoptions model"""
 
 
 class WorkflowconfigurationsinksoptionsResponse(APIResponse):
-    """Response model for Workflowconfigurationsinksoptions"""
+  """Response model for Workflowconfigurationsinksoptions"""
 
-    data: Optional[Workflowconfigurationsinksoptions] = None
+  data: Optional[Workflowconfigurationsinksoptions] = None
 
 
 class WorkflowconfigurationsinksoptionsListResponse(APIResponse):
-    """List response model for Workflowconfigurationsinksoptions"""
+  """List response model for Workflowconfigurationsinksoptions"""
 
-    data: List[Workflowconfigurationsinksoptions] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Workflowconfigurationsinksoptions] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

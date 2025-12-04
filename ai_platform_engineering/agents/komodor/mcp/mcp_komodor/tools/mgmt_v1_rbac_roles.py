@@ -1,105 +1,113 @@
 """Tools for /mgmt/v1/rbac/roles operations"""
 
 import logging
-from typing import Dict, Any
+from typing import Any
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
-async def roles_controller_v1_get_all() -> Dict[str, Any]:
-    '''
-    Fetches all roles from the RBAC management API.
+async def get_roles_controller_v1_get_all() -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/roles` instead.
 
-    This asynchronous function makes a GET request to the /mgmt/v1/rbac/roles endpoint
-    to retrieve all roles available in the system.
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/roles` API instead for new implementations and better validation and error handling.
 
-    Args:
-        None
-
-    Returns:
-        Dict[str, Any]: A dictionary containing the JSON response from the API call,
-        which includes details of all roles.
-
-    Raises:
-        Exception: If the API request fails or returns an error, an exception is raised
-        with the error details.
-    '''
-    logger.debug("Making GET request to /mgmt/v1/rbac/roles")
-
-    params = {}
-    data = {}
-
-    flat_body = {}
-    data = assemble_nested_body(flat_body)
-
-    success, response = await make_api_request("/mgmt/v1/rbac/roles", method="GET", params=params, data=data)
-
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+  Args:
 
 
-async def roles_controller_v1_post(body_name: str) -> Dict[str, Any]:
-    '''
-    Creates a new role in the RBAC system by making a POST request to the /mgmt/v1/rbac/roles endpoint.
+  Returns:
+      Any: The JSON response from the API call.
 
-    Args:
-        body_name (str): The name of the role to be created.
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making GET request to /mgmt/v1/rbac/roles")
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call, containing details of the created role or an error message.
+  params = {}
+  data = {}
 
-    Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
-    '''
-    logger.debug("Making POST request to /mgmt/v1/rbac/roles")
+  flat_body = {}
+  data = assemble_nested_body(flat_body)
 
-    params = {}
-    data = {}
+  success, response = await make_api_request("/mgmt/v1/rbac/roles", method="GET", params=params, data=data)
 
-    flat_body = {}
-    if body_name is not None:
-        flat_body["name"] = body_name
-    data = assemble_nested_body(flat_body)
-
-    success, response = await make_api_request("/mgmt/v1/rbac/roles", method="POST", params=params, data=data)
-
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response
 
 
-async def roles_controller_v1_delete(body_id: str) -> Dict[str, Any]:
-    '''
-    Deletes a role by its ID using the RBAC roles management API.
+async def post_roles_controller_v1_post(body_name: str) -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/roles` instead.
 
-    Args:
-        body_id (str): The ID of the role to be deleted.
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/roles` API instead for new implementations and better validation and error handling.
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call, containing the result of the delete operation.
+  Args:
 
-    Raises:
-        Exception: If the API request fails or returns an error, an exception is raised with the error details.
-    '''
-    logger.debug("Making DELETE request to /mgmt/v1/rbac/roles")
+      body_name (str): Role name
 
-    params = {}
-    data = {}
 
-    flat_body = {}
-    if body_id is not None:
-        flat_body["id"] = body_id
-    data = assemble_nested_body(flat_body)
+  Returns:
+      Any: The JSON response from the API call.
 
-    success, response = await make_api_request("/mgmt/v1/rbac/roles", method="DELETE", params=params, data=data)
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making POST request to /mgmt/v1/rbac/roles")
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+  params = {}
+  data = {}
+
+  flat_body = {}
+  if body_name is not None:
+    flat_body["name"] = body_name
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/mgmt/v1/rbac/roles", method="POST", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response
+
+
+async def del_roles_controller_v1_del(body_id: str) -> Any:
+  """
+  Deprecated: Use `/api/v2/rbac/roles/{id_or_name}` instead.
+
+  OpenAPI Description:
+      This API is deprecated. Please use `/api/v2/rbac/roles/{id_or_name}` API instead for new implementations and better validation and error handling.
+
+  Args:
+
+      body_id (str): Role id
+
+
+  Returns:
+      Any: The JSON response from the API call.
+
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making DELETE request to /mgmt/v1/rbac/roles")
+
+  params = {}
+  data = {}
+
+  flat_body = {}
+  if body_id is not None:
+    flat_body["id"] = body_id
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/mgmt/v1/rbac/roles", method="DELETE", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response

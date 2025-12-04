@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Minimalaction(BaseModel):
-    """Minimalaction model"""
+  """Minimalaction model"""
 
 
 class MinimalactionResponse(APIResponse):
-    """Response model for Minimalaction"""
+  """Response model for Minimalaction"""
 
-    data: Optional[Minimalaction] = None
+  data: Optional[Minimalaction] = None
 
 
 class MinimalactionListResponse(APIResponse):
-    """List response model for Minimalaction"""
+  """List response model for Minimalaction"""
 
-    data: List[Minimalaction] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Minimalaction] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

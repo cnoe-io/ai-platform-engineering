@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Costallocationsummaryrow(BaseModel):
-    """A representation of a table row in allocation cost. Scope key/value will be determined according to the selected scope."""
+  """A representation of a table row in allocation cost. Scope key/value will be determined according to the selected scope."""
 
 
 class CostallocationsummaryrowResponse(APIResponse):
-    """Response model for Costallocationsummaryrow"""
+  """Response model for Costallocationsummaryrow"""
 
-    data: Optional[Costallocationsummaryrow] = None
+  data: Optional[Costallocationsummaryrow] = None
 
 
 class CostallocationsummaryrowListResponse(APIResponse):
-    """List response model for Costallocationsummaryrow"""
+  """List response model for Costallocationsummaryrow"""
 
-    data: List[Costallocationsummaryrow] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Costallocationsummaryrow] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

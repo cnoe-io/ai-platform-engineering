@@ -1,44 +1,77 @@
 """Tools for /api/v2/clusters/k8s-events/search operations"""
 
 import logging
-from typing import Dict, Any
+from typing import Any, List, Literal, Optional
 from mcp_komodor.api.client import make_api_request, assemble_nested_body
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp_tools")
 
 
-async def post_api_v2_clusters_k8s_events_search(body: str) -> Dict[str, Any]:
-    '''
-    Search for Kubernetes events in cluster scope.
+async def post_post_api_search(
+  body_scope_cluster: str,
+  body_props_type: Literal["deploy", "node-terminated", "node-created"],
+  body_scope_namespaces: Optional[List[str]] = None,
+  body_props_from_epoch: Optional[int] = None,
+  body_props_to_epoch: Optional[int] = None,
+  body_pagination_page_size: Optional[int] = None,
+  body_pagination_token: Optional[str] = None,
+) -> Any:
+  """
+  Search for k8s events in cluster scope
 
-    Search for events based on the provided criteria. The maximum time range for the search is 2 days. 
-    If no time range is specified, the default is the last 24 hours. 
-    The maximum time back for the search is 7 days.
+  OpenAPI Description:
+      Search for events based on the provided criteria. Maximum time range is 2 days. If no time range is provided, the default is the last 24 hours. Maximum time back is 7 days.
 
-    Args:
-        body (str): The request body containing the search criteria for Kubernetes events.
+  Args:
 
-    Returns:
-        Dict[str, Any]: The JSON response from the API call containing the search results.
+      body_scope_cluster (str): The cluster identifier
 
-    Raises:
-        Exception: If the API request fails or returns an error.
-    '''
-    logger.debug("Making POST request to /api/v2/clusters/k8s-events/search")
+      body_scope_namespaces (List[str]): A list of namespaces within the cluster
 
-    params = {}
-    data = {}
+      body_props_type (Literal['deploy', 'node-terminated', 'node-created']): The type of the event
 
-    flat_body = {}
-    data = assemble_nested_body(flat_body)
+      body_props_from_epoch (int): Unix timestamp in seconds
 
-    success, response = await make_api_request(
-        "/api/v2/clusters/k8s-events/search", method="POST", params=params, data=data
-    )
+      body_props_to_epoch (int): Unix timestamp in seconds
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+      body_pagination_page_size (int): Page the number of results returned by page size
+
+      body_pagination_token (str): Pagination token
+
+
+  Returns:
+      Any: The JSON response from the API call.
+
+  Raises:
+      Exception: If the API request fails or returns an error.
+  """
+  logger.debug("Making POST request to /api/v2/clusters/k8s-events/search")
+
+  params = {}
+  data = {}
+
+  flat_body = {}
+  if body_scope_cluster is not None:
+    flat_body["scope_cluster"] = body_scope_cluster
+  if body_props_type is not None:
+    flat_body["props_type"] = body_props_type
+  if body_scope_namespaces is not None:
+    flat_body["scope_namespaces"] = body_scope_namespaces
+  if body_props_from_epoch is not None:
+    flat_body["props_from_epoch"] = body_props_from_epoch
+  if body_props_to_epoch is not None:
+    flat_body["props_to_epoch"] = body_props_to_epoch
+  if body_pagination_page_size is not None:
+    flat_body["pagination_page_size"] = body_pagination_page_size
+  if body_pagination_token is not None:
+    flat_body["pagination_token"] = body_pagination_token
+  data = assemble_nested_body(flat_body)
+
+  success, response = await make_api_request("/api/v2/clusters/k8s-events/search", method="POST", params=params, data=data)
+
+  if not success:
+    logger.error(f"Request failed: {response.get('error')}")
+    return {"error": response.get("error", "Request failed")}
+  return response

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Paginationtokenparams(BaseModel):
-    """Paginationtokenparams model"""
+  """Paginationtokenparams model"""
 
 
 class PaginationtokenparamsResponse(APIResponse):
-    """Response model for Paginationtokenparams"""
+  """Response model for Paginationtokenparams"""
 
-    data: Optional[Paginationtokenparams] = None
+  data: Optional[Paginationtokenparams] = None
 
 
 class PaginationtokenparamsListResponse(APIResponse):
-    """List response model for Paginationtokenparams"""
+  """List response model for Paginationtokenparams"""
 
-    data: List[Paginationtokenparams] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Paginationtokenparams] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

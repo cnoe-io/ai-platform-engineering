@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Realtimecheckssupportingdata(BaseModel):
-    """Realtimecheckssupportingdata model"""
+  """Realtimecheckssupportingdata model"""
 
 
 class RealtimecheckssupportingdataResponse(APIResponse):
-    """Response model for Realtimecheckssupportingdata"""
+  """Response model for Realtimecheckssupportingdata"""
 
-    data: Optional[Realtimecheckssupportingdata] = None
+  data: Optional[Realtimecheckssupportingdata] = None
 
 
 class RealtimecheckssupportingdataListResponse(APIResponse):
-    """List response model for Realtimecheckssupportingdata"""
+  """List response model for Realtimecheckssupportingdata"""
 
-    data: List[Realtimecheckssupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Realtimecheckssupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

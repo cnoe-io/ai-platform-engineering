@@ -126,25 +126,65 @@ def extract_response_text(response) -> str:
       logger.debug(f"Response size: {len(response_json_str)} chars (too large to log)")
 
     # First, try extracting from artifacts
+    # Priority: final_result > complete_result > partial_result > other artifacts
     artifacts = result.get("artifacts")
     logger.debug(f"Artifacts found: {artifacts is not None}, count: {len(artifacts) if artifacts else 0}")
-    if artifacts and isinstance(artifacts, list) and len(artifacts) > 0 and artifacts[0].get("parts"):
-      logger.debug(f"Parts in first artifact: {len(artifacts[0]['parts'])}")
-      for idx, part in enumerate(artifacts[0]["parts"]):
-        logger.debug(f"Part {idx}: keys={list(part.keys())}")
-        # Check if part has a 'root' attribute (Part with TextPart inside)
-        if "root" in part:
-          root = part["root"]
-          logger.debug(f"Part {idx} has root: kind={root.get('kind')}, has_text={bool(root.get('text'))}")
-          if root.get("kind") == "text" and root.get("text"):
-            text = root.get("text", "").strip()
-            logger.info(f"✅ Extracted text from artifacts[0].parts[{idx}].root.text: {text[:100]}...")
+
+    if artifacts and isinstance(artifacts, list) and len(artifacts) > 0:
+      # First, look for result artifacts (final_result, complete_result, partial_result)
+      result_artifact_names = ["final_result", "complete_result", "partial_result"]
+      result_artifact = None
+
+      for artifact_name in result_artifact_names:
+        for artifact in artifacts:
+          if artifact.get("name") == artifact_name:
+            result_artifact = artifact
+            logger.info(f"✅ Found {artifact_name} artifact, extracting text from it")
+            break
+        if result_artifact:
+          break
+
+      # Use result artifact if found, otherwise use first artifact
+      artifact_to_use = result_artifact if result_artifact else artifacts[0]
+      artifact_name = artifact_to_use.get("name", "unknown")
+      logger.debug(f"Extracting from artifact: {artifact_name}, parts: {len(artifact_to_use.get('parts', []))}")
+
+      if artifact_to_use.get("parts"):
+        for idx, part in enumerate(artifact_to_use["parts"]):
+          logger.debug(f"Part {idx}: keys={list(part.keys())}")
+          # Check if part has a 'root' attribute (Part with TextPart inside)
+          if "root" in part:
+            root = part["root"]
+            logger.debug(f"Part {idx} has root: kind={root.get('kind')}, has_text={bool(root.get('text'))}")
+            if root.get("kind") == "text" and root.get("text"):
+              text = root.get("text", "").strip()
+              logger.info(f"✅ Extracted text from {artifact_name}.parts[{idx}].root.text: {text[:100]}...")
+              return text
+            # Also check for data parts (structured responses)
+            elif root.get("kind") == "data" and root.get("data"):
+              data = root.get("data", {})
+              # Try to extract text from structured data (e.g., JarvisResponse with 'answer' field)
+              if isinstance(data, dict):
+                if "answer" in data:
+                  text = str(data["answer"]).strip()
+                  logger.info(f"✅ Extracted text from {artifact_name}.parts[{idx}].root.data.answer: {text[:100]}...")
+                  return text
+                # Fallback: convert entire data structure to string
+                text = json.dumps(data, indent=2, default=str).strip()
+                logger.info(f"✅ Extracted text from {artifact_name}.parts[{idx}].root.data (as JSON): {text[:100]}...")
+                return text
+          # Fallback: check if part itself has kind='text'
+          elif part.get("kind") == "text":
+            text = part.get("text", "").strip()
+            logger.info(f"✅ Extracted text from {artifact_name}.parts[{idx}].text: {text[:100]}...")
             return text
-        # Fallback: check if part itself has kind='text'
-        elif part.get("kind") == "text":
-          text = part.get("text", "").strip()
-          logger.info(f"✅ Extracted text from artifacts[0].parts[{idx}].text: {text[:100]}...")
-          return text
+          # Also check for data parts directly
+          elif part.get("kind") == "data" and part.get("data"):
+            data = part.get("data", {})
+            if isinstance(data, dict) and "answer" in data:
+              text = str(data["answer"]).strip()
+              logger.info(f"✅ Extracted text from {artifact_name}.parts[{idx}].data.answer: {text[:100]}...")
+              return text
 
     # If no artifacts found, try extracting from status.message
     message = result.get("status", {}).get("message", {})
@@ -214,7 +254,10 @@ async def send_message_to_agent(user_input: str) -> str:
   try:
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as httpx_client:
       logger.debug(f"Connecting to agent at {AGENT_URL}")
-      client = await A2AClient.get_client_from_agent_card_url(httpx_client, AGENT_URL)
+      # Fetch agent card first
+      agent_card = await fetch_agent_card(AGENT_HOST, AGENT_PORT, "", False)
+      # Create client with agent card
+      client = A2AClient(agent_card=agent_card, httpx_client=httpx_client)
       client.url = AGENT_URL
       logger.debug("Successfully connected to agent")
 
@@ -409,7 +452,15 @@ class TestAgentCommunication:
 
         logger.info(f"✅ Prompt '{prompt_id}' ({category}) successful - response: {response}")
         if expected_keywords:
-            assert len(found_keywords) > 0, f"None of expected keywords {expected_keywords} found in response for {prompt_id}"
+            if len(found_keywords) == 0:
+                # Log detailed failure information for debugging
+                logger.error(f"❌ Prompt '{prompt_id}' failed - response (first 500 chars): {response[:500]}")
+                logger.error(f"❌ Expected keywords: {expected_keywords}")
+                logger.error(f"❌ Response length: {len(response)}")
+                # Check if this looks like a notification/intermediate message
+                if len(response) < 100 and ("calling" in response_lower or "supervisor" in response_lower or "agent" in response_lower):
+                    logger.warning("⚠️ Response appears to be an intermediate notification, not final result")
+            assert len(found_keywords) > 0, f"None of expected keywords {expected_keywords} found in response for {prompt_id}. Response (first 500 chars): {response[:500]}"
             logger.info(f"✅ Prompt '{prompt_id}' ({category}) successful - found keywords: {found_keywords}")
         else:
             logger.info(f"✅ Prompt '{prompt_id}' ({category}) successful - response length: {len(response)}")
@@ -456,7 +507,8 @@ class TestSpecificAgentCapabilities:
                     # Use shorter timeout for this test to prevent hanging
                     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as httpx_client:
                         logger.debug(f"Connecting to agent at {AGENT_URL}")
-                        client = await A2AClient.get_client_from_agent_card_url(httpx_client, AGENT_URL)
+                        # Use the agent_card from the fixture
+                        client = A2AClient(agent_card=agent_card, httpx_client=httpx_client)
                         client.url = AGENT_URL
 
                         payload = create_send_message_payload(example_query)

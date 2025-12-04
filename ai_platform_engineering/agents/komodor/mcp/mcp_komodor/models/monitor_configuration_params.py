@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Monitorconfigurationparams(BaseModel):
-    """Monitorconfigurationparams model"""
+  """Monitorconfigurationparams model"""
 
 
 class MonitorconfigurationparamsResponse(APIResponse):
-    """Response model for Monitorconfigurationparams"""
+  """Response model for Monitorconfigurationparams"""
 
-    data: Optional[Monitorconfigurationparams] = None
+  data: Optional[Monitorconfigurationparams] = None
 
 
 class MonitorconfigurationparamsListResponse(APIResponse):
-    """List response model for Monitorconfigurationparams"""
+  """List response model for Monitorconfigurationparams"""
 
-    data: List[Monitorconfigurationparams] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Monitorconfigurationparams] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

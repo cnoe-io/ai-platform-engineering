@@ -26,6 +26,7 @@ dependencies = [
   "fastapi (>=0.100.0)",
   "fastmcp==2.11.1",
   "mcp-argocd",
+  "prometheus_client>=0.20.0",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Freecommandmetadata(BaseModel):
-    """Freecommandmetadata model"""
+  """Freecommandmetadata model"""
 
 
 class FreecommandmetadataResponse(APIResponse):
-    """Response model for Freecommandmetadata"""
+  """Response model for Freecommandmetadata"""
 
-    data: Optional[Freecommandmetadata] = None
+  data: Optional[Freecommandmetadata] = None
 
 
 class FreecommandmetadataListResponse(APIResponse):
-    """List response model for Freecommandmetadata"""
+  """List response model for Freecommandmetadata"""
 
-    data: List[Freecommandmetadata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Freecommandmetadata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

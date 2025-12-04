@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Syntheticsupportingdata(BaseModel):
-    """Syntheticsupportingdata model"""
+  """Syntheticsupportingdata model"""
 
 
 class SyntheticsupportingdataResponse(APIResponse):
-    """Response model for Syntheticsupportingdata"""
+  """Response model for Syntheticsupportingdata"""
 
-    data: Optional[Syntheticsupportingdata] = None
+  data: Optional[Syntheticsupportingdata] = None
 
 
 class SyntheticsupportingdataListResponse(APIResponse):
-    """List response model for Syntheticsupportingdata"""
+  """List response model for Syntheticsupportingdata"""
 
-    data: List[Syntheticsupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Syntheticsupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

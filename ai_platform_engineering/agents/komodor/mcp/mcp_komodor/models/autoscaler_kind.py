@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Autoscalerkind(BaseModel):
-    """Autoscalerkind model"""
+  """Autoscalerkind model"""
 
 
 class AutoscalerkindResponse(APIResponse):
-    """Response model for Autoscalerkind"""
+  """Response model for Autoscalerkind"""
 
-    data: Optional[Autoscalerkind] = None
+  data: Optional[Autoscalerkind] = None
 
 
 class AutoscalerkindListResponse(APIResponse):
-    """List response model for Autoscalerkind"""
+  """List response model for Autoscalerkind"""
 
-    data: List[Autoscalerkind] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Autoscalerkind] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

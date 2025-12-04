@@ -4,10 +4,11 @@
 import logging
 import os
 import httpx
+from pathlib import Path
 from dotenv import load_dotenv
 
 from ai_platform_engineering.utils.logging_config import configure_logging
-
+from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware, agent_metrics
 
 from starlette.middleware.cors import CORSMiddleware
 
@@ -36,6 +37,38 @@ from ai_platform_engineering.multi_agents.platform_engineer import platform_regi
 
 logger = logging.getLogger(__name__)
 
+def get_version():
+  """
+  Read version from multiple sources (in order of preference):
+  1. Package metadata (works with pip/uvx installed packages)
+  2. pyproject.toml (works in development/editable installs)
+  3. Fallback to "0.0.0"
+  """
+  # Try package metadata first (works for installed packages via pip/uvx)
+  try:
+    from importlib.metadata import version
+    return version("ai-platform-engineering")
+  except Exception:
+    pass
+
+  # Try reading from pyproject.toml (works in development/Docker)
+  try:
+    # Find pyproject.toml relative to this file (go up to project root)
+    # Path: ai_platform_engineering/multi_agents/platform_engineer/protocol_bindings/a2a/main.py
+    # Need to go up 6 levels to reach project root
+    current_file = Path(__file__)
+    pyproject_path = current_file.parent.parent.parent.parent.parent.parent / "pyproject.toml"
+    if pyproject_path.exists():
+      import tomllib
+      with open(pyproject_path, "rb") as f:
+        pyproject_data = tomllib.load(f)
+      return pyproject_data["project"]["version"]
+  except Exception:
+    pass
+
+  # Fallback
+  return "0.0.0"
+
 def get_agent_card(host: str, port: int, external_url: str = None):
   capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
@@ -62,7 +95,7 @@ def get_agent_card(host: str, port: int, external_url: str = None):
     name=agent_name,
     description=agent_description,
     url=agent_url,
-    version='0.1.0',
+    version=get_version(),
     defaultInputModes=['text', 'text/plain'],
     defaultOutputModes=['text', 'text/plain'],
     capabilities=capabilities,
@@ -149,3 +182,25 @@ app.add_middleware(
   allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
   allow_headers=["*"],  # Allow all headers
 )
+
+################################################################################
+# Add Prometheus metrics middleware
+################################################################################
+METRICS_ENABLED = os.getenv('METRICS_ENABLED', 'false').lower() == 'true'
+
+if METRICS_ENABLED:
+  logger.info("Enabling Prometheus metrics at /metrics endpoint")
+  app.add_middleware(
+    PrometheusMetricsMiddleware,
+    excluded_paths=['/.well-known/agent.json', '/.well-known/agent-card.json', '/health', '/ready'],
+    metrics_path='/metrics',
+  )
+
+  # Set agent info for metrics
+  agent_metrics.set_agent_info(
+    version=get_version(),
+    routing_mode=os.getenv('ROUTING_MODE', 'DEEP_AGENT_PARALLEL_ORCHESTRATION'),
+    enabled_agents=platform_registry.AGENT_NAMES,
+  )
+else:
+  logger.info("Prometheus metrics disabled (METRICS_ENABLED=false)")

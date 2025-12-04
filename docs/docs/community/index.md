@@ -5,7 +5,7 @@
 ### 🗓️ Weekly Meetings
 
 * **Every Monday**
-  * 🕛 12:00–13:00 CST | 🕕 18:00–19:00 CET | 🕔 17:00–18:00 London | 🕘 10:00–11:00 PST
+  * 🕛 12:00–13:00 CST | 🕕 19:00–20:00 CET | 🕔 18:00–19:00 London | 🕘 10:00–11:00 PST
 * 🔗 [Webex Meeting](https://go.webex.com/meet/cnoe) | 📅 [Google Calendar](https://calendar.google.com/calendar/u/0/embed?src=064a2adfce866ccb02e61663a09f99147f22f06374e7a8994066bdc81e066986@group.calendar.google.com&ctz=America/Los_Angeles) | 
 
 ### 💬 Slack

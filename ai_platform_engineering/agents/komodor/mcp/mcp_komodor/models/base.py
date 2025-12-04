@@ -5,17 +5,17 @@ from pydantic import BaseModel
 
 
 class APIResponse(BaseModel):
-    """Base model for API responses"""
+  """Base model for API responses"""
 
-    success: bool
-    data: Optional[Dict] = None
-    error: Optional[str] = None
+  success: bool
+  data: Optional[Dict] = None
+  error: Optional[str] = None
 
 
 class PaginationInfo(BaseModel):
-    """Pagination information"""
+  """Pagination information"""
 
-    offset: int
-    limit: int
-    total: Optional[int] = None
-    more: Optional[bool] = None
+  offset: int
+  limit: int
+  total: Optional[int] = None
+  more: Optional[bool] = None

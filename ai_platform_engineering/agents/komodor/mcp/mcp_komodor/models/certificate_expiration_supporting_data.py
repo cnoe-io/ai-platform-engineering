@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Certificateexpirationsupportingdata(BaseModel):
-    """Certificateexpirationsupportingdata model"""
+  """Certificateexpirationsupportingdata model"""
 
 
 class CertificateexpirationsupportingdataResponse(APIResponse):
-    """Response model for Certificateexpirationsupportingdata"""
+  """Response model for Certificateexpirationsupportingdata"""
 
-    data: Optional[Certificateexpirationsupportingdata] = None
+  data: Optional[Certificateexpirationsupportingdata] = None
 
 
 class CertificateexpirationsupportingdataListResponse(APIResponse):
-    """List response model for Certificateexpirationsupportingdata"""
+  """List response model for Certificateexpirationsupportingdata"""
 
-    data: List[Certificateexpirationsupportingdata] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Certificateexpirationsupportingdata] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

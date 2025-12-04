@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Workspace(BaseModel):
-    """Workspace model"""
+  """Workspace model"""
 
 
 class WorkspaceResponse(APIResponse):
-    """Response model for Workspace"""
+  """Response model for Workspace"""
 
-    data: Optional[Workspace] = None
+  data: Optional[Workspace] = None
 
 
 class WorkspaceListResponse(APIResponse):
-    """List response model for Workspace"""
+  """List response model for Workspace"""
 
-    data: List[Workspace] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Workspace] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

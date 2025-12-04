@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Getbulkactionsresultsresp(BaseModel):
-    """Getbulkactionsresultsresp model"""
+  """Getbulkactionsresultsresp model"""
 
 
 class GetbulkactionsresultsrespResponse(APIResponse):
-    """Response model for Getbulkactionsresultsresp"""
+  """Response model for Getbulkactionsresultsresp"""
 
-    data: Optional[Getbulkactionsresultsresp] = None
+  data: Optional[Getbulkactionsresultsresp] = None
 
 
 class GetbulkactionsresultsrespListResponse(APIResponse):
-    """List response model for Getbulkactionsresultsresp"""
+  """List response model for Getbulkactionsresultsresp"""
 
-    data: List[Getbulkactionsresultsresp] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Getbulkactionsresultsresp] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None

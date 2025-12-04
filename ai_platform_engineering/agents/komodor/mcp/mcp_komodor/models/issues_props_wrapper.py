@@ -6,17 +6,17 @@ from .base import APIResponse, PaginationInfo
 
 
 class Issuespropswrapper(BaseModel):
-    """Issuespropswrapper model"""
+  """Issuespropswrapper model"""
 
 
 class IssuespropswrapperResponse(APIResponse):
-    """Response model for Issuespropswrapper"""
+  """Response model for Issuespropswrapper"""
 
-    data: Optional[Issuespropswrapper] = None
+  data: Optional[Issuespropswrapper] = None
 
 
 class IssuespropswrapperListResponse(APIResponse):
-    """List response model for Issuespropswrapper"""
+  """List response model for Issuespropswrapper"""
 
-    data: List[Issuespropswrapper] = Field(default_factory=list)
-    pagination: Optional[PaginationInfo] = None
+  data: List[Issuespropswrapper] = Field(default_factory=list)
+  pagination: Optional[PaginationInfo] = None
