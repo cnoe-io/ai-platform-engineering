@@ -6,6 +6,7 @@ from typing import Annotated
 from pydantic import Field
 from mcp_jira.api.client import make_api_request
 from mcp_jira.models.jira.worklog import JiraWorklog
+from mcp_jira.tools.jira.constants import check_read_only
 
 # Configure logging
 logger = logging.getLogger("mcp-jira-worklog")
@@ -36,7 +37,13 @@ async def add_worklog(
     original_estimate: Annotated[str, Field(description="Optional new original estimate", default="")] = "",
     remaining_estimate: Annotated[str, Field(description="Optional new remaining estimate", default="")] = "",
 ) -> str:
-    """Add a worklog to a Jira issue."""
+    """Add a worklog to a Jira issue.
+
+    Raises:
+        ValueError: If in read-only mode.
+    """
+    check_read_only()
+
     logger.debug("Entering add_worklog function")
     logger.debug(
         f"Parameters: issue_key={issue_key}, time_spent={time_spent}, comment={comment}, "

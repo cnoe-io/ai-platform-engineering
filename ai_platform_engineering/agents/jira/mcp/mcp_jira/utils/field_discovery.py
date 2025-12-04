@@ -276,7 +276,7 @@ class FieldDiscovery:
         """
         # Query create metadata for this project and issue type
         success, data = await make_api_request(
-            f"/rest/api/3/issue/createmeta",
+            "/rest/api/3/issue/createmeta",
             params={
                 "projectKeys": project_key,
                 "issuetypeNames": issue_type,

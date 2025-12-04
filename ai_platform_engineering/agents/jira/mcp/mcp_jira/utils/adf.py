@@ -8,8 +8,7 @@ Reference: https://developer.atlassian.com/cloud/jira/platform/apis/document/str
 """
 
 import logging
-import re
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, Union
 
 logger = logging.getLogger("mcp-jira")
 
