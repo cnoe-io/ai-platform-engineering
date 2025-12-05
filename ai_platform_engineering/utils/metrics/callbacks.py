@@ -62,7 +62,7 @@ class MetricsCallbackHandler(BaseCallbackHandler):
         tool_name = serialized.get("name", "unknown")
         self._tool_start_times[run_id] = time.time()
         self._tool_names[run_id] = tool_name
-        logger.debug(f"📊 Tool started: {tool_name}")
+        logger.info(f"📊 Tool started: {tool_name}")
 
     def on_tool_end(
         self,
@@ -87,7 +87,7 @@ class MetricsCallbackHandler(BaseCallbackHandler):
                 status="success",
                 duration=duration,
             )
-            logger.debug(f"📊 Tool completed: {tool_name}, duration={duration:.2f}s")
+            logger.info(f"📊 Tool completed: {tool_name}, duration={duration:.2f}s")
 
     def on_tool_error(
         self,
@@ -112,5 +112,5 @@ class MetricsCallbackHandler(BaseCallbackHandler):
                 status="error",
                 duration=duration,
             )
-            logger.debug(f"📊 Tool error: {tool_name}, duration={duration:.2f}s, error={error}")
+            logger.info(f"📊 Tool error: {tool_name}, duration={duration:.2f}s, error={error}")
 
