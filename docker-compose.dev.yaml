@@ -13,7 +13,7 @@
 services:
 
   ####################################################################################################
-  #                                 AI Platform Engineer A2A P2P                                  #
+  #                                 CAIPE Supervisor Deep Agent                                      #
   ####################################################################################################
   caipe-supervisor:
     build:
@@ -42,6 +42,8 @@ services:
       - ENABLE_ARTIFACT_STREAMING=true
 
       # Agent hostname mappings for agent connectivity.
+      # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.
+      # If you add new agents/services, include a corresponding *_AGENT_HOST assignment below.
       - ARGOCD_AGENT_HOST=agent-argocd
       - AWS_AGENT_HOST=agent-aws
       - BACKSTAGE_AGENT_HOST=agent-backstage
@@ -58,9 +60,15 @@ services:
       - WEBEX_AGENT_HOST=agent-webex
 
       # Agent ports
+      # Add an exception for the RAG agent port to 8099. All other agents use the default port 8000.
       - RAG_AGENT_PORT=${RAG_AGENT_PORT:-8099}
 
-      # Enable agents
+      # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
+      # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
+      # Example: ENABLE_ARGOCD=true enables the ArgoCD agent, allowing the platform engineer to route tasks related to Kubernetes application management.
+      # These flags allow you to fine-tune which domain-specific agents are available as tools to the main platform engineer agent at runtime.
+      # Update these variables as needed based on your deployment requirements, security posture, or available agent containers.
+
       - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
       - ENABLE_AWS=${ENABLE_AWS:-false}
       - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
@@ -74,9 +82,10 @@ services:
       - ENABLE_SLACK=${ENABLE_SLACK:-false}
       - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
       - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
+      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
 
-      # Tracing configuration
+      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
@@ -86,7 +95,7 @@ services:
     command: platform-engineer
 
   ####################################################################################################
-  #                                      SLIM Transport                                            #
+  #                                      SLIM Transport                                              #
   ####################################################################################################
   slim-dataplane:
     image: ghcr.io/agntcy/slim:0.6.1
@@ -113,7 +122,7 @@ services:
       - slim
 
   ####################################################################################################
-  #                                         Sub-Agents                                             #
+  #                                         Sub-Agents                                               #
   ####################################################################################################
   # AWS Agent
   agent-aws:
@@ -154,7 +163,7 @@ services:
   agent-petstore:
     build:
       context: .
-      dockerfile: build/agents/Dockerfile.template
+      dockerfile: build/agents/Dockerfile.a2a
     container_name: agent-petstore
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
@@ -198,6 +207,10 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+    # Docker socket mount is only needed when MCP_MODE=stdio
+    # For local Github Offical MCP server execution.
+    # Uncomment this when MCP_MODE=stdio is supported
+    # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
     profiles:
       - github
       - all-agents
@@ -707,7 +720,7 @@ services:
       - all-agents
 
   ####################################################################################################
-  #                                      RAG Services                                              #
+  #                                      RAG Services                                                #
   ####################################################################################################
   rag_server:
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
