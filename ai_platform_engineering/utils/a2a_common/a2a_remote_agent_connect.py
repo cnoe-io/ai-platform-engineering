@@ -156,7 +156,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
   async def _arun(self, prompt: str, trace_id: Optional[str] = None, context_id: Optional[str] = None) -> Any:
     """Execute remote agent call with retry, error detection, and human-in-loop support."""
 
-    max_attempts = int(os.getenv("A2A_REMOTE_MAX_RETRIES", "2"))
+    max_attempts = int(os.getenv("A2A_REMOTE_MAX_RETRIES", "1"))
     retry_delay = float(os.getenv("A2A_REMOTE_RETRY_DELAY_SECONDS", "5.0"))
     writer = get_stream_writer()
 
@@ -286,6 +286,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
     logger.info("Starting A2A streaming send_message.")
 
     accumulated_text: list[str] = []
+    tool_errors: list[str] = []  # Track tool errors to bubble them up
 
     async for chunk in self._client.send_message_streaming(streaming_request):
       try:
@@ -368,6 +369,18 @@ class A2ARemoteAgentConnectTool(BaseTool):
           task_state = status.get('state') if isinstance(status, dict) else None
           is_completed = task_state == 'completed' or is_final
 
+          # Check if this is a tool error notification in the status message
+          if isinstance(status, dict):
+            message = status.get('message')
+            if message and isinstance(message, dict):
+              parts = message.get('parts', [])
+              for part in parts:
+                if isinstance(part, dict):
+                  text = part.get('text')
+                  if text and ('❌' in text or 'failed' in text.lower()):
+                    logger.warning(f"🚨 Tool error detected in status message: {text}")
+                    tool_errors.append(text)
+
           if is_completed:
             logger.debug(f"⏭️ Skipping completion signal from sub-agent (final={is_final}, state={task_state}) - supervisor will complete its own task")
             # Still accumulate text if present, but don't forward the completion signal
@@ -434,6 +447,14 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
     logger.info(f"Accumulated {len(accumulated_text)} tokens into {len(final_response)} char response")
 
+    # Log tool errors for visibility but don't fail - let supervisor handle them
+    if tool_errors:
+      logger.warning(f"🚨 Tool errors detected during execution: {len(tool_errors)} error(s)")
+      error_details = "\n".join(tool_errors)
+      logger.warning(f"🚨 Tool error details: {error_details}")
+      logger.info("Bubbling error to supervisor without failing the stream")
+
+    # Try to extract structured status payload
     clean_text, status, status_message = self._split_status_payload(final_response)
     if not clean_text and status_message:
       clean_text = status_message
