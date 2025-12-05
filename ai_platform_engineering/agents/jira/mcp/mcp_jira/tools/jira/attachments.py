@@ -4,6 +4,7 @@ import logging
 import os
 from mcp_jira.api.client import make_api_request
 from mcp_jira.models.jira.common import JiraAttachment
+from mcp_jira.tools.jira.constants import check_read_only
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -53,7 +54,13 @@ async def download_attachment(url: str, target_path: str) -> JiraAttachment:
 
 # Refactor upload_attachment to accept and return JiraAttachment objects
 async def upload_attachment(issue_key: str, attachment: JiraAttachment) -> JiraAttachment:
-    """Upload a single attachment to a Jira issue and return the updated JiraAttachment object."""
+    """Upload a single attachment to a Jira issue and return the updated JiraAttachment object.
+
+    Raises:
+        ValueError: If in read-only mode.
+    """
+    check_read_only()
+
     logger.debug(f"Uploading attachment {attachment.filename} to issue {issue_key}")
     if not issue_key:
         logger.error("No issue key provided for attachment upload")
