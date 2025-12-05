@@ -2,6 +2,7 @@
 
 import logging
 import json
+import os
 from pydantic import Field
 from typing_extensions import Annotated
 from mcp_jira.api.client import make_api_request
@@ -138,3 +139,161 @@ async def link_to_epic(
 
     logger.error(error_msg)
     raise ValueError(error_msg)
+
+
+async def get_epic_issues(
+    epic_key: Annotated[
+        str, Field(description="The key of the epic to get issues for (e.g., 'PROJ-123')")
+    ],
+    fields: Annotated[
+        str,
+        Field(
+            description="Comma-separated fields to return (e.g., 'summary,status,assignee'). Default returns common fields.",
+            default="summary,status,assignee,issuetype,priority,created,updated"
+        )
+    ] = "summary,status,assignee,issuetype,priority,created,updated",
+    max_results: Annotated[
+        int,
+        Field(
+            description="Maximum number of issues to return (default: 100)",
+            default=100
+        )
+    ] = 100,
+) -> str:
+    """Get all issues linked to an epic (child issues/stories/tasks in the epic).
+
+    This function retrieves issues that belong to an epic using multiple methods:
+    1. JQL search with 'Epic Link' custom field (for classic projects)
+    2. JQL search with 'parent' field (for next-gen/team-managed projects)
+    3. Agile API fallback
+
+    Note: This is different from 'issuelinks' which shows direct issue-to-issue links
+    (like 'blocks', 'duplicates'). This function finds issues that are children of the epic.
+
+    Args:
+        epic_key: The key of the epic (e.g., 'SRE-9945')
+        fields: Comma-separated list of fields to return
+        max_results: Maximum number of results
+
+    Returns:
+        JSON string with list of issues in the epic
+    """
+    base_url = os.getenv("ATLASSIAN_API_URL", "").rstrip("/")
+    results = []
+    methods_tried = []
+
+    # Method 1: Try JQL with "Epic Link" = epic_key (classic projects)
+    logger.info(f"Searching for issues in epic {epic_key} using 'Epic Link' JQL")
+    jql_epic_link = f'"Epic Link" = {epic_key}'
+
+    success, response = await make_api_request(
+        path="rest/api/3/search",
+        method="POST",
+        data={
+            "jql": jql_epic_link,
+            "fields": fields.split(",") if fields else ["summary", "status", "assignee", "issuetype"],
+            "maxResults": max_results
+        }
+    )
+
+    if success and response.get("issues"):
+        issues = response.get("issues", [])
+        logger.info(f"Found {len(issues)} issues using 'Epic Link' JQL")
+        results.extend(issues)
+        methods_tried.append({"method": "Epic Link JQL", "count": len(issues)})
+    else:
+        methods_tried.append({"method": "Epic Link JQL", "count": 0, "note": "No results or field not available"})
+        logger.info("No issues found using 'Epic Link' JQL, trying parent field...")
+
+    # Method 2: Try JQL with parent = epic_key (next-gen/team-managed projects)
+    if not results:
+        logger.info(f"Searching for issues in epic {epic_key} using 'parent' JQL")
+        jql_parent = f'parent = {epic_key}'
+
+        success, response = await make_api_request(
+            path="rest/api/3/search",
+            method="POST",
+            data={
+                "jql": jql_parent,
+                "fields": fields.split(",") if fields else ["summary", "status", "assignee", "issuetype"],
+                "maxResults": max_results
+            }
+        )
+
+        if success and response.get("issues"):
+            issues = response.get("issues", [])
+            logger.info(f"Found {len(issues)} issues using 'parent' JQL")
+            results.extend(issues)
+            methods_tried.append({"method": "parent JQL", "count": len(issues)})
+        else:
+            methods_tried.append({"method": "parent JQL", "count": 0})
+
+    # Method 3: Try Agile API as fallback
+    if not results:
+        logger.info(f"Trying Agile API to get issues in epic {epic_key}")
+        success, response = await make_api_request(
+            path=f"rest/agile/1.0/epic/{epic_key}/issue",
+            method="GET",
+            params={"maxResults": max_results}
+        )
+
+        if success and response.get("issues"):
+            issues = response.get("issues", [])
+            logger.info(f"Found {len(issues)} issues using Agile API")
+            results.extend(issues)
+            methods_tried.append({"method": "Agile API", "count": len(issues)})
+        else:
+            methods_tried.append({"method": "Agile API", "count": 0})
+
+    # Format the response
+    formatted_issues = []
+    for issue in results:
+        issue_data = {
+            "key": issue.get("key"),
+            "id": issue.get("id"),
+            "url": f"{base_url}/browse/{issue.get('key')}" if base_url else None
+        }
+
+        # Extract fields
+        fields_data = issue.get("fields", {})
+        issue_data["summary"] = fields_data.get("summary", "")
+
+        # Status
+        status = fields_data.get("status")
+        if status:
+            issue_data["status"] = status.get("name") if isinstance(status, dict) else status
+
+        # Issue type
+        issuetype = fields_data.get("issuetype")
+        if issuetype:
+            issue_data["type"] = issuetype.get("name") if isinstance(issuetype, dict) else issuetype
+
+        # Assignee
+        assignee = fields_data.get("assignee")
+        if assignee:
+            issue_data["assignee"] = assignee.get("displayName") if isinstance(assignee, dict) else assignee
+
+        # Priority
+        priority = fields_data.get("priority")
+        if priority:
+            issue_data["priority"] = priority.get("name") if isinstance(priority, dict) else priority
+
+        # Dates
+        if fields_data.get("created"):
+            issue_data["created"] = fields_data.get("created")
+        if fields_data.get("updated"):
+            issue_data["updated"] = fields_data.get("updated")
+
+        formatted_issues.append(issue_data)
+
+    result = {
+        "epic_key": epic_key,
+        "total_issues": len(formatted_issues),
+        "methods_tried": methods_tried,
+        "issues": formatted_issues
+    }
+
+    if not formatted_issues:
+        result["message"] = f"No child issues found for epic {epic_key}. This epic may not have any linked stories/tasks, or the issues might be linked using a different method."
+
+    return json.dumps(result, indent=2, ensure_ascii=False)

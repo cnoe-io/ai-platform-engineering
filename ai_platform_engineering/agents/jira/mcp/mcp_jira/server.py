@@ -19,6 +19,7 @@ from mcp_jira.tools.jira import transitions
 from mcp_jira.tools.jira import worklog
 from mcp_jira.tools.jira import links
 from mcp_jira.tools.jira import fields
+from mcp_jira.tools.jira import projects
 
 def main():
     # Load environment variables
@@ -68,12 +69,18 @@ def main():
     mcp.tool()(worklog.add_worklog)
     mcp.tool()(links.get_link_types)
     mcp.tool()(links.link_to_epic)
+    mcp.tool()(links.get_epic_issues)
 
     # Register field discovery tools
     mcp.tool()(fields.get_field_info)
     mcp.tool()(fields.list_custom_fields)
     mcp.tool()(fields.get_epic_link_field)
     mcp.tool()(fields.refresh_field_cache)
+
+    # Register project tools
+    mcp.tool()(projects.get_project)
+    mcp.tool()(projects.search_projects)
+    mcp.tool()(projects.list_projects)
 
     # Run the MCP server
     mcp.run(transport=MCP_MODE.lower())

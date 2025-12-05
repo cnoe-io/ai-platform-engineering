@@ -139,20 +139,16 @@ test-compose-generator-coverage: setup-venv ## Run docker-compose generator test
 
 test: setup-venv ## Install dependencies and run tests using pytest
 	@echo "Installing ai_platform_engineering, agents, and argocd..."
-	@. .venv/bin/activate && uv add pytest-asyncio pytest-mock --group unittest
+	@. .venv/bin/activate && uv add pytest-asyncio --group unittest
 	@. .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
 	@. .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
 
 	@echo "Running general project tests..."
-	@. .venv/bin/activate && PYTHONPATH=. uv run pytest --ignore=integration --ignore=ai_platform_engineering/knowledge_bases/rag/tests --ignore=ai_platform_engineering/agents/argocd/mcp/tests --ignore=ai_platform_engineering/agents/jira/mcp/tests --ignore=ai_platform_engineering/multi_agents/tests --ignore=volumes --ignore=docker-compose
+	@. .venv/bin/activate && PYTHONPATH=. uv run pytest --ignore=integration --ignore=ai_platform_engineering/knowledge_bases/rag/tests --ignore=ai_platform_engineering/agents/argocd/mcp/tests --ignore=ai_platform_engineering/multi_agents/tests --ignore=volumes --ignore=docker-compose
 
 	@echo ""
 	@echo "Running ArgoCD MCP tests..."
 	@. .venv/bin/activate && cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
-
-	@echo ""
-	@echo "Running Jira MCP tests..."
-	@. .venv/bin/activate && cd ai_platform_engineering/agents/jira/mcp && PYTHONPATH=../../.. pytest tests/ -v
 
 	@echo ""
 	@echo "Skipping RAG module tests (temporarily disabled)..."
