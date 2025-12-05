@@ -10,14 +10,15 @@ from typing import Optional, Dict, Tuple, Any
 import httpx
 from dotenv import load_dotenv
 
+from mcp_jira.tools.jira.constants import MCP_JIRA_MOCK_RESPONSE
+
 # Load environment variables
 load_dotenv()
 
 # Constants
 # Update the base URL to be specific to Jira API
 
-# Read mock mode setting directly here to avoid circular imports
-MCP_JIRA_MOCK_RESPONSE = os.getenv("MCP_JIRA_MOCK_RESPONSE", "false").lower() in ("true", "1", "yes")
+
 
 # Configure logging
 logging.basicConfig(
@@ -79,13 +80,36 @@ async def make_api_request(
 
     # Use the utility function to retrieve the token if not provided
     token = token or get_env()
-    email = str(os.getenv("ATLASSIAN_EMAIL") or os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER"))
-    url = str(os.getenv("ATLASSIAN_API_URL") or os.getenv("JIRA_API_URL"))
+    email = str(os.getenv("ATLASSIAN_EMAIL") or os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER") or "")
+    url = str(os.getenv("ATLASSIAN_API_URL") or os.getenv("JIRA_API_URL") or "")
+
     if not token:
         logger.error("No API token available. Request cannot proceed.")
         return (
             False,
             {"error": "Token is required. Please set the ATLASSIAN_TOKEN environment variable."},
+        )
+
+    if not url:
+        logger.error("No API URL available. Request cannot proceed.")
+        return (
+            False,
+            {"error": "ATLASSIAN_API_URL is required. Please set the ATLASSIAN_API_URL environment variable (e.g., https://your-domain.atlassian.net)."},
+        )
+
+    if not email:
+        logger.error("No email available. Request cannot proceed.")
+        return (
+            False,
+            {"error": "ATLASSIAN_EMAIL is required. Please set the ATLASSIAN_EMAIL environment variable."},
+        )
+
+    # Validate URL doesn't contain example.com placeholder
+    if "example.com" in url.lower() or "jira.example.com" in url.lower():
+        logger.error(f"Invalid API URL detected: {url}. This appears to be a placeholder value.")
+        return (
+            False,
+            {"error": f"Invalid ATLASSIAN_API_URL: '{url}'. Please set ATLASSIAN_API_URL to your actual Jira instance URL (e.g., https://your-domain.atlassian.net)."},
         )
 
     import base64

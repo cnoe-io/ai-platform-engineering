@@ -102,5 +102,4 @@ dev = [
 unittest = [
     "pytest-asyncio>=1.1.0",
     "pytest-cov>=7.0.0",
-    "pytest-mock>=3.11.0",
 ]
