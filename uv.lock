@@ -48,6 +48,7 @@ dependencies = [
     { name = "langchain-mcp-adapters" },
     { name = "langgraph" },
     { name = "mcp-argocd" },
+    { name = "prometheus-client" },
     { name = "pytest" },
     { name = "python-dotenv" },
     { name = "rich" },
@@ -74,6 +75,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
     { name = "langgraph", specifier = "==0.5.3" },
     { name = "mcp-argocd", directory = "ai_platform_engineering/agents/argocd/mcp" },
+    { name = "prometheus-client", specifier = ">=0.20.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
@@ -103,6 +105,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "mcp-komodor" },
+    { name = "prometheus-client" },
     { name = "pytest" },
     { name = "rich" },
     { name = "sseclient" },
@@ -125,6 +128,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3.17" },
     { name = "langgraph", specifier = "==0.5.3" },
     { name = "mcp-komodor", directory = "ai_platform_engineering/agents/komodor/mcp" },
+    { name = "prometheus-client", specifier = ">=0.20.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
     { name = "sseclient", specifier = ">=0.0.27,<0.0.28" },
@@ -190,6 +194,7 @@ dependencies = [
     { name = "langgraph-supervisor" },
     { name = "mdformat" },
     { name = "neo4j" },
+    { name = "prometheus-client" },
     { name = "pyjwt" },
     { name = "redis" },
     { name = "uvicorn" },
@@ -245,6 +250,7 @@ requires-dist = [
     { name = "langgraph-supervisor", specifier = "==0.0.28" },
     { name = "mdformat", specifier = ">=0.7.0" },
     { name = "neo4j", specifier = ">=6.0.2" },
+    { name = "prometheus-client", specifier = ">=0.21.0" },
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "redis", specifier = ">=6.4.0" },
     { name = "uvicorn", specifier = ">=0.34.3,<0.35.0" },
@@ -291,6 +297,7 @@ dependencies = [
     { name = "langchain-mcp-adapters" },
     { name = "langgraph" },
     { name = "mcp" },
+    { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pyjwt" },
     { name = "python-dotenv" },
@@ -308,6 +315,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = "==0.1.11" },
     { name = "langgraph", specifier = "==0.5.3" },
     { name = "mcp", specifier = ">=1.12.3" },
+    { name = "prometheus-client", specifier = ">=0.20.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyjwt", specifier = ">=2.0.0" },
     { name = "python-dotenv", specifier = ">=0.19.0" },
@@ -2505,9 +2513,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastmcp", specifier = ">=2.11.1" },
+    { name = "fastmcp", specifier = ">=2.0.0" },
     { name = "httpx", specifier = ">=0.24.0" },
-    { name = "mcp", specifier = ">=1.12.3" },
+    { name = "mcp", specifier = ">=1.9.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
@@ -3459,6 +3467,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
+]
+
+[[package]]
+name = "prometheus-client"
+version = "0.23.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/23/53/3edb5d68ecf6b38fcbcc1ad28391117d2a322d9a1a3eff04bfdb184d8c3b/prometheus_client-0.23.1.tar.gz", hash = "sha256:6ae8f9081eaaaf153a2e959d2e6c4f4fb57b12ef76c8c7980202f1e57b48b2ce", size = 80481, upload-time = "2025-09-18T20:47:25.043Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/db/14bafcb4af2139e046d03fd00dea7873e48eafe18b7d2797e73d6681f210/prometheus_client-0.23.1-py3-none-any.whl", hash = "sha256:dd1913e6e76b59cfe44e7a4b83e01afc9873c1bdfd2ed8739f1e76aeca115f99", size = 61145, upload-time = "2025-09-18T20:47:23.875Z" },
 ]
 
 [[package]]

@@ -2,11 +2,15 @@
 
 import json
 import logging
-from typing import Annotated, Optional, List
+from typing import Annotated, Optional, List, Dict, Any
 
 from pydantic import Field
 
 from mcp_jira.api.client import make_api_request
+from mcp_jira.tools.jira.constants import check_read_only
+from mcp_jira.utils.field_discovery import get_field_discovery
+from mcp_jira.utils.adf import ensure_adf_format
+from mcp_jira.utils.field_handlers import normalize_field_value
 
 
 # Configure logging
@@ -104,45 +108,46 @@ async def create_issue(
     use_account_id: bool = True
 ) -> dict:
     """
-    Create a Jira issue using the REST API.
+    Create a Jira issue using the REST API with automatic field discovery and validation.
+
+    This function now includes:
+    - Automatic ADF conversion for description fields
+    - Field discovery and normalization for custom fields
+    - Schema validation
+    - Helpful error messages with field suggestions
 
     Args:
         project_key: Jira project key (e.g., SCRUM)
         summary: Issue summary/title
         issue_type: Issue type (e.g., Task, Bug)
-        description: Issue description
+        description: Issue description (plain text, will be converted to ADF automatically)
         assignee: Username or accountId to assign the issue (optional)
         components: List of components names (optional)
         additional_fields: Additional fields as dict (optional)
+            Can use field names or IDs. Values will be automatically normalized.
+            Example: {"Epic Link": "PROJ-123", "Story Points": 5}
         use_account_id: If True, use 'accountId' for assignee, else 'name' (default True)
 
     Returns:
         Response JSON from Jira API or error dict.
+
+    Raises:
+        ValueError: If in read-only mode or validation fails.
     """
+    check_read_only()
 
-    # Convert plain text description to Jira Document Format
-    adf_description = {
-        "type": "doc",
-        "version": 1,
-        "content": [
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": description or ""
-                    }
-                ]
-            }
-        ]
-    }
+    field_discovery = get_field_discovery()
 
+    # Build base fields
     fields = {
         "project": {"key": project_key},
         "summary": summary,
         "issuetype": {"name": issue_type},
-        "description": adf_description,
     }
+
+    # Convert description to ADF format
+    if description:
+        fields["description"] = ensure_adf_format(description)
 
     if assignee:
         fields["assignee"] = (
@@ -152,10 +157,14 @@ async def create_issue(
     if components:
         fields["components"] = [{"name": c} for c in components]
 
+    # Process additional_fields with field discovery and normalization
     if additional_fields:
-        fields.update(additional_fields)
+        normalized_fields = await _normalize_additional_fields(additional_fields, field_discovery)
+        fields.update(normalized_fields)
 
     payload = {"fields": fields}
+
+    logger.debug(f"Creating issue with normalized fields: {json.dumps(payload, indent=2)}")
 
     success, response = await make_api_request(
         path="rest/api/3/issue",
@@ -164,10 +173,78 @@ async def create_issue(
     )
 
     if success:
+        logger.info(f"✅ Successfully created issue: {response.get('key', 'unknown')}")
         return response
     else:
-        logger.error(f"Failed to create Jira issue: {response}")
+        error_msg = response.get("error", "Unknown error")
+        error_details = response.get("errors", {})
+        error_messages = response.get("errorMessages", [])
+
+        # Provide helpful suggestions for field errors
+        if error_details:
+            suggestions = []
+            for field_key, field_error in error_details.items():
+                similar = await field_discovery.suggest_similar_fields(field_key)
+                if similar:
+                    suggestions.append(f"Field '{field_key}' error: {field_error}. Did you mean: {', '.join(similar[:3])}?")
+                else:
+                    suggestions.append(f"Field '{field_key}' error: {field_error}")
+
+            enhanced_error = {
+                "error": error_msg,
+                "field_errors": suggestions,
+                "error_messages": error_messages
+            }
+            logger.error(f"❌ Failed to create issue: {json.dumps(enhanced_error, indent=2)}")
+            return enhanced_error
+
+        logger.error(f"❌ Failed to create Jira issue: {response}")
         return response
+
+
+async def _normalize_additional_fields(
+    additional_fields: Dict[str, Any],
+    field_discovery
+) -> Dict[str, Any]:
+    """Normalize additional fields using field discovery.
+
+    Args:
+        additional_fields: Dict of field names/IDs to values
+        field_discovery: FieldDiscovery instance
+
+    Returns:
+        Dict with normalized field IDs and values
+    """
+    normalized = {}
+
+    for field_name_or_id, value in additional_fields.items():
+        # Skip if value is None
+        if value is None:
+            continue
+
+        # Convert field name to ID if necessary
+        field_id = await field_discovery.normalize_field_name_to_id(field_name_or_id)
+
+        if not field_id:
+            logger.warning(f"⚠️ Field '{field_name_or_id}' not found, using as-is")
+            field_id = field_name_or_id
+
+        # Get field schema for normalization
+        field_schema = await field_discovery.get_field_schema(field_id)
+
+        # Normalize the value
+        normalized_value, error = await normalize_field_value(field_id, value, field_schema)
+
+        if error:
+            logger.warning(f"⚠️ Field normalization warning for '{field_id}': {error}")
+
+        # Special handling for description field (ensure ADF)
+        if field_id == "description" and isinstance(normalized_value, str):
+            normalized_value = ensure_adf_format(normalized_value)
+
+        normalized[field_id] = normalized_value
+
+    return normalized
 
 async def batch_create_issues(
     issues: Annotated[
@@ -209,6 +286,8 @@ async def batch_create_issues(
     Raises:
         ValueError: If in read-only mode, Jira client unavailable, or invalid JSON.
     """
+    check_read_only()
+
     # Parse issues from JSON string
     try:
         issues_list = json.loads(issues)
@@ -219,50 +298,43 @@ async def batch_create_issues(
     except Exception as e:
         raise ValueError(f"Invalid input for issues: {e}") from e
 
-    # Convert issues to format expected by the API
+    # Convert issues to format expected by the API with field discovery
+    field_discovery = get_field_discovery()
     formatted_issues = []
-    for issue in issues_list:
+
+    for idx, issue in enumerate(issues_list):
         # Basic validation
         if not all(key in issue for key in ['project_key', 'summary', 'issue_type']):
-            raise ValueError("Each issue must contain project_key, summary, and issue_type")
+            raise ValueError(f"Issue {idx}: Each issue must contain project_key, summary, and issue_type")
 
-        # Format to match Jira API expectations
-        formatted_issue = {
-            "fields": {
-                "project": {"key": issue['project_key']},
-                "summary": issue['summary'],
-                "issuetype": {"name": issue['issue_type']}
-            }
+        # Build base fields
+        fields = {
+            "project": {"key": issue['project_key']},
+            "summary": issue['summary'],
+            "issuetype": {"name": issue['issue_type']}
         }
 
-        # Add description if provided
+        # Add description with ADF conversion
         if 'description' in issue and issue['description']:
-            formatted_issue['fields']['description'] = {
-                "type": "doc",
-                "version": 1,
-                "content": [
-                    {
-                        "type": "paragraph",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": issue['description']
-                            }
-                        ]
-                    }
-                ]
-            }
+            fields['description'] = ensure_adf_format(issue['description'])
 
         # Add assignee if provided
         if 'assignee' in issue and issue['assignee']:
-            # Assume using accountId, as in create_issue
-            formatted_issue['fields']['assignee'] = {"accountId": issue['assignee']}
+            fields['assignee'] = {"accountId": issue['assignee']}
 
         # Add components if provided
         if 'components' in issue and issue['components']:
-            formatted_issue['fields']['components'] = [{"name": c} for c in issue['components']]
+            fields['components'] = [{"name": c} for c in issue['components']]
 
-        formatted_issues.append(formatted_issue)
+        # Process any additional fields with normalization
+        additional_fields = {k: v for k, v in issue.items()
+                            if k not in ['project_key', 'summary', 'issue_type', 'description', 'assignee', 'components']}
+
+        if additional_fields:
+            normalized_fields = await _normalize_additional_fields(additional_fields, field_discovery)
+            fields.update(normalized_fields)
+
+        formatted_issues.append({"fields": fields})
 
     # Prepare the API request payload
     payload = {
@@ -286,6 +358,117 @@ async def batch_create_issues(
     else:
         logger.error(f"Failed to create Jira issues in batch: {response}")
         return json.dumps(response, indent=2, ensure_ascii=False)
+
+
+async def update_issue(
+    issue_key: Annotated[str, Field(description="Jira issue key (e.g., 'PROJ-123')")],
+    fields: Annotated[
+        Dict[str, Any],
+        Field(
+            description=(
+                "Dictionary of fields to update. Can use field names or IDs.\n"
+                "Values will be automatically normalized based on field type.\n"
+                "Examples:\n"
+                "- {'summary': 'New title'}\n"
+                "- {'description': 'Plain text description'} (auto-converted to ADF)\n"
+                "- {'Epic Link': 'PROJ-100'}\n"
+                "- {'Story Points': 5}\n"
+                "- {'assignee': {'accountId': '...'}} or just {'assignee': 'account-id-string'}"
+            )
+        ),
+    ],
+    notify_users: Annotated[
+        bool,
+        Field(
+            description="Whether to send email notifications to users (default: True)",
+            default=True,
+        ),
+    ] = True,
+) -> str:
+    """Update a Jira issue with automatic field discovery and validation.
+
+    This function includes:
+    - Automatic ADF conversion for description fields
+    - Field name to ID resolution
+    - Field value normalization based on schema
+    - Helpful error messages with suggestions
+
+    Args:
+        issue_key: The issue key to update
+        fields: Dictionary of fields to update (can use names or IDs)
+        notify_users: Whether to send email notifications
+
+    Returns:
+        JSON string indicating success or error details
+
+    Raises:
+        ValueError: If in read-only mode or validation fails.
+    """
+    check_read_only()
+
+    if not fields:
+        raise ValueError("At least one field must be provided for update")
+
+    field_discovery = get_field_discovery()
+
+    # Normalize all fields
+    normalized_fields = await _normalize_additional_fields(fields, field_discovery)
+
+    # Special handling for description - ensure it's in ADF format
+    if "description" in normalized_fields:
+        if isinstance(normalized_fields["description"], str):
+            normalized_fields["description"] = ensure_adf_format(normalized_fields["description"])
+
+    payload = {
+        "fields": normalized_fields
+    }
+
+    params = {
+        "notifyUsers": notify_users
+    }
+
+    logger.debug(f"Updating issue {issue_key} with normalized fields: {json.dumps(payload, indent=2)}")
+
+    success, response = await make_api_request(
+        path=f"rest/api/3/issue/{issue_key}",
+        method="PUT",
+        data=payload,
+        params=params
+    )
+
+    if success:
+        result = {
+            "message": f"✅ Successfully updated issue {issue_key}",
+            "updated_fields": list(normalized_fields.keys())
+        }
+        logger.info(f"✅ Successfully updated issue {issue_key}")
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    else:
+        error_msg = response.get("error", "Unknown error")
+        error_details = response.get("errors", {})
+        error_messages = response.get("errorMessages", [])
+
+        # Provide helpful suggestions for field errors
+        if error_details:
+            suggestions = []
+            for field_key, field_error in error_details.items():
+                similar = await field_discovery.suggest_similar_fields(field_key)
+                if similar:
+                    suggestions.append(f"Field '{field_key}' error: {field_error}. Did you mean: {', '.join(similar[:3])}?")
+                else:
+                    suggestions.append(f"Field '{field_key}' error: {field_error}")
+
+            enhanced_error = {
+                "error": error_msg,
+                "field_errors": suggestions,
+                "error_messages": error_messages
+            }
+            logger.error(f"❌ Failed to update issue {issue_key}: {json.dumps(enhanced_error, indent=2)}")
+            return json.dumps(enhanced_error, indent=2, ensure_ascii=False)
+
+        logger.error(f"❌ Failed to update issue {issue_key}: {response}")
+        return json.dumps(response, indent=2, ensure_ascii=False)
+
 
 async def create_issue_link(
     link_type: Annotated[
@@ -325,8 +508,10 @@ async def create_issue_link(
         JSON string indicating success or failure.
 
     Raises:
-        ValueError: If required fields are missing or invalid input.
+        ValueError: If required fields are missing, invalid input, or in read-only mode.
     """
+    check_read_only()
+
     if not all([link_type, inward_issue_key, outward_issue_key]):
         raise ValueError(
             "link_type, inward_issue_key, and outward_issue_key are required."
@@ -373,8 +558,10 @@ async def remove_issue_link(
         JSON string indicating success.
 
     Raises:
-        ValueError: If link_id is missing.
+        ValueError: If link_id is missing or in read-only mode.
     """
+    check_read_only()
+
     if not link_id:
         raise ValueError("link_id is required")
 
@@ -487,7 +674,12 @@ async def delete_issue(
 
     Returns:
         Response JSON indicating success or containing error details
+
+    Raises:
+        ValueError: If in read-only mode.
     """
+    check_read_only()
+
     if not issue_key:
         return {"error": "Issue key is required"}
 
