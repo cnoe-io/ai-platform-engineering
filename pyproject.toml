@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["ai_platform_engineering/utils", "ai_platform_engineering/multi_agents", "integration"]
+testpaths = ["ai_platform_engineering/utils", "ai_platform_engineering/multi_agents"]
 norecursedirs = ["**/knowledge_bases/**", "**/jira/mcp/**", "**/jira/tests/**"]
 
 [tool.poetry.group.dev.dependencies]

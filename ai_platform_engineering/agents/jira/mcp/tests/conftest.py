@@ -1,7 +1,6 @@
 """Shared pytest fixtures for Jira MCP tests."""
 
 import pytest
-from datetime import datetime
 
 
 @pytest.fixture
@@ -73,7 +72,7 @@ def mock_api_request_success(monkeypatch):
     """Mock make_api_request to return success."""
     async def mock_request(path, method="GET", **kwargs):
         return (True, {"status": "success"})
-    
+
     from mcp_jira.api import client
     monkeypatch.setattr(client, "make_api_request", mock_request)
     return mock_request
@@ -86,7 +85,7 @@ def mock_api_request_fields(monkeypatch, mock_jira_fields):
         if "/rest/api/3/field" in path or "field" in path:
             return (True, mock_jira_fields)
         return (True, {"status": "success"})
-    
+
     import mcp_jira.api.client
     monkeypatch.setattr(mcp_jira.api.client, "make_api_request", mock_request)
     # Also patch it in the field_discovery module

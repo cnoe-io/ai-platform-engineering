@@ -1,6 +1,5 @@
 """Unit tests for ADF (Atlassian Document Format) converter."""
 
-import pytest
 from mcp_jira.utils.adf import (
     text_to_adf,
     adf_to_text,
@@ -16,7 +15,7 @@ class TestTextToADF:
     def test_single_paragraph(self):
         """Test converting single paragraph to ADF."""
         result = text_to_adf("Hello World")
-        
+
         assert result["version"] == 1
         assert result["type"] == "doc"
         assert len(result["content"]) == 1
@@ -26,7 +25,7 @@ class TestTextToADF:
     def test_multiple_paragraphs(self):
         """Test converting multiple paragraphs to ADF."""
         result = text_to_adf("Hello\nWorld")
-        
+
         assert len(result["content"]) == 2
         assert result["content"][0]["content"][0]["text"] == "Hello"
         assert result["content"][1]["content"][0]["text"] == "World"
@@ -34,7 +33,7 @@ class TestTextToADF:
     def test_empty_string(self):
         """Test converting empty string to ADF."""
         result = text_to_adf("")
-        
+
         assert result["version"] == 1
         assert result["type"] == "doc"
         assert len(result["content"]) == 0
@@ -42,7 +41,7 @@ class TestTextToADF:
     def test_whitespace_only(self):
         """Test converting whitespace-only string to ADF."""
         result = text_to_adf("   \n   \n   ")
-        
+
         # Should create empty paragraph for whitespace
         assert len(result["content"]) == 1
 
@@ -130,7 +129,7 @@ class TestEnsureADFFormat:
     def test_string_input(self):
         """Test converting string to ADF."""
         result = ensure_adf_format("Hello")
-        
+
         assert result["version"] == 1
         assert result["type"] == "doc"
         assert result["content"][0]["content"][0]["text"] == "Hello"
@@ -153,7 +152,7 @@ class TestCreateEmptyADF:
     def test_create_empty(self):
         """Test creating empty ADF document."""
         result = create_empty_adf()
-        
+
         assert result["version"] == 1
         assert result["type"] == "doc"
         assert result["content"] == []
