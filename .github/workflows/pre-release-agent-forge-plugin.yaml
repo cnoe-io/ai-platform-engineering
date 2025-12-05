@@ -85,6 +85,11 @@ jobs:
           cp main-repo/build/agent-forge/Dockerfile community-plugins/Dockerfile
           echo "Using custom Dockerfile from build/agent-forge/"
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -114,9 +119,6 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ env.PREBUILD_TAG }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Build and push prebuild Docker image
         id: build
