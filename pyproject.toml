@@ -36,7 +36,8 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-norecursedirs = "ai_platform_engineering/knowledge_bases/graph_rag/nexigraph/* ai_platform_engineering/knowledge_bases/rag/*"
+testpaths = ["ai_platform_engineering/utils", "ai_platform_engineering/multi_agents"]
+norecursedirs = ["**/knowledge_bases/**", "**/jira/mcp/**", "**/jira/tests/**"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
