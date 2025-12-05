@@ -34,6 +34,43 @@ Unit tests for the Jira MCP server field discovery and related functionality.
    - User operation bypass
    - Environment variable configuration
 
+5. **test_comments.py** - Comment management tests
+   - Get all comments for an issue
+   - Get specific comment
+   - Add comment (with read-only protection)
+   - Update comment (with read-only protection)
+   - Delete comment (with read-only protection)
+   - API error handling
+
+6. **test_sprints.py** - Sprint management tests
+   - Create sprint with/without dates
+   - Get sprint details
+   - Update sprint (name, state, dates)
+   - Delete sprint (with delete protection)
+   - Get sprint issues
+   - Move issues to sprint
+   - Swap sprint
+   - Read-only and delete protection
+
+7. **test_boards.py** - Board management tests
+   - Get all boards (with filters)
+   - Create board
+   - Get board details
+   - Delete board (with delete protection)
+   - Get board configuration
+   - Get board issues, sprints, epics
+   - Get board versions and projects
+   - Read-only and delete protection
+
+8. **test_backlogs.py** - Backlog management tests
+   - Get backlog issues (with pagination)
+   - Move issues to backlog
+   - Move issues to backlog for specific board
+   - Get issues without epic
+   - Get board issues for epic (with filters)
+   - API error handling
+   - Read-only protection
+
 ## Running Tests
 
 ### Prerequisites
