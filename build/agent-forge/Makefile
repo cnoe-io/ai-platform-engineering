@@ -1,28 +1,24 @@
-# Makefile
-
-# Variables
 DOCKER_IMAGE = ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
 DOCKER_PLATFORMS_MULTI = linux/amd64,linux/arm64
 DOCKER_PLATFORMS_AMD64 = linux/amd64
+SOURCE_DIR = source
 
-# Targets
-.PHONY: build build-multi publish publish-multi
+.PHONY: build build-multi publish publish-multi clean setup
 
-# Build AMD64 only (faster, more reliable)
-build:
-	docker buildx build --platform $(DOCKER_PLATFORMS_AMD64) -t $(DOCKER_IMAGE) .
+setup:
+	@./build.sh
 
-# Build multi-arch (experimental, may fail on ARM64)
-build-multi:
-	docker buildx build --platform $(DOCKER_PLATFORMS_MULTI) -t $(DOCKER_IMAGE) .
+build: setup
+	docker buildx build --platform $(DOCKER_PLATFORMS_AMD64) -t $(DOCKER_IMAGE) $(SOURCE_DIR)
 
-# Publish AMD64 only
-publish:
-	docker buildx build --platform $(DOCKER_PLATFORMS_AMD64) -t $(DOCKER_IMAGE) --push .
+build-multi: setup
+	docker buildx build --platform $(DOCKER_PLATFORMS_MULTI) -t $(DOCKER_IMAGE) $(SOURCE_DIR)
 
-# Publish multi-arch
-publish-multi:
-	docker buildx build --platform $(DOCKER_PLATFORMS_MULTI) -t $(DOCKER_IMAGE) --push .
+publish: setup
+	docker buildx build --platform $(DOCKER_PLATFORMS_AMD64) -t $(DOCKER_IMAGE) --push $(SOURCE_DIR)
 
-build-push: build publish
-	@echo "Build and push completed successfully."
+publish-multi: setup
+	docker buildx build --platform $(DOCKER_PLATFORMS_MULTI) -t $(DOCKER_IMAGE) --push $(SOURCE_DIR)
+
+clean:
+	rm -rf $(SOURCE_DIR)

@@ -21,10 +21,11 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout current repository
+      - name: Checkout main repository
         uses: actions/checkout@v6
         with:
           path: main-repo
+          fetch-depth: 1
 
       - name: Checkout community-plugins repository
         uses: actions/checkout@v6
@@ -33,11 +34,13 @@ jobs:
           ref: agent-forge-upstream-docker
           token: ${{ secrets.GITHUB_TOKEN }}
           path: community-plugins
+          fetch-depth: 1
 
       - name: Copy custom Dockerfile
         run: |
+          echo "Copying Dockerfile..."
           cp main-repo/build/agent-forge/Dockerfile community-plugins/Dockerfile
-          echo "Using custom Dockerfile from build/agent-forge/"
+          echo "Ready to build!"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
