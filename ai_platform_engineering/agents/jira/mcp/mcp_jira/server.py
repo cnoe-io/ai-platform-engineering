@@ -20,6 +20,10 @@ from mcp_jira.tools.jira import worklog
 from mcp_jira.tools.jira import links
 from mcp_jira.tools.jira import fields
 from mcp_jira.tools.jira import projects
+from mcp_jira.tools.jira import comments
+from mcp_jira.tools.jira import sprints
+from mcp_jira.tools.jira import boards
+from mcp_jira.tools.jira import backlogs
 
 def main():
     # Load environment variables
@@ -81,6 +85,41 @@ def main():
     mcp.tool()(projects.get_project)
     mcp.tool()(projects.search_projects)
     mcp.tool()(projects.list_projects)
+
+    # Register comment tools
+    mcp.tool()(comments.get_comments)
+    mcp.tool()(comments.get_comment)
+    mcp.tool()(comments.add_comment)
+    mcp.tool()(comments.update_comment)
+    mcp.tool()(comments.delete_comment)
+
+    # Register sprint tools
+    mcp.tool()(sprints.create_sprint)
+    mcp.tool()(sprints.get_sprint)
+    mcp.tool()(sprints.update_sprint)
+    mcp.tool()(sprints.delete_sprint)
+    mcp.tool()(sprints.get_sprint_issues)
+    mcp.tool()(sprints.move_issues_to_sprint)
+    mcp.tool()(sprints.swap_sprint)
+
+    # Register board tools
+    mcp.tool()(boards.get_all_boards)
+    mcp.tool()(boards.create_board)
+    mcp.tool()(boards.get_board)
+    mcp.tool()(boards.delete_board)
+    mcp.tool()(boards.get_board_configuration)
+    mcp.tool()(boards.get_board_issues)
+    mcp.tool()(boards.get_board_sprints)
+    mcp.tool()(boards.get_board_epics)
+    mcp.tool()(boards.get_board_versions)
+    mcp.tool()(boards.get_board_projects)
+
+    # Register backlog tools
+    mcp.tool()(backlogs.get_backlog_issues)
+    mcp.tool()(backlogs.move_issues_to_backlog)
+    mcp.tool()(backlogs.move_issues_to_backlog_for_board)
+    mcp.tool()(backlogs.get_issues_without_epic)
+    mcp.tool()(backlogs.get_board_issues_for_epic)
 
     # Run the MCP server
     mcp.run(transport=MCP_MODE.lower())
