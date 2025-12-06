@@ -7,7 +7,7 @@ from typing import Annotated, Optional, List, Dict, Any
 from pydantic import Field
 
 from mcp_jira.api.client import make_api_request
-from mcp_jira.tools.jira.constants import check_read_only
+from mcp_jira.tools.jira.constants import check_read_only, check_issues_delete_protection
 from mcp_jira.utils.field_discovery import get_field_discovery
 from mcp_jira.utils.adf import ensure_adf_format
 from mcp_jira.utils.field_handlers import normalize_field_value
@@ -676,9 +676,10 @@ async def delete_issue(
         Response JSON indicating success or containing error details
 
     Raises:
-        ValueError: If in read-only mode.
+        ValueError: If in read-only mode or delete protection is enabled.
     """
     check_read_only()
+    check_issues_delete_protection()
 
     if not issue_key:
         return {"error": "Issue key is required"}

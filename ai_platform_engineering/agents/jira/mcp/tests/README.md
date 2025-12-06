@@ -34,6 +34,52 @@ Unit tests for the Jira MCP server field discovery and related functionality.
    - User operation bypass
    - Environment variable configuration
 
+5. **test_comments.py** - Comment management tests
+   - Get all comments for an issue
+   - Get specific comment
+   - Add comment (with read-only protection)
+   - Update comment (with read-only protection)
+   - Delete comment (with read-only protection)
+   - API error handling
+
+6. **test_sprints.py** - Sprint management tests
+   - Create sprint with/without dates
+   - Get sprint details
+   - Update sprint (name, state, dates)
+   - Delete sprint (with delete protection)
+   - Get sprint issues
+   - Move issues to sprint
+   - Swap sprint
+   - Read-only and delete protection
+
+7. **test_boards.py** - Board management tests
+   - Get all boards (with filters)
+   - Create board
+   - Get board details
+   - Delete board (with delete protection)
+   - Get board configuration
+   - Get board issues, sprints, epics
+   - Get board versions and projects
+   - Read-only and delete protection
+
+8. **test_backlogs.py** - Backlog management tests
+   - Get backlog issues (with pagination)
+   - Move issues to backlog
+   - Move issues to backlog for specific board
+   - Get issues without epic
+   - Get board issues for epic (with filters)
+   - API error handling
+   - Read-only protection
+
+9. **test_filters.py** - Filter management tests
+   - Create filter (with description, permissions)
+   - Get filter details
+   - Search filters (by name, owner)
+   - Update filter (name, JQL, description)
+   - Delete filter
+   - ORDER BY Rank validation for board filters
+   - Read-only protection
+
 ## Running Tests
 
 ### Prerequisites
@@ -113,10 +159,10 @@ class TestFeatureName:
         """Test basic functionality."""
         # Arrange
         input_data = "test"
-        
+
         # Act
         result = function_under_test(input_data)
-        
+
         # Assert
         assert result == expected
 ```
@@ -142,7 +188,7 @@ Mock `make_api_request` using `monkeypatch`:
 def test_with_mock_api(monkeypatch):
     async def mock_request(path, method="GET", **kwargs):
         return (True, {"mocked": "data"})
-    
+
     from mcp_jira.api import client
     monkeypatch.setattr(client, "make_api_request", mock_request)
 ```
@@ -209,10 +255,10 @@ class TestNewFeature:
         """Test that feature works with valid input."""
         # Arrange
         discovery = FieldDiscovery()
-        
+
         # Act
         result = await discovery.some_method("input")
-        
+
         # Assert
         assert result == "expected"
         assert isinstance(result, str)
@@ -220,7 +266,7 @@ class TestNewFeature:
     def test_error_handling(self):
         """Test that feature handles errors gracefully."""
         discovery = FieldDiscovery()
-        
+
         with pytest.raises(ValueError, match="expected error"):
             discovery.some_method(None)
 ```
