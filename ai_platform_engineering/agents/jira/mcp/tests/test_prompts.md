@@ -292,7 +292,7 @@ Comprehensive test prompts for all Jira MCP tools, focused on SRI project and te
 
 For each complex prompt, the agent should:
 - ✅ Try 3+ different approaches if initial approach fails
-- ✅ Explicitly answer "Did I do what was asked?" 
+- ✅ Explicitly answer "Did I do what was asked?"
 - ✅ Use YES/NO for verification questions
 - ✅ Report all attempts made before final answer
 - ✅ Not give up after first "0 results" or "field error"

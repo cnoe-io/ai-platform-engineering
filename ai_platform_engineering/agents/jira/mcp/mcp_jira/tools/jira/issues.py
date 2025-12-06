@@ -90,6 +90,12 @@ async def get_issue(
     if not success:
         raise ValueError(f"Failed to fetch Jira issue: {response}")
 
+    # Add browse URL to response
+    import os
+    base_url = os.getenv("ATLASSIAN_API_URL", "").rstrip("/")
+    if base_url:
+        response["browse_url"] = f"{base_url}/browse/{issue_key}"
+
     return json.dumps(response, indent=2, ensure_ascii=False)
 
 
@@ -174,6 +180,12 @@ async def create_issue(
 
     if success:
         logger.info(f"✅ Successfully created issue: {response.get('key', 'unknown')}")
+        # Add browse URL to response
+        import os
+        base_url = os.getenv("ATLASSIAN_API_URL", "").rstrip("/")
+        issue_key = response.get('key')
+        if base_url and issue_key:
+            response["browse_url"] = f"{base_url}/browse/{issue_key}"
         return response
     else:
         error_msg = response.get("error", "Unknown error")
@@ -437,10 +449,15 @@ async def update_issue(
     )
 
     if success:
+        # Add browse URL to response
+        import os
+        base_url = os.getenv("ATLASSIAN_API_URL", "").rstrip("/")
         result = {
             "message": f"✅ Successfully updated issue {issue_key}",
             "updated_fields": list(normalized_fields.keys())
         }
+        if base_url:
+            result["browse_url"] = f"{base_url}/browse/{issue_key}"
         logger.info(f"✅ Successfully updated issue {issue_key}")
         return json.dumps(result, indent=2, ensure_ascii=False)
     else:
