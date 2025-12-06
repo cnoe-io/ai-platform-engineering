@@ -104,10 +104,11 @@ run: uv-sync setup-env ## Run the MCP server
 
 ## ========== Test ==========
 
-test: uv-sync ## Run tests for the MCP server
+test: setup-uv ## Run tests for the MCP server
 	@echo "Running $(AGENT_NAME) MCP tests..."
 	@if [ -d "tests" ]; then \
-		uv run pytest tests/ -v --tb=short || echo "Tests failed or pytest not available"; \
+		uv sync --all-groups && \
+		uv run pytest tests/ -v --tb=short; \
 	else \
 		echo "No tests directory found for $(AGENT_NAME) MCP server"; \
 	fi
