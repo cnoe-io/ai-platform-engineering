@@ -87,7 +87,7 @@ async def create_filter(
 
     if description:
         filter_data["description"] = description
-    
+
     if favorite:
         filter_data["favourite"] = True
 
@@ -109,7 +109,7 @@ async def create_filter(
     # Format response with helpful info
     filter_id = response.get("id", "unknown")
     filter_url = response.get("viewUrl", "")
-    
+
     result = {
         "success": True,
         "filter_id": filter_id,

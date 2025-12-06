@@ -1,7 +1,6 @@
 """Unit tests for Jira comments MCP tools."""
 
 import pytest
-from unittest.mock import AsyncMock
 
 
 class TestGetComments:
