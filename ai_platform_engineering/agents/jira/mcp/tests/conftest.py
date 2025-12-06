@@ -1,6 +1,26 @@
 """Shared pytest fixtures for Jira MCP tests."""
 
+import os
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def enable_mock_mode(monkeypatch):
+    """Enable mock mode for all tests by default."""
+    monkeypatch.setenv("MCP_JIRA_MOCK_RESPONSE", "true")
+    monkeypatch.setenv("MCP_JIRA_READ_ONLY", "false")
+    monkeypatch.setenv("MCP_JIRA_ISSUES_DELETE_PROTECTION", "false")
+    monkeypatch.setenv("MCP_JIRA_SPRINTS_DELETE_PROTECTION", "false")
+    monkeypatch.setenv("MCP_JIRA_BOARDS_DELETE_PROTECTION", "false")
+    
+    # Reload the config module to pick up the new env vars
+    import importlib
+    from mcp_jira import config
+    importlib.reload(config)
+    
+    # Update constants that import from config
+    from mcp_jira.tools.jira import constants
+    importlib.reload(constants)
 
 
 @pytest.fixture
