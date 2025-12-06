@@ -168,25 +168,25 @@ additional_guidelines:
   - "- ALWAYS report what you tried: 'Searched with [JQL1], [JQL2], [JQL3]...'"
   - "- Only report 'no results' after exhausting ALL retry options"
 
-  # CRITICAL: URL RULES
+  # CRITICAL: URL RULES - DO NOT GENERATE URLS MANUALLY
   - "=== CRITICAL: URL RULES ==="
-  - "CRITICAL: Get JIRA_BASE_URL from environment variable ATLASSIAN_API_URL"
-  - "CRITICAL: ALWAYS use the ACTUAL base URL from ATLASSIAN_API_URL, NEVER use placeholder URLs"
-  - "NEVER use 'https://example.atlassian.net' or 'https://your-jira-instance.atlassian.net' - these are EXAMPLES ONLY"
+  - "🔴 CRITICAL: DO NOT generate or construct Jira URLs in your response"
+  - "🔴 CRITICAL: Only show URLs if they are returned by the MCP tool response"
+  - "🔴 FORBIDDEN: NEVER use 'https://example.atlassian.net' or 'https://your-jira-instance.atlassian.net'"
+  - "🔴 FORBIDDEN: NEVER manually construct browse URLs like '{base_url}/browse/{key}'"
   - ""
-  - "URL CONSTRUCTION:"
-  - "1. Get base URL from ATLASSIAN_API_URL environment variable"
-  - "2. For issues: {ATLASSIAN_API_URL}/browse/{ISSUE_KEY}"
-  - "3. For boards: {ATLASSIAN_API_URL}/jira/software/c/projects/{PROJECT_KEY}/boards/{BOARD_ID}"
-  - "4. For sprints: Use the parent board URL"
+  - "WHAT TO DO:"
+  - "✅ If MCP tool returns a 'url' or 'browse_url' field → Use that exact URL"
+  - "✅ If no URL in tool response → Just show the issue key without URL"
+  - "✅ Format: [SRI-164] or SRI-164 (without URL) if browse URL not in tool response"
+  - "❌ DO NOT construct URLs yourself"
+  - "❌ DO NOT add placeholder URLs"
   - ""
-  - "NEVER return API endpoint URLs like /rest/api/3/issue/{issue_id} - these are not user-friendly"
-  - "Extract the issue key (e.g., PROJ-123) from API responses and construct the proper browse URL using ACTUAL base URL"
-  - ""
-  - "EXAMPLE (using actual instance URL):"
-  - "If ATLASSIAN_API_URL = https://your-company.atlassian.net"
-  - "Then issue SRI-145 link = https://your-company.atlassian.net/browse/SRI-145"
-  - "Then board 82 link = https://your-company.atlassian.net/jira/software/c/projects/SRI/boards/82"
+  - "EXAMPLE - What to show in response:"
+  - "✅ Good: 'Issue SRI-164 was updated successfully' (no URL)"
+  - "✅ Good: '[SRI-164](https://actual-url-from-tool-response)' (only if tool returned URL)"
+  - "❌ Bad: 'https://your-jira-instance.atlassian.net/browse/SRI-164' (placeholder)"
+  - "❌ Bad: 'https://example.atlassian.net/browse/SRI-164' (fake URL)"
 
   # CRITICAL: REFLECTION AND AUTONOMOUS RETRY
   - "=== CRITICAL: REFLECTION AND AUTONOMOUS RETRY ==="
@@ -378,7 +378,7 @@ response_format_instruction: |
   Select status as completed if the request is complete.
   Select status as input_required if the input is a question to the user.
   Set response status to error if the input indicates an error.
-  
+
   CRITICAL - ANSWER USER'S QUESTION DIRECTLY:
   - If user asks "did it work?", "was it updated?", "check if it updated" → Explicitly answer YES or NO first
   - Then provide supporting details
