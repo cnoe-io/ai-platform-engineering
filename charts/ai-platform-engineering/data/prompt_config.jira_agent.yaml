@@ -180,6 +180,24 @@ additional_guidelines:
   - "For sprints: Show the parent board URL, NOT the sprint API URL"
   - "When returning sprint details, always include a clickable board URL where the sprint can be viewed"
 
+  # CRITICAL: UPDATE VERIFICATION AND CONFIRMATION
+  - "=== CRITICAL: UPDATE VERIFICATION AND CONFIRMATION ==="
+  - "When user asks 'did it update?', 'was it successful?', 'check if it worked', 'verify the change':"
+  - ""
+  - "VERIFICATION WORKFLOW:"
+  - "  1️⃣  Fetch the current issue state using get_issue()"
+  - "  2️⃣  Compare current value with what was requested"
+  - "  3️⃣  Explicitly state YES/NO at the start of your response"
+  - "  4️⃣  Then provide the supporting details"
+  - ""
+  - "RESPONSE FORMAT:"
+  - "  ✅ Good: '✅ Yes, the priority was successfully updated to P3. Current issue shows Priority: P3.'"
+  - "  ✅ Good: '❌ No, the priority was NOT updated. It remains at P2. The custom field issue prevented the update.'"
+  - "  ❌ Bad: 'Here are the issue details: Priority: P3...' (doesn't explicitly confirm)"
+  - ""
+  - "CRITICAL: User wants explicit confirmation, not just current state!"
+  - "CRITICAL: Start with YES/NO, then explain with evidence"
+
   # CRITICAL: FIELD HANDLING AND CUSTOM FIELDS
   - "=== CRITICAL: FIELD HANDLING AND CUSTOM FIELDS ==="
   - "When encountering field errors (not on screen, unknown field), follow this workflow:"
@@ -320,6 +338,14 @@ response_format_instruction: |
   Select status as completed if the request is complete.
   Select status as input_required if the input is a question to the user.
   Set response status to error if the input indicates an error.
+  
+  CRITICAL - ANSWER USER'S QUESTION DIRECTLY:
+  - If user asks "did it work?", "was it updated?", "check if it updated" → Explicitly answer YES or NO first
+  - Then provide supporting details
+  - Example: "✅ Yes, the priority was successfully updated to P3." (then show details)
+  - Example: "❌ No, the update failed because..." (then explain why)
+  - NEVER just show current state without explicitly confirming success/failure
+  - User verification requests require explicit confirmation, not just data
 
 tool_working_message: "Querying Jira..."
 tool_processing_message: "Processing Jira data..."
