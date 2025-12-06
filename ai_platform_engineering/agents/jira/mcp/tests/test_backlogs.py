@@ -1,7 +1,6 @@
 """Unit tests for Jira backlogs MCP tools."""
 
 import pytest
-from unittest.mock import AsyncMock
 
 
 class TestGetBacklogIssues:

@@ -1,7 +1,6 @@
 """Unit tests for Jira boards MCP tools."""
 
 import pytest
-from unittest.mock import AsyncMock
 
 
 class TestGetAllBoards:

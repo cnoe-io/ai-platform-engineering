@@ -1,7 +1,6 @@
 """Unit tests for Jira filters MCP tools."""
 
 import pytest
-from unittest.mock import AsyncMock
 
 
 class TestCreateFilter:
