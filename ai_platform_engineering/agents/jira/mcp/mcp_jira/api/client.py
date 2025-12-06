@@ -273,6 +273,172 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
     # Delete issue
     elif "rest/api/3/issue/" in path and method == "DELETE":
         return (True, {"status": "success"})
+    
+    # Boards
+    elif "rest/agile/1.0/board" in path:
+        if method == "GET" and "/board/" in path:
+            # Get single board
+            board_id = path.split("/board/")[1].split("/")[0].split("?")[0]
+            return (True, {
+                "id": int(board_id),
+                "name": f"Board {board_id}",
+                "type": "scrum",
+                "self": f"https://example.atlassian.net/rest/agile/1.0/board/{board_id}"
+            })
+        elif method == "GET":
+            # List boards
+            return (True, {
+                "maxResults": 50,
+                "startAt": 0,
+                "total": 2,
+                "isLast": True,
+                "values": [
+                    {"id": 1, "name": "Board 1", "type": "scrum"},
+                    {"id": 2, "name": "Board 2", "type": "kanban"}
+                ]
+            })
+        elif method == "POST":
+            # Create board
+            return (True, {
+                "id": 123,
+                "name": data.get("name", "New Board"),
+                "type": data.get("type", "scrum"),
+                "self": "https://example.atlassian.net/rest/agile/1.0/board/123"
+            })
+        elif method == "DELETE":
+            return (True, {})
+    
+    # Sprints
+    elif "rest/agile/1.0/sprint" in path:
+        if method == "GET" and "/sprint/" in path:
+            # Get single sprint
+            sprint_id = path.split("/sprint/")[1].split("/")[0].split("?")[0]
+            return (True, {
+                "id": int(sprint_id),
+                "name": f"Sprint {sprint_id}",
+                "state": "active",
+                "boardId": 1
+            })
+        elif method == "POST":
+            # Create sprint
+            return (True, {
+                "id": 456,
+                "name": data.get("name", "New Sprint"),
+                "state": "future",
+                "boardId": data.get("originBoardId", 1)
+            })
+        elif method == "PUT":
+            # Update sprint
+            sprint_id = path.split("/sprint/")[1].split("?")[0]
+            return (True, {
+                "id": int(sprint_id),
+                "name": data.get("name", f"Updated Sprint {sprint_id}"),
+                "state": data.get("state", "active")
+            })
+        elif method == "DELETE":
+            return (True, {})
+    
+    # Comments
+    elif "/comment" in path:
+        if method == "GET" and "/comment/" in path and "/comment" == path.split("/")[-1]:
+            # Get single comment
+            return (True, {
+                "id": "10000",
+                "body": "This is a comment",
+                "author": {"displayName": "John Doe"}
+            })
+        elif method == "GET":
+            # List comments
+            return (True, {
+                "comments": [
+                    {"id": "10000", "body": "Comment 1"},
+                    {"id": "10001", "body": "Comment 2"}
+                ],
+                "total": 2
+            })
+        elif method == "POST":
+            # Add comment
+            return (True, {
+                "id": "10002",
+                "body": data.get("body", "New comment")
+            })
+        elif method == "PUT":
+            # Update comment
+            comment_id = path.split("/comment/")[1].split("?")[0]
+            return (True, {
+                "id": comment_id,
+                "body": data.get("body", "Updated comment")
+            })
+        elif method == "DELETE":
+            return (True, {})
+    
+    # Filters
+    elif "rest/api/3/filter" in path:
+        if method == "GET" and "/filter/" in path:
+            # Get single filter
+            filter_id = path.split("/filter/")[1].split("/")[0].split("?")[0]
+            return (True, {
+                "id": filter_id,
+                "name": f"Filter {filter_id}",
+                "jql": "project = PROJ",
+                "viewUrl": f"https://example.atlassian.net/issues/?filter={filter_id}"
+            })
+        elif method == "GET":
+            # Search filters
+            return (True, {
+                "maxResults": 50,
+                "startAt": 0,
+                "total": 2,
+                "isLast": True,
+                "values": [
+                    {"id": "12345", "name": "Filter 1", "jql": "project = PROJ"},
+                    {"id": "12346", "name": "Filter 2", "jql": "project = TEST"}
+                ]
+            })
+        elif method == "POST":
+            # Create filter
+            return (True, {
+                "id": "12347",
+                "name": data.get("name", "New Filter"),
+                "jql": data.get("jql", ""),
+                "viewUrl": "https://example.atlassian.net/issues/?filter=12347"
+            })
+        elif method == "PUT":
+            # Update filter
+            filter_id = path.split("/filter/")[1].split("?")[0]
+            return (True, {
+                "id": filter_id,
+                "name": data.get("name", f"Updated Filter"),
+                "jql": data.get("jql", "")
+            })
+        elif method == "DELETE":
+            return (True, {})
+    
+    # Backlogs
+    elif "rest/agile/1.0/backlog" in path:
+        return (True, {
+            "issues": [
+                {
+                    "key": "PROJ-1",
+                    "fields": {
+                        "summary": "Backlog Issue 1",
+                        "status": {"name": "To Do"},
+                        "issuetype": {"name": "Story"},
+                        "priority": {"name": "High"}
+                    }
+                },
+                {
+                    "key": "PROJ-2",
+                    "fields": {
+                        "summary": "Backlog Issue 2",
+                        "status": {"name": "To Do"},
+                        "issuetype": {"name": "Task"},
+                        "priority": {"name": "Medium"}
+                    }
+                }
+            ],
+            "total": 2
+        })
 
     # Default success for any other operation
     logger.warning(f"🎭 Mock mode: No specific mock for {method} {path}, returning generic success")

@@ -55,10 +55,10 @@ class TestMockResponseMode:
 
         # Reload to pick up env var
         import importlib
-        from mcp_jira.tools.jira import constants
-        importlib.reload(constants)
+        from mcp_jira import config
+        importlib.reload(config)
 
-        assert constants.MCP_JIRA_MOCK_RESPONSE is True
+        assert config.MCP_JIRA_MOCK_RESPONSE is True
 
     def test_mock_mode_disabled(self, monkeypatch):
         """Test that mock mode can be disabled."""
@@ -66,10 +66,10 @@ class TestMockResponseMode:
 
         # Reload to pick up env var
         import importlib
-        from mcp_jira.tools.jira import constants
-        importlib.reload(constants)
+        from mcp_jira import config
+        importlib.reload(config)
 
-        assert constants.MCP_JIRA_MOCK_RESPONSE is False
+        assert config.MCP_JIRA_MOCK_RESPONSE is False
 
     @pytest.mark.asyncio
     async def test_mock_response_returns_data(self, monkeypatch):
@@ -79,9 +79,9 @@ class TestMockResponseMode:
 
         # Reload modules
         import importlib
-        from mcp_jira.tools.jira import constants
+        from mcp_jira import config
         from mcp_jira.api import client
-        importlib.reload(constants)
+        importlib.reload(config)
         importlib.reload(client)
 
         # Make a mock request
