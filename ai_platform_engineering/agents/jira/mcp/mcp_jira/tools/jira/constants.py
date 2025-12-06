@@ -1,6 +1,13 @@
 """Constants specific to Jira operations."""
 
-import os
+# Import configuration from central config module to avoid circular imports
+from mcp_jira.config import (
+    MCP_JIRA_READ_ONLY,
+    MCP_JIRA_MOCK_RESPONSE,
+    MCP_JIRA_ISSUES_DELETE_PROTECTION,
+    MCP_JIRA_SPRINTS_DELETE_PROTECTION,
+    MCP_JIRA_BOARDS_DELETE_PROTECTION,
+)
 
 # Set of default fields returned by Jira read operations when no specific fields are requested.
 DEFAULT_READ_JIRA_FIELDS: set[str] = {
@@ -16,26 +23,18 @@ DEFAULT_READ_JIRA_FIELDS: set[str] = {
     "issuetype",
 }
 
-# Read-only mode environment variable (enabled by default for safety)
-MCP_JIRA_READ_ONLY = os.getenv("MCP_JIRA_READ_ONLY", "false").lower() in ("true", "1", "yes")
-
-# Mock mode environment variable (disabled by default)
-MCP_JIRA_MOCK_RESPONSE = os.getenv("MCP_JIRA_MOCK_RESPONSE", "false").lower() in ("true", "1", "yes")
-
-# Delete protection environment variables (enabled by default for safety)
-MCP_JIRA_ISSUES_DELETE_PROTECTION = os.getenv("MCP_JIRA_ISSUES_DELETE_PROTECTION", "true").lower() in ("true", "1", "yes")
-MCP_JIRA_SPRINTS_DELETE_PROTECTION = os.getenv("MCP_JIRA_SPRINTS_DELETE_PROTECTION", "true").lower() in ("true", "1", "yes")
-MCP_JIRA_BOARDS_DELETE_PROTECTION = os.getenv("MCP_JIRA_BOARDS_DELETE_PROTECTION", "true").lower() in ("true", "1", "yes")
-
 
 def check_read_only() -> None:
     """Check if Jira is in read-only mode and raise an error if it is.
 
-    Returns:
-        str: If MCP_JIRA_READ_ONLY is enabled.
+    Raises:
+        ValueError: If MCP_JIRA_READ_ONLY is enabled.
     """
     if MCP_JIRA_READ_ONLY:
-        return "Jira MCP is in read-only mode. Write operations are disabled. Set MCP_JIRA_READ_ONLY=false to enable write operations."
+        raise ValueError(
+            "Jira MCP is in read-only mode. Write operations are disabled. "
+            "Set MCP_JIRA_READ_ONLY=false to enable write operations."
+        )
 
 
 def check_issues_delete_protection() -> None:

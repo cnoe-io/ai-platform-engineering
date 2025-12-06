@@ -60,7 +60,7 @@ class TestGetBacklogIssues:
 
         result = await get_backlog_issues(1)
 
-        assert "No backlog issues found" in result or "0 issues" in result
+        assert '"total": 0' in result or "[]" in result
 
     @pytest.mark.asyncio
     async def test_get_backlog_issues_with_pagination(self, monkeypatch):

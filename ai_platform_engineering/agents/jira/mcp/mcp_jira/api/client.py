@@ -10,7 +10,7 @@ from typing import Optional, Dict, Tuple, Any
 import httpx
 from dotenv import load_dotenv
 
-from mcp_jira.tools.jira.constants import MCP_JIRA_MOCK_RESPONSE
+from mcp_jira.config import MCP_JIRA_MOCK_RESPONSE
 
 # Load environment variables
 load_dotenv()
