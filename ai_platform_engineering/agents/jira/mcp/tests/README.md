@@ -71,6 +71,15 @@ Unit tests for the Jira MCP server field discovery and related functionality.
    - API error handling
    - Read-only protection
 
+9. **test_filters.py** - Filter management tests
+   - Create filter (with description, permissions)
+   - Get filter details
+   - Search filters (by name, owner)
+   - Update filter (name, JQL, description)
+   - Delete filter
+   - ORDER BY Rank validation for board filters
+   - Read-only protection
+
 ## Running Tests
 
 ### Prerequisites
@@ -150,10 +159,10 @@ class TestFeatureName:
         """Test basic functionality."""
         # Arrange
         input_data = "test"
-        
+
         # Act
         result = function_under_test(input_data)
-        
+
         # Assert
         assert result == expected
 ```
@@ -179,7 +188,7 @@ Mock `make_api_request` using `monkeypatch`:
 def test_with_mock_api(monkeypatch):
     async def mock_request(path, method="GET", **kwargs):
         return (True, {"mocked": "data"})
-    
+
     from mcp_jira.api import client
     monkeypatch.setattr(client, "make_api_request", mock_request)
 ```
@@ -246,10 +255,10 @@ class TestNewFeature:
         """Test that feature works with valid input."""
         # Arrange
         discovery = FieldDiscovery()
-        
+
         # Act
         result = await discovery.some_method("input")
-        
+
         # Assert
         assert result == "expected"
         assert isinstance(result, str)
@@ -257,7 +266,7 @@ class TestNewFeature:
     def test_error_handling(self):
         """Test that feature handles errors gracefully."""
         discovery = FieldDiscovery()
-        
+
         with pytest.raises(ValueError, match="expected error"):
             discovery.some_method(None)
 ```

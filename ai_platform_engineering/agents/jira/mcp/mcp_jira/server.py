@@ -24,6 +24,7 @@ from mcp_jira.tools.jira import comments
 from mcp_jira.tools.jira import sprints
 from mcp_jira.tools.jira import boards
 from mcp_jira.tools.jira import backlogs
+from mcp_jira.tools.jira import filters
 
 def main():
     # Load environment variables
@@ -120,6 +121,13 @@ def main():
     mcp.tool()(backlogs.move_issues_to_backlog_for_board)
     mcp.tool()(backlogs.get_issues_without_epic)
     mcp.tool()(backlogs.get_board_issues_for_epic)
+
+    # Register filter tools
+    mcp.tool()(filters.create_filter)
+    mcp.tool()(filters.get_filter)
+    mcp.tool()(filters.search_filters)
+    mcp.tool()(filters.update_filter)
+    mcp.tool()(filters.delete_filter)
 
     # Run the MCP server
     mcp.run(transport=MCP_MODE.lower())
