@@ -1,6 +1,6 @@
 services:
   caipe-p2p:
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
+    image: ${CAIPE_P2P_IMAGE:-ghcr.io/cnoe-io/ai-platform-engineering:latest}
     container_name: caipe-p2p
     volumes:
     - ../../../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
@@ -24,10 +24,16 @@ services:
     - ENABLE_WEATHER_AGENT=false
     - ENABLE_WEBEX_AGENT=false
     - ENABLE_PETSTORE_AGENT=false
-    - RAG_AGENT_HOST=agent_rag
+    - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
     - ENABLE_RAG=true
+    - ENABLE_TRACING=${ENABLE_TRACING:-false} # Set to true to enable tracing, needs other environment variables to be set
+    - LANGFUSE_HOST=${LANGFUSE_HOST}
+    - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+    - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+    - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID}
+    - LANGFUSE_USER_ID=${LANGFUSE_USER_ID}
     depends_on:
-    - agent_rag
+    - rag_server
     command: platform-engineer
     profiles:
     - caipe
@@ -39,13 +45,14 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         REDIS_URL: redis://rag-redis:6379/0
         NEO4J_ADDR: neo4j://neo4j:7687
-        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
         NEO4J_USERNAME: neo4j
         NEO4J_PASSWORD: dummy_password
         MILVUS_URI: http://milvus-standalone:19530
-        ONTOLOGY_AGENT_RESTAPI_ADDR: http://agent_ontology:8098
         ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
         CLEANUP_INTERVAL: 86400
+        # Embeddings configuration
+        EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-azure-openai}
+        EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
     restart: unless-stopped
     env_file:
       - ../../../.env
@@ -57,13 +64,14 @@ services:
     profiles:
       - apps
       - rag_no_graph
+  
 
-  web_ingestor:
+  web_ingestor: # Default ingestor, needed for web page ingestion
     environment:
         INGESTOR_TYPE: webloader
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         REDIS_URL: redis://rag-redis:6379/0
-        RAG_SERVER_URL: http://rag_server:9446
+        RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
         MAX_CONCURRENT_JOBS: ${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
     restart: unless-stopped
     depends_on:
@@ -74,6 +82,50 @@ services:
     profiles:
       - apps
       - rag_no_graph
+
+  agent_ontology:
+    ports:
+      - "8098:8098"
+    environment:
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
+        REDIS_URL: redis://rag-redis:6379/0
+        NEO4J_ADDR: neo4j://neo4j:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: dummy_password
+        SYNC_INTERVAL: 86400 # 24 hours
+    env_file:
+      - ../../../.env
+    restart: unless-stopped
+    depends_on:
+      - rag_server
+      - neo4j
+      - rag-redis
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.agent-ontology
+    profiles:
+      - apps
+
+  webui:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.webui
+    container_name: rag-webui
+    environment:
+      RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+      NGINX_ENVSUBST_TEMPLATE_SUFFIX: ".conf"
+    depends_on:
+      - rag_server
+    ports:
+      - "9447:80"
+    profiles:
+      - apps
+      - rag_no_graph
+
+
+#####################
+# Ingestors
+#####################
 
   backstage_ingestor:
     environment:
@@ -154,68 +206,40 @@ services:
     profiles:
       - slack
 
-  # agent_rag:
-  #   ports:
-  #     - "8099:8099"
-  #   env_file:
-  #     - ../../../.env
-  #   environment:
-  #       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-  #       REDIS_URL: redis://rag-redis:6379/0
-  #       NEO4J_ADDR: neo4j://neo4j:7687
-  #       NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
-  #       NEO4J_USERNAME: neo4j
-  #       NEO4J_PASSWORD: dummy_password
-  #       RAG_SERVER_URL: http://rag_server:9446
-  #       ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
-  #   restart: unless-stopped
-  #   build:
-  #     context: .
-  #     dockerfile: ./build/Dockerfile.agent-rag
-  #   profiles:
-  #     - apps
-  #     - rag_no_graph
-
-  agent_ontology:
-    ports:
-      - "8098:8098"
+  webex_ingestor:
     environment:
+        INGESTOR_TYPE: webex
+        WEBEX_ACCESS_TOKEN: ${WEBEX_ACCESS_TOKEN}
+        WEBEX_BOT_NAME: ${WEBEX_BOT_NAME}
+        WEBEX_SPACES: ${WEBEX_SPACES:-{}}
+        RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+        WEBEX_SYNC_INTERVAL: ${WEBEX_SYNC_INTERVAL:-900}
+        WEBEX_INIT_DELAY_SECONDS: ${WEBEX_INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
-        REDIS_URL: redis://rag-redis:6379/0
-        NEO4J_ADDR: neo4j://neo4j:7687
-        NEO4J_ONTOLOGY_ADDR: neo4j://neo4j-ontology:7687
-        NEO4J_USERNAME: neo4j
-        NEO4J_PASSWORD: dummy_password
-        SYNC_INTERVAL: 86400 # 24 hours
-    env_file:
-      - ../../../.env
     restart: unless-stopped
-    depends_on:
-      - rag_server
-      - neo4j
-      - neo4j-ontology
-      - rag-redis
     build:
       context: .
-      dockerfile: ./build/Dockerfile.agent-ontology
+      dockerfile: ./build/Dockerfile.ingestors
     profiles:
-      - apps
+      - webex
 
-  webui:
+  argocd_ingestor:
+    environment:
+        INGESTOR_TYPE: argocd
+        SERVER_URL: ${SERVER_URL}
+        ARGOCD_AUTH_TOKEN: ${ARGOCD_AUTH_TOKEN}
+        ARGOCD_VERIFY_SSL: ${ARGOCD_VERIFY_SSL:-true}
+        ARGOCD_FILTER_PROJECTS: ${ARGOCD_FILTER_PROJECTS:-}
+        RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    restart: unless-stopped
     build:
       context: .
-      dockerfile: build/Dockerfile.webui
-    container_name: rag-webui
-    environment:
-      RAG_SERVER_URL: http://rag_server:9446
-      NGINX_ENVSUBST_TEMPLATE_SUFFIX: ".conf"
-    depends_on:
-      - rag_server
-    ports:
-      - "9447:80"
+      dockerfile: ./build/Dockerfile.ingestors
     profiles:
-      - apps
-      - rag_no_graph
+      - argocd
 
 #####################
 # Dependent services
@@ -241,22 +265,14 @@ services:
       NEO4J_apoc_import_file_enabled: true
       NEO4J_apoc_import_file_use__neo4j__config: true
 
-  neo4j-ontology:
-    image: neo4j:latest
-    volumes:
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/logs:/logs
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/config:/config
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/data:/data
-        - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j-ontology/plugins:/plugins
-    ports:
-      - "7688:7687"
-    restart: unless-stopped
+    # Backstage Plugin (Agent Forge)
+  backstage-agent-forge:
+    image: ghcr.io/cnoe-io/backstage-plugin-agent-forge:latest
+    container_name: backstage-agent-forge
+    ports: ["13000:3000"]
     environment:
-      NEO4J_AUTH: neo4j/dummy_password
-      NEO4J_PLUGINS: '["apoc"]'
-      NEO4J_apoc_export_file_enabled: true
-      NEO4J_apoc_import_file_enabled: true
-      NEO4J_apoc_import_file_use__neo4j__config: true
+      - NODE_ENV=development
+      - AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
     profiles:
       - deps
       - apps
@@ -378,17 +394,3 @@ services:
       - rag_server
     profiles:
       - dummy_ingestor
-  
-  # dex:
-  #     image: ghcr.io/dexidp/dex:latest
-  #     container_name: dex
-  #     restart: unless-stopped
-  #     volumes:
-  #       - ./dex/config.yaml:/etc/dex/config.yaml:ro
-  #       - ./dex/data:/etc/dex  # for sqlite database file persistence
-  #     ports:
-  #       - 5556:5556
-  #     command:
-  #       - dex
-  #       - serve
-  #       - /etc/dex/config.yaml

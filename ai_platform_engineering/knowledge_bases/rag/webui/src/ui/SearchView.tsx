@@ -9,11 +9,10 @@ interface SearchViewProps {
 export default function SearchView({ onExploreEntity }: SearchViewProps) {
     // Query state - matching QueryRequest model
     const [query, setQuery] = useState('');
-    const [limit, setLimit] = useState(5);
-    const [similarity, setSimilarity] = useState(0.3);
+    const [limit, setLimit] = useState(10);
     const [filters, setFilters] = useState<Record<string, string>>({});
     const [rankerType] = useState('weighted'); // Only weighted ranker supported
-    const [semanticsWeight, setSemanticsWeight] = useState(0.7); // Slider for weights
+    const [semanticsWeight, setSemanticsWeight] = useState(0.5); // Slider for weights
     const [results, setResults] = useState<QueryResult[] | null>(null);
     const [loadingQuery, setLoadingQuery] = useState(false);
     const [lastQuery, setLastQuery] = useState('');
@@ -25,7 +24,9 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     const [selectedFilterKey, setSelectedFilterKey] = useState('');
     const [filterValue, setFilterValue] = useState('');
     const [isGraphEntityFilter, setIsGraphEntityFilter] = useState<'all' | 'true' | 'false'>('all'); // 'all' = not set, 'true'/'false' = filter value
-
+    
+    // Graph RAG configuration
+    const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
 
 
     // Fetch valid filter keys and supported doc types on component mount
@@ -35,8 +36,10 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                 const response = await getHealthStatus();
                 const filterKeys = response?.config?.search?.keys || [];
                 const docTypes = response?.config?.search?.supported_doc_types || [];
+                const graphRagEnabled = response?.config?.graph_rag_enabled ?? true;
                 setValidFilterKeys(filterKeys);
                 setSupportedDocTypes(docTypes);
+                setGraphRagEnabled(graphRagEnabled);
             } catch (error) {
                 console.error('Failed to fetch filter configuration:', error);
             }
@@ -115,7 +118,6 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
             const data = await searchDocuments({
                 query,
                 limit,
-                similarity_threshold: similarity,
                 filters: Object.keys(combinedFilters).length > 0 ? combinedFilters : undefined,
                 ranker_type: rankerType,
                 ranker_params: { weights }
@@ -186,18 +188,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         {/* Search Options */}
                         <div className="space-y-4 text-sm">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <label>
-                                    Similarity Threshold:
-                                    <input
-                                        type="number"
-                                        min={0.0}
-                                        max={1.0}
-                                        step={0.1}
-                                        value={similarity}
-                                        onChange={(e) => setSimilarity(parseFloat(e.target.value))}
-                                        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                                    />
-                                </label>
+                             
                                 <label>
                                     Result Limit:
                                     <input
@@ -393,9 +384,17 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                handleExploreClick(r.document.metadata!)
+                                                                if (graphRagEnabled) {
+                                                                    handleExploreClick(r.document.metadata!)
+                                                                }
                                                             }}
-                                                            className="px-2 py-1 btn text-white rounded text-xs hover:bg-brand-400 transition-colors"
+                                                            disabled={!graphRagEnabled}
+                                                            className={`px-2 py-1 btn text-white rounded text-xs transition-colors ${
+                                                                graphRagEnabled 
+                                                                    ? 'hover:bg-brand-400' 
+                                                                    : 'bg-gray-400 cursor-not-allowed'
+                                                            }`}
+                                                            title={!graphRagEnabled ? 'Graph RAG is disabled' : ''}
                                                         >
                                                             Explore
                                                         </button>

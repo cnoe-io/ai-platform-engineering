@@ -173,10 +173,13 @@ async def combined_lifespan(app: FastAPI):
         if not mcp_enabled:
             yield # Skip MCP setup
         else:
+            if not metadata_storage:
+                raise HTTPException(status_code=500, detail="Cannot initialize MCP server - metadata storage not initialized")
             # Initialize MCP server tools
             agent_tools = AgentTools(
                 vector_db_query_service=vector_db_query_service,
                 redis_client=redis_client,
+                metadata_storage=metadata_storage,
                 data_graph_db=data_graph_db,
                 ontology_graph_db=ontology_graph_db,
             )
@@ -518,7 +521,6 @@ async def query_documents(query_request: QueryRequest):
             query=query_request.query,
             filters=query_request.filters,
             limit=query_request.limit,
-            similarity_threshold=query_request.similarity_threshold,
             ranker=query_request.ranker_type,
             ranker_params=query_request.ranker_params,
     )

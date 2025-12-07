@@ -1,8 +1,9 @@
 import os
-from typing import Optional, List, Tuple, Set
+from typing import Optional, List, Dict, Any
 
-from common.utils import json_encode, get_logger
+from common.utils import get_logger
 from common.graph_db.base import GraphDB
+from common.metadata_storage import MetadataStorage
 import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
@@ -10,12 +11,9 @@ from common.constants import (
     KV_ONTOLOGY_VERSION_ID_KEY, 
     PROP_DELIMITER, 
     ONTOLOGY_VERSION_ID_KEY,
-    SUB_ENTITY_LABEL,
-    PRIMARY_ID_KEY,
-    ENTITY_TYPE_KEY,
-    ALL_IDS_PROPS_KEY
+    PRIMARY_ID_KEY
 )
-from common.models.graph import EntityIdentifier, Entity, Relation
+from common.models.graph import Entity, Relation
 import traceback
 from server.query_service import VectorDBQueryService
 from common.models.rag import valid_metadata_keys
@@ -27,16 +25,29 @@ logger = get_logger(__name__)
 
 max_graph_raw_query_results=int(os.getenv("MAX_GRAPH_RAW_QUERY_RESULTS", 100))
 max_graph_raw_query_tokens=int(os.getenv("MAX_GRAPH_RAW_QUERY_TOKENS", 80000))
-search_tool_keyword_bias = float(os.getenv("SEARCH_TOOL_KEYWORD_BIAS", 0.3))
+search_result_truncate_length=int(os.getenv("SEARCH_RESULT_TRUNCATE_LENGTH", 500))
 
-if search_tool_keyword_bias < 0.0 or search_tool_keyword_bias > 1.0:
-    logger.warning(f"Invalid SEARCH_TOOL_KEYWORD_BIAS value: {search_tool_keyword_bias}, must be between 0.0 and 1.0. Using default value 0.3")
-    search_tool_keyword_bias = 0.3
+# Bias presets for search tool
+BIAS_KEYWORD = "keyword"  # 80% keyword, 20% semantic
+BIAS_SEMANTIC = "semantic"  # 30% keyword, 70% semantic
+
+def get_search_weights(bias: str) -> List[float]:
+    """Get search weights based on bias type.
+    Returns [semantic_weight, keyword_weight]
+    """
+    if bias == BIAS_KEYWORD:
+        return [0.1, 0.9]  # 10% semantic, 90% keyword
+    elif bias == BIAS_SEMANTIC:
+        return [0.5, 0.5]  # 50% semantic, 50% keyword
+    else:
+        # Default to semantic
+        return [0.5, 0.5]
 
 class AgentTools:
-    def __init__(self, redis_client: Redis, vector_db_query_service: VectorDBQueryService, data_graph_db: Optional[GraphDB] = None, ontology_graph_db: Optional[GraphDB] = None):
+    def __init__(self, redis_client: Redis, vector_db_query_service: VectorDBQueryService, metadata_storage: MetadataStorage, data_graph_db: Optional[GraphDB] = None, ontology_graph_db: Optional[GraphDB] = None):
         self.redis_client = redis_client
         self.vector_db_query_service: VectorDBQueryService = vector_db_query_service
+        self.metadata_storage: MetadataStorage = metadata_storage
         self.data_graphdb: Optional[GraphDB] = data_graph_db
         self.ontology_graphdb: Optional[GraphDB] = ontology_graph_db
 
@@ -48,42 +59,49 @@ class AgentTools:
             logger.info(f"Valid filter keys for search tool: {valid_filter_keys}")
             search_description = f"""
         Search for relevant documents and graph entities using semantic search in the vector databases.
+        Returns results with text truncated to 500 chars. Use fetch_document to get full content.
         Args:
             query (str): The search query (Use full sentences for better results)
             filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
-            limit (int): Maximum number of results to return (default: 5)
-            similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
+            limit (int): Maximum number of results to return (default: 10)
+            is_graph_entity (bool): Whether to search ONLY for graph entities. Default: False
+            bias (str): Search bias type - "keyword" (90% keyword, 10% semantic) or "semantic" (60% semantic, 40% keyword). Default: "semantic"
             thought (str): Your thoughts for choosing this tool
 
         Returns:
-            str: JSON encoded search results containing documents, graph entities, and their scores
+            list: search results with text truncated to 500 chars and full metadata. Use fetch_document with document_id to get full content.
         """
         else:
-            valid_filter_keys = valid_metadata_keys() # exclude graph metadata keys
-            # remove any graph-related keys
+            valid_filter_keys = valid_metadata_keys() # exclude graph metadata keys
+            # remove any graph-related keys
             valid_filter_keys = [key for key in valid_filter_keys if "graph_entity" not in key]
 
             logger.info(f"Valid filter keys for search tool: {valid_filter_keys}")
             search_description =f"""
         Search for relevant documents using semantic search in the vector databases.
+        Returns results with text truncated to 500 chars. Use fetch_document to get full content.
         Args:
             query (str): The search query (Use full sentences for better results)
             filters (dict): Optional filters to apply. Valid filter keys are: {valid_filter_keys}.
-            limit (int): Maximum number of results to return (default: 5)
-            similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
+            limit (int): Maximum number of results to return (default: 10)
+            is_graph_entity (bool): Unavailable for this tool.
+            bias (str): Search bias type - "keyword" (90% keyword, 10% semantic) or "semantic" (60% semantic, 40% keyword). Default: "semantic"
             thought (str): Your thoughts for choosing this tool
 
         Returns:
-            str: JSON encoded search results containing both documents, and their scores
+            list: search results with text truncated to 500 chars and full metadata. Use fetch_document with document_id to get full content.
         """
         mcp.tool(
             name_or_fn=self.search,
             description=search_description,
         )
             
+        # Register additional tools
+        mcp.tool(self.fetch_document)
+        mcp.tool(self.fetch_datasources_and_entity_types)
+            
         if graph_rag_enabled:
             graph_tools = [
-                self.graph_get_entity_types,
                 self.graph_explore_ontology_entity,
                 self.graph_explore_data_entity,
                 self.graph_fetch_data_entity_details,
@@ -100,23 +118,29 @@ class AgentTools:
     # Search tool     #
     ####################
 
-    async def search(self, query: str, filters: Optional[dict]=None, limit: int = 5, similarity_threshold: float = 0.3, thought: str = "") -> str:
+    async def search(self, query: str, filters: Optional[dict]=None, limit: int = 10,  bias: str = "semantic", is_graph_entity: bool = False, thought: str = ""):
         """
         Search for relevant documents (and graph entities) using semantic search in the vector databases.
+        Returns truncated results. Use fetch_document to get full content.
         """
-        logger.info(f"Search query: {query}, Limit: {limit}, Similarity Threshold: {similarity_threshold}, filters: {filters}, Thought: {thought}")
+        logger.info(f"Search query: {query}, Limit: {limit}, Bias: {bias}, filters: {filters}, is_graph_entity: {is_graph_entity}, Thought: {thought}")
 
-        weights = [1-search_tool_keyword_bias, search_tool_keyword_bias]  # Default weights: more weight to dense (semantic) score
-
-        # validate filters
+        # Get weights based on bias
+        weights = get_search_weights(bias)
+        logger.info(f"Using search weights (semantic, keyword): {weights}")
+        if is_graph_entity:
+            if filters is None:
+                filters = {}
+            filters.update({"is_graph_entity": True})
+        
+        logger.info(f"Search filters: {filters}")
         try:
             results = await self.vector_db_query_service.query(
                 query=query,
                 filters=filters,
                 limit=limit,
-                similarity_threshold=similarity_threshold,
                 ranker="weighted",
-                ranker_params={"weights": weights} # More weight to dense (semantic) score
+                ranker_params={"weights": weights}
             )
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
@@ -124,52 +148,122 @@ class AgentTools:
             return f"Error during search: {e}"
 
         logger.info(f"search results: total_documents {len(results)}")
-        return json_encode(results)
+        # Truncate text in results to save tokens
+        truncated_results: List[Dict[str, Any]] = []
+        for result in results:
+            # Work with Pydantic model attributes directly
+            text = result.document.page_content
+            metadata = result.document.metadata
+            score = result.score
+            
+            # Truncate text
+            if len(text) > search_result_truncate_length:
+                text = text[:search_result_truncate_length] + f"... [truncated, use fetch_document with document_id to get full content]"
+            
+            truncated_results.append({
+                "text_content": text,
+                "metadata": metadata,
+                "score": score
+            })
+        
+        return truncated_results
+
+    async def fetch_document(self, document_id: str, thought: str = ""):
+        """
+        Fetch the full content of a document by its document_id (obtained from search results).
+        
+        Args:
+            document_id (str): The document ID from search results
+            thought (str): Your thoughts for choosing this tool
+            
+        Returns:
+            dict: document with full content and metadata
+        """
+        logger.info(f"Fetching document with ID: {document_id}, Thought: {thought}")
+        
+        try:
+            # Query vector DB for the specific document
+            results = await self.vector_db_query_service.query(
+                query="",  # Empty query, we're filtering by ID
+                filters={"document_id": document_id},
+                limit=100,
+                ranker="weighted",
+                ranker_params={"weights": [1.0, 0.0]}
+            )
+            
+            if not results:
+                return f"Error: Document with ID '{document_id}' not found in the knowledge base."
+            
+            return results
+        except Exception as e:
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Error fetching document {document_id}: {e}")
+            return f"Error fetching document '{document_id}': {str(e)}"
+
+    async def fetch_datasources_and_entity_types(self, thought: str = ""):
+        """
+        Fetch list of available datasources and entity types in the knowledge base.
+        
+        Args:
+            thought (str): Your thoughts for choosing this tool
+            
+        Returns:
+            dict: list of datasources (from metadata storage) and entity types (from graph DB if available)
+        """
+        logger.info(f"Fetching datasources and entity types, Thought: {thought}")
+        
+        result = {
+            "datasources": [],
+            "entity_types": []
+        }
+        
+        try:
+            # Get datasources from metadata storage
+            datasources_info = await self.metadata_storage.fetch_all_datasource_info()
+            result["datasources"] = [ds.datasource_id for ds in datasources_info]
+            
+            # Get entity types from ontology DB if available==
+            if self.ontology_graphdb is not None:
+                entity_types = await self.ontology_graphdb.get_all_entity_types()
+                result["entity_types"] = sorted(list(entity_types))
+            else:
+                result["entity_types"] = []
+                logger.info("Graph database not available, entity_types will be empty")
+            
+            return result
+        except Exception as e:
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Error fetching datasources and entity types: {e}")
+            return f"Error fetching datasources and entity types: {str(e)}"
 
     #####################
     # Graph query tools #
     #####################
 
-    async def graph_get_entity_types(self, thought: str) -> str:
+    async def graph_explore_ontology_entity(self, entity_type: str, depth: int = 1, thought: str = ""):
         """
-        Gets all entity types in the graph database. Useful to understand what data is available to query.
-
-        Args:
-            thought (str): Your thoughts for choosing this tool
-
-        Returns:
-            str: A list of all entity types in the graph database
-        """
-        logger.info(f"Getting entity types, Thought: {thought}")
-        if self.data_graphdb is None:
-            logger.error("Graph database is not available, Is graph RAG enabled?")
-            return "Error: Data graph database is not available. Please ensure graph RAG is enabled."
-        try:
-            entity_types = await self.data_graphdb.get_all_entity_types()
-            if not entity_types:
-                return "No entity types found in the data graph database. The database may be empty."
-            return json_encode(entity_types)
-        except Exception as e:
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Error getting entity types: {e}")
-            return f"Error getting entity types from data graph database: {str(e)}\nTraceback: {traceback.format_exc()}"
-
-    async def graph_explore_ontology_entity(self, entity_type: str, thought: str) -> str:
-        """
-        Explores an ontology entity and recursively fetches all its sub-entities.
-        Returns the root entity and all nested sub-entities with their properties and relations.
+        Explores an ontology entity and its neighborhood up to specified depth.
+        Returns the root entity with full details and connected entities with essential properties only.
 
         Args:
             entity_type (str): The type of entity to explore
+            depth (int): How many hops to explore (default: 1, max: 3)
             thought (str): Your thoughts for choosing this tool
 
         Returns:
-            str: JSON containing the root entity, sub-entities, and their relations
+            dict: containing the root entity (full details), connected entities (essential properties), and their relations
         """
-        logger.info(f"Exploring ontology entity {entity_type}, Thought: {thought}")
+        logger.info(f"Exploring ontology entity {entity_type} with depth {depth}, Thought: {thought}")
         if self.ontology_graphdb is None:
             logger.error("Ontology graph database is not available, Is graph RAG enabled?")
             return "Error: Ontology graph database is not available. Please ensure graph RAG is enabled."
+        
+        # Validate and cap depth
+        if depth < 1:
+            depth = 1
+        elif depth > 3:
+            logger.warning(f"Depth {depth} exceeds maximum of 3, capping to 3")
+            depth = 3
         
         try:
             # Check if ontology is generated
@@ -190,40 +284,48 @@ class AgentTools:
             if entity_type not in all_entity_types:
                 return f"Error: Entity type '{entity_type}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
             
-            # Explore the entity neighborhood recursively
-            result = await self._explore_entity_recursive(
+            # Explore the entity neighborhood with specified depth
+            result = await self._explore_entity_with_depth(
                 graphdb=self.ontology_graphdb,
                 entity_type=entity_type,
                 entity_pk=primary_key_id,
-                max_depth=100
+                max_depth=depth
             )
             
             if result["root_entity"] is None:
                 return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the ontology graph database. The entity may not exist or may have been deleted."
             
-            return json_encode(result)
+            return result
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
             logger.error(f"Error exploring ontology entity {entity_type}: {e}")
             return f"Error exploring ontology entity '{entity_type}': {str(e)}\nTraceback: {traceback.format_exc()}"
 
-    async def graph_explore_data_entity(self, entity_type: str, primary_key_id: str, thought: str) -> str:
+    async def graph_explore_data_entity(self, entity_type: str, primary_key_id: str, depth: int = 1, thought: str = ""):
         """
-        Explores a data entity and recursively fetches all its sub-entities.
-        Returns the root entity and all nested sub-entities with their properties and relations.
+        Explores a data entity and its neighborhood up to specified depth.
+        Returns the root entity with full details and connected entities with essential properties only.
 
         Args:
             entity_type (str): The type of entity to explore
             primary_key_id (str): The primary key id of the entity
+            depth (int): How many hops to explore (default: 1, max: 3)
             thought (str): Your thoughts for choosing this tool
 
         Returns:
-            str: JSON containing the root entity, sub-entities, and their relations
+            dict: containing the root entity (full details), connected entities (essential properties), and their relations
         """
-        logger.info(f"Exploring data entity {entity_type} with primary_key_id {primary_key_id}, Thought: {thought}")
+        logger.info(f"Exploring data entity {entity_type} with primary_key_id {primary_key_id} and depth {depth}, Thought: {thought}")
         if self.data_graphdb is None:
             logger.error("Data graph database is not available, Is graph RAG enabled?")
             return "Error: Data graph database is not available. Please ensure graph RAG is enabled."
+        
+        # Validate and cap depth
+        if depth < 1:
+            depth = 1
+        elif depth > 3:
+            logger.warning(f"Depth {depth} exceeds maximum of 3, capping to 3")
+            depth = 3
         
         try:
             # First check if the entity type exists
@@ -231,78 +333,67 @@ class AgentTools:
             if entity_type not in all_entity_types:
                 return f"Error: Entity type '{entity_type}' does not exist in the data graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
             
-            # Explore the entity neighborhood recursively
-            result = await self._explore_entity_recursive(
+            # Explore the entity neighborhood with specified depth
+            result = await self._explore_entity_with_depth(
                 graphdb=self.data_graphdb,
                 entity_type=entity_type,
                 entity_pk=primary_key_id,
-                max_depth=100
+                max_depth=depth
             )
             
             if result["root_entity"] is None:
                 return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the data graph database. Please verify the entity type and primary key are correct."
             
-            return json_encode(result)
+            return result
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
             logger.error(f"Error exploring data entity {entity_type} with primary_key_id {primary_key_id}: {e}")
             return f"Error exploring data entity '{entity_type}' with primary_key_id '{primary_key_id}': {str(e)}\nTraceback: {traceback.format_exc()}"
 
-    async def _explore_entity_recursive(
-        self, 
-        graphdb: GraphDB, 
-        entity_type: str, 
-        entity_pk: str, 
-        max_depth: int,
-        visited: Optional[Set[str]] = None,
-        current_depth: int = 0
+    async def _explore_entity_with_depth(
+        self,
+        graphdb: GraphDB,
+        entity_type: str,
+        entity_pk: str,
+        max_depth: int
     ) -> dict:
         """
-        Recursively explores an entity and its sub-entities.
+        Explores an entity and its neighborhood up to specified depth.
+        Returns root entity with full details, other entities with essential properties only.
         
+        Args:
+            graphdb: The graph database to query
+            entity_type: Type of the root entity
+            entity_pk: Primary key of the root entity
+            max_depth: Maximum depth to explore (1-3)
+            
         Returns:
             dict with keys:
-                - root_entity: dict with entity details
-                - sub_entities: list of sub-entity dicts
+                - root_entity: dict with full entity details
+                - entities: list of connected entities with essential properties
                 - relations: list of relation tuples (from_pk, relation_name, to_pk)
         """
-        if visited is None:
-            visited = set()
-        
-        # Prevent infinite recursion
-        if current_depth > max_depth:
-            logger.warning(f"Max recursion depth {max_depth} reached for entity {entity_type}:{entity_pk}")
-            return {"root_entity": None, "sub_entities": [], "relations": []}
-        
-        # Check if already visited
-        entity_key = f"{entity_type}:{entity_pk}"
-        if entity_key in visited:
-            return {"root_entity": None, "sub_entities": [], "relations": []}
-        
-        visited.add(entity_key)
-        
-        # Fetch the entity with depth 1 to get immediate neighbors
+        # Fetch the neighborhood from graph DB with specified depth
         neighborhood = await graphdb.explore_neighborhood(
             entity_type=entity_type,
             entity_pk=entity_pk,
-            depth=1,
+            depth=max_depth,
             max_results=1000
         )
         
         if neighborhood["entity"] is None:
-            return {"root_entity": None, "sub_entities": [], "relations": []}
+            return {"root_entity": None, "entities": [], "relations": []}
         
         root_entity = neighborhood["entity"]
         
-        # Extract clean entity data (only essential fields)
-        def extract_entity_data(entity: Entity) -> dict:
-            # Get primary key values
+        # Extract full entity data for root
+        def extract_full_entity_data(entity: Entity) -> dict:
+            """Extract complete entity data with all properties"""
             primary_key_values = {}
             for prop in entity.primary_key_properties:
                 if prop in entity.all_properties:
                     primary_key_values[prop] = entity.all_properties[prop]
             
-            # Get additional key values
             additional_key_values = []
             if entity.additional_key_properties:
                 for key_props in entity.additional_key_properties:
@@ -328,53 +419,61 @@ class AgentTools:
                 "properties": properties
             }
         
-        root_entity_data = extract_entity_data(root_entity)
-        sub_entities = []
+        # Extract essential entity data for connected entities
+        def extract_essential_entity_data(entity: Entity) -> dict:
+            """Extract only essential entity data (primary keys and entity type)"""
+            primary_key_values = {}
+            for prop in entity.primary_key_properties:
+                if prop in entity.all_properties:
+                    primary_key_values[prop] = entity.all_properties[prop]
+            
+            additional_key_values = []
+            if entity.additional_key_properties:
+                for key_props in entity.additional_key_properties:
+                    key_dict = {}
+                    for prop in key_props:
+                        if prop in entity.all_properties:
+                            key_dict[prop] = entity.all_properties[prop]
+                    if key_dict:
+                        additional_key_values.append(key_dict)
+            
+            return {
+                "entity_type": entity.entity_type,
+                "_entity_pk": entity.all_properties.get(PRIMARY_ID_KEY, ""),
+                "primary_key_values": primary_key_values,
+                "additional_key_values": additional_key_values
+            }
+        
+        # Process root entity with full details
+        root_entity_data = extract_full_entity_data(root_entity)
+        
+        # Process all connected entities with essential properties only
+        connected_entities = []
         all_relations = []
         
-        # Process relations and find sub-entities
+        for entity in neighborhood["entities"]:
+            # Skip the root entity itself
+            if entity.all_properties.get(PRIMARY_ID_KEY) == entity_pk:
+                continue
+            
+            connected_entities.append(extract_essential_entity_data(entity))
+        
+        # Process all relations
         for relation in neighborhood["relations"]:
-            # Add relation tuple (from_pk, relation_name, to_pk)
             relation_tuple = (
                 relation.from_entity.primary_key,
                 relation.relation_name,
                 relation.to_entity.primary_key
             )
             all_relations.append(relation_tuple)
-            
-            # Check if the related entity is a sub-entity
-            # Look for entities in the neighborhood that are sub-entities
-            for entity in neighborhood["entities"]:
-                if entity.all_properties.get(PRIMARY_ID_KEY) == relation.to_entity.primary_key:
-                    # Check if this entity has the SUB_ENTITY_LABEL
-                    if SUB_ENTITY_LABEL in entity.additional_labels:
-                        # Recursively explore this sub-entity
-                        sub_result = await self._explore_entity_recursive(
-                            graphdb=graphdb,
-                            entity_type=entity.entity_type,
-                            entity_pk=entity.all_properties.get(PRIMARY_ID_KEY, ""),
-                            max_depth=max_depth,
-                            visited=visited,
-                            current_depth=current_depth + 1
-                        )
-                        
-                        # Add the sub-entity
-                        if sub_result["root_entity"]:
-                            sub_entities.append(sub_result["root_entity"])
-                        
-                        # Add nested sub-entities
-                        sub_entities.extend(sub_result["sub_entities"])
-                        
-                        # Add relations from nested exploration
-                        all_relations.extend(sub_result["relations"])
         
         return {
             "root_entity": root_entity_data,
-            "sub_entities": sub_entities,
+            "entities": connected_entities,
             "relations": all_relations
         }
 
-    async def graph_fetch_data_entity_details(self, entity_type: str, primary_key_id: str, thought: str) -> str:
+    async def graph_fetch_data_entity_details(self, entity_type: str, primary_key_id: str, thought: str):
         """
         Fetches details of a single data entity and returns all its properties (excluding internal properties),
         as well as relations from the graph database.
@@ -439,20 +538,20 @@ class AgentTools:
                     "relation_properties": rel.relation_properties
                 })
             
-            return json_encode({
+            return {
                 "entity_type": entity.entity_type,
                 "_entity_pk": entity.all_properties.get(PRIMARY_ID_KEY, ""),
                 "primary_key_values": primary_key_values,
                 "additional_key_values": additional_key_values,
                 "properties": clean_properties,
                 "relations": relations_data,
-            })
+            }
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
             logger.error(f"Error fetching entity details {entity_type} with primary_key_id {primary_key_id}: {e}")
             return f"Error fetching data entity details for '{entity_type}' with primary_key_id '{primary_key_id}': {str(e)}\nTraceback: {traceback.format_exc()}"
 
-    async def graph_shortest_path_between_entity_types(self, entity_type_1: str, entity_type_2: str, thought: str) -> str:
+    async def graph_shortest_path_between_entity_types(self, entity_type_1: str, entity_type_2: str, thought: str):
         """
         Find the shortest relationship paths between two entity types in the ontology graph.
         
@@ -541,7 +640,7 @@ class AgentTools:
             logger.error(f"Error getting shortest path between {entity_type_1} and {entity_type_2}: {e}")
             return f"Error finding shortest path between entity types '{entity_type_1}' and '{entity_type_2}': {str(e)}\nTraceback: {traceback.format_exc()}"
 
-    async def graph_raw_query_data(self, query: str, thought: str) -> str:
+    async def graph_raw_query_data(self, query: str, thought: str):
         """
         Executes a raw read-only query on the data graph database.
 
@@ -562,8 +661,8 @@ class AgentTools:
         
         try:
             res = await self.data_graphdb.raw_query(query, readonly=True, max_results=max_graph_raw_query_results)
-            notifications = json_encode(res.get("notifications", []))
-            results = json_encode(res.get("results", []))
+            notifications = res.get("notifications", [])
+            results = res.get("results", [])
 
             # Check for warnings/errors in notifications first
             if "warning" in notifications.lower() or "error" in notifications.lower():
@@ -581,14 +680,14 @@ class AgentTools:
                 "notifications": notifications
             }
             logger.debug(f"Raw query output: {output}")
-            return json_encode(output)
+            return output
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Traceback: {traceback.format_exc()}")
             logger.error(f"Error executing raw data graph query: {e}")
             return f"Error executing raw data graph query. PLEASE FIX your query:\n\nError: {error_msg}\n\nQuery executed: {query}\n\nTraceback: {traceback.format_exc()}"
 
-    async def graph_raw_query_ontology(self, query: str, thought: str) -> str:
+    async def graph_raw_query_ontology(self, query: str, thought: str):
         """
         Executes a raw read-only query on the ontology graph database.
 
@@ -609,8 +708,8 @@ class AgentTools:
         
         try:
             res = await self.ontology_graphdb.raw_query(query, readonly=True, max_results=max_graph_raw_query_results)
-            notifications = json_encode(res.get("notifications", []))
-            results = json_encode(res.get("results", []))
+            notifications = res.get("notifications", [])
+            results = res.get("results", [])
 
             # Check for warnings/errors in notifications first
             if "warning" in notifications.lower() or "error" in notifications.lower():
@@ -628,7 +727,7 @@ class AgentTools:
                 "notifications": notifications
             }
             logger.debug(f"Raw query output: {output}")
-            return json_encode(output)
+            return output
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Traceback: {traceback.format_exc()}")

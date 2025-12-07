@@ -27,8 +27,7 @@ class VectorDBQueryService:
     async def query(self, 
         query: str,
         filters: Optional[Dict[str, str|bool]] = None,
-        limit: int = 5, 
-        similarity_threshold: float = 0.3,
+        limit: int = 10, 
         ranker: str = "",
         ranker_params: Optional[Dict[str, Any]] = None) -> List[QueryResult]:
         """
@@ -37,7 +36,6 @@ class VectorDBQueryService:
         :param filters: Optional filters to apply (e.g., datasource_id, connector_id,
                         graph_entity_type).
         :param limit: Number of results to return.
-        :param similarity_threshold: Minimum similarity score to include a result.
         :param ranker: Type of ranker to use ('weighted', 'recency', etc.).
         :param ranker_params: Parameters for the ranker.
         :return: QueryResults containing the results and their scores.
@@ -77,8 +75,6 @@ class VectorDBQueryService:
         # Format results for response
         query_results: List[QueryResult] = []
         for doc, score in results:
-            if score < similarity_threshold: # filter out based on similarity threshold
-                continue
             query_results.append(
                 QueryResult(
                     document=doc,
