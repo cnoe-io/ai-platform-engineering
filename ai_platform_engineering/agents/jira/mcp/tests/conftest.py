@@ -5,13 +5,19 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def enable_mock_mode(monkeypatch):
-    """Enable mock mode for all tests by default."""
+def setup_test_environment(monkeypatch):
+    """Set up test environment with mock mode enabled and protections disabled.
+    
+    This ensures tests use mock responses instead of real API calls.
+    Individual tests can override specific behaviors using monkeypatch.
+    """
+    # Enable mock mode so tests don't make real API calls
     monkeypatch.setenv("MCP_JIRA_MOCK_RESPONSE", "true")
     monkeypatch.setenv("MCP_JIRA_READ_ONLY", "false")
     monkeypatch.setenv("MCP_JIRA_ISSUES_DELETE_PROTECTION", "false")
     monkeypatch.setenv("MCP_JIRA_SPRINTS_DELETE_PROTECTION", "false")
     monkeypatch.setenv("MCP_JIRA_BOARDS_DELETE_PROTECTION", "false")
+    monkeypatch.setenv("ATLASSIAN_API_URL", "https://test.atlassian.net")
     
     # Reload the config module to pick up the new env vars
     import importlib
@@ -21,6 +27,10 @@ def enable_mock_mode(monkeypatch):
     # Update constants that import from config
     from mcp_jira.tools.jira import constants
     importlib.reload(constants)
+    
+    # Reload the client to pick up the mock mode setting
+    from mcp_jira.api import client
+    importlib.reload(client)
 
 
 @pytest.fixture
