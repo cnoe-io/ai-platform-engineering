@@ -222,8 +222,44 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
         get_mock_success_response,
     )
 
+    # Comments (check before generic issue path since comment URLs contain issue path)
+    if "/comment" in path:
+        if method == "GET":
+            if path.count("/") > 5:  # Getting a specific comment
+                return (True, {
+                    "id": "10000",
+                    "body": {
+                        "type": "doc",
+                        "version": 1,
+                        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Specific comment"}]}]
+                    },
+                    "author": {"displayName": "Test User"},
+                    "created": "2024-01-01T12:00:00.000Z"
+                })
+            else:  # Getting all comments for an issue
+                return (True, {
+                    "comments": [
+                        {"id": "10000", "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "First comment"}]}]}, "author": {"displayName": "John Doe"}},
+                        {"id": "10001", "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Second comment"}]}]}, "author": {"displayName": "Jane Smith"}}
+                    ],
+                    "total": 2
+                })
+        elif method == "POST":
+            return (True, {
+                "id": "10002",
+                "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "New comment"}]}]},
+                "author": {"displayName": "Current User"}
+            })
+        elif method == "PUT":
+            return (True, {
+                "id": "10000",
+                "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Updated comment"}]}]}
+            })
+        elif method == "DELETE":
+            return (True, {})
+
     # Issue operations
-    if "rest/api/3/issue/" in path and method == "GET":
+    elif "rest/api/3/issue/" in path and method == "GET":
         if "/transitions" in path:
             issue_key = path.split("/issue/")[1].split("/")[0]
             return (True, get_mock_transitions(issue_key))
@@ -273,18 +309,83 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
     # Delete issue
     elif "rest/api/3/issue/" in path and method == "DELETE":
         return (True, {"status": "success"})
-    
-    # Boards
+
+    # Boards - check sub-endpoints first before generic board
     elif "rest/agile/1.0/board" in path:
-        if method == "GET" and "/board/" in path:
-            # Get single board
-            board_id = path.split("/board/")[1].split("/")[0].split("?")[0]
+        # Board issues
+        if "/issue" in path and method == "GET":
             return (True, {
-                "id": int(board_id),
-                "name": f"Board {board_id}",
-                "type": "scrum",
-                "self": f"https://example.atlassian.net/rest/agile/1.0/board/{board_id}"
+                "issues": [
+                    {"key": "PROJ-1", "fields": {"summary": "Issue 1", "status": {"name": "To Do"}}},
+                    {"key": "PROJ-2", "fields": {"summary": "Issue 2", "status": {"name": "In Progress"}}}
+                ],
+                "total": 2
             })
+        # Board sprints
+        elif "/sprint" in path and method == "GET":
+            return (True, {
+                "values": [
+                    {"id": 1, "name": "Sprint 1", "state": "active"},
+                    {"id": 2, "name": "Sprint 2", "state": "future"}
+                ],
+                "total": 2
+            })
+        # Board epics
+        elif "/epic" in path and method == "GET":
+            return (True, {
+                "values": [
+                    {"id": 100, "key": "PROJ-100", "name": "Epic 1"},
+                    {"id": 101, "key": "PROJ-101", "name": "Epic 2"}
+                ],
+                "total": 2
+            })
+        # Board versions
+        elif "/version" in path and method == "GET":
+            return (True, {
+                "values": [
+                    {"id": "10000", "name": "Version 1.0", "released": True},
+                    {"id": "10001", "name": "Version 2.0", "released": False}
+                ],
+                "total": 2
+            })
+        # Board projects
+        elif "/project" in path and method == "GET":
+            return (True, {
+                "values": [
+                    {"id": "10000", "key": "PROJ", "name": "Project 1"},
+                    {"id": "10001", "key": "PROJ2", "name": "Project 2"}
+                ],
+                "total": 2
+            })
+        # Board configuration
+        elif "/configuration" in path and method == "GET":
+            return (True, {
+                "id": 1,
+                "name": "Board 1",
+                "type": "scrum",
+                "columnConfig": {"columns": [{"name": "To Do"}, {"name": "In Progress"}, {"name": "Done"}]}
+            })
+        # Board backlog
+        elif "/backlog" in path and method == "GET":
+            return (True, {
+                "issues": [
+                    {"key": "PROJ-1", "fields": {"summary": "Backlog Issue 1", "status": {"name": "To Do"}}},
+                    {"key": "PROJ-2", "fields": {"summary": "Backlog Issue 2", "status": {"name": "To Do"}}}
+                ],
+                "total": 2
+            })
+        elif method == "GET" and "/board/" in path:
+            # Get single board (no sub-endpoint)
+            parts = path.split("/board/")[1].split("/")
+            board_id = parts[0].split("?")[0]
+            # Only return board if there's no sub-endpoint
+            if len(parts) == 1 or (len(parts) == 2 and parts[1] == ""):
+                return (True, {
+                    "id": int(board_id),
+                    "name": f"Board {board_id}",
+                    "type": "scrum",
+                    "self": f"https://example.atlassian.net/rest/agile/1.0/board/{board_id}"
+                })
         elif method == "GET":
             # List boards
             return (True, {
@@ -307,10 +408,19 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
             })
         elif method == "DELETE":
             return (True, {})
-    
+
     # Sprints
     elif "rest/agile/1.0/sprint" in path:
-        if method == "GET" and "/sprint/" in path:
+        # Sprint issues
+        if "/issue" in path and method == "GET":
+            return (True, {
+                "issues": [
+                    {"key": "PROJ-1", "fields": {"summary": "Issue 1", "status": {"name": "In Progress"}}},
+                    {"key": "PROJ-2", "fields": {"summary": "Issue 2", "status": {"name": "Done"}}}
+                ],
+                "total": 2
+            })
+        elif method == "GET" and "/sprint/" in path:
             # Get single sprint
             sprint_id = path.split("/sprint/")[1].split("/")[0].split("?")[0]
             return (True, {
@@ -337,7 +447,7 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
             })
         elif method == "DELETE":
             return (True, {})
-    
+
     # Comments
     elif "/comment" in path:
         if method == "GET" and "/comment/" in path and "/comment" == path.split("/")[-1]:
@@ -371,7 +481,7 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
             })
         elif method == "DELETE":
             return (True, {})
-    
+
     # Filters
     elif "rest/api/3/filter" in path:
         if method == "GET" and "/filter/" in path:
@@ -413,7 +523,7 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
             })
         elif method == "DELETE":
             return (True, {})
-    
+
     # Backlogs
     elif "rest/agile/1.0/backlog" in path:
         return (True, {
