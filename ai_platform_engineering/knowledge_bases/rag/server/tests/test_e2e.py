@@ -132,7 +132,7 @@ class TestRAGEndToEnd:
         # Wait a moment for indexing to complete
         time.sleep(10)
         
-        print(f"✅ Ingestion completed successfully")
+        print("✅ Ingestion completed successfully")
 
     @pytest.mark.dependency(depends=['test_url_ingestion_workflow'])
     def test_datasource_listing(self):
