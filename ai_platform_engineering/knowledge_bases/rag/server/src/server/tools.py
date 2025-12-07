@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Optional, List, Dict, Any
 
 from common.utils import get_logger
@@ -13,11 +14,12 @@ from common.constants import (
     ONTOLOGY_VERSION_ID_KEY,
     PRIMARY_ID_KEY
 )
-from common.models.graph import Entity, Relation
+from common.models.graph import Entity, EntityIdentifier
 import traceback
 from server.query_service import VectorDBQueryService
 from common.models.rag import valid_metadata_keys
 from fastmcp import FastMCP
+from common.utils import json_encode
 
 # Load environment variables from .env file
 dotenv.load_dotenv(verbose=True)
@@ -158,7 +160,7 @@ class AgentTools:
             
             # Truncate text
             if len(text) > search_result_truncate_length:
-                text = text[:search_result_truncate_length] + f"... [truncated, use fetch_document with document_id to get full content]"
+                text = text[:search_result_truncate_length] + "... [truncated, use fetch_document with document_id to get full content]"
             
             truncated_results.append({
                 "text_content": text,
@@ -640,6 +642,72 @@ class AgentTools:
             logger.error(f"Error getting shortest path between {entity_type_1} and {entity_type_2}: {e}")
             return f"Error finding shortest path between entity types '{entity_type_1}' and '{entity_type_2}': {str(e)}\nTraceback: {traceback.format_exc()}"
 
+    def _inject_tenant_label_in_query(self, query: str, tenant_label: str) -> str:
+        """
+        Injects tenant label into node patterns in a Cypher query using regex.
+        
+        Examples:
+            MATCH (n:Person) -> MATCH (n:TenantLabel:Person)
+            MATCH (n) -> MATCH (n:TenantLabel)
+            MATCH (a:Movie)-[r]->(b:Person) -> MATCH (a:TenantLabel:Movie)-[r]->(b:TenantLabel:Person)
+            CREATE (n:Test) -> CREATE (n:TenantLabel:Test)  [Would warn but inject anyway]
+        
+        Args:
+            query: The Cypher query to modify
+            tenant_label: The tenant label to inject
+            
+        Returns:
+            The modified query with tenant labels injected
+        """
+        if not tenant_label:
+            return query
+            
+        # Pattern to match node patterns like (variable:Label) or (variable:Label1:Label2) or (variable)
+        # This pattern captures:
+        # - Opening parenthesis
+        # - Optional variable name
+        # - Optional existing labels (including multiple labels)
+        # - Closing parenthesis
+        # But NOT relationship patterns like -[r:TYPE]->
+        
+        def replace_node_pattern(match):
+            full_match = match.group(0)
+            var_name = match.group(1) if match.group(1) else ""
+            existing_labels = match.group(2) if match.group(2) else ""
+            
+            # If tenant label is already present, don't add it again
+            if tenant_label in existing_labels:
+                return full_match
+            
+            # Build the new pattern with tenant label first
+            if existing_labels:
+                # Has existing labels, prepend tenant label
+                new_pattern = f"({var_name}:{tenant_label}{existing_labels})"
+            else:
+                # No existing labels, just add tenant label
+                new_pattern = f"({var_name}:{tenant_label})" if var_name else f"(:{tenant_label})"
+            
+            return new_pattern
+        
+        # Regex pattern explanation:
+        # \(               - Opening parenthesis
+        # ([a-zA-Z_]\w*)   - Capture group 1: variable name (optional, letters/underscore followed by word chars)
+        # ((?::[a-zA-Z_]\w*)*)  - Capture group 2: existing labels like :Label1:Label2 (optional)
+        # \)               - Closing parenthesis
+        # (?!-)            - Negative lookahead: not followed by - (to avoid matching relationships)
+        
+        # Match node patterns but not relationship patterns
+        pattern = r'\(([a-zA-Z_]\w*)((?::[a-zA-Z_]\w*)*)\)(?!-)'
+        
+        modified_query = re.sub(pattern, replace_node_pattern, query)
+        
+        if modified_query != query:
+            logger.debug(f"Injected tenant label '{tenant_label}' into query")
+            logger.debug(f"Original: {query}")
+            logger.debug(f"Modified: {modified_query}")
+        
+        return modified_query
+
     async def graph_raw_query_data(self, query: str, thought: str):
         """
         Executes a raw read-only query on the data graph database.
@@ -651,41 +719,49 @@ class AgentTools:
         Returns:
             str: The result of the raw query
         """
-        logger.info(f"Raw data graph query, Thought: {thought}")
+        logger.info(f"Raw graph query: {query}, Thought: {thought}")
         if self.data_graphdb is None:
-            logger.error("Data graph database is not available, Is graph RAG enabled?")
-            return "Error: Data graph database is not available. Please ensure graph RAG is enabled."
+            logger.error("Graph database is not available, Is graph RAG enabled?")
+            return "Error: graph database is not available."
         
-        if not query or not query.strip():
-            return "Error: Query cannot be empty. Please provide a valid Cypher query."
-        
+        # Inject tenant label into the query
+        tenant_label = getattr(self.data_graphdb, 'tenant_label', None)
+        if tenant_label:
+            query = self._inject_tenant_label_in_query(query, tenant_label)
+            
         try:
             res = await self.data_graphdb.raw_query(query, readonly=True, max_results=max_graph_raw_query_results)
-            notifications = res.get("notifications", [])
-            results = res.get("results", [])
+            notifications = json_encode(res.get("notifications", []))
+            results = json_encode(res.get("results", []))
 
             # Check for warnings/errors in notifications first
             if "warning" in notifications.lower() or "error" in notifications.lower():
                 logger.warning(f"Query returned warnings/errors: {notifications}")
-                return f"Query has warnings/errors. PLEASE FIX your query:\nNotifications: {notifications}\n\nQuery executed: {query}"
+                return f"Query has warnings/errors, PLEASE FIX your query: {notifications}"
             
             # Check the size of the results, if too large return an error message instead
             tokens = count_tokens_approximately(results)
             if tokens > max_graph_raw_query_tokens:
                 logger.warning(f"Raw query result is too large ({tokens} tokens), returning error message instead.")
-                return f"Raw query result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). Please refine your query to return less data:\n- Add LIMIT clause to restrict number of results\n- Select specific properties instead of returning entire nodes\n- Use filters (WHERE clause) to narrow down results\n- Consider using other specialized tools instead\n\nQuery executed: {query}"
-            
+                return (
+                    f"Raw query result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). "
+                    "Please refine your query to return less data:\n"
+                    "- Add LIMIT clause to restrict number of results\n"
+                    "- Select specific properties instead of returning entire nodes\n"
+                    "- Use filters (WHERE clause) to narrow down results\n"
+                    "- Consider using other specialized tools instead\n\n"
+                    f"Query executed: {query}"
+                )
             output = {
-                "results": results,
+                "results" : results,
                 "notifications": notifications
             }
             logger.debug(f"Raw query output: {output}")
-            return output
+            return json_encode(output)
         except Exception as e:
-            error_msg = str(e)
             logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Error executing raw data graph query: {e}")
-            return f"Error executing raw data graph query. PLEASE FIX your query:\n\nError: {error_msg}\n\nQuery executed: {query}\n\nTraceback: {traceback.format_exc()}"
+            logger.error(f"Error executing raw graph query: {e}")
+            return f"Error executing raw graph query, PLEASE FIX your query: {e}"
 
     async def graph_raw_query_ontology(self, query: str, thought: str):
         """
@@ -698,41 +774,49 @@ class AgentTools:
         Returns:
             str: The result of the raw query
         """
-        logger.info(f"Raw ontology graph query, Thought: {thought}")
+        logger.info(f"Raw ontology graph query: {query}, Thought: {thought}")
         if self.ontology_graphdb is None:
             logger.error("Ontology graph database is not available, Is graph RAG enabled?")
-            return "Error: Ontology graph database is not available. Please ensure graph RAG is enabled."
+            return "Error: ontology graph database is not available."
         
-        if not query or not query.strip():
-            return "Error: Query cannot be empty. Please provide a valid Cypher query."
-        
+        # Inject tenant label into the query
+        tenant_label = getattr(self.ontology_graphdb, 'tenant_label', None)
+        if tenant_label:
+            query = self._inject_tenant_label_in_query(query, tenant_label)
+            
         try:
             res = await self.ontology_graphdb.raw_query(query, readonly=True, max_results=max_graph_raw_query_results)
-            notifications = res.get("notifications", [])
-            results = res.get("results", [])
+            notifications = json_encode(res.get("notifications", []))
+            results = json_encode(res.get("results", []))
 
             # Check for warnings/errors in notifications first
             if "warning" in notifications.lower() or "error" in notifications.lower():
                 logger.warning(f"Query returned warnings/errors: {notifications}")
-                return f"Query has warnings/errors. PLEASE FIX your query:\nNotifications: {notifications}\n\nQuery executed: {query}"
+                return f"Query has warnings/errors, PLEASE FIX your query: {notifications}"
             
             # Check the size of the results, if too large return an error message instead
             tokens = count_tokens_approximately(results)
             if tokens > max_graph_raw_query_tokens:
                 logger.warning(f"Raw query result is too large ({tokens} tokens), returning error message instead.")
-                return f"Raw query result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). Please refine your query to return less data:\n- Add LIMIT clause to restrict number of results\n- Select specific properties instead of returning entire nodes\n- Use filters (WHERE clause) to narrow down results\n- Consider using other specialized tools instead\n\nQuery executed: {query}"
-            
+                return (
+                    f"Raw query result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). "
+                    "Please refine your query to return less data:\n"
+                    "- Add LIMIT clause to restrict number of results\n"
+                    "- Select specific properties instead of returning entire nodes\n"
+                    "- Use filters (WHERE clause) to narrow down results\n"
+                    "- Consider using other specialized tools instead\n\n"
+                    f"Query executed: {query}"
+                )
             output = {
-                "results": results,
+                "results" : results,
                 "notifications": notifications
             }
             logger.debug(f"Raw query output: {output}")
-            return output
+            return json_encode(output)
         except Exception as e:
-            error_msg = str(e)
             logger.error(f"Traceback: {traceback.format_exc()}")
             logger.error(f"Error executing raw ontology graph query: {e}")
-            return f"Error executing raw ontology graph query. PLEASE FIX your query:\n\nError: {error_msg}\n\nQuery executed: {query}\n\nTraceback: {traceback.format_exc()}"
+            return f"Error executing raw ontology graph query, PLEASE FIX your query: {e}"
 
     # Not a tool, but used internally
     async def _graph_check_if_ontology_generated(self) -> bool:

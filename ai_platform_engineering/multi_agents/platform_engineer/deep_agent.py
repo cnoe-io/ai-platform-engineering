@@ -316,7 +316,7 @@ class AIPlatformEngineerMAS:
     # - Token-by-token streaming from subagents
     # - A2A protocol maintained (each subagent uses its A2ARemoteAgentConnectTool)
 
-    logger.info(f"🎨 Creating deep agent with system prompt")
+    logger.info("🎨 Creating deep agent with system prompt")
     
     deep_agent = async_create_deep_agent(
       tools=all_tools,  # A2A tools + RAG tools + reflect_on_output for validation
