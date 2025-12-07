@@ -3,7 +3,6 @@
 # Import configuration from central config module to avoid circular imports
 from mcp_jira.config import (
     MCP_JIRA_READ_ONLY,
-    MCP_JIRA_MOCK_RESPONSE,
     MCP_JIRA_ISSUES_DELETE_PROTECTION,
     MCP_JIRA_SPRINTS_DELETE_PROTECTION,
     MCP_JIRA_BOARDS_DELETE_PROTECTION,
