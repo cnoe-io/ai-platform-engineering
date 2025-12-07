@@ -518,7 +518,7 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
             filter_id = path.split("/filter/")[1].split("?")[0]
             return (True, {
                 "id": filter_id,
-                "name": data.get("name", f"Updated Filter"),
+                "name": data.get("name", "Updated Filter"),
                 "jql": data.get("jql", "")
             })
         elif method == "DELETE":

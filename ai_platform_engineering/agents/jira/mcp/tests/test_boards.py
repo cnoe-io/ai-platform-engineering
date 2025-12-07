@@ -98,9 +98,9 @@ class TestCreateBoard:
 
         # Include location_type and project_key_or_id parameters
         result = await create_board(
-            "New Board", 
-            "scrum", 
-            filter_id=10000, 
+            "New Board",
+            "scrum",
+            filter_id=10000,
             location_type="project",
             project_key_or_id="PROJ"
         )
