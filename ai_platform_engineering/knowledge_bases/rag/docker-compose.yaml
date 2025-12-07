@@ -65,7 +65,6 @@ services:
       - apps
       - rag_no_graph
   
-
   web_ingestor: # Default ingestor, needed for web page ingestion
     environment:
         INGESTOR_TYPE: webloader
