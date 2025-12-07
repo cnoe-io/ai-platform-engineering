@@ -10,7 +10,6 @@ from common.graph_db.base import GraphDB
 from common.job_manager import JobManager
 from common.constants import INGESTOR_ID_KEY, DATASOURCE_ID_KEY, LAST_UPDATED_KEY, FRESH_UNTIL_KEY, PARENT_ENTITY_PK_KEY, PARENT_ENTITY_TYPE_KEY, SUB_ENTITY_INDEX_KEY, SUB_ENTITY_LABEL, ENTITY_TYPE_KEY
 
-from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
@@ -806,7 +805,7 @@ class DocumentProcessor:
                         
                         # Skip if entity parsing failed
                         if result is None:
-                            self.logger.warning(f"Skipping graph entity document due to parsing failure")
+                            self.logger.warning("Skipping graph entity document due to parsing failure")
                             continue
                         
                         entities, chunks, chunk_ids, validation_errors = result

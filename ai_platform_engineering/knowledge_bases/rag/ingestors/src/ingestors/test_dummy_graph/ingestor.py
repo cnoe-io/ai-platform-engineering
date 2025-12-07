@@ -40,7 +40,7 @@ async def sync_entities(client: Client):
     datasource_info = DataSourceInfo(
         datasource_id=datasource_id,
         ingestor_id=client.ingestor_id or "",
-        description=f"Dummy entities",
+        description="Dummy entities",
         source_type="dummy_graph_entites",
         last_updated=int(time.time()),
         default_chunk_size=0,  # Skip chunking for graph entities

@@ -5,7 +5,7 @@ import gc
 import logging
 from dataclasses import dataclass
 from itertools import combinations
-from typing import Any, Callable, Awaitable, List, Tuple, Union, Dict
+from typing import Any, Callable, Awaitable, List, Tuple, Dict
 
 from common import utils
 from common.constants import (
@@ -13,7 +13,6 @@ from common.constants import (
     SUB_ENTITY_LABEL, 
     PARENT_ENTITY_PK_KEY, 
     PARENT_ENTITY_TYPE_KEY, 
-    DEFAULT_SUB_ENTITY_RELATION_NAME, 
     PRIMARY_ID_KEY,
     ALL_IDS_KEY,
     ALL_IDS_PROPS_KEY,
@@ -24,8 +23,6 @@ from common.graph_db.base import GraphDB
 from common.models.graph import Entity
 from common.models.ontology import (
     PropertyMapping, 
-    FkeyEvaluationResult, 
-    FkeyDirectionality,
     DeepPropertyMatch,
     ValueMatchType
 )

@@ -14,7 +14,7 @@ import asyncio
 import common.utils as utils
 
 from common.graph_db.base import GraphDB
-from common.constants import ALL_IDS_KEY, ALL_IDS_PROPS_KEY, PRIMARY_ID_KEY, ENTITY_TYPE_KEY, DEFAULT_DATA_LABEL, PROP_DELIMITER, FRESH_UNTIL_KEY, RELATION_PK_KEY
+from common.constants import ALL_IDS_KEY, ALL_IDS_PROPS_KEY, PRIMARY_ID_KEY, ENTITY_TYPE_KEY, PROP_DELIMITER, FRESH_UNTIL_KEY, RELATION_PK_KEY
 
 from common.models.graph import Entity, EntityIdentifier, Relation
 from common.models.ontology import ValueMatchType
@@ -75,7 +75,7 @@ def sanitize_property_value(value: Any) -> Any:
         
         # Check if the list is homogeneous (all same type)
         first_type = type(sanitized_list[0])
-        is_homogeneous = all(type(item) == first_type for item in sanitized_list)
+        is_homogeneous = all(isinstance(item, first_type) for item in sanitized_list)
         
         # If not homogeneous, convert all elements to strings
         if not is_homogeneous:
@@ -807,7 +807,7 @@ class Neo4jDB(GraphDB):
         
         logger.debug(f"Grouped {len(entities)} entities into {len(grouped_entities)} groups by type and labels")
         if len(grouped_entities) == 1:
-            logger.warning(f"Only one group, updating entities in one network call")
+            logger.warning("Only one group, updating entities in one network call")
             logger.warning(f"Group: {list(grouped_entities.items())}")            
         
         # Build parameters for each group

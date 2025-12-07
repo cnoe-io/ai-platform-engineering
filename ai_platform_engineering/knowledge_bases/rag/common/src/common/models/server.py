@@ -1,9 +1,7 @@
 from enum import Enum
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
-from fastapi import UploadFile
 from langchain_core.documents import Document
-from common.utils import get_default_fresh_until
 
 # ============================================================================
 # Models for Ingestor ping and registration

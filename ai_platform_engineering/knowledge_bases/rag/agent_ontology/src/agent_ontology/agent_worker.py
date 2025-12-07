@@ -6,7 +6,6 @@ for evaluating relation candidate groups. Each worker has its own queue and stat
 avoiding shared state issues and race conditions.
 """
 
-import logging
 import os
 import traceback
 import asyncio
@@ -292,7 +291,7 @@ class AgentWorker:
                 if heuristic_mappings != provided_mappings:
                     missing = heuristic_mappings - provided_mappings
                     extra = provided_mappings - heuristic_mappings
-                    error_msg = f"Error: Property mappings do not match candidate's heuristic structure."
+                    error_msg = "Error: Property mappings do not match candidate's heuristic structure."
                     if missing:
                         error_msg += f"\nMissing mappings: {missing}"
                     if extra:

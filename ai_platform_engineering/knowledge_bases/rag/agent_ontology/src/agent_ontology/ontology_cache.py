@@ -4,11 +4,6 @@ Lightweight cache for entity types and properties discovered during heuristics p
 from typing import Dict, Set, List
 from common.models.graph import Entity
 from common.graph_db.base import GraphDB
-from common.models.ontology import (
-    FkeyEvaluationResult, 
-    FkeyDirectionality,
-    FkeyEvaluation
-)
 from common import constants
 from common import utils
 

@@ -14,7 +14,6 @@ from common.models.ontology import (
     RelationCandidate, 
     FkeyEvaluationResult, 
     FkeyDirectionality,
-    ValueMatchType,
 )
 from common.models.graph import Entity, Relation
 from common.graph_db.base import GraphDB
@@ -81,9 +80,6 @@ class RelationCandidateManager:
             Flat list of all sub-entity type names
         """
         self.logger.debug(f"Fetching sub-entities for {entity_type}, max_depth={max_depth}")
-        
-        # Compute entity PK for ontology DB
-        entity_pk = f"{entity_type}{constants.PROP_DELIMITER}{self.ontology_version_id}"
         
         # Track visited types to avoid cycles
         visited_types = set()

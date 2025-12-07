@@ -36,7 +36,7 @@ def main():
     if spaces:
         config_json = json.dumps(spaces, separators=(',', ':'))
         print("\n=== Configuration Complete ===")
-        print(f"\nAdd this to your environment:\n")
+        print("\nAdd this to your environment:\n")
         print(f"export WEBEX_SPACES='{config_json}'")
         print("\nOr use in docker-compose:")
         print(f'WEBEX_SPACES: \'{config_json}\'')

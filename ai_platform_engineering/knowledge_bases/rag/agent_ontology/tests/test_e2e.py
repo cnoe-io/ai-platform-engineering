@@ -351,7 +351,7 @@ class TestOntologyEndToEnd:
         print("\n" + "="*80)
         print("=== FINAL TEST SUMMARY ===")
         print("="*80)
-        print(f"📊 Relation evaluation results:")
+        print("📊 Relation evaluation results:")
         print(f"  - ACCEPTED relations: {accepted_count}")
         print(f"  - REJECTED relations: {rejected_count}")
         print(f"  - UNSURE relations: {unsure_count}")
@@ -554,8 +554,8 @@ class TestOntologyEndToEnd:
             if len(relation_candidates) == 0:
                 print("No relation candidates found, skipping test")
                 return
-        except:
-            print("Could not fetch relation candidates, skipping test")
+        except Exception as e:
+            print(f"Could not fetch relation candidates: {e}, skipping test")
             return
             
         # Get an UNSURE relation

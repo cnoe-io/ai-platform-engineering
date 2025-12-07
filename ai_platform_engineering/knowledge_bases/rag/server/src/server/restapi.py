@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-import hashlib
 import traceback
 import uuid
 from common import utils
@@ -16,11 +15,11 @@ import logging
 from langchain_core.documents import Document
 from common.metadata_storage import MetadataStorage
 from common.job_manager import JobManager, JobStatus
-from common.models.server import ExploreDataEntityRequest, ExploreEntityRequest, ExploreRelationsRequest, ExploreNeighborhoodRequest, QueryRequest, QueryResult, DocumentIngestRequest, IngestorPingRequest, IngestorPingResponse, UrlIngestRequest, IngestorRequest, WebIngestorCommand, UrlReloadRequest
+from common.models.server import ExploreNeighborhoodRequest, QueryRequest, QueryResult, DocumentIngestRequest, IngestorPingRequest, IngestorPingResponse, UrlIngestRequest, IngestorRequest, WebIngestorCommand, UrlReloadRequest
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
-from common.constants import ONTOLOGY_VERSION_ID_KEY, KV_ONTOLOGY_VERSION_ID_KEY, INGESTOR_ID_KEY, DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
+from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
 from common.embeddings_factory import EmbeddingsFactory
 import redis.asyncio as redis
 from langchain_milvus import BM25BuiltInFunction, Milvus
@@ -642,7 +641,7 @@ async def reload_all_urls():
 
     # Push to Redis queue
     await redis_client.rpush(WEBLOADER_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
-    logger.info(f"Re-queued URL ingestion request for all datasources")
+    logger.info("Re-queued URL ingestion request for all datasources")
     
     return {"message": "Reload all URLs request queued"}
 
