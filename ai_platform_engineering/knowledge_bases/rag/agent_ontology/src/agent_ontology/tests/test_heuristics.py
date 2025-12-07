@@ -2,7 +2,7 @@
 Simple unit tests for heuristics.py
 """
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock
 from agent_ontology.heuristics import (
     HeuristicsProcessor,
     MatchResult,

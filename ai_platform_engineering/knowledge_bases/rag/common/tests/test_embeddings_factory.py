@@ -32,7 +32,7 @@ class TestEmbeddingsFactory:
                 mock_instance = MagicMock()
                 mock_azure.return_value = mock_instance
                 
-                result = EmbeddingsFactory.get_embeddings()
+                EmbeddingsFactory.get_embeddings()
                 
                 mock_azure.assert_called_once_with(model='text-embedding-3-large')
     

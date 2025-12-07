@@ -262,7 +262,7 @@ class BM25SearchEngine:
         
         self.logger.info(f"Total entities tokenized: {len(corpus_tokens)}")
         self.logger.info(f"Total entity types: {len(type_ranges)}")
-        self.logger.info(f"Building BM25 index...")
+        self.logger.info("Building BM25 index...")
         
         # Create and index the BM25 model
         self.retriever = bm25s.BM25(method="bm25l")
@@ -342,7 +342,7 @@ class BM25SearchEngine:
         self.logger.debug(f"[BM25 Search] Tokenized query: {query_tokens}")
         
         if not query_tokens:
-            self.logger.debug(f"[BM25 Search] No tokens after tokenization, returning empty results")
+            self.logger.debug("[BM25 Search] No tokens after tokenization, returning empty results")
             return []
         
         # Search using BM25
@@ -406,7 +406,7 @@ class BM25SearchEngine:
             return [[] for _ in query_tokens_list]
         
         if len(query_tokens_list) != len(exclude_entity_types):
-            raise ValueError(f"query_tokens_list and exclude_entity_types must have same length")
+            raise ValueError("query_tokens_list and exclude_entity_types must have same length")
         
         # Calculate dynamic top_k based on corpus size if diversity mode is enabled
         if diversity_mode:

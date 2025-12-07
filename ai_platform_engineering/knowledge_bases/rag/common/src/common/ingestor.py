@@ -72,9 +72,6 @@ class Client():
             metadata=self.ingestor_metadata
         )
         
-        # Use asyncio to run the synchronous request in a thread pool
-        loop = asyncio.get_event_loop()
-        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"{self.server_addr}/v1/ingestor/heartbeat",

@@ -92,7 +92,7 @@ async def process_url_ingestion(
         try:
             if 'job_id' in locals():
                 await job_manager.add_error_msg(job_id, error_msg)
-        except:
+        except Exception:
             pass
         
         raise

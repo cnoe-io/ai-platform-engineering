@@ -36,7 +36,7 @@ def main():
     if channels:
         config_json = json.dumps(channels, separators=(',', ':'))
         print("\n=== Configuration Complete ===")
-        print(f"\nAdd this to your environment:\n")
+        print("\nAdd this to your environment:\n")
         print(f"export SLACK_CHANNELS='{config_json}'")
         print("\nOr use in docker-compose:")
         print(f'SLACK_CHANNELS: \'{config_json}\'')

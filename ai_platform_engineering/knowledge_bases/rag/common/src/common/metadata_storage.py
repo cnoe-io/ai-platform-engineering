@@ -2,7 +2,6 @@
 import json
 from typing import Optional, List
 import redis.asyncio as redis
-import time
 from common.models.rag import DataSourceInfo, IngestorInfo
 from common.constants import (
     REDIS_DATASOURCE_PREFIX,

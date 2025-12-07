@@ -117,7 +117,6 @@ class EmbeddingsFactory:
         Returns:
             int: Embedding dimensions (defaults to 1536 if unknown)
         """
-        provider = os.getenv("EMBEDDINGS_PROVIDER", "azure-openai").lower()
         model = os.getenv("EMBEDDINGS_MODEL", "text-embedding-3-small")
         
         # Common embedding dimensions by model
