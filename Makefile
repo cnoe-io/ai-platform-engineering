@@ -151,6 +151,10 @@ test: setup-venv ## Install dependencies and run tests using pytest
 	@. .venv/bin/activate && cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
 
 	@echo ""
+	@echo "Running Jira MCP tests..."
+	@. .venv/bin/activate && cd ai_platform_engineering/agents/jira/mcp && $(MAKE) test
+
+	@echo ""
 	@echo "Skipping RAG module tests (temporarily disabled)..."
 	@echo "✓ RAG tests skipped"
 
