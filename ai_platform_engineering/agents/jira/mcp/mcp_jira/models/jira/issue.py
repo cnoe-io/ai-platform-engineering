@@ -72,6 +72,7 @@ class JiraIssue(ApiModel, TimestampMixin):
     attachments: list[JiraAttachment] = Field(default_factory=list)
     timetracking: JiraTimetracking | None = None
     url: str | None = None
+    browse_url: str | None = None
     epic_key: str | None = None
     epic_name: str | None = None
     fix_versions: list[str] = Field(default_factory=list)
@@ -443,6 +444,13 @@ class JiraIssue(ApiModel, TimestampMixin):
             # Strip whitespace from each field name
             requested_fields_param = [field.strip() for field in requested_fields_param]
 
+        # Generate browse URL from base URL and issue key
+        import os
+        browse_url = None
+        base_url = os.getenv("ATLASSIAN_API_URL", "").rstrip("/")
+        if base_url and key:
+            browse_url = f"{base_url}/browse/{key}"
+
         # Create the issue instance with all the extracted data
         return cls(
             id=issue_id,
@@ -470,6 +478,7 @@ class JiraIssue(ApiModel, TimestampMixin):
             attachments=attachments,
             timetracking=timetracking,
             url=url,
+            browse_url=browse_url,
             epic_key=epic_key,
             epic_name=epic_name,
             fix_versions=fix_versions,
@@ -500,6 +509,10 @@ class JiraIssue(ApiModel, TimestampMixin):
         # Add URL if available and requested
         if self.url and should_include_field("url"):
             result["url"] = self.url
+
+        # Add browse URL if available
+        if self.browse_url:
+            result["browse_url"] = self.browse_url
 
         # Add description if available and requested
         if self.description and should_include_field("description"):

@@ -1,0 +1,18 @@
+{{- if and .Values.global.metrics.enabled .Values.metrics.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ai-platform-engineering.fullname" . }}-grafana-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ai-platform-engineering.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  {{- with .Values.metrics.serviceMonitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  ai-platform-agent-metrics.json: |-
+{{ .Files.Get "data/grafana-dashboard-ai-platform.json" | indent 4 }}
+{{- end }}
+

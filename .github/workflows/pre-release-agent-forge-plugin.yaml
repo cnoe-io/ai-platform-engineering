@@ -20,7 +20,7 @@ jobs:
       should_build: ${{ steps.set-build.outputs.should_build }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.1
         with:
           fetch-depth: 0
 
@@ -67,13 +67,13 @@ jobs:
           egress-policy: audit
 
       - name: Checkout current repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.1
         with:
           path: main-repo
           fetch-depth: 0
           
       - name: Checkout community-plugins repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.1
         with:
           repository: cnoe-io/community-plugins
           ref: agent-forge-upstream-docker
@@ -84,6 +84,11 @@ jobs:
         run: |
           cp main-repo/build/agent-forge/Dockerfile community-plugins/Dockerfile
           echo "Using custom Dockerfile from build/agent-forge/"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -114,9 +119,6 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ env.PREBUILD_TAG }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Build and push prebuild Docker image
         id: build

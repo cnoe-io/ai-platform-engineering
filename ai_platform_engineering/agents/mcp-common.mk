@@ -28,7 +28,7 @@ MCP_HOST ?= localhost
 MCP_PORT ?= 8000
 
 ## -------------------------------------------------
-.PHONY: help setup-uv uv-venv uv-sync copy-env verify-env run
+.PHONY: help setup-uv uv-venv uv-sync copy-env verify-env run test
 
 ## ========== Help ==========
 
@@ -101,3 +101,14 @@ run: uv-sync setup-env ## Run the MCP server
 	set +a && \
 	MCP_MODE=$(MCP_MODE) MCP_HOST=$(MCP_HOST) MCP_PORT=$(MCP_PORT) \
 	uv run python $(MCP_PACKAGE_NAME)/server.py
+
+## ========== Test ==========
+
+test: setup-uv ## Run tests for the MCP server
+	@echo "Running $(AGENT_NAME) MCP tests..."
+	@if [ -d "tests" ]; then \
+		uv sync --all-groups && \
+		uv run pytest tests/ -v --tb=short; \
+	else \
+		echo "No tests directory found for $(AGENT_NAME) MCP server"; \
+	fi
