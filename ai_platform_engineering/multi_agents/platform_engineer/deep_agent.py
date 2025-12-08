@@ -127,49 +127,6 @@ class AIPlatformEngineerMAS:
         status["rag_enabled"] = False
       return status
 
-  async def _check_rag_connectivity(self) -> bool:
-    """
-    Check RAG server connectivity with retries and countdown.
-    Returns True if connected successfully, False otherwise.
-    """
-    if not self.rag_enabled:
-      return False
-    
-    logger.info(f"Checking RAG server connectivity at {RAG_SERVER_URL}...")
-    
-    for attempt in range(1, RAG_CONNECTIVITY_RETRIES + 1):
-      try:
-        async with httpx.AsyncClient() as client:
-          response = await client.get(
-            f"{RAG_SERVER_URL}/healthz", 
-            timeout=5.0
-          )
-          if response.status_code == 200:
-            logger.info(f"✅ RAG server connected successfully on attempt {attempt}")
-            return True
-          else:
-            logger.warning(
-              f"⚠️  RAG server returned status {response.status_code} on attempt {attempt}"
-            )
-      except Exception as e:
-        logger.warning(f"❌ RAG server connection attempt {attempt} failed: {e}")
-      
-      # Wait with countdown if not last attempt
-      if attempt < RAG_CONNECTIVITY_RETRIES:
-        logger.info(
-          f"Retrying in {RAG_CONNECTIVITY_WAIT_SECONDS} seconds... "
-          f"({attempt}/{RAG_CONNECTIVITY_RETRIES})"
-        )
-        for countdown in range(RAG_CONNECTIVITY_WAIT_SECONDS, 0, -1):
-          logger.info(f"  ⏳ {countdown}...")
-          await asyncio.sleep(1)
-    
-    logger.error(
-      f"❌ Failed to connect to RAG server after {RAG_CONNECTIVITY_RETRIES} attempts. "
-      "RAG tools will NOT be available."
-    )
-    return False
-
   async def _load_rag_tools(self) -> List[Any]:
     """
     Load RAG MCP tools from the server.
