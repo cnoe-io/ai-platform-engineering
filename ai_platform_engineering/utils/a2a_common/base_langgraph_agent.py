@@ -730,12 +730,33 @@ Use this as the reference point for all date calculations. When users say "today
 
                     # Stream token content
                     if message.content:
-                        yield {
-                            'is_task_complete': False,
-                            'require_user_input': False,
-                            'kind': 'text_chunk',
-                            'content': str(message.content),
-                        }
+                        # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
+                        content = message.content
+                        if isinstance(content, list):
+                            # If content is a list (AWS Bedrock), extract text from content blocks
+                            logger.debug(f"🔄 BEDROCK FORMAT FIX (streaming): Converting list content to text. Raw: {str(content)[:100]}...")
+                            text_parts = []
+                            for item in content:
+                                if isinstance(item, dict):
+                                    # Extract text from Bedrock content block: {"type": "text", "text": "..."}
+                                    text_parts.append(item.get('text', ''))
+                                elif isinstance(item, str):
+                                    text_parts.append(item)
+                                else:
+                                    text_parts.append(str(item))
+                            content = ''.join(text_parts)
+                            logger.debug(f"🔄 BEDROCK FORMAT FIX (streaming): Normalized to: {content[:100]}...")
+                        elif not isinstance(content, str):
+                            logger.debug(f"🔄 Content normalization: Converting {type(content).__name__} to string")
+                            content = str(content) if content else ''
+
+                        if content:  # Only yield if there's actual content after normalization
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'kind': 'text_chunk',
+                                'content': content,
+                            }
                     continue
 
                 # Handle ToolMessage
@@ -945,11 +966,31 @@ Use this as the reference point for all date calculations. When users say "today
                             content_text = message
 
                         if content_text:
-                            yield {
-                                'is_task_complete': False,
-                                'require_user_input': False,
-                                'content': str(content_text),
-                            }
+                            # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
+                            if isinstance(content_text, list):
+                                # If content is a list (AWS Bedrock), extract text from content blocks
+                                logger.debug(f"🔄 BEDROCK FORMAT FIX (full-msg): Converting list content to text. Raw: {str(content_text)[:100]}...")
+                                text_parts = []
+                                for item in content_text:
+                                    if isinstance(item, dict):
+                                        # Extract text from Bedrock content block: {"type": "text", "text": "..."}
+                                        text_parts.append(item.get('text', ''))
+                                    elif isinstance(item, str):
+                                        text_parts.append(item)
+                                    else:
+                                        text_parts.append(str(item))
+                                content_text = ''.join(text_parts)
+                                logger.debug(f"🔄 BEDROCK FORMAT FIX (full-msg): Normalized to: {content_text[:100]}...")
+                            elif not isinstance(content_text, str):
+                                logger.debug(f"🔄 Content normalization (full-msg): Converting {type(content_text).__name__} to string")
+                                content_text = str(content_text) if content_text else ''
+
+                            if content_text:  # Only yield if there's actual content after normalization
+                                yield {
+                                    'is_task_complete': False,
+                                    'require_user_input': False,
+                                    'content': content_text,
+                                }
 
         # Yield task completion marker
         yield {
