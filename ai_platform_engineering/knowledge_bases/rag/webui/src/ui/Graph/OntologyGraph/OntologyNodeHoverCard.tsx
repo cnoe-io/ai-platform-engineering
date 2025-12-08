@@ -19,22 +19,51 @@ export default function OntologyNodeHoverCard({ hoveredNode, graph, truncateLabe
     
     // Get all relations for this node
     const nodeId = hoveredNode;
-    const outgoingRelations: string[] = [];
-    const incomingRelations: string[] = [];
+    const outgoingRelations: Array<{ label: string; count: number; isBidirectional: boolean }> = [];
+    const incomingRelations: Array<{ label: string; count: number; isBidirectional: boolean }> = [];
     
     graph.forEachOutEdge(nodeId, (_edge, attributes) => {
-        const relationName = attributes.relationData?.relation_name || 'unknown';
-        outgoingRelations.push(relationName);
+        // Extract clean label (remove bidirectional symbol and truncation)
+        let cleanLabel = attributes.label || 'unknown';
+        cleanLabel = cleanLabel.replace(/^⟷\s*/, ''); // Remove bidirectional symbol
+        cleanLabel = cleanLabel.replace(/^…\s*/, ''); // Remove ellipsis
+        
+        outgoingRelations.push({
+            label: cleanLabel,
+            count: attributes.relationCount || 1,
+            isBidirectional: attributes.isBidirectional || false
+        });
     });
     
     graph.forEachInEdge(nodeId, (_edge, attributes) => {
-        const relationName = attributes.relationData?.relation_name || 'unknown';
-        incomingRelations.push(relationName);
+        // Skip if bidirectional (already counted in outgoing)
+        if (attributes.isBidirectional) return;
+        
+        // Extract clean label (remove bidirectional symbol and truncation)
+        let cleanLabel = attributes.label || 'unknown';
+        cleanLabel = cleanLabel.replace(/^⟷\s*/, ''); // Remove bidirectional symbol
+        cleanLabel = cleanLabel.replace(/^…\s*/, ''); // Remove ellipsis
+        
+        incomingRelations.push({
+            label: cleanLabel,
+            count: attributes.relationCount || 1,
+            isBidirectional: false
+        });
     });
     
-    // Count unique relation names
-    const uniqueOutgoing = [...new Set(outgoingRelations)];
-    const uniqueIncoming = [...new Set(incomingRelations)];
+    // Group relations by label for display
+    const groupedOutgoing = new Map<string, number>();
+    outgoingRelations.forEach(({ label, count }) => {
+        groupedOutgoing.set(label, (groupedOutgoing.get(label) || 0) + count);
+    });
+    
+    const groupedIncoming = new Map<string, number>();
+    incomingRelations.forEach(({ label, count }) => {
+        groupedIncoming.set(label, (groupedIncoming.get(label) || 0) + count);
+    });
+    
+    const totalOutgoing = Array.from(groupedOutgoing.values()).reduce((sum, count) => sum + count, 0);
+    const totalIncoming = Array.from(groupedIncoming.values()).reduce((sum, count) => sum + count, 0);
     
     return (
         <div style={{
@@ -70,25 +99,24 @@ export default function OntologyNodeHoverCard({ hoveredNode, graph, truncateLabe
             {/* Relations Summary */}
             <div className="space-y-2">
                 {/* Outgoing Relations */}
-                {outgoingRelations.length > 0 && (
+                {totalOutgoing > 0 && (
                     <div>
                         <div className="text-xs font-semibold text-gray-500 uppercase mb-1">
-                            Outgoing ({outgoingRelations.length})
+                            Outgoing ({totalOutgoing})
                         </div>
                         <div className="space-y-1">
-                            {uniqueOutgoing.slice(0, 3).map((relationName, idx) => {
-                                const count = outgoingRelations.filter(r => r === relationName).length;
+                            {Array.from(groupedOutgoing.entries()).slice(0, 3).map(([label, count], idx) => {
                                 return (
                                     <div key={idx} className="text-xs flex items-center gap-1">
                                         <span className="text-gray-400">→</span>
-                                        <span className="text-gray-900 font-medium">{truncateLabel(relationName, 25)}</span>
+                                        <span className="text-gray-900 font-medium">{truncateLabel(label, 25)}</span>
                                         {count > 1 && <span className="text-gray-400">×{count}</span>}
                                     </div>
                                 );
                             })}
-                            {uniqueOutgoing.length > 3 && (
+                            {groupedOutgoing.size > 3 && (
                                 <div className="text-xs text-gray-400 italic">
-                                    ...{uniqueOutgoing.length - 3} more
+                                    ...{groupedOutgoing.size - 3} more
                                 </div>
                             )}
                         </div>
@@ -96,25 +124,24 @@ export default function OntologyNodeHoverCard({ hoveredNode, graph, truncateLabe
                 )}
                 
                 {/* Incoming Relations */}
-                {incomingRelations.length > 0 && (
+                {totalIncoming > 0 && (
                     <div>
                         <div className="text-xs font-semibold text-gray-500 uppercase mb-1">
-                            Incoming ({incomingRelations.length})
+                            Incoming ({totalIncoming})
                         </div>
                         <div className="space-y-1">
-                            {uniqueIncoming.slice(0, 3).map((relationName, idx) => {
-                                const count = incomingRelations.filter(r => r === relationName).length;
+                            {Array.from(groupedIncoming.entries()).slice(0, 3).map(([label, count], idx) => {
                                 return (
                                     <div key={idx} className="text-xs flex items-center gap-1">
                                         <span className="text-gray-400">←</span>
-                                        <span className="text-gray-900 font-medium">{truncateLabel(relationName, 25)}</span>
+                                        <span className="text-gray-900 font-medium">{truncateLabel(label, 25)}</span>
                                         {count > 1 && <span className="text-gray-400">×{count}</span>}
                                     </div>
                                 );
                             })}
-                            {uniqueIncoming.length > 3 && (
+                            {groupedIncoming.size > 3 && (
                                 <div className="text-xs text-gray-400 italic">
-                                    ...{uniqueIncoming.length - 3} more
+                                    ...{groupedIncoming.size - 3} more
                                 </div>
                             )}
                         </div>
@@ -122,16 +149,16 @@ export default function OntologyNodeHoverCard({ hoveredNode, graph, truncateLabe
                 )}
                 
                 {/* No Relations */}
-                {outgoingRelations.length === 0 && incomingRelations.length === 0 && (
+                {totalOutgoing === 0 && totalIncoming === 0 && (
                     <div className="text-xs text-gray-400 italic">
                         No relations
                     </div>
                 )}
                 
                 {/* Total count */}
-                {(outgoingRelations.length > 0 || incomingRelations.length > 0) && (
+                {(totalOutgoing > 0 || totalIncoming > 0) && (
                     <div className="pt-2 border-t border-gray-200 text-xs text-gray-500">
-                        Total: {outgoingRelations.length + incomingRelations.length} relation{outgoingRelations.length + incomingRelations.length !== 1 ? 's' : ''}
+                        Total: {totalOutgoing + totalIncoming} relation{totalOutgoing + totalIncoming !== 1 ? 's' : ''}
                     </div>
                 )}
             </div>

@@ -50,6 +50,7 @@ services:
         MILVUS_URI: http://milvus-standalone:19530
         ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
         CLEANUP_INTERVAL: 86400
+        ONTOLOGY_AGENT_RESTAPI_ADDR: ${ONTOLOGY_AGENT_RESTAPI_ADDR:-http://agent_ontology:8098}
         # Embeddings configuration
         EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-azure-openai}
         EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
@@ -71,7 +72,6 @@ services:
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         REDIS_URL: redis://rag-redis:6379/0
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
-        ONTOLOGY_AGENT_RESTAPI_ADDR: ${ONTOLOGY_AGENT_RESTAPI_ADDR:-http://agent_ontology:8098}
         MAX_CONCURRENT_JOBS: ${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
     restart: unless-stopped
     depends_on:
@@ -196,8 +196,8 @@ services:
         SLACK_WORKSPACE_URL: ${SLACK_WORKSPACE_URL:-https://slack.com}
         SLACK_CHANNELS: ${SLACK_CHANNELS:-{}}
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
-        SLACK_SYNC_INTERVAL: ${SLACK_SYNC_INTERVAL:-900}
-        SLACK_INIT_DELAY_SECONDS: ${SLACK_INIT_DELAY_SECONDS:-0}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
     restart: unless-stopped
     build:
@@ -213,8 +213,8 @@ services:
         WEBEX_BOT_NAME: ${WEBEX_BOT_NAME}
         WEBEX_SPACES: ${WEBEX_SPACES:-{}}
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
-        WEBEX_SYNC_INTERVAL: ${WEBEX_SYNC_INTERVAL:-900}
-        WEBEX_INIT_DELAY_SECONDS: ${WEBEX_INIT_DELAY_SECONDS:-0}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-86400}
+        INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-60}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
     restart: unless-stopped
     build:

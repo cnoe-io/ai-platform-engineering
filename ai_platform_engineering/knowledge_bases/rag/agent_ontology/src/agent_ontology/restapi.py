@@ -61,10 +61,12 @@ async def lifespan(_: FastAPI):
     if ontology_version_id is None: # if no ontology version is found, create one
         ontology_version_id = utils.get_uuid()
         await redis_client.set(constants.KV_ONTOLOGY_VERSION_ID_KEY, ontology_version_id)
-
-    logger.info("Running the ontology agent periodically every %s seconds ...", SYNC_INTERVAL)
-    scheduler.add_job(agent.process_and_evaluate_all, trigger=IntervalTrigger(seconds=SYNC_INTERVAL))
-    scheduler.start()
+    if SYNC_INTERVAL == 0:
+        logger.warning("Automatic heuristics processing and evaluation is disabled, heuristics will be updated only on demand (via REST endpoints)")
+    else:
+        logger.info("Running the ontology agent periodically every %s seconds ...", SYNC_INTERVAL)
+        scheduler.add_job(agent.process_and_evaluate_all, trigger=IntervalTrigger(seconds=SYNC_INTERVAL))
+        scheduler.start()
     
     # Yield control to the event loop to allow server to start
     yield
