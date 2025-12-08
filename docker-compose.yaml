@@ -10,6 +10,10 @@
 # ============================================================================
 
 services:
+
+  ####################################################################################################
+  #                                 CAIPE Supervisor Deep Agent                                      #
+  ####################################################################################################
   caipe-supervisor:
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-stable}
     container_name: caipe-supervisor
@@ -52,7 +56,6 @@ services:
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
 
-
       # Agent ports
       # Add an exception for the RAG agent port to 8099. All other agents use the default port 8000.
       - RAG_AGENT_PORT=${RAG_AGENT_PORT:-8099}
@@ -87,7 +90,9 @@ services:
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
     command: platform-engineer
 
-  # SLIM Infrastructure
+  ####################################################################################################
+  #                                      SLIM Transport                                              #
+  ####################################################################################################
   slim-dataplane:
     image: ghcr.io/agntcy/slim:0.6.1
     container_name: slim-dataplane
@@ -112,6 +117,9 @@ services:
     profiles:
       - slim
 
+  ####################################################################################################
+  #                                         Sub-Agents                                               #
+  ####################################################################################################
   # AWS Agent
   agent-aws:
     image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-stable}
@@ -579,7 +587,9 @@ services:
       - agentforge
       - all-agents
 
-  # RAG Services
+  ####################################################################################################
+  #                                      RAG Services                                                #
+  ####################################################################################################
   rag_server:
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
     container_name: rag_server

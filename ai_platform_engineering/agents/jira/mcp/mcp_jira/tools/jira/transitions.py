@@ -6,6 +6,7 @@ from typing import Annotated, Optional, Any, Dict
 
 from pydantic import Field
 from mcp_jira.api.client import make_api_request
+from mcp_jira.tools.jira.constants import check_read_only
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -80,6 +81,8 @@ async def transition_issue(
     Raises:
         ValueError: If required fields missing, invalid input, in read-only mode, or Jira client unavailable.
     """
+    check_read_only()
+
     payload = {
         "transition": {"id": transition_id},
         "fields": fields or {},

@@ -5,6 +5,7 @@ This module provides Pydantic models for Jira projects.
 """
 
 import logging
+import os
 from typing import Any
 
 from ..base import ApiModel
@@ -90,11 +91,21 @@ class JiraProject(ApiModel):
         )
 
     def to_simplified_dict(self) -> dict[str, Any]:
-        """Convert to simplified dictionary for API response."""
+        """Convert to simplified dictionary for API response.
+
+        Note: avatar_url is intentionally excluded from output.
+        """
         result = {
             "key": self.key,
             "name": self.name,
         }
+
+        # Add browse URL for the project
+        base_url = os.getenv("ATLASSIAN_API_URL", "")
+        if base_url and self.key:
+            # Remove trailing slash if present
+            base_url = base_url.rstrip("/")
+            result["url"] = f"{base_url}/browse/{self.key}"
 
         if self.description:
             result["description"] = self.description
@@ -102,10 +113,10 @@ class JiraProject(ApiModel):
         if self.category_name:
             result["category"] = self.category_name
 
-        if self.avatar_url:
-            result["avatar_url"] = self.avatar_url
+        # Note: avatar_url is intentionally excluded
 
         if self.lead:
-            result["lead"] = self.lead.to_simplified_dict()
+            # Only include lead name, not avatar
+            result["lead"] = self.lead.display_name
 
         return result
