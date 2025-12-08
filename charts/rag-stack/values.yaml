@@ -131,7 +131,7 @@ agent-ontology:
   logLevel: INFO                      # LOG_LEVEL - logging level
 
   # Ontology Processing Configuration
-  syncInterval: 259200                # SYNC_INTERVAL - auto-evaluation interval (72 hours)
+  syncInterval: 0                     # SYNC_INTERVAL - auto-evaluation interval (disabled)
   minCountForEval: 3                  # MIN_COUNT_FOR_EVAL - min matches for LLM evaluation
   countChangeThresholdRatio: 0.1      # COUNT_CHANGE_THRESHOLD_RATIO - re-eval trigger (10%)
 
