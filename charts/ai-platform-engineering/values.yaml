@@ -59,6 +59,8 @@ metrics:
     relabelings: []
     # Metric relabelings
     metricRelabelings: []
+  grafanaDashboard:
+    enabled: true
 
 # Extra Kubernetes resources to deploy
 extraDeploy: []

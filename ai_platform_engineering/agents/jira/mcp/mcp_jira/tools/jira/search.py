@@ -44,14 +44,8 @@ async def search(
     Returns:
         JiraSearchResult object representing the search results.
     """
-    # Auto-correct: remove issuetype filters from JQL (unless explicitly wanted by user)
-    import re
-    if jql and re.search(r'\bAND\s+issuetype\s*=\s*\w+', jql, re.IGNORECASE):
-        original_jql = jql
-        jql = re.sub(r'\s+AND\s+issuetype\s*=\s*\w+', '', jql, flags=re.IGNORECASE)
-        logger.warning("Auto-correcting: removed issuetype filter from JQL")
-        logger.debug(f"Original: {original_jql}")
-        logger.info(f"Corrected: {jql}")
+    # Note: issuetype filters are now allowed in JQL queries
+    # When user asks for specific issue types (epics, bugs, etc.), the filter is preserved
 
     # Get credentials from environment
     import os
@@ -62,6 +56,12 @@ async def search(
     if not all([email, token, base_url]):
         logger.error("Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL")
         return "Error: Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL"
+
+    # Validate URL doesn't contain example.com placeholder
+    if base_url and ("example.com" in base_url.lower() or "jira.example.com" in base_url.lower()):
+        error_msg = f"Invalid ATLASSIAN_API_URL: '{base_url}'. Please set ATLASSIAN_API_URL to your actual Jira instance URL (e.g., https://your-domain.atlassian.net)."
+        logger.error(error_msg)
+        return f"Error: {error_msg}"
 
     # Prepare fields list
     fields_list: Optional[List[str]] = None
