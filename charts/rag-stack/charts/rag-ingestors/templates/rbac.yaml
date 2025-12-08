@@ -1,0 +1,35 @@
+{{- range $ingestor := .Values.ingestors }}
+{{- if and (eq $ingestor.type "k8s") ($ingestor.rbac) ($ingestor.rbac.create) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "rag-ingestors.fullname" $ }}-{{ $ingestor.name }}
+  labels:
+    {{- include "rag-ingestors.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: ingestor
+    app.kubernetes.io/ingestor-name: {{ $ingestor.name }}
+rules:
+{{- with $ingestor.rbac.rules }}
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "rag-ingestors.fullname" $ }}-{{ $ingestor.name }}
+  labels:
+    {{- include "rag-ingestors.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: ingestor
+    app.kubernetes.io/ingestor-name: {{ $ingestor.name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "rag-ingestors.fullname" $ }}-{{ $ingestor.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "rag-ingestors.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+

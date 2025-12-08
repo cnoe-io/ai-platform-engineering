@@ -2,18 +2,12 @@ dependencies:
 - name: rag-server
   repository: file://./charts/rag-server
   version: 0.0.1
-- name: agent-rag
-  repository: file://./charts/agent-rag
-  version: 0.0.1
 - name: agent-ontology
   repository: file://./charts/agent-ontology
   version: 0.0.1
 - name: rag-webui
   repository: file://./charts/rag-webui
   version: 0.0.1
-- name: neo4j
-  repository: https://helm.neo4j.com/neo4j
-  version: 2025.7.1
 - name: neo4j
   repository: https://helm.neo4j.com/neo4j
   version: 2025.7.1
