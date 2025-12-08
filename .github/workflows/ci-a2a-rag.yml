@@ -23,7 +23,7 @@ jobs:
 
     strategy:
       matrix:
-        component: [agent-ontology, server, webui]
+        component: [agent-ontology, server, webui, ingestors]
       fail-fast: false
 
     env:
