@@ -9,17 +9,28 @@
     "preview": "vite preview --port 4173"
   },
   "dependencies": {
+    "@react-sigma/core": "^5.0.4",
+    "@react-sigma/layout-forceatlas2": "^5.0.4",
     "@types/dagre": "^0.7.53",
     "@xyflow/react": "^12.8.5",
     "axios": "^1.7.2",
     "dagre": "^0.8.5",
+    "date-fns": "^4.1.0",
+    "graphology": "^0.26.0",
+    "graphology-layout": "^0.6.1",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "graphology-types": "^0.24.8",
+    "lodash": "^4.17.21",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-syntax-highlighter": "^16.1.0",
+    "sigma": "^3.0.2"
   },
   "devDependencies": {
     "@types/node": "^20.19.11",
     "@types/react": "^18.2.65",
     "@types/react-dom": "^18.2.22",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.41",

@@ -1,8 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import axios from 'axios';
-import type { QueryResult, QueryResponse } from './Models';
-
-const apiBase = import.meta.env.VITE_API_BASE?.toString() || '';
+import type { QueryResult } from './Models';
+import { searchDocuments, getHealthStatus } from '../api';
 
 interface SearchViewProps {
     onExploreEntity?: (entityType: string, primaryKey: string) => void;
@@ -11,13 +9,13 @@ interface SearchViewProps {
 export default function SearchView({ onExploreEntity }: SearchViewProps) {
     // Query state - matching QueryRequest model
     const [query, setQuery] = useState('');
-    const [limit, setLimit] = useState(5);
-    const [similarity, setSimilarity] = useState(0.3);
+    const [limit, setLimit] = useState(10);
     const [filters, setFilters] = useState<Record<string, string>>({});
     const [rankerType] = useState('weighted'); // Only weighted ranker supported
-    const [semanticsWeight, setSemanticsWeight] = useState(0.7); // Slider for weights
-    const [results, setResults] = useState<QueryResponse | null>(null);
+    const [semanticsWeight, setSemanticsWeight] = useState(0.5); // Slider for weights
+    const [results, setResults] = useState<QueryResult[] | null>(null);
     const [loadingQuery, setLoadingQuery] = useState(false);
+    const [lastQuery, setLastQuery] = useState('');
     const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set());
     
     // Filter configuration
@@ -25,24 +23,29 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     const [supportedDocTypes, setSupportedDocTypes] = useState<string[]>([]);
     const [selectedFilterKey, setSelectedFilterKey] = useState('');
     const [filterValue, setFilterValue] = useState('');
+    const [isGraphEntityFilter, setIsGraphEntityFilter] = useState<'all' | 'true' | 'false'>('all'); // 'all' = not set, 'true'/'false' = filter value
+    
+    // Graph RAG configuration
+    const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
 
-    const api = useMemo(() => axios.create({ baseURL: apiBase || undefined }), []);
 
     // Fetch valid filter keys and supported doc types on component mount
     React.useEffect(() => {
         const fetchFilterConfig = async () => {
             try {
-                const response = await api.get('/healthz');
-                const filterKeys = response.data?.config?.search?.keys || [];
-                const docTypes = response.data?.config?.search?.supported_doc_types || [];
+                const response = await getHealthStatus();
+                const filterKeys = response?.config?.search?.keys || [];
+                const docTypes = response?.config?.search?.supported_doc_types || [];
+                const graphRagEnabled = response?.config?.graph_rag_enabled ?? true;
                 setValidFilterKeys(filterKeys);
                 setSupportedDocTypes(docTypes);
+                setGraphRagEnabled(graphRagEnabled);
             } catch (error) {
                 console.error('Failed to fetch filter configuration:', error);
             }
         };
         fetchFilterConfig();
-    }, [api]);
+    }, []);
 
     // Filter management functions
     const addFilter = () => {
@@ -67,9 +70,10 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
     const handleExploreClick = (metadata: Record<string, unknown>) => {
         console.log('Explore clicked', metadata);
         
-        // Extract entity information from metadata
-        const entityType = metadata.entity_type as string;
-        const primaryKey = metadata.entity_primary_key as string;
+        // Extract entity information from metadata - using the correct keys
+        const nestedMetadata = metadata?.metadata as Record<string, unknown> | undefined;
+        const entityType = nestedMetadata?.graph_entity_type as string || undefined;
+        const primaryKey = nestedMetadata?.graph_entity_pk as string || undefined;
         
         if (entityType && primaryKey) {
             if (onExploreEntity) {
@@ -80,6 +84,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
             }
         } else {
             console.warn('Missing entity_type or primary_key in metadata:', metadata);
+            console.warn('Available keys:', Object.keys(metadata));
             alert('Cannot explore: Missing entity information in metadata');
         }
     };
@@ -104,15 +109,21 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
             const textWeight = 1 - semanticsWeight;
             const weights = [semanticsWeight, textWeight];
 
-            const { data } = await api.post<QueryResponse>('/v1/query', {
+            // Build filters - combine regular filters with is_graph_entity radio button
+            const combinedFilters: Record<string, string | boolean> = { ...filters };
+            if (isGraphEntityFilter !== 'all') {
+                combinedFilters['is_graph_entity'] = isGraphEntityFilter === 'true'; // boolean true or false
+            }
+
+            const data = await searchDocuments({
                 query,
                 limit,
-                similarity_threshold: similarity,
-                filters: Object.keys(filters).length > 0 ? filters : undefined,
+                filters: Object.keys(combinedFilters).length > 0 ? combinedFilters : undefined,
                 ranker_type: rankerType,
                 ranker_params: { weights }
             });
             setResults(data);
+            setLastQuery(query);
         } catch (e: any) {
             alert(`Query failed: ${e?.message || 'unknown error'}`);
         } finally {
@@ -164,7 +175,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         <button 
                             onClick={handleQuery} 
                             disabled={!query || loadingQuery}
-                            className="px-6 py-2 bg-brand-600 text-white rounded-md hover:bg-brand-700 transition-colors disabled:bg-gray-400"
+                            className="px-6 py-2 btn bg-brand-gradient hover:bg-brand-gradient-hover active:bg-brand-gradient-active text-white rounded-md transition-colors disabled:bg-gray-400"
                         >
                             {loadingQuery ? 'Searching…' : 'Search'}
                         </button>
@@ -177,18 +188,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         {/* Search Options */}
                         <div className="space-y-4 text-sm">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <label>
-                                    Similarity Threshold:
-                                    <input
-                                        type="number"
-                                        min={0.0}
-                                        max={1.0}
-                                        step={0.1}
-                                        value={similarity}
-                                        onChange={(e) => setSimilarity(parseFloat(e.target.value))}
-                                        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                                    />
-                                </label>
+                             
                                 <label>
                                     Result Limit:
                                     <input
@@ -235,6 +235,43 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                         <div className="mt-4 mb-4 p-4 border border-gray-200 rounded-md bg-gray-50">
                             <h4 className="text-sm font-semibold mb-3">Filters</h4>
                             
+                            {/* Graph Entity Radio Filter */}
+                            <div className="mb-4 p-3 bg-white border border-gray-200 rounded-md">
+                                <div className="text-sm font-medium mb-2">Entity Type</div>
+                                <div className="flex gap-4">
+                                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="graph-entity-filter"
+                                            checked={isGraphEntityFilter === 'all'}
+                                            onChange={() => setIsGraphEntityFilter('all')}
+                                            className="h-4 w-4"
+                                        />
+                                        <span>All</span>
+                                    </label>
+                                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="graph-entity-filter"
+                                            checked={isGraphEntityFilter === 'true'}
+                                            onChange={() => setIsGraphEntityFilter('true')}
+                                            className="h-4 w-4"
+                                        />
+                                        <span>Graph entities only</span>
+                                    </label>
+                                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                                        <input
+                                            type="radio"
+                                            name="graph-entity-filter"
+                                            checked={isGraphEntityFilter === 'false'}
+                                            onChange={() => setIsGraphEntityFilter('false')}
+                                            className="h-4 w-4"
+                                        />
+                                        <span>Non-graph entities</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
                             {/* Add Filter Controls */}
                             <div className="flex gap-2 mb-3">
                                 <select
@@ -243,7 +280,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                     className="rounded-md border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                                 >
                                     <option value="">Select filter key...</option>
-                                    {validFilterKeys.map(key => (
+                                    {validFilterKeys.filter(key => key !== 'is_graph_entity').map(key => (
                                         <option key={key} value={key}>{key}</option>
                                     ))}
                                 </select>
@@ -307,27 +344,23 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                     )}
                     {results && (
                         <div>
-                            <div className="mb-3 text-sm text-slate-600">Query: {results.query}</div>
+                            <div className="mb-3 text-sm text-slate-600">Query: {lastQuery}</div>
                             <ul className="grid list-none gap-3 p-0 mr-2 max-w-full">
-                            {results.results.map((r, i) => {
+                            {results.map((r, i) => {
                                 const isExpanded = expandedResults.has(i);
                                 const pageContent = String(r.document.page_content || '');
                                 const summary = pageContent.replace(/\n/g, ' ').substring(0, 150);
-                                const docType = r.document.metadata?.doc_type as string;
-                                const isGraphEntity = docType === 'graph_entity';
+                                const isGraphEntity = r.document.metadata?.is_graph_entity as boolean;
                                 
                                 // For graph entities, extract entity info
-                                const entityType = r.document.metadata?.graph_entity_type as string || 'Unknown';
-                                const primaryKey = r.document.metadata?.graph_entity_primary_key as string || 'Unknown';
+                                const nestedMetadata = r.document.metadata?.metadata as Record<string, unknown> | undefined;
+                                const entityType = nestedMetadata?.graph_entity_type as string || 'Unknown';
+                                const primaryKey = nestedMetadata?.graph_entity_pk as string || 'Unknown';
 
                                 return (
                                     <li 
                                         key={i} 
-                                        className={`rounded-lg p-3 shadow-sm cursor-pointer mr-2 max-w-full overflow-hidden ${
-                                            isGraphEntity 
-                                                ? 'border border-blue-200 bg-blue-50' 
-                                                : 'border border-slate-200 bg-white'
-                                        }`}
+                                        className={`rounded-lg p-3 shadow-sm cursor-pointer mr-2 max-w-full overflow-hidden border border-slate-200 bg-white`}
                                         onClick={() => toggleResult(i)}
                                     >
                                         {isExpanded ? (
@@ -343,7 +376,7 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                                 )}
                                                 <div className="flex items-center gap-2 flex-shrink-0">
                                                     <span className={`text-xs font-mono flex-shrink-0 ${
-                                                        isGraphEntity ? 'text-blue-500' : 'text-slate-500'
+                                                        isGraphEntity ? 'text-brand-500' : 'text-slate-500'
                                                     }`}>
                                                         {r.score.toFixed(3)}
                                                     </span>
@@ -351,9 +384,17 @@ export default function SearchView({ onExploreEntity }: SearchViewProps) {
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                handleExploreClick(r.document.metadata!)
+                                                                if (graphRagEnabled) {
+                                                                    handleExploreClick(r.document.metadata!)
+                                                                }
                                                             }}
-                                                            className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 transition-colors"
+                                                            disabled={!graphRagEnabled}
+                                                            className={`px-2 py-1 btn text-white rounded text-xs transition-colors ${
+                                                                graphRagEnabled 
+                                                                    ? 'hover:bg-brand-400' 
+                                                                    : 'bg-gray-400 cursor-not-allowed'
+                                                            }`}
+                                                            title={!graphRagEnabled ? 'Graph RAG is disabled' : ''}
                                                         >
                                                             Explore
                                                         </button>
