@@ -71,20 +71,40 @@ spec:
                 name: {{ $llmSecretName }}
             {{- end }}
           env:
-            - name: LOG_LEVEL
-              value: {{ .Values.logLevel | quote }}
+            # Core Connection Settings
             - name: REDIS_URL
               value: {{ include "agent.redisUrl" . | quote }}
             - name: NEO4J_ADDR
               value: {{ include "agent.neo4jAddr" . | quote }}
-            - name: NEO4J_ONTOLOGY_ADDR
-              value: {{ include "agent.neo4jOntologyAddr" . | quote }}
             - name: NEO4J_USERNAME
               value: {{ include "agent.neo4jUsername" . | quote }}
             - name: NEO4J_PASSWORD
               value: {{ include "agent.neo4jPassword" . | quote }}
+            
+            # Core Configuration
+            - name: SERVER_PORT
+              value: {{ .Values.serverPort | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            
+            # Ontology Processing Configuration
             - name: SYNC_INTERVAL
               value: {{ .Values.syncInterval | quote }}
+            - name: MIN_COUNT_FOR_EVAL
+              value: {{ .Values.minCountForEval | quote }}
+            - name: COUNT_CHANGE_THRESHOLD_RATIO
+              value: {{ .Values.countChangeThresholdRatio | quote }}
+            
+            # Agent Worker Configuration
+            - name: MAX_CONCURRENT_EVALUATION
+              value: {{ .Values.maxConcurrentEvaluation | quote }}
+            - name: AGENT_RECURSION_LIMIT
+              value: {{ .Values.agentRecursionLimit | quote }}
+            - name: MAX_LLM_TOKENS
+              value: {{ .Values.maxLlmTokens | quote }}
+            - name: DEBUG_AGENT
+              value: {{ .Values.debugAgent | quote }}
+
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
