@@ -11,84 +11,84 @@
 - 🤖 **Intelligent Knowledge Platform** with autonomous ontology discovery and RAG-powered question answering across multiple data sources.
 - 🧠 **Ontology Agent:** AI agent that automatically discovers and evaluates entity relationships from graph data using heuristics and LLM evaluation.
 - 🔍 **RAG/GraphRAG Agent:** Retrieval-augmented generation system for answering questions using vector embeddings and graph traversal.
-- 🌐 **Ingestion and Indexing:** Supports ingestion of URLs, as well as graph connectors for AWS, Kubernetes, Backstage, and other data sources.
+- 🌐 **Ingestion and Indexing:** Supports ingestion of URLs, as well as ingestors for AWS, Kubernetes, Backstage, and other data sources.
 - 📊 **Graph Database Integration:** Uses Neo4j for both data storage and ontology relationship management.
 - 🖥️ **Web Interface:** React-based UI for exploring ontologies, searching data, and visualizing relationships.
 
 ![CAIPE RAG Demo](docs/rag_gif.gif)
 
-## Getting Started
-
-### 1️⃣ Prerequisites
-
-- Docker and Docker Compose
-- Environment variables configured in `.env`
-
-### 2️⃣ Start all services
+## Quick Start
 
 ```bash
-# Start all services using Docker Compose
+# Start all services
 docker compose --profile apps up
 ```
-### 3️⃣ Access the Interface
 
-Interfaces:
+**Access Points:**
+- Web UI: [http://localhost:9447](http://localhost:9447)
+- API Docs: [http://localhost:9446/docs](http://localhost:9446/docs)
+- Neo4j Browser: [http://localhost:7474](http://localhost:7474)
 
-  - Web UI: [http://localhost:9447](http://localhost:9447)
-  - API Docs: [http://localhost:9446/docs](http://localhost:9446/docs)
-  - (Advanced) Neo4j Browser: [http://localhost:7474](http://localhost:7474)
-  - (Advanced) Milvus Studio: [http://localhost:9091](http://localhost:9091)
-For detailed architecture information, see [Architecture.md](Architecture.md).
+If you have Claude code, VS code, Cursor etc. you can connect upto the MCP server running at http://localhost:9446/mcp
 
----
+**Documentation:**
+- [Architecture Overview](Architecture.md) - System architecture and data flows
+- [Server](server/README.md) - Core API and orchestration layer
+- [Ontology Agent](agent_ontology/README.md) - Autonomous schema discovery
+- [Web UI](webui/README.md) - Frontend interface and visualization
+- [Ingestors](ingestors/README.md) - Data source integrations
 
-## Features
+## Connections
 
-### Ontology Agent
-- Automatic relationship discovery using heuristics
-- LLM-powered evaluation of relationship candidates
-- Progress tracking with real-time status updates
-- Configurable acceptance/rejection thresholds
-- Background processing with concurrent task management
+DEFAULT port configurations between components:
 
-### RAG System
-- Document ingestion and chunking
-- Vector embeddings with Milvus storage
-- Semantic search and retrieval
-- LLM-powered question answering
+**Server (Port 9446):**
+- Connects to Neo4j over `7687` (bolt protocol)
+- Connects to Redis over `6379`
+- Connects to Milvus over `19530`
+- Proxies to agent_ontology over `8098`
+- Serves Web UI and exposes REST API
 
-### Web Interface
-- Interactive graph visualization
-- Real-time agent status with progress indicators
-- Search functionality across all data
-- Entity exploration and relationship browsing
+**Ontology Agent (Port 8098):**
+- Connects to Neo4j over `7687`
+- Connects to Redis over `6379`
+- Proxies queries from Server
+
+**Web UI (Port 9447):**
+- Connects to Server over `9446` (REST)
+
+**CAIPE Agent (MCP):**
+- Connects to Server over `9446` (MCP tools)
+
+**Ingestors:**
+- Connect to Server over `9446` (REST)
+- Connect to Redis over `6379` (webloader ingestor)
+
+**Databases:**
+- Neo4j Data: `7687` (bolt), `7474` (browser)
+- Neo4j Ontology: `7687` (bolt) - separate database
+- Milvus: `19530` (gRPC)
+- Redis: `6379`
 
 ---
 
 ## Local Development
 
-Clone the repo locally.
-
-Navigate to `ai-platform-engineering/knowledge_bases/rag`
-
-Run the dependent services:
+Start dependent services only:
 
 ```bash
 docker compose --profile deps up
 ```
 
-This will start:
+Run components individually:
 
-- Neo4j (data graph database)
-- Neo4j Ontology (ontology graph database)
-- Milvus (vector database)
-- MinIO (object storage for Milvus)
-- Etcd (configuration for Milvus)
-- Redis (key-value store)
+```bash
+# Server
+cd server && uv sync && source .venv/bin/activate && python3 src/server/__main__.py
 
-Then navigate to the different components and run them:
+# Ontology Agent
+cd agent_ontology && uv sync && source .venv/bin/activate && python3 src/agent_ontology/restapi.py
 
- - server: `uv sync; source ./.venv/bin/activate; python3 src/server/__main__.py`
- - agent_ontology: `uv sync; source ./.venv/bin/activate; python3 src/agent_ontology/restapi.py`
- - agent_rag: `uv sync; source ./.venv/bin/activate; python3 src/agent_rag/restapi.py`
- - webui: `npm run dev`
+# Web UI
+cd webui && npm install && npm run dev
+```

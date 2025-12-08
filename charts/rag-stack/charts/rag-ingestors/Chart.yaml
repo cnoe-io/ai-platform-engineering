@@ -1,0 +1,7 @@
+apiVersion: v2
+name: rag-ingestors
+description: Configurable ingestors for RAG system - supports AWS, K8s, ArgoCD, Slack, and Webex
+type: application
+version: 0.0.1
+appVersion: "latest"
+

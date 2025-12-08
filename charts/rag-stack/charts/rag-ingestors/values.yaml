@@ -1,0 +1,266 @@
+# Default values for rag-ingestors
+# This chart allows you to deploy multiple ingestors as separate deployments
+# Each ingestor can have its own configuration
+
+# Global image configuration
+image:
+  repository: "ghcr.io/cnoe-io/caipe-rag-ingestors"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Global RAG server URL (can be overridden per ingestor)
+ragServerUrl: "http://rag-server:9446"
+
+# Service account configuration
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+# List of ingestors to deploy
+# Each ingestor will create a separate Deployment
+# By default, no ingestors are deployed
+ingestors: []
+  # Example AWS Ingestor
+  # - name: aws-prod
+  #   type: aws                              # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #   
+  #   # AWS-specific configuration
+  #   env:
+  #     AWS_REGION: us-east-1                # AWS_DEFAULT_REGION or AWS_REGION
+  #     RESOURCE_TYPES: "ec2:instance,s3:bucket,eks:cluster,rds:db,lambda:function"
+  #   
+  #   # AWS credentials from secret
+  #   envFrom:
+  #     - secretRef:
+  #         name: aws-credentials            # Must contain AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+  #   
+  #   # Optional: Mount AWS credentials file
+  #   volumeMounts:
+  #     - name: aws-credentials
+  #       mountPath: /home/app/.aws
+  #       readOnly: true
+  #   volumes:
+  #     - name: aws-credentials
+  #       secret:
+  #         secretName: aws-credentials-file
+  #   
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 1Gi
+
+  # Example K8s Ingestor (In-Cluster)
+  # - name: k8s-local
+  #   type: k8s                              # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #   
+  #   # K8s-specific configuration
+  #   env:
+  #     CLUSTER_NAME: production-cluster     # CLUSTER_NAME (required)
+  #     IN_CLUSTER: "true"                   # IN_CLUSTER - uses ServiceAccount
+  #   
+  #   # RBAC permissions needed for in-cluster access
+  #   rbac:
+  #     create: true
+  #     rules:
+  #       - apiGroups: ["*"]
+  #         resources: ["*"]
+  #         verbs: ["get", "list", "watch"]
+  #   
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
+  # Example K8s Ingestor (External Cluster with kubeconfig)
+  # - name: k8s-external
+  #   type: k8s                              # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #   
+  #   # K8s-specific configuration with kubeconfig
+  #   env:
+  #     CLUSTER_NAME: staging-cluster        # CLUSTER_NAME (required)
+  #     KUBECONFIG: /home/app/.kube/config   # KUBECONFIG path
+  #     KUBE_CONTEXT: staging-context        # KUBE_CONTEXT (optional)
+  #   
+  #   # Mount kubeconfig from secret
+  #   volumeMounts:
+  #     - name: kubeconfig
+  #       mountPath: /home/app/.kube
+  #       readOnly: true
+  #   volumes:
+  #     - name: kubeconfig
+  #       secret:
+  #         secretName: external-kubeconfig
+  #   
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
+  # Example ArgoCD Ingestor
+  # - name: argocd-prod
+  #   type: argocd                           # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #   
+  #   # ArgoCD-specific configuration
+  #   env:
+  #     SERVER_URL: https://argocd.example.com  # SERVER_URL (required)
+  #     ARGOCD_VERIFY_SSL: "true"            # ARGOCD_VERIFY_SSL
+  #     ARGOCD_FILTER_PROJECTS: "production,staging"  # ARGOCD_FILTER_PROJECTS (comma-separated)
+  #   
+  #   # ArgoCD auth token from secret
+  #   envFrom:
+  #     - secretRef:
+  #         name: argocd-auth                # Must contain ARGOCD_AUTH_TOKEN
+  #   
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
+  # Example Slack Ingestor
+  # - name: slack-workspace
+  #   type: slack                            # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #   
+  #   # Slack-specific configuration
+  #   env:
+  #     SLACK_BOT_NAME: mybot                # SLACK_BOT_NAME (required)
+  #     SLACK_WORKSPACE_URL: https://mycompany.slack.com  # SLACK_WORKSPACE_URL (required)
+  #     SLACK_CHANNELS: |                    # SLACK_CHANNELS (JSON)
+  #       {
+  #         "C1234567890": {
+  #           "name": "general",
+  #           "lookback_days": 30,
+  #           "include_bots": false
+  #         },
+  #         "C0987654321": {
+  #           "name": "engineering",
+  #           "lookback_days": 90,
+  #           "include_bots": true
+  #         }
+  #       }
+  #   
+  #   # Slack bot token from secret
+  #   envFrom:
+  #     - secretRef:
+  #         name: slack-credentials          # Must contain SLACK_BOT_TOKEN
+  #   
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
+  # Example Webex Ingestor
+  # - name: webex-workspace
+  #   type: webex                            # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #   
+  #   # Webex-specific configuration
+  #   env:
+  #     WEBEX_BOT_NAME: mybot                # WEBEX_BOT_NAME (required)
+  #     WEBEX_SPACES: |                      # WEBEX_SPACES (JSON)
+  #       {
+  #         "Y2lzY29zcGFyazovL3VzL1JPT00vYmJjZWIxYWQtNDNmMS0zYjU4LTkxNDctZjE0YmIwYzRkMTU0": {
+  #           "name": "general",
+  #           "lookback_days": 30
+  #         }
+  #       }
+  #   
+  #   # Webex access token from secret
+  #   envFrom:
+  #     - secretRef:
+  #         name: webex-credentials          # Must contain WEBEX_ACCESS_TOKEN
+  #   
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
+  # Example Backstage Ingestor
+  # - name: backstage-catalog
+  #   type: backstage                        # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #   
+  #   # Backstage-specific configuration
+  #   env:
+  #     BACKSTAGE_URL: https://backstage.example.com  # BACKSTAGE_URL (required)
+  #   
+  #   # Backstage API token from secret
+  #   envFrom:
+  #     - secretRef:
+  #         name: backstage-credentials      # Must contain BACKSTAGE_API_TOKEN
+  #   
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
+# Default resources for ingestors (can be overridden per ingestor)
+defaultResources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+    ephemeral-storage: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+    ephemeral-storage: 1Gi
+
+# Common pod annotations
+podAnnotations: {}
+
+# Common pod labels
+podLabels: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Image pull secrets
+imagePullSecrets: []
+
