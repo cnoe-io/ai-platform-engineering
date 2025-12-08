@@ -4,7 +4,7 @@ dependencies:
   version: 0.0.1
 - name: agent-ontology
   repository: file://./charts/agent-ontology
-  version: 0.0.1
+  version: 0.0.2
 - name: rag-webui
   repository: file://./charts/rag-webui
   version: 0.0.1
