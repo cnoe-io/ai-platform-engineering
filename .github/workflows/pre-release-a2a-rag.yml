@@ -56,7 +56,7 @@ jobs:
           CHANGED_WEBUI: ${{ steps.filter.outputs.webui }}
         with:
           script: |
-            const allComponents = ['agent-ontology', 'server', 'webui'];
+            const allComponents = ['agent-ontology', 'server', 'webui', 'ingestors'];
             const buildAll = process.env.BUILD_ALL === 'true';
             let selected;
             if (buildAll) {
@@ -223,7 +223,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        component: ['agent-rag', 'agent-ontology', 'server', 'webui']
+        component: ['ingestors', 'agent-ontology', 'server', 'webui']
       fail-fast: false
     env:
       OWNER: ${{ github.repository_owner }}
