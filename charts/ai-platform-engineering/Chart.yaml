@@ -125,7 +125,7 @@ dependencies:
     repository: oci://ghcr.io/agntcy/slim/helm
     condition: global.slim.enabled
   - name: rag-stack
-    version: 0.0.4
+    version: 0.0.5
     repository: file://../rag-stack # TODO: might be changed to be separate
     tags:
       - rag-stack
