@@ -6,7 +6,7 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.5.6
+version: 0.5.7
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
@@ -125,7 +125,7 @@ dependencies:
     repository: oci://ghcr.io/agntcy/slim/helm
     condition: global.slim.enabled
   - name: rag-stack
-    version: 0.0.4
+    version: 0.0.5
     repository: file://../rag-stack # TODO: might be changed to be separate
     tags:
       - rag-stack
