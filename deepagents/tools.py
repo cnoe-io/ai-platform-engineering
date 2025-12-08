@@ -25,12 +25,30 @@ def write_todos(
         "error": "❌",
         "failed": "❌",
     }
+    # All possible icons to check for duplicates
+    all_icons = set(status_icons.values())
 
     markdown_lines = ["📋 **Task Progress:**", ""]
     failed_tasks = []
     for todo in todos:
         icon = status_icons.get(todo["status"], "•")
-        markdown_lines.append(f"- {icon} {todo['content']}")
+        content = todo['content'].strip()
+
+        # Check if content already starts with the same icon (avoid duplicates)
+        if content.startswith(icon):
+            # Icon already present, don't add another
+            markdown_lines.append(f"- {content}")
+        elif any(content.startswith(existing_icon) for existing_icon in all_icons):
+            # Content starts with a different status icon - strip it and use correct one
+            for existing_icon in all_icons:
+                if content.startswith(existing_icon):
+                    content = content[len(existing_icon):].strip()
+                    break
+            markdown_lines.append(f"- {icon} {content}")
+        else:
+            # No icon present, add the appropriate one
+            markdown_lines.append(f"- {icon} {content}")
+
         if todo["status"] in {"error", "failed"}:
             failed_tasks.append(todo["content"])
 
