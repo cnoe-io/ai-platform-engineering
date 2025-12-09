@@ -25,11 +25,12 @@ agent_description = config.get("agent_description", (
   "This platform engineering system integrates with multiple tools to manage operations efficiently. "
   "It includes PagerDuty for incident management, GitHub for version control and collaboration, "
   "Jira for project management and ticket tracking, Slack for team communication and notifications, " ) +
-  ("Webex for messaging and notifications, " if platform_registry.agent_exists("webex") else "") + (
+  ("Webex for messaging and notifications, " if platform_registry.agent_exists("webex") else "") +
+  ("AWS for cloud infrastructure management and Kubernetes/EKS debugging, " if platform_registry.agent_exists("aws") else "") + (
   "ArgoCD for application deployment and synchronization, and Backstage for catalog and service metadata management. "
   "Each tool is handled by a specialized agent to ensure seamless task execution, "
   "covering tasks such as incident resolution, repository management, ticket updates, "
-  "channel creation, application synchronization, and catalog queries."
+  "channel creation, cloud infrastructure queries, Kubernetes troubleshooting, application synchronization, and catalog queries."
 ))
 
 # Load agent prompts from YAML
