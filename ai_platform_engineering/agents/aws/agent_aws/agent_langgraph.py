@@ -1010,29 +1010,22 @@ ECR repositories may be in a specific account. Use the appropriate profile and r
 When user provides an ECR image URL, AUTOMATICALLY parse it and execute the query:
 
 **ECR URL Format:** `<account-id>.dkr.ecr.<region>.amazonaws.com/<repository>:<tag>`
-**Example:** `626007623524.dkr.ecr.us-east-2.amazonaws.com/air/air-backend:v1`
+**Example:** `123456789012.dkr.ecr.us-east-2.amazonaws.com/my-app/backend:v1`
 
 **PARSING STEPS (DO THIS AUTOMATICALLY):**
-1. Extract account ID: `626007623524`
-2. Map account ID to profile name:
-   - 626007623524 → eticloud
-   - 471112537430 → outshift-common-dev
-   - 637423531539 → outshift-common-staging
-   - 058264538874 → outshift-common-prod
-   - 009736724745 → eti-ci
-   - 509581005347 → cisco-research
-   - 075967417574 → eticloud-demo
+1. Extract account ID: `123456789012`
+2. Map account ID to profile name (use configured account mappings)
 3. Extract region: `us-east-2`
-4. Extract repository: `air/air-backend`
+4. Extract repository: `my-app/backend`
 5. Extract tag: `v1`
 
 **THEN IMMEDIATELY EXECUTE:**
 `ecr describe-images --profile <mapped-profile> --region <region> --repository-name <repository> --image-ids imageTag=<tag>`
 
 **Example:**
-User: "Does 626007623524.dkr.ecr.us-east-2.amazonaws.com/air/air-backend:v1 exist?"
-→ Parse: account=626007623524 (eticloud), region=us-east-2, repo=air/air-backend, tag=v1
-→ Execute: `ecr describe-images --profile eticloud --region us-east-2 --repository-name air/air-backend --image-ids imageTag=v1`
+User: "Does 123456789012.dkr.ecr.us-east-2.amazonaws.com/my-app/backend:v1 exist?"
+→ Parse: account=123456789012 (map to profile), region=us-east-2, repo=my-app/backend, tag=v1
+→ Execute: `ecr describe-images --profile <mapped-profile> --region us-east-2 --repository-name my-app/backend --image-ids imageTag=v1`
 → Result: If output is non-empty, image exists. If error or empty, image doesn't exist.
 
 **⚠️ NEVER ASK USER FOR ACCOUNT WHEN URL CONTAINS ACCOUNT ID - PARSE IT AUTOMATICALLY!**
@@ -1043,23 +1036,23 @@ User: "Does 626007623524.dkr.ecr.us-east-2.amazonaws.com/air/air-backend:v1 exis
    `ecr describe-repositories --profile <account-name> --region <region> --query 'repositories[].repositoryName'`
 
 **REPOSITORY SEARCH STRATEGY:**
-When searching for repositories (e.g., "repos with air"):
-1. **First try exact prefix match:** repos starting with `air/` (e.g., `air/air-backend`, `air/air-ui`)
-2. **Then try substring match:** repos containing `air` anywhere (e.g., `apps/transformers-api`)
-3. Present results grouped: "Repos starting with 'air/': ... | Other repos containing 'air': ..."
+When searching for repositories (e.g., "repos with keyword"):
+1. **First try exact prefix match:** repos starting with `keyword/` (e.g., `keyword/backend`, `keyword/ui`)
+2. **Then try substring match:** repos containing `keyword` anywhere (e.g., `apps/other-keyword-app`)
+3. Present results grouped: "Repos starting with 'keyword/': ... | Other repos containing 'keyword': ..."
 
-**Example - User asks "list repos with air":**
+**Example - User asks "list repos with myapp":**
 ```bash
 # Step 1: List all repos
-ecr describe-repositories --profile eticloud --region us-east-2 --query 'repositories[].repositoryName'
+ecr describe-repositories --profile my-account --region us-east-2 --query 'repositories[].repositoryName'
 
 # Step 2: Parse output and filter
-# Exact prefix: air/air-backend, air/air-ui, air/air-agent
-# Substring: helm/maestro-api, apps/transformers-api
+# Exact prefix: myapp/backend, myapp/frontend, myapp/worker
+# Substring: services/myapp-api, tools/myapp-helper
 
 # Step 3: Present grouped results:
-"Repositories starting with 'air/': air/air-backend, air/air-ui, air/air-agent
-Other repositories containing 'air': helm/maestro-api, apps/transformers-api"
+"Repositories starting with 'myapp/': myapp/backend, myapp/frontend, myapp/worker
+Other repositories containing 'myapp': services/myapp-api, tools/myapp-helper"
 ```
 
 2. **List TAGGED images in a repository (to find available tags):**
@@ -1082,7 +1075,7 @@ Other repositories containing 'air': helm/maestro-api, apps/transformers-api"
 
 **WRONG - DO NOT DO THIS:**
 `ecr describe-repositories --region us-east-2` ← Missing --profile, uses wrong account
-`ecr describe-repositories --registry-id 626007623524` ← registry-id doesn't grant access
+`ecr describe-repositories --registry-id 123456789012` ← registry-id doesn't grant access
 
 CloudWatch:
 - 'logs describe-log-groups' - List log groups
