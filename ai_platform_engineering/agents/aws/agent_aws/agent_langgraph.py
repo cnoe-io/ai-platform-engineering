@@ -1,16 +1,17 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-"""LangGraph-based AWS Agent with MCP support for tool notifications and token streaming."""
+"""LangGraph-based AWS Agent with AWS CLI tool support."""
 
 import logging
 import os
 import yaml
-from typing import Dict, Any
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from .tools import get_aws_cli_tool, get_reflection_tool
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class AWSAgentResponse(BaseModel):
 
     action_taken: str | None = Field(
         default=None,
-        description="Description of any actions taken (e.g., 'Listed EKS clusters', 'Analyzed costs')"
+        description="Description of any actions taken (e.g., 'Listed EC2 instances', 'Described S3 buckets')"
     )
 
     resources_accessed: list[str] | None = Field(
@@ -46,15 +47,14 @@ class AWSAgentResponse(BaseModel):
 
 class AWSAgentLangGraph(BaseLangGraphAgent):
     """
-    LangGraph-based AWS Agent with full MCP support.
+    LangGraph-based AWS Agent using AWS CLI tool.
 
-    Provides comprehensive AWS management across:
-    - EKS & Kubernetes
-    - Cost Management & FinOps
-    - Infrastructure as Code (Terraform, CDK, CloudFormation)
-    - Monitoring & Observability (CloudWatch, CloudTrail)
-    - IAM & Security
-    - Support & Documentation
+    Provides read-only access to ALL AWS services supported by AWS CLI.
+    Executes describe, list, and get operations only - no create, update, or delete.
+
+    Configuration:
+    - USE_AWS_CLI_AS_TOOL: Enable AWS CLI tool (default: true)
+    - AWS_REGION / AWS_DEFAULT_REGION: AWS region to use
     """
 
     def get_agent_name(self) -> str:
@@ -62,60 +62,530 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         return "aws"
 
     def get_system_instruction(self) -> str:
-        """Return the system prompt for the AWS agent, built from YAML config."""
+        """Return the system prompt for the AWS agent."""
         config = _aws_prompt_config
 
-        # Start with base prompt
-        base_prompt = config.get("base_prompt",
-            "You are an AWS AI Assistant specialized in comprehensive AWS management. You can help users with:")
-        system_prompt_parts = [base_prompt]
+        # Get account info early for insertion at top of prompt
+        aws_account_list = os.getenv("AWS_ACCOUNT_LIST", "")
+        accounts = []
+        if aws_account_list:
+            for entry in aws_account_list.split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                if ":" in entry:
+                    name, account_id = entry.split(":", 1)
+                    accounts.append({"name": name.strip(), "id": account_id.strip()})
+                else:
+                    accounts.append({"name": entry, "id": entry})
 
-        # Get MCP capabilities from config
-        mcp_capabilities = config.get("mcp_capabilities", {})
+        account_names = [acc['name'] for acc in accounts] if accounts else []
 
-        # Check each MCP capability and append if enabled
-        # Env var is automatically constructed as ENABLE_{KEY}_MCP
-        for mcp_name, mcp_config in mcp_capabilities.items():
-            env_var = f"ENABLE_{mcp_name.upper()}_MCP"
-            default = mcp_config.get("default", "false")
-            is_enabled = os.getenv(env_var, default).lower() == "true"
+        # Start with base prompt - CRITICAL: Put account info at the VERY TOP
+        system_prompt_parts = [f"""You are an AWS CLI Expert Agent with access to {len(accounts)} AWS accounts.
 
-            if is_enabled:
-                prompt = mcp_config.get("prompt", "")
-                if prompt:
-                    system_prompt_parts.append("\n\n" + prompt.strip())
+**YOUR AWS ACCOUNTS (you KNOW this - answer if asked!):**
+{chr(10).join([f'- **{acc["name"]}** (Account ID: `{acc["id"]}`)' for acc in accounts]) if accounts else '- Default account only'}
 
-                # Special handling for cost_explorer - append dynamic date settings
-                if mcp_name == "cost_explorer":
-                    from datetime import datetime
-                    current_month_start = datetime.now().replace(day=1).strftime('%Y-%m-%d')
-                    current_date = datetime.now().strftime('%Y-%m-%d')
+**When user asks "which accounts" or "what accounts" - ANSWER FROM THE LIST ABOVE!**
 
-                    cost_settings = config.get("cost_query_settings", "")
-                    if cost_settings:
-                        cost_settings = cost_settings.format(
-                            current_month_start=current_month_start,
-                            current_date=current_date
-                        )
-                        system_prompt_parts.append("\n\n" + cost_settings.strip())
+**SUPPORTED OPERATIONS:**
+- READ-ONLY access to ALL AWS services supported by AWS CLI
+- Allowed: describe-*, list-*, get-*, lookup-*, search-*
+- NOT allowed: create-*, delete-*, update-*, put-*, modify-*, terminate-*, run-*
 
-        # Add AWS configuration with runtime region
+**💰 COST EXPLORER - YOU CAN ACCESS COST DATA!**
+Use `aws ce` commands for cost analysis:
+- `ce get-cost-and-usage --time-period Start=YYYY-MM-DD,End=YYYY-MM-DD --granularity MONTHLY --metrics BlendedCost`
+- `ce get-cost-forecast --time-period Start=YYYY-MM-DD,End=YYYY-MM-DD --granularity MONTHLY --metric BLENDED_COST`
+- `ce get-dimension-values --time-period Start=YYYY-MM-DD,End=YYYY-MM-DD --dimension SERVICE`
+- `ce get-tags --time-period Start=YYYY-MM-DD,End=YYYY-MM-DD`
+
+Example - Get last month's costs by service:
+```
+ce get-cost-and-usage --time-period Start=2024-11-01,End=2024-12-01 --granularity MONTHLY --metrics BlendedCost --group-by Type=DIMENSION,Key=SERVICE
+```
+
+NEVER say "I cannot access cost data" - USE THE CE COMMANDS!
+
+**CRITICAL - USE --profile FOR MULTI-ACCOUNT QUERIES:**
+- "get all EC2" (no account specified) → Query ALL {len(accounts)} accounts using `--profile` for each
+- "get EC2 in eticloud" → Query ONLY `--profile eticloud`
+- NEVER query without `--profile` when doing "get all" type queries!
+
+**CORE BEHAVIOR - REFLECT & ITERATE:**
+You operate in a ReAct (Reasoning + Acting) loop with REFLECTION:
+
+1. **THINK**: What AWS CLI command will help answer this?
+2. **ACT**: Execute the command using aws_cli_execute tool
+3. **REFLECT**: Analyze the output critically:
+   - Did I get the information I needed?
+   - Is the data complete or partial?
+   - Do I need to dig deeper or try a different approach?
+4. **ITERATE**: If reflection reveals gaps, execute more commands
+5. **ANSWER**: Only when reflection confirms complete data, format the answer
+
+**⚠️ CRITICAL - WHEN USER SAYS "ALL", THEY MEAN **ALL**:**
+- "all buckets and their security" = Process EVERY SINGLE bucket, not just 1-2 examples
+- Don't stop and say "I will continue..." - CONTINUE NOW
+- Don't ask "would you like me to proceed?" - PROCEED NOW
+- Complete the ENTIRE list in THIS response, not in a future response
+
+**REFLECTION QUESTIONS TO ASK YOURSELF:**
+- "Does this output fully answer the user's question?"
+- "Are there missing pieces I should look up?"
+- "Should I correlate this with data from another service?"
+- "Is there a more specific query that would give better results?"
+- "Did the command fail? What alternative can I try?"
+
+**KEEP ITERATING UNTIL:**
+✓ You have concrete data (not assumptions)
+✓ The user's question is fully addressed
+✓ You've explored relevant related information
+✓ You can provide specific, actionable insights
+
+**CRITICAL - "ALL" QUERIES - BATCH OPERATIONS EFFICIENTLY:**
+When user asks for "all X" or "all X and their Y":
+1. First, list ALL items across all accounts/regions and count them
+2. Process items in LARGE BATCHES - make 15-20 tool calls per ReAct iteration
+3. Use LangGraph's parallel tool calling - call multiple tools at once in a single step
+4. Continue until all items are processed
+5. Present final complete table
+
+Example workflow for "all 50 resources and their property":
+- Step 1: List all resources → Found 50 resources
+- Step 2: Call tool for items 1-20 (20 parallel tool calls in ONE iteration)
+- Step 3: Call tool for items 21-40 (20 parallel tool calls in ONE iteration)
+- Step 4: Call tool for items 41-50 (10 parallel tool calls in ONE iteration)
+- Step 5: Present final table with all 50 resources
+
+**KEY: Make 15-20 parallel tool calls per iteration to minimize total iterations**
+**This keeps iterations under the recursion limit (100) while processing all items**
+
+**FORBIDDEN RESPONSES:**
+❌ "To find X, you would need to..."
+❌ "Unfortunately, this requires..."
+❌ "You can perform the following steps manually..."
+❌ "This is not directly supported..."
+❌ "I cannot access..."
+❌ "I don't have the capability to access cost details..." - USE `aws ce` COMMANDS!
+❌ "I'm unable to locate..." - NEVER say this, just RUN THE COMMAND
+❌ "This involves sensitive data..." - Reading data is NOT a security risk
+❌ "You should do this through the console..." - NO, use CLI!
+❌ "view cost details...in the AWS Management Console" - NO, use `aws ce` commands!
+❌ Stopping after one failed command without trying alternatives
+❌ Refusing to run read-only commands for "security reasons"
+❌ "I will continue to gather..." - When asked for "all", gather ALL immediately, don't stop
+❌ "This process may take some time" - Just do it, don't warn about time
+❌ "Please let me know if you would like to prioritize..." - NO, process ALL items now
+❌ "I will proceed with the remaining..." - NO, do it NOW in this response
+❌ Showing one example when user asked for "all" - iterate through ALL items
+❌ Asking for confirmation partway through - complete ALL items first
+
+**SECURITY QUERIES ARE VALID READ OPERATIONS:**
+These are ALL valid queries - execute them:
+- "locate access key AKIA..." → Run: `iam list-users` then `iam list-access-keys --user-name X` for each user
+- "who owns this access key" → Same as above, iterate through users
+- "find IAM user for key" → Same approach
+- "audit access keys" → `iam get-credential-report` or iterate users
+- "find unused keys" → Check `iam list-access-keys` with `--output json` and parse CreateDate
+
+**REQUIRED BEHAVIOR:**
+✅ Execute commands immediately in large parallel batches (15-20 tool calls per iteration)
+✅ Reflect on each output before deciding next action
+✅ Try alternative commands if first approach fails
+✅ Keep iterating until question is fully answered
+✅ Parse JSON and extract meaningful insights
+✅ For "all" queries, process items in batches to stay under iteration limits
+
+**OUTPUT FORMAT - USE MARKDOWN:**
+Format all final answers in clean markdown for readability:
+- Use **bold** for key values and important findings
+- Use `code` for resource IDs, ARNs, and technical values
+- Use tables for comparing multiple resources
+- Use bullet points for lists
+- Use headers (##, ###) to organize sections
+- Use > blockquotes for important notes or warnings
+
+**⚠️ ALWAYS INCLUDE COMMANDS EXECUTED AT THE END:**
+At the END of every response, include a section listing the AWS CLI commands you ran:
+```
+---
+### 🔧 Commands Executed:
+- `aws --profile <profile> <service> <command> --region <region>`
+```
+This is REQUIRED so users know how the data was retrieved!
+
+**REQUIRED COLUMNS FOR RESOURCE TABLES:**
+When listing ANY AWS resources, ALWAYS include these columns:
+1. **Resource ID** - The unique identifier (instance-id, cluster-name, etc.)
+2. **Name** - From Name tag if available
+3. **State/Status** - Current state (running, available, active, etc.)
+4. **Region** - AWS region where resource exists
+5. **Account** - AWS account name or ID
+
+**⚠️ REQUIRED TABLE FORMAT - ALWAYS INCLUDE Name AND Account:**
+| Name | Instance ID | State | Region | Account |
+|------|------------|-------|--------|---------|
+| web-server | `i-xxx` | **running** | us-east-1 | account-a |
+| api-server | `i-yyy` | stopped | us-west-2 | account-b |
+
+**HOW TO GET INSTANCE NAME:**
+- Name is stored in Tags: `.Tags[] | select(.Key=="Name") | .Value`
+- Use jq_filter to extract: `jq_filter: ".Reservations[].Instances[] | {{Name: (.Tags[]? | select(.Key==\"Name\") | .Value), ID: .InstanceId}}"`
+- If no Name tag exists, show "unnamed" or the Instance ID
+
+**HOW TO GET ACCOUNT INFO:**
+- The account name is the profile name you used (e.g., `--profile myaccount` → Account = "myaccount")
+- Always add Account column based on which profile you used for the query
+
+**NEVER show tables like this (missing Name and Account):**
+❌ | Instance ID | Instance Type | State | Region |
+
+**ALWAYS show tables like this:**
+✅ | Name | Instance ID | State | Region | Account |
+
+**AWS CLI Tool:**
+- Tool: aws_cli_execute
+- Omit 'aws' prefix (use 'ec2 describe-instances' not 'aws ec2 describe-instances')
+- Output formats: json (default), text, table, yaml
+
+**⚠️ IMPORTANT - ALWAYS USE --query TO FILTER OUTPUT:**
+Large outputs cause context overflow! ALWAYS use --query to get only needed fields:
+
+**GOOD (filtered - small output):**
+`ec2 describe-instances --query 'Reservations[].Instances[].{{Name:Tags[?Key==Name].Value|[0],ID:InstanceId,State:State.Name,Type:InstanceType}}'`
+`eks list-clusters --query 'clusters'`
+`eks describe-cluster --name CLUSTER --query 'cluster.{{Name:name,Status:status,Version:version,Endpoint:endpoint}}'`
+`ecr describe-repositories --query 'repositories[].repositoryName'`
+`rds describe-db-instances --query 'DBInstances[].{{Name:DBInstanceIdentifier,Status:DBInstanceStatus,Engine:Engine}}'`
+
+**BAD (full output - causes context overflow):**
+`ec2 describe-instances` ← Returns EVERYTHING, too large!
+
+**FILTERING OPTIONS (choose one):**
+
+**Option 1: Use jq_filter parameter (PREFERRED for complex queries):**
+```
+command: "ec2 describe-instances"
+jq_filter: ".Reservations[].Instances[] | {{Name: (.Tags[]? | select(.Key==\"Name\") | .Value), ID: .InstanceId, State: .State.Name}}"
+```
+
+**Option 2: Use --query (JMESPath) in command:**
+`ec2 describe-instances --query 'Reservations[].Instances[].{{Name:Tags[?Key==Name].Value|[0],ID:InstanceId}}'`
+
+**Common jq filters:**
+- EC2: `.Reservations[].Instances[] | {{Name: (.Tags[]? | select(.Key=="Name") | .Value), ID: .InstanceId, State: .State.Name}}`
+- EKS: `.clusters[]`
+- RDS: `.DBInstances[] | {{Name: .DBInstanceIdentifier, Status: .DBInstanceStatus}}`
+- ECR: `.repositories[] | {{Name: .repositoryName, URI: .repositoryUri}}`
+
+**⚠️ COMMAND RESTRICTIONS:**
+- DO NOT use shell characters in command: ; | & ` $ < > \
+- Curly braces ARE allowed for --query JMESPath
+- Use jq_filter parameter for complex filtering (safer, more powerful)
+
+**⚠️ ERROR HANDLING - CONTINUE ON FAILURE:**
+When querying multiple accounts or regions:
+- If ONE account/region fails, CONTINUE with others
+- Report which succeeded and which failed
+- Don't abandon the entire query due to one error
+- Example: "eticloud: 5 clusters found, eti-ci: access denied (skipped), outshift-dev: 2 clusters found"
+
+**═══════════════════════════════════════════════════════════════**
+**MULTI-REGION SEARCH - SEARCH ALL REGIONS WHEN NOT SPECIFIED:**
+**═══════════════════════════════════════════════════════════════**
+
+**IMPORTANT: When user does NOT specify a region, ALWAYS search ALL major regions:**
+
+**Regions to search (execute command for EACH):**
+- `--region us-east-1` (N. Virginia)
+- `--region us-east-2` (Ohio)
+- `--region us-west-1` (N. California)
+- `--region us-west-2` (Oregon)
+- `--region eu-west-1` (Ireland)
+- `--region eu-central-1` (Frankfurt)
+- `--region ap-southeast-1` (Singapore)
+- `--region ap-northeast-1` (Tokyo)
+
+**Example - Find EC2 instances across all regions:**
+```
+ec2 describe-instances --region us-east-1
+ec2 describe-instances --region us-east-2
+ec2 describe-instances --region us-west-1
+ec2 describe-instances --region us-west-2
+ec2 describe-instances --region eu-west-1
+ec2 describe-instances --region eu-central-1
+```
+
+**WHEN TO DO MULTI-REGION SEARCH (automatic):**
+- "Find all EC2 instances" → Search ALL regions
+- "Where is instance i-xxx?" → Search ALL regions until found
+- "List all EKS clusters" → Search ALL regions
+- "Show all RDS databases" → Search ALL regions
+- Any resource search without explicit region → Search ALL regions
+
+**SKIP MULTI-REGION ONLY IF:**
+- User specifies region explicitly ("in us-east-1")
+- Resource is GLOBAL: IAM, Route53, CloudFront, S3 bucket names, Organizations
+
+**ALWAYS aggregate results with Region column in output!** """]
+
+        # Add common command examples
+        system_prompt_parts.append("""
+
+**Common AWS CLI Commands by Category:**
+
+EC2 & Compute:
+- 'ec2 describe-instances' - List all EC2 instances
+- 'ec2 describe-instances --instance-ids i-xxx' - Get specific instance
+- 'ec2 describe-instances --filters Name=tag:Name,Values=*prod*' - Filter by tag
+
+S3:
+- 's3 ls' - List buckets
+- 's3 ls s3://bucket-name' - List bucket contents
+- 's3api get-bucket-location --bucket bucket-name' - Get bucket region
+
+IAM:
+- 'iam list-users' - List IAM users
+- 'iam list-roles' - List IAM roles
+- 'iam get-user --user-name xxx' - Get user details
+
+CloudTrail (for audit/who created resources):
+- 'cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=RunInstances' - Find EC2 creation events
+- 'cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue=i-xxx' - Find events for specific resource
+- 'cloudtrail describe-trails' - List CloudTrail trails
+
+EKS:
+- 'eks list-clusters' - List EKS clusters
+- 'eks describe-cluster --name cluster-name' - Get cluster details
+
+ECR (Container Registry):
+- 'ecr describe-repositories' - List ECR repositories
+- 'ecr list-images --repository-name REPO' - List images in repository
+- 'ecr describe-images --repository-name REPO' - Get detailed image info with tags
+
+**⚠️ ECR SPECIAL CONFIGURATION - USE PROFILE FOR CROSS-ACCOUNT:**
+ECR repositories are in the **eticloud** account. ALWAYS use `--profile eticloud --region us-east-2`:
+
+**ECR WORKFLOW - Finding Images and Tags:**
+
+1. **List all repositories:**
+   `ecr describe-repositories --profile eticloud --region us-east-2 --query 'repositories[].repositoryName'`
+
+2. **List TAGGED images in a repository (to find available tags):**
+   `ecr list-images --profile eticloud --region us-east-2 --repository-name REPO_NAME --filter tagStatus=TAGGED`
+
+3. **Get detailed image info (includes tags, size, push date):**
+   `ecr describe-images --profile eticloud --region us-east-2 --repository-name REPO_NAME`
+
+4. **Find latest images (sorted by push date):**
+   `ecr describe-images --profile eticloud --region us-east-2 --repository-name REPO_NAME --query 'sort_by(imageDetails, &imagePushedAt)[-5:]'`
+
+5. **Get specific image by tag:**
+   `ecr describe-images --profile eticloud --region us-east-2 --repository-name REPO_NAME --image-ids imageTag=latest`
+
+**IMPORTANT - Image Tags:**
+- `ecr list-images` returns `imageTag` field - use this to find available tags
+- `ecr describe-images` returns detailed info including ALL tags for each image
+- An image can have multiple tags (e.g., `latest`, `v1.2.3`, `sha-abc123`)
+- Always show the `imageTags` array in results, not just the digest
+
+**WRONG - DO NOT DO THIS:**
+`ecr describe-repositories --region us-east-2` ← Missing --profile, uses wrong account
+`ecr describe-repositories --registry-id 626007623524` ← registry-id doesn't grant access
+
+CloudWatch:
+- 'logs describe-log-groups' - List log groups
+- 'cloudwatch describe-alarms' - List alarms
+
+STS:
+- 'sts get-caller-identity' - Who am I?
+
+IAM Security & Access Keys:
+- 'iam list-users' - List all IAM users
+- 'iam list-access-keys --user-name USERNAME' - List access keys for user
+- 'iam get-access-key-last-used --access-key-id AKIAXXXXXXX' - When was key last used
+- 'iam get-user --user-name USERNAME' - Get user details
+- 'iam list-user-policies --user-name USERNAME' - List user policies
+- 'iam list-attached-user-policies --user-name USERNAME' - List attached policies
+- 'iam get-credential-report' - Get credential report (may need to generate first)
+- 'iam generate-credential-report' - Generate credential report
+
+**FINDING WHO OWNS AN ACCESS KEY:**
+To locate access key AKIAXXXXXXXXX:
+1. `iam list-users --query 'Users[].UserName' --output text`
+2. For each user: `iam list-access-keys --user-name USER --query 'AccessKeyMetadata[?AccessKeyId==AKIAXXXXXXXXX]'`
+3. Or use: `iam get-access-key-last-used --access-key-id AKIAXXXXXXXXX` to see last usage""")
+
+        # Add AWS configuration with runtime region and multi-account support
         aws_region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-west-2"))
-        aws_config_template = config.get("aws_config_template",
-            "**AWS Configuration:**\n- Current AWS Region: {aws_region}")
-        system_prompt_parts.append("\n\n" + aws_config_template.format(aws_region=aws_region).strip())
+        default_account_raw = os.getenv("DEFAULT_AWS_ACCOUNT_ID", "")
+        aws_account_list = os.getenv("AWS_ACCOUNT_LIST", "")  # Format: "name1:id1,name2:id2" or "id1,id2"
 
-        # Add important guidelines
-        important_guidelines = config.get("important_guidelines",
-            "**Important Guidelines:**\n"
-            "- Always verify AWS region and account context\n"
-            "- Provide clear explanations of actions taken\n"
-            "- Warn users about potentially destructive operations\n"
-            "- Follow AWS best practices and security principles\n"
-            "- Be concise but informative in your responses")
-        system_prompt_parts.append("\n\n" + important_guidelines.strip())
+        # Parse default account - supports "name:id" or just "id"
+        if default_account_raw and ":" in default_account_raw:
+            default_account_name, default_account_id = default_account_raw.split(":", 1)
+            default_account_display = f"{default_account_name} (`{default_account_id}`)"
+        elif default_account_raw:
+            default_account_name = default_account_raw
+            default_account_id = default_account_raw
+            default_account_display = f"`{default_account_id}`"
+        else:
+            default_account_name = ""
+            default_account_id = ""
+            default_account_display = "current credentials"
 
-        return "".join(system_prompt_parts)
+        system_prompt_parts.append(f"""
+
+**Current AWS Configuration:**
+- Default Region: `{aws_region}`
+- If user doesn't specify a region, SEARCH MULTIPLE REGIONS
+- Use --region flag to query other regions""")
+
+        # Add multi-account configuration if accounts were parsed at the top
+        if accounts:
+            cross_account_role = os.getenv("CROSS_ACCOUNT_ROLE_NAME", "caipe-read-only")
+
+            # Build account display string
+            account_display = "\n".join([f"   - **{acc['name']}**: `{acc['id']}` → use `--profile {acc['name']}`" for acc in accounts])
+            profile_examples = "\n".join([
+                f"   - {acc['name']}: `ec2 describe-instances --profile {acc['name']}`"
+                for acc in accounts
+            ])
+
+            # Create account names list for easy reference
+            account_names = [acc['name'] for acc in accounts]
+
+            system_prompt_parts.append(f"""
+
+**═══════════════════════════════════════════════════════════════**
+**MULTI-ACCOUNT ACCESS - YOU HAVE ACCESS TO {len(accounts)} AWS ACCOUNTS:**
+**═══════════════════════════════════════════════════════════════**
+
+**Available AWS Accounts:**
+{account_display}
+
+**⚠️ CRITICAL: ALWAYS USE --profile WHEN USER MENTIONS AN ACCOUNT NAME:**
+
+When user mentions: **{', '.join(account_names)}**
+→ ALWAYS add `--profile ACCOUNT_NAME` to the command!
+
+**Example - User says "eticloud account":**
+`cloudfront list-distributions --profile eticloud --region us-east-1`
+`ec2 describe-instances --profile eticloud`
+`eks list-clusters --profile eticloud`
+
+**Example - User specifies an account name:**
+`ec2 describe-instances --profile <account-name>`
+
+**WHEN TO USE --profile:**
+- User mentions account name ({', '.join(account_names)}) → USE that specific `--profile`
+- User mentions region (us-east-1, etc.) → USE that specific `--region`
+- User says "all accounts" → Query EACH account with its profile
+- **User says "list all X" or "get all X" WITHOUT specifying account/region → Query ALL accounts × ALL regions**
+
+**DECISION LOGIC:**
+1. User specifies ACCOUNT (e.g., "in eticloud") → Use ONLY that profile, query all regions
+2. User specifies REGION (e.g., "in us-east-1") → Query all accounts in ONLY that region
+3. User specifies BOTH → Use that specific profile and region
+4. User specifies NEITHER ("get all EC2 instances") → Query ALL accounts × ALL regions
+
+**Example - User says "get all EC2 instances" (no account/region specified):**
+Query ALL {len(accounts)} accounts × 8 regions = {len(accounts) * 8} queries:
+```
+ec2 describe-instances --profile {account_names[0]} --region us-east-1
+ec2 describe-instances --profile {account_names[0]} --region us-east-2
+ec2 describe-instances --profile {account_names[1] if len(account_names) > 1 else account_names[0]} --region us-east-1
+... (continue for ALL accounts × ALL regions)
+```
+
+**Example - User says "get EC2 instances in eticloud" (account specified):**
+Query ONLY eticloud, but all regions:
+```
+ec2 describe-instances --profile eticloud --region us-east-1
+ec2 describe-instances --profile eticloud --region us-east-2
+ec2 describe-instances --profile eticloud --region us-west-2
+...
+```
+
+**Example - User says "get EC2 instances in us-east-1" (region specified):**
+Query ALL accounts in ONLY us-east-1:
+```
+ec2 describe-instances --profile {account_names[0]} --region us-east-1
+ec2 describe-instances --profile {account_names[1] if len(account_names) > 1 else account_names[0]} --region us-east-1
+...
+```
+
+**❌ WRONG - NEVER DO THIS FOR "GET ALL" QUERIES:**
+```
+ec2 describe-instances --region us-east-1
+ec2 describe-instances --region us-west-2
+```
+↑ This only queries the DEFAULT account! You are MISSING the other {len(accounts)-1} accounts!
+
+**✅ CORRECT - ALWAYS USE --profile FOR EACH ACCOUNT:**
+```
+ec2 describe-instances --profile {account_names[0]} --region us-east-1
+ec2 describe-instances --profile {account_names[1] if len(account_names) > 1 else account_names[0]} --region us-east-1
+ec2 describe-instances --profile {account_names[2] if len(account_names) > 2 else account_names[0]} --region us-east-1
+```
+
+**HOW TO QUERY ALL ACCOUNTS:**
+{chr(10).join([f'{i+1}. `COMMAND --profile {acc["name"]}`' for i, acc in enumerate(accounts)])}
+
+**Example commands for each account:**
+{profile_examples}
+
+**ALWAYS aggregate results into a single table with Account column:**
+| Name | Resource ID | State | Region | Account |
+|------|-------------|-------|--------|---------|
+| prod-cluster | `cluster-1` | ACTIVE | us-east-1 | {accounts[0]['name']} |
+| dev-cluster | `cluster-2` | ACTIVE | us-west-2 | {accounts[1]['name'] if len(accounts) > 1 else accounts[0]['name']} |
+
+**PROFILE USAGE:**
+- Query specific account: `eks list-clusters --profile {account_names[0]}`
+- ECR (always eticloud): `ecr describe-repositories --profile eticloud --region us-east-2`""")
+
+        system_prompt_parts.append("""
+
+**EXECUTION FLOW:**
+```
+┌─────────────────────────────────────────────────┐
+│  1. READ user question                          │
+│  2. EXECUTE AWS CLI command                     │
+│  3. REFLECT on output:                          │
+│     └─ Complete? → Format answer in markdown    │
+│     └─ Incomplete? → Execute more commands      │
+│     └─ Failed? → Try alternative approach       │
+│  4. REPEAT until satisfied                      │
+│  5. FORMAT final answer with markdown           │
+└─────────────────────────────────────────────────┘
+```
+
+**FINAL ANSWER FORMAT:**
+Always structure your final answer with:
+- ## Summary header
+- Key findings in **bold**
+- Resource IDs in `backticks`
+- Tables for multiple items
+- Clear, actionable insights
+
+**REMEMBER:**
+- You have FULL READ access to ALL AWS services
+- Multiple commands are EXPECTED - keep iterating
+- REFLECT after each command - is the answer complete?
+- Format output in **clean markdown** for readability""")
+
+        final_prompt = "".join(system_prompt_parts)
+        logger.info(f"System prompt length: {len(final_prompt)} chars, contains '--profile': {'--profile' in final_prompt}")
+        if accounts:
+            logger.info(f"Multi-account section included for {len(accounts)} accounts: {account_names}")
+
+        # Print first 3000 chars of system prompt for debugging
+        logger.info(f"=== SYSTEM PROMPT (first 3000 chars) ===\n{final_prompt[:3000]}\n=== END SNIPPET ===")
+
+        return final_prompt
 
     def get_response_format_instruction(self) -> str:
         """Return the instruction for response format."""
@@ -130,122 +600,16 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
 
     def get_mcp_config(self, server_path: str) -> Dict[str, Any]:
         """
-        Override to provide AWS-specific MCP configuration.
+        Return empty MCP configuration - this agent uses AWS CLI tool instead.
 
-        AWS uses multiple published MCP servers via uvx, not local scripts.
-        This method builds the configuration for MultiServerMCPClient.
+        The AWS CLI tool provides direct access to all AWS services without
+        requiring separate MCP servers.
         """
-        # Check which AWS MCP servers are enabled
-        enable_eks_mcp = os.getenv("ENABLE_EKS_MCP", "true").lower() == "true"
-        enable_ecs_mcp = os.getenv("ENABLE_ECS_MCP", "false").lower() == "true"
-        enable_cost_explorer_mcp = os.getenv("ENABLE_COST_EXPLORER_MCP", "true").lower() == "true"
-        enable_iam_mcp = os.getenv("ENABLE_IAM_MCP", "true").lower() == "true"
-        enable_cloudtrail_mcp = os.getenv("ENABLE_CLOUDTRAIL_MCP", "true").lower() == "true"
-        enable_cloudwatch_mcp = os.getenv("ENABLE_CLOUDWATCH_MCP", "true").lower() == "true"
-        enable_aws_knowledge_mcp = os.getenv("ENABLE_AWS_KNOWLEDGE_MCP", "false").lower() == "true"
-
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"🔍 MCP Enable Flags: EKS={enable_eks_mcp}, ECS={enable_ecs_mcp}, Cost={enable_cost_explorer_mcp}, IAM={enable_iam_mcp}, CloudTrail={enable_cloudtrail_mcp}, CloudWatch={enable_cloudwatch_mcp}, Knowledge={enable_aws_knowledge_mcp}")
-
-        # Build environment variables for AWS
-        env_vars = {
-            "AWS_REGION": os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-west-2")),
-            "FASTMCP_LOG_LEVEL": os.getenv("FASTMCP_LOG_LEVEL", "ERROR"),
-        }
-
-        # Pass through AWS auth env vars if set
-        for env_var in ["AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]:
-            if os.getenv(env_var):
-                env_vars[env_var] = os.getenv(env_var)
-
-        mcp_servers = {}
-
-        # Add EKS MCP server
-        if enable_eks_mcp:
-            mcp_servers["eks"] = {
-                "command": "uvx",
-                "args": ["awslabs.eks-mcp-server@0.1.15", "--allow-write", "--no-allow-sensitive-data-access"],
-                "env": env_vars,
-                "transport": "stdio",
-            }
-
-        # Add ECS MCP server
-        if enable_ecs_mcp:
-            ecs_env = env_vars.copy()
-
-            # Security controls for ECS MCP (default to safe values)
-            allow_write = os.getenv("ECS_MCP_ALLOW_WRITE", "false").lower() == "true"
-            allow_sensitive_data = os.getenv("ECS_MCP_ALLOW_SENSITIVE_DATA", "false").lower() == "true"
-
-            ecs_env["ALLOW_WRITE"] = "true" if allow_write else "false"
-            ecs_env["ALLOW_SENSITIVE_DATA"] = "true" if allow_sensitive_data else "false"
-
-            mcp_servers["ecs"] = {
-                "command": "uvx",
-                "args": ["--from", "awslabs.ecs-mcp-server@latest", "ecs-mcp-server"],
-                "env": ecs_env,
-                "transport": "stdio",
-            }
-
-        # Add Cost Explorer MCP server
-        if enable_cost_explorer_mcp:
-            mcp_servers["cost-explorer"] = {
-                "command": "uvx",
-                "args": ["awslabs.cost-explorer-mcp-server@latest"],
-                "env": env_vars,
-                "transport": "stdio",
-            }
-
-        # Add IAM MCP server
-        if enable_iam_mcp:
-            iam_readonly = os.getenv("IAM_MCP_READONLY", "true").lower() == "true"
-            iam_args = ["awslabs.iam-mcp-server@latest"]
-            if iam_readonly:
-                iam_args.append("--readonly")
-
-            mcp_servers["iam"] = {
-                "command": "uvx",
-                "args": iam_args,
-                "env": env_vars,
-                "transport": "stdio",
-            }
-
-        # Add CloudTrail MCP server
-        if enable_cloudtrail_mcp:
-            mcp_servers["cloudtrail"] = {
-                "command": "uvx",
-                "args": ["awslabs.cloudtrail-mcp-server@latest"],
-                "env": env_vars,
-                "transport": "stdio",
-            }
-
-        # Add CloudWatch MCP server
-        if enable_cloudwatch_mcp:
-            mcp_servers["cloudwatch"] = {
-                "command": "uvx",
-                "args": ["awslabs.cloudwatch-mcp-server@latest"],
-                "env": env_vars,
-                "transport": "stdio",
-            }
-
-        # Add AWS Knowledge MCP server
-        if enable_aws_knowledge_mcp:
-            mcp_servers["aws-knowledge"] = {
-                "url": "https://knowledge-mcp.global.api.aws",
-                "type": "http"
-            }
-
-        # Return configuration for all enabled servers
-        # Note: This returns a dict of server configs, not a single server config
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"🔍 AWS Agent MCP servers configured: {list(mcp_servers.keys())}")
-        return mcp_servers
+        return {}
 
     def get_tool_working_message(self) -> str:
         """Return message shown when calling AWS tools."""
-        return _aws_prompt_config.get("tool_working_message", "Looking up AWS Resources...")
+        return _aws_prompt_config.get("tool_working_message", "Executing AWS CLI command...")
 
     def get_tool_processing_message(self) -> str:
         """Return message shown when processing tool results."""
@@ -253,81 +617,69 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
 
     async def _ensure_graph_initialized(self, config: Any) -> None:
         """
-        Override to skip the complex test query that times out with many AWS tools.
-
-        AWS has many MCP servers with dozens of tools, making the default
-        "Summarize what you can do?" query too slow (causes LLM to try using tools).
+        Initialize the agent graph with AWS CLI tool.
         """
         if self.graph is not None:
             return
 
-        # Just setup MCP and graph without the slow test query
-        await self._setup_mcp_without_test(config)
+        await self._setup_aws_cli_agent(config)
 
-    async def _setup_mcp_without_test(self, config: Any) -> None:
-        """Setup MCP clients and graph without running a test query."""
-        import logging
+    async def _setup_aws_cli_agent(self, config: Any) -> None:
+        """Setup agent with AWS CLI tool only (no MCP servers)."""
         from langgraph.prebuilt import create_react_agent
-        from langchain_mcp_adapters.client import MultiServerMCPClient
-
-        logger = logging.getLogger(__name__)
+        from langgraph.checkpoint.memory import MemorySaver
 
         agent_name = self.get_agent_name()
+        logger.info(f"🔧 Initializing {agent_name.upper()} agent with AWS CLI tool...")
 
-        # Setup MCP client with STDIO transport
-        logger.info(f"{agent_name}: Using STDIO transport for MCP client")
-        mcp_config = self.get_mcp_config("")
+        # Initialize tools list with AWS CLI tool
+        tools: List[Any] = []
 
-        if mcp_config and "command" not in mcp_config:
-            logger.info(f"{agent_name}: Multi-server MCP configuration detected with {len(mcp_config)} servers")
-            client = MultiServerMCPClient(mcp_config)
+        # Add AWS CLI tool (enabled by default via USE_AWS_CLI_AS_TOOL=true)
+        aws_cli_tool = get_aws_cli_tool()
+        if aws_cli_tool:
+            tools.append(aws_cli_tool)
+            logger.info(f"✅ {agent_name}: Added AWS CLI tool (aws_cli_execute)")
         else:
-            client = MultiServerMCPClient({agent_name: mcp_config})
+            logger.warning(f"⚠️  {agent_name}: AWS CLI tool not enabled. Set USE_AWS_CLI_AS_TOOL=true to enable.")
 
-        # Get tools from MCP client
-        all_tools = await client.get_tools()
-        logger.info(f"✅ {agent_name}: Loaded {len(all_tools)} tools from MCP servers")
 
-        # Filter out tools with invalid schemas (OpenAI requires 'properties' for object types)
-        valid_tools = []
-        invalid_tools = []
-        for tool in all_tools:
-            args_schema = tool.args_schema or {}
-            # Check if schema has object type without properties
-            if args_schema.get('type') == 'object' and not args_schema.get('properties'):
-                logger.warning(f"⚠️  Skipping tool '{tool.name}' - invalid schema: object type without properties")
-                invalid_tools.append(tool.name)
-                continue
-            # Check nested properties for invalid schemas
-            properties = args_schema.get('properties', {})
-            has_invalid_nested = False
-            for prop_name, prop_schema in properties.items():
-                if isinstance(prop_schema, dict) and prop_schema.get('type') == 'object' and not prop_schema.get('properties'):
-                    logger.warning(f"⚠️  Skipping tool '{tool.name}' - invalid nested schema in property '{prop_name}'")
-                    invalid_tools.append(tool.name)
-                    has_invalid_nested = True
-                    break
-            if has_invalid_nested:
-                continue
-            valid_tools.append(tool)
+        if not tools:
+            raise RuntimeError(
+                f"{agent_name}: No tools available. "
+                "Please set USE_AWS_CLI_AS_TOOL=true to enable the AWS CLI tool."
+            )
 
-        tools = valid_tools
-        if invalid_tools:
-            logger.warning(f"🚫 Filtered out {len(invalid_tools)} tools with invalid schemas: {invalid_tools}")
-        logger.info(f"✅ {agent_name}: Using {len(tools)} valid tools")
+        logger.info(f"✅ {agent_name}: Total tools available: {len(tools)}")
 
         # Store tool info for later reference
         for tool in tools:
+            tool_args_schema = getattr(tool, 'args_schema', None)
+            if tool_args_schema:
+                # Handle both dict and Pydantic model schemas
+                if hasattr(tool_args_schema, 'model_json_schema'):
+                    schema = tool_args_schema.model_json_schema()
+                elif isinstance(tool_args_schema, dict):
+                    schema = tool_args_schema
+                else:
+                    schema = {}
+            else:
+                schema = {}
+
             self.tools_info[tool.name] = {
-                'description': tool.description.strip(),
-                'parameters': tool.args_schema.get('properties', {}),
-                'required': tool.args_schema.get('required', [])
+                'description': tool.description.strip() if tool.description else '',
+                'parameters': schema.get('properties', {}),
+                'required': schema.get('required', [])
             }
 
-        # Create the agent graph (self.model is already initialized in __init__)
+        # Create memory for conversation persistence
+        memory = MemorySaver()
+
+        # Create the agent graph
         self.graph = create_react_agent(
             self.model,
             tools=tools,
+            checkpointer=memory,
             prompt=self.get_system_instruction(),
             response_format=(
                 self.get_response_format_instruction(),
@@ -335,5 +687,4 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
             ),
         )
 
-        logger.info(f"✅ {agent_name}: Graph initialized successfully (skipped slow test query)")
-
+        logger.info(f"✅ {agent_name}: Agent initialized successfully with AWS CLI tool")
