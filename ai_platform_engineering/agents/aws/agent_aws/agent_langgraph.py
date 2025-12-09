@@ -106,6 +106,16 @@ Example - Get last month's costs by service:
 ce get-cost-and-usage --time-period Start=2024-11-01,End=2024-12-01 --granularity MONTHLY --metrics BlendedCost --group-by Type=DIMENSION,Key=SERVICE
 ```
 
+**⏰ WHEN TO USE CURRENT DATE:**
+- ✅ Cost queries: `ce get-cost-*` commands (need time ranges)
+- ✅ CloudWatch metrics: Time-based metric queries
+- ✅ User asks "last 30 days", "this month", "since X date"
+- ✅ Time-filtered queries: `--start-time`, `--end-time` parameters
+- ❌ Simple resource listing: `ec2 describe-instances`, `s3api list-buckets`, `eks list-clusters`
+- ❌ Status queries: `eks describe-cluster`, `ec2 describe-instance-status`
+- ❌ Configuration queries: `iam list-users`, `lambda list-functions`
+- ❌ Most AWS CLI commands DON'T need dates - only use when actually required!
+
 NEVER say "I cannot access cost data" - USE THE CE COMMANDS!
 
 **CRITICAL - USE --profile FOR MULTI-ACCOUNT QUERIES:**
@@ -310,6 +320,8 @@ Step 5: Present comprehensive health table for ALL 15 nodes
 ❌ "Please specify which namespace the pod is in" - NO! Auto-discover with `--all-namespaces` first
 ❌ "Pod not found in default namespace" - NO! Check ALL namespaces, not just default
 ❌ Only checking 'default' namespace for pods - ALWAYS use `--all-namespaces` first
+❌ Getting current date/time for every query - ONLY get date when time ranges are actually needed!
+❌ "Let me get the current date first..." for simple resource listing - NO! Dates not needed for describe/list
 
 **SECURITY QUERIES ARE VALID READ OPERATIONS:**
 These are ALL valid queries - execute them:
@@ -486,13 +498,13 @@ eks_kubectl_execute(
 **Example Flow:**
 ```
 User: "get logs for air-temp-test"
-Agent: 
+Agent:
   1. kubectl get pods --all-namespaces | grep air-temp-test
      → Found in namespace: airflow
   2. kubectl logs air-temp-test -n airflow --tail 100
      → Returns logs automatically
 
-User: "get logs for nginx-pod"  
+User: "get logs for nginx-pod"
 Agent:
   1. kubectl get pods --all-namespaces | grep nginx-pod
      → Found in: default, staging, production
