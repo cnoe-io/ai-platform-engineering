@@ -405,78 +405,78 @@ class AWSCLITool(BaseTool):
                     await process.wait()
                     return f"❌ Command timed out after {AWS_CLI_TIMEOUT} seconds"
 
-            # Decode output
-            stdout_str = stdout.decode("utf-8", errors="replace")
-            stderr_str = stderr.decode("utf-8", errors="replace")
+                # Decode output
+                stdout_str = stdout.decode("utf-8", errors="replace")
+                stderr_str = stderr.decode("utf-8", errors="replace")
 
-            # Check return code
-            if process.returncode != 0:
-                error_output = stderr_str or stdout_str
-                logger.error(f"AWS CLI command failed: {error_output}")
-                return f"❌ Command failed (exit code {process.returncode}):\n{error_output}"
+                # Check return code
+                if process.returncode != 0:
+                    error_output = stderr_str or stdout_str
+                    logger.error(f"AWS CLI command failed: {error_output}")
+                    return f"❌ Command failed (exit code {process.returncode}):\n{error_output}"
 
-            # Apply jq filter if specified
-            if jq_filter and stdout_str:
-                try:
-                    import tempfile
-                    import json
-
-                    # Write output to temp file
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                        f.write(stdout_str)
-                        temp_file = f.name
-
+                # Apply jq filter if specified
+                if jq_filter and stdout_str:
                     try:
-                        # Run jq on the temp file
-                        # Escape single quotes in the filter
-                        safe_filter = jq_filter.replace("'", "'\"'\"'")
-                        jq_command = f"jq '{safe_filter}' {temp_file}"
+                        import tempfile
+                        import json
 
-                        jq_process = await asyncio.create_subprocess_shell(
-                            jq_command,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE
-                        )
+                        # Write output to temp file
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                            f.write(stdout_str)
+                            temp_file = f.name
 
-                        jq_stdout, jq_stderr = await asyncio.wait_for(
-                            jq_process.communicate(),
-                            timeout=JQ_TIMEOUT
-                        )
-
-                        if jq_process.returncode == 0:
-                            stdout_str = jq_stdout.decode("utf-8", errors="replace")
-                            logger.info(f"jq filter applied successfully, output size: {len(stdout_str)}")
-                        else:
-                            jq_error = jq_stderr.decode("utf-8", errors="replace")
-                            logger.warning(f"jq filter failed: {jq_error}")
-                            # Return original output with warning
-                            stdout_str = f"⚠️ jq filter failed ({jq_error}), showing raw output:\n\n{stdout_str}"
-                    finally:
-                        # Clean up temp file
-                        import os as os_module
                         try:
-                            os_module.unlink(temp_file)
-                        except:
-                            pass
+                            # Run jq on the temp file
+                            # Escape single quotes in the filter
+                            safe_filter = jq_filter.replace("'", "'\"'\"'")
+                            jq_command = f"jq '{safe_filter}' {temp_file}"
 
-                except Exception as e:
-                    logger.warning(f"jq processing error: {e}")
-                    stdout_str = f"⚠️ jq processing failed ({e}), showing raw output:\n\n{stdout_str}"
+                            jq_process = await asyncio.create_subprocess_shell(
+                                jq_command,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE
+                            )
 
-            # Truncate large outputs
-            if len(stdout_str) > MAX_OUTPUT_SIZE:
-                stdout_str = (
-                    stdout_str[:MAX_OUTPUT_SIZE] +
-                    f"\n\n... [Output truncated. Total size: {len(stdout_str)} chars]"
-                )
+                            jq_stdout, jq_stderr = await asyncio.wait_for(
+                                jq_process.communicate(),
+                                timeout=JQ_TIMEOUT
+                            )
 
-            return stdout_str if stdout_str else "✅ Command completed successfully (no output)"
+                            if jq_process.returncode == 0:
+                                stdout_str = jq_stdout.decode("utf-8", errors="replace")
+                                logger.info(f"jq filter applied successfully, output size: {len(stdout_str)}")
+                            else:
+                                jq_error = jq_stderr.decode("utf-8", errors="replace")
+                                logger.warning(f"jq filter failed: {jq_error}")
+                                # Return original output with warning
+                                stdout_str = f"⚠️ jq filter failed ({jq_error}), showing raw output:\n\n{stdout_str}"
+                        finally:
+                            # Clean up temp file
+                            import os as os_module
+                            try:
+                                os_module.unlink(temp_file)
+                            except:
+                                pass
 
-        except FileNotFoundError:
-            return "❌ AWS CLI is not installed or not in PATH"
-        except Exception as e:
-            logger.error(f"AWS CLI execution error: {e}")
-            return f"❌ Error executing command: {str(e)}"
+                    except Exception as e:
+                        logger.warning(f"jq processing error: {e}")
+                        stdout_str = f"⚠️ jq processing failed ({e}), showing raw output:\n\n{stdout_str}"
+
+                # Truncate large outputs
+                if len(stdout_str) > MAX_OUTPUT_SIZE:
+                    stdout_str = (
+                        stdout_str[:MAX_OUTPUT_SIZE] +
+                        f"\n\n... [Output truncated. Total size: {len(stdout_str)} chars]"
+                    )
+
+                return stdout_str if stdout_str else "✅ Command completed successfully (no output)"
+
+            except FileNotFoundError:
+                return "❌ AWS CLI is not installed or not in PATH"
+            except Exception as e:
+                logger.error(f"AWS CLI execution error: {e}")
+                return f"❌ Error executing command: {str(e)}"
 
 
 def get_aws_cli_tool() -> Optional[AWSCLITool]:
