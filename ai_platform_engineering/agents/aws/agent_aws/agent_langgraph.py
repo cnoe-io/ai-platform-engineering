@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 from pydantic import BaseModel, Field
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from .tools import get_aws_cli_tool, get_reflection_tool
+from .tools import get_aws_cli_tool, get_eks_kubectl_tool, get_reflection_tool
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +161,7 @@ You operate in a structured workflow with PLANNING and REFLECTION:
 
 **Pattern 1: Explicit "all" queries**
 - "all S3 buckets"
-- "all EC2 instances"  
+- "all EC2 instances"
 - "all EKS clusters"
 - "all X and their Y"
 
@@ -488,7 +488,7 @@ Present results in this structure:
 1. AMI version `1.28.0-20241015` for node group `ng-app-workers` is outdated
    - Latest: `1.28.0-20241205`
    - Recommendation: Update to latest AMI for security patches
-   
+
 2. VPC CNI add-on outdated (v1.15.0 → v1.16.0)
    - Recommendation: Upgrade to v1.16.0 for bug fixes
 
@@ -982,6 +982,12 @@ Always structure your final answer with:
             logger.info(f"✅ {agent_name}: Added AWS CLI tool (aws_cli_execute)")
         else:
             logger.warning(f"⚠️  {agent_name}: AWS CLI tool not enabled. Set USE_AWS_CLI_AS_TOOL=true to enable.")
+
+        # Add EKS kubectl tool for Kubernetes resource inspection
+        eks_kubectl_tool = get_eks_kubectl_tool()
+        if eks_kubectl_tool:
+            tools.append(eks_kubectl_tool)
+            logger.info(f"✅ {agent_name}: Added EKS kubectl tool (eks_kubectl_execute)")
 
         if not tools:
             raise RuntimeError(
