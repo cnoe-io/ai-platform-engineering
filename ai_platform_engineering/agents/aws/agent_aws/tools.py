@@ -557,6 +557,200 @@ class ReflectionTool(BaseTool):
         return self._run(user_query, total_items, processed_items)
 
 
+class EKSKubectlToolInput(BaseModel):
+    """Input schema for EKS kubectl tool."""
+
+    cluster_name: str = Field(
+        description="EKS cluster name to run kubectl commands against"
+    )
+    kubectl_command: str = Field(
+        description=(
+            "The kubectl command to execute (without 'kubectl' prefix). "
+            "Examples: 'get nodes', 'get pods -n kube-system', 'describe node <node-name>', "
+            "'get pods --all-namespaces', 'top nodes' (if metrics-server installed)"
+        )
+    )
+    profile: str = Field(
+        description=(
+            "AWS profile name for the account containing the EKS cluster. "
+            "Available profiles: eticloud, outshift-common-dev, outshift-common-staging, "
+            "outshift-common-prod, eti-ci, cisco-research, eticloud-demo"
+        )
+    )
+    region: Optional[str] = Field(
+        default=None,
+        description="AWS region where the EKS cluster is located. If not specified, uses default region for profile"
+    )
+
+
+class EKSKubectlTool(BaseTool):
+    """
+    Tool for executing kubectl commands against EKS clusters.
+    
+    This tool:
+    1. Creates a temporary kubeconfig file
+    2. Updates kubeconfig for the specified EKS cluster
+    3. Executes kubectl command with the temporary kubeconfig
+    4. Cleans up the temporary file
+    5. Returns kubectl command output
+    
+    Useful for:
+    - Checking node status and conditions
+    - Listing pods and their health
+    - Describing Kubernetes resources
+    - Checking cluster metrics
+    """
+
+    name: str = "eks_kubectl_execute"
+    description: str = """Execute kubectl commands against an EKS cluster.
+    
+    Use this tool to:
+    - Check node readiness: 'get nodes' or 'describe nodes'
+    - Check pod health: 'get pods -n kube-system' or 'get pods --all-namespaces'
+    - Check node conditions: 'describe node <node-name>'
+    - Get resource details: 'get services', 'get deployments'
+    - Check metrics: 'top nodes', 'top pods' (if metrics-server available)
+    
+    The tool automatically handles kubeconfig setup and cleanup.
+    
+    Input should be cluster name, kubectl command (without 'kubectl'), profile, and optional region.
+    """
+    args_schema: type[BaseModel] = EKSKubectlToolInput
+
+    def _run(
+        self,
+        cluster_name: str,
+        kubectl_command: str,
+        profile: str,
+        region: Optional[str] = None
+    ) -> str:
+        """Execute kubectl command against EKS cluster with temporary kubeconfig."""
+        import subprocess
+        import tempfile
+        
+        logger.info(f"🔧 EKS Kubectl: cluster={cluster_name}, profile={profile}, command='{kubectl_command}'")
+        
+        kubeconfig_path = None
+        try:
+            # Create temporary kubeconfig file
+            temp_kubeconfig = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.kubeconfig')
+            kubeconfig_path = temp_kubeconfig.name
+            temp_kubeconfig.close()
+            
+            logger.debug(f"Created temporary kubeconfig: {kubeconfig_path}")
+            
+            # Build aws eks update-kubeconfig command
+            update_cmd_parts = [
+                "aws", "eks", "update-kubeconfig",
+                "--name", cluster_name,
+                "--kubeconfig", kubeconfig_path,
+                "--profile", profile
+            ]
+            
+            if region:
+                update_cmd_parts.extend(["--region", region])
+            
+            # Update kubeconfig
+            logger.debug(f"Updating kubeconfig: {' '.join(update_cmd_parts)}")
+            update_result = subprocess.run(
+                update_cmd_parts,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=MAX_EXECUTION_TIME,
+                check=False
+            )
+            
+            if update_result.returncode != 0:
+                error_msg = update_result.stderr.decode('utf-8') if update_result.stderr else "Unknown error"
+                logger.error(f"Failed to update kubeconfig: {error_msg}")
+                # Clean up temp file
+                if kubeconfig_path:
+                    os.unlink(kubeconfig_path)
+                return f"❌ Failed to configure kubectl for cluster {cluster_name}: {error_msg}"
+            
+            logger.info(f"✅ Kubeconfig updated for cluster {cluster_name}")
+            
+            # Execute kubectl command with temporary kubeconfig
+            kubectl_cmd_parts = ["kubectl"] + shlex.split(kubectl_command)
+            
+            # Set KUBECONFIG environment variable
+            env = os.environ.copy()
+            env["KUBECONFIG"] = kubeconfig_path
+            
+            logger.debug(f"Executing kubectl: {' '.join(kubectl_cmd_parts)}")
+            
+            # Execute with timeout
+            kubectl_result = subprocess.run(
+                kubectl_cmd_parts,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                timeout=MAX_EXECUTION_TIME,
+                check=False
+            )
+            
+            # Clean up temporary kubeconfig
+            try:
+                if kubeconfig_path:
+                    os.unlink(kubeconfig_path)
+                    logger.debug(f"Cleaned up temporary kubeconfig: {kubeconfig_path}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up kubeconfig: {e}")
+            
+            # Process output
+            output = kubectl_result.stdout.decode('utf-8') if kubectl_result.stdout else ""
+            error_output = kubectl_result.stderr.decode('utf-8') if kubectl_result.stderr else ""
+            
+            if kubectl_result.returncode != 0:
+                logger.error(f"kubectl command failed: {error_output}")
+                return f"❌ kubectl command failed:\n{error_output}"
+            
+            # Truncate if too large
+            if len(output) > MAX_OUTPUT_SIZE:
+                truncated_msg = f"\n\n⚠️ Output truncated (original: {len(output)} bytes, showing first {MAX_OUTPUT_SIZE} bytes)"
+                output = output[:MAX_OUTPUT_SIZE] + truncated_msg
+                logger.warning(f"Output truncated from {len(output)} to {MAX_OUTPUT_SIZE} bytes")
+            
+            logger.info(f"✅ kubectl command successful ({len(output)} bytes)")
+            
+            return f"✅ kubectl {kubectl_command}\n\n{output}"
+            
+        except subprocess.TimeoutExpired:
+            logger.error(f"kubectl command timed out after {MAX_EXECUTION_TIME}s")
+            # Clean up temp file
+            try:
+                if kubeconfig_path:
+                    os.unlink(kubeconfig_path)
+            except:
+                pass
+            return f"❌ Command timed out after {MAX_EXECUTION_TIME} seconds"
+            
+        except Exception as e:
+            logger.error(f"Error executing kubectl command: {str(e)}", exc_info=True)
+            # Clean up temp file
+            try:
+                if kubeconfig_path:
+                    os.unlink(kubeconfig_path)
+            except:
+                pass
+            return f"❌ Error: {str(e)}"
+
+    async def _arun(
+        self,
+        cluster_name: str,
+        kubectl_command: str,
+        profile: str,
+        region: Optional[str] = None
+    ) -> str:
+        """Async version - delegates to sync implementation."""
+        return self._run(cluster_name, kubectl_command, profile, region)
+
+
+def get_eks_kubectl_tool() -> EKSKubectlTool:
+    """Get the EKS kubectl tool instance."""
+    return EKSKubectlTool()
+
+
 def get_reflection_tool() -> ReflectionTool:
     """Get the reflection tool instance."""
     return ReflectionTool()
