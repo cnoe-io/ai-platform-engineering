@@ -130,7 +130,7 @@ NEVER say "I cannot access cost data" - USE THE CE COMMANDS!
 **CRITICAL - USE --profile FOR MULTI-ACCOUNT QUERIES:**
 - "get all EC2" (no account specified) → **ASK user which account(s) to query**
 - "get all EC2 in all accounts" → Query ALL {len(accounts)} accounts using `--profile` for each
-- "get EC2 in eticloud" → Query ONLY `--profile eticloud`
+- "get EC2 in prod-account" → Query ONLY `--profile prod-account`
 - NEVER query without `--profile` when doing queries!
 
 **🛠️ YOUR POWERFUL TOOLS:**
@@ -267,10 +267,10 @@ task(
 7. Delegate to reflection-agent → "COMPLETE, 50/50 done"
 8. Present final results
 
-**Example 2: "check health of EC2 nodes associated with cluster comn-dev-use2-1"**
+**Example 2: "check health of EC2 nodes associated with cluster my-cluster-dev-use2-1"**
 Step 1: Identify all nodes
 ```bash
-eks describe-nodegroup --cluster-name comn-dev-use2-1 --nodegroup-name <each-group>
+eks describe-nodegroup --cluster-name my-cluster-dev-use2-1 --nodegroup-name <each-group>
 # Find: 3 node groups, 15 total EC2 instances
 ```
 
@@ -288,11 +288,11 @@ write_todos([
 Step 3: Execute in batches
 ```bash
 # Batch 1: Nodes 1-10
-ec2 describe-instance-status --instance-ids i-abc123 i-def456 ... --profile outshift-common-dev
+ec2 describe-instance-status --instance-ids i-abc123 i-def456 ... --profile dev-account
 # Update 10 TODOs to "completed"
 
 # Batch 2: Nodes 11-15
-ec2 describe-instance-status --instance-ids i-xyz789 ... --profile outshift-common-dev
+ec2 describe-instance-status --instance-ids i-xyz789 ... --profile dev-account
 # Update 5 TODOs to "completed"
 ```
 
@@ -348,20 +348,20 @@ Step 5: Present comprehensive health table for ALL 15 nodes
 
 **Example - WRONG (Hallucinating):**
 ```
-User: "check S3 bucket ACLs in eticloud"
+User: "check S3 bucket ACLs in prod-account"
 Agent: s3api get-bucket-acl --bucket my-bucket-1  ❌ HALLUCINATED NAME!
        s3api get-bucket-acl --bucket my-bucket-2  ❌ HALLUCINATED NAME!
 ```
 
 **Example - CORRECT (List First):**
 ```
-User: "check S3 bucket ACLs in eticloud"
+User: "check S3 bucket ACLs in prod-account"
 Agent:
-  1. s3api list-buckets --profile eticloud  ✅ GET ACTUAL BUCKETS
+  1. s3api list-buckets --profile prod-account  ✅ GET ACTUAL BUCKETS
      → Output: bucket-prod-data, backup-logs-2024, static-assets
-  2. s3api get-bucket-acl --bucket bucket-prod-data --profile eticloud  ✅ REAL NAME
-  3. s3api get-bucket-acl --bucket backup-logs-2024 --profile eticloud  ✅ REAL NAME
-  4. s3api get-bucket-acl --bucket static-assets --profile eticloud  ✅ REAL NAME
+  2. s3api get-bucket-acl --bucket bucket-prod-data --profile prod-account  ✅ REAL NAME
+  3. s3api get-bucket-acl --bucket backup-logs-2024 --profile prod-account  ✅ REAL NAME
+  4. s3api get-bucket-acl --bucket static-assets --profile prod-account  ✅ REAL NAME
 ```
 
 **If you catch yourself about to use a resource name you didn't get from AWS:**
@@ -785,15 +785,15 @@ Present results in this structure:
 # Total: 18 commands across 7 phases
 
 # Phase 1-2: Cluster & Nodes
-eks describe-cluster --name comn-dev-use2-1 --profile outshift-common-dev
-eks list-nodegroups --name comn-dev-use2-1 --profile outshift-common-dev
-eks describe-nodegroup --cluster-name comn-dev-use2-1 --nodegroup-name ng-app-workers --profile outshift-common-dev
-ec2 describe-instance-status --instance-ids i-abc123 i-def456 i-ghi789 --profile outshift-common-dev
+eks describe-cluster --name my-cluster-dev-use2-1 --profile dev-account
+eks list-nodegroups --name my-cluster-dev-use2-1 --profile dev-account
+eks describe-nodegroup --cluster-name my-cluster-dev-use2-1 --nodegroup-name ng-app-workers --profile dev-account
+ec2 describe-instance-status --instance-ids i-abc123 i-def456 i-ghi789 --profile dev-account
 
 # Phase 3: Add-ons
-eks list-addons --cluster-name comn-dev-use2-1 --profile outshift-common-dev
-eks describe-addon --cluster-name comn-dev-use2-1 --addon-name vpc-cni --profile outshift-common-dev
-eks describe-addon --cluster-name comn-dev-use2-1 --addon-name coredns --profile outshift-common-dev
+eks list-addons --cluster-name my-cluster-dev-use2-1 --profile dev-account
+eks describe-addon --cluster-name my-cluster-dev-use2-1 --addon-name vpc-cni --profile dev-account
+eks describe-addon --cluster-name my-cluster-dev-use2-1 --addon-name coredns --profile dev-account
 
 # Phase 7: Kubernetes Pods
 kubectl get pods -n kube-system -o wide
@@ -910,7 +910,7 @@ When querying multiple accounts or regions:
 - If ONE account/region fails, CONTINUE with others
 - Report which succeeded and which failed
 - Don't abandon the entire query due to one error
-- Example: "eticloud: 5 clusters found, eti-ci: access denied (skipped), outshift-dev: 2 clusters found"
+- Example: "prod-account: 5 clusters found, dev-account: access denied (skipped), staging-account: 2 clusters found"
 
 **═══════════════════════════════════════════════════════════════**
 **MULTI-REGION SEARCH - SEARCH ALL REGIONS WHEN NOT SPECIFIED:**
@@ -928,19 +928,19 @@ When querying multiple accounts or regions:
 - `--region ap-southeast-1` (Singapore)
 - `--region ap-northeast-1` (Tokyo)
 
-**Example - User says "Find EC2 instances in eticloud" (account specified, no region):**
+**Example - User says "Find EC2 instances in prod-account" (account specified, no region):**
 Search all regions in that account:
 ```
-ec2 describe-instances --profile eticloud --region us-east-1
-ec2 describe-instances --profile eticloud --region us-east-2
-ec2 describe-instances --profile eticloud --region us-west-1
-ec2 describe-instances --profile eticloud --region us-west-2
-ec2 describe-instances --profile eticloud --region eu-west-1
-ec2 describe-instances --profile eticloud --region eu-central-1
+ec2 describe-instances --profile prod-account --region us-east-1
+ec2 describe-instances --profile prod-account --region us-east-2
+ec2 describe-instances --profile prod-account --region us-west-1
+ec2 describe-instances --profile prod-account --region us-west-2
+ec2 describe-instances --profile prod-account --region eu-west-1
+ec2 describe-instances --profile prod-account --region eu-central-1
 ```
 
 **WHEN TO DO MULTI-REGION SEARCH (after account is specified):**
-- "Find all EC2 instances in eticloud" → Search ALL regions in eticloud
+- "Find all EC2 instances in prod-account" → Search ALL regions in prod-account
 - "Where is instance i-xxx in account-a?" → Search ALL regions in account-a until found
 - "List all EKS clusters in all accounts" → Search ALL regions × ALL accounts
 - Any resource search without explicit region (but with account) → Search ALL regions in that account
@@ -986,24 +986,24 @@ ECR (Container Registry):
 - 'ecr describe-images --repository-name REPO' - Get detailed image info with tags
 
 **⚠️ ECR SPECIAL CONFIGURATION - USE PROFILE FOR CROSS-ACCOUNT:**
-ECR repositories are in the **eticloud** account. ALWAYS use `--profile eticloud --region us-east-2`:
+ECR repositories may be in a specific account. Use the appropriate profile and region:
 
 **ECR WORKFLOW - Finding Images and Tags:**
 
 1. **List all repositories:**
-   `ecr describe-repositories --profile eticloud --region us-east-2 --query 'repositories[].repositoryName'`
+   `ecr describe-repositories --profile <account-name> --region <region> --query 'repositories[].repositoryName'`
 
 2. **List TAGGED images in a repository (to find available tags):**
-   `ecr list-images --profile eticloud --region us-east-2 --repository-name REPO_NAME --filter tagStatus=TAGGED`
+   `ecr list-images --profile <account-name> --region <region> --repository-name REPO_NAME --filter tagStatus=TAGGED`
 
 3. **Get detailed image info (includes tags, size, push date):**
-   `ecr describe-images --profile eticloud --region us-east-2 --repository-name REPO_NAME`
+   `ecr describe-images --profile <account-name> --region <region> --repository-name REPO_NAME`
 
 4. **Find latest images (sorted by push date):**
-   `ecr describe-images --profile eticloud --region us-east-2 --repository-name REPO_NAME --query 'sort_by(imageDetails, &imagePushedAt)[-5:]'`
+   `ecr describe-images --profile <account-name> --region <region> --repository-name REPO_NAME --query 'sort_by(imageDetails, &imagePushedAt)[-5:]'`
 
 5. **Get specific image by tag:**
-   `ecr describe-images --profile eticloud --region us-east-2 --repository-name REPO_NAME --image-ids imageTag=latest`
+   `ecr describe-images --profile <account-name> --region <region> --repository-name REPO_NAME --image-ids imageTag=latest`
 
 **IMPORTANT - Image Tags:**
 - `ecr list-images` returns `imageTag` field - use this to find available tags
@@ -1091,10 +1091,10 @@ To locate access key AKIAXXXXXXXXX:
 When user mentions: **{', '.join(account_names)}**
 → ALWAYS add `--profile ACCOUNT_NAME` to the command!
 
-**Example - User says "eticloud account":**
-`cloudfront list-distributions --profile eticloud --region us-east-1`
-`ec2 describe-instances --profile eticloud`
-`eks list-clusters --profile eticloud`
+**Example - User says "prod-account":**
+`cloudfront list-distributions --profile prod-account --region us-east-1`
+`ec2 describe-instances --profile prod-account`
+`eks list-clusters --profile prod-account`
 
 **Example - User specifies an account name:**
 `ec2 describe-instances --profile <account-name>`
@@ -1106,7 +1106,7 @@ When user mentions: **{', '.join(account_names)}**
 - **User does NOT specify account → ASK which account(s) to query**
 
 **DECISION LOGIC:**
-1. User specifies ACCOUNT (e.g., "in eticloud") → Use ONLY that profile, query all regions
+1. User specifies ACCOUNT (e.g., "in prod-account") → Use ONLY that profile, query all regions
 2. User specifies REGION (e.g., "in us-east-1") → Query all accounts in ONLY that region
 3. User specifies BOTH → Use that specific profile and region
 4. User says "all accounts" explicitly → Query ALL accounts × ALL regions
@@ -1119,7 +1119,7 @@ I can query the following AWS accounts:
 {chr(10).join([f'- **{{acc["name"]}}** ({{acc["id"]}})' for acc in accounts])}
 
 Which account(s) would you like me to query?
-- Specify one account (e.g., "eticloud")
+- Specify one account (e.g., "prod-account")
 - Or say "all accounts" to query all of them
 ```
 
@@ -1135,12 +1135,12 @@ ec2 describe-instances --profile {account_names[1] if len(account_names) > 1 els
 ... (continue for ALL accounts × ALL regions)
 ```
 
-**Example - User says "get EC2 instances in eticloud" (account specified):**
-Query ONLY eticloud, but all regions:
+**Example - User says "get EC2 instances in prod-account" (account specified):**
+Query ONLY prod-account, but all regions:
 ```
-ec2 describe-instances --profile eticloud --region us-east-1
-ec2 describe-instances --profile eticloud --region us-east-2
-ec2 describe-instances --profile eticloud --region us-west-2
+ec2 describe-instances --profile prod-account --region us-east-1
+ec2 describe-instances --profile prod-account --region us-east-2
+ec2 describe-instances --profile prod-account --region us-west-2
 ...
 ```
 
@@ -1180,7 +1180,7 @@ ec2 describe-instances --profile {account_names[2] if len(account_names) > 2 els
 
 **PROFILE USAGE:**
 - Query specific account: `eks list-clusters --profile {account_names[0]}`
-- ECR (always eticloud): `ecr describe-repositories --profile eticloud --region us-east-2`""")
+- ECR example: `ecr describe-repositories --profile <account-name> --region <region>`""")
 
         system_prompt_parts.append("""
 
