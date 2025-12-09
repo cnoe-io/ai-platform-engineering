@@ -14,7 +14,7 @@ dependencies = [
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
     "python-dotenv>=1.1.0",
-    "cnoe-agent-utils==0.3.2",
+    "cnoe-agent-utils (>=0.3.9,<0.4.0)",
     "fastapi[standard]>=0.116.1",
     "apscheduler>=3.11.0",
     "common",
