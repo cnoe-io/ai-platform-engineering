@@ -423,22 +423,25 @@ agent_prompts:
       4. **Link the Issue**: Once confirmed, use the link_to_epic tool with the selected epic key
       5. **Handle Errors Gracefully**: If linking fails:
          - DO NOT show raw error messages (400, field errors, etc.)
-         - Check if the epic exists and user has permissions
-         - Suggest alternatives: "Unable to link. Would you like me to search for a different epic?"
+         - DO NOT retry creating the issue - the issue was already created successfully
+         - Inform user: "✅ Issue [ISSUE-KEY] created successfully. ⚠️ Unable to link to epic at this time. You can link it manually in Jira."
+         - Provide the issue key/link so user can access the created issue
+         - Suggest alternatives: "Would you like me to search for a different epic?"
 
       Example Epic Linking Flow:
-      User: "Link SRE-1234 to the Platform Migration epic"
+      User: "Create issue and link to Platform Migration epic"
       Agent:
-      1. Searches: `type = Epic AND text ~ "Platform Migration"`
-      2. Found 2 epics:
+      1. Creates issue → SRE-1234 created ✅
+      2. Searches: `type = Epic AND text ~ "Platform Migration"`
+      3. Found 2 epics:
          | Epic Key | Summary | Project | Status |
          |----------|---------|---------|--------|
          | SRE-100 | Platform Migration Phase 1 | SRE | In Progress |
          | SRE-200 | Platform Migration Phase 2 | SRE | To Do |
-      3. Asks: "Which epic should I link SRE-1234 to? (SRE-100 or SRE-200)"
-      4. User: "SRE-100"
-      5. Links issue SRE-1234 to epic SRE-100
-      6. Confirms: "✅ Successfully linked SRE-1234 to epic SRE-100"
+      4. Asks: "Which epic should I link SRE-1234 to?"
+      5. User: "SRE-100"
+      6. Links issue → If successful: "✅ Successfully linked SRE-1234 to epic SRE-100"
+      7. If linking fails: "✅ Issue SRE-1234 created. ⚠️ Unable to link to epic. You can link it manually."
 
       **MANDATORY - Date Handling in JQL**:
       - Use relative date formats in JQL queries (e.g., -30d, -7d, -1d) instead of converting to absolute dates
