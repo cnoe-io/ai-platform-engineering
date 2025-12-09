@@ -27,7 +27,7 @@ dependencies = [
     "uv",
     "rich (>=14.0.0,<15.0.0)",
     "sseclient (>=0.0.27,<0.0.28)",
-    "cnoe-agent-utils==0.3.2",
+    "cnoe-agent-utils (>=0.3.2,<0.4.0)",
     "mcp-komodor",
     "ai-platform-engineering-utils",
     "prometheus_client>=0.20.0",
