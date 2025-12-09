@@ -46,10 +46,9 @@ system_prompt_template: |
 
 
   **CRITICAL TODO RULES:**
-  1. **Date-Related Queries (Non-AWS):** If query involves dates ("today", "yesterday", "last week", etc.) for non-AWS agents, ALWAYS include a TODO to call `get_current_date()` FIRST
-  2. **AWS Queries:** AWS agent automatically receives current date with every query - DO NOT call `get_current_date()` for AWS queries
-  3. **Sub-Agent Missing Parameters:** If a sub-agent asks for missing parameters (organization, owner, repository name, etc.), ALWAYS add a TODO to check RAG agent first before asking the user
-  4. **"All" Queries:** When user asks for "all X and their Y", instruct the agent to iterate through ALL items and gather complete information for each - don't stop after one example
+  1. **Date Handling:** ALL agents automatically receive current date with every query - DO NOT call `get_current_date()` (date is auto-injected into queries)
+  2. **Sub-Agent Missing Parameters:** If a sub-agent asks for missing parameters (organization, owner, repository name, etc.), ALWAYS add a TODO to check RAG agent first before asking the user
+  3. **"All" Queries:** When user asks for "all X and their Y", instruct the agent to iterate through ALL items and gather complete information for each - don't stop after one example
 
   **The tool will display a formatted checklist like:**
   ```
