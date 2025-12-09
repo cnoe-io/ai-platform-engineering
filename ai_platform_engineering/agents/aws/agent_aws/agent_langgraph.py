@@ -641,12 +641,12 @@ Always structure your final answer with:
         await self._setup_aws_cli_agent(config)
 
     async def _setup_aws_cli_agent(self, config: Any) -> None:
-        """Setup agent with AWS CLI tool only (no MCP servers)."""
-        from langgraph.prebuilt import create_react_agent
-        from langgraph.checkpoint.memory import MemorySaver
+        """Setup agent with AWS CLI tool using deepagents for context management."""
+        from deepagents import create_deep_agent
+        from deepagents.backends import StateBackend
 
         agent_name = self.get_agent_name()
-        logger.info(f"🔧 Initializing {agent_name.upper()} agent with AWS CLI tool...")
+        logger.info(f"🔧 Initializing {agent_name.upper()} agent with deepagents + AWS CLI tool...")
 
         # Initialize tools list with AWS CLI tool
         tools: List[Any] = []
@@ -658,7 +658,6 @@ Always structure your final answer with:
             logger.info(f"✅ {agent_name}: Added AWS CLI tool (aws_cli_execute)")
         else:
             logger.warning(f"⚠️  {agent_name}: AWS CLI tool not enabled. Set USE_AWS_CLI_AS_TOOL=true to enable.")
-
 
         if not tools:
             raise RuntimeError(
@@ -688,19 +687,19 @@ Always structure your final answer with:
                 'required': schema.get('required', [])
             }
 
-        # Create memory for conversation persistence
-        memory = MemorySaver()
-
-        # Create the agent graph
-        self.graph = create_react_agent(
-            self.model,
+        # Create the deep agent with built-in context management
+        # Deepagents automatically provides:
+        # - FilesystemMiddleware: Auto-saves large tool outputs to files (prevents context overflow)
+        # - TodoListMiddleware: Task planning and progress tracking
+        # - SummarizationMiddleware: Auto-summarizes when context > 170k tokens
+        # - Built-in tools: write_todos, read_todos, ls, read_file, write_file, edit_file, grep, glob
+        self.graph = create_deep_agent(
+            model=self.model,
             tools=tools,
-            checkpointer=memory,
-            prompt=self.get_system_instruction(),
-            response_format=(
-                self.get_response_format_instruction(),
-                self.get_response_format_class()
-            ),
+            system_prompt=self.get_system_instruction(),
+            backend=StateBackend(),  # Ephemeral state backend (files stored in agent state)
         )
 
-        logger.info(f"✅ {agent_name}: Agent initialized successfully with AWS CLI tool")
+        logger.info(f"✅ {agent_name}: Deep agent initialized successfully with AWS CLI tool")
+        logger.info(f"✅ {agent_name}: Context offloading enabled (large results saved to files)")
+        logger.info(f"✅ {agent_name}: Auto-summarization enabled (context > 170k tokens)")
