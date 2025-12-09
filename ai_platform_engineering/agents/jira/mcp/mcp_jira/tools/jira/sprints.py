@@ -10,6 +10,7 @@ from typing import Annotated, Optional, List, Dict, Any
 
 from pydantic import Field
 from mcp_jira.api.client import make_api_request
+from mcp_jira.config import MCP_JIRA_READ_ONLY, MCP_JIRA_SPRINTS_DELETE_PROTECTION
 from mcp_jira.tools.jira.constants import check_read_only, check_sprints_delete_protection
 
 # Configure logging
@@ -69,7 +70,13 @@ async def create_sprint(
     Reference:
         https://developer.atlassian.com/cloud/jira/software/rest/api-group-sprint/#api-rest-agile-1-0-sprint-post
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(f"create_sprint called with name={name}, origin_board_id={origin_board_id}")
 
@@ -94,7 +101,11 @@ async def create_sprint(
     )
 
     if not success:
-        raise ValueError(f"Failed to create sprint: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to create sprint: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -130,7 +141,11 @@ async def get_sprint(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch sprint {sprint_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch sprint {sprint_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -195,7 +210,13 @@ async def update_sprint(
     Reference:
         https://developer.atlassian.com/cloud/jira/software/rest/api-group-sprint/#api-rest-agile-1-0-sprint-sprintid-put
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(f"update_sprint called with sprint_id={sprint_id}")
 
@@ -207,7 +228,11 @@ async def update_sprint(
         sprint_data["goal"] = goal
     if state is not None:
         if state not in ["future", "active", "closed"]:
-            raise ValueError(f"Invalid state '{state}'. Must be one of: future, active, closed")
+            error_result = {
+                "success": False,
+                "error": f"Invalid state '{state}'. Must be one of: future, active, closed"
+            }
+            return json.dumps(error_result, indent=2, ensure_ascii=False)
         sprint_data["state"] = state
     if start_date is not None:
         sprint_data["startDate"] = start_date
@@ -215,7 +240,11 @@ async def update_sprint(
         sprint_data["endDate"] = end_date
 
     if not sprint_data:
-        raise ValueError("At least one field must be provided to update")
+        error_result = {
+            "success": False,
+            "error": "At least one field must be provided to update"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(f"Sprint data to send: {json.dumps(sprint_data, indent=2)}")
 
@@ -226,7 +255,11 @@ async def update_sprint(
     )
 
     if not success:
-        raise ValueError(f"Failed to update sprint {sprint_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to update sprint {sprint_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -253,8 +286,21 @@ async def delete_sprint(
     Reference:
         https://developer.atlassian.com/cloud/jira/software/rest/api-group-sprint/#api-rest-agile-1-0-sprint-sprintid-delete
     """
-    check_read_only()
-    check_sprints_delete_protection()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
+    
+    # Check delete protection
+    if MCP_JIRA_SPRINTS_DELETE_PROTECTION:
+        error_result = {
+            "success": False,
+            "error": "Sprint deletion is protected. Set MCP_JIRA_SPRINTS_DELETE_PROTECTION=false to enable."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(f"delete_sprint called with sprint_id={sprint_id}")
 
@@ -264,7 +310,11 @@ async def delete_sprint(
     )
 
     if not success:
-        raise ValueError(f"Failed to delete sprint {sprint_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to delete sprint {sprint_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(
         {
@@ -356,7 +406,11 @@ async def get_sprint_issues(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch issues for sprint {sprint_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch issues for sprint {sprint_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -417,7 +471,11 @@ async def move_issues_to_sprint(
     check_read_only()
 
     if len(issues) > 50:
-        raise ValueError(f"Cannot move more than 50 issues at once. Provided: {len(issues)}")
+        error_result = {
+            "success": False,
+            "error": f"Cannot move more than 50 issues at once. Provided: {len(issues)}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(f"move_issues_to_sprint called with sprint_id={sprint_id}, issues count={len(issues)}")
 
@@ -439,7 +497,11 @@ async def move_issues_to_sprint(
     )
 
     if not success:
-        raise ValueError(f"Failed to move issues to sprint {sprint_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to move issues to sprint {sprint_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(
         {
@@ -495,7 +557,11 @@ async def swap_sprint(
     )
 
     if not success:
-        raise ValueError(f"Failed to swap sprint {sprint_id} with {sprint_to_swap_with}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to swap sprint {sprint_id} with {sprint_to_swap_with}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(
         {
