@@ -165,9 +165,9 @@ class AWSCLIToolInput(BaseModel):
         description=(
             "AWS profile name for the account to query. THIS IS REQUIRED! "
             "Available profiles: eticloud, outshift-common-dev, outshift-common-staging, outshift-common-prod, eti-ci, cisco-research, eticloud-demo. "
-            "Use 'default' for the default AWS account (same as environment credentials). "
             "When user says 'in eticloud', use profile='eticloud'. "
-            "When user says 'get all EC2', make separate calls with each profile."
+            "When user says 'get all EC2 in all accounts', make separate calls with each profile. "
+            "If user does NOT specify an account, you must ask which account to query."
         )
     )
 
@@ -326,7 +326,7 @@ class AWSCLITool(BaseTool):
     async def _arun(
         self,
         command: str,
-        profile: str = "default",
+        profile: str,
         region: Optional[str] = None,
         output_format: Optional[str] = "json",
         jq_filter: Optional[str] = None
@@ -336,7 +336,7 @@ class AWSCLITool(BaseTool):
 
         Args:
             command: AWS CLI command (without 'aws' prefix)
-            profile: AWS profile name (required). Use 'default' for default account.
+            profile: AWS profile name (required). Must be one of the configured profiles.
             region: Optional AWS region override
             output_format: Output format (json, text, table, yaml)
             jq_filter: Optional jq filter for JSON processing
@@ -359,17 +359,14 @@ class AWSCLITool(BaseTool):
         else:
             output_fmt = output_format if output_format in ["json", "text", "table", "yaml"] else "json"
 
-        # Build profile flag - skip for 'default' profile (uses environment credentials)
-        profile_flag = f"--profile {profile}" if profile and profile.lower() != "default" else ""
+        # Build profile flag - always required
+        profile_flag = f"--profile {profile}"
 
         # Only add --region if not already in command
         if "--region" in command:
-            full_command = f"aws {profile_flag} {command} --output {output_fmt}".strip()
+            full_command = f"aws {profile_flag} {command} --output {output_fmt}"
         else:
-            full_command = f"aws {profile_flag} {command} --region {aws_region} --output {output_fmt}".strip()
-
-        # Clean up any double spaces
-        full_command = " ".join(full_command.split())
+            full_command = f"aws {profile_flag} {command} --region {aws_region} --output {output_fmt}"
 
         # Log which account is being queried
         logger.info(f"Querying account: {profile}")
