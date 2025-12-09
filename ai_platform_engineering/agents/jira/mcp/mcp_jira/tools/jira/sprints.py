@@ -282,7 +282,7 @@ async def delete_sprint(
 
     Raises:
         ValueError: If in read-only mode, delete protection is enabled, or API request fails.
-    
+
     Reference:
         https://developer.atlassian.com/cloud/jira/software/rest/api-group-sprint/#api-rest-agile-1-0-sprint-sprintid-delete
     """
@@ -293,7 +293,7 @@ async def delete_sprint(
             "error": "Jira MCP is in read-only mode. Write operations are disabled."
         }
         return json.dumps(error_result, indent=2, ensure_ascii=False)
-    
+
     # Check delete protection
     if MCP_JIRA_SPRINTS_DELETE_PROTECTION:
         error_result = {

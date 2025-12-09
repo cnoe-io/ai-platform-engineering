@@ -296,7 +296,7 @@ async def delete_board(
             "error": "Jira MCP is in read-only mode. Write operations are disabled."
         }
         return json.dumps(error_result, indent=2, ensure_ascii=False)
-    
+
     # Check delete protection
     if MCP_JIRA_BOARDS_DELETE_PROTECTION:
         error_result = {
