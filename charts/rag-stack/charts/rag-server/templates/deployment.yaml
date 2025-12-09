@@ -28,6 +28,7 @@ spec:
       serviceAccountName: {{ include "rag-server.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automount | default false }}
       containers:
+        # Main RAG Server container
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -42,14 +43,11 @@ spec:
                 name: {{ $llmSecretName }}
             {{- end }}
           env:
-            - name: LOG_LEVEL
-              value: {{ .Values.logLevel | quote }}
+            # Core Connection Settings
             - name: REDIS_URL
               value: {{ include "rag-server.redisUrl" . | quote }}
             - name: NEO4J_ADDR
               value: {{ include "rag-server.neo4jAddr" . | quote }}
-            - name: NEO4J_ONTOLOGY_ADDR
-              value: {{ include "rag-server.neo4jOntologyAddr" . | quote }}
             - name: NEO4J_USERNAME
               value: {{ include "rag-server.neo4jUsername" . | quote }}
             - name: NEO4J_PASSWORD
@@ -58,8 +56,42 @@ spec:
               value: {{ include "rag-server.milvusUri" . | quote }}
             - name: ONTOLOGY_AGENT_RESTAPI_ADDR
               value: {{ include "rag-server.ontologyAgentRestapiAddr" . | quote }}
+            
+            # Feature Flags
             - name: ENABLE_GRAPH_RAG
-              value: {{ include "rag-server.enableGraphRag" . | quote }}
+              value: {{ .Values.enableGraphRag | quote }}
+            - name: ENABLE_MCP
+              value: {{ .Values.enableMcp | quote }}
+            - name: SKIP_INIT_TESTS
+              value: {{ .Values.skipInitTests | quote }}
+            
+            # Embeddings Configuration
+            - name: EMBEDDINGS_PROVIDER
+              value: {{ .Values.embeddingsProvider | quote }}
+            - name: EMBEDDINGS_MODEL
+              value: {{ .Values.embeddingsModel | quote }}
+            
+            # Performance & Limits
+            - name: MAX_DOCUMENTS_PER_INGEST
+              value: {{ .Values.maxDocumentsPerIngest | quote }}
+            - name: MAX_RESULTS_PER_QUERY
+              value: {{ .Values.maxResultsPerQuery | quote }}
+            - name: MAX_INGESTION_CONCURRENCY
+              value: {{ .Values.maxIngestionConcurrency | quote }}
+            - name: MAX_GRAPH_RAW_QUERY_RESULTS
+              value: {{ .Values.maxGraphRawQueryResults | quote }}
+            - name: MAX_GRAPH_RAW_QUERY_TOKENS
+              value: {{ .Values.maxGraphRawQueryTokens | quote }}
+            - name: SEARCH_RESULT_TRUNCATE_LENGTH
+              value: {{ .Values.searchResultTruncateLength | quote }}
+            
+            # Other Settings
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: UI_URL
+              value: {{ .Values.uiUrl | quote }}
+            - name: SLEEP_ON_INIT_FAILURE_SECONDS
+              value: {{ .Values.sleepOnInitFailureSeconds | quote }}
             - name: CLEANUP_INTERVAL
               value: {{ .Values.cleanupInterval | quote }}
 
@@ -81,6 +113,31 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+        {{- if .Values.webIngestor.enabled }}
+        # Web Ingestor sidecar container
+        - name: web-ingestor
+          image: "{{ .Values.webIngestor.image.repository }}:{{ .Values.webIngestor.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.webIngestor.image.pullPolicy }}
+          env:
+            - name: INGESTOR_TYPE
+              value: "webloader"
+            - name: LOG_LEVEL
+              value: {{ .Values.webIngestor.logLevel | quote }}
+            - name: REDIS_URL
+              value: {{ include "rag-server.redisUrl" . | quote }}
+            - name: RAG_SERVER_URL
+              value: {{ printf "http://localhost:9446" | quote }}
+            - name: WEBLOADER_MAX_CONCURRENCY
+              value: {{ .Values.webIngestor.maxConcurrency | quote }}
+            - name: WEBLOADER_MAX_INGESTION_TASKS
+              value: {{ .Values.webIngestor.maxIngestionTasks | quote }}
+            - name: WEBLOADER_RELOAD_INTERVAL
+              value: {{ .Values.webIngestor.reloadInterval | quote }}
+          {{- with .Values.webIngestor.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

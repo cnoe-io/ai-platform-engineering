@@ -243,6 +243,15 @@ class AIPlatformEngineerA2ABinding:
                   tool_name = message.name if hasattr(message, 'name') else "unknown"
                   tool_content = message.content if hasattr(message, 'content') else ""
                   logging.debug(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
+                  
+                  # This is a hard-coded list for now
+                  # TODO: Fetch the rag tool names from when the deep agent is initialised
+                  rag_tool_names = {
+                      'search', 'fetch_document', 'fetch_datasources_and_entity_types',
+                      'graph_explore_ontology_entity', 'graph_explore_data_entity',
+                      'graph_fetch_data_entity_details', 'graph_shortest_path_between_entity_types',
+                      'graph_raw_query_data', 'graph_raw_query_ontology'
+                  }
 
                   # Special handling for write_todos: execution plan vs status updates
                   if tool_name == "write_todos" and tool_content and tool_content.strip():
@@ -272,6 +281,13 @@ class AIPlatformEngineerA2ABinding:
                                   "text": tool_content
                               }
                           }
+                  elif tool_name in rag_tool_names:
+                    # For RAG tools, we don't want to stream the content, as its a LOT of text
+                      yield {
+                            "is_task_complete": False,
+                            "require_user_input": False,
+                            "content": f"🔍 {tool_name}...",
+                      }
                   # Stream other tool content normally (actual results for user)
                   elif tool_content and tool_content.strip():
                       yield {

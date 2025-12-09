@@ -16,9 +16,6 @@ global:
       port: 7687 # This is hardcoded in the neo4j chart: https://github.com/neo4j/helm-charts/blob/2025.7.1/neo4j/templates/neo4j-svc.yaml#L155-L158
       username: neo4j
       password: dummy_password
-    neo4jOntology:
-      host: "rag-neo4j-ontology"
-      port: 7687 # This is hardcoded in the neo4j chart: https://github.com/neo4j/helm-charts/blob/2025.7.1/neo4j/templates/neo4j-svc.yaml#L155-L158
     redis:
       host: "rag-redis"
       port: 6379
@@ -58,8 +55,51 @@ rag-server:
     type: ClusterIP
     port: 9446
 
-  logLevel: DEBUG
-  cleanupInterval: 86400 # 24 hours
+  # Feature Flags
+  enableGraphRag: true              # ENABLE_GRAPH_RAG - enable/disable graph RAG features
+  enableMcp: true                   # ENABLE_MCP - enable/disable MCP tools for AI agents
+  skipInitTests: false              # SKIP_INIT_TESTS - skip connection tests on startup
+
+  # Embeddings Configuration
+  embeddingsProvider: "azure-openai"  # EMBEDDINGS_PROVIDER - azure-openai or openai
+  embeddingsModel: "text-embedding-3-small"  # EMBEDDINGS_MODEL - model name
+
+  # Performance & Limits
+  maxDocumentsPerIngest: 1000       # MAX_DOCUMENTS_PER_INGEST
+  maxResultsPerQuery: 100           # MAX_RESULTS_PER_QUERY
+  maxIngestionConcurrency: 30       # MAX_INGESTION_CONCURRENCY
+  maxGraphRawQueryResults: 100      # MAX_GRAPH_RAW_QUERY_RESULTS
+  maxGraphRawQueryTokens: 80000     # MAX_GRAPH_RAW_QUERY_TOKENS
+  searchResultTruncateLength: 500   # SEARCH_RESULT_TRUNCATE_LENGTH
+
+  # Other Settings
+  logLevel: DEBUG                   # LOG_LEVEL
+  uiUrl: "http://localhost:9447"    # UI_URL - WebUI URL for health check
+  sleepOnInitFailureSeconds: 180    # SLEEP_ON_INIT_FAILURE_SECONDS - how long to wait if init fails
+  cleanupInterval: 86400            # CLEANUP_INTERVAL (24 hours) - cleans up stale data in databases
+
+  # Web Ingestor sidecar configuration
+  webIngestor:
+    enabled: true
+    image:
+      repository: "ghcr.io/cnoe-io/caipe-rag-ingestors"
+      tag: "latest"
+      pullPolicy: Always
+    
+    logLevel: INFO
+    maxConcurrency: 10            # WEBLOADER_MAX_CONCURRENCY - max concurrent HTTP requests per ingestion
+    maxIngestionTasks: 5          # WEBLOADER_MAX_INGESTION_TASKS - max concurrent ingestion tasks
+    reloadInterval: 86400         # WEBLOADER_RELOAD_INTERVAL - auto-reload interval in seconds (24 hours)
+    
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+        ephemeral-storage: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+        ephemeral-storage: 1Gi
 
   podAnnotations: {}
 
@@ -72,49 +112,6 @@ rag-server:
       cpu: 500m
       memory: 512Mi
       ephemeral-storage: 1Gi
-
-# Agent RAG configuration (standard agent chart)
-agent-rag:
-  enabled: true
-  image:
-    repository: "ghcr.io/cnoe-io/caipe-rag-agent-rag"
-    tag: "latest"
-    pullPolicy: "Always"
-
-  service:
-    type: ClusterIP
-    port: 8099
-
-  logLevel: DEBUG
-
-  podAnnotations: {}
-
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-      ephemeral-storage: 256Mi
-    limits:
-      cpu: 500m
-      memory: 2Gi
-      ephemeral-storage: 1Gi
-
-  # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-  livenessProbe:
-    tcpSocket:
-      port: http
-    initialDelaySeconds: 60
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 10
-
-  readinessProbe:
-    tcpSocket:
-      port: http
-    initialDelaySeconds: 60
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 10
 
 # Agent Ontology configuration (standard agent chart)
 agent-ontology:
@@ -129,20 +126,32 @@ agent-ontology:
     type: ClusterIP
     port: 8098
 
-  logLevel: DEBUG
-  syncInterval: 86400 # 24 hours
+  # Core Configuration
+  serverPort: 8098                    # SERVER_PORT - HTTP API port
+  logLevel: INFO                      # LOG_LEVEL - logging level
+
+  # Ontology Processing Configuration
+  syncInterval: 0                     # SYNC_INTERVAL - auto-evaluation interval (disabled)
+  minCountForEval: 3                  # MIN_COUNT_FOR_EVAL - min matches for LLM evaluation
+  countChangeThresholdRatio: 0.1      # COUNT_CHANGE_THRESHOLD_RATIO - re-eval trigger (10%)
+
+  # Agent Worker Configuration
+  maxConcurrentEvaluation: 10         # MAX_CONCURRENT_EVALUATION - parallel agent workers
+  agentRecursionLimit: 100            # AGENT_RECURSION_LIMIT - max LLM recursion depth
+  maxLlmTokens: 100000                # MAX_LLM_TOKENS - max tokens for LLM context before summarisation
+  debugAgent: false                   # DEBUG_AGENT - evaluation doesn't go to LLM if true (auto-accepts all evaluations)
 
   podAnnotations: {}
 
-  resources:
+  resources: # Agent ontology resources are high as it processes a lot of data
     requests:
-      cpu: 100m
-      memory: 128Mi
-      ephemeral-storage: 256Mi
-    limits:
       cpu: 500m
-      memory: 2Gi
+      memory: 1Gi
       ephemeral-storage: 1Gi
+    limits:
+      cpu: 1500m
+      memory: 3Gi
+      ephemeral-storage: 3Gi
 
   # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
   livenessProbe:
@@ -213,38 +222,7 @@ neo4j:
       enabled: false
   neo4j:
     name: rag-neo4j
-    password: "dummy_password" # This dummy password needs to match the value in rag.neo4j.auth.password
-    resources:
-      cpu: "1"
-      memory: "2Gi"
-
-  podSpec:
-    annotations: {}
-
-  volumes:
-    data:
-      mode: "dynamic"
-      dynamic:
-        storageClassName: gp2
-
-neo4j-ontology:
-  enabled: true
-  fullnameOverride: "rag-neo4j-ontology"
-  config:
-    server.directories.plugins: "/var/lib/neo4j/labs"
-    dbms.security.procedures.unrestricted: "apoc.*"
-    dbms.security.procedures.allowlist: "apoc.*"
-    server.config.strict_validation.enabled: "false"
-  apoc_config:
-    apoc.trigger.enabled: "true"
-    apoc.import.file.enabled: "true"
-  disableLookups: true
-  services:
-    neo4j:
-      enabled: false
-  neo4j:
-    name: rag-neo4j-ontology
-    password: "dummy_password" # This dummy password needs to match the value in rag.neo4j.auth.password
+    password: dummy_password # override for production
     resources:
       cpu: "1"
       memory: "2Gi"
@@ -326,3 +304,41 @@ milvus:
 
   minio:
     podAnnotations: {}
+
+# RAG Ingestors configuration
+# Disabled by default - configure ingestors as needed
+rag-ingestors:
+  enabled: false
+  
+  # Global configuration
+  ragServerUrl: "http://rag-server:9446"
+  
+  # List of ingestors to deploy
+  # Each ingestor creates a separate deployment
+  # See charts/rag-ingestors/values.yaml for detailed examples
+  ingestors: []
+    # Example: Deploy AWS and K8s ingestors
+    # - name: aws-prod
+    #   type: aws
+    #   syncInterval: 86400
+    #   logLevel: INFO
+    #   env:
+    #     AWS_REGION: us-east-1
+    #     RESOURCE_TYPES: "ec2:instance,s3:bucket"
+    #   envFrom:
+    #     - secretRef:
+    #         name: aws-credentials
+    # 
+    # - name: k8s-local
+    #   type: k8s
+    #   syncInterval: 86400
+    #   logLevel: INFO
+    #   env:
+    #     CLUSTER_NAME: production
+    #     IN_CLUSTER: "true"
+    #   rbac:
+    #     create: true
+    #     rules:
+    #       - apiGroups: ["*"]
+    #         resources: ["*"]
+    #         verbs: ["get", "list", "watch"]

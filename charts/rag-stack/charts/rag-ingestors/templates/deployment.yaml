@@ -1,0 +1,109 @@
+{{- range $ingestor := .Values.ingestors }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rag-ingestors.fullname" $ }}-{{ $ingestor.name }}
+  labels:
+    {{- include "rag-ingestors.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: ingestor
+    app.kubernetes.io/ingestor-type: {{ $ingestor.type }}
+    app.kubernetes.io/ingestor-name: {{ $ingestor.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "rag-ingestors.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: ingestor
+      app.kubernetes.io/ingestor-name: {{ $ingestor.name }}
+  template:
+    metadata:
+      annotations:
+        {{- with $.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $ingestor.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "rag-ingestors.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: ingestor
+        app.kubernetes.io/ingestor-type: {{ $ingestor.type }}
+        app.kubernetes.io/ingestor-name: {{ $ingestor.name }}
+        {{- with $.Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $ingestor.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "rag-ingestors.serviceAccountName" $ }}
+      automountServiceAccountToken: {{ $.Values.serviceAccount.automount | default true }}
+      containers:
+        - name: ingestor
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          env:
+            # Core ingestor configuration
+            - name: INGESTOR_TYPE
+              value: {{ $ingestor.type | quote }}
+            - name: RAG_SERVER_URL
+              value: {{ include "rag-ingestors.ragServerUrl" (list $ingestor $) | quote }}
+            - name: LOG_LEVEL
+              value: {{ $ingestor.logLevel | default "INFO" | quote }}
+            
+            # Sync configuration
+            - name: SYNC_INTERVAL
+              value: {{ $ingestor.syncInterval | default 86400 | quote }}
+            - name: INIT_DELAY_SECONDS
+              value: {{ $ingestor.initDelaySeconds | default 60 | quote }}
+            
+            # Custom environment variables from ingestor config
+            {{- range $key, $value := $ingestor.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          
+          {{- with $ingestor.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          
+          {{- with $ingestor.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          
+          {{- if $ingestor.resources }}
+          resources:
+            {{- toYaml $ingestor.resources | nindent 12 }}
+          {{- else }}
+          resources:
+            {{- toYaml $.Values.defaultResources | nindent 12 }}
+          {{- end }}
+      
+      {{- with $ingestor.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      {{- with $ingestor.nodeSelector | default $.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      {{- with $ingestor.affinity | default $.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      {{- with $ingestor.tolerations | default $.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

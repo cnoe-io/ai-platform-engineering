@@ -275,7 +275,7 @@ rag-stack:
       pullPolicy: "Always"
 
   agent-ontology:
-    enabled: false # This is currently undergoing refactoring, so disbled by default.
+    enabled: true
 
   rag-webui:
     enabled: true
@@ -286,9 +286,6 @@ rag-stack:
 
   neo4j:
     enabled: true
-
-  neo4j-ontology:
-    enabled: false # This is currently undergoing refactoring, so disbled by default.
 
   rag-redis:
     enabled: true

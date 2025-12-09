@@ -34,9 +34,6 @@ jobs:
               - 'ai_platform_engineering/knowledge_bases/rag/common/**'
               - 'ai_platform_engineering/knowledge_bases/rag/requirements.txt'
               - '.github/**'
-            agent-rag:
-              - 'ai_platform_engineering/knowledge_bases/rag/agent_rag/**'
-              - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.agent-rag'
             agent-ontology:
               - 'ai_platform_engineering/knowledge_bases/rag/agent_ontology/**'
               - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.agent-ontology'
@@ -59,7 +56,7 @@ jobs:
           CHANGED_WEBUI: ${{ steps.filter.outputs.webui }}
         with:
           script: |
-            const allComponents = ['agent-rag', 'agent-ontology', 'server', 'webui'];
+            const allComponents = ['agent-ontology', 'server', 'webui', 'ingestors'];
             const buildAll = process.env.BUILD_ALL === 'true';
             let selected;
             if (buildAll) {
@@ -94,7 +91,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-rag-${{ matrix.component }}
-      BUILD_CTX: .
+      BUILD_CTX: ai_platform_engineering/knowledge_bases/rag
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
@@ -227,7 +224,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        component: ['agent-rag', 'agent-ontology', 'server', 'webui']
+        component: ['ingestors', 'agent-ontology', 'server', 'webui']
       fail-fast: false
     env:
       OWNER: ${{ github.repository_owner }}

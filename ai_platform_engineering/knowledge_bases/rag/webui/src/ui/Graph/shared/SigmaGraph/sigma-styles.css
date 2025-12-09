@@ -1,0 +1,67 @@
+/* Sigma.js minimal styles - add these to your main CSS or index.css */
+
+/* CRITICAL: Force sigma-container to fill parent */
+.sigma-container {
+  width: 100% !important;
+  height: 100% !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  background-color: white !important;
+  /* Subtle dot grid pattern */
+  background-image: radial-gradient(circle, #e0e0e0 1px, transparent 1px) !important;
+  background-size: 20px 20px !important;
+}
+
+/* Sigma container wrapper */
+.react-sigma {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background-color: white;
+}
+
+/* Sigma mouse layer */
+.sigma-mouse {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.sigma-mouse.mouse-pointer {
+  cursor: pointer;
+}
+
+/* Sigma controls */
+.react-sigma-control {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding: 4px;
+}
+
+.react-sigma-control button {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: white;
+  cursor: pointer;
+  font-size: 18px;
+  color: #333;
+  transition: background 0.2s;
+}
+
+.react-sigma-control button:hover {
+  background: #f0f0f0;
+}
+
+.react-sigma-control button:active {
+  background: #e0e0e0;
+}
+

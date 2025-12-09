@@ -1,9 +1,21 @@
-# Default values for agent-argocd.
+# Default values for agent-ontology.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-logLevel: DEBUG
-syncInterval: 86400 # 24 hours
+# Core Configuration
+serverPort: 8098                      # SERVER_PORT - HTTP API port
+logLevel: INFO                        # LOG_LEVEL - logging level (DEBUG, INFO, WARNING, ERROR)
+
+# Ontology Processing Configuration
+syncInterval: 259200                  # SYNC_INTERVAL - auto-evaluation interval in seconds (72 hours)
+minCountForEval: 3                    # MIN_COUNT_FOR_EVAL - minimum matches required for LLM evaluation
+countChangeThresholdRatio: 0.1        # COUNT_CHANGE_THRESHOLD_RATIO - re-evaluation trigger threshold (10%)
+
+# Agent Worker Configuration
+maxConcurrentEvaluation: 10           # MAX_CONCURRENT_EVALUATION - number of parallel agent workers
+agentRecursionLimit: 100              # AGENT_RECURSION_LIMIT - max LLM recursion depth
+maxLlmTokens: 100000                  # MAX_LLM_TOKENS - max tokens for LLM context before summarisation
+debugAgent: false                     # DEBUG_AGENT - evaluation doesn't go to LLM if true (auto-accepts all evaluations)
 
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1

@@ -132,27 +132,6 @@ Get Neo4j address combining host and port
 {{- end -}}
 
 {{/*
-Get Neo4j Ontology address combining host and port
-*/}}
-{{- define "rag-server.neo4jOntologyAddr" -}}
-    {{- $host := "neo4j-ontology" -}}
-    {{- $port := "7687" -}}
-    {{- with .Values.global -}}
-        {{- with .rag -}}
-            {{- with .neo4jOntology -}}
-                {{- if hasKey . "host" -}}
-                    {{- $host = .host -}}
-                {{- end -}}
-                {{- if hasKey . "port" -}}
-                    {{- $port = .port -}}
-                {{- end -}}
-            {{- end -}}
-        {{- end -}}
-    {{- end -}}
-    {{- printf "neo4j://%s:%s" $host ($port | toString) -}}
-{{- end -}}
-
-{{/*
 Get Neo4j username
 */}}
 {{- define "rag-server.neo4jUsername" -}}

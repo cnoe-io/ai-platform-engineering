@@ -23,7 +23,7 @@ jobs:
 
     strategy:
       matrix:
-        component: [agent-rag, agent-ontology, server, webui]
+        component: [agent-ontology, server, webui, ingestors]
       fail-fast: false
 
     env:
@@ -102,7 +102,7 @@ jobs:
       - name: Build and Push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ai_platform_engineering/knowledge_bases/rag
           file: ${{ env.DOCKERFILE }}
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}

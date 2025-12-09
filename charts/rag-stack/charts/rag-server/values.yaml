@@ -1,8 +1,28 @@
 nameOverride: ""
 fullnameOverride: "rag-server"
 
-logLevel: DEBUG
-cleanupInterval: 86400 # 24 hours
+# Feature Flags
+enableGraphRag: true              # ENABLE_GRAPH_RAG - enable/disable graph RAG features
+enableMcp: true                   # ENABLE_MCP - enable/disable MCP tools for AI agents
+skipInitTests: false              # SKIP_INIT_TESTS - skip connection tests on startup
+
+# Embeddings Configuration
+embeddingsProvider: "azure-openai"  # EMBEDDINGS_PROVIDER - azure-openai or openai
+embeddingsModel: "text-embedding-3-small"  # EMBEDDINGS_MODEL - model name
+
+# Performance & Limits
+maxDocumentsPerIngest: 1000       # MAX_DOCUMENTS_PER_INGEST - max documents per ingestion request
+maxResultsPerQuery: 100           # MAX_RESULTS_PER_QUERY - max results per query
+maxIngestionConcurrency: 30       # MAX_INGESTION_CONCURRENCY - max concurrent tasks during ingestion
+maxGraphRawQueryResults: 100      # MAX_GRAPH_RAW_QUERY_RESULTS - max results for raw graph queries
+maxGraphRawQueryTokens: 80000     # MAX_GRAPH_RAW_QUERY_TOKENS - max tokens in raw query results before truncation
+searchResultTruncateLength: 500   # SEARCH_RESULT_TRUNCATE_LENGTH - truncate search results to N characters (for MCP tools)
+
+# Other Settings
+logLevel: INFO                    # LOG_LEVEL - logging level (DEBUG, INFO, WARNING, ERROR)
+uiUrl: "http://localhost:9447"    # UI_URL - WebUI URL for health check response
+sleepOnInitFailureSeconds: 180    # SLEEP_ON_INIT_FAILURE_SECONDS - sleep duration on init failure before shutdown
+cleanupInterval: 86400            # CLEANUP_INTERVAL - cleanup interval for stale data (24 hours)
 
 image:
   # Prefer the prebuilt image; if building in-cluster is needed, adjust CI
@@ -11,6 +31,31 @@ image:
   pullPolicy: IfNotPresent
 
 replicaCount: 1
+
+# Web Ingestor configuration (runs as sidecar container)
+webIngestor:
+  enabled: true
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-rag-ingestors"
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Ingestor settings
+  logLevel: INFO
+  maxConcurrency: 10              # WEBLOADER_MAX_CONCURRENCY - max concurrent HTTP requests per ingestion
+  maxIngestionTasks: 5            # WEBLOADER_MAX_INGESTION_TASKS - max concurrent ingestion tasks
+  reloadInterval: 86400           # WEBLOADER_RELOAD_INTERVAL - auto-reload interval in seconds (24 hours)
+  
+  # Resource limits for the web ingestor sidecar
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+      ephemeral-storage: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+      ephemeral-storage: 1Gi
 
 serviceAccount:
   create: false
@@ -37,9 +82,6 @@ imagePullSecrets: []
 
 env: {}
 
-# For now, we rely on the secret to be created by rag-agent subchart.
-# Thus, we only need the name of the secret here.
-# TODO: move to rag-stack parent chart.
 llmSecrets:
   secretName: "llm-secret"
 

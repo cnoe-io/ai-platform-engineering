@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Ensure full height chain from html to app root */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Additional utility classes */
+
 @layer base {
 	:root {
 		--radius: 0.6rem;

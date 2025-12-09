@@ -5,6 +5,10 @@ from common.constants import ENTITY_TYPE_KEY, PRIMARY_ID_KEY, PROP_DELIMITER
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
+# ============================================================================
+# Models for graph entities and relations
+# ============================================================================
+
 class EntityIdentifier(BaseModel):
     """
     Represents an entity identifier to uniquely identify an entity in the graph database
@@ -80,23 +84,14 @@ class Entity(BaseModel):
 
 class Relation(BaseModel):
     """
-    Represents a relationship between two entities in the graph database
+    Represents a relationship between two entities in the graph database.
+    Uniquely identified by: (from_entity.entity_type, to_entity.entity_type, relation_name, relation_pk)
     """
     from_entity: EntityIdentifier = Field(description="The from entity")
     to_entity: EntityIdentifier = Field(description="The to entity")
     relation_name: str = Field(description="The name of the relation")
-    primary_key_properties: Optional[List[str]] = Field(description="(Optional) Primary key properties of the relation to maintain uniqueness between the from and to entities")
+    relation_pk: str = Field(description="The primary key for this relation - used to uniquely identify relations with the same name between the same entity types")
     relation_properties: Optional[dict[str, Any]] = Field(description="(Optional) The properties of the relation")
-
-    def generate_primary_key(self) -> str:
-        """
-        Generates a primary key for this entity from the primary key properties
-        :return: str
-        """
-        if self.primary_key_properties is None or self.relation_properties is None:
-            return ""
-        return PROP_DELIMITER.join([self.relation_properties[k] for k in self.primary_key_properties])
-
 
 class EntityTypeMetaRelation(BaseModel):
     """

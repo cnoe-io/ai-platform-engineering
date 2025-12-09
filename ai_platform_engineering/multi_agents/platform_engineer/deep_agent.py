@@ -5,10 +5,16 @@ import logging
 import uuid
 import os
 import threading
+import asyncio
+import time
+import httpx
+import traceback
 from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import InMemorySaver
 from cnoe_agent_utils import LLMFactory
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from typing import Optional, Dict, Any, List
 
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
@@ -28,6 +34,12 @@ from deepagents import async_create_deep_agent
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# RAG Configuration
+ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
+RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
+RAG_CONNECTIVITY_RETRIES = 5
+RAG_CONNECTIVITY_WAIT_SECONDS = 10
+
 class AIPlatformEngineerMAS:
   def __init__(self):
     # Use existing platform_registry and enable dynamic monitoring
@@ -37,11 +49,22 @@ class AIPlatformEngineerMAS:
     self._graph_lock = threading.RLock()
     self._graph = None
     self._graph_generation = 0  # Track graph version for debugging
+    
+    # RAG-related instance variables
+    self.rag_enabled = ENABLE_RAG # if the server is not reachable, this will be set to False
+    self.rag_config: Optional[Dict[str, Any]] = None # the rag config returned from the server
+    self.rag_config_timestamp: Optional[float] = None # the timestamp of the last time the rag config was fetched
+    self.rag_mcp_client: Optional[MultiServerMCPClient] = None # the mcp client for the rag server
+    self.rag_tools: List[Any] = [] # the MCP tools returned from the rag server, loaded at startup
 
     # Build initial graph
     self._build_graph()
 
     logger.info(f"AIPlatformEngineerMAS initialized with {len(platform_registry.agents)} agents")
+    if self.rag_enabled:
+      logger.info(f"✅📚 RAG is ENABLED - will attempt to connect to {RAG_SERVER_URL}")
+    else:
+      logger.info("❌📚 RAG is DISABLED")
 
   def get_graph(self) -> CompiledStateGraph:
     """
@@ -89,10 +112,50 @@ class AIPlatformEngineerMAS:
   def get_status(self) -> dict:
     """Get current status for monitoring/debugging."""
     with self._graph_lock:
-      return {
+      status = {
         "graph_generation": self._graph_generation,
         "registry_status": platform_registry.get_registry_status()
       }
+      if self.rag_enabled:
+        status["rag_enabled"] = True
+        status["rag_connected"] = self.rag_config is not None
+        status["rag_config_age_seconds"] = (
+          time.time() - self.rag_config_timestamp 
+          if self.rag_config_timestamp else None
+        )
+      else:
+        status["rag_enabled"] = False
+      return status
+
+  async def _load_rag_tools(self) -> List[Any]:
+    """
+    Load RAG MCP tools from the server.
+    Returns list of tools or empty list if unavailable.
+    """
+    if not self.rag_enabled or self.rag_config is None:
+      return []
+    
+    try:
+      # Initialize MCP client if not already done
+      if self.rag_mcp_client is None:
+        logger.info(f"Initializing RAG MCP client for {RAG_SERVER_URL}/mcp")
+        self.rag_mcp_client = MultiServerMCPClient({
+          "rag": {
+            "url": f"{RAG_SERVER_URL}/mcp",
+            "transport": "streamable_http",
+          }
+        })
+      
+      # Fetch tools from MCP server
+      logger.info("Loading RAG tools from MCP server...")
+      tools = await self.rag_mcp_client.get_tools()
+      logger.info(f"✅ Loaded {len(tools)} RAG tools: {[t.name for t in tools]}")
+      return tools
+      
+    except Exception as e:
+      logger.error(f"Error loading RAG tools: {e}")
+      logger.error(traceback.format_exc())
+      return []
 
 
   def _build_graph(self) -> None:
@@ -106,7 +169,74 @@ class AIPlatformEngineerMAS:
 
     # Dynamically generate system prompt and subagents from current registry
     current_agents = platform_registry.agents
-    system_prompt = generate_system_prompt(current_agents)
+    
+    # Do RAG connectivity check and initial tool loading synchronously at startup
+    if self.rag_enabled and self.rag_config is None:
+        logger.info("Performing initial RAG setup...")
+        try:
+            # Use httpx synchronous client for connectivity check
+            logger.info(f"Checking RAG server connectivity at {RAG_SERVER_URL}...")
+            
+            for attempt in range(1, RAG_CONNECTIVITY_RETRIES + 1):
+                try:
+                    with httpx.Client() as client:
+                        response = client.get(f"{RAG_SERVER_URL}/healthz", timeout=5.0)
+                        if response.status_code == 200:
+                            logger.info(f"✅ RAG server connected successfully on attempt {attempt}")
+                            
+                            # Fetch initial config synchronously
+                            data = response.json()
+                            self.rag_config = data.get("config", {})
+                            self.rag_config_timestamp = time.time()
+
+                            logger.info(f"RAG Server returned config: {self.rag_config}")
+                            
+                            # Load MCP tools using a thread pool to avoid event loop conflicts
+                            try:
+                                import concurrent.futures
+                                logger.info("Loading RAG MCP tools...")
+                                
+                                # Run async code in a separate thread with its own event loop
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    future = executor.submit(asyncio.run, self._load_rag_tools())
+                                    self.rag_tools = future.result(timeout=10)
+                                
+                                if self.rag_tools:
+                                    logger.info(f"✅📚 Loaded {len(self.rag_tools)} RAG tools at startup")
+                                    logger.info(f"📋 RAG tool names: {[t.name for t in self.rag_tools]}")
+                                else:
+                                    logger.warning("No RAG tools loaded (empty list returned)")
+                            except Exception as e:
+                                logger.error(f"Failed to load RAG tools: {e}")
+                                import traceback
+                                logger.error(traceback.format_exc())
+                                self.rag_tools = []
+                            
+                            break
+                        else:
+                            logger.warning(f"⚠️  RAG server returned status {response.status_code} on attempt {attempt}")
+                except Exception as e:
+                    logger.warning(f"❌ RAG server connection attempt {attempt} failed: {e}")
+                
+                # Wait with countdown if not last attempt
+                if attempt < RAG_CONNECTIVITY_RETRIES:
+                    logger.info(f"Retrying in {RAG_CONNECTIVITY_WAIT_SECONDS} seconds... ({attempt}/{RAG_CONNECTIVITY_RETRIES})")
+                    for countdown in range(RAG_CONNECTIVITY_WAIT_SECONDS, 0, -1):
+                        logger.info(f"  ⏳ {countdown}...")
+                        time.sleep(1)
+            
+            # If still not connected, disable RAG
+            if self.rag_config is None:
+                logger.error(f"❌ Failed to connect to RAG server after {RAG_CONNECTIVITY_RETRIES} attempts. RAG disabled.")
+                self.rag_enabled = False
+                
+        except Exception as e:
+            logger.error(f"Error during RAG setup: {e}")
+            self.rag_enabled = False
+    
+    system_prompt = generate_system_prompt(current_agents, self.rag_config)
+    
+    logger.info(f"📝 Generated system prompt: {len(system_prompt)} chars")
 
     # Get fresh tools from registry (for tool notifications and visibility)
     all_agents = platform_registry.get_all_agents()
@@ -122,6 +252,11 @@ class AIPlatformEngineerMAS:
         list_workspace_files,
         clear_workspace
     ]
+    
+    # Add RAG tools if initially loaded
+    if self.rag_tools:
+      all_tools.extend(self.rag_tools)
+      logger.info(f"✅📚 Added {len(self.rag_tools)} RAG tools to supervisor")
 
     # Generate CustomSubAgents (pre-created react agents with A2A tools)
     subagents = platform_registry.generate_subagents(agent_prompts, base_model)
@@ -138,8 +273,10 @@ class AIPlatformEngineerMAS:
     # - Token-by-token streaming from subagents
     # - A2A protocol maintained (each subagent uses its A2ARemoteAgentConnectTool)
 
+    logger.info("🎨 Creating deep agent with system prompt")
+    
     deep_agent = async_create_deep_agent(
-      tools=all_tools,  # A2A tools + reflect_on_output for validation
+      tools=all_tools,  # A2A tools + RAG tools + reflect_on_output for validation
       instructions=system_prompt,  # System prompt enforces TODO-based execution workflow
       subagents=subagents,  # CustomSubAgents for proper task() delegation
       model=base_model,
@@ -216,7 +353,7 @@ class AIPlatformEngineerMAS:
         dict: Streaming events from the graph including agent responses and tool calls.
     """
     try:
-      logger.debug(f"Received streaming prompt: {prompt}")
+      logger.warning(f"Received streaming prompt: {prompt}")
       if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("Prompt must be a non-empty string.")
 
@@ -236,6 +373,8 @@ class AIPlatformEngineerMAS:
           {"configurable": {"thread_id": thread_id}},
           version="v2"
       ):
+
+        logger.error(f"Streaming event: {event}")
         # Stream agent response chunks (includes todo list planning)
         if event["event"] == "on_chat_model_stream":
           chunk = event.get("data", {}).get("chunk")

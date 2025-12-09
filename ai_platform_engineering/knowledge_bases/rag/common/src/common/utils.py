@@ -14,6 +14,8 @@ DURATION_DAY = 60 * 60 * 24
 DURATION_HOUR = 60 * 60
 DURATION_MINUTE = 60
 
+DEFAULT_FRESH_UNTIL = int(os.getenv("DEFAULT_FRESH_UNTIL_SECONDS", DURATION_DAY * 7))  # Default TTL is one week
+
 class ObjEncoder(JSONEncoder):
     def __init__(self, *args, **argv):
         super().__init__(*args, **argv)
@@ -97,6 +99,18 @@ def sanitize_url(url: str) -> str:
     url = parsed.geturl() # Reconstruct the URL to ensure it's properly formatted
     return url
 
+def generate_datasource_id_from_url(url: str) -> str:
+        """Generate a unique source ID based on URL"""
+        source_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+        # Replace non-alphanumeric characters with underscore
+        clean_url = ''.join(c if c.isalnum() else '_' for c in url)
+        return f"src_{clean_url}_{source_hash}"
+
+def generate_document_id_from_url(datasource_id: str, url: str) -> str:
+        """Generate a unique document ID based on datasource ID and URL"""
+        url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+        return f"{datasource_id}_doc_{url_hash}"
+
 class CustomFormatter(logging.Formatter):
     """
     Custom formatter for logging
@@ -129,10 +143,12 @@ def get_logger(name) -> logging.Logger:
     logger = logging.getLogger(f"rag.{name}")
     logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
 
-    formatter = CustomFormatter()
-    handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    # Only add handler if it doesn't already exist (prevents duplicate logs)
+    if not logger.handlers:
+        formatter = CustomFormatter()
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
     return logger
 
 async def gather(n: int, *coros: asyncio.Future, logger: logging.Logger):
@@ -184,7 +200,7 @@ def get_default_fresh_until() -> int:
     Get the default fresh until timestamp (one week)
     :return: fresh until timestamp
     """
-    return int(time.time()) + (7 * DURATION_DAY)
+    return int(time.time()) + DEFAULT_FRESH_UNTIL
 
 def get_uuid():
     """
@@ -224,12 +240,140 @@ def retry_function(func, retries=20, delay=5, *args, **kwargs):
                     exit(0)
 
 
-def flatten_dict(d: dict, wildcard_index=True) -> dict[str, str]:
+async def retry_function_async(func, retries=20, delay=5, *args, **kwargs):
+    """
+    Async version: Tries to execute the given async function up to `max_retries` times.
+    If the function raises an exception, it waits `delay` seconds before retrying.
+
+    :param func: The async function to execute.
+    :param retries: Maximum number of retry attempts.
+    :param delay: Delay between retries in seconds.
+    :param args: Positional arguments for the function.
+    :param kwargs: Keyword arguments for the function.
+    :raises: The last exception encountered if the function fails all attempts.
+    """
+    attempt = 0
+    func_name = getattr(func, '__name__', str(func))
+    
+    while attempt < retries:
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            attempt += 1
+            logging.warning(f"Attempt {attempt} failed: {e}")
+            logging.error(f"Cool down of {delay} seconds, before retrying...")
+            if attempt >= retries:
+                logging.error(f"Function '{func_name}' failed after {retries} attempts.")
+                raise e
+            for i in range(delay):
+                logging.info(f"Retrying '{func_name}' in {delay-i} seconds...")
+                try:
+                    await asyncio.sleep(1)
+                except asyncio.CancelledError:
+                    logging.info("Task cancelled, stopping retry...")
+                    raise
+
+
+def format_entity_type_for_display(entity_type: str) -> str:
+    """
+    Convert CamelCase entity type to more readable format using intelligent heuristics.
+    
+    This method automatically detects acronyms (consecutive uppercase letters) and 
+    preserves them while adding spaces between words.
+    
+    Examples:
+    - AWSAccount -> AWS Account
+    - AWSEksCluster -> AWS Eks Cluster
+    - AWSS3Bucket -> AWS S3 Bucket
+    - BackstageComponent -> Backstage Component
+    - K8sNamespace -> K8s Namespace
+    - EC2Instance -> EC2 Instance
+    
+    :param entity_type: The CamelCase entity type string to format
+    :return: A more readable formatted string
+    """
+    if not entity_type:
+        return entity_type
+    
+    # Build the result by analyzing character patterns
+    result = []
+    i = 0
+    
+    while i < len(entity_type):
+        # Check if we're at the start of an acronym (2+ consecutive uppercase letters)
+        if i < len(entity_type) - 1 and entity_type[i].isupper() and entity_type[i + 1].isupper():
+            # Collect consecutive uppercase letters
+            acronym_start = i
+            
+            while i < len(entity_type) and entity_type[i].isupper():
+                if i < len(entity_type) - 1:
+                    next_char = entity_type[i + 1]
+                    
+                    # If next char is lowercase, we've reached the start of a new word
+                    # Keep the last uppercase letter with the new word (e.g., "AWS|Account")
+                    if next_char.islower():
+                        break
+                    
+                    # If next char is a digit, include it (e.g., K8s, EC2)
+                    elif next_char.isdigit():
+                        i += 2  # Include current uppercase and next digit
+                        # If there's more after the digit, continue
+                        if i < len(entity_type):
+                            if entity_type[i].islower():
+                                # End of this acronym (e.g., K8s|Namespace)
+                                break
+                            # Otherwise continue collecting
+                        break
+                i += 1
+            
+            # Extract the acronym
+            acronym = entity_type[acronym_start:i]
+            
+            # For acronyms longer than 3 chars, check if we should split them
+            # (e.g., "AWSS3" -> "AWS" + "S3")
+            if len(acronym) > 3:
+                # Try to find a reasonable split point
+                # Look for a sequence that could be a separate acronym (2-3 chars at the end)
+                for split_point in range(len(acronym) - 1, max(2, len(acronym) - 4), -1):
+                    potential_second = acronym[split_point:]
+                    if len(potential_second) >= 2 and len(potential_second) <= 3:
+                        # Split here
+                        if result and result[-1] != ' ':
+                            result.append(' ')
+                        result.append(acronym[:split_point])
+                        result.append(' ')
+                        result.append(potential_second)
+                        acronym = None
+                        break
+            
+            if acronym:
+                # Add space before acronym if not at start
+                if result and result[-1] != ' ':
+                    result.append(' ')
+                result.append(acronym)
+            
+        # Regular word character (single uppercase letter)
+        elif entity_type[i].isupper():
+            # Add space before uppercase if not at start and previous wasn't a space
+            if result and result[-1] != ' ':
+                result.append(' ')
+            result.append(entity_type[i])
+            i += 1
+        else:
+            # Lowercase or other characters
+            result.append(entity_type[i])
+            i += 1
+    
+    return str(''.join(result).strip())
+
+
+def flatten_dict(d: dict, wildcard_index=True, preserve_list_of_dicts=False) -> dict[str, str]:
     """
     Flattens a nested dictionary, list, or set.
     For lists and sets, the index will be used as the key.
     :param d: The dictionary to flatten.
     :param wildcard_index: Whether to use a wildcard index for lists and sets. If True, all indices will be replaced with `[*]`. Values will be stored as a list.
+    :param preserve_list_of_dicts: If True, lists containing dictionaries are preserved as-is (not flattened).
     :return: A flattened dictionary.
     """
     def _flatten(obj, parent_key=""):
@@ -239,7 +383,11 @@ def flatten_dict(d: dict, wildcard_index=True) -> dict[str, str]:
                 new_key = f"{parent_key}.{k}" if parent_key else k
                 items.extend(_flatten(v, new_key).items())
         elif isinstance(obj, (list, set)):
-            if wildcard_index:
+            # Check if we should preserve this list of dicts
+            if preserve_list_of_dicts and isinstance(obj, list) and len(obj) > 0 and isinstance(obj[0], dict):
+                # Keep list of dicts as-is
+                items.append((parent_key, obj))
+            elif wildcard_index:
                 new_key = f"{parent_key}.[*]" if parent_key else "[*]"
                 vals = []
                 for i, v in enumerate(obj):

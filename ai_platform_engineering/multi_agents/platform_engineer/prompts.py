@@ -1,13 +1,15 @@
 from langchain.prompts import PromptTemplate
 import yaml
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
+from ai_platform_engineering.multi_agents.platform_engineer.rag_prompts import get_rag_instructions
 
 import logging
 logger = logging.getLogger(__name__)
 
+# ============================================================================
 # Load YAML config
 def load_prompt_config(path="prompt_config.yaml"):
     if os.path.exists(path):
@@ -72,8 +74,28 @@ skills_prompt = PromptTemplate(
 # This allows CustomSubAgents to be created with proper react agent graphs
 
 # Generate system prompt dynamically based on tools and their tasks
-def generate_system_prompt(agents: Dict[str, Any]):
+def generate_system_prompt(agents: Dict[str, Any], rag_config: Optional[Dict[str, Any]] = None):
+  """
+  Generate system prompt with static RAG tools.
+  
+  Args:
+      agents: Dictionary of available agents with their descriptions
+  
+  Returns:
+      System prompt string
+  """
   tool_instructions = []
+  
+  # Always add static RAG tools instruction (no dynamic datasources/entities)
+  logger.info("Adding static RAG tools to system prompt")
+  
+  # Get RAG instructions from rag_prompts module
+  if rag_config:
+    rag_instructions = get_rag_instructions(rag_config)
+  else:
+    rag_instructions = "RAG tools are not available"
+  
+  # Add instructions for each agent
   for agent_key, agent_card in agents.items():
 
     logger.debug(f"Generating tool instruction for agent_key: {agent_key}")
@@ -115,9 +137,11 @@ def generate_system_prompt(agents: Dict[str, Any]):
   yaml_template = config.get("system_prompt_template")
 
   logger.debug(f"System Prompt Template: {yaml_template}")
+  logger.debug(f"Tool Instructions: {tool_instructions_str}")
 
   if yaml_template:
       return yaml_template.format(
+        rag_instructions=rag_instructions,
         tool_instructions=tool_instructions_str
       )
   else:
