@@ -32,6 +32,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "langchain>=0.1.0",
     "pydantic>=2.0.0",
+    "prometheus_client>=0.20.0",
     "rich (>=14.0.0,<15.0.0)",
     "sseclient (>=0.0.27,<0.0.28)",
     "cnoe-agent-utils (>=0.3.2,<0.4.0)",
