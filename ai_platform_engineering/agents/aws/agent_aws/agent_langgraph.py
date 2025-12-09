@@ -61,6 +61,28 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         """Return the agent's name."""
         return "aws"
 
+    async def stream(
+        self, query: str, sessionId: str, trace_id: str = None
+    ):
+        """
+        Override stream to automatically append current date to every query.
+
+        This eliminates the need for the agent to call a separate tool to get the date.
+        The date is injected at the end of the user's query automatically.
+        """
+        from datetime import datetime
+
+        # Append current date to the end of the query
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Inject date info at the end of the query
+        enhanced_query = f"{query}\n\n[Current date: {current_date}, Current date/time: {current_datetime}]"
+
+        # Call parent stream with enhanced query
+        async for event in super().stream(enhanced_query, sessionId, trace_id):
+            yield event
+
     def get_system_instruction(self) -> str:
         """Return the system prompt for the AWS agent."""
         config = _aws_prompt_config
@@ -82,6 +104,7 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         account_names = [acc['name'] for acc in accounts] if accounts else []
 
         # Start with base prompt - CRITICAL: Put account info at the VERY TOP
+        # Note: Current date is automatically appended to every user query, so agent always has access to it
         system_prompt_parts = [f"""You are an AWS CLI Expert Agent with access to {len(accounts)} AWS accounts.
 
 **YOUR AWS ACCOUNTS (you KNOW this - answer if asked!):**
@@ -355,7 +378,7 @@ Agent: s3api get-bucket-acl --bucket my-bucket-1  ❌ HALLUCINATED NAME!
 **Example - CORRECT (List First):**
 ```
 User: "check S3 bucket ACLs in eticloud"
-Agent: 
+Agent:
   1. s3api list-buckets --profile eticloud  ✅ GET ACTUAL BUCKETS
      → Output: bucket-prod-data, backup-logs-2024, static-assets
   2. s3api get-bucket-acl --bucket bucket-prod-data --profile eticloud  ✅ REAL NAME
