@@ -470,8 +470,28 @@ eks_kubectl_execute(
     profile="<profile>",
     region="<region>"
 )
-# If any found, get detailed description:
-# eks_kubectl_execute(..., kubectl_command="describe pod <pod-name> -n <namespace>")
+# If any problematic pods found, investigate further:
+# 1. Get detailed description:
+eks_kubectl_execute(
+    cluster_name="<cluster-name>",
+    kubectl_command="describe pod <pod-name> -n <namespace>",
+    profile="<profile>",
+    region="<region>"
+)
+# 2. Get current logs:
+eks_kubectl_execute(
+    cluster_name="<cluster-name>",
+    kubectl_command="logs <pod-name> -n <namespace> --tail 100",
+    profile="<profile>",
+    region="<region>"
+)
+# 3. For CrashLoopBackOff, get previous container logs:
+eks_kubectl_execute(
+    cluster_name="<cluster-name>",
+    kubectl_command="logs <pod-name> -n <namespace> --previous",
+    profile="<profile>",
+    region="<region>"
+)
 
 # 7.4 Check pod resource usage (if metrics-server installed)
 eks_kubectl_execute(
@@ -642,8 +662,10 @@ eks describe-addon --cluster-name comn-dev-use2-1 --addon-name coredns --profile
 kubectl get pods -n kube-system -o wide
 kubectl get pods --all-namespaces -o wide
 kubectl get pods --all-namespaces --field-selector=status.phase!=Running,status.phase!=Succeeded
-kubectl top pods --all-namespaces
 kubectl describe pod app-backend-xxx -n default
+kubectl logs app-backend-xxx -n default --tail 100
+kubectl logs app-backend-xxx -n default --previous
+kubectl top pods --all-namespaces
 ...
 ```
 
