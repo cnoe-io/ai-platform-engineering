@@ -567,7 +567,9 @@ class EKSKubectlToolInput(BaseModel):
         description=(
             "The kubectl command to execute (without 'kubectl' prefix). "
             "Examples: 'get nodes', 'get pods -n kube-system', 'describe node <node-name>', "
-            "'get pods --all-namespaces', 'top nodes' (if metrics-server installed)"
+            "'get pods --all-namespaces', 'logs <pod-name> -n <namespace>', "
+            "'logs <pod-name> -n <namespace> --tail 100', 'logs <pod-name> -n <namespace> --previous', "
+            "'top nodes' (if metrics-server installed)"
         )
     )
     profile: str = Field(
@@ -607,13 +609,21 @@ class EKSKubectlTool(BaseTool):
     Use this tool to:
     - Check node readiness: 'get nodes' or 'describe nodes'
     - Check pod health: 'get pods -n kube-system' or 'get pods --all-namespaces'
+    - Get pod logs: 'logs <pod-name> -n <namespace>' or 'logs <pod-name> -n <namespace> --previous'
     - Check node conditions: 'describe node <node-name>'
-    - Get resource details: 'get services', 'get deployments'
+    - Get resource details: 'get services', 'get deployments', 'describe pod <pod-name> -n <namespace>'
     - Check metrics: 'top nodes', 'top pods' (if metrics-server available)
+    - Execute any kubectl command (get, describe, logs, top, exec, etc.)
     
     The tool automatically handles kubeconfig setup and cleanup.
     
     Input should be cluster name, kubectl command (without 'kubectl'), profile, and optional region.
+    
+    Examples:
+    - kubectl_command="logs app-backend-abc123 -n production"
+    - kubectl_command="logs app-backend-abc123 -n production --tail 100"
+    - kubectl_command="logs app-backend-abc123 -n production --previous" (logs from previous container crash)
+    - kubectl_command="describe pod app-backend-abc123 -n production"
     """
     args_schema: type[BaseModel] = EKSKubectlToolInput
 
