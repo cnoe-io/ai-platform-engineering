@@ -640,9 +640,16 @@ Use this as the reference point for all date calculations. When users say "today
             - content: str
         """
         agent_name = self.get_agent_name()
-        debug_print(f"Starting stream for {agent_name} with query: {query}", banner=True)
+        
+        # Auto-inject current date into every query for all agents
+        # This eliminates need for agents to call get_current_date() tool
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        enhanced_query = f"{query}\n\n[Current date: {current_date}, Current date/time: {current_datetime}]"
+        
+        debug_print(f"Starting stream for {agent_name} with query: {enhanced_query}", banner=True)
 
-        inputs: dict[str, Any] = {'messages': [('user', query)]}
+        inputs: dict[str, Any] = {'messages': [('user', enhanced_query)]}
         config: RunnableConfig = self.tracing.create_config(sessionId)
 
         configurable = dict(config.get("configurable", {})) if isinstance(config.get("configurable", {}), dict) else {}

@@ -177,12 +177,20 @@ class AIPlatformEngineerMAS:
       logger.debug(f"Received prompt: {prompt}")
       if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("Prompt must be a non-empty string.")
+
+      # Auto-inject current date into every query
+      # This eliminates need for supervisor to call get_current_date() tool
+      from datetime import datetime
+      current_date = datetime.now().strftime("%Y-%m-%d")
+      current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+      date_enhanced_prompt = f"{prompt}\n\n[Current date: {current_date}, Current date/time: {current_datetime}]"
+
       graph = self.get_graph()
       result = await graph.ainvoke({
           "messages": [
               {
                   "role": "user",
-                  "content": prompt
+                  "content": date_enhanced_prompt
               }
           ],
       }, {"configurable": {"thread_id": uuid.uuid4()}})
