@@ -11,7 +11,7 @@ from .tools import AWSCLITool, get_aws_cli_tool, ReflectionTool, get_reflection_
 # when dependencies (like MCP for Strands) are not installed
 def get_strands_agent():
     """Get the Strands-based AWS agent (requires MCP)."""
-    from .agent import AWSAgent, create_agent
+    from .agent_strands import AWSAgent, create_agent
     return AWSAgent, create_agent
 
 def get_langgraph_agent():
