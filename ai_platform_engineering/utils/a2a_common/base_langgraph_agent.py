@@ -648,6 +648,11 @@ Use this as the reference point for all date calculations. When users say "today
         configurable = dict(config.get("configurable", {})) if isinstance(config.get("configurable", {}), dict) else {}
         if sessionId and "thread_id" not in configurable:
             configurable["thread_id"] = sessionId
+        
+        # Set recursion limit for agents that need to process many items
+        # Default LangGraph limit is 25, increase to 100 for "all" queries
+        if "recursion_limit" not in configurable:
+            configurable["recursion_limit"] = 100
 
         # Add metrics callback handler to track MCP tool calls
         callbacks = list(config.get("callbacks") or [])
