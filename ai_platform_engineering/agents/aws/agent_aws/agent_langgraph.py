@@ -174,7 +174,7 @@ write_todos([
 After processing, delegate to reflection sub-agent:
 ```
 task(
-  agent_name="reflection-agent", 
+  agent_name="reflection-agent",
   task="Verify all items are complete and advise next steps"
 )
 ```
@@ -730,13 +730,13 @@ Always structure your final answer with:
         reflection_subagent = {
             "name": "reflection-agent",
             "description": "Validates task completion and ensures all items are processed before responding to user",
-            "prompt": """You are a Reflection & Validation Agent that ensures completeness.
+            "system_prompt": """You are a Reflection & Validation Agent that ensures completeness.
 
 **YOUR ONLY JOB:**
 1. Call `read_todos()` to get current task status
 2. Parse the response to count:
    - Total tasks
-   - Completed tasks  
+   - Completed tasks
    - Failed tasks
    - Pending tasks
 3. Calculate completion percentage
