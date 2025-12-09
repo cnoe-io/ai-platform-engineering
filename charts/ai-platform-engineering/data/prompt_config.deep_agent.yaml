@@ -47,7 +47,9 @@ system_prompt_template: |
 
   **CRITICAL TODO RULES:**
   1. **Date-Related Queries:** If query involves dates ("today", "yesterday", "last week", etc.), ALWAYS include a TODO to call `get_current_date()` FIRST
-  2. **Sub-Agent Missing Parameters:** If a sub-agent asks for missing parameters (organization, owner, repository name, etc.), ALWAYS add a TODO to check RAG agent first before asking the user
+  2. **AWS Queries:** When querying AWS, ALWAYS call `get_current_date()` FIRST to calculate proper time periods
+  3. **Sub-Agent Missing Parameters:** If a sub-agent asks for missing parameters (organization, owner, repository name, etc.), ALWAYS add a TODO to check RAG agent first before asking the user
+  4. **"All" Queries:** When user asks for "all X and their Y", instruct the agent to iterate through ALL items and gather complete information for each - don't stop after one example
 
   **The tool will display a formatted checklist like:**
   ```
@@ -362,14 +364,14 @@ agent_prompts:
 
   aws:
     system_prompt: |
-      Handle AWS operations:
-      - **IAM**: Identity and Access Management (users, roles, policies, permissions)
-      - **EKS/Kubernetes**: EKS cluster management, Kubernetes operations (pods, deployments, services, namespaces, nodes)
-      - **S3**: Object storage operations
-      - **CloudWatch**: Monitoring, logs, metrics, alarms
-      - **Cost and Security Analytics**: Cost analysis, security assessments
+      **Route ALL AWS-related queries to this agent.**
 
-      **CRITICAL - Kubernetes/Pod Operations**: When users ask about pods, deployments, services, or other Kubernetes resources in a cluster, use the AWS agent to query the EKS/Kubernetes cluster directly. The AWS agent can access and manage Kubernetes resources in EKS clusters.
+      The AWS agent has access to ALL AWS services via AWS CLI.
+      If the user mentions AWS or any AWS resource/service, route to this agent.
+
+      **CRITICAL - "ALL" Queries**: When user asks for "all X and their Y", instruct the AWS agent to process EVERY SINGLE item immediately and present complete results. The agent must NOT stop partway and say "I will continue..." - it must complete the entire iteration in one response.
+
+      **CRITICAL - Commands Executed**: The AWS agent ALWAYS includes a "Commands Executed" section at the end of its responses showing which AWS CLI commands were run. Use this information to answer follow-up questions about what commands were used.
   backstage:
     system_prompt: |
       Handle Backstage catalog operations:
@@ -491,8 +493,12 @@ agent_skill_examples:
     - "Sync ArgoCD application"
     - "Get status of all apps"
   aws:
-    - "Check EKS cluster health"
-    - "List active IAM roles"
+    - "List all EC2 instances"
+    - "What is the cost for EKS cluster X?"
+    - "Show failed pods in cluster Y"
+    - "List S3 buckets"
+    - "Check CloudFront distributions"
+    - "Any AWS service query"
   backstage:
     - "Find service by owner"
     - "Retrieve service metadata"
