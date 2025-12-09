@@ -61,28 +61,6 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
         """Return the agent's name."""
         return "aws"
 
-    async def stream(
-        self, query: str, sessionId: str, trace_id: str = None
-    ):
-        """
-        Override stream to automatically append current date to every query.
-
-        This eliminates the need for the agent to call a separate tool to get the date.
-        The date is injected at the end of the user's query automatically.
-        """
-        from datetime import datetime
-
-        # Append current date to the end of the query
-        current_date = datetime.now().strftime("%Y-%m-%d")
-        current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Inject date info at the end of the query
-        enhanced_query = f"{query}\n\n[Current date: {current_date}, Current date/time: {current_datetime}]"
-
-        # Call parent stream with enhanced query
-        async for event in super().stream(enhanced_query, sessionId, trace_id):
-            yield event
-
     def get_system_instruction(self) -> str:
         """Return the system prompt for the AWS agent."""
         config = _aws_prompt_config
