@@ -803,6 +803,24 @@ kubectl describe pod app-backend-xxx -n default
 kubectl logs app-backend-xxx -n default --tail 100
 kubectl logs app-backend-xxx -n default --previous
 kubectl top pods --all-namespaces
+
+**Kubernetes Events - Debugging Pod Issues:**
+kubectl get events -n <namespace> --sort-by='.lastTimestamp' --field-selector involvedObject.name=<pod-name>
+kubectl get events -n <namespace> --sort-by='.lastTimestamp'  # All events in namespace
+kubectl get events --all-namespaces --sort-by='.lastTimestamp' | grep <keyword>
+
+**Example - User asks "check events for air-backend-dev":**
+```bash
+# Step 1: Determine if air-backend-dev is a pod name or namespace
+kubectl get pods --all-namespaces | grep air-backend-dev
+
+# If it's a namespace:
+kubectl get events -n air-backend-dev --sort-by='.lastTimestamp'
+
+# If it's a pod name in a specific namespace:
+kubectl get events -n <namespace> --field-selector involvedObject.name=air-backend-dev --sort-by='.lastTimestamp'
+```
+
 ...
 ```
 
@@ -988,10 +1006,61 @@ ECR (Container Registry):
 **⚠️ ECR SPECIAL CONFIGURATION - USE PROFILE FOR CROSS-ACCOUNT:**
 ECR repositories may be in a specific account. Use the appropriate profile and region:
 
+**🚨 CRITICAL - AUTOMATIC ECR URL PARSING:**
+When user provides an ECR image URL, AUTOMATICALLY parse it and execute the query:
+
+**ECR URL Format:** `<account-id>.dkr.ecr.<region>.amazonaws.com/<repository>:<tag>`
+**Example:** `626007623524.dkr.ecr.us-east-2.amazonaws.com/air/air-backend:v1`
+
+**PARSING STEPS (DO THIS AUTOMATICALLY):**
+1. Extract account ID: `626007623524`
+2. Map account ID to profile name:
+   - 626007623524 → eticloud
+   - 471112537430 → outshift-common-dev
+   - 637423531539 → outshift-common-staging
+   - 058264538874 → outshift-common-prod
+   - 009736724745 → eti-ci
+   - 509581005347 → cisco-research
+   - 075967417574 → eticloud-demo
+3. Extract region: `us-east-2`
+4. Extract repository: `air/air-backend`
+5. Extract tag: `v1`
+
+**THEN IMMEDIATELY EXECUTE:**
+`ecr describe-images --profile <mapped-profile> --region <region> --repository-name <repository> --image-ids imageTag=<tag>`
+
+**Example:**
+User: "Does 626007623524.dkr.ecr.us-east-2.amazonaws.com/air/air-backend:v1 exist?"
+→ Parse: account=626007623524 (eticloud), region=us-east-2, repo=air/air-backend, tag=v1
+→ Execute: `ecr describe-images --profile eticloud --region us-east-2 --repository-name air/air-backend --image-ids imageTag=v1`
+→ Result: If output is non-empty, image exists. If error or empty, image doesn't exist.
+
+**⚠️ NEVER ASK USER FOR ACCOUNT WHEN URL CONTAINS ACCOUNT ID - PARSE IT AUTOMATICALLY!**
+
 **ECR WORKFLOW - Finding Images and Tags:**
 
 1. **List all repositories:**
    `ecr describe-repositories --profile <account-name> --region <region> --query 'repositories[].repositoryName'`
+
+**REPOSITORY SEARCH STRATEGY:**
+When searching for repositories (e.g., "repos with air"):
+1. **First try exact prefix match:** repos starting with `air/` (e.g., `air/air-backend`, `air/air-ui`)
+2. **Then try substring match:** repos containing `air` anywhere (e.g., `apps/transformers-api`)
+3. Present results grouped: "Repos starting with 'air/': ... | Other repos containing 'air': ..."
+
+**Example - User asks "list repos with air":**
+```bash
+# Step 1: List all repos
+ecr describe-repositories --profile eticloud --region us-east-2 --query 'repositories[].repositoryName'
+
+# Step 2: Parse output and filter
+# Exact prefix: air/air-backend, air/air-ui, air/air-agent
+# Substring: helm/maestro-api, apps/transformers-api
+
+# Step 3: Present grouped results:
+"Repositories starting with 'air/': air/air-backend, air/air-ui, air/air-agent
+Other repositories containing 'air': helm/maestro-api, apps/transformers-api"
+```
 
 2. **List TAGGED images in a repository (to find available tags):**
    `ecr list-images --profile <account-name> --region <region> --repository-name REPO_NAME --filter tagStatus=TAGGED`
