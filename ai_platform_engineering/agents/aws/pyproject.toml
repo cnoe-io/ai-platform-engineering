@@ -32,6 +32,7 @@ dependencies = [
     "mcp>=1.12.3",
     "langchain-mcp-adapters==0.1.11",
     "langgraph==0.5.3",
+    "deepagents>=0.3.0",
     "ai-platform-engineering-utils",
     "prometheus_client>=0.20.0",
 ]
