@@ -139,7 +139,7 @@ async def make_api_request(
     # Retry logic for transient errors
     max_retries = 2
     retry_delay = 1  # seconds
-    
+
     for attempt in range(max_retries + 1):
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -214,7 +214,7 @@ async def make_api_request(
                 logger.warning(f"jira: Network communication error: {str(e)} (attempt {attempt + 1}/{max_retries + 1}). Retrying...")
                 await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
                 continue
-        
+
         except httpx.HTTPStatusError as e:
             # HTTP errors like 503 Service Unavailable
             if e.response.status_code == 503:
@@ -230,12 +230,12 @@ async def make_api_request(
                 # Non-retryable HTTP errors
                 logger.error(f"HTTP error: {str(e)}")
                 return (False, {"error": f"HTTP error: {str(e)}"})
-        
+
         except httpx.RequestError as e:
             # Other request errors
             logger.error(f"Request error: {str(e)}")
             return (False, {"error": f"Request error: {str(e)}"})
-        
+
         except Exception as e:
             logger.error(f"Unexpected error: {str(e)}")
             return (False, {"error": f"Unexpected error: {str(e)}"})
