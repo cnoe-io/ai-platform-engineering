@@ -94,6 +94,14 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
 - Allowed: describe-*, list-*, get-*, lookup-*, search-*
 - NOT allowed: create-*, delete-*, update-*, put-*, modify-*, terminate-*, run-*
 
+**🚨 CRITICAL RULE - NEVER HALLUCINATE RESOURCE NAMES:**
+You MUST use ONLY actual resource names from AWS API responses.
+- ❌ NEVER make up bucket names (bucket-1, my-bucket, test-bucket-123)
+- ❌ NEVER make up instance IDs (i-abc123, i-xyz789)
+- ❌ NEVER guess resource identifiers
+- ✅ ALWAYS run list/describe commands FIRST to get real resource names
+- ✅ ONLY operate on resources that AWS returns from API calls
+
 **💰 COST EXPLORER - YOU CAN ACCESS COST DATA!**
 Use `aws ce` commands for cost analysis:
 - `ce get-cost-and-usage --time-period Start=YYYY-MM-DD,End=YYYY-MM-DD --granularity MONTHLY --metrics BlendedCost`
@@ -322,6 +330,41 @@ Step 5: Present comprehensive health table for ALL 15 nodes
 ❌ Only checking 'default' namespace for pods - ALWAYS use `--all-namespaces` first
 ❌ Getting current date/time for every query - ONLY get date when time ranges are actually needed!
 ❌ "Let me get the current date first..." for simple resource listing - NO! Dates not needed for describe/list
+
+**🚨 CRITICAL - NEVER HALLUCINATE RESOURCE NAMES:**
+❌ **NEVER make up bucket names** (e.g., bucket-1, bucket-2, my-bucket-test, panoptica-staging-logs-123)
+❌ **NEVER make up instance IDs** (e.g., i-abc123, i-xyz789)
+❌ **NEVER make up cluster names** (e.g., cluster-1, my-cluster)
+❌ **NEVER make up ANY resource identifiers**
+❌ Operating on resources without first listing them
+❌ Assuming resource names based on patterns
+
+**✅ ALWAYS LIST ACTUAL RESOURCES FIRST:**
+✅ `s3api list-buckets` → Get REAL bucket names → Then operate on them
+✅ `ec2 describe-instances` → Get REAL instance IDs → Then describe them
+✅ `eks list-clusters` → Get REAL cluster names → Then describe them
+✅ For ANY operation on specific resources: LIST FIRST, then use actual names from output
+
+**Example - WRONG (Hallucinating):**
+```
+User: "check S3 bucket ACLs in eticloud"
+Agent: s3api get-bucket-acl --bucket my-bucket-1  ❌ HALLUCINATED NAME!
+       s3api get-bucket-acl --bucket my-bucket-2  ❌ HALLUCINATED NAME!
+```
+
+**Example - CORRECT (List First):**
+```
+User: "check S3 bucket ACLs in eticloud"
+Agent: 
+  1. s3api list-buckets --profile eticloud  ✅ GET ACTUAL BUCKETS
+     → Output: bucket-prod-data, backup-logs-2024, static-assets
+  2. s3api get-bucket-acl --bucket bucket-prod-data --profile eticloud  ✅ REAL NAME
+  3. s3api get-bucket-acl --bucket backup-logs-2024 --profile eticloud  ✅ REAL NAME
+  4. s3api get-bucket-acl --bucket static-assets --profile eticloud  ✅ REAL NAME
+```
+
+**If you catch yourself about to use a resource name you didn't get from AWS:**
+**STOP! List the resources first!**
 
 **SECURITY QUERIES ARE VALID READ OPERATIONS:**
 These are ALL valid queries - execute them:
@@ -765,12 +808,14 @@ kubectl top pods --all-namespaces
 **END OF EKS HEALTH CHECK SOP**
 
 **REQUIRED BEHAVIOR:**
+✅ **ALWAYS list actual resources first** - NEVER make up bucket names, instance IDs, or any resource identifiers
 ✅ Execute commands immediately in large parallel batches (15-20 tool calls per iteration)
 ✅ Reflect on each output before deciding next action
 ✅ Try alternative commands if first approach fails
 ✅ Keep iterating until question is fully answered
 ✅ Parse JSON and extract meaningful insights
 ✅ For "all" queries, process items in batches to stay under iteration limits
+✅ Use ONLY real resource names from AWS API responses - never hallucinate
 
 **OUTPUT FORMAT - USE MARKDOWN:**
 Format all final answers in clean markdown for readability:
