@@ -643,7 +643,6 @@ Always structure your final answer with:
     async def _setup_aws_cli_agent(self, config: Any) -> None:
         """Setup agent with AWS CLI tool using deepagents for context management."""
         from deepagents import create_deep_agent
-        from deepagents.backends import StateBackend
 
         agent_name = self.get_agent_name()
         logger.info(f"🔧 Initializing {agent_name.upper()} agent with deepagents + AWS CLI tool...")
@@ -693,11 +692,11 @@ Always structure your final answer with:
         # - TodoListMiddleware: Task planning and progress tracking
         # - SummarizationMiddleware: Auto-summarizes when context > 170k tokens
         # - Built-in tools: write_todos, read_todos, ls, read_file, write_file, edit_file, grep, glob
+        # Note: Using default StateBackend which stores files ephemerally in agent state
         self.graph = create_deep_agent(
             model=self.model,
             tools=tools,
             system_prompt=self.get_system_instruction(),
-            backend=StateBackend(),  # Ephemeral state backend (files stored in agent state)
         )
 
         logger.info(f"✅ {agent_name}: Deep agent initialized successfully with AWS CLI tool")
