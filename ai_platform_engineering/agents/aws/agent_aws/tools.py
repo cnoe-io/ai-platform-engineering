@@ -40,11 +40,20 @@ BLOCKED_COMMAND_PATTERNS = [
 ]
 
 # Maximum execution time for CLI commands
-MAX_EXECUTION_TIME = int(os.getenv("AWS_CLI_MAX_EXECUTION_TIME", "120"))
+# Reduced from 120s to 30s to prevent blocking concurrent requests
+AWS_CLI_TIMEOUT = int(os.getenv("AWS_CLI_MAX_EXECUTION_TIME", "30"))
+KUBECTL_TIMEOUT = int(os.getenv("KUBECTL_MAX_EXECUTION_TIME", "45"))
+JQ_TIMEOUT = 10  # jq should be fast
 
 # Maximum output size - keep small to avoid context overflow (128K token limit)
 # 20KB is roughly ~5K tokens, safe for multiple tool calls
 MAX_OUTPUT_SIZE = int(os.getenv("AWS_CLI_MAX_OUTPUT_SIZE", "20000"))
+
+# Concurrency control - limit parallel AWS CLI and kubectl calls to prevent API throttling
+MAX_CONCURRENT_AWS_CALLS = int(os.getenv("MAX_CONCURRENT_AWS_CALLS", "10"))
+MAX_CONCURRENT_KUBECTL_CALLS = int(os.getenv("MAX_CONCURRENT_KUBECTL_CALLS", "5"))
+_aws_cli_semaphore = asyncio.Semaphore(MAX_CONCURRENT_AWS_CALLS)
+_kubectl_semaphore = asyncio.Semaphore(MAX_CONCURRENT_KUBECTL_CALLS)
 
 # AWS profiles configuration
 _aws_profiles_configured = False
@@ -375,24 +384,26 @@ class AWSCLITool(BaseTool):
         if jq_filter:
             logger.info(f"With jq filter: {jq_filter}")
 
-        try:
-            # Execute the command with timeout
-            process = await asyncio.create_subprocess_shell(
-                full_command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ}  # Pass through AWS credentials from environment
-            )
-
+        # Use semaphore to limit concurrent AWS CLI calls
+        async with _aws_cli_semaphore:
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=MAX_EXECUTION_TIME
+                # Execute the command with timeout
+                process = await asyncio.create_subprocess_shell(
+                    full_command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env={**os.environ}  # Pass through AWS credentials from environment
                 )
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                return f"❌ Command timed out after {MAX_EXECUTION_TIME} seconds"
+
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=AWS_CLI_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                    return f"❌ Command timed out after {AWS_CLI_TIMEOUT} seconds"
 
             # Decode output
             stdout_str = stdout.decode("utf-8", errors="replace")
@@ -429,7 +440,7 @@ class AWSCLITool(BaseTool):
 
                         jq_stdout, jq_stderr = await asyncio.wait_for(
                             jq_process.communicate(),
-                            timeout=30  # 30 second timeout for jq
+                            timeout=JQ_TIMEOUT
                         )
 
                         if jq_process.returncode == 0:
@@ -588,14 +599,14 @@ class EKSKubectlToolInput(BaseModel):
 class EKSKubectlTool(BaseTool):
     """
     Tool for executing kubectl commands against EKS clusters.
-    
+
     This tool:
     1. Creates a temporary kubeconfig file
     2. Updates kubeconfig for the specified EKS cluster
     3. Executes kubectl command with the temporary kubeconfig
     4. Cleans up the temporary file
     5. Returns kubectl command output
-    
+
     Useful for:
     - Checking node status and conditions
     - Listing pods and their health
@@ -605,7 +616,7 @@ class EKSKubectlTool(BaseTool):
 
     name: str = "eks_kubectl_execute"
     description: str = """Execute kubectl commands against an EKS cluster.
-    
+
     Use this tool to:
     - Check node readiness: 'get nodes' or 'describe nodes'
     - Check pod health: 'get pods -n kube-system' or 'get pods --all-namespaces'
@@ -614,11 +625,11 @@ class EKSKubectlTool(BaseTool):
     - Get resource details: 'get services', 'get deployments', 'describe pod <pod-name> -n <namespace>'
     - Check metrics: 'top nodes', 'top pods' (if metrics-server available)
     - Execute any kubectl command (get, describe, logs, top, exec, etc.)
-    
+
     The tool automatically handles kubeconfig setup and cleanup.
-    
+
     Input should be cluster name, kubectl command (without 'kubectl'), profile, and optional region.
-    
+
     Examples:
     - kubectl_command="logs app-backend-abc123 -n production"
     - kubectl_command="logs app-backend-abc123 -n production --tail 100"
@@ -637,18 +648,18 @@ class EKSKubectlTool(BaseTool):
         """Execute kubectl command against EKS cluster with temporary kubeconfig."""
         import subprocess
         import tempfile
-        
+
         logger.info(f"🔧 EKS Kubectl: cluster={cluster_name}, profile={profile}, command='{kubectl_command}'")
-        
+
         kubeconfig_path = None
         try:
             # Create temporary kubeconfig file
             temp_kubeconfig = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.kubeconfig')
             kubeconfig_path = temp_kubeconfig.name
             temp_kubeconfig.close()
-            
+
             logger.debug(f"Created temporary kubeconfig: {kubeconfig_path}")
-            
+
             # Build aws eks update-kubeconfig command
             update_cmd_parts = [
                 "aws", "eks", "update-kubeconfig",
@@ -656,20 +667,20 @@ class EKSKubectlTool(BaseTool):
                 "--kubeconfig", kubeconfig_path,
                 "--profile", profile
             ]
-            
+
             if region:
                 update_cmd_parts.extend(["--region", region])
-            
+
             # Update kubeconfig
             logger.debug(f"Updating kubeconfig: {' '.join(update_cmd_parts)}")
             update_result = subprocess.run(
                 update_cmd_parts,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=MAX_EXECUTION_TIME,
+                timeout=KUBECTL_TIMEOUT,
                 check=False
             )
-            
+
             if update_result.returncode != 0:
                 error_msg = update_result.stderr.decode('utf-8') if update_result.stderr else "Unknown error"
                 logger.error(f"Failed to update kubeconfig: {error_msg}")
@@ -677,28 +688,28 @@ class EKSKubectlTool(BaseTool):
                 if kubeconfig_path:
                     os.unlink(kubeconfig_path)
                 return f"❌ Failed to configure kubectl for cluster {cluster_name}: {error_msg}"
-            
+
             logger.info(f"✅ Kubeconfig updated for cluster {cluster_name}")
-            
+
             # Execute kubectl command with temporary kubeconfig
             kubectl_cmd_parts = ["kubectl"] + shlex.split(kubectl_command)
-            
+
             # Set KUBECONFIG environment variable
             env = os.environ.copy()
             env["KUBECONFIG"] = kubeconfig_path
-            
+
             logger.debug(f"Executing kubectl: {' '.join(kubectl_cmd_parts)}")
-            
+
             # Execute with timeout
             kubectl_result = subprocess.run(
                 kubectl_cmd_parts,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
-                timeout=MAX_EXECUTION_TIME,
+                timeout=KUBECTL_TIMEOUT,
                 check=False
             )
-            
+
             # Clean up temporary kubeconfig
             try:
                 if kubeconfig_path:
@@ -706,35 +717,35 @@ class EKSKubectlTool(BaseTool):
                     logger.debug(f"Cleaned up temporary kubeconfig: {kubeconfig_path}")
             except Exception as e:
                 logger.warning(f"Failed to clean up kubeconfig: {e}")
-            
+
             # Process output
             output = kubectl_result.stdout.decode('utf-8') if kubectl_result.stdout else ""
             error_output = kubectl_result.stderr.decode('utf-8') if kubectl_result.stderr else ""
-            
+
             if kubectl_result.returncode != 0:
                 logger.error(f"kubectl command failed: {error_output}")
                 return f"❌ kubectl command failed:\n{error_output}"
-            
+
             # Truncate if too large
             if len(output) > MAX_OUTPUT_SIZE:
                 truncated_msg = f"\n\n⚠️ Output truncated (original: {len(output)} bytes, showing first {MAX_OUTPUT_SIZE} bytes)"
                 output = output[:MAX_OUTPUT_SIZE] + truncated_msg
                 logger.warning(f"Output truncated from {len(output)} to {MAX_OUTPUT_SIZE} bytes")
-            
+
             logger.info(f"✅ kubectl command successful ({len(output)} bytes)")
-            
+
             return f"✅ kubectl {kubectl_command}\n\n{output}"
-            
+
         except subprocess.TimeoutExpired:
-            logger.error(f"kubectl command timed out after {MAX_EXECUTION_TIME}s")
+            logger.error(f"kubectl command timed out after {KUBECTL_TIMEOUT}s")
             # Clean up temp file
             try:
                 if kubeconfig_path:
                     os.unlink(kubeconfig_path)
             except:
                 pass
-            return f"❌ Command timed out after {MAX_EXECUTION_TIME} seconds"
-            
+            return f"❌ Command timed out after {KUBECTL_TIMEOUT} seconds"
+
         except Exception as e:
             logger.error(f"Error executing kubectl command: {str(e)}", exc_info=True)
             # Clean up temp file
@@ -752,8 +763,18 @@ class EKSKubectlTool(BaseTool):
         profile: str,
         region: Optional[str] = None
     ) -> str:
-        """Async version - delegates to sync implementation."""
-        return self._run(cluster_name, kubectl_command, profile, region)
+        """Async version - uses semaphore to limit concurrent kubectl calls."""
+        async with _kubectl_semaphore:
+            # Run in executor since _run() is sync
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,
+                self._run,
+                cluster_name,
+                kubectl_command,
+                profile,
+                region
+            )
 
 
 def get_eks_kubectl_tool() -> EKSKubectlTool:
