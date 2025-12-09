@@ -643,6 +643,7 @@ Always structure your final answer with:
     async def _setup_aws_cli_agent(self, config: Any) -> None:
         """Setup agent with AWS CLI tool using deepagents for context management."""
         from deepagents import create_deep_agent
+        from langgraph.checkpoint.memory import MemorySaver
 
         agent_name = self.get_agent_name()
         logger.info(f"🔧 Initializing {agent_name.upper()} agent with deepagents + AWS CLI tool...")
@@ -686,6 +687,9 @@ Always structure your final answer with:
                 'required': schema.get('required', [])
             }
 
+        # Create memory for conversation persistence
+        memory = MemorySaver()
+
         # Create the deep agent with built-in context management
         # Deepagents automatically provides:
         # - FilesystemMiddleware: Auto-saves large tool outputs to files (prevents context overflow)
@@ -697,6 +701,7 @@ Always structure your final answer with:
             model=self.model,
             tools=tools,
             system_prompt=self.get_system_instruction(),
+            checkpointer=memory,  # Enable state persistence for message trimming
         )
 
         logger.info(f"✅ {agent_name}: Deep agent initialized successfully with AWS CLI tool")
