@@ -145,23 +145,55 @@ You operate in a ReAct (Reasoning + Acting) loop with REFLECTION:
 ✓ You've explored relevant related information
 ✓ You can provide specific, actionable insights
 
-**CRITICAL - "ALL" QUERIES - BATCH OPERATIONS EFFICIENTLY:**
-When user asks for "all X" or "all X and their Y":
-1. First, list ALL items across all accounts/regions and count them
-2. Process items in LARGE BATCHES - make 15-20 tool calls per ReAct iteration
-3. Use LangGraph's parallel tool calling - call multiple tools at once in a single step
-4. Continue until all items are processed
-5. Present final complete table
+**📋 CRITICAL - PLANNING WORKFLOW FOR "ALL" QUERIES:**
 
-Example workflow for "all 50 resources and their property":
-- Step 1: List all resources → Found 50 resources
-- Step 2: Call tool for items 1-20 (20 parallel tool calls in ONE iteration)
-- Step 3: Call tool for items 21-40 (20 parallel tool calls in ONE iteration)
-- Step 4: Call tool for items 41-50 (10 parallel tool calls in ONE iteration)
-- Step 5: Present final table with all 50 resources
+When user asks for "all X" or "all X and their Y", you MUST follow this workflow:
 
-**KEY: Make 15-20 parallel tool calls per iteration to minimize total iterations**
-**This keeps iterations under the recursion limit (100) while processing all items**
+**PHASE 1: PLANNING (Use write_todos)**
+1. Analyze scope: Count total items (e.g., "200 S3 buckets across 7 accounts")
+2. Identify sub-tasks per item (e.g., 3 checks per bucket = 600 tasks)
+3. Create a detailed TODO list using write_todos:
+
+Example for "all S3 buckets and their security":
+```
+write_todos([
+  {{"id": "discover", "content": "List all S3 buckets in 7 accounts", "status": "pending"}},
+  {{"id": "analyze-bucket-1", "content": "Analyze bucket-1 security (policy, ACL, public access)", "status": "pending"}},
+  {{"id": "analyze-bucket-2", "content": "Analyze bucket-2 security (policy, ACL, public access)", "status": "pending"}},
+  ...  # One TODO per bucket
+  {{"id": "aggregate", "content": "Compile results into final table", "status": "pending"}}
+])
+```
+
+**PHASE 2: EXECUTION (Process in Batches)**
+1. Execute tasks in batches of 10-20 items using parallel tool calls
+2. After EACH batch, update TODO status to "completed"
+3. Continue until all items processed
+
+**PHASE 3: VALIDATION (Use reflection-agent sub-agent)**
+After processing, delegate to reflection sub-agent:
+```
+task(
+  agent_name="reflection-agent", 
+  task="Verify all items are complete and advise next steps"
+)
+```
+
+**PHASE 4: DECISION**
+- If reflection returns "INCOMPLETE": Continue processing remaining items (go to Phase 2)
+- If reflection returns "COMPLETE": Present final results to user
+
+**⚠️ NEVER respond to user BEFORE reflection-agent confirms 100% completion!**
+
+Example full workflow for "all 50 S3 buckets":
+1. write_todos([...50 bucket analysis tasks...])
+2. Process buckets 1-20, update TODOs
+3. Delegate to reflection-agent → "INCOMPLETE, 20/50 done"
+4. Process buckets 21-40, update TODOs
+5. Delegate to reflection-agent → "INCOMPLETE, 40/50 done"
+6. Process buckets 41-50, update TODOs
+7. Delegate to reflection-agent → "COMPLETE, 50/50 done"
+8. Present final results
 
 **FORBIDDEN RESPONSES:**
 ❌ "To find X, you would need to..."
@@ -182,6 +214,9 @@ Example workflow for "all 50 resources and their property":
 ❌ "I will proceed with the remaining..." - NO, do it NOW in this response
 ❌ Showing one example when user asked for "all" - iterate through ALL items
 ❌ Asking for confirmation partway through - complete ALL items first
+❌ "If you need further analysis..." - NO! Use reflection-agent to verify completion first
+❌ Responding to user WITHOUT calling reflection-agent for "all" queries
+❌ Stopping at 5/100 items and saying "done" - reflection-agent will catch this!
 
 **SECURITY QUERIES ARE VALID READ OPERATIONS:**
 These are ALL valid queries - execute them:
@@ -690,20 +725,66 @@ Always structure your final answer with:
         # Create memory for conversation persistence
         memory = MemorySaver()
 
-        # Create the deep agent with built-in context management
+        # Define reflection sub-agent for validating task completion
+        # This sub-agent ensures "all" queries actually process ALL items
+        reflection_subagent = {
+            "name": "reflection-agent",
+            "description": "Validates task completion and ensures all items are processed before responding to user",
+            "prompt": """You are a Reflection & Validation Agent that ensures completeness.
+
+**YOUR ONLY JOB:**
+1. Call `read_todos()` to get current task status
+2. Parse the response to count:
+   - Total tasks
+   - Completed tasks  
+   - Failed tasks
+   - Pending tasks
+3. Calculate completion percentage
+4. Return your assessment:
+
+**If ANY tasks are pending or failed:**
+```
+STATUS: INCOMPLETE
+Progress: X/Y tasks completed (Z%)
+Pending: [count] tasks remaining
+Failed: [count] tasks failed
+INSTRUCTION: Main agent must continue processing remaining tasks
+```
+
+**If ALL tasks are completed:**
+```
+STATUS: COMPLETE
+Progress: Y/Y tasks completed (100%)
+INSTRUCTION: Main agent may now present final results to user
+```
+
+**CRITICAL RULES:**
+- NEVER return "COMPLETE" if any tasks have status="pending"
+- NEVER allow main agent to respond to user before 100% completion
+- Be strict - even 99.9% (199/200) is INCOMPLETE
+- If no TODOs exist, return "NO_PLAN" (user didn't ask for "all")
+""",
+            "model": self.model,  # Use same model as main agent
+        }
+
+        # Create the deep agent with built-in context management + reflection sub-agent
         # Deepagents automatically provides:
         # - FilesystemMiddleware: Auto-saves large tool outputs to files (prevents context overflow)
-        # - TodoListMiddleware: Task planning and progress tracking
+        # - TodoListMiddleware: Task planning and progress tracking (write_todos, read_todos)
         # - SummarizationMiddleware: Auto-summarizes when context > 170k tokens
-        # - Built-in tools: write_todos, read_todos, ls, read_file, write_file, edit_file, grep, glob
+        # - SubAgentMiddleware: Delegates to reflection-agent for validation
+        # - Built-in tools: write_todos, read_todos, ls, read_file, write_file, edit_file, grep, glob, task
         # Note: Using default StateBackend which stores files ephemerally in agent state
         self.graph = create_deep_agent(
             model=self.model,
             tools=tools,
             system_prompt=self.get_system_instruction(),
             checkpointer=memory,  # Enable state persistence for message trimming
+            subagents=[reflection_subagent],  # Add reflection sub-agent for completion validation
         )
 
         logger.info(f"✅ {agent_name}: Deep agent initialized successfully with AWS CLI tool")
         logger.info(f"✅ {agent_name}: Context offloading enabled (large results saved to files)")
         logger.info(f"✅ {agent_name}: Auto-summarization enabled (context > 170k tokens)")
+        logger.info(f"✅ {agent_name}: Reflection sub-agent configured for completion validation")
+        logger.info(f"✅ {agent_name}: Planning mode enabled (write_todos, read_todos, task delegation)")
