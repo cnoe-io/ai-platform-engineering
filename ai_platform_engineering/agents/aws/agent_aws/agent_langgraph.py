@@ -430,6 +430,84 @@ eks describe-cluster --name <cluster-name> \\
 # Check: API, audit, authenticator, controllerManager, scheduler logs enabled?
 ```
 
+**PHASE 7: KUBERNETES PODS STATUS** 🆕
+```bash
+# Use eks_kubectl_execute tool for all kubectl commands below
+
+# 7.1 Check system pods in kube-system namespace
+eks_kubectl_execute(
+    cluster_name="<cluster-name>",
+    kubectl_command="get pods -n kube-system -o wide",
+    profile="<profile>",
+    region="<region>"
+)
+# Check for EACH system pod:
+#   - Status: Running (not Pending, CrashLoopBackOff, Error, ImagePullBackOff)
+#   - Ready: X/X (all containers ready)
+#   - Restarts: Low count (high restarts indicate issues)
+#   - Age: Reasonable uptime
+# Critical system pods: coredns, kube-proxy, aws-node (vpc-cni), ebs-csi-controller
+
+# 7.2 Check ALL pods across all namespaces
+eks_kubectl_execute(
+    cluster_name="<cluster-name>",
+    kubectl_command="get pods --all-namespaces -o wide",
+    profile="<profile>",
+    region="<region>"
+)
+# Summary metrics to calculate:
+#   - Total pods
+#   - Pods in Running state
+#   - Pods in Pending state (⚠️ scheduling issues?)
+#   - Pods in Failed/Error state (❌ critical)
+#   - Pods in CrashLoopBackOff (❌ application issues)
+#   - Total restart count across all pods
+
+# 7.3 Check for problematic pods (non-Running)
+eks_kubectl_execute(
+    cluster_name="<cluster-name>",
+    kubectl_command="get pods --all-namespaces --field-selector=status.phase!=Running,status.phase!=Succeeded",
+    profile="<profile>",
+    region="<region>"
+)
+# If any found, get detailed description:
+# eks_kubectl_execute(..., kubectl_command="describe pod <pod-name> -n <namespace>")
+
+# 7.4 Check pod resource usage (if metrics-server installed)
+eks_kubectl_execute(
+    cluster_name="<cluster-name>",
+    kubectl_command="top pods --all-namespaces",
+    profile="<profile>",
+    region="<region>"
+)
+# Identify:
+#   - Pods consuming high CPU (>80% of limit)
+#   - Pods consuming high memory (>80% of limit)
+#   - Potential resource exhaustion
+
+# 7.5 Check for evicted pods (disk/memory pressure)
+eks_kubectl_execute(
+    cluster_name="<cluster-name>",
+    kubectl_command="get pods --all-namespaces --field-selector=status.phase=Failed",
+    profile="<profile>",
+    region="<region>"
+)
+# Filter for Reason: Evicted (indicates node resource pressure)
+
+# 7.6 Check critical workload pods health
+# For important namespaces (production, default, etc):
+eks_kubectl_execute(
+    cluster_name="<cluster-name>",
+    kubectl_command="get pods -n default -o json",
+    profile="<profile>",
+    region="<region>"
+)
+# Parse JSON to check:
+#   - containerStatuses[].ready == true
+#   - containerStatuses[].restartCount (low is good)
+#   - status.conditions[] (type=Ready, status=True)
+```
+
 **HEALTH CHECK OUTPUT FORMAT:**
 Present results in this structure:
 
@@ -482,34 +560,90 @@ Present results in this structure:
 
 ---
 
+### 🐳 Kubernetes Pods Status
+
+**Overall Pod Health:**
+| Metric | Count | Status |
+|--------|-------|--------|
+| **Total Pods** | 45 | - |
+| **Running** | 43 | ✅ |
+| **Pending** | 1 | ⚠️ |
+| **Failed/CrashLoop** | 1 | ❌ |
+| **Total Restarts** | 12 | ⚠️ |
+
+**System Pods (kube-system):**
+| Pod Name | Ready | Status | Restarts | Age | Node |
+|----------|-------|--------|----------|-----|------|
+| coredns-xxx | 1/1 | Running | 0 | 30d | node-1 | ✅
+| aws-node-xxx | 2/2 | Running | 1 | 30d | node-1 | ✅
+| kube-proxy-xxx | 1/1 | Running | 0 | 30d | node-1 | ✅
+| ebs-csi-controller-xxx | 6/6 | Running | 0 | 15d | node-2 | ✅
+
+**Problematic Pods:**
+| Namespace | Pod Name | Status | Reason | Action Required |
+|-----------|----------|--------|--------|-----------------|
+| default | app-backend-xxx | CrashLoopBackOff | Error | ❌ Check logs |
+| production | worker-xxx | Pending | Insufficient CPU | ⚠️ Scale nodes |
+
+**Resource Usage (Top Pods):**
+| Namespace | Pod | CPU | Memory | Status |
+|-----------|-----|-----|--------|--------|
+| production | api-server-xxx | 850m | 1.2Gi | ⚠️ High CPU |
+| default | redis-xxx | 120m | 2.8Gi | ⚠️ High Memory |
+
+---
+
 ### 🚨 Issues & Recommendations
 
-**⚠️ Warnings (2):**
+**❌ Critical (1):**
+1. Pod `app-backend-xxx` in `default` namespace is in CrashLoopBackOff
+   - Container exiting with error code 1
+   - Recommendation: Check application logs with `kubectl logs app-backend-xxx -n default`
+   - Immediate action required
+
+**⚠️ Warnings (3):**
 1. AMI version `1.28.0-20241015` for node group `ng-app-workers` is outdated
    - Latest: `1.28.0-20241205`
    - Recommendation: Update to latest AMI for security patches
-
+   
 2. VPC CNI add-on outdated (v1.15.0 → v1.16.0)
    - Recommendation: Upgrade to v1.16.0 for bug fixes
 
-**✅ All Clear (5):**
+3. Pod `worker-xxx` in `production` namespace is Pending
+   - Reason: Insufficient CPU resources
+   - Recommendation: Scale node group or adjust pod resource requests
+
+**✅ All Clear (6):**
 - All EC2 instances passing health checks
 - Control plane healthy and responsive
 - Node group at desired capacity
 - CoreDNS and kube-proxy up to date
-- No degraded add-ons
+- System pods (kube-system) all Running
+- 43/45 application pods Running (95.6%)
 
 ---
 
 ### 📝 Commands Executed:
 ```bash
-# Total: 12 commands across 6 phases
+# Total: 18 commands across 7 phases
+
+# Phase 1-2: Cluster & Nodes
 eks describe-cluster --name comn-dev-use2-1 --profile outshift-common-dev
 eks list-nodegroups --name comn-dev-use2-1 --profile outshift-common-dev
 eks describe-nodegroup --cluster-name comn-dev-use2-1 --nodegroup-name ng-app-workers --profile outshift-common-dev
 ec2 describe-instance-status --instance-ids i-abc123 i-def456 i-ghi789 --profile outshift-common-dev
+
+# Phase 3: Add-ons
 eks list-addons --cluster-name comn-dev-use2-1 --profile outshift-common-dev
 eks describe-addon --cluster-name comn-dev-use2-1 --addon-name vpc-cni --profile outshift-common-dev
+eks describe-addon --cluster-name comn-dev-use2-1 --addon-name coredns --profile outshift-common-dev
+
+# Phase 7: Kubernetes Pods
+kubectl get pods -n kube-system -o wide
+kubectl get pods --all-namespaces -o wide
+kubectl get pods --all-namespaces --field-selector=status.phase!=Running,status.phase!=Succeeded
+kubectl top pods --all-namespaces
+kubectl describe pod app-backend-xxx -n default
 ...
 ```
 
