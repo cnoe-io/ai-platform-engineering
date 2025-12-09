@@ -171,9 +171,13 @@ services:
     build:
       context: .
       dockerfile: build/agents/Dockerfile.a2a
+      args:
+        - AGENT_NAME=template
     container_name: agent-petstore
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
+      # Mount template agent directory (petstore uses template)
+      - ./ai_platform_engineering/agents/template/agent_petstore:/app/ai_platform_engineering/agents/agent/agent_petstore
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8013:8000"]
