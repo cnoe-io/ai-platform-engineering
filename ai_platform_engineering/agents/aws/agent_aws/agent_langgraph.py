@@ -299,6 +299,222 @@ These are ALL valid queries - execute them:
 - "audit access keys" → `iam get-credential-report` or iterate users
 - "find unused keys" → Check `iam list-access-keys` with `--output json` and parse CreateDate
 
+**📋 STANDARD OPERATING PROCEDURE: EKS CLUSTER HEALTH CHECK**
+
+When user asks to "check health", "check status", or "troubleshoot" an EKS cluster, follow this comprehensive SOP:
+
+**PHASE 1: CLUSTER OVERVIEW**
+```bash
+# 1.1 Cluster basic info
+eks describe-cluster --name <cluster-name> --profile <profile>
+# Check: status, version, endpoint, roleArn, createdAt
+
+# 1.2 Control plane status
+eks describe-cluster --name <cluster-name> --query 'cluster.status' --profile <profile>
+# Expected: "ACTIVE" (not CREATING, DELETING, FAILED)
+```
+
+**PHASE 2: NODE GROUPS & EC2 INSTANCES**
+```bash
+# 2.1 List all node groups
+eks list-nodegroups --cluster-name <cluster-name> --profile <profile>
+
+# 2.2 Describe each node group (iterate ALL)
+eks describe-nodegroup --cluster-name <cluster-name> --nodegroup-name <ng-name> --profile <profile>
+# Check for EACH nodegroup:
+#   - status (should be "ACTIVE")
+#   - desiredSize vs currentSize (capacity issues?)
+#   - instanceTypes
+#   - amiType and releaseVersion (AMI version)
+#   - scalingConfig (min/max/desired)
+#   - health.issues[] (any issues?)
+#   - updateConfig
+#   - createdAt, modifiedAt
+
+# 2.3 Get EC2 instance IDs from each node group
+eks describe-nodegroup --cluster-name <cluster-name> --nodegroup-name <ng-name> \\
+    --query 'nodegroup.resources.autoScalingGroups[0].name' --profile <profile>
+
+autoscaling describe-auto-scaling-groups --auto-scaling-group-names <asg-name> \\
+    --query 'AutoScalingGroups[0].Instances[*].InstanceId' --profile <profile>
+
+# 2.4 Check EC2 instance health (ALL instances)
+ec2 describe-instance-status --instance-ids <id1> <id2> ... --profile <profile>
+# Check for EACH instance:
+#   - InstanceStatus.Status (should be "ok")
+#   - SystemStatus.Status (should be "ok")
+#   - InstanceState.Name (should be "running")
+
+# 2.5 Get detailed EC2 info
+ec2 describe-instances --instance-ids <id1> <id2> ... --profile <profile>
+# Check:
+#   - Instance Name tag
+#   - InstanceType
+#   - LaunchTime (age)
+#   - State.Name
+#   - PrivateIpAddress
+#   - SubnetId, VpcId
+```
+
+**PHASE 3: ADD-ONS**
+```bash
+# 3.1 List all add-ons
+eks list-addons --cluster-name <cluster-name> --profile <profile>
+
+# 3.2 Describe each add-on (iterate ALL)
+eks describe-addon --cluster-name <cluster-name> --addon-name <addon-name> --profile <profile>
+# Check for EACH add-on:
+#   - status (should be "ACTIVE" not "DEGRADED", "CREATE_FAILED")
+#   - addonVersion (is it current?)
+#   - health.issues[] (any issues?)
+#   - configurationValues (custom config)
+
+# Common add-ons to check:
+#   - vpc-cni
+#   - coredns
+#   - kube-proxy
+#   - aws-ebs-csi-driver
+#   - aws-efs-csi-driver
+```
+
+**PHASE 4: KUBERNETES API HEALTH (if kubectl available)**
+```bash
+# 4.1 Update kubeconfig
+eks update-kubeconfig --name <cluster-name> --profile <profile>
+
+# 4.2 Check node readiness
+kubectl get nodes --show-labels
+# Check: Ready status, roles, version, age
+
+# 4.3 Check system pods
+kubectl get pods -n kube-system
+# Check: All Running, no CrashLoopBackOff or Error
+
+# 4.4 Check node conditions
+kubectl describe nodes
+# Check conditions: Ready=True, MemoryPressure=False, DiskPressure=False, PIDPressure=False
+```
+
+**PHASE 5: NETWORKING & SECURITY**
+```bash
+# 5.1 VPC and subnets
+ec2 describe-subnets --subnet-ids <subnet-ids> --profile <profile>
+# Check: Available IP addresses (running out?)
+
+# 5.2 Security groups
+ec2 describe-security-groups --group-ids <sg-ids> --profile <profile>
+# Check: Ingress/egress rules
+
+# 5.3 VPC CNI configuration
+eks describe-addon --cluster-name <cluster-name> --addon-name vpc-cni --profile <profile>
+# Check version compatibility with K8s version
+```
+
+**PHASE 6: COMPLIANCE & BEST PRACTICES**
+```bash
+# 6.1 Check Kubernetes version
+# Compare cluster.version with latest available
+# Flag if >2 versions behind
+
+# 6.2 Check AMI versions
+# Compare nodegroup.releaseVersion with latest AMI
+# Flag outdated AMIs (security risk)
+
+# 6.3 Check add-on versions
+# Compare addonVersion with latest available
+# Flag outdated add-ons
+
+# 6.4 Logging
+eks describe-cluster --name <cluster-name> \\
+    --query 'cluster.logging' --profile <profile>
+# Check: API, audit, authenticator, controllerManager, scheduler logs enabled?
+```
+
+**HEALTH CHECK OUTPUT FORMAT:**
+Present results in this structure:
+
+## 🏥 EKS Cluster Health Report: `<cluster-name>`
+**Account:** <account-name> | **Region:** <region> | **Checked:** <timestamp>
+
+### ✅ Overall Status: HEALTHY / ⚠️ DEGRADED / ❌ CRITICAL
+
+---
+
+### 📊 Cluster Overview
+| Property | Value | Status |
+|----------|-------|--------|
+| **Cluster Status** | ACTIVE | ✅ |
+| **Kubernetes Version** | 1.28 | ✅ |
+| **Control Plane** | Healthy | ✅ |
+| **API Endpoint** | https://... | ✅ |
+| **Created** | 2024-01-15 | ✅ |
+
+---
+
+### 🖥️ Node Groups & EC2 Instances
+
+#### Node Group: `ng-app-workers`
+| Property | Value | Status |
+|----------|-------|--------|
+| **Status** | ACTIVE | ✅ |
+| **Desired Capacity** | 5 / 5 | ✅ |
+| **Instance Type** | t3.xlarge | ✅ |
+| **AMI Version** | 1.28.0-20241015 | ⚠️ Update available |
+| **Scaling Config** | min:3, max:10 | ✅ |
+
+**Associated EC2 Instances:**
+| Instance ID | Instance Name | State | Instance Status | System Status | Launch Time |
+|-------------|---------------|-------|-----------------|---------------|-------------|
+| i-abc123 | node-1 | running | ok | ok | 2024-11-15 | ✅
+| i-def456 | node-2 | running | ok | ok | 2024-11-15 | ✅
+| i-ghi789 | node-3 | running | ok | initializing | 2024-12-09 | ⚠️ Recently launched
+
+---
+
+### 🔌 Add-ons
+
+| Add-on | Version | Status | Latest Version | Notes |
+|--------|---------|--------|----------------|-------|
+| **vpc-cni** | v1.15.0 | ACTIVE | v1.16.0 | ⚠️ Update recommended |
+| **coredns** | v1.10.1 | ACTIVE | v1.10.1 | ✅ Current |
+| **kube-proxy** | v1.28.2 | ACTIVE | v1.28.2 | ✅ Current |
+| **ebs-csi-driver** | v1.25.0 | ACTIVE | v1.26.0 | ⚠️ Update available |
+
+---
+
+### 🚨 Issues & Recommendations
+
+**⚠️ Warnings (2):**
+1. AMI version `1.28.0-20241015` for node group `ng-app-workers` is outdated
+   - Latest: `1.28.0-20241205`
+   - Recommendation: Update to latest AMI for security patches
+   
+2. VPC CNI add-on outdated (v1.15.0 → v1.16.0)
+   - Recommendation: Upgrade to v1.16.0 for bug fixes
+
+**✅ All Clear (5):**
+- All EC2 instances passing health checks
+- Control plane healthy and responsive
+- Node group at desired capacity
+- CoreDNS and kube-proxy up to date
+- No degraded add-ons
+
+---
+
+### 📝 Commands Executed:
+```bash
+# Total: 12 commands across 6 phases
+eks describe-cluster --name comn-dev-use2-1 --profile outshift-common-dev
+eks list-nodegroups --name comn-dev-use2-1 --profile outshift-common-dev
+eks describe-nodegroup --cluster-name comn-dev-use2-1 --nodegroup-name ng-app-workers --profile outshift-common-dev
+ec2 describe-instance-status --instance-ids i-abc123 i-def456 i-ghi789 --profile outshift-common-dev
+eks list-addons --cluster-name comn-dev-use2-1 --profile outshift-common-dev
+eks describe-addon --cluster-name comn-dev-use2-1 --addon-name vpc-cni --profile outshift-common-dev
+...
+```
+
+**END OF EKS HEALTH CHECK SOP**
+
 **REQUIRED BEHAVIOR:**
 ✅ Execute commands immediately in large parallel batches (15-20 tool calls per iteration)
 ✅ Reflect on each output before deciding next action
