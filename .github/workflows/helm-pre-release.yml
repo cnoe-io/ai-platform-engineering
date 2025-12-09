@@ -26,7 +26,7 @@ jobs:
         (
           github.event_name == 'pull_request' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
-          startsWith(github.head_ref, 'pre/')
+          (startsWith(github.head_ref, 'prebuild-helm/') || startsWith(github.head_ref, 'prebuild/'))
         ) ||
         (
           github.event_name == 'pull_request_target' &&
@@ -92,9 +92,11 @@ jobs:
       - name: 🏷️ Generate Pre-release Versions
         id: version
         run: |
-          # Get branch name and remove 'pre/' prefix if present
+          # Get branch name and remove 'prebuild-helm/' or 'prebuild/' prefix if present
           BRANCH_NAME="${{ github.head_ref }}"
-          CLEAN_BRANCH=$(echo "${BRANCH_NAME#pre/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
+          BRANCH_NO_PREFIX="${BRANCH_NAME#prebuild/}"
+          BRANCH_NO_PREFIX="${BRANCH_NO_PREFIX#prebuild-helm/}"
+          CLEAN_BRANCH=$(echo "${BRANCH_NO_PREFIX}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
           # Get commit count for this PR
           COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
@@ -222,6 +224,11 @@ jobs:
             const ragStackChanged = '${{ steps.detect.outputs.rag-stack-changed }}' === 'true';
             const aiPlatformChanged = '${{ steps.detect.outputs.ai-platform-changed }}' === 'true';
             const isFork = '${{ github.event.pull_request.head.repo.full_name }}' !== '${{ github.repository }}';
+            const branchName = '${{ github.head_ref }}';
+            const isPrebuildAllBranch = branchName.startsWith('prebuild/');
+            const cleanBranch = '${{ steps.version.outputs.clean-branch }}';
+            const commitCount = '${{ steps.version.outputs.commit-count }}';
+            const imageTag = `${cleanBranch}-${commitCount}`;
 
             let body = `## 📦 Pre-release Helm Charts Published\n\n`;
 
@@ -249,7 +256,25 @@ jobs:
               body += `\`\`\`\n\n`;
             }
 
-            const isBranchTrigger = '${{ github.head_ref }}'.startsWith('pre/');
+            // Add image override guidance for prebuild/ branches (builds both helm + images)
+            if (isPrebuildAllBranch) {
+              body += `---\n\n`;
+              body += `### 🐳 Using with Prebuild Images\n\n`;
+              body += `This PR uses the \`prebuild/\` branch prefix, which also triggers Docker image builds.\n\n`;
+              body += `**Prebuild image tag:** \`${imageTag}\`\n\n`;
+              body += `To use the Helm chart with the prebuild images, override the image tags:\n\n`;
+              body += `\`\`\`bash\n`;
+              body += `helm upgrade --install ai-platform oci://${registry}/ai-platform-engineering \\\n`;
+              body += `  --version ${aiPlatformChanged ? '${{ steps.version.outputs.ai-platform-version }}' : '<chart-version>'} \\\n`;
+              body += `  --set supervisor.image.tag=${imageTag} \\\n`;
+              body += `  --set agents.argocd.image.tag=${imageTag} \\\n`;
+              body += `  --set agents.jira.image.tag=${imageTag}\n`;
+              body += `  # ... add other agent image overrides as needed\n`;
+              body += `\`\`\`\n\n`;
+              body += `> 💡 Check the Docker image workflow comments on this PR for the full list of available prebuild images.\n\n`;
+            }
+
+            const isBranchTrigger = branchName.startsWith('prebuild-helm/') || isPrebuildAllBranch;
             const isLabelTrigger = !isBranchTrigger;
 
             body += `> **Note:** These pre-release versions will be automatically cleaned up when the PR is closed or merged.\n\n`;
@@ -274,7 +299,8 @@ jobs:
         (
           github.event.action == 'closed' &&
           (
-            startsWith(github.event.pull_request.head.ref, 'pre/') ||
+            startsWith(github.event.pull_request.head.ref, 'prebuild-helm/') ||
+            startsWith(github.event.pull_request.head.ref, 'prebuild/') ||
             contains(github.event.pull_request.labels.*.name, 'helm-prerelease')
           )
         ) ||
@@ -291,9 +317,11 @@ jobs:
 
       - name: 🗑️ Delete Pre-release Chart Versions
         run: |
-          # Get branch name and remove 'pre/' prefix if present
+          # Get branch name and remove 'prebuild-helm/' or 'prebuild/' prefix if present
           BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
-          CLEAN_BRANCH=$(echo "${BRANCH_NAME#pre/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
+          BRANCH_NO_PREFIX="${BRANCH_NAME#prebuild/}"
+          BRANCH_NO_PREFIX="${BRANCH_NO_PREFIX#prebuild-helm/}"
+          CLEAN_BRANCH=$(echo "${BRANCH_NO_PREFIX}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
           echo "🧹 Cleaning up pre-release versions for branch: $CLEAN_BRANCH"
 

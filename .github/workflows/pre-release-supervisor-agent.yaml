@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'pull_request' &&
-      startsWith(github.head_ref, 'prebuild/') &&
+      (startsWith(github.head_ref, 'prebuild-images/') || startsWith(github.head_ref, 'prebuild/')) &&
       github.event.action != 'closed'
     outputs:
       should_build: ${{ steps.filter.outputs.core }}
@@ -53,7 +53,7 @@ jobs:
     needs: determine-changes
     if: |
       needs.determine-changes.outputs.should_build == 'true' &&
-      startsWith(github.head_ref, 'prebuild/') &&
+      (startsWith(github.head_ref, 'prebuild-images/') || startsWith(github.head_ref, 'prebuild/')) &&
       github.event.action != 'closed'
     permissions:
       contents: read
@@ -85,7 +85,8 @@ jobs:
         shell: bash
         run: |
           BRANCH="${{ github.head_ref || github.ref_name }}"
-          BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
+          BRANCH_NO_PREFIX="${BRANCH#prebuild-images/}"
+          BRANCH_NO_PREFIX="${BRANCH_NO_PREFIX#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
           git fetch origin ${{ github.event.pull_request.base.ref }}
           COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
@@ -145,7 +146,7 @@ jobs:
 
   cleanup-images:
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
+    if: github.event.action == 'closed' && (startsWith(github.event.pull_request.head.ref, 'prebuild-images/') || startsWith(github.event.pull_request.head.ref, 'prebuild/'))
     permissions:
       contents: read
       packages: write
@@ -161,7 +162,12 @@ jobs:
           script: |
             const owner = process.env.OWNER;
             const rawBranch = process.env.HEAD_REF || '';
-            const branchNoPrefix = rawBranch.startsWith('prebuild/') ? rawBranch.substring('prebuild/'.length) : rawBranch;
+            let branchNoPrefix = rawBranch;
+            if (rawBranch.startsWith('prebuild-images/')) {
+              branchNoPrefix = rawBranch.substring('prebuild-images/'.length);
+            } else if (rawBranch.startsWith('prebuild/')) {
+              branchNoPrefix = rawBranch.substring('prebuild/'.length);
+            }
             const sanitized = branchNoPrefix.replace(/\//g, '-');
             const prefix = `${sanitized}-`;
             const packageName = process.env.PACKAGE_NAME;

@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))) ||
-      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
+      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/') && !startsWith(github.head_ref, 'prebuild-images/')) ||
       (github.event_name == 'workflow_dispatch')
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
@@ -110,7 +110,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     needs: [determine-agents, set-all-agents]
-    if: (needs.determine-agents.outputs.should_build == 'true' && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/')))
+    if: (needs.determine-agents.outputs.should_build == 'true' && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/') && !startsWith(github.head_ref, 'prebuild-images/')))
     permissions:
       contents: read
       packages: write
