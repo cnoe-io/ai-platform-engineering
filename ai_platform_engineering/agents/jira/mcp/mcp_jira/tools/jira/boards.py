@@ -10,6 +10,7 @@ from typing import Annotated, Optional, Dict, Any
 
 from pydantic import Field
 from mcp_jira.api.client import make_api_request
+from mcp_jira.config import MCP_JIRA_READ_ONLY, MCP_JIRA_BOARDS_DELETE_PROTECTION
 from mcp_jira.tools.jira.constants import check_read_only, check_boards_delete_protection
 
 # Configure logging
@@ -76,7 +77,11 @@ async def get_all_boards(
 
     if board_type:
         if board_type not in ["scrum", "kanban", "simple"]:
-            raise ValueError(f"Invalid board type '{board_type}'. Must be: scrum, kanban, or simple")
+            error_result = {
+                "success": False,
+                "error": f"Invalid board type '{board_type}'. Must be: scrum, kanban, or simple"
+            }
+            return json.dumps(error_result, indent=2, ensure_ascii=False)
         params["type"] = board_type
 
     if name:
@@ -92,7 +97,11 @@ async def get_all_boards(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch boards: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch boards: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -151,19 +160,41 @@ async def create_board(
     Reference:
         https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/#api-rest-agile-1-0-board-post
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     if len(name) >= 255:
-        raise ValueError(f"Board name must be less than 255 characters. Current length: {len(name)}")
+        error_result = {
+            "success": False,
+            "error": f"Board name must be less than 255 characters. Current length: {len(name)}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     if board_type not in ["scrum", "kanban"]:
-        raise ValueError(f"Invalid board type '{board_type}'. Must be 'scrum' or 'kanban'")
+        error_result = {
+            "success": False,
+            "error": f"Invalid board type '{board_type}'. Must be 'scrum' or 'kanban'"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     if location_type not in ["project", "user"]:
-        raise ValueError(f"Invalid location type '{location_type}'. Must be 'project' or 'user'")
+        error_result = {
+            "success": False,
+            "error": f"Invalid location type '{location_type}'. Must be 'project' or 'user'"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     if location_type == "project" and not project_key_or_id:
-        raise ValueError("project_key_or_id is required when location_type is 'project'")
+        error_result = {
+            "success": False,
+            "error": "project_key_or_id is required when location_type is 'project'"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(f"create_board called with name={name}, type={board_type}, filter_id={filter_id}")
 
@@ -188,7 +219,11 @@ async def create_board(
     )
 
     if not success:
-        raise ValueError(f"Failed to create board: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to create board: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -223,7 +258,11 @@ async def get_board(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch board {board_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch board {board_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -250,8 +289,21 @@ async def delete_board(
     Reference:
         https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/#api-rest-agile-1-0-board-boardid-delete
     """
-    check_read_only()
-    check_boards_delete_protection()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
+    
+    # Check delete protection
+    if MCP_JIRA_BOARDS_DELETE_PROTECTION:
+        error_result = {
+            "success": False,
+            "error": "Board deletion is protected. Set MCP_JIRA_BOARDS_DELETE_PROTECTION=false to enable."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(f"delete_board called with board_id={board_id}")
 
@@ -261,7 +313,11 @@ async def delete_board(
     )
 
     if not success:
-        raise ValueError(f"Failed to delete board {board_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to delete board {board_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(
         {
@@ -303,7 +359,11 @@ async def get_board_configuration(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch configuration for board {board_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch configuration for board {board_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -383,7 +443,11 @@ async def get_board_issues(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch issues for board {board_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch issues for board {board_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -440,7 +504,11 @@ async def get_board_sprints(
 
     if state:
         if state not in ["future", "active", "closed"]:
-            raise ValueError(f"Invalid state '{state}'. Must be: future, active, or closed")
+            error_result = {
+                "success": False,
+                "error": f"Invalid state '{state}'. Must be: future, active, or closed"
+            }
+            return json.dumps(error_result, indent=2, ensure_ascii=False)
         params["state"] = state
 
     success, response = await make_api_request(
@@ -450,7 +518,11 @@ async def get_board_sprints(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch sprints for board {board_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch sprints for board {board_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -511,7 +583,11 @@ async def get_board_epics(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch epics for board {board_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch epics for board {board_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -564,7 +640,11 @@ async def get_board_versions(
 
     if released:
         if released not in ["released", "unreleased"]:
-            raise ValueError(f"Invalid released value '{released}'. Must be: released or unreleased")
+            error_result = {
+                "success": False,
+                "error": f"Invalid released value '{released}'. Must be: released or unreleased"
+            }
+            return json.dumps(error_result, indent=2, ensure_ascii=False)
         params["released"] = released
 
     success, response = await make_api_request(
@@ -574,7 +654,11 @@ async def get_board_versions(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch versions for board {board_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch versions for board {board_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -625,7 +709,11 @@ async def get_board_projects(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch projects for board {board_id}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch projects for board {board_id}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
