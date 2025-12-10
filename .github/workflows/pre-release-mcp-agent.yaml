@@ -166,7 +166,8 @@ jobs:
       - name: Build and Push MCP Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          # Use MCP-specific context for faster builds and proper uv.lock handling
+          context: ${{ env.AGENT_DIR }}/mcp
           file: ${{ steps.dockerfile.outputs.path }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}

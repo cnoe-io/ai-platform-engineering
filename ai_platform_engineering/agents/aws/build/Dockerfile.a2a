@@ -10,10 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy necessary directories for the build
-COPY --chown=root:root ./ai_platform_engineering/__init__.py /app/ai_platform_engineering/
-COPY --chown=root:root ./ai_platform_engineering/utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root ./ai_platform_engineering/agents/aws /app/ai_platform_engineering/agents/aws/
+# Copy utils from named build context (provided via --build-context utils=...)
+COPY --from=utils --chown=root:root . /app/ai_platform_engineering/utils/
+# Copy agent files from main context (the agent directory itself)
+COPY --chown=root:root . /app/ai_platform_engineering/agents/aws/
 
 # Set working directory to the AWS agent
 WORKDIR /app/ai_platform_engineering/agents/aws
