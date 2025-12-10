@@ -137,26 +137,30 @@ test-compose-generator-coverage: setup-venv ## Run docker-compose generator test
 	@. .venv/bin/activate && uv add pytest pytest-cov pyyaml --dev
 	@. .venv/bin/activate && uv run python -m pytest scripts/test_generate_docker_compose.py -v --cov=generate_docker_compose --cov-report=term-missing --cov-report=html
 
-test: setup-venv ## Install dependencies and run tests using pytest
-	@echo "Installing ai_platform_engineering, agents, and argocd..."
+test-supervisor: setup-venv ## Run tests for supervisor/main workspace only
+	@echo "Running main workspace tests..."
 	@. .venv/bin/activate && uv add pytest-asyncio --group unittest
-	@. .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
-	@. .venv/bin/activate && uv add ai_platform_engineering/agents/komodor --dev
-
 	@echo "Running general project tests..."
-	@. .venv/bin/activate && PYTHONPATH=. uv run pytest --ignore=integration --ignore=ai_platform_engineering/knowledge_bases/rag/tests --ignore=ai_platform_engineering/agents/argocd/mcp/tests --ignore=ai_platform_engineering/multi_agents/tests --ignore=volumes --ignore=docker-compose
+	@. .venv/bin/activate && PYTHONPATH=. uv run pytest --ignore=integration \
+		--ignore=ai_platform_engineering/knowledge_bases/rag/tests \
+		--ignore=ai_platform_engineering/agents \
+		--ignore=ai_platform_engineering/multi_agents/tests \
+		--ignore=volumes --ignore=docker-compose
 
+test-agents: ## Run tests for all agents (in their own environments)
 	@echo ""
 	@echo "Running ArgoCD MCP tests..."
-	@. .venv/bin/activate && cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
+	@cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
 
 	@echo ""
 	@echo "Running Jira MCP tests..."
-	@. .venv/bin/activate && cd ai_platform_engineering/agents/jira/mcp && $(MAKE) test
+	@cd ai_platform_engineering/agents/jira/mcp && $(MAKE) test
 
 	@echo ""
 	@echo "Skipping RAG module tests (temporarily disabled)..."
 	@echo "✓ RAG tests skipped"
+
+test: test-supervisor test-agents ## Run all tests (supervisor + agents)
 
 ## ========== Multi-Agent Tests ==========
 
