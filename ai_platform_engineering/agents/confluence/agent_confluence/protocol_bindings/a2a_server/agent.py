@@ -47,7 +47,7 @@ class ConfluenceAgent(BaseLangGraphAgent):
         return ResponseFormat
 
     def get_mcp_config(self, server_path: str) -> dict:
-        """Return MCP configuration for Confluence."""
+        """Return MCP configuration for Confluence (stdio mode only)."""
         confluence_token = os.getenv("ATLASSIAN_TOKEN")
         if not confluence_token:
             raise ValueError("ATLASSIAN_TOKEN must be set as an environment variable.")
@@ -64,6 +64,22 @@ class ConfluenceAgent(BaseLangGraphAgent):
                 "CONFLUENCE_API_URL": confluence_api_url,
             },
             "transport": "stdio",
+        }
+
+    def get_mcp_http_config(self) -> dict | None:
+        """
+        Return custom HTTP MCP configuration for sooperset/mcp-atlassian.
+        
+        This overrides the default HTTP config to NOT send Authorization headers,
+        since sooperset/mcp-atlassian handles auth via environment variables.
+        """
+        mcp_host = os.getenv("MCP_HOST", "localhost")
+        mcp_port = os.getenv("MCP_PORT", "8000")
+        
+        return {
+            "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+            # No Authorization header - server uses env vars for auth
+            "headers": {},
         }
 
     def get_tool_working_message(self) -> str:
