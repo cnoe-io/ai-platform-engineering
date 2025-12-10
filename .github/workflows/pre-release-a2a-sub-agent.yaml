@@ -30,12 +30,13 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
-          # Use 'some' so shared=true if ANY of the patterns match (not ALL)
-          predicate-quantifier: 'some'
+          predicate-quantifier: 'every'
           filters: |
-            shared:
+            shared-utils:
               - 'ai_platform_engineering/utils/**'
+            shared-github:
               - '.github/**'
+            shared-dockerfile:
               - 'build/agents/Dockerfile.a2a'
             argocd:
               - 'ai_platform_engineering/agents/argocd/**'
@@ -98,7 +99,8 @@ jobs:
         id: set-matrix
         uses: actions/github-script@v8
         env:
-          BUILD_ALL: ${{ steps.filter.outputs.shared == 'true' }}
+          # Build all agents if ANY shared file changed (utils, .github, or Dockerfile.a2a)
+          BUILD_ALL: ${{ steps.filter.outputs.shared-utils == 'true' || steps.filter.outputs.shared-github == 'true' || steps.filter.outputs.shared-dockerfile == 'true' }}
           CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
           CHANGED_AWS: ${{ steps.filter.outputs.aws }}
           CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
