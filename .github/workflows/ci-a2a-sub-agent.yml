@@ -56,8 +56,7 @@ jobs:
           script: |
             const agents = JSON.parse(process.env.ALL_AGENTS);
             let filters = 'shared:\n';
-            filters += '  - \'ai_platform_engineering/utils/a2a/a2a_remote_agent_connect.py\'\n';
-            filters += '  - \'ai_platform_engineering/utils/agntcy/agntcy_remote_agent_connect.py\'\n';
+            filters += '  - \'ai_platform_engineering/utils/**\'\n';
             filters += '  - \'.github/**\'\n';
             filters += '  - \'build/agents/Dockerfile.a2a\'\n';
             agents.forEach(agent => {
