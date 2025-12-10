@@ -31,6 +31,7 @@ dependencies = [
     "fastmcp>=2.11.1",
     "mcp-jira",
     "prometheus_client>=0.20.0",
+    "ai-platform-engineering-utils",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]
@@ -69,3 +70,4 @@ ignore = ["F403"]
 
 [tool.uv.sources]
 mcp-jira = { path = "mcp" }
+ai-platform-engineering-utils = { path = "../../utils" }
