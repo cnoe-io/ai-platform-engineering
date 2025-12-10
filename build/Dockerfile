@@ -14,10 +14,11 @@ WORKDIR /app
 # Copy the entire project structure first since uv sync needs it to build
 COPY --chown=root:root . /app/
 
-# Install dependencies into venv (no dev deps)
+# Install dependencies into venv (no dev deps) using committed lock file
+# --locked ensures we use the existing uv.lock without modification
 # Increase timeout for large packages (e.g., pyarrow 39MB)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    UV_HTTP_TIMEOUT=300 uv sync --no-dev
+    UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
 
 # ---------- Stage 2: Final runtime image ----------
 FROM python:3.13-slim
