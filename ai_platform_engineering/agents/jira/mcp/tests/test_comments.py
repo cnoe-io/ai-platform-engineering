@@ -1,5 +1,6 @@
 """Unit tests for Jira comments MCP tools."""
 
+import json
 import pytest
 
 
@@ -161,17 +162,17 @@ class TestAddComment:
 
     @pytest.mark.asyncio
     async def test_add_comment_read_only(self, monkeypatch):
-        """Test that add_comment respects read-only mode."""
-        def mock_check_read_only():
-            raise ValueError("Jira MCP is in read-only mode")
-
-        # Patch where check_read_only is used, not where it's defined
-        monkeypatch.setattr("mcp_jira.tools.jira.comments.check_read_only", mock_check_read_only)
+        """Test that add_comment returns error JSON in read-only mode."""
+        # Mock read-only mode
+        monkeypatch.setattr("mcp_jira.tools.jira.comments.MCP_JIRA_READ_ONLY", True)
 
         from mcp_jira.tools.jira.comments import add_comment
 
-        with pytest.raises(ValueError, match="read-only"):
-            await add_comment("PROJ-123", "Test comment")
+        result = await add_comment("PROJ-123", "Test comment")
+        result_dict = json.loads(result)
+        
+        assert result_dict["success"] is False
+        assert "read-only" in result_dict["error"].lower()
 
 
 class TestUpdateComment:
@@ -239,14 +240,14 @@ class TestDeleteComment:
 
     @pytest.mark.asyncio
     async def test_delete_comment_read_only(self, monkeypatch):
-        """Test that delete_comment respects read-only mode."""
-        def mock_check_read_only():
-            raise ValueError("Jira MCP is in read-only mode")
-
-        # Patch where check_read_only is used, not where it's defined
-        monkeypatch.setattr("mcp_jira.tools.jira.comments.check_read_only", mock_check_read_only)
+        """Test that delete_comment returns error JSON in read-only mode."""
+        # Mock read-only mode
+        monkeypatch.setattr("mcp_jira.tools.jira.comments.MCP_JIRA_READ_ONLY", True)
 
         from mcp_jira.tools.jira.comments import delete_comment
 
-        with pytest.raises(ValueError, match="read-only"):
-            await delete_comment("PROJ-123", "10000")
+        result = await delete_comment("PROJ-123", "10000")
+        result_dict = json.loads(result)
+        
+        assert result_dict["success"] is False
+        assert "read-only" in result_dict["error"].lower()
