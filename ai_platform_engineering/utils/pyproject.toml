@@ -10,10 +10,10 @@ authors = [
 requires-python = ">=3.13,<4.0"
 dependencies = [
     "a2a-sdk==0.3.0",
-    "langchain-core>=1.1.0",
-    "langchain-mcp-adapters>=0.1.11",
-    "langgraph>=0.5.3",
-    "cnoe-agent-utils>=0.3.2",
+    "langchain-core==1.1.2",
+    "langchain-mcp-adapters==0.1.11",
+    "langgraph==1.0.4",
+    "cnoe-agent-utils==0.3.9",
     "pydantic>=2.0.0",
     "requests>=2.25.0",
     "python-dotenv>=0.19.0",

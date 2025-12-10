@@ -68,12 +68,12 @@ requires-dist = [
     { name = "agentevals", specifier = ">=0.0.7" },
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "cnoe-agent-utils", specifier = ">=0.3.2,<0.4.0" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.9" },
     { name = "fastapi", specifier = ">=0.100.0" },
     { name = "fastmcp", specifier = "==2.11.1" },
-    { name = "langchain-core", specifier = ">=1.1.0,<2.0.0" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.1.11,<0.2.0" },
-    { name = "langgraph", specifier = ">=1.0.0,<2.0.0" },
+    { name = "langchain-core", specifier = "==1.1.2" },
+    { name = "langchain-mcp-adapters", specifier = "==0.1.11" },
+    { name = "langgraph", specifier = "==1.0.4" },
     { name = "mcp-argocd", directory = "ai_platform_engineering/agents/argocd/mcp" },
     { name = "prometheus-client", specifier = ">=0.20.0" },
     { name = "pytest", specifier = ">=8.3.5" },
@@ -120,13 +120,13 @@ requires-dist = [
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
     { name = "ai-platform-engineering-utils", directory = "ai_platform_engineering/utils" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "cnoe-agent-utils", specifier = ">=0.3.2,<0.4.0" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.9" },
     { name = "langchain-anthropic", specifier = ">=0.3.13" },
-    { name = "langchain-core", specifier = ">=1.1.0,<2.0.0" },
+    { name = "langchain-core", specifier = "==1.1.2" },
     { name = "langchain-google-genai", specifier = ">=2.1.4" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.1.11,<0.2.0" },
+    { name = "langchain-mcp-adapters", specifier = "==0.1.11" },
     { name = "langchain-openai", specifier = ">=0.3.17" },
-    { name = "langgraph", specifier = ">=1.0.0,<2.0.0" },
+    { name = "langgraph", specifier = "==1.0.4" },
     { name = "mcp-komodor", directory = "ai_platform_engineering/agents/komodor/mcp" },
     { name = "prometheus-client", specifier = ">=0.20.0" },
     { name = "pytest", specifier = ">=8.3.5" },
@@ -191,7 +191,6 @@ dependencies = [
     { name = "langchain-mcp-adapters" },
     { name = "langfuse" },
     { name = "langgraph" },
-    { name = "langgraph-supervisor" },
     { name = "mdformat" },
     { name = "neo4j" },
     { name = "prometheus-client" },
@@ -234,7 +233,7 @@ requires-dist = [
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "click", specifier = ">=8.2.1,<9.0.0" },
-    { name = "cnoe-agent-utils", specifier = ">=0.3.9,<0.4.0" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.9" },
     { name = "config", specifier = ">=0.5.1,<0.6.0" },
     { name = "cryptography", specifier = ">=45.0.7" },
     { name = "cymple", specifier = ">=0.12.0" },
@@ -243,11 +242,10 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "identity-service-sdk", specifier = ">=0.0.1" },
     { name = "langchain", specifier = ">=0.3.25" },
-    { name = "langchain-core", specifier = ">=1.1.0,<2.0.0" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
+    { name = "langchain-core", specifier = "==1.1.2" },
+    { name = "langchain-mcp-adapters", specifier = "==0.1.11" },
     { name = "langfuse", specifier = ">=3.0.8,<4.0.0" },
-    { name = "langgraph", specifier = ">=0.5.3" },
-    { name = "langgraph-supervisor", specifier = ">=0.0.28" },
+    { name = "langgraph", specifier = "==1.0.4" },
     { name = "mdformat", specifier = ">=0.7.0" },
     { name = "neo4j", specifier = ">=6.0.2" },
     { name = "prometheus-client", specifier = ">=0.21.0" },
@@ -309,11 +307,11 @@ dependencies = [
 requires-dist = [
     { name = "a2a-sdk", specifier = "==0.3.0" },
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
-    { name = "cnoe-agent-utils", specifier = ">=0.3.2" },
+    { name = "cnoe-agent-utils", specifier = "==0.3.9" },
     { name = "httpx", specifier = ">=0.24.0" },
-    { name = "langchain-core", specifier = ">=1.1.0" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.1.11" },
-    { name = "langgraph", specifier = ">=0.5.3" },
+    { name = "langchain-core", specifier = "==1.1.2" },
+    { name = "langchain-mcp-adapters", specifier = "==0.1.11" },
+    { name = "langgraph", specifier = "==1.0.4" },
     { name = "mcp", specifier = ">=1.12.3" },
     { name = "prometheus-client", specifier = ">=0.20.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
@@ -2060,19 +2058,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b9/c4/b37b892a408f0b4753b8ad49529c7b5994abab47005940300ab1af9d8a5c/langgraph_sdk-0.2.14.tar.gz", hash = "sha256:fab3dd713a9c7a9cc46dc4b2eb5e555bd0c07b185cfaf813d61b5356ee40886e", size = 130335, upload-time = "2025-12-06T00:23:31.527Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f9/ff/c4d91a2d28a141a58dc8fea408041aff299f59563d43d0e0f458469e10cb/langgraph_sdk-0.2.14-py3-none-any.whl", hash = "sha256:e01ab9867d3b22d3b4ddd46fc0bab67b7684b25ab784a276684f331ca07efabf", size = 66464, upload-time = "2025-12-06T00:23:30.638Z" },
-]
-
-[[package]]
-name = "langgraph-supervisor"
-version = "0.0.28"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "langchain-core" },
-    { name = "langgraph" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e1/68/22a491f4ad72c75c77014219073c77bf580892a75934488e7543b730bdde/langgraph_supervisor-0.0.28.tar.gz", hash = "sha256:58af7c66fd184bf8adaff14ea31270ba576ae0b6809537a74b9fa6cc217b28e3", size = 20968, upload-time = "2025-07-23T14:22:23.025Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/7c/434c06894f8585e7d869dbefdcfc80ec446ff5edde1844085c611dfa896b/langgraph_supervisor-0.0.28-py3-none-any.whl", hash = "sha256:4daaeef17dadf2fe701b7d8ff1b76623dafd80a0a605870c163f67a18f30641e", size = 15925, upload-time = "2025-07-23T14:22:21.902Z" },
 ]
 
 [[package]]
