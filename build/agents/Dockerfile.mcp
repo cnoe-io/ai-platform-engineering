@@ -17,8 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy the entire MCP directory structure first since uv sync needs it to build
-COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME}/mcp ./
+# Copy MCP files from context (the mcp directory itself when using agent-specific context)
+COPY --chown=root:root . ./
 
 # Install dependencies into venv (no dev deps)
 # Increase timeout for large packages (e.g., pyarrow 39MB)
