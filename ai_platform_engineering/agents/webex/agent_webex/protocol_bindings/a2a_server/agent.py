@@ -87,7 +87,7 @@ class WebexAgent(BaseLangGraphAgent):
                 "command": "uv",
                 "args": [
                     "--directory",
-                    server_path,
+                    os.path.dirname(server_path) if server_path.endswith('.py') else server_path,
                     "run",
                     "mcp-server-webex",
                 ],

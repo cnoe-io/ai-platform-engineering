@@ -39,7 +39,8 @@ class AIPlatformEngineerA2ABinding:
   SYSTEM_INSTRUCTION = system_prompt
 
   def __init__(self):
-      self.graph = AIPlatformEngineerMAS().get_graph()
+      self.mas = AIPlatformEngineerMAS()
+      self.graph = None # Lazy loaded
       self.tracing = TracingManager()
       self._execution_plan_sent = False
 
@@ -173,6 +174,14 @@ class AIPlatformEngineerA2ABinding:
   @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None) -> AsyncIterable[dict[str, Any]]:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
+
+      # Ensure graph is initialized
+      await self.mas.ensure_initialized()
+      self.graph = self.mas.get_graph()
+
+      if not self.graph:
+          raise RuntimeError("Failed to initialize Deep Agent graph")
+
       # Reset execution plan state for each new stream
       self._execution_plan_sent = False
 
