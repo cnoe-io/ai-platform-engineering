@@ -18,9 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy only the necessary directories for the agent
-COPY --chown=root:root ./ai_platform_engineering/utils /app/ai_platform_engineering/utils/
-COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME} /app/ai_platform_engineering/agents/agent/
+# Copy utils from named build context (provided via --build-context utils=...)
+COPY --from=utils --chown=root:root . /app/ai_platform_engineering/utils/
+# Copy agent files from main context (the agent directory itself)
+COPY --chown=root:root . /app/ai_platform_engineering/agents/agent/
 
 # Set working directory to the agent directory
 WORKDIR /app/ai_platform_engineering/agents/agent
