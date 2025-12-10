@@ -50,7 +50,6 @@ services:
       - CONFLUENCE_AGENT_HOST=agent-confluence
       - GITHUB_AGENT_HOST=agent-github
       - JIRA_AGENT_HOST=agent-jira
-      - KOMODOR_AGENT_HOST=agent-komodor
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
       - PETSTORE_AGENT_HOST=agent-petstore
       - RAG_AGENT_HOST=agent_rag
@@ -75,7 +74,6 @@ services:
       - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
       - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
       - ENABLE_JIRA=${ENABLE_JIRA:-false}
-      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
       - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
       - ENABLE_PETSTORE=${ENABLE_PETSTORE:-false}
       - ENABLE_RAG=${ENABLE_RAG:-false}
@@ -471,8 +469,6 @@ services:
         condition: service_healthy
     profiles:
       - komodor
-      - all-agents
-
   mcp-komodor:
     build:
       context: .
