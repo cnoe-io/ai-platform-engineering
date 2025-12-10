@@ -24,7 +24,7 @@ dependencies = [
     "identity-service-sdk>=0.0.1",
     "pyjwt>=2.10.1",
     "cryptography>=45.0.7",
-    "langchain-mcp-adapters>=0.1.0",
+    "langchain-mcp-adapters==0.1.0",
     "neo4j>=6.0.2",
     "cymple>=0.12.0",
     "redis>=6.4.0",
