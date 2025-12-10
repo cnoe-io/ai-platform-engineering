@@ -153,6 +153,12 @@ test-mcp-argocd: ## Run ArgoCD MCP tests
 	@echo "Running ArgoCD MCP tests..."
 	@cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
 
+test-agent-argocd: setup-venv ## Run ArgoCD agent unit tests
+	@echo "Running ArgoCD agent unit tests..."
+	@echo "Installing ArgoCD agent..."
+	@. .venv/bin/activate && uv add ai_platform_engineering/agents/argocd --dev
+	@. .venv/bin/activate && PYTHONPATH=. uv run pytest ai_platform_engineering/agents/argocd/tests/ -v
+
 test-mcp-backstage: ## Run Backstage MCP tests
 	@echo "Running Backstage MCP tests..."
 	@cd ai_platform_engineering/agents/backstage/mcp && $(MAKE) test
