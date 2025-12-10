@@ -46,7 +46,6 @@ class AIPlatformEngineerMAS:
     platform_registry.enable_dynamic_monitoring(on_change_callback=self._on_agents_changed)
 
     # Thread safety for graph access
-    # Thread safety for graph access
     self._graph_lock = asyncio.Lock()
     self._graph = None
     self._graph_generation = 0  # Track graph version for debugging
@@ -58,6 +57,13 @@ class AIPlatformEngineerMAS:
     self.rag_tools: List[Any] = [] # the MCP tools returned from the rag server, loaded at startup
 
     self._initialized = False
+    
+    # RAG-related instance variables (for backwards compatibility with docker-compose)
+    self.rag_enabled = ENABLE_RAG  # if the server is not reachable, this will be set to False
+    self.rag_config: Optional[Dict[str, Any]] = None  # the rag config returned from the server
+    self.rag_config_timestamp: Optional[float] = None  # the timestamp of the last time the rag config was fetched
+    self.rag_mcp_client: Optional[MultiServerMCPClient] = None  # the mcp client for the rag server
+    self.rag_tools: List[Any] = []  # the MCP tools returned from the rag server, loaded at startup
 
     logger.info(f"AIPlatformEngineerMAS initialized with {len(platform_registry.agents)} agents")
     if self.rag_enabled:
