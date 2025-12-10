@@ -30,7 +30,8 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
-          predicate-quantifier: 'every'
+          # Use 'some' so shared=true if ANY of the patterns match (not ALL)
+          predicate-quantifier: 'some'
           filters: |
             shared:
               - 'ai_platform_engineering/utils/**'
