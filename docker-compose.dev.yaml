@@ -382,22 +382,16 @@ services:
       - all-agents
 
   mcp-confluence:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=confluence
+    image: ghcr.io/sooperset/mcp-atlassian:latest
     container_name: mcp-confluence
     env_file: [.env]
     ports: ["18003:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/confluence/mcp/mcp_confluence:/app/mcp_confluence
     environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
+      - CONFLUENCE_URL=${CONFLUENCE_URL}
+      - CONFLUENCE_USERNAME=${CONFLUENCE_USERNAME}
+      - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN}
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
