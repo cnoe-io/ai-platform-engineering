@@ -137,14 +137,35 @@ def load_subagent_prompt_config(
         config = load_subagent_prompt_config("argocd")
         system_instruction = config.get_system_instruction()
     """
-    # Determine config file path - use /app/ where ConfigMap is mounted
-    yaml_path = config_path if config_path else f"/app/prompt_config.{agent_name}_agent.yaml"
+    # Determine config file path
+    # 1. User provided path
+    # 2. Docker mount path (/app/...)
+    # 3. Local dev path (charts/ai-platform-engineering/data/...)
+    # 4. Current directory
+    
+    potential_paths = []
+    if config_path:
+        potential_paths.append(config_path)
+    
+    filename = f"prompt_config.{agent_name}_agent.yaml"
+    potential_paths.append(f"/app/{filename}")
+    
+    # Check for local development paths relative to repo root
+    # We assume we are running from repo root or a subdir
+    repo_root = os.getcwd()
+    potential_paths.append(os.path.join(repo_root, "charts/ai-platform-engineering/data", filename))
+    potential_paths.append(os.path.join(repo_root, filename))
 
     logger.info(f"[{agent_name}] Loading subagent prompt config...")
-    logger.info(f"[{agent_name}] Looking for config file: {yaml_path}")
-
-    if not os.path.exists(yaml_path):
-        logger.warning(f"[{agent_name}] Config file NOT FOUND at: {yaml_path}")
+    
+    yaml_path = None
+    for path in potential_paths:
+        if os.path.exists(path):
+            yaml_path = path
+            break
+            
+    if not yaml_path:
+        logger.warning(f"[{agent_name}] Config file NOT FOUND. Searched: {potential_paths}")
         logger.warning(f"[{agent_name}] Returning DEFAULT config (YAML file missing)")
         return _get_default_config(agent_name)
 
