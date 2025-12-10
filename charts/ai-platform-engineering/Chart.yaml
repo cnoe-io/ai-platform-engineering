@@ -6,7 +6,7 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.5.7
+version: 0.5.8
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
@@ -130,6 +130,9 @@ dependencies:
     tags:
       - rag-stack
       - complete
+    import-values: # This is used to automatically render ENABLE_RAG variable for the supervisor configmap
+      - child: agentExports.data
+        parent: global.enabledSubAgents.rag
   # Backstage plugin agent forge
   - name: backstage-plugin-agent-forge
     version: 0.1.0
