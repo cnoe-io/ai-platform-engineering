@@ -376,7 +376,7 @@ services:
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-confluence:
-        condition: service_healthy
+        condition: service_started
     profiles:
       - confluence
       - all-agents
@@ -390,12 +390,6 @@ services:
       - CONFLUENCE_URL=${CONFLUENCE_URL}
       - CONFLUENCE_USERNAME=${CONFLUENCE_USERNAME}
       - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
     profiles:
       - confluence
       - all-agents
