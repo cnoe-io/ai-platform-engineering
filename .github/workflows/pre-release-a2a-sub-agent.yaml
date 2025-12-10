@@ -218,7 +218,8 @@ jobs:
       - name: Build and Push A2A Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          # Use agent-specific context for faster builds and proper uv.lock handling
+          context: ${{ env.AGENT_DIR }}
           file: ${{ steps.dockerfile.outputs.path }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -226,6 +227,9 @@ jobs:
           build-args: |
             AGENT_NAME=${{ matrix.agent }}
             AGENT_PACKAGE=${{ steps.agent_package.outputs.name }}
+          # Additional build context for shared utils
+          build-contexts: |
+            utils=ai_platform_engineering/utils
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
