@@ -17,11 +17,11 @@ dependencies = [
     "agntcy-app-sdk==0.4.0",
     "click>=8.2.0",
     "langchain-anthropic>=0.3.13",
-    "langchain-core (>=1.1.0,<2.0.0)",
+    "langchain-core==1.1.2",
     "langchain-google-genai>=2.1.4",
-    "langchain-mcp-adapters (>=0.1.11,<0.2.0)",
+    "langchain-mcp-adapters==0.1.11",
     "langchain-openai>=0.3.17",
-    "langgraph (>=1.0.0,<2.0.0)",
+    "langgraph==1.0.4",
     "pytest>=8.3.5",
     "tabulate>=0.9.0",
     "uv",
@@ -34,7 +34,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "rich (>=14.0.0,<15.0.0)",
     "sseclient (>=0.0.27,<0.0.28)",
-    "cnoe-agent-utils (>=0.3.2,<0.4.0)",
+    "cnoe-agent-utils==0.3.9",
     "prometheus_client>=0.20.0",
 ]
 
