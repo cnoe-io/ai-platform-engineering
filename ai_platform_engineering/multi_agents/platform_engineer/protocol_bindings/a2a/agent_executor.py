@@ -185,6 +185,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         query_lower = query.lower()
         available_agents = platform_registry.AGENT_ADDRESS_MAPPING
 
+        # SINGLE GRAPH MODE check
+        # If enabled, always route via Deep Agent (COMPLEX) because sub-agents are embedded
+        if os.getenv("SINGLE_GRAPH_MODE", "false").lower() == "true":
+            logger.info("🔗 SINGLE GRAPH MODE detected - routing via Deep Agent for orchestration")
+            return RoutingDecision(
+                type=RoutingType.COMPLEX,
+                agents=[],
+                reason="Single Graph Mode enabled - all routing via Deep Agent"
+            )
+
         # Check for explicit knowledge base queries (direct to RAG)
         # Use configurable keywords for knowledge base requests
         is_knowledge_base_query = any(

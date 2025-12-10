@@ -54,12 +54,23 @@ class PagerDutyAgent(BaseLangGraphAgent):
 
         pagerduty_api_url = os.getenv("PAGERDUTY_API_URL", "https://api.pagerduty.com")
 
+        project_dir = os.path.dirname(os.path.dirname(server_path))
+        venv_python = os.path.join(project_dir, ".venv/bin/python")
+        
+        if os.path.exists(venv_python):
+             command = venv_python
+             args = [server_path]
+        else:
+             command = "uv"
+             args = ["run", "--quiet", "--project", project_dir, server_path]
+
         return {
-            "command": "uv",
-            "args": ["run", "--project", os.path.dirname(server_path), server_path],
+            "command": command,
+            "args": args,
             "env": {
                 "PAGERDUTY_API_KEY": pagerduty_api_key,
                 "PAGERDUTY_API_URL": pagerduty_api_url,
+                "MCP_MODE": "stdio"
             },
             "transport": "stdio",
         }
