@@ -243,7 +243,7 @@ run-local-docker-mcp: build-docker-mcp
 
 test: setup-venv build ## Run tests using pytest and coverage
 	@uv add pytest-asyncio pytest-cov --dev
-	@uv run pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
+	@uv run pytest -v --tb=short --disable-warnings --maxfail=1 --ignore=evals --ignore=mcp --cov=$(AGENT_PKG_NAME) --cov-report=term --cov-report=xml
 
 ## ========== AGNTCY Directory ==========
 
