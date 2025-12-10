@@ -147,15 +147,41 @@ test-supervisor: setup-venv ## Run tests for supervisor/main workspace only
 		--ignore=ai_platform_engineering/multi_agents/tests \
 		--ignore=volumes --ignore=docker-compose
 
-test-agents: ## Run tests for all agents (in their own environments)
-	@echo ""
+## ========== Individual MCP Tests ==========
+
+test-mcp-argocd: ## Run ArgoCD MCP tests
 	@echo "Running ArgoCD MCP tests..."
 	@cd ai_platform_engineering/agents/argocd/mcp && $(MAKE) test
 
-	@echo ""
+test-mcp-backstage: ## Run Backstage MCP tests
+	@echo "Running Backstage MCP tests..."
+	@cd ai_platform_engineering/agents/backstage/mcp && $(MAKE) test
+
+test-mcp-confluence: ## Run Confluence MCP tests
+	@echo "Running Confluence MCP tests..."
+	@cd ai_platform_engineering/agents/confluence/mcp && $(MAKE) test
+
+test-mcp-jira: ## Run Jira MCP tests
 	@echo "Running Jira MCP tests..."
 	@cd ai_platform_engineering/agents/jira/mcp && $(MAKE) test
 
+test-mcp-komodor: ## Run Komodor MCP tests
+	@echo "Running Komodor MCP tests..."
+	@cd ai_platform_engineering/agents/komodor/mcp && $(MAKE) test
+
+test-mcp-pagerduty: ## Run PagerDuty MCP tests
+	@echo "Running PagerDuty MCP tests..."
+	@cd ai_platform_engineering/agents/pagerduty/mcp && $(MAKE) test
+
+test-mcp-slack: ## Run Slack MCP tests
+	@echo "Running Slack MCP tests..."
+	@cd ai_platform_engineering/agents/slack/mcp && $(MAKE) test
+
+test-mcp-splunk: ## Run Splunk MCP tests
+	@echo "Running Splunk MCP tests..."
+	@cd ai_platform_engineering/agents/splunk/mcp && $(MAKE) test
+
+test-agents: test-mcp-argocd test-mcp-jira ## Run tests for all agents (in their own environments)
 	@echo ""
 	@echo "Skipping RAG module tests (temporarily disabled)..."
 	@echo "✓ RAG tests skipped"
