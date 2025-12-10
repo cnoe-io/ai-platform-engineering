@@ -640,14 +640,26 @@ Use this as the reference point for all date calculations. When users say "today
             - content: str
         """
         agent_name = self.get_agent_name()
-        debug_print(f"Starting stream for {agent_name} with query: {query}", banner=True)
+        
+        # Auto-inject current date into every query for all agents
+        # This eliminates need for agents to call get_current_date() tool
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        enhanced_query = f"{query}\n\n[Current date: {current_date}, Current date/time: {current_datetime}]"
+        
+        debug_print(f"Starting stream for {agent_name} with query: {enhanced_query}", banner=True)
 
-        inputs: dict[str, Any] = {'messages': [('user', query)]}
+        inputs: dict[str, Any] = {'messages': [('user', enhanced_query)]}
         config: RunnableConfig = self.tracing.create_config(sessionId)
 
         configurable = dict(config.get("configurable", {})) if isinstance(config.get("configurable", {}), dict) else {}
         if sessionId and "thread_id" not in configurable:
             configurable["thread_id"] = sessionId
+        
+        # Set recursion limit for agents that need to process many items
+        # Default LangGraph limit is 25, increase to 100 for "all" queries
+        if "recursion_limit" not in configurable:
+            configurable["recursion_limit"] = 100
 
         # Add metrics callback handler to track MCP tool calls
         callbacks = list(config.get("callbacks") or [])

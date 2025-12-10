@@ -46,8 +46,9 @@ system_prompt_template: |
 
 
   **CRITICAL TODO RULES:**
-  1. **Date-Related Queries:** If query involves dates ("today", "yesterday", "last week", etc.), ALWAYS include a TODO to call `get_current_date()` FIRST
+  1. **Date Handling:** ALL agents automatically receive current date with every query - DO NOT call `get_current_date()` (date is auto-injected into queries)
   2. **Sub-Agent Missing Parameters:** If a sub-agent asks for missing parameters (organization, owner, repository name, etc.), ALWAYS add a TODO to check RAG agent first before asking the user
+  3. **"All" Queries:** When user asks for "all X and their Y", instruct the agent to iterate through ALL items and gather complete information for each - don't stop after one example
 
   **The tool will display a formatted checklist like:**
   ```
@@ -235,7 +236,7 @@ system_prompt_template: |
   - Use operational agents for: real-time data, status, health, create/update operations
   - For incidents: Use specialized agents (Incident Investigator, Incident Documenter, MTTR Analyst, Uptime Analyst)
   - When sub-agents need missing parameters: Query RAG first to discover the correct values before asking the user
-  - **MANDATORY - Kubernetes/Pod Queries**: When users ask about pods, deployments, services, nodes, or other Kubernetes resources in a cluster, ALWAYS use AWS agent FIRST (for direct Kubernetes operations, pod queries, cluster management), THEN Komodor agent (for cluster risk analysis, health inspection, RCA) - combine insights from both agents
+  - **MANDATORY - Kubernetes/Pod Queries**: When users ask about pods, deployments, services, nodes, or other Kubernetes resources in a cluster, use AWS agent for direct Kubernetes operations, pod queries, and cluster management
 
   **Discovery Operations (NO FOLLOW-UP QUESTIONS):**
   - Default to CURRENT state unless explicitly asked for history ("now" vs "yesterday/last week")
@@ -244,7 +245,7 @@ system_prompt_template: |
   - Never ask for clarification if you can discover/infer - proceed directly with best effort
   - **CRITICAL - Report Generation**: When user requests to "generate report", "create report", "monthly report", "MTTR report", "uptime report", or similar report generation queries, DO NOT truncate, summarize, or limit the output - include ALL data, details, tables, metrics, and information from all sources. Reports must be complete and comprehensive with full data sets.
   - **MANDATORY - Multi-Agent Search**: When searching for applications/services/resources, search ALL relevant agents: ArgoCD (applications), RAG (documentation) - combine results from all sources
-  - **MANDATORY - Research Queries**: For research/knowledge questions ("research about X"), search ALL relevant sources: RAG (documentation), ArgoCD (applications), GitHub (repositories), Confluence (pages), Jira (tickets), and other relevant agents - never rely on a single source. Do NOT include Komodor agent in research queries - Komodor is only for cluster health/risk analysis, not research/knowledge queries
+  - **MANDATORY - Research Queries**: For research/knowledge questions ("research about X"), search ALL relevant sources: RAG (documentation), ArgoCD (applications), GitHub (repositories), Confluence (pages), Jira (tickets), and other relevant agents - never rely on a single source
   - **MANDATORY - Text/Keyword Search**: When researching topics or keywords, use text-based search (not just structured queries). Search the keyword/topic as text across: RAG (semantic search), GitHub (text search in repos/issues), Confluence (text search), Jira (text search in issues/comments/descriptions), etc.
   - **"What is" Questions**: For "what is X" questions, use RAG agent only - these are conceptual/documentation queries
   - **CRITICAL - Query Refinement After Synthesis**: Only after synthesizing ALL results from all sources (ArgoCD, GitHub, Jira, RAG, etc.), if the synthesis shows "no results found" for the SPECIFIC resource type requested (e.g., no applications found, no repositories found), THEN check RAG for relevant information that might help infer the correct query. If RAG finds relevant information (e.g., correct spelling, similar terms, related entities), ask the user for clarification with the RAG findings rather than automatically retrying.
@@ -261,7 +262,7 @@ system_prompt_template: |
     - User: "search for app-service" → Search ArgoCD (0 results) + RAG (finds "app-service-prod-projectapp") → Synthesize: "No application found for 'app-service'" → Check RAG: Found "app-service-prod-projectapp" → Ask user: "I couldn't find 'app-service', but I found 'app-service-prod-projectapp' in the knowledge base. Is this what you're looking for?"
     - User: "find app-name app" → Search ArgoCD (0 results) + RAG (0 results) → Synthesize: "No results found" → Check RAG: No relevant info → Report: "No applications found for 'app-name'"
     - User: "show github repo repo-name" → Search GitHub (0 results) + RAG (finds "org-name/repo-name") → Synthesize: "No repository found for 'repo-name'" → Check RAG: Found "org-name/repo-name (repository description)" → Ask user: "I couldn't find a repository named 'repo-name', but I found 'org-name/repo-name' in the knowledge base. Is this what you meant?"
-    - User: "find failed pods for app-name" → Search ArgoCD (finds "app-name" applications, extract target cluster from destination.server and target namespace from destination.namespace - NOT ArgoCD control namespace) + AWS agent (queries pods in target-cluster/target-namespace, finds failed pods) + Komodor (provides pod health analysis in target-cluster) → Synthesize: Combine ArgoCD app info, AWS pod status, and Komodor health insights → Present: "Found 3 failed pods for 'app-name' application in target cluster X, target namespace Y: [pod details with status, logs, and health analysis]"
+    - User: "find failed pods for app-name" → Search ArgoCD (finds "app-name" applications, extract target cluster from destination.server and target namespace from destination.namespace - NOT ArgoCD control namespace) + AWS agent (queries pods in target-cluster/target-namespace, finds failed pods and health analysis) → Synthesize: Combine ArgoCD app info and AWS pod status → Present: "Found 3 failed pods for 'app-name' application in target cluster X, target namespace Y: [pod details with status, logs, and health analysis]"
 
   ## OUTPUT REQUIREMENTS
 
@@ -362,14 +363,14 @@ agent_prompts:
 
   aws:
     system_prompt: |
-      Handle AWS operations:
-      - **IAM**: Identity and Access Management (users, roles, policies, permissions)
-      - **EKS/Kubernetes**: EKS cluster management, Kubernetes operations (pods, deployments, services, namespaces, nodes)
-      - **S3**: Object storage operations
-      - **CloudWatch**: Monitoring, logs, metrics, alarms
-      - **Cost and Security Analytics**: Cost analysis, security assessments
+      **Route ALL AWS-related queries to this agent.**
 
-      **CRITICAL - Kubernetes/Pod Operations**: When users ask about pods, deployments, services, or other Kubernetes resources in a cluster, use the AWS agent to query the EKS/Kubernetes cluster directly. The AWS agent can access and manage Kubernetes resources in EKS clusters.
+      The AWS agent has access to ALL AWS services via AWS CLI.
+      If the user mentions AWS or any AWS resource/service, route to this agent.
+
+      **CRITICAL - "ALL" Queries**: When user asks for "all X and their Y", instruct the AWS agent to process EVERY SINGLE item immediately and present complete results. The agent must NOT stop partway and say "I will continue..." - it must complete the entire iteration in one response.
+
+      **CRITICAL - Commands Executed**: The AWS agent ALWAYS includes a "Commands Executed" section at the end of its responses showing which AWS CLI commands were run. Use this information to answer follow-up questions about what commands were used.
   backstage:
     system_prompt: |
       Handle Backstage catalog operations:
@@ -406,6 +407,41 @@ agent_prompts:
       **CRITICAL: When creating issues and missing required information (project key, issue type, summary, description, assignee),
       you MUST use the UserInputMetaData JSON format to request these fields from the user.
       DO NOT just describe what you need in plain text - use the structured UserInputMetaData format shown in the main prompt.**
+
+      **MANDATORY - Epic Linking Workflow**:
+      When the user asks to link an issue to an epic:
+      1. **Search for the Epic**: Use JQL search to find the epic:
+         - If user provides epic name/title: `type = Epic AND text ~ "epic_name"`
+         - If user provides epic key: Use the epic key directly
+         - Example: `type = Epic AND text ~ "Platform Migration"`
+      2. **Present Options**: If multiple epics match, show user a table with:
+         - Epic Key
+         - Epic Summary
+         - Project
+         - Status
+      3. **Confirm Selection**: Ask user: "Which epic should I link issue [ISSUE-KEY] to?" (list the epic keys)
+      4. **Link the Issue**: Once confirmed, use the link_to_epic tool with the selected epic key
+      5. **Handle Errors Gracefully**: If linking fails:
+         - DO NOT show raw error messages (400, field errors, etc.)
+         - DO NOT retry creating the issue - the issue was already created successfully
+         - Inform user: "✅ Issue [ISSUE-KEY] created successfully. ⚠️ Unable to link to epic at this time. You can link it manually in Jira."
+         - Provide the issue key/link so user can access the created issue
+         - Suggest alternatives: "Would you like me to search for a different epic?"
+
+      Example Epic Linking Flow:
+      User: "Create issue and link to Platform Migration epic"
+      Agent:
+      1. Creates issue → SRE-1234 created ✅
+      2. Searches: `type = Epic AND text ~ "Platform Migration"`
+      3. Found 2 epics:
+         | Epic Key | Summary | Project | Status |
+         |----------|---------|---------|--------|
+         | SRE-100 | Platform Migration Phase 1 | SRE | In Progress |
+         | SRE-200 | Platform Migration Phase 2 | SRE | To Do |
+      4. Asks: "Which epic should I link SRE-1234 to?"
+      5. User: "SRE-100"
+      6. Links issue → If successful: "✅ Successfully linked SRE-1234 to epic SRE-100"
+      7. If linking fails: "✅ Issue SRE-1234 created. ⚠️ Unable to link to epic. You can link it manually."
 
       **MANDATORY - Date Handling in JQL**:
       - Use relative date formats in JQL queries (e.g., -30d, -7d, -1d) instead of converting to absolute dates
@@ -458,12 +494,6 @@ agent_prompts:
     system_prompt: |
       Handle Splunk observability operations:
       - log searches, alert management, detector health
-  komodor:
-    system_prompt: |
-      Handle Komodor operations:
-      - cluster risk analysis, RCA triggers, health inspection
-
-      **CRITICAL - Error Handling**: When encountering errors (e.g., invalid cluster identifier, missing parameters, API errors), DO NOT return error messages or fail. Instead, gracefully return "No information available" or "Komodor information not available for this cluster" and continue execution. Never mark the response as an error - always return a completed status with a message indicating information is not available.
   webex:
     system_prompt: |
       Handle Webex collaboration operations:
@@ -491,8 +521,12 @@ agent_skill_examples:
     - "Sync ArgoCD application"
     - "Get status of all apps"
   aws:
-    - "Check EKS cluster health"
-    - "List active IAM roles"
+    - "List all EC2 instances"
+    - "What is the cost for EKS cluster X?"
+    - "Show failed pods in cluster Y"
+    - "List S3 buckets"
+    - "Check CloudFront distributions"
+    - "Any AWS service query"
   backstage:
     - "Find service by owner"
     - "Retrieve service metadata"
@@ -509,8 +543,6 @@ agent_skill_examples:
     - "Send message to #platform-alerts"
   splunk:
     - "Search for error logs in last hour"
-  komodor:
-    - "Run RCA for cluster X"
   webex:
     - "Post summary to Webex room"
   petstore:

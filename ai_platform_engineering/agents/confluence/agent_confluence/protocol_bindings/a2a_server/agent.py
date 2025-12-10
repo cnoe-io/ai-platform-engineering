@@ -47,7 +47,7 @@ class ConfluenceAgent(BaseLangGraphAgent):
         return ResponseFormat
 
     def get_mcp_config(self, server_path: str) -> dict:
-        """Return MCP configuration for Confluence."""
+        """Return MCP configuration for Confluence (stdio mode only)."""
         confluence_token = os.getenv("ATLASSIAN_TOKEN")
         if not confluence_token:
             raise ValueError("ATLASSIAN_TOKEN must be set as an environment variable.")
@@ -56,14 +56,41 @@ class ConfluenceAgent(BaseLangGraphAgent):
         if not confluence_api_url:
             raise ValueError("CONFLUENCE_API_URL must be set as an environment variable.")
 
+        project_dir = os.path.dirname(os.path.dirname(server_path))
+        venv_python = os.path.join(project_dir, ".venv/bin/python")
+        
+        if os.path.exists(venv_python):
+             command = venv_python
+             args = [server_path]
+        else:
+             command = "uv"
+             args = ["run", "--quiet", "--project", project_dir, server_path]
+
         return {
-            "command": "uv",
-            "args": ["run", "--project", os.path.dirname(server_path), server_path],
+            "command": command,
+            "args": args,
             "env": {
                 "ATLASSIAN_TOKEN": confluence_token,
                 "CONFLUENCE_API_URL": confluence_api_url,
+                "MCP_MODE": "stdio"
             },
             "transport": "stdio",
+        }
+
+    def get_mcp_http_config(self) -> dict | None:
+        """
+        Return custom HTTP MCP configuration for sooperset/mcp-atlassian.
+        
+        This overrides the default HTTP config to NOT send Authorization headers,
+        since sooperset/mcp-atlassian handles auth via environment variables.
+        """
+        mcp_host = os.getenv("MCP_HOST", "localhost")
+        mcp_port = os.getenv("MCP_PORT", "8000")
+        
+        return {
+            "url": f"http://{mcp_host}:{mcp_port}/mcp/",
+            # No Authorization header - server uses env vars for auth
+            "headers": {},
         }
 
     def get_tool_working_message(self) -> str:

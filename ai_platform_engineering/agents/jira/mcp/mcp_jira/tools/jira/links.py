@@ -127,7 +127,8 @@ async def link_to_epic(
         errors.append(error_detail)
         logger.warning(f"Failed to link using Agile API: {error_detail}")
 
-    # All methods failed
+    # All methods failed - return error as JSON instead of raising exception
+    # This prevents LangGraph from retrying the entire workflow (which would create duplicate issues)
     error_msg = f"❌ Failed to link issue {issue_key} to epic {epic_key}. Tried all available methods:\n"
     for i, error in enumerate(errors, 1):
         error_msg += f"  {i}. {error}\n"
@@ -138,7 +139,14 @@ async def link_to_epic(
     error_msg += "  - The issue type may not support epic linking\n"
 
     logger.error(error_msg)
-    raise ValueError(error_msg)
+    
+    # Return error as JSON result instead of raising exception
+    result = {
+        "success": False,
+        "message": error_msg,
+        "errors": errors
+    }
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 async def get_epic_issues(
