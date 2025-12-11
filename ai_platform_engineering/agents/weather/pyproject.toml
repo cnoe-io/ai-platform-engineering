@@ -32,6 +32,7 @@ dependencies = [
     "python-dotenv==1.2.1",
     "cnoe-agent-utils==0.3.9",
     "pydantic==2.12.5",
+    "pyjwt==2.10.1",
     "prometheus_client==0.23.1",
     "typing-extensions==4.15.0",
 ]
