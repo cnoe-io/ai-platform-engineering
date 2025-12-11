@@ -7,6 +7,7 @@ from typing import Annotated, Optional, List, Dict, Any
 from pydantic import Field
 
 from mcp_jira.api.client import make_api_request
+from mcp_jira.config import MCP_JIRA_READ_ONLY
 from mcp_jira.tools.jira.constants import check_read_only, check_issues_delete_protection
 from mcp_jira.utils.field_discovery import get_field_discovery
 from mcp_jira.utils.adf import ensure_adf_format
@@ -88,7 +89,11 @@ async def get_issue(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch Jira issue: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch Jira issue: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     # Add browse URL to response
     import os
@@ -298,17 +303,35 @@ async def batch_create_issues(
     Raises:
         ValueError: If in read-only mode, Jira client unavailable, or invalid JSON.
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     # Parse issues from JSON string
     try:
         issues_list = json.loads(issues)
         if not isinstance(issues_list, list):
-            raise ValueError("Input 'issues' must be a JSON array string.")
+            error_result = {
+                "success": False,
+                "error": "Input 'issues' must be a JSON array string."
+            }
+            return json.dumps(error_result, indent=2, ensure_ascii=False)
     except json.JSONDecodeError:
-        raise ValueError("Invalid JSON in issues")
+        error_result = {
+            "success": False,
+            "error": "Invalid JSON in issues"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
     except Exception as e:
-        raise ValueError(f"Invalid input for issues: {e}") from e
+        error_result = {
+            "success": False,
+            "error": f"Invalid input for issues: {e}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     # Convert issues to format expected by the API with field discovery
     field_discovery = get_field_discovery()
@@ -317,7 +340,11 @@ async def batch_create_issues(
     for idx, issue in enumerate(issues_list):
         # Basic validation
         if not all(key in issue for key in ['project_key', 'summary', 'issue_type']):
-            raise ValueError(f"Issue {idx}: Each issue must contain project_key, summary, and issue_type")
+            error_result = {
+                "success": False,
+                "error": f"Issue {idx}: Each issue must contain project_key, summary, and issue_type"
+            }
+            return json.dumps(error_result, indent=2, ensure_ascii=False)
 
         # Build base fields
         fields = {
@@ -416,10 +443,20 @@ async def update_issue(
     Raises:
         ValueError: If in read-only mode or validation fails.
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     if not fields:
-        raise ValueError("At least one field must be provided for update")
+        error_result = {
+            "success": False,
+            "error": "At least one field must be provided for update"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     field_discovery = get_field_discovery()
 
@@ -503,13 +540,10 @@ async def create_issue_link(
     comment: Annotated[
         str, Field(description="(Optional) Comment to add to the link")
     ] = "",
-    comment_visibility: Annotated[
-        dict[str, str],
-        Field(
-            description="(Optional) Visibility settings for the comment (e.g., {'type': 'group', 'value': 'jira-users'})",
-            default_factory=dict,
-        ),
-    ] = {},  # noqa: B006
+    comment_visibility: dict[str, str] = Field(
+        default_factory=dict,
+        description="(Optional) Visibility settings for the comment (e.g., {'type': 'group', 'value': 'jira-users'})",
+    ),
 ) -> str:
     """Create a link between two Jira issues.
 
@@ -527,12 +561,20 @@ async def create_issue_link(
     Raises:
         ValueError: If required fields are missing, invalid input, or in read-only mode.
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     if not all([link_type, inward_issue_key, outward_issue_key]):
-        raise ValueError(
-            "link_type, inward_issue_key, and outward_issue_key are required."
-        )
+        error_result = {
+            "success": False,
+            "error": "link_type, inward_issue_key, and outward_issue_key are required."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     link_data = {
         "type": {"name": link_type},
@@ -577,10 +619,20 @@ async def remove_issue_link(
     Raises:
         ValueError: If link_id is missing or in read-only mode.
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     if not link_id:
-        raise ValueError("link_id is required")
+        error_result = {
+            "success": False,
+            "error": "link_id is required"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     success, response = await make_api_request(
         path=f"rest/api/3/issueLink/{link_id}",
@@ -636,7 +688,11 @@ async def batch_get_changelogs(
         ValueError: If issues list is empty or invalid.
     """
     if not issue_ids_or_keys:
-        raise ValueError("At least one issue ID or key is required")
+        error_result = {
+            "success": False,
+            "error": "At least one issue ID or key is required"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     # Prepare API request payload
     payload = {

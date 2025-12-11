@@ -6,6 +6,7 @@ It handles authentication, request formatting, and response parsing.
 
 import os
 import logging
+import asyncio
 from typing import Optional, Dict, Tuple, Any
 import httpx
 from dotenv import load_dotenv
@@ -135,75 +136,109 @@ async def make_api_request(
     if data:
         logger.debug(f"Request data: {data}")
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            url = f"{url}/{path}"
-            logger.debug(f"Full request URL: {url}")
+    # Retry logic for transient errors
+    max_retries = 2
+    retry_delay = 1  # seconds
 
-            method_map = {
-                "GET": client.get,
-                "POST": client.post,
-                "PUT": client.put,
-                "PATCH": client.patch,
-                "DELETE": client.delete,
-            }
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                url = f"{url}/{path}"
+                logger.debug(f"Full request URL: {url}")
 
-            if method not in method_map:
-                logger.error(f"Unsupported HTTP method: {method}")
-                return (False, {"error": f"Unsupported method: {method}"})
+                method_map = {
+                    "GET": client.get,
+                    "POST": client.post,
+                    "PUT": client.put,
+                    "PATCH": client.patch,
+                    "DELETE": client.delete,
+                }
 
-            if method in ["POST", "PUT", "PATCH"]:
-                response = await method_map[method](
-                    url,
-                    headers=headers,
-                    params=params,
-                    json=data
-                )
+                if method not in method_map:
+                    logger.error(f"Unsupported HTTP method: {method}")
+                    return (False, {"error": f"Unsupported method: {method}"})
+
+                if method in ["POST", "PUT", "PATCH"]:
+                    response = await method_map[method](
+                        url,
+                        headers=headers,
+                        params=params,
+                        json=data
+                    )
+                else:
+                    response = await method_map[method](
+                        url,
+                        headers=headers,
+                        params=params
+                    )
+
+
+                logger.debug(f"Response status code: {response.status_code}")
+
+                if response.status_code in [200, 201, 202, 204]:
+                    if response.status_code == 204:
+                        logger.debug("Request successful (204 No Content)")
+                        return (True, {"status": "success"})
+                    try:
+                        return (True, response.json())
+                    except ValueError:
+                        logger.warning("Request successful but could not parse JSON response")
+                        return (True, {"status": "success", "raw_response": response.text})
+                else:
+                    error_message = f"API request failed: {response.status_code}"
+                    try:
+                        error_data = response.json()
+                        logger.error(f"Error details: {error_data}")
+
+                        # Handle v3 error format
+                        if "errorMessages" in error_data or "errors" in error_data:
+                            return (False, {
+                                "error": error_message,
+                                "errorMessages": error_data.get("errorMessages", []),
+                                "errors": error_data.get("errors", {}),
+                                "status": response.status_code
+                            })
+                        else:
+                            return (False, {"error": error_message, "details": error_data})
+                    except ValueError:
+                        logger.error(f"Error response (not JSON): {response.text[:200]}")
+                        return (False, {"error": f"{error_message} - {response.text[:200]}"})
+
+        except (httpx.NetworkError, httpx.RemoteProtocolError, httpx.ReadTimeout) as e:
+            # Transient network errors that should be retried
+            is_last_attempt = attempt == max_retries
+            if is_last_attempt:
+                logger.error(f"jira: Network communication error after {max_retries} retries: {str(e)}")
+                return (False, {"error": "Jira is temporarily unavailable. Please try again in a moment."})
             else:
-                response = await method_map[method](
-                    url,
-                    headers=headers,
-                    params=params
-                )
+                logger.warning(f"jira: Network communication error: {str(e)} (attempt {attempt + 1}/{max_retries + 1}). Retrying...")
+                await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                continue
 
-
-            logger.debug(f"Response status code: {response.status_code}")
-
-            if response.status_code in [200, 201, 202, 204]:
-                if response.status_code == 204:
-                    logger.debug("Request successful (204 No Content)")
-                    return (True, {"status": "success"})
-                try:
-                    return (True, response.json())
-                except ValueError:
-                    logger.warning("Request successful but could not parse JSON response")
-                    return (True, {"status": "success", "raw_response": response.text})
+        except httpx.HTTPStatusError as e:
+            # HTTP errors like 503 Service Unavailable
+            if e.response.status_code == 503:
+                is_last_attempt = attempt == max_retries
+                if is_last_attempt:
+                    logger.error(f"jira: HTTP Error 503: Service unavailable after {max_retries} retries")
+                    return (False, {"error": "Jira service is temporarily unavailable. Please try again later."})
+                else:
+                    logger.warning(f"jira: HTTP Error 503: Service unavailable (attempt {attempt + 1}/{max_retries + 1}). Retrying...")
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+                    continue
             else:
-                error_message = f"API request failed: {response.status_code}"
-                try:
-                    error_data = response.json()
-                    logger.error(f"Error details: {error_data}")
+                # Non-retryable HTTP errors
+                logger.error(f"HTTP error: {str(e)}")
+                return (False, {"error": f"HTTP error: {str(e)}"})
 
-                    # Handle v3 error format
-                    if "errorMessages" in error_data or "errors" in error_data:
-                        return (False, {
-                            "error": error_message,
-                            "errorMessages": error_data.get("errorMessages", []),
-                            "errors": error_data.get("errors", {}),
-                            "status": response.status_code
-                        })
-                    else:
-                        return (False, {"error": error_message, "details": error_data})
-                except ValueError:
-                    logger.error(f"Error response (not JSON): {response.text[:200]}")
-                    return (False, {"error": f"{error_message} - {response.text[:200]}"})
+        except httpx.RequestError as e:
+            # Other request errors
+            logger.error(f"Request error: {str(e)}")
+            return (False, {"error": f"Request error: {str(e)}"})
 
-    except httpx.RequestError as e:
-        logger.error(f"Request error: {str(e)}")
-        return (False, {"error": f"Request error: {str(e)}"})
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        return (False, {"error": f"Unexpected error: {str(e)}"})
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
+            return (False, {"error": f"Unexpected error: {str(e)}"})
 
 
 def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tuple[bool, Dict[str, Any]]:

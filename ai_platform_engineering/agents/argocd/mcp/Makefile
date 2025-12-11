@@ -16,16 +16,18 @@ include ../../mcp-common.mk
 # Test targets
 .PHONY: test test-verbose
 
-test: ## Run all tests
+test: setup-uv uv-venv ## Run all tests
 	@echo "Running ArgoCD MCP tests..."
-	@cd tests && \
-	export ARGOCD_API_URL="https://localhost:8080" && \
+	@uv sync --all-groups
+	@export ARGOCD_API_URL="https://localhost:8080" && \
 	export ARGOCD_API_TOKEN="dummy-token-for-testing" && \
-	python run_all_tests.py
+	cd tests && \
+	uv run python run_all_tests.py
 
-test-verbose: ## Run all tests with verbose output
+test-verbose: setup-uv uv-venv ## Run all tests with verbose output
 	@echo "Running ArgoCD MCP tests with verbose output..."
-	@cd tests && \
-	export ARGOCD_API_URL="https://localhost:8080" && \
+	@uv sync --all-groups
+	@export ARGOCD_API_URL="https://localhost:8080" && \
 	export ARGOCD_API_TOKEN="dummy-token-for-testing" && \
-	python -v run_all_tests.py
+	cd tests && \
+	uv run python -v run_all_tests.py

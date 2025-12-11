@@ -53,15 +53,14 @@ services:
       - KOMODOR_AGENT_HOST=agent-komodor
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
       - PETSTORE_AGENT_HOST=agent-petstore
-      - RAG_AGENT_HOST=agent_rag
       - SLACK_AGENT_HOST=agent-slack
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
 
-      # Agent ports
-      # Add an exception for the RAG agent port to 8099. All other agents use the default port 8000.
-      - RAG_AGENT_PORT=${RAG_AGENT_PORT:-8099}
+      # RAG Service Configuration
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - ENABLE_RAG=${ENABLE_RAG:-false}
 
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
@@ -134,7 +133,8 @@ services:
     container_name: agent-aws
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
-      - ./ai_platform_engineering/agents/aws:/app/ai_platform_engineering/agents/aws
+      # Mount only agent_aws subdirectory to preserve .venv from build
+      - ./ai_platform_engineering/agents/aws/agent_aws:/app/ai_platform_engineering/agents/agent/agent_aws
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8012:8000"]
@@ -142,6 +142,7 @@ services:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -149,10 +150,15 @@ services:
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-true}
-      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-true}
-      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-true}
+      - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-false}
+      - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-false}
+      - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-false}
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
+      - USE_AWS_CLI_AS_TOOL=${USE_AWS_CLI_AS_TOOL:-true}
+      # Multi-account support - format: "name1:id1,name2:id2" or just "id1,id2"
+      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-outshift-common-dev:471112537430}
+      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-eticloud:626007623524,outshift-common-dev:471112537430,outshift-common-staging:637423531539,outshift-common-prod:058264538874,eti-ci:009736724745,cisco-research:509581005347,eticloud-demo:075967417574}
+      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
     profiles:
@@ -164,9 +170,14 @@ services:
     build:
       context: .
       dockerfile: build/agents/Dockerfile.a2a
+      args:
+        - AGENT_NAME=template
+        - AGENT_PACKAGE=petstore
     container_name: agent-petstore
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
+      # Mount template agent directory (petstore uses template)
+      - ./ai_platform_engineering/agents/template/agent_petstore:/app/ai_platform_engineering/agents/agent/agent_petstore
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8013:8000"]
@@ -195,7 +206,7 @@ services:
     container_name: agent-github
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
-      - ./ai_platform_engineering/agents/github:/app/ai_platform_engineering/agents/github
+      - ./ai_platform_engineering/agents/github/agent_github:/app/ai_platform_engineering/agents/agent/agent_github
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8001:8000"]
@@ -225,7 +236,7 @@ services:
     container_name: agent-weather
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
-      - ./ai_platform_engineering/agents/weather:/app/ai_platform_engineering/agents/weather
+      - ./ai_platform_engineering/agents/weather/agent_weather:/app/ai_platform_engineering/agents/agent/agent_weather
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8002:8000"]
@@ -249,7 +260,7 @@ services:
     container_name: agent-backstage
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
-      - ./ai_platform_engineering/agents/backstage:/app/ai_platform_engineering/agents/backstage
+      - ./ai_platform_engineering/agents/backstage/agent_backstage:/app/ai_platform_engineering/agents/agent/agent_backstage
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8003:8000"]
@@ -301,7 +312,7 @@ services:
     container_name: agent-argocd
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
-      - ./ai_platform_engineering/agents/argocd:/app/ai_platform_engineering/agents/argocd
+      - ./ai_platform_engineering/agents/argocd/agent_argocd:/app/ai_platform_engineering/agents/agent/agent_argocd
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8004:8000"]
@@ -353,7 +364,7 @@ services:
     container_name: agent-confluence
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
-      - ./ai_platform_engineering/agents/confluence:/app/ai_platform_engineering/agents/confluence
+      - ./ai_platform_engineering/agents/confluence/agent_confluence:/app/ai_platform_engineering/agents/agent/agent_confluence
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8005:8000"]
@@ -365,32 +376,20 @@ services:
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-confluence:
-        condition: service_healthy
+        condition: service_started
     profiles:
       - confluence
       - all-agents
 
   mcp-confluence:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=confluence
+    image: ghcr.io/sooperset/mcp-atlassian:latest
     container_name: mcp-confluence
     env_file: [.env]
     ports: ["18003:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/confluence/mcp/mcp_confluence:/app/mcp_confluence
     environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+      - CONFLUENCE_URL=${CONFLUENCE_URL}
+      - CONFLUENCE_USERNAME=${CONFLUENCE_USERNAME}
+      - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN}
     profiles:
       - confluence
       - all-agents
@@ -406,7 +405,7 @@ services:
     env_file: [.env]
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.jira_agent.yaml:/app/prompt_config.jira_agent.yaml
-      - ./ai_platform_engineering/agents/jira/agent_jira:/app/ai_platform_engineering/agents/jira/agent_jira
+      - ./ai_platform_engineering/agents/jira/agent_jira:/app/ai_platform_engineering/agents/agent/agent_jira
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports: ["8006:8000"]
     environment:
@@ -457,7 +456,7 @@ services:
     container_name: agent-komodor
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
-      - ./ai_platform_engineering/agents/komodor:/app/ai_platform_engineering/agents/komodor
+      - ./ai_platform_engineering/agents/komodor/agent_komodor:/app/ai_platform_engineering/agents/agent/agent_komodor
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8007:8000"]
@@ -472,8 +471,6 @@ services:
         condition: service_healthy
     profiles:
       - komodor
-      - all-agents
-
   mcp-komodor:
     build:
       context: .
@@ -509,7 +506,7 @@ services:
     container_name: agent-pagerduty
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
-      - ./ai_platform_engineering/agents/pagerduty:/app/ai_platform_engineering/agents/pagerduty
+      - ./ai_platform_engineering/agents/pagerduty/agent_pagerduty:/app/ai_platform_engineering/agents/agent/agent_pagerduty
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8008:8000"]
@@ -561,7 +558,7 @@ services:
     container_name: agent-slack
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
-      - ./ai_platform_engineering/agents/slack:/app/ai_platform_engineering/agents/slack
+      - ./ai_platform_engineering/agents/slack/agent_slack:/app/ai_platform_engineering/agents/agent/agent_slack
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8009:8000"]
@@ -613,7 +610,7 @@ services:
     container_name: agent-splunk
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
-      - ./ai_platform_engineering/agents/splunk:/app/ai_platform_engineering/agents/splunk
+      - ./ai_platform_engineering/agents/splunk/agent_splunk:/app/ai_platform_engineering/agents/agent/agent_splunk
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8010:8000"]
@@ -665,7 +662,7 @@ services:
     container_name: agent-webex
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
-      - ./ai_platform_engineering/agents/webex:/app/ai_platform_engineering/agents/webex
+      - ./ai_platform_engineering/agents/webex/agent_webex:/app/ai_platform_engineering/agents/agent/agent_webex
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8011:8000"]
@@ -741,24 +738,6 @@ services:
     restart: unless-stopped
     env_file: [.env]
     depends_on: [rag-redis]
-    profiles:
-      - rag
-      - graph_rag
-
-  agent_rag:
-    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-stable}
-    container_name: agent_rag
-    ports: ["8099:8099"]
-    env_file: [.env]
-    environment:
-      - REDIS_URL=redis://rag-redis:6379/0
-      - NEO4J_ADDR=neo4j://neo4j:7687
-      - NEO4J_ONTOLOGY_ADDR=neo4j://neo4j-ontology:7688
-      - NEO4J_USERNAME=neo4j
-      - NEO4J_PASSWORD=dummy_password
-      - RAG_SERVER_URL=http://rag_server:9446
-      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-true}
-    restart: unless-stopped
     profiles:
       - rag
       - graph_rag

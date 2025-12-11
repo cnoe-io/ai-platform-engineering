@@ -6,7 +6,7 @@ from typing import Annotated, Optional, Dict, Any
 
 from pydantic import Field
 from mcp_jira.api.client import make_api_request
-from mcp_jira.tools.jira.constants import check_read_only
+from mcp_jira.config import MCP_JIRA_READ_ONLY
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -72,7 +72,11 @@ async def get_comments(
     )
 
     if not success:
-        raise ValueError(f"Failed to fetch comments for issue {issue_key}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch comments for issue {issue_key}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -112,7 +116,13 @@ async def add_comment(
     Raises:
         ValueError: If required fields missing, invalid input, in read-only mode, or API request fails.
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(f"add_comment called with issue_key={issue_key}, body length={len(body)}")
 
@@ -139,10 +149,11 @@ async def add_comment(
 
     if visibility:
         if not isinstance(visibility, dict) or "type" not in visibility or "value" not in visibility:
-            raise ValueError(
-                "visibility must be a dict with 'type' and 'value' keys. "
-                "Example: {'type': 'role', 'value': 'Administrators'}"
-            )
+            error_result = {
+                "success": False,
+                "error": "visibility must be a dict with 'type' and 'value' keys. Example: {'type': 'role', 'value': 'Administrators'}"
+            }
+            return json.dumps(error_result, indent=2, ensure_ascii=False)
         comment_data["visibility"] = visibility
 
     logger.debug(f"Comment data to send: {json.dumps(comment_data, indent=2)}")
@@ -154,7 +165,11 @@ async def add_comment(
     )
 
     if not success:
-        raise ValueError(f"Failed to add comment to issue {issue_key}: {response}")
+        error_result = {
+            "success": False,
+            "error": f"Failed to add comment to issue {issue_key}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -199,7 +214,13 @@ async def update_comment(
     Raises:
         ValueError: If required fields missing, invalid input, in read-only mode, or API request fails.
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(
         f"update_comment called with issue_key={issue_key}, "
@@ -229,10 +250,11 @@ async def update_comment(
 
     if visibility:
         if not isinstance(visibility, dict) or "type" not in visibility or "value" not in visibility:
-            raise ValueError(
-                "visibility must be a dict with 'type' and 'value' keys. "
-                "Example: {'type': 'role', 'value': 'Administrators'}"
-            )
+            error_result = {
+                "success": False,
+                "error": "visibility must be a dict with 'type' and 'value' keys. Example: {'type': 'role', 'value': 'Administrators'}"
+            }
+            return json.dumps(error_result, indent=2, ensure_ascii=False)
         comment_data["visibility"] = visibility
 
     logger.debug(f"Comment data to send: {json.dumps(comment_data, indent=2)}")
@@ -244,9 +266,11 @@ async def update_comment(
     )
 
     if not success:
-        raise ValueError(
-            f"Failed to update comment {comment_id} on issue {issue_key}: {response}"
-        )
+        error_result = {
+            "success": False,
+            "error": f"Failed to update comment {comment_id} on issue {issue_key}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 
@@ -270,7 +294,13 @@ async def delete_comment(
     Raises:
         ValueError: If in read-only mode or API request fails.
     """
-    check_read_only()
+    # Check read-only mode
+    if MCP_JIRA_READ_ONLY:
+        error_result = {
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     logger.debug(f"delete_comment called with issue_key={issue_key}, comment_id={comment_id}")
 
@@ -280,9 +310,11 @@ async def delete_comment(
     )
 
     if not success:
-        raise ValueError(
-            f"Failed to delete comment {comment_id} from issue {issue_key}: {response}"
-        )
+        error_result = {
+            "success": False,
+            "error": f"Failed to delete comment {comment_id} from issue {issue_key}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(
         {
@@ -321,9 +353,11 @@ async def get_comment(
     )
 
     if not success:
-        raise ValueError(
-            f"Failed to fetch comment {comment_id} from issue {issue_key}: {response}"
-        )
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch comment {comment_id} from issue {issue_key}: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
 
     return json.dumps(response, indent=2, ensure_ascii=False)
 

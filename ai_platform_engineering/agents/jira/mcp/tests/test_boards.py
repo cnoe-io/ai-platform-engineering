@@ -1,5 +1,6 @@
 """Unit tests for Jira boards MCP tools."""
 
+import json
 import pytest
 
 
@@ -109,17 +110,17 @@ class TestCreateBoard:
 
     @pytest.mark.asyncio
     async def test_create_board_read_only(self, monkeypatch):
-        """Test that create_board respects read-only mode."""
-        def mock_check_read_only():
-            raise ValueError("Jira MCP is in read-only mode")
-
-        # Patch where check_read_only is used, not where it's defined
-        monkeypatch.setattr("mcp_jira.tools.jira.boards.check_read_only", mock_check_read_only)
+        """Test that create_board returns error JSON in read-only mode."""
+        # Mock read-only mode
+        monkeypatch.setattr("mcp_jira.tools.jira.boards.MCP_JIRA_READ_ONLY", True)
 
         from mcp_jira.tools.jira.boards import create_board
 
-        with pytest.raises(ValueError, match="read-only"):
-            await create_board("New Board", "scrum", filter_id=10000, location_type="project", project_key_or_id="PROJ")
+        result = await create_board("New Board", "scrum", filter_id=10000, location_type="project", project_key_or_id="PROJ")
+        result_dict = json.loads(result)
+
+        assert result_dict["success"] is False
+        assert "read-only" in result_dict["error"].lower()
 
 
 class TestGetBoard:
@@ -193,21 +194,18 @@ class TestDeleteBoard:
 
     @pytest.mark.asyncio
     async def test_delete_board_protection_enabled(self, monkeypatch):
-        """Test that board deletion is protected by default."""
-        def mock_check_read_only():
-            return None
-
-        def mock_check_boards_delete_protection():
-            raise ValueError("Board deletion is protected")
-
-        # Patch where functions are used, not where they're defined
-        monkeypatch.setattr("mcp_jira.tools.jira.boards.check_read_only", mock_check_read_only)
-        monkeypatch.setattr("mcp_jira.tools.jira.boards.check_boards_delete_protection", mock_check_boards_delete_protection)
+        """Test that board deletion returns error JSON when protected."""
+        # Mock protection mode
+        monkeypatch.setattr("mcp_jira.tools.jira.boards.MCP_JIRA_READ_ONLY", False)
+        monkeypatch.setattr("mcp_jira.tools.jira.boards.MCP_JIRA_BOARDS_DELETE_PROTECTION", True)
 
         from mcp_jira.tools.jira.boards import delete_board
 
-        with pytest.raises(ValueError, match="protected"):
-            await delete_board(1)
+        result = await delete_board(1)
+        result_dict = json.loads(result)
+
+        assert result_dict["success"] is False
+        assert "protected" in result_dict["error"].lower()
 
 
 class TestGetBoardConfiguration:
