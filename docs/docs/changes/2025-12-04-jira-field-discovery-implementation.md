@@ -314,7 +314,7 @@ refresh_field_cache()
 ### Caching Strategy
 - **Field metadata**: Cached for 1 hour (TTL)
 - **First request**: ~200ms (fetches from `/rest/api/3/field`)
-- **Subsequent requests**: <1ms (cache hit)
+- **Subsequent requests**: \<1ms (cache hit)
 - **Cache invalidation**: Automatic after 1 hour or manual via `refresh_field_cache()`
 
 ### Memory Usage
