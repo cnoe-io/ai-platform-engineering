@@ -172,10 +172,10 @@ class HeuristicsProcessor:
         await update_progress("No more entities to process")
         
         # Step 3: Clean up low-count relations (noise reduction)
-        await update_progress(f"Cleaning up relations with count < {self.min_relation_count}...")
-        discarded_count = await self._cleanup_low_count_relations(update_progress)
-        self.stats["relations_discarded"] = discarded_count
-        await update_progress(f"Discarded {discarded_count} low-count relations")
+        # await update_progress(f"Cleaning up relations with count < {self.min_relation_count}...")
+        # discarded_count = await self._cleanup_low_count_relations(update_progress)
+        # self.stats["relations_discarded"] = discarded_count
+        # await update_progress(f"Discarded {discarded_count} low-count relations")
         
         # Log final statistics
         self.logger.info(f"Heuristics processing complete. Stats: {self.stats}")
@@ -278,6 +278,8 @@ class HeuristicsProcessor:
                         parent_entity_type,
                         property_mappings
                     )
+                    if logger.isEnabledFor(logging.DEBUG):  
+                        logger.debug(f"Sub-entity relation: {entity.entity_type} -> {parent_entity_type} with relation id {relation_id}")
                     
                     # Create a DeepPropertyMatch for this structural relation
                     sub_entity_match = DeepPropertyMatch(

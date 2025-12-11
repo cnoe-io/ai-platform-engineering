@@ -5,6 +5,10 @@ import asyncio
 
 from common.graph_db.base import GraphDB
 from common import constants
+from langchain_core.tools.structured import StructuredTool
+from langgraph.prebuilt import create_react_agent
+from langmem.short_term import SummarizationNode
+from langchain_core.messages.utils import count_tokens_approximately
 from agent_ontology.heuristics import HeuristicsProcessor
 from agent_ontology.relation_manager import RelationCandidateManager
 from agent_ontology.prompts import SYSTEM_PROMPT_1
@@ -19,13 +23,18 @@ from common.models.ontology import (
     CandidateGroupData,
     EntityExample,
 )
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.prompts import PromptTemplate
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt.chat_agent_executor import AgentState
 import gc
 import redis.asyncio as redis
 import common.utils as utils
+from common import constants
 from cnoe_agent_utils import LLMFactory
 from langfuse import get_client as get_langfuse_client
 from langfuse.langchain import CallbackHandler
+from typing import Any
 
 langfuse_client = get_langfuse_client()
 
@@ -664,31 +673,42 @@ class OntologyAgent:
                         progress_tracker=progress_tracker  # Shared progress tracking
                     )
                     
-                    # Create agent with tools bound to this worker
-                    agent = agent_worker.create_agent(entity_types, system_prompt, base_llm)
-                    
+                    agent = await agent_worker.create_agent(system_prompt, base_llm)
                     worker_logger.info(f"Worker {worker_id}: Created agent with {len(worker_queue)} groups in queue")
                     
                     # Run agent in a loop to process all groups
                     langfuse_handler = CallbackHandler()
                     
                     # Agent will call fetch_next_relation_candidate repeatedly until queue is empty
-                    await agent.ainvoke(
-                        {"messages": [
-                            HumanMessage(
-                                content=(
-                                    f"You have {len(worker_queue)} relation candidate groups to evaluate. "
-                                    f"For each group:\n"
-                                    f"1. Call fetch_next_relation_candidate to get the group\n"
-                                    f"2. Evaluate ALL candidates in the group\n"
-                                    f"3. Make accept/reject/unsure decisions\n"
-                                    f"4. Repeat until no more groups remain\n\n"
-                                    f"Start by fetching the first group."
+                    if self.debug:
+                        return
+                        # for candidate in worker_queue[0].group.candidates:
+                        #     await agent_worker.accept_relation(candidate.relation_id, "DEBUG_MODE_RELATION_NAME", "[DEBUG_MODE] Accepting all relations", [
+                        #         PropertyMappingRule(
+                        #             entity_a_property=pm.entity_a_property, 
+                        #             entity_b_idkey_property=pm.entity_b_idkey_property, 
+                        #             match_type=ValueMatchType.EXACT
+                        #         )
+                        #         for pm in candidate.heuristic.property_mappings
+                        #     ])
+                        #     worker_logger.info(f"[DEBUG_MODE] Worker {worker_id}: Successfully accepted relation {candidate.relation_id}")
+                    else:
+                        resp = await agent.ainvoke(
+                            {"messages": [
+                                HumanMessage(
+                                    content=(
+                                        f"You have {len(worker_queue)} relation candidate groups to evaluate. "
+                                        f"For each group:\n"
+                                        f"1. Call fetch_next_relation_candidate to get the group\n"
+                                        f"2. Evaluate ALL candidates in the group\n"
+                                        f"3. Make accept/reject/unsure decisions\n"
+                                        f"4. Repeat until no more groups remain\n\n"
+                                        f"Start by fetching the first group."
+                                    )
                                 )
-                            )
-                        ]},
-                        {"recursion_limit": self.agent_recursion_limit, "callbacks": [langfuse_handler]}
-                    )
+                            ]},
+                            {"recursion_limit": self.agent_recursion_limit, "callbacks": [langfuse_handler]}
+                        )
                     
                     # Collect evaluation count from worker
                     worker_evaluations = agent_worker.total_evaluation_count
@@ -722,25 +742,3 @@ class OntologyAgent:
             self.evaluation_logger.error(traceback.format_exc())
         finally:
             self.is_evaluating = False
-
-    async def evaluate(self, logger: logging.Logger, rc_manager: RelationCandidateManager, relation_id: str = "", candidate: RelationCandidate|None = None):
-        """
-        [DEPRECATED - Single-candidate evaluation is not supported]
-        
-        Single-candidate evaluation has been removed to reduce complexity.
-        Use the batch evaluation system (evaluate_all) instead, which evaluates all candidates in groups.
-        
-        For manual intervention, use the REST API endpoints:
-        - /v1/graph/ontology/agent/relation/accept/{relation_id}
-        - /v1/graph/ontology/agent/relation/reject/{relation_id}
-        
-        Args:
-            logger: Logger instance for this evaluation
-            rc_manager: Relation candidate manager
-            relation_id: Relation candidate ID (optional)
-            candidate: Relation candidate object (optional)
-        """
-        raise NotImplementedError(
-            "Single-candidate evaluation is deprecated. "
-            "Use evaluate_all() for batch evaluation or manual accept/reject endpoints for manual intervention."
-        )
