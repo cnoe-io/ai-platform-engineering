@@ -14,10 +14,16 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  # Match ALL ai-platform-engineering services in this release
+  # Match ALL ai-platform-engineering services in this release, EXCEPT MCP services
+  # MCP containers don't expose /metrics endpoints
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values:
+          - mcp
   endpoints:
     - port: http
       path: {{ .Values.metrics.path | default "/metrics" }}
