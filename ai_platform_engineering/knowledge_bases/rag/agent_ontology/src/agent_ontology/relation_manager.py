@@ -181,6 +181,7 @@ class RelationCandidateManager:
                     "created_at": int(time.time())
                 }
             )
+            self.logger.debug(f"Creating relation {relation_id} pk={relation.relation_pk} [{relation.from_entity.entity_type} -> {relation.to_entity.entity_type}]")
             relations.append(relation)
         
         # Use batch update for all relations to the ontology graph db
