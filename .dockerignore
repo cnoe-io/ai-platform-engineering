@@ -28,9 +28,6 @@ ai_platform_engineering/agents/*/build/**
 ai_platform_engineering/agents/*/tests/**
 ai_platform_engineering/agents/*/evals/**
 ai_platform_engineering/agents/*/langgraph.json
-# Allow pyproject.toml and uv.lock for workspace members
-# ai_platform_engineering/agents/*/pyproject.toml
-# ai_platform_engineering/agents/*/uv.lock  # Commented - needed for --locked builds
 ai_platform_engineering/agents/*/README.md
 ai_platform_engineering/agents/*/CHANGELOG.md
 ai_platform_engineering/agents/*/CODE_OF_CONDUCT.md
@@ -55,9 +52,6 @@ volumes/**
 docker-compose/volumes/**
 docs/**
 workshop/**
-
-# Exclude main project lock file (use minimal one instead)
-uv.lock
 
 # Python virtual environment - exclude ALL venv directories
 .venv/

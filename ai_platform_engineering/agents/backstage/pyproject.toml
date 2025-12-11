@@ -58,8 +58,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.ruff]
-# Allow lines to be as long as 500.
-line-length = 500
+# Allow lines up to Ruff's max (320).
+line-length = 320
 # Number of spaces per indentation level
 indent-width = 2
 
