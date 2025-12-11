@@ -50,6 +50,8 @@ update_changelog_on_bump = true
 major_version_zero = true
 
 [dependency-groups]
+dev = [
+]
 unittest = [
     "pytest-asyncio>=1.3.0",
 ]

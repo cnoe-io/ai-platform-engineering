@@ -11,7 +11,6 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
   "a2a-sdk==0.3.0",
   "agntcy-app-sdk==0.4.0",
-  "ai-platform-engineering-utils",
   "click==8.3.1",
   "cnoe-agent-utils==0.3.9",
   "langchain-core==1.1.2",
@@ -62,5 +61,4 @@ markers = [
 ]
 
 [tool.uv.sources]
-ai-platform-engineering-utils = { path = "../../utils" }
 mcp-argocd = { path = "./mcp" }
