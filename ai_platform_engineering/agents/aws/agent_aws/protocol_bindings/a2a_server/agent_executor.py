@@ -20,25 +20,24 @@ class AWSAgentExecutor:
 
     def __new__(cls):
         """Create the appropriate executor based on AWS_AGENT_BACKEND environment variable."""
-        backend = os.getenv("AWS_AGENT_BACKEND", "langgraph").lower()
+        backend = os.getenv("AWS_AGENT_BACKEND", "strands").lower()
 
         if backend == "strands":
             logger.info("🔧 Using Strands-based AWS agent implementation")
             from ai_platform_engineering.utils.a2a_common.base_strands_agent_executor import BaseStrandsAgentExecutor
-            from ...agent_strands import AWSAgent
+            from agent_aws.agent_strands import AWSAgent
 
             executor = object.__new__(BaseStrandsAgentExecutor)
             BaseStrandsAgentExecutor.__init__(executor, AWSAgent())
             logger.info("AWS Agent Executor initialized (using Strands backend)")
             return executor
-        elif backend == "langgraph":  # default to langgraph
+
+        else:  # default to langgraph
             logger.info("🔧 Using LangGraph-based AWS agent implementation")
             from ai_platform_engineering.utils.a2a_common.base_langgraph_agent_executor import BaseLangGraphAgentExecutor
-            from ...agent_langgraph import AWSAgentLangGraph
+            from agent_aws.agent_langgraph import AWSAgentLangGraph
 
             executor = object.__new__(BaseLangGraphAgentExecutor)
             BaseLangGraphAgentExecutor.__init__(executor, AWSAgentLangGraph())
             logger.info("AWS Agent Executor initialized (using LangGraph backend)")
             return executor
-        else:
-            raise ValueError(f"Invalid AWS agent backend: {backend}")
