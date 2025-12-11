@@ -132,8 +132,8 @@ agent-confluence:
     pullPolicy: "Always"
   mcp:
     image:
-      repository: "ghcr.io/cnoe-io/mcp-confluence"
-      tag: "stable"
+      repository: "ghcr.io/sooperset/mcp-atlassian"
+      tag: "latest"
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
