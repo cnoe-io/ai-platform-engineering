@@ -11,7 +11,6 @@ from typing import Annotated, Optional, Dict, Any
 from pydantic import Field
 from mcp_jira.api.client import make_api_request
 from mcp_jira.config import MCP_JIRA_READ_ONLY, MCP_JIRA_BOARDS_DELETE_PROTECTION
-from mcp_jira.tools.jira.constants import check_read_only, check_boards_delete_protection
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
