@@ -9,12 +9,15 @@ dynamic = [
 ]
 readme = "README.md"
 keywords = ["webex", "mcp", "llm", "automation"]
-requires-python = ">=3.10"
+requires-python = ">=3.13,<4.0"
 dependencies = [
-    "click>=8.1.7",
-    "mcp>=1.13.1",
-    "pydantic>=2.0.0",
-    "httpx>=0.28.1"
+    "click==8.3.1",
+    "mcp==1.21.0",
+    "pydantic==2.12.5",
+    "httpx==0.28.1",
+    "python-dotenv==1.2.1",
+    "fastmcp==2.13.3",
+    "typing-extensions==4.15.0",
 ]
 
 [tool.uv]
