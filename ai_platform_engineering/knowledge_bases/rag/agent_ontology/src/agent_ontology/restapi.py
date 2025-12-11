@@ -353,7 +353,6 @@ async def clear_ontology():
 
     # Remove only the relations from the data graph
     await agent.data_graph_db.remove_relation(None, {constants.ONTOLOGY_VERSION_ID_KEY: ontology_version_id})
-    await agent.data_graph_db.remove_entity(None, {constants.ONTOLOGY_VERSION_ID_KEY: ontology_version_id})
     
     # Clear data from the redis
     await redis_client.delete(constants.KV_ONTOLOGY_VERSION_ID_KEY)

@@ -1,20 +1,16 @@
 // Shared color scheme for graph nodes across Ontology and Data views
 
+import { colorMap, defaultColor, getColorForType } from '../typeConfig';
+
+// Re-export for backward compatibility
+export { colorMap, defaultColor };
+
 // Evaluation result enum matching the backend
 export enum EvaluationResult {
     ACCEPTED = 'ACCEPTED',
     REJECTED = 'REJECTED',
     UNSURE = 'UNSURE'
 }
-
-export const colorMap: { [key: string]: string } = {
-    'aws': '#FFC107',
-    'backstage': '#4CAF50',
-    'k8s': '#2196F3',
-    'event': '#F44336',
-};
-
-export const defaultColor = '#9E9E9E';
 
 export const darkenColor = (hex: string, percent: number): string => {
     const num = parseInt(hex.replace("#", ""), 16);
@@ -26,12 +22,7 @@ export const darkenColor = (hex: string, percent: number): string => {
 };
 
 export const getColorForNode = (label: string): string => {
-    for (const prefix in colorMap) {
-        if (label.toLowerCase().startsWith(prefix.toLowerCase())) {
-            return colorMap[prefix];
-        }
-    }
-    return defaultColor;
+    return getColorForType(label);
 };
 
 // Helper to get evaluation result from relation data

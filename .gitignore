@@ -202,6 +202,7 @@ charts/*/tmp/*
 # Documentation
 ## Only allow svg
 *.png
+!ai_platform_engineering/knowledge_bases/rag/webui/src/assets/icons/*.png
 *.jpg
 *.jpeg
 
@@ -213,7 +214,7 @@ deploy/data/*
 volumes
 volumes_old
 
-ai_platform_engineering/knowledge_bases/rag/web/node_modules
+ai_platform_engineering/knowledge_bases/rag/webui/node_modules
 
 
 # VS Code

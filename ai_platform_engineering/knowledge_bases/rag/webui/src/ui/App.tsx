@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import logo from '../assets/logo.svg'
 import IngestView from './IngestView'
 import SearchView from './SearchView'
@@ -10,7 +11,17 @@ const apiBase = import.meta.env.VITE_API_BASE?.toString() || ''
 type TabType = 'ingest' | 'search' | 'graph'
 
 export default function App() {
-	const [activeTab, setActiveTab] = useState<TabType>('ingest')
+	const navigate = useNavigate()
+	const location = useLocation()
+	
+	// Determine active tab from URL path
+	const getTabFromPath = (pathname: string): TabType => {
+		if (pathname === '/search') return 'search'
+		if (pathname === '/graph') return 'graph'
+		return 'ingest' // default
+	}
+	
+	const [activeTab, setActiveTab] = useState<TabType>(getTabFromPath(location.pathname))
 	const [health, setHealth] = useState<string>('unknown')
 	const [healthData, setHealthData] = useState<Record<string, unknown> | null>(null)
 	const [showHealthPayload, setShowHealthPayload] = useState(false)
@@ -18,6 +29,12 @@ export default function App() {
 	const [exploreEntityData, setExploreEntityData] = useState<{entityType: string, primaryKey: string} | null>(null)
 
 	const baseInfo = useMemo(() => (apiBase ? `Proxy disabled -> ${apiBase}` : 'Proxy: /v1 → :9446'), [])
+
+	// Update active tab when URL changes
+	useEffect(() => {
+		const newTab = getTabFromPath(location.pathname)
+		setActiveTab(newTab)
+	}, [location.pathname])
 
 	useEffect(() => {
 		const checkHealth = async () => {
@@ -33,7 +50,7 @@ export default function App() {
 				
 				// If graph RAG is disabled and user is on graph tab, redirect to search
 				if (!graphRagEnabled && activeTab === 'graph') {
-					setActiveTab('search')
+					navigate('/search', { replace: true })
 				}
 			} catch (err) {
 				console.warn('Health check failed', err)
@@ -47,11 +64,16 @@ export default function App() {
 		return () => {
 			clearInterval(intervalId)
 		}
-	}, [activeTab])
+	}, [activeTab, navigate])
+
+	const handleTabChange = (tab: TabType) => {
+		const path = tab === 'ingest' ? '/' : `/${tab}`
+		navigate(path)
+	}
 
 	const handleExploreEntity = (entityType: string, primaryKey: string) => {
 		setExploreEntityData({ entityType, primaryKey })
-		setActiveTab('graph') // Switch to graph view
+		navigate('/graph') // Switch to graph view
 	}
 
 	const handleExploreComplete = () => {
@@ -81,7 +103,7 @@ export default function App() {
 			<div className="mb-2 border-b border-slate-200">
 				<nav className="-mb-px flex gap-4" aria-label="Tabs">
 					<button
-						onClick={() => setActiveTab('ingest')}
+						onClick={() => handleTabChange('ingest')}
 						className={`shrink-0 border-b-2 px-1 pb-2 text-sm font-medium ${
 							activeTab === 'ingest'
 								? 'border-brand-500 text-brand-600'
@@ -90,7 +112,7 @@ export default function App() {
 						🗃️ Ingest
 					</button>
 					<button
-						onClick={() => setActiveTab('search')}
+						onClick={() => handleTabChange('search')}
 						className={`shrink-0 border-b-2 px-1 pb-2 text-sm font-medium ${
 							activeTab === 'search'
 								? 'border-brand-500 text-brand-600'
@@ -99,7 +121,7 @@ export default function App() {
 						🔍 Search
 					</button>
 					<button
-						onClick={graphRagEnabled ? () => setActiveTab('graph') : undefined}
+						onClick={graphRagEnabled ? () => handleTabChange('graph') : undefined}
 						disabled={!graphRagEnabled}
 						className={`shrink-0 border-b-2 px-1 pb-2 text-sm font-medium ${
 							!graphRagEnabled

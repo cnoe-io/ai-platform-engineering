@@ -542,7 +542,11 @@ class IngestorBuilder:
         assert self._sync_function is not None
         assert self._description is not None
         assert self._metadata is not None
-        logger.info(f"Starting ingestor: {self._name} (type: {self._type}, interval: {self._interval}s, init_delay: {self._init_delay}s, skip_first_sync: {self._skip_first_sync}, description: {self._description}, metadata: {self._metadata})")
+        
+        # Check if we should exit after first sync (for debugging and job mode)
+        exit_after_first_sync = os.getenv("EXIT_AFTER_FIRST_SYNC", "false").lower() in ("true", "1", "yes")
+        
+        logger.info(f"Starting ingestor: {self._name} (type: {self._type}, interval: {self._interval}s, init_delay: {self._init_delay}s, skip_first_sync: {self._skip_first_sync}, exit_after_first_sync: {exit_after_first_sync}, description: {self._description}, metadata: {self._metadata})")
         
         # Create and initialize RAG client
         client = Client(self._name, self._type, self._description, self._metadata)
@@ -605,6 +609,11 @@ class IngestorBuilder:
                         self._sync_function(client)
                     
                     logger.info(f"Sync completed. Next sync in {self._interval} seconds.")
+
+                    # Exit after first sync if environment variable is set
+                    if exit_after_first_sync:
+                        logger.info("EXIT_AFTER_FIRST_SYNC is set. Exiting after first sync.")
+                        return
 
                     # Wait for next cycle
                     first_iteration = False
