@@ -137,6 +137,8 @@ agent-confluence:
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
+    env:
+      TRANSPORT: "streamable-http"
 
 agent-github:
   nameOverride: "agent-github"
