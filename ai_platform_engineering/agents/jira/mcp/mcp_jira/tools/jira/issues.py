@@ -540,13 +540,10 @@ async def create_issue_link(
     comment: Annotated[
         str, Field(description="(Optional) Comment to add to the link")
     ] = "",
-    comment_visibility: Annotated[
-        dict[str, str],
-        Field(
-            description="(Optional) Visibility settings for the comment (e.g., {'type': 'group', 'value': 'jira-users'})",
-            default_factory=dict,
-        ),
-    ] = {},  # noqa: B006
+    comment_visibility: dict[str, str] = Field(
+        default_factory=dict,
+        description="(Optional) Visibility settings for the comment (e.g., {'type': 'group', 'value': 'jira-users'})",
+    ),
 ) -> str:
     """Create a link between two Jira issues.
 

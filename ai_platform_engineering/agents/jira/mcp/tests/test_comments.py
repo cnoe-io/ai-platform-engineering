@@ -170,7 +170,7 @@ class TestAddComment:
 
         result = await add_comment("PROJ-123", "Test comment")
         result_dict = json.loads(result)
-        
+
         assert result_dict["success"] is False
         assert "read-only" in result_dict["error"].lower()
 
@@ -248,6 +248,6 @@ class TestDeleteComment:
 
         result = await delete_comment("PROJ-123", "10000")
         result_dict = json.loads(result)
-        
+
         assert result_dict["success"] is False
         assert "read-only" in result_dict["error"].lower()

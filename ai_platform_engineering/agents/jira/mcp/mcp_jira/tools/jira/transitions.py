@@ -45,17 +45,14 @@ async def transition_issue(
             )
         ),
     ],
-    fields: Annotated[
-        Optional[Dict[str, Any]],
-        Field(
-            description=(
-                "(Optional) Dictionary of fields to update during the transition. "
-                "Some transitions require specific fields to be set (e.g., resolution). "
-                "Example: {'resolution': {'name': 'Fixed'}}"
-            ),
-            default_factory=dict,
+    fields: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "(Optional) Dictionary of fields to update during the transition. "
+            "Some transitions require specific fields to be set (e.g., resolution). "
+            "Example: {'resolution': {'name': 'Fixed'}}"
         ),
-    ] = None,
+    ),
     comment: Annotated[
         Optional[str],
         Field(

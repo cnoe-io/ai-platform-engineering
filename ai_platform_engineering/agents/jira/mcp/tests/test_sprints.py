@@ -81,7 +81,7 @@ class TestCreateSprint:
 
         result = await create_sprint("Sprint 1", 1)
         result_dict = json.loads(result)
-        
+
         assert result_dict["success"] is False
         assert "read-only" in result_dict["error"].lower()
 
@@ -224,7 +224,7 @@ class TestDeleteSprint:
 
         result = await delete_sprint(1)
         result_dict = json.loads(result)
-        
+
         assert result_dict["success"] is False
         assert "protected" in result_dict["error"].lower()
 
