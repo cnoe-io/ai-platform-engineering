@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 
 from ai_platform_engineering.utils.a2a_common.base_strands_agent import BaseStrandsAgent
 from .models import AgentConfig
-from .tools import get_aws_cli_tool
 
 # Load environment variables
 load_dotenv()

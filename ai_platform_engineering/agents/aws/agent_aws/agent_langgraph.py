@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 from pydantic import BaseModel, Field
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from .tools import get_aws_cli_tool, get_eks_kubectl_tool, get_reflection_tool
+from .tools import get_aws_cli_tool, get_eks_kubectl_tool
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +63,6 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
 
     def get_system_instruction(self) -> str:
         """Return the system prompt for the AWS agent."""
-        config = _aws_prompt_config
-
         # Get account info early for insertion at top of prompt
         aws_account_list = os.getenv("AWS_ACCOUNT_LIST", "")
         accounts = []
@@ -80,13 +78,14 @@ class AWSAgentLangGraph(BaseLangGraphAgent):
                     accounts.append({"name": entry, "id": entry})
 
         account_names = [acc['name'] for acc in accounts] if accounts else []
+        account_lines = "\n".join([f'- **{acc["name"]}** ({acc["id"]})' for acc in accounts]) if accounts else "- Default account only"
 
         # Start with base prompt - CRITICAL: Put account info at the VERY TOP
         # Note: Current date is automatically appended to every user query, so agent always has access to it
         system_prompt_parts = [f"""You are an AWS CLI Expert Agent with access to {len(accounts)} AWS accounts.
 
 **YOUR AWS ACCOUNTS (you KNOW this - answer if asked!):**
-{chr(10).join([f'- **{acc["name"]}** (Account ID: `{acc["id"]}`)' for acc in accounts]) if accounts else '- Default account only'}
+{account_lines}
 
 **When user asks "which accounts" or "what accounts" - ANSWER FROM THE LIST ABOVE!**
 
@@ -1102,22 +1101,9 @@ To locate access key AKIAXXXXXXXXX:
 
         # Add AWS configuration with runtime region and multi-account support
         aws_region = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-west-2"))
-        default_account_raw = os.getenv("DEFAULT_AWS_ACCOUNT_ID", "")
         aws_account_list = os.getenv("AWS_ACCOUNT_LIST", "")  # Format: "name1:id1,name2:id2" or "id1,id2"
 
         # Parse default account - supports "name:id" or just "id"
-        if default_account_raw and ":" in default_account_raw:
-            default_account_name, default_account_id = default_account_raw.split(":", 1)
-            default_account_display = f"{default_account_name} (`{default_account_id}`)"
-        elif default_account_raw:
-            default_account_name = default_account_raw
-            default_account_id = default_account_raw
-            default_account_display = f"`{default_account_id}`"
-        else:
-            default_account_name = ""
-            default_account_id = ""
-            default_account_display = "current credentials"
-
         system_prompt_parts.append(f"""
 
 **Current AWS Configuration:**
@@ -1127,8 +1113,6 @@ To locate access key AKIAXXXXXXXXX:
 
         # Add multi-account configuration if accounts were parsed at the top
         if accounts:
-            cross_account_role = os.getenv("CROSS_ACCOUNT_ROLE_NAME", "caipe-read-only")
-
             # Build account display string
             account_display = "\n".join([f"   - **{acc['name']}**: `{acc['id']}` → use `--profile {acc['name']}`" for acc in accounts])
             profile_examples = "\n".join([
@@ -1178,7 +1162,7 @@ When user mentions: **{', '.join(account_names)}**
 When user's query does NOT mention an account name or "all accounts":
 ```
 I can query the following AWS accounts:
-{chr(10).join([f'- **{{acc["name"]}}** ({{acc["id"]}})' for acc in accounts])}
+{account_lines}
 
 Which account(s) would you like me to query?
 - Specify one account (e.g., "prod-account")

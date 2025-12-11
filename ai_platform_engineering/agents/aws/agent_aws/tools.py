@@ -173,8 +173,8 @@ class AWSCLIToolInput(BaseModel):
     profile: str = Field(
         description=(
             "AWS profile name for the account to query. THIS IS REQUIRED! "
-            "Available profiles: eticloud, outshift-common-dev, outshift-common-staging, outshift-common-prod, eti-ci, cisco-research, eticloud-demo. "
-            "When user says 'in eticloud', use profile='eticloud'. "
+            "Available profiles: prod-account-1, staging-account-1, dev-account-1, research-account-1, demo-account-1. "
+            "When user says 'in dev', use profile='dev-account-1'. "
             "When user says 'get all EC2 in all accounts', make separate calls with each profile. "
             "If user does NOT specify an account, you must ask which account to query."
         )
@@ -229,7 +229,7 @@ class AWSCLITool(BaseTool):
         "Examples: 'ec2 describe-instances', 's3 ls', 'iam list-roles'. "
         "Write operations (create, delete, update) are blocked. "
         "IMPORTANT: Use 'profile' parameter to query specific AWS accounts! "
-        "When user asks about 'eticloud', set profile='eticloud'. "
+        "When user asks about 'dev account', set profile='dev-account-1'. "
         "When user asks 'get all EC2', query each profile separately."
     )
     args_schema: type[BaseModel] = AWSCLIToolInput
@@ -276,8 +276,6 @@ class AWSCLITool(BaseTool):
         parts = command.split()
         if not parts:
             return False, "Empty command provided"
-
-        service = parts[0].lower()
 
         # Validate service is in allowed list
         # Check for blocked command patterns
@@ -419,7 +417,6 @@ class AWSCLITool(BaseTool):
                 if jq_filter and stdout_str:
                     try:
                         import tempfile
-                        import json
 
                         # Write output to temp file
                         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -456,7 +453,7 @@ class AWSCLITool(BaseTool):
                             import os as os_module
                             try:
                                 os_module.unlink(temp_file)
-                            except:
+                            except Exception:
                                 pass
 
                     except Exception as e:
@@ -586,8 +583,8 @@ class EKSKubectlToolInput(BaseModel):
     profile: str = Field(
         description=(
             "AWS profile name for the account containing the EKS cluster. "
-            "Available profiles: eticloud, outshift-common-dev, outshift-common-staging, "
-            "outshift-common-prod, eti-ci, cisco-research, eticloud-demo"
+            "Available profiles: prod-account-1, staging-account-1, "
+            "dev-account-1, research-account-1, demo-account-1"
         )
     )
     region: Optional[str] = Field(
@@ -742,7 +739,7 @@ class EKSKubectlTool(BaseTool):
             try:
                 if kubeconfig_path:
                     os.unlink(kubeconfig_path)
-            except:
+            except Exception:
                 pass
             return f"❌ Command timed out after {KUBECTL_TIMEOUT} seconds"
 
@@ -752,7 +749,7 @@ class EKSKubectlTool(BaseTool):
             try:
                 if kubeconfig_path:
                     os.unlink(kubeconfig_path)
-            except:
+            except Exception:
                 pass
             return f"❌ Error: {str(e)}"
 
