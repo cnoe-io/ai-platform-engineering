@@ -55,7 +55,8 @@ const OntologyGraphDataController: FC<PropsWithChildren<{ filters: OntologyFilte
                     
                     if (evalResult === 'ACCEPTED' && !showAccepted) shouldHide = true;
                     if (evalResult === 'REJECTED' && !showRejected) shouldHide = true;
-                    if ((evalResult === 'UNSURE' || evalResult === null || evalResult === undefined) && !showUncertain) shouldHide = true;
+                    // Treat UNSURE, NONE, null, undefined as uncertain/unevaluated relations
+                    if ((evalResult === 'UNSURE' || evalResult === 'NONE' || evalResult === null || evalResult === undefined) && !showUncertain) shouldHide = true;
                     
                     graph.setEdgeAttribute(edge, "hidden", shouldHide);
                 });
@@ -84,7 +85,8 @@ const OntologyGraphDataController: FC<PropsWithChildren<{ filters: OntologyFilte
                 
                 if (evalResult === 'ACCEPTED' && !showAccepted) shouldHide = true;
                 if (evalResult === 'REJECTED' && !showRejected) shouldHide = true;
-                if ((evalResult === 'UNSURE' || evalResult === null || evalResult === undefined) && !showUncertain) shouldHide = true;
+                // Treat UNSURE, NONE, null, undefined as uncertain/unevaluated relations
+                if ((evalResult === 'UNSURE' || evalResult === 'NONE' || evalResult === null || evalResult === undefined) && !showUncertain) shouldHide = true;
                 
                 graph.setEdgeAttribute(edge, "hidden", shouldHide);
             });

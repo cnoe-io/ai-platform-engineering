@@ -15,6 +15,7 @@ import {
   terminateJob,
   WEBLOADER_INGESTOR_ID
 } from '../api'
+import { getIconForType } from './typeConfig'
 
 export default function IngestView() {
   // Ingestion state
@@ -39,6 +40,7 @@ export default function IngestView() {
   // Confirmation dialogs state
   const [showDeleteDataSourceConfirm, setShowDeleteDataSourceConfirm] = useState<string | null>(null)
   const [showDeleteIngestorConfirm, setShowDeleteIngestorConfirm] = useState<string | null>(null)
+  const [isDeletingDataSource, setIsDeletingDataSource] = useState(false)
 
   // Utility function to format status strings
   const formatStatus = (status: string): string => {
@@ -213,14 +215,17 @@ export default function IngestView() {
   }
 
   const handleDeleteDataSource = async (datasourceId: string) => {
+    setIsDeletingDataSource(true)
     try {
       await deleteDataSource(datasourceId)
       fetchDataSources() // Refresh the list
     } catch (error: any) {
       console.error('Error deleting data source:', error)
       alert(`Failed to delete data source: ${error?.message || 'unknown error'}`)
+    } finally {
+      setIsDeletingDataSource(false)
+      setShowDeleteDataSourceConfirm(null)
     }
-    setShowDeleteDataSourceConfirm(null)
   }
 
   const handleDeleteIngestor = async (ingestorId: string) => {
@@ -407,6 +412,9 @@ export default function IngestView() {
                   const hasActiveJob = latestJob && (latestJob.status === 'in_progress' || latestJob.status === 'pending')
                   const isWebloaderDatasource = ds.ingestor_id === WEBLOADER_INGESTOR_ID
 
+                  const icon = getIconForType(ds.source_type);
+                  const isEmoji = icon && !icon.startsWith('/') && !icon.startsWith('data:');
+                  
                   return (
                     <React.Fragment key={ds.datasource_id}>
                       <tr className="bg-white border-b hover:bg-slate-100 cursor-pointer" onClick={() => toggleRow(ds.datasource_id)}>
@@ -414,6 +422,13 @@ export default function IngestView() {
                           <span className="text-slate-400 font-mono text-sm select-none">
                             {isExpanded ? '−' : '+'}
                           </span>
+                          {icon && (
+                            isEmoji ? (
+                              <span className="text-lg">{icon}</span>
+                            ) : (
+                              <img src={icon} alt={ds.source_type} className="w-5 h-5 object-contain" />
+                            )
+                          )}
                           <span className="max-w-xs truncate">
                             {ds.datasource_id.length > 50 ? `${ds.datasource_id.substring(0, 50)}...` : ds.datasource_id}
                           </span>
@@ -669,6 +684,8 @@ export default function IngestView() {
                       {ingestors.map(ingestor => {
                         const isExpanded = expandedIngestors.has(ingestor.ingestor_id)
                         const isDefaultWebloader = ingestor.ingestor_id === WEBLOADER_INGESTOR_ID
+                        const icon = getIconForType(ingestor.ingestor_type);
+                        const isEmoji = icon && !icon.startsWith('/') && !icon.startsWith('data:');
 
                         return (
                           <React.Fragment key={ingestor.ingestor_id}>
@@ -677,6 +694,13 @@ export default function IngestView() {
                                 <span className="text-slate-400 font-mono text-sm select-none">
                                   {isExpanded ? '−' : '+'}
                                 </span>
+                                {icon && (
+                                  isEmoji ? (
+                                    <span className="text-base">{icon}</span>
+                                  ) : (
+                                    <img src={icon} alt={ingestor.ingestor_type} className="w-4 h-4 object-contain" />
+                                  )
+                                )}
                                 {ingestor.ingestor_name}
                               </td>
                               <td className="px-3 py-2">{ingestor.ingestor_type}</td>
@@ -782,13 +806,21 @@ export default function IngestView() {
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowDeleteDataSourceConfirm(null)}
-                className="btn bg-gray-500 hover:bg-gray-600 text-white">
+                disabled={isDeletingDataSource}
+                className="btn bg-gray-500 hover:bg-gray-600 text-white disabled:bg-gray-400 disabled:cursor-not-allowed">
                 Cancel
               </button>
               <button
                 onClick={() => handleDeleteDataSource(showDeleteDataSourceConfirm)}
-                className="btn bg-red-500 hover:bg-red-600 text-white">
-                Delete Data Source
+                disabled={isDeletingDataSource}
+                className="btn bg-red-500 hover:bg-red-600 text-white disabled:bg-red-400 disabled:cursor-not-allowed flex items-center gap-2">
+                {isDeletingDataSource && (
+                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                )}
+                {isDeletingDataSource ? 'Deleting...' : 'Delete Data Source'}
               </button>
             </div>
           </div>

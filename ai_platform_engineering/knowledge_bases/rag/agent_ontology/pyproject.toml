@@ -22,6 +22,7 @@ dependencies = [
     "rbloom>=1.5.4",
     "deepagents==0.2.8",
     "langfuse>=3.10.5",
+    "langmem>=0.0.30",
     "common",
 ]
 

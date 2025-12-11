@@ -24,7 +24,7 @@ logger = utils.get_logger("neo4j_graph_db")
 def sanitize_property_value(value: Any) -> Any:
     """
     Sanitize a property value for Neo4j compatibility.
-    
+    q
     Neo4j only supports: str, int, float, bool, and lists of these types.
     This function converts unsupported types to compatible ones.
     
@@ -75,7 +75,7 @@ def sanitize_property_value(value: Any) -> Any:
         
         # Check if the list is homogeneous (all same type)
         first_type = type(sanitized_list[0])
-        is_homogeneous = all(isinstance(item, first_type) for item in sanitized_list)
+        is_homogeneous = all(type(item) is first_type for item in sanitized_list)
         
         # If not homogeneous, convert all elements to strings
         if not is_homogeneous:
@@ -807,8 +807,7 @@ class Neo4jDB(GraphDB):
         
         logger.debug(f"Grouped {len(entities)} entities into {len(grouped_entities)} groups by type and labels")
         if len(grouped_entities) == 1:
-            logger.warning("Only one group, updating entities in one network call")
-            logger.warning(f"Group: {list(grouped_entities.items())}")            
+            logger.debug(f"Group: {list(grouped_entities.items())}")            
         
         # Build parameters for each group
         all_group_params = []
@@ -1002,7 +1001,7 @@ class Neo4jDB(GraphDB):
             }}"""
             call_blocks.append(call_block)
             
-            logger.debug(f"Group {group_idx}: {len(batch_params)} relations of type '{relation_name}'")
+            logger.debug(f"Group {group_idx}: {len(batch_params)} relations of type '{relation_name}")
         
         if not call_blocks:
             logger.warning("No valid relation groups to update")
@@ -1010,6 +1009,8 @@ class Neo4jDB(GraphDB):
         
         # Combine all CALL blocks into a single query
         query = "\n".join(call_blocks)
+
+        logger.debug(query)
         
         # Build parameters dict with all batches
         params = {key: batch for key, batch in all_group_params}

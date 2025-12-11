@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import logging
 import requests
@@ -21,20 +22,29 @@ LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(level=LOG_LEVEL)
 
 # ArgoCD configuration
-SERVER_URL = os.getenv("SERVER_URL")
-ARGOCD_AUTH_TOKEN = os.getenv("ARGOCD_AUTH_TOKEN")
+SERVER_URL = str(os.getenv("SERVER_URL"))
+if SERVER_URL is None:
+    raise ValueError("SERVER_URL environment variable must be set")
+ARGOCD_AUTH_TOKEN = str(os.getenv("ARGOCD_AUTH_TOKEN"))
+if ARGOCD_AUTH_TOKEN is None:
+    raise ValueError("ARGOCD_AUTH_TOKEN environment variable must be set")
 ARGOCD_VERIFY_SSL = os.getenv("ARGOCD_VERIFY_SSL", "true").lower() == "true"
 ARGOCD_FILTER_PROJECTS = os.getenv("ARGOCD_FILTER_PROJECTS", "").strip()
 SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 900))  # sync every 15 minutes by default
+# Create instance name from server URL - sanitize by replacing all non-alphanumeric chars with underscore
+def sanitize_instance_name(url: str) -> str:
+    """Replace all non-alphanumeric characters in URL with underscores"""
+    return re.sub(r'[^a-zA-Z0-9]', '_', url)
 
-if SERVER_URL is None or ARGOCD_AUTH_TOKEN is None:
-    raise ValueError("SERVER_URL and ARGOCD_AUTH_TOKEN environment variables must be set")
-
-# Create instance name from server URL
-argocd_instance_name = "argocdv3_" + SERVER_URL.replace("://", "_").replace("/", "_").replace(":", "_").replace(".", "_")
+argocd_instance_name = "argocdv3_" + sanitize_instance_name(SERVER_URL)
 
 # Filter projects if specified
 FILTER_PROJECTS = [p.strip() for p in ARGOCD_FILTER_PROJECTS.split(",") if p.strip()] if ARGOCD_FILTER_PROJECTS else []
+
+# Field filtering - fields to ignore from resource manifests
+default_ignore_field_list = "metadata.annotations.kubectl.kubernetes.io,metadata.labels.app.kubernetes.io,metadata.managedFields,metadata.selfLink,status"
+ignore_field_list_str = os.environ.get('IGNORE_FIELD_LIST', default_ignore_field_list)
+IGNORE_FIELD_LIST: List[str] = [f.strip() for f in ignore_field_list_str.split(",")]
 
 
 class ArgoCDClient:
@@ -163,6 +173,22 @@ class ArgoCDClient:
             return []
 
 
+def should_ignore_field(field_path: str) -> bool:
+    """
+    Check if a field should be ignored based on IGNORE_FIELD_LIST.
+    
+    Args:
+        field_path: Dot-separated field path (e.g., "metadata.managedFields")
+        
+    Returns:
+        True if field should be ignored, False otherwise
+    """
+    for ignore_pattern in IGNORE_FIELD_LIST:
+        if field_path.startswith(ignore_pattern):
+            return True
+    return False
+
+
 def extract_project_roles(project: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extract RBAC roles from a project"""
     roles = []
@@ -207,6 +233,7 @@ async def sync_argocd_entities(client: Client):
             "argocd_url": SERVER_URL,
             "filter_projects": FILTER_PROJECTS,
             "verify_ssl": ARGOCD_VERIFY_SSL,
+            "ignore_fields": IGNORE_FIELD_LIST
         }
     )
     await client.upsert_datasource(datasource_info)
@@ -285,13 +312,19 @@ async def sync_argocd_entities(client: Client):
         # Convert Applications
         for app in applications_data:
             try:
+                # Filter ignored fields while preserving nested structure
+                filtered_app = utils.filter_nested_dict(app, IGNORE_FIELD_LIST)
+                
+                # Add ArgoCD instance identifier
+                filtered_app["argocd_instance"] = argocd_instance_name # type: ignore
+                
                 entity = Entity(
                     entity_type="ArgoCDApplication",
-                    all_properties=app,
-                    primary_key_properties=["metadata.uid"],
+                    all_properties=filtered_app, # type: ignore
+                    primary_key_properties=["argocd_instance", "metadata.uid"],
                     additional_key_properties=[
-                        ["metadata.name"],
-                        ["metadata.namespace", "metadata.name"]
+                        ["argocd_instance", "metadata.name"],
+                        ["argocd_instance", "metadata.namespace", "metadata.name"]
                     ]
                 )
                 all_entities.append(entity)
@@ -303,11 +336,17 @@ async def sync_argocd_entities(client: Client):
         # Convert Projects
         for project in projects_data:
             try:
+                # Filter ignored fields while preserving nested structure
+                filtered_project = utils.filter_nested_dict(project, IGNORE_FIELD_LIST)
+                
+                # Add ArgoCD instance identifier
+                filtered_project["argocd_instance"] = argocd_instance_name # type: ignore
+                
                 entity = Entity(
                     entity_type="ArgoCDProject",
-                    all_properties=project,
-                    primary_key_properties=["metadata.uid"],
-                    additional_key_properties=[["metadata.name"]]
+                    all_properties=filtered_project, # type: ignore
+                    primary_key_properties=["argocd_instance", "metadata.uid"],
+                    additional_key_properties=[["argocd_instance", "metadata.name"]]
                 )
                 all_entities.append(entity)
             except Exception as e:
@@ -318,11 +357,17 @@ async def sync_argocd_entities(client: Client):
         # Convert Clusters
         for cluster in clusters_data:
             try:
+                # Filter ignored fields while preserving nested structure
+                filtered_cluster = utils.filter_nested_dict(cluster, IGNORE_FIELD_LIST)
+                
+                # Add ArgoCD instance identifier
+                filtered_cluster["argocd_instance"] = argocd_instance_name # type: ignore
+                
                 entity = Entity(
                     entity_type="ArgoCDCluster",
-                    all_properties=cluster,
-                    primary_key_properties=["server"],
-                    additional_key_properties=[["name"]]
+                    all_properties=filtered_cluster, # type: ignore
+                    primary_key_properties=["argocd_instance", "server"],
+                    additional_key_properties=[["argocd_instance", "name"]]
                 )
                 all_entities.append(entity)
             except Exception as e:
@@ -333,11 +378,17 @@ async def sync_argocd_entities(client: Client):
         # Convert Repositories
         for repo in repositories_data:
             try:
+                # Filter ignored fields while preserving nested structure
+                filtered_repo = utils.filter_nested_dict(repo, IGNORE_FIELD_LIST)
+                
+                # Add ArgoCD instance identifier
+                filtered_repo["argocd_instance"] = argocd_instance_name # type: ignore
+                
                 entity = Entity(
                     entity_type="ArgoCDRepository",
-                    all_properties=repo,
-                    primary_key_properties=["repo"],
-                    additional_key_properties=[["name"]]
+                    all_properties=filtered_repo, # type: ignore
+                    primary_key_properties=["argocd_instance", "repo"],
+                    additional_key_properties=[["argocd_instance", "name"]]
                 )
                 all_entities.append(entity)
             except Exception as e:
@@ -348,13 +399,19 @@ async def sync_argocd_entities(client: Client):
         # Convert ApplicationSets
         for appset in applicationsets_data:
             try:
+                # Filter ignored fields while preserving nested structure
+                filtered_appset = utils.filter_nested_dict(appset, IGNORE_FIELD_LIST)
+                
+                # Add ArgoCD instance identifier
+                filtered_appset["argocd_instance"] = argocd_instance_name # type: ignore
+                
                 entity = Entity(
                     entity_type="ArgoCDApplicationSet",
-                    all_properties=appset,
-                    primary_key_properties=["metadata.uid"],
+                    all_properties=filtered_appset, # type: ignore
+                    primary_key_properties=["argocd_instance", "metadata.uid"],
                     additional_key_properties=[
-                        ["metadata.name"],
-                        ["metadata.namespace", "metadata.name"]
+                        ["argocd_instance", "metadata.name"],
+                        ["argocd_instance", "metadata.namespace", "metadata.name"]
                     ]
                 )
                 all_entities.append(entity)
@@ -366,11 +423,14 @@ async def sync_argocd_entities(client: Client):
         # Convert Project Roles
         for role in all_roles:
             try:
+                # Add ArgoCD instance identifier
+                role["argocd_instance"] = argocd_instance_name
+                
                 entity = Entity(
                     entity_type="ArgoCDProjectRole",
                     all_properties=role,
-                    primary_key_properties=["project_name", "role_name"],
-                    additional_key_properties=[["role_name"]]
+                    primary_key_properties=["argocd_instance", "project_name", "role_name"],
+                    additional_key_properties=[["argocd_instance", "role_name"]]
                 )
                 all_entities.append(entity)
             except Exception as e:
@@ -450,7 +510,8 @@ if __name__ == "__main__":
                 "filter_projects": FILTER_PROJECTS,
                 "verify_ssl": ARGOCD_VERIFY_SSL,
                 "sync_interval": SYNC_INTERVAL,
-                "api_version": "v1"
+                "api_version": "v1",
+                "ignore_fields": IGNORE_FIELD_LIST
             })\
             .sync_with_fn(sync_argocd_entities)\
             .every(SYNC_INTERVAL)\

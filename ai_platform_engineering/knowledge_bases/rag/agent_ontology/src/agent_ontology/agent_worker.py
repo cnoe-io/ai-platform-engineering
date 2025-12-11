@@ -445,15 +445,13 @@ class AgentWorker:
                 self.evaluation_logger.error(f"Worker {self.worker_id}: Error marking relation {relation_id} as unsure: {e}")
                 return f"Error marking relation {relation_id} as unsure: {e}"
     
-    def create_agent(self, entity_types: list[str], system_prompt: str, base_llm) -> CompiledStateGraph:
+    async def create_agent(self, system_prompt: str, base_llm) -> CompiledStateGraph:
         """
         Create an agent with tools bound to this worker instance.
         
         Args:
-            entity_types: List of entity types in the system
             system_prompt: System prompt for the agent
             base_llm: Base LLM to use
-            
         Returns:
             Compiled agent graph
         """
@@ -470,7 +468,7 @@ class AgentWorker:
         # Define custom state schema with context for summarization tracking
         class State(AgentState):
             context: dict[str, Any]
-        
+
         agent = create_react_agent(
             base_llm, 
             tools=tools, 
