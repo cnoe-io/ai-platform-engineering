@@ -62,7 +62,7 @@ Make sure the RAG server is up and running before starting the ingestor.
 
 ```bash
 export RAG_SERVER_URL=http://host.docker.internal:9446 # Adjust based on your setup
-export K8S_CLUSTER_NAME=my-cluster
+export CLUSTER_NAME=my-cluster
 docker compose --profile k8s up --build k8s_ingestor
 ```
 
@@ -70,7 +70,7 @@ docker compose --profile k8s up --build k8s_ingestor
 
 ```bash
 export RAG_SERVER_URL=http://host.docker.internal:9446
-export K8S_CLUSTER_NAME=my-cluster
+export CLUSTER_NAME=my-cluster
 export KUBE_CONTEXT=prod-cluster
 docker compose --profile k8s up --build k8s_ingestor
 ```
@@ -79,7 +79,7 @@ docker compose --profile k8s up --build k8s_ingestor
 
 ```bash
 export RAG_SERVER_URL=http://host.docker.internal:9446
-export K8S_CLUSTER_NAME=my-cluster
+export CLUSTER_NAME=my-cluster
 export KUBECONFIG=/path/to/my/kubeconfig
 # Optional: export KUBE_CONTEXT=my-context
 docker compose --profile k8s up --build k8s_ingestor
@@ -97,18 +97,13 @@ services:
     volumes:
       # Mount AWS credentials for EKS authentication
       - ~/.aws:/home/app/.aws:ro
-      # Mount AWS CLI if you want to use host's installation
-      - /usr/local/aws-cli:/usr/local/aws-cli:ro
-    environment:
-      # Add AWS CLI to PATH if mounting from host
-      - PATH=/usr/local/aws-cli/v2/current/bin:/app/ingestors/.venv/bin:/usr/local/bin:/usr/bin:/bin
 ```
 
 2. Run the ingestor:
 
 ```bash
 export RAG_SERVER_URL=http://host.docker.internal:9446
-export K8S_CLUSTER_NAME=my-eks-cluster
+export CLUSTER_NAME=my-eks-cluster
 export KUBE_CONTEXT=my-eks-context  # The context that uses AWS authentication
 docker compose --profile k8s up --build k8s_ingestor
 ```

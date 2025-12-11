@@ -433,6 +433,55 @@ def flatten_dict(d: dict, wildcard_index=True, preserve_list_of_dicts=False) -> 
 
     return _flatten(d)
 
+
+def filter_nested_dict(data, ignore_field_list, prefix: str = ""):
+    """
+    Filter out ignored fields from a nested dictionary structure.
+    This preserves the nested structure while removing fields that match patterns in ignore_field_list.
+    
+    Args:
+        data: Nested dictionary or value to filter
+        ignore_field_list: List of field path prefixes to ignore (e.g., ["metadata.managedFields", "status"])
+        prefix: Current path prefix (used for recursion)
+        
+    Returns:
+        Filtered data structure with ignored fields removed
+        
+    Example:
+        data = {"metadata": {"name": "foo", "managedFields": [...]}, "status": {...}}
+        ignore_list = ["metadata.managedFields", "status"]
+        result = filter_nested_dict(data, ignore_list)
+        # result: {"metadata": {"name": "foo"}}
+    """
+    def should_ignore_field(field_path: str) -> bool:
+        """Check if a field path matches any ignore pattern"""
+        for ignore_pattern in ignore_field_list:
+            if field_path.startswith(ignore_pattern):
+                return True
+        return False
+    
+    if isinstance(data, dict):
+        filtered = {}
+        for key, value in data.items():
+            # Build the full path for this key
+            current_path = f"{prefix}.{key}" if prefix else key
+            
+            # Check if this path should be ignored
+            if should_ignore_field(current_path):
+                logging.debug(f"Ignoring field: {current_path}")
+                continue
+            
+            # Recursively filter nested structures
+            filtered[key] = filter_nested_dict(value, ignore_field_list, current_path)
+        return filtered
+    elif isinstance(data, list):
+        # Filter each item in the list
+        return [filter_nested_dict(item, ignore_field_list, prefix) for item in data]
+    else:
+        # Return primitive values as-is
+        return data
+
+
 def runforever(func):
     """
     Decorator to run a function forever.
