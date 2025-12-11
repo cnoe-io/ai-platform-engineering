@@ -98,39 +98,21 @@ def should_ignore_field(field_path: str) -> bool:
     return False
 
 
-def filter_resource_properties(properties: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Filter out ignored fields from resource properties.
-    
-    Args:
-        properties: Flattened resource properties dictionary
-        
-    Returns:
-        Filtered properties dictionary
-    """
-    filtered = {}
-    for key, value in properties.items():
-        if not should_ignore_field(key):
-            filtered[key] = value
-        else:
-            logging.debug(f"Ignoring field: {key}")
-    
-    return filtered
-
-
-def determine_primary_key_properties(properties: Dict[str, Any]) -> List[str]:
+def determine_primary_key_properties(resource_dict: Dict[str, Any]) -> List[str]:
     """
     Determine primary key properties for a K8s resource.
     Namespaced resources use cluster_name, namespace, and name.
     Cluster-scoped resources use cluster_name and name.
     
     Args:
-        properties: Resource properties dictionary
+        resource_dict: Resource dictionary (nested structure)
         
     Returns:
         List of primary key property names
     """
-    if "metadata.namespace" in properties:
+    # Check if resource has namespace in nested structure
+    metadata = resource_dict.get("metadata", {})
+    if metadata.get("namespace"):
         return ["cluster_name", "metadata.namespace", "metadata.name"]
     else:
         return ["cluster_name", "metadata.name"]
@@ -307,19 +289,20 @@ async def sync_k8s_resources(client: Client):
                         
                         logging.debug(f"Processing {resource.kind}: {resource_id}")
                         
-                        # Flatten and filter properties
-                        _all_properties = utils.flatten_dict(obj.to_dict())
-                        filtered_properties = filter_resource_properties(_all_properties)
+                        # Filter ignored fields while preserving nested structure
+                        resource_dict = obj.to_dict()
+                        filtered_resource = utils.filter_nested_dict(resource_dict, IGNORE_FIELD_LIST)
                         
                         # Add cluster name to properties
-                        filtered_properties["cluster_name"] = CLUSTER_NAME
+                        filtered_resource["cluster_name"] = CLUSTER_NAME # type: ignore
                         
                         # Determine primary key properties based on namespace
-                        primary_key_props = determine_primary_key_properties(filtered_properties)
+                        primary_key_props = determine_primary_key_properties(filtered_resource) # type: ignore
                         
                         # Determine additional key properties for alternate lookups
                         additional_keys = []
-                        if "metadata.uid" in filtered_properties:
+                        metadata = filtered_resource.get("metadata", {})
+                        if metadata.get("uid"):
                             additional_keys.append(["cluster_name", "metadata.uid"])
                         
                         # Create Entity
@@ -327,7 +310,7 @@ async def sync_k8s_resources(client: Client):
                             entity_type=normalize_k8s_kind_to_entity_type(resource.kind),
                             primary_key_properties=primary_key_props,
                             additional_key_properties=additional_keys,
-                            all_properties=filtered_properties
+                            all_properties=filtered_resource
                         )
                         all_entities.append(entity)
                         

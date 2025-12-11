@@ -180,19 +180,19 @@ class SlackChannelSyncer:
             
             thread_ts = msg.get("thread_ts")
             
-            if thread_ts:
-                # Part of a thread
+            # Check if this is a parent message with replies
+            if msg.get("thread_replies"):
+                # This is a thread parent with replies - use the enriched thread_replies
+                parent_thread_ts = msg.get("ts")
+                threads[parent_thread_ts] = [msg] + msg.get("thread_replies", [])
+            elif thread_ts:
+                # Part of a thread (but not the parent)
                 if thread_ts not in threads:
                     threads[thread_ts] = []
                 threads[thread_ts].append(msg)
             else:
-                # Standalone message (or thread parent with replies)
-                if msg.get("thread_replies"):
-                    # This is a thread parent
-                    thread_ts = msg.get("ts")
-                    threads[thread_ts] = [msg] + msg.get("thread_replies", [])
-                else:
-                    standalone.append(msg)
+                # Standalone message
+                standalone.append(msg)
         
         # Create documents for threads
         for thread_ts, thread_messages in threads.items():
@@ -249,18 +249,22 @@ class SlackChannelSyncer:
             document_type="slack_thread",
             document_ingested_at=int(time.time()),
             document_id=f"slack-thread-{channel_id}-{thread_ts}",
-            source_uri=thread_url,
+            fresh_until=sync_interval*3,
             title=f"Thread: {parent_text}",
-            last_modified=int(float(thread_messages[-1].get("ts", "0"))),
             metadata={
                 "channel_name": channel_name,
                 "channel_id": channel_id,
                 "thread_ts": thread_ts,
                 "message_count": len(thread_messages),
-                "type": "slack_thread"
+                "type": "slack_thread",
+                "source_uri": thread_url,
+                "last_modified": int(float(thread_messages[-1].get("ts", "0"))),
+
             }
         )
         
+        logger.debug(f"Creating thread document for {channel_id} {thread_ts}: \n {metadata.model_dump()}")
+
         return Document(
             page_content=content,
             metadata=metadata.model_dump()
@@ -295,14 +299,15 @@ class SlackChannelSyncer:
             document_type="slack_message",
             document_ingested_at=int(time.time()),
             document_id=f"slack-message-{channel_id}-{ts}",
-            source_uri=slack_url,
             title=f"Message: {message_preview}",
-            last_modified=int(float(ts)),
+            fresh_until=sync_interval*3,
             metadata={
                 "channel_name": channel_name,
                 "channel_id": channel_id,
                 "ts": ts,
-                "type": "slack_message"
+                "type": "slack_message",
+                "source_uri": slack_url,
+                "last_modified": int(float(ts)),
             }
         )
         
