@@ -126,9 +126,6 @@ services:
     container_name: agent-aws
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
-      # Mount only agent_aws subdirectory to preserve .venv from build
-      - ./ai_platform_engineering/agents/aws/agent_aws:/app/ai_platform_engineering/agents/agent/agent_aws
-      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8012:8000"]
     environment:
