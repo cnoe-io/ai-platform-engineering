@@ -51,6 +51,7 @@ major_version_zero = true
 
 [dependency-groups]
 dev = [
+    "ruff>=0.14.8",
 ]
 unittest = [
     "pytest-asyncio>=1.3.0",
