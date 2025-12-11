@@ -7,7 +7,7 @@ from typing import Annotated, Optional, List, Dict, Any
 from pydantic import Field
 
 from mcp_jira.api.client import make_api_request
-from mcp_jira.config import MCP_JIRA_READ_ONLY, MCP_JIRA_ISSUES_DELETE_PROTECTION
+from mcp_jira.config import MCP_JIRA_READ_ONLY
 from mcp_jira.tools.jira.constants import check_read_only, check_issues_delete_protection
 from mcp_jira.utils.field_discovery import get_field_discovery
 from mcp_jira.utils.adf import ensure_adf_format
