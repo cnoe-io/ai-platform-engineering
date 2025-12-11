@@ -24,7 +24,7 @@ logger = utils.get_logger("neo4j_graph_db")
 def sanitize_property_value(value: Any) -> Any:
     """
     Sanitize a property value for Neo4j compatibility.
-    
+    q
     Neo4j only supports: str, int, float, bool, and lists of these types.
     This function converts unsupported types to compatible ones.
     
@@ -75,7 +75,7 @@ def sanitize_property_value(value: Any) -> Any:
         
         # Check if the list is homogeneous (all same type)
         first_type = type(sanitized_list[0])
-        is_homogeneous = all(type(item) == first_type for item in sanitized_list)
+        is_homogeneous = all(type(item) is first_type for item in sanitized_list)
         
         # If not homogeneous, convert all elements to strings
         if not is_homogeneous:

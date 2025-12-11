@@ -651,7 +651,7 @@ async def sync_github_entities(client: Client):
             await client.update_job(
                 job_id=job_id,
                 job_status=JobStatus.IN_PROGRESS,
-                message=f"Converting organization metadata..."
+                message="Converting organization metadata..."
             )
             org_entity = Entity(
                 entity_type="GitHubOrganization",
@@ -674,7 +674,7 @@ async def sync_github_entities(client: Client):
             )
             all_entities.append(org_entity)
             await client.increment_job_progress(job_id, 1)
-            logging.info(f"Organization entity created and tracked")
+            logging.info("Organization entity created and tracked")
             
             # Convert Repositories
             logging.info(f"Converting {len(repos_data)} repositories to entities")
@@ -1007,7 +1007,7 @@ if __name__ == "__main__":
         IngestorBuilder()\
             .name(github_instance_name)\
             .type("github")\
-            .description(f"Ingestor for GitHub entities" + (f" from organization {GITHUB_ORG}" if GITHUB_ORG else ""))\
+            .description("Ingestor for GitHub entities" + (f" from organization {GITHUB_ORG}" if GITHUB_ORG else ""))\
             .metadata({
                 "github_api_url": GITHUB_API_URL,
                 "github_org": GITHUB_ORG,
