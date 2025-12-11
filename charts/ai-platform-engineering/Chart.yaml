@@ -6,7 +6,7 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
 - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.5.9
+version: 0.5.10
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
