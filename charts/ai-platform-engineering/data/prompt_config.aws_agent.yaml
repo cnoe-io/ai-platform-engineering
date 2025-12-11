@@ -75,6 +75,29 @@ mcp_capabilities:
       - Create and manage alarms
       - Analyze application and infrastructure performance
 
+# AWS CLI tool capability (enabled via USE_AWS_CLI_AS_TOOL=true)
+# This provides direct AWS CLI command execution as a fallback tool
+aws_cli_capability:
+  prompt: |
+    **AWS CLI Direct Execution:**
+    - Execute AWS CLI commands directly for any AWS service operation
+    - Use the aws_cli_execute tool when specialized MCP tools don't cover the needed operation
+    - Commands should NOT include the 'aws' prefix (e.g., use 'ec2 describe-instances' not 'aws ec2 describe-instances')
+    - Supported services: EC2, S3, IAM, EKS, ECS, Lambda, RDS, DynamoDB, CloudWatch, CloudFormation, CloudTrail, SNS, SQS, KMS, Secrets Manager, STS, SSM, and more
+    - Output formats: json (default), text, table, yaml
+    - Security: Commands are validated before execution; dangerous operations are blocked by default
+    - Use this tool for:
+      * Operations not covered by specialized MCP tools
+      * Quick one-off queries
+      * Complex CLI operations with specific flags
+      * Troubleshooting and debugging
+    - Example commands:
+      * 'ec2 describe-instances --filters Name=instance-state-name,Values=running'
+      * 's3 ls s3://bucket-name --recursive'
+      * 'iam list-roles --path-prefix /service-role/'
+      * 'logs describe-log-groups'
+      * 'sts get-caller-identity'
+
 # Cost query specific settings (appended when cost_explorer is enabled)
 cost_query_settings: |
   **Default Cost Query Settings:**

@@ -1,5 +1,6 @@
 """Unit tests for Jira sprints MCP tools."""
 
+import json
 import pytest
 
 
@@ -72,17 +73,17 @@ class TestCreateSprint:
 
     @pytest.mark.asyncio
     async def test_create_sprint_read_only(self, monkeypatch):
-        """Test that create_sprint respects read-only mode."""
-        def mock_check_read_only():
-            raise ValueError("Jira MCP is in read-only mode")
-
-        # Patch where check_read_only is used, not where it's defined
-        monkeypatch.setattr("mcp_jira.tools.jira.sprints.check_read_only", mock_check_read_only)
+        """Test that create_sprint returns error JSON in read-only mode."""
+        # Mock read-only mode
+        monkeypatch.setattr("mcp_jira.tools.jira.sprints.MCP_JIRA_READ_ONLY", True)
 
         from mcp_jira.tools.jira.sprints import create_sprint
 
-        with pytest.raises(ValueError, match="read-only"):
-            await create_sprint("Sprint 1", 1)
+        result = await create_sprint("Sprint 1", 1)
+        result_dict = json.loads(result)
+
+        assert result_dict["success"] is False
+        assert "read-only" in result_dict["error"].lower()
 
 
 class TestGetSprint:
@@ -214,21 +215,18 @@ class TestDeleteSprint:
 
     @pytest.mark.asyncio
     async def test_delete_sprint_protection_enabled(self, monkeypatch):
-        """Test that sprint deletion is protected by default."""
-        def mock_check_read_only():
-            return None
-
-        def mock_check_sprints_delete_protection():
-            raise ValueError("Sprint deletion is protected")
-
-        # Patch where functions are used, not where they're defined
-        monkeypatch.setattr("mcp_jira.tools.jira.sprints.check_read_only", mock_check_read_only)
-        monkeypatch.setattr("mcp_jira.tools.jira.sprints.check_sprints_delete_protection", mock_check_sprints_delete_protection)
+        """Test that sprint deletion returns error JSON when protected."""
+        # Mock protection mode
+        monkeypatch.setattr("mcp_jira.tools.jira.sprints.MCP_JIRA_READ_ONLY", False)
+        monkeypatch.setattr("mcp_jira.tools.jira.sprints.MCP_JIRA_SPRINTS_DELETE_PROTECTION", True)
 
         from mcp_jira.tools.jira.sprints import delete_sprint
 
-        with pytest.raises(ValueError, match="protected"):
-            await delete_sprint(1)
+        result = await delete_sprint(1)
+        result_dict = json.loads(result)
+
+        assert result_dict["success"] is False
+        assert "protected" in result_dict["error"].lower()
 
 
 class TestGetSprintIssues:

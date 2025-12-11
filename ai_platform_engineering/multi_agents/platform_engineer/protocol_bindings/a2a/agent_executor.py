@@ -138,9 +138,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         Returns: (agent_name, agent_url) if detected, None otherwise
 
         Patterns detected:
-        - "show me komodor clusters" -> komodor
         - "list github repos" -> github
-        - "using komodor agent" -> komodor
         """
         query_lower = query.lower()
         logger.info(f"🔍 Detecting sub-agent in query: '{query_lower}'")
@@ -177,8 +175,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             RoutingDecision with type (DIRECT/PARALLEL/COMPLEX) and target agents
 
         Examples:
-            - "show me komodor clusters" → DIRECT (komodor - explicit mention)
-            - "list github repos and komodor clusters" → PARALLEL (github + komodor - explicit mentions)
             - "analyze clusters and create jira tickets" → COMPLEX (needs Deep Agent orchestration)
             - "who is on call for SRE" → COMPLEX (no explicit agent - Deep Agent will route to PagerDuty + RAG)
         """
@@ -254,7 +250,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 )
             else:
                 # Simple multi-agent query, can stream in parallel
-                # E.g., "show me github repos and komodor clusters"
                 agent_names = [name for name, _ in mentioned_agents]
                 return RoutingDecision(
                     type=RoutingType.PARALLEL,

@@ -20,7 +20,7 @@ ai-platform-engineering/
         └── aws/          # ← You are here
             ├── agent_aws/
             │   ├── __init__.py
-            │   ├── agent.py
+            │   ├── agent_strands.py
             │   ├── models.py
             │   ├── state.py
             │   └── protocol_bindings/

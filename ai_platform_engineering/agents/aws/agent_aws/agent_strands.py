@@ -4,7 +4,7 @@
 import logging
 import os
 import platform
-from typing import Optional, List, Tuple, Any
+from typing import Any, List, Optional, Tuple
 
 from mcp import stdio_client, StdioServerParameters
 from strands.models import BedrockModel
@@ -185,6 +185,21 @@ class AWSAgent(BaseStrandsAgent):
                 "- Integrate with existing CDK projects\n"
                 "- Support CDK v2 features and capabilities\n"
                 "- Help with CDK bootstrapping and deployment\n\n"
+            ])
+
+        # Check if AWS CLI tool is enabled
+        use_aws_cli = os.getenv("USE_AWS_CLI_AS_TOOL", "false").lower() == "true"
+        if use_aws_cli:
+            allow_write = os.getenv("AWS_CLI_ALLOW_WRITE", "false").lower() == "true"
+            write_mode = "read and write" if allow_write else "read-only"
+            system_prompt_parts.extend([
+                f"**AWS CLI Direct Execution ({write_mode} mode):**\n"
+                "- Execute AWS CLI commands directly for any AWS service operation\n"
+                "- Use the aws_cli_execute tool when specialized MCP tools don't cover the needed operation\n"
+                "- Commands should NOT include the 'aws' prefix (e.g., use 'ec2 describe-instances')\n"
+                "- Available for services: EC2, S3, IAM, EKS, ECS, Lambda, RDS, CloudWatch, and more\n"
+                "- Output format can be json, text, table, or yaml\n"
+                f"- {'Write operations (create, delete, modify) are enabled' if allow_write else 'Only read operations are allowed by default'}\n\n"
             ])
 
         system_prompt_parts.append(
@@ -458,7 +473,7 @@ class AWSAgent(BaseStrandsAgent):
             logger.warning("No MCP servers enabled. Agent will run without MCP capabilities.")
         else:
             logger.info(f"Prepared {len(clients)} MCP client definitions: {[name for name, _ in clients]}")
-        
+
         return clients
 
     def get_model_config(self) -> Any:

@@ -10,27 +10,29 @@ authors = [
 maintainers = [
     { name = "Omar Sayed", email = "osayed@cisco.com" },
 ]
-requires-python = ">=3.13, <4.0"
+requires-python = ">=3.13,<4.0"
 dependencies = [
     "a2a-sdk==0.3.0",
-    "agentevals>=0.0.7",
-    "agntcy-app-sdk==0.4.0",
-    "click>=8.2.0",
-    "langchain-anthropic>=0.3.13",
-    "langchain-core>=0.3.60",
-    "langchain-google-genai>=2.1.4",
-    "langchain-mcp-adapters>=0.1.0",
-    "langchain-openai>=0.3.17",
-    "langgraph==0.5.3",
-    "pytest>=8.3.5",
-    "tabulate>=0.9.0",
-    "keyring>=25.6.0",
-    "uv",
-    "cnoe-agent-utils==0.3.2",
-    "fastmcp>=2.11.1",
-    "mcp>=1.12.3",
+    "agentevals==0.0.7",
+    "agntcy-app-sdk==0.4.5",
+    "click==8.3.1",
+    "langchain-anthropic==1.0.0",
+    "langchain-core==1.1.2",
+    "langchain-mcp-adapters==0.2.1",
+    "langchain-openai==1.1.0",
+    "langgraph==1.0.4",
+    "pytest==8.3.5",
+    "tabulate==0.9.0",
+    "keyring==25.6.0",
+    "httpx==0.28.1",
+    "python-dotenv==1.2.1",
+    "cnoe-agent-utils==0.3.9",
+    "fastmcp==2.13.3",
+    "mcp==1.21.0",
     "mcp-confluence",
-    "prometheus_client>=0.20.0",
+    "prometheus_client==0.23.1",
+    "pydantic==2.12.5",
+    "typing-extensions==4.15.0",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["."]

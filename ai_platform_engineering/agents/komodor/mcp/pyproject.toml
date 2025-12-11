@@ -15,14 +15,13 @@ mcp_argocd = "mcp_komodor.server:main"
 packages = ["mcp_komodor"]
 
 [tool.poetry.dependencies]
-
       python = ">=3.13,<4.0"
-      httpx = ">=0.24.0"
-      python-dotenv = ">=1.0.0"
-      pydantic = ">=2.0.0"
-      mcp = ">=1.9.0"
-      fastmcp = ">=2.0.0"
-    
+      httpx = "==0.28.1"
+      python-dotenv = "==1.2.1"
+      pydantic = "==2.12.5"
+      mcp = "==1.21.0"
+      fastmcp = "==2.13.3"
+      typing-extensions = "==4.15.0"
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
