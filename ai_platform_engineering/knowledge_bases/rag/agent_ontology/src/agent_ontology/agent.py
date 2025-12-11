@@ -1,14 +1,9 @@
-import logging
 import os
 import traceback
 import asyncio
 
 from common.graph_db.base import GraphDB
 from common import constants
-from langchain_core.tools.structured import StructuredTool
-from langgraph.prebuilt import create_react_agent
-from langmem.short_term import SummarizationNode
-from langchain_core.messages.utils import count_tokens_approximately
 from agent_ontology.heuristics import HeuristicsProcessor
 from agent_ontology.relation_manager import RelationCandidateManager
 from agent_ontology.prompts import SYSTEM_PROMPT_1
@@ -23,18 +18,13 @@ from common.models.ontology import (
     CandidateGroupData,
     EntityExample,
 )
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain_core.prompts import PromptTemplate
-from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt.chat_agent_executor import AgentState
+from langchain_core.messages import HumanMessage
 import gc
 import redis.asyncio as redis
 import common.utils as utils
-from common import constants
 from cnoe_agent_utils import LLMFactory
 from langfuse import get_client as get_langfuse_client
 from langfuse.langchain import CallbackHandler
-from typing import Any
 
 langfuse_client = get_langfuse_client()
 
@@ -693,7 +683,7 @@ class OntologyAgent:
                         #     ])
                         #     worker_logger.info(f"[DEBUG_MODE] Worker {worker_id}: Successfully accepted relation {candidate.relation_id}")
                     else:
-                        resp = await agent.ainvoke(
+                        await agent.ainvoke(
                             {"messages": [
                                 HumanMessage(
                                     content=(
