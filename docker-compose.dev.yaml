@@ -171,6 +171,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=template
+        - AGENT_PACKAGE=petstore
     container_name: agent-petstore
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml

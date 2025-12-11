@@ -15,6 +15,7 @@ dependencies = [
     "a2a-sdk==0.3.0",
     "agentevals==0.0.7",
     "agntcy-app-sdk==0.4.5",
+    "ai-platform-engineering-utils",
     "click==8.3.1",
     "langchain-anthropic==1.0.0",
     "langchain-core==1.1.2",
@@ -22,6 +23,7 @@ dependencies = [
     "langchain-openai==1.1.0",
     "langgraph==1.0.4",
     "pytest==8.3.5",
+    "pyjwt==2.10.1",
     "tabulate==0.9.0",
     "rich==14.1.0",
     "sseclient==0.0.27",
@@ -35,6 +37,10 @@ dependencies = [
     "prometheus_client==0.23.1",
     "typing-extensions==4.15.0",
 ]
+
+[tool.uv.sources]
+ai-platform-engineering-utils = { path = "../../utils" }
+mcp-github = { path = "mcp" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]
