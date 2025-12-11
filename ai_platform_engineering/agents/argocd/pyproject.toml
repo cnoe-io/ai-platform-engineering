@@ -11,15 +11,15 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
   "a2a-sdk==0.3.0",
   "agntcy-app-sdk==0.4.0",
-  "click>=8.2.0",
+  "ai-platform-engineering-utils",
+  "click==8.3.1",
   "cnoe-agent-utils==0.3.9",
-  "fastmcp==2.11.1",
   "langchain-core==1.1.2",
   "langchain-mcp-adapters==0.2.1",
   "langgraph==1.0.4",
   "mcp-argocd",
   "prometheus-client==0.23.1",
-  "python-dotenv>=1.0.0",
+  "python-dotenv==1.2.1",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -34,6 +34,8 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
     "ruff>=0.13.2",
 ]
 
@@ -60,4 +62,5 @@ markers = [
 ]
 
 [tool.uv.sources]
+ai-platform-engineering-utils = { path = "../../utils" }
 mcp-argocd = { path = "./mcp" }
