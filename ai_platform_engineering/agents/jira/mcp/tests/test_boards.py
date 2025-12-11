@@ -118,7 +118,7 @@ class TestCreateBoard:
 
         result = await create_board("New Board", "scrum", filter_id=10000, location_type="project", project_key_or_id="PROJ")
         result_dict = json.loads(result)
-        
+
         assert result_dict["success"] is False
         assert "read-only" in result_dict["error"].lower()
 
@@ -203,7 +203,7 @@ class TestDeleteBoard:
 
         result = await delete_board(1)
         result_dict = json.loads(result)
-        
+
         assert result_dict["success"] is False
         assert "protected" in result_dict["error"].lower()
 
