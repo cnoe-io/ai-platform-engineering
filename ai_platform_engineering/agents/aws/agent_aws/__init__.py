@@ -3,12 +3,22 @@
 
 """AWS Agent package - supports both LangGraph and Strands backends."""
 
-from .models import AgentConfig, ResponseMetadata
-from .state import ConversationState
-from .tools import AWSCLITool, get_aws_cli_tool, ReflectionTool, get_reflection_tool
+# Lazy imports to avoid import errors when modules aren't available
+def get_models():
+    """Get model classes."""
+    from .models import AgentConfig, ResponseMetadata
+    return AgentConfig, ResponseMetadata
 
-# Lazy imports for backend-specific agents to avoid import errors
-# when dependencies (like MCP for Strands) are not installed
+def get_state():
+    """Get state classes."""
+    from .state import ConversationState
+    return ConversationState
+
+def get_tools():
+    """Get tool classes and functions."""
+    from .tools import AWSCLITool, get_aws_cli_tool, ReflectionTool, get_reflection_tool
+    return AWSCLITool, get_aws_cli_tool, ReflectionTool, get_reflection_tool
+
 def get_strands_agent():
     """Get the Strands-based AWS agent (requires MCP)."""
     from .agent_strands import AWSAgent, create_agent
@@ -20,13 +30,9 @@ def get_langgraph_agent():
     return AWSAgentLangGraph
 
 __all__ = [
-    "AgentConfig",
-    "ResponseMetadata",
-    "ConversationState",
-    "AWSCLITool",
-    "get_aws_cli_tool",
-    "ReflectionTool",
-    "get_reflection_tool",
+    "get_models",
+    "get_state",
+    "get_tools",
     "get_strands_agent",
     "get_langgraph_agent",
 ]
