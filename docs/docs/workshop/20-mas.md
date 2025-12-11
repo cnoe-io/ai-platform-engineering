@@ -244,7 +244,7 @@ uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
 >
 > In production, your system will use a JWT or Bearer token for authentication here.
 
-![chatcli token](images/chat-cli-token.png)
+![chatcli token](images/chat-cli-token.svg)
 
 The client will connect to the supervisor agent and show available capabilities from both petstore and weather agents.
 
@@ -298,7 +298,7 @@ We also provide a web UI for interacting with the CAIPE agent.
 
 **[Open Agent Forge (using localhost)](http://localhost:13000)**
 
-![agent forge](images/agentforge.png)
+![agent forge](images/agentforge.svg)
 
 ### Cross-Agent Scenarios
 
