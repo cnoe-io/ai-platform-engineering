@@ -50,17 +50,17 @@ services:
       - CONFLUENCE_AGENT_HOST=agent-confluence
       - GITHUB_AGENT_HOST=agent-github
       - JIRA_AGENT_HOST=agent-jira
+      - KOMODOR_AGENT_HOST=agent-komodor
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
       - PETSTORE_AGENT_HOST=agent-petstore
-      - RAG_AGENT_HOST=agent_rag
       - SLACK_AGENT_HOST=agent-slack
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
 
-      # Agent ports
-      # Add an exception for the RAG agent port to 8099. All other agents use the default port 8000.
-      - RAG_AGENT_PORT=${RAG_AGENT_PORT:-8099}
+      # RAG Service Configuration
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - ENABLE_RAG=${ENABLE_RAG:-false}
 
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
@@ -74,6 +74,7 @@ services:
       - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
       - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
       - ENABLE_JIRA=${ENABLE_JIRA:-false}
+      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
       - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
       - ENABLE_PETSTORE=${ENABLE_PETSTORE:-false}
       - ENABLE_RAG=${ENABLE_RAG:-false}
@@ -737,24 +738,6 @@ services:
     restart: unless-stopped
     env_file: [.env]
     depends_on: [rag-redis]
-    profiles:
-      - rag
-      - graph_rag
-
-  agent_rag:
-    image: ghcr.io/cnoe-io/caipe-rag-agent-rag:${IMAGE_TAG:-stable}
-    container_name: agent_rag
-    ports: ["8099:8099"]
-    env_file: [.env]
-    environment:
-      - REDIS_URL=redis://rag-redis:6379/0
-      - NEO4J_ADDR=neo4j://neo4j:7687
-      - NEO4J_ONTOLOGY_ADDR=neo4j://neo4j-ontology:7688
-      - NEO4J_USERNAME=neo4j
-      - NEO4J_PASSWORD=dummy_password
-      - RAG_SERVER_URL=http://rag_server:9446
-      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-true}
-    restart: unless-stopped
     profiles:
       - rag
       - graph_rag
