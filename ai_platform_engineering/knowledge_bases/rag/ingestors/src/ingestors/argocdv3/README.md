@@ -22,9 +22,11 @@ Ingests entities from ArgoCD into the RAG system as graph entities. Fetches appl
 
 - `ARGOCD_VERIFY_SSL` - Verify SSL certificates (default: `true`)
 - `ARGOCD_FILTER_PROJECTS` - Comma-separated list of projects to ingest (default: all projects)
-- `SYNC_INTERVAL` - Sync interval in seconds (default: `900` = 15 minutes)
+- `SYNC_INTERVAL` - Sync interval in seconds (default: `86400` = 1 dat)
 - `INIT_DELAY_SECONDS` - Delay before first sync in seconds (default: `0`)
 - `LOG_LEVEL` - Logging level (default: `INFO`)
+- `IGNORE_FIELD_LIST` - Comma-separated list of field paths to ignore from resources (default: `metadata.annotations.kubectl.kubernetes.io,metadata.labels.app.kubernetes.io,metadata.managedFields,metadata.selfLink,status`)
+- `MAX_DOCUMENTS_PER_INGEST` - Configure how many to entities to batch before ingesting (this is also set by the server, the ingestor will choose the lowest value)
 
 ## Getting an ArgoCD API Token
 
@@ -87,4 +89,19 @@ The ArgoCD ingestor:
 - Can filter by specific projects to reduce data volume
 - Creates an `ArgoCDInstance` entity representing the ArgoCD server itself
 
+### Memory and Network Optimizations
+
+The ingestor uses a "streaming approach" to minimize memory usage and network overhead:
+
+1. **Per-Project Processing**: Instead of fetching all entities at once, the ingestor:
+   - Fetches projects first
+   - For each project, fetches only applications and applicationsets belonging to that project
+   - Processes and ingests entities incrementally
+   - Clears memory after each batch
+
+2. **Batch Ingestion**: Entities are collected into batches (configurable via `MAX_DOCUMENTS_PER_INGEST`) and ingested progressively rather than loading all entities into memory at once.
+
+3. **Progressive Job Updates**: The ingestion job is updated with progress after each batch, allowing you to monitor real-time progress.
+
+4. **Error Resilience**: If one project fails to process, the ingestor continues with remaining projects instead of failing the entire job.
 

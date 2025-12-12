@@ -24,7 +24,6 @@ logger = utils.get_logger("neo4j_graph_db")
 def sanitize_property_value(value: Any) -> Any:
     """
     Sanitize a property value for Neo4j compatibility.
-    q
     Neo4j only supports: str, int, float, bool, and lists of these types.
     This function converts unsupported types to compatible ones.
     
@@ -144,6 +143,9 @@ class Neo4jDB(GraphDB):
         logger.info("Setting up fresh until index")
         await self._create_range_index(self.get_fresh_until_index_name(), [self.tenant_label], [FRESH_UNTIL_KEY])
 
+        logger.info("Setting up entity type index")
+        await self._create_range_index(self.get_entity_type_index_name(), [self.tenant_label], [ENTITY_TYPE_KEY])
+
         logger.info("Create unique constraint on entity type and primary key")
         await self._create_unique_constraint(self.tenant_label, [ENTITY_TYPE_KEY, PRIMARY_ID_KEY])
 
@@ -177,6 +179,9 @@ class Neo4jDB(GraphDB):
 
     def get_fresh_until_index_name(self) -> str:
         return f'{self.tenant_label}_freshuntil_range'
+
+    def get_entity_type_index_name(self) -> str:
+        return f'{self.tenant_label}_entitytype_range'
 
     async def fuzzy_search_batch(self, 
                                   batch_keywords: List[List[List[Union[str, Tuple[float, str]]]]],
@@ -299,22 +304,24 @@ class Neo4jDB(GraphDB):
 
     async def get_all_entity_types(self, max_results=1000) -> List[str]:
         """
-        Gets all entity types in the database for this tenant
+        Gets all entity types in the database for this tenant.
+        Returns distinct values from the _entity_type property.
         """
         logger.debug(f"Executing get_all_entity_types with max_results={max_results}")
-        # Query to get labels from nodes that have this tenant_label
+        # Query to get distinct _entity_type values from nodes that have this tenant_label
         escaped_tenant_label = self._escape_label(self.tenant_label)
-        query = f"MATCH (n:{escaped_tenant_label}) UNWIND labels(n) AS label RETURN DISTINCT label"
+        query = f"MATCH (n:{escaped_tenant_label}) WHERE n.{ENTITY_TYPE_KEY} IS NOT NULL RETURN DISTINCT n.{ENTITY_TYPE_KEY} AS entity_type"
         logger.debug(query)
         async with self.driver.session(default_access_mode=neo4j.READ_ACCESS, database=self.database) as session:
             res = await session.run(query) # type: ignore
             records: list[Record] = await res.fetch(max_results)
-            entity_types = set()
+            entity_types = []
             for record in records:
-                if record.get('label'):
-                    entity_types.add(record['label'])
-        entity_types.discard(self.tenant_label)
-        return list(entity_types)
+                entity_type = record.get('entity_type')
+                if entity_type:
+                    entity_types.append(entity_type)
+        
+        return entity_types
 
     async def get_entity_count(self, entity_type: str | None = None) -> int:
         """
@@ -895,7 +902,11 @@ class Neo4jDB(GraphDB):
         for attempt in range(max_retries):
             try:
                 async with self.driver.session(database=self.database) as session:
-                    await session.run(query, params) # type: ignore
+                    result = await session.run(query, params) # type: ignore
+                    summary = await result.consume()
+                    logger.debug(f"Query result - Counters: {summary.counters}")
+                    logger.debug(f"Query result - Notifications: {summary.notifications}")
+                    logger.debug(f"Query result - Status Objects: {summary.gql_status_objects}")
                 logger.info(f"Successfully updated {len(entities)} entities across {len(call_blocks)} groups in ONE network call to {self.uri}")
                 break  # Success
             except Exception as e:
@@ -1010,11 +1021,13 @@ class Neo4jDB(GraphDB):
         # Combine all CALL blocks into a single query
         query = "\n".join(call_blocks)
 
-        logger.debug(query)
+        
         
         # Build parameters dict with all batches
         params = {key: batch for key, batch in all_group_params}
-        
+
+        logger.debug(f"Query: {query}")
+        logger.debug(f"Params: {params}")
         logger.debug(f"Executing batch update for {len(relations)} relations across {len(call_blocks)} groups in ONE query")
         logger.debug(f"Query structure: {len(call_blocks)} CALL blocks")
         
@@ -1022,7 +1035,11 @@ class Neo4jDB(GraphDB):
         for attempt in range(max_retries):
             try:
                 async with self.driver.session(database=self.database) as session:
-                    await session.run(query, params) # type: ignore
+                    result = await session.run(query, params) # type: ignore
+                    summary = await result.consume()
+                    logger.debug(f"Query result - Counters: {summary.counters}")
+                    logger.debug(f"Query result - Notifications: {summary.notifications}")
+                    logger.debug(f"Query result - Status Objects: {summary.gql_status_objects}")
                 logger.debug(f"Successfully updated {len(relations)} relations across {len(call_blocks)} groups in ONE network call to {self.uri}")
                 break  # Success
             except Exception as e:
