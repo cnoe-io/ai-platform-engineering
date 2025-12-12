@@ -131,6 +131,8 @@ class RelationCandidateManager:
         """
         Takes a list of DeepPropertyMatch objects and batch updates heuristics in Redis as FkeyHeuristic.
         Also ensures relation candidates exist in Ontology DB and updates the ontology graph.
+        
+        Note: Schema entity nodes should already exist in Ontology DB (created by heuristics.py).
         """
         if not updates:
             self.logger.warning("No updates to batch update heuristics")
@@ -147,9 +149,10 @@ class RelationCandidateManager:
                 }
    
         # Build all relations for batch update to the ontology graph db
+        # Note: We don't create entity nodes here - they're pre-created by heuristics.py
         relations = []
         for relation_id, rel_data in unique_relations.items():
-            # Create the relation entities
+            # Create the relation identifiers (nodes should already exist)
             entity_a = Entity(
                 entity_type=rel_data["entity_a_type"],
                 primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY],

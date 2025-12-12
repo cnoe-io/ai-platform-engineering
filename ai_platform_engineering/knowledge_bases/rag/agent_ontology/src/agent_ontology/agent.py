@@ -671,8 +671,7 @@ class OntologyAgent:
                     
                     # Agent will call fetch_next_relation_candidate repeatedly until queue is empty
                     if self.debug:
-                        return
-                        # for candidate in worker_queue[0].group.candidates:
+                        # for candidate in worker_queue[worker_id].group.candidates:
                         #     await agent_worker.accept_relation(candidate.relation_id, "DEBUG_MODE_RELATION_NAME", "[DEBUG_MODE] Accepting all relations", [
                         #         PropertyMappingRule(
                         #             entity_a_property=pm.entity_a_property, 
@@ -682,6 +681,7 @@ class OntologyAgent:
                         #         for pm in candidate.heuristic.property_mappings
                         #     ])
                         #     worker_logger.info(f"[DEBUG_MODE] Worker {worker_id}: Successfully accepted relation {candidate.relation_id}")
+                        return
                     else:
                         await agent.ainvoke(
                             {"messages": [
