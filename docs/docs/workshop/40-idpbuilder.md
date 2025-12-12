@@ -106,7 +106,7 @@ k9s
 ```
 Press 0 in order to see all pods. (Ctrl + c to exit)
 
-![](images/backstage-pod-running.png)
+![](images/backstage-pod-running.svg)
 
 ### Set the TLS certificate
 

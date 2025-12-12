@@ -183,7 +183,7 @@ docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
 
 :::
 
-![chatcli token](images/chat-cli-token.png)
+![chatcli token](images/chat-cli-token.svg)
 
 - Ask a question:
 
