@@ -42,6 +42,10 @@ export default function IngestView() {
   const [showDeleteIngestorConfirm, setShowDeleteIngestorConfirm] = useState<string | null>(null)
   const [isDeletingDataSource, setIsDeletingDataSource] = useState(false)
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
+
   // Utility function to format status strings
   const formatStatus = (status: string): string => {
     return status
@@ -61,13 +65,38 @@ export default function IngestView() {
     return Array.from(types).sort()
   }, [dataSources])
 
-  // Filter dataSources by selected type
+  // Filter and sort dataSources by selected type
   const filteredDataSources = useMemo(() => {
-    if (selectedSourceType === 'all') {
-      return dataSources
+    let filtered = dataSources
+    
+    // Filter by type
+    if (selectedSourceType !== 'all') {
+      filtered = dataSources.filter(ds => ds.source_type === selectedSourceType)
     }
-    return dataSources.filter(ds => ds.source_type === selectedSourceType)
+    
+    // Sort by type alphabetically, then by last_updated (most recent first)
+    return [...filtered].sort((a, b) => {
+      // First sort by source_type
+      const typeComparison = a.source_type.localeCompare(b.source_type)
+      if (typeComparison !== 0) return typeComparison
+      
+      // If same type, sort by last_updated (most recent first)
+      return b.last_updated - a.last_updated
+    })
   }, [dataSources, selectedSourceType])
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredDataSources.length / itemsPerPage)
+  const paginatedDataSources = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return filteredDataSources.slice(startIndex, endIndex)
+  }, [filteredDataSources, currentPage, itemsPerPage])
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedSourceType])
 
 
   useEffect(() => {
@@ -405,7 +434,7 @@ export default function IngestView() {
                 </tr>
               </thead>
               <tbody>
-                {filteredDataSources.map(ds => {
+                {paginatedDataSources.map(ds => {
                   const isExpanded = expandedRows.has(ds.datasource_id)
                   const jobs = dataSourceJobs[ds.datasource_id] || []
                   const latestJob = jobs[0] // Jobs are sorted by created_at descending
@@ -648,6 +677,65 @@ export default function IngestView() {
                 })}
               </tbody>
             </table>
+            
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-white">
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <span>
+                    Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredDataSources.length)} of {filteredDataSources.length} results
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+                      // Show first page, last page, current page, and pages around current
+                      const showPage = page === 1 || 
+                                      page === totalPages || 
+                                      (page >= currentPage - 1 && page <= currentPage + 1)
+                      
+                      if (!showPage) {
+                        // Show ellipsis
+                        if (page === currentPage - 2 || page === currentPage + 2) {
+                          return <span key={page} className="px-2 text-slate-400">...</span>
+                        }
+                        return null
+                      }
+                      
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-3 py-1 text-sm font-medium rounded-md ${
+                            currentPage === page
+                              ? 'bg-blue-500 text-white'
+                              : 'text-slate-700 bg-white border border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         </details>
