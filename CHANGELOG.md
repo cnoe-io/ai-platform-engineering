@@ -1,4 +1,4 @@
-## Unreleased
+## 0.2.5 (2025-12-12)
 
 ### Feat
 
@@ -52,6 +52,11 @@
 - also enable metric from each sub-agent
 - default metric to false and use global with helper
 - add prometheus metrics support
+- ontology agent rewrite for scale
+- add webex and argocdv3 ingestors, fix dummy ingestor
+- add embeddings factory; separate webloader
+- major ingestor refactor
+- add retry when 429 Too many requests
 
 ### Fix
 
@@ -146,6 +151,26 @@
 - **test**: add komodor test prompt
 - **lint**: fix linting
 - **komodor**: regenerate mcp from openapi spec
+- webui graph rewrite
+- fix backstage ingestor
+- add slack ingestor
+- fix k8s ingestor
+- fix aws ingestor
+- Dockerfile fixes
+- remove pandas from rag server
+- webui with new ingestors
+- get agent_ontology with new common libs
+- add rag_ontology tests; lots of bugs fixed
+- server improvements
+- update common module
+- graph ui improvements - working buttons
+- agent_ontology bug fixes; using tool instead of structured output
+- e2e tests for rag components
+- add e2e tests; bug fixes; more info in healthz
+- agent-rag uses MCP instead of direct DB access
+- remove redundant test-data
+- add e2e tests; rm local tests
+- ui improvements
 
 ### Refactor
 
