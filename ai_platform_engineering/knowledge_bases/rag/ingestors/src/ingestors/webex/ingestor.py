@@ -24,7 +24,7 @@ logger = utils.get_logger(__name__)
 
 
 # Get sync interval
-sync_interval = int(os.environ.get("SYNC_INTERVAL", "900"))  # Default 15 minutes
+sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hours
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
 
 
@@ -131,32 +131,25 @@ class WebexSpaceSyncer:
         """Get details about a specific space."""
         return self._make_request("GET", f"rooms/{space_id}")
     
-    def fetch_space_messages(self, space_id: str, space_name: str, lookback_days: int, 
+    def fetch_space_messages(self, space_id: str, space_name: str, 
                             last_message_time: Optional[str] = None) -> tuple[List[Dict], str]:
-        """Fetch messages from a Webex space since last sync."""
+        """
+        Fetch new messages from a Webex space since last sync.
+        Note: Webex API doesn't support 'since' parameter, so we fetch latest messages
+        and filter client-side. This is inefficient but necessary due to API limitations.
+        """
         messages = []
         
-        # Build query parameters
+        # Build query parameters - fetch most recent messages
         params = {
             "roomId": space_id,
             "max": 100  # Webex max is 100 per request
         }
         
-        # Calculate lookback time
         if last_message_time:
-            # Use last sync time for incremental sync
-            params["mentionedPeople"] = "me"  # Optional: can be removed to get all messages
-            logger.info(f"Incremental sync for space '{space_name}' - using timestamp: {last_message_time} ({iso_to_readable(last_message_time)})")
-            # Note: Webex API doesn't have a direct "since" parameter, we'll filter after fetching
-        elif lookback_days > 0:
-            lookback_seconds = lookback_days * 24 * 60 * 60
-            current_time = int(time.time())
-            before_time = current_time - lookback_seconds
-            before_iso = timestamp_to_iso(before_time)
-            params["before"] = before_iso
-            logger.info(f"First sync for space '{space_name}' - looking back {lookback_days} days")
+            logger.info(f"Incremental sync for '{space_name}' since {iso_to_readable(last_message_time)}")
         else:
-            logger.info(f"First sync for space '{space_name}' - fetching all history")
+            logger.info(f"First sync for '{space_name}' - fetching recent messages only")
         
         try:
             # Verify space exists and bot has access
@@ -166,23 +159,38 @@ class WebexSpaceSyncer:
             except Exception as e:
                 logger.warning(f"Space verification failed: {e}")
             
-            # Fetch messages with pagination
+            # Fetch messages (most recent first)
             newest_time = last_message_time or ""
+            found_old_messages = False
             
-            while True:
+            # Only fetch a few pages to avoid overwhelming memory
+            max_pages = 10
+            page_count = 0
+            
+            while page_count < max_pages:
                 response = self._make_request("GET", "messages", params=params)
-                
                 batch_messages = response.get("items", [])
-                logger.debug(f"Fetched {len(batch_messages)} messages in this batch")
+                
+                if not batch_messages:
+                    break
+                
+                logger.debug(f"Fetched {len(batch_messages)} messages in batch {page_count + 1}")
                 
                 # Filter messages by time if doing incremental sync
                 if last_message_time:
-                    batch_messages = [
+                    new_messages = [
                         msg for msg in batch_messages 
                         if msg.get("created", "") > last_message_time
                     ]
-                
-                messages.extend(batch_messages)
+                    messages.extend(new_messages)
+                    
+                    # Stop if we've reached messages older than last sync
+                    if len(new_messages) < len(batch_messages):
+                        found_old_messages = True
+                        logger.debug(f"Reached messages from previous sync, stopping pagination")
+                        break
+                else:
+                    messages.extend(batch_messages)
                 
                 # Track newest timestamp
                 for msg in batch_messages:
@@ -191,20 +199,19 @@ class WebexSpaceSyncer:
                         newest_time = msg_time
                 
                 # Check for more pages
-                # Webex uses Link header for pagination, but SDK provides cursor
-                # For simplicity, we'll use the "before" parameter with oldest message
-                if len(batch_messages) >= 100 and batch_messages:
-                    # Get oldest message in this batch
+                if len(batch_messages) >= 100:
+                    # Get oldest message in this batch for pagination
                     oldest_msg = min(batch_messages, key=lambda m: m.get("created", ""))
                     params["before"] = oldest_msg.get("created")
+                    page_count += 1
                 else:
                     break
             
-            logger.info(f"Fetched {len(messages)} messages from space '{space_name}'")
+            logger.info(f"Fetched {len(messages)} new messages from '{space_name}'")
             return messages, newest_time
         
         except Exception as e:
-            logger.error(f"Error fetching messages from space '{space_name}': {e}")
+            logger.error(f"Error fetching messages from '{space_name}': {e}")
             return [], last_message_time or ""
     
     def get_message_details(self, message_id: str) -> Dict:
@@ -213,27 +220,154 @@ class WebexSpaceSyncer:
     
     def group_messages_into_documents(self, messages: List[Dict], space_id: str, space_name: str, 
                                      include_bots: bool, datasource_id: str, ingestor_id: str) -> List[Document]:
-        """Group messages into documents for RAG ingestion."""
+        """
+        Group messages into documents for RAG ingestion.
+        Messages are grouped by thread - all replies with the same parentId are combined into one document.
+        """
         documents = []
         
-        # Webex doesn't have native threading like Slack, so we'll group messages by time windows
-        # or create individual message documents
-        
-        # Option 1: Create a document per message (simpler approach)
-        # Option 2: Group messages by conversation windows (more complex)
-        
-        # We'll use Option 1 for now - each message becomes a document
-        for msg in sorted(messages, key=lambda m: m.get("created", "")):
-            # Skip bot messages if not included
+        # Filter out bot messages if needed
+        filtered_messages = []
+        for msg in messages:
             person_email = msg.get("personEmail", "")
             if not include_bots and "@webex.bot" in person_email:
                 continue
+            filtered_messages.append(msg)
+        
+        # Build thread structure: parent_id -> [child messages]
+        threads = {}  # parent_id -> list of replies
+        standalone_messages = []  # messages with no parent and no children
+        
+        # First pass: identify all parent messages that have replies
+        parent_ids = set()
+        for msg in filtered_messages:
+            parent_id = msg.get("parentId")
+            if parent_id:
+                parent_ids.add(parent_id)
+                if parent_id not in threads:
+                    threads[parent_id] = []
+                threads[parent_id].append(msg)
+        
+        # Second pass: categorize messages
+        parent_messages = {}  # parent_id -> parent message
+        for msg in filtered_messages:
+            msg_id = msg.get("id")
+            parent_id = msg.get("parentId")
             
+            if not parent_id:
+                # This is a top-level message
+                if msg_id in threads:
+                    # This message has replies, store it as a parent
+                    parent_messages[msg_id] = msg
+                else:
+                    # Standalone message with no replies
+                    standalone_messages.append(msg)
+        
+        # Create documents for threads (parent + all replies)
+        for parent_id, replies in threads.items():
+            parent_msg = parent_messages.get(parent_id)
+            if parent_msg:
+                # Sort replies chronologically
+                sorted_replies = sorted(replies, key=lambda m: m.get("created", ""))
+                doc = self._create_thread_document(
+                    parent_msg, sorted_replies, space_id, space_name, datasource_id, ingestor_id
+                )
+                if doc:
+                    documents.append(doc)
+            else:
+                # Parent message not found (might be outside our fetch window)
+                # Treat replies as standalone messages
+                for reply in replies:
+                    doc = self._create_message_document(reply, space_id, space_name, datasource_id, ingestor_id)
+                    if doc:
+                        documents.append(doc)
+        
+        # Create documents for standalone messages
+        for msg in standalone_messages:
             doc = self._create_message_document(msg, space_id, space_name, datasource_id, ingestor_id)
             if doc:
                 documents.append(doc)
         
         return documents
+    
+    def _create_thread_document(self, parent_msg: Dict, replies: List[Dict], space_id: str, 
+                                space_name: str, datasource_id: str, ingestor_id: str) -> Optional[Document]:
+        """Create a document from a parent message and all its replies."""
+        parent_id = parent_msg.get("id", "")
+        parent_email = parent_msg.get("personEmail", "Unknown")
+        parent_text = parent_msg.get("text", "") or parent_msg.get("html", "")
+        parent_created = parent_msg.get("created", "")
+        
+        if not parent_text:
+            return None
+        
+        # Build thread content
+        formatted_lines = []
+        formatted_lines.append(f"# Thread in {space_name}\n\n")
+        formatted_lines.append(f"**Started by:** {parent_email}\n")
+        formatted_lines.append(f"**Time:** {iso_to_readable(parent_created)}\n")
+        formatted_lines.append(f"**Replies:** {len(replies)}\n\n")
+        
+        # Parent message
+        formatted_lines.append("## Original Message\n\n")
+        formatted_lines.append(f"{parent_text}\n\n")
+        
+        # Add parent attachments
+        parent_files = parent_msg.get("files", [])
+        if parent_files:
+            formatted_lines.append(f"**Attachments:** {len(parent_files)} file(s)\n\n")
+        
+        # Add replies
+        if replies:
+            formatted_lines.append("## Replies\n\n")
+            for idx, reply in enumerate(replies, 1):
+                reply_email = reply.get("personEmail", "Unknown")
+                reply_text = reply.get("text", "") or reply.get("html", "")
+                reply_created = reply.get("created", "")
+                reply_files = reply.get("files", [])
+                
+                formatted_lines.append(f"### Reply {idx} by {reply_email}\n")
+                formatted_lines.append(f"*{iso_to_readable(reply_created)}*\n\n")
+                formatted_lines.append(f"{reply_text}\n\n")
+                
+                if reply_files:
+                    formatted_lines.append(f"**Attachments:** {len(reply_files)} file(s)\n\n")
+        
+        content = "".join(formatted_lines)
+        
+        # Create metadata
+        thread_preview = parent_text[:100] if len(parent_text) > 100 else parent_text
+        latest_time = max([r.get("created", "") for r in replies] + [parent_created])
+        
+        metadata = DocumentMetadata(
+            datasource_id=datasource_id,
+            ingestor_id=ingestor_id,
+            document_type="webex_thread",
+            document_ingested_at=int(time.time()),
+            document_id=f"webex-thread-{space_id}-{parent_id}",
+            title=f"Thread: {thread_preview}",
+            description=f"Webex thread started by {parent_email} with {len(replies)} replies",
+            is_graph_entity=False,
+            fresh_until=0,
+            metadata={
+                "space_name": space_name,
+                "space_id": space_id,
+                "parent_id": parent_id,
+                "parent_email": parent_email,
+                "reply_count": len(replies),
+                "created": parent_created,
+                "latest_reply": latest_time,
+                "has_files": len(parent_files) > 0,
+                "type": "webex_thread",
+                "source_uri": f"https://web.webex.com/spaces/{space_id}",
+                "last_modified": iso_to_timestamp(latest_time)
+            }
+        )
+        
+        return Document(
+            page_content=content,
+            metadata=metadata.model_dump()
+        )
     
     def _create_message_document(self, msg: Dict, space_id: str, space_name: str, 
                                  datasource_id: str, ingestor_id: str) -> Optional[Document]:
@@ -319,7 +453,6 @@ async def sync_webex_spaces(client: Client):
     # Process each space
     for space_id, config in spaces.items():
         space_name = config.get("name", space_id)
-        lookback_days = config.get("lookback_days", 30)
         include_bots = config.get("include_bots", False)
         
         logger.info(f"Processing space: '{space_name}' (ID: {space_id})")
@@ -332,7 +465,6 @@ async def sync_webex_spaces(client: Client):
         messages, newest_time = syncer.fetch_space_messages(
             space_id,
             space_name,
-            lookback_days,
             last_message_time
         )
         
