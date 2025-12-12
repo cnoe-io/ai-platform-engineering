@@ -107,15 +107,16 @@ class DocumentProcessor:
         # Show additional key properties with their values if present
         if entity.additional_key_properties:
             formatted_parts.append("=== ADDITIONAL KEY PROPERTIES ===")
+            # Collect unique values only
+            unique_values = set()
             for key_set in entity.additional_key_properties:
-                # Extract values for this alternative key set
-                key_values = []
                 for key in key_set:
                     if key in entity_properties:
-                        key_values.append(f"{key}: {entity_properties[key]}")
-                    else:
-                        key_values.append(f"{key}: <missing>")
-                formatted_parts.append(f"  {', '.join(key_values)}")
+                        value = entity_properties[key]
+                        unique_values.add(str(value))
+            # Print only unique values
+            for value in sorted(unique_values):
+                formatted_parts.append(f"  {value}")
             formatted_parts.append("")
         
         # Add all properties as JSON
