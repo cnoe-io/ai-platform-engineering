@@ -156,8 +156,8 @@ services:
       - IAM_MCP_READONLY=${IAM_MCP_READONLY:-true}
       - USE_AWS_CLI_AS_TOOL=${USE_AWS_CLI_AS_TOOL:-true}
       # Multi-account support - format: "name1:id1,name2:id2" or just "id1,id2"
-      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-outshift-common-dev:471112537430}
-      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-eticloud:626007623524,outshift-common-dev:471112537430,outshift-common-staging:637423531539,outshift-common-prod:058264538874,eti-ci:009736724745,cisco-research:509581005347,eticloud-demo:075967417574}
+      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-outshift-common-dev:123456789012}
+      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-account1:123456789012,account2:123456789013}
       - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}

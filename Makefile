@@ -274,8 +274,7 @@ release: setup-venv  ## Bump version and create a release
 	@git add CHANGELOG.md
 	@git commit -m "docs: update changelog"
 	@cz bump --increment $${INCREMENT:-PATCH}
-	@git tag -f stable
-	@echo "Version bumped and stable tag updated successfully."
+	@echo "Version bumped updated successfully."
 
 ## ========== Help ==========
 
