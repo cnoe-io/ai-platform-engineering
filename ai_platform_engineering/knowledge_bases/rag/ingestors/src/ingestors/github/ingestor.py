@@ -50,7 +50,7 @@ if not GITHUB_TOKEN and not (GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY and GITHUB
 GITHUB_API_URL = os.getenv("GITHUB_API_URL", "https://api.github.com/graphql")
 GITHUB_REST_API_URL = os.getenv("GITHUB_REST_API_URL", "https://api.github.com")
 GITHUB_ORG = os.getenv("GITHUB_ORG")  # Optional: If set, only fetch data for this org
-SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 900))  # sync every 15 minutes by default
+SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 86400))  # sync every day by default
 FETCH_TEAM_DETAILS = os.getenv("FETCH_TEAM_DETAILS", "true").lower() == "true"  # Fetch detailed team members/repos (adds ~400 API calls)
 FETCH_ORG_EMAILS = os.getenv("FETCH_ORG_EMAILS", "false").lower() == "true"  # Fetch organization verified domain emails for users
 
@@ -670,7 +670,7 @@ async def sync_github_entities(client: Client):
                     "twitter_username": org_data.get("twitterUsername"),
                 },
                 primary_key_properties=["github_instance", "id"],
-                additional_key_properties=[["github_instance", "login"]]
+                additional_key_properties=[["login"]]
             )
             all_entities.append(org_entity)
             await client.increment_job_progress(job_id, 1)
@@ -752,8 +752,9 @@ async def sync_github_entities(client: Client):
                         },
                         primary_key_properties=["github_instance", "id"],
                         additional_key_properties=[
-                            ["github_instance", "name_with_owner"],
-                            ["github_instance", "organization", "name"]
+                            ["organization", "name_with_owner"],
+                            ["organization", "name"],
+                            ["url"]
                         ]
                     )
                     all_entities.append(repo_entity)
@@ -860,8 +861,9 @@ async def sync_github_entities(client: Client):
                         },
                         primary_key_properties=["github_instance", "organization", "id"],
                         additional_key_properties=[
-                            ["github_instance", "organization", "slug"],
-                            ["github_instance", "organization", "name"]
+                            ["organization", "slug"],
+                            ["organization", "name"],
+                            ["url"]
                         ]
                     )
                     all_entities.append(team_entity)
@@ -921,18 +923,18 @@ async def sync_github_entities(client: Client):
                             user_properties["organization_verified_emails"] = org_emails
                     
                     # Build additional key properties - include email lookups
-                    additional_keys = [["github_instance", "login"]]
+                    additional_keys = [["login"]]
                     
                     # Add regular email as lookup key if present
                     if member.get("email"):
-                        additional_keys.append(["github_instance", "email"])
+                        additional_keys.append(["email"])
                     
                     # Add each verified org email as a lookup key if enabled
                     if FETCH_ORG_EMAILS and "organizationVerifiedDomainEmails" in member:
                         org_emails = member.get("organizationVerifiedDomainEmails", [])
                         for org_email in org_emails:
                             if org_email:
-                                additional_keys.append(["github_instance", org_email])
+                                additional_keys.append([org_email])
                     
                     user_entity = Entity(
                         entity_type="GitHubUser",

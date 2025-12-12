@@ -23,7 +23,7 @@ logger = utils.get_logger(__name__)
 
 
 # Get sync interval
-sync_interval = int(os.environ.get("SYNC_INTERVAL", "900"))  # Default 15 minutes
+sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hours
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
 
 

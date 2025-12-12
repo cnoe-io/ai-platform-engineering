@@ -179,7 +179,7 @@ export GITHUB_ORG="your-org-name"
 
 ### Optional Settings
 - `GITHUB_API_URL` - Default: `https://api.github.com/graphql`
-- `SYNC_INTERVAL` - Default: `900` (15 minutes)
+- `SYNC_INTERVAL` - Default: `86400` (24 hours)
 - `FETCH_TEAM_DETAILS` - Default: `true` - Fetch detailed team members and repository permissions (adds ~400 API calls for 200 teams)
 - `FETCH_ORG_EMAILS` - Default: `false` - Fetch organization verified domain emails for users (requires org membership, uses same API calls)
 - `LOG_LEVEL` - Default: `INFO`

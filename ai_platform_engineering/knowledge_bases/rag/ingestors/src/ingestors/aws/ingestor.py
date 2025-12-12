@@ -36,7 +36,7 @@ LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(level=LOG_LEVEL)
 
 # Configuration
-SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 60 * 15))  # sync every 15 minutes by default
+SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 86400))  # sync every day by default
 default_resource_types = 'iam:user,ec2:instance,ec2:volume,ec2:natgateway,ec2:vpc,ec2:subnet,ec2:security-group,eks:cluster,s3:bucket,elasticloadbalancing:loadbalancer,route53:hostedzone,rds:db,lambda:function,dynamodb:table'
 RESOURCE_TYPES = os.environ.get('RESOURCE_TYPES', default_resource_types).split(',')
 # AWS Region - check both AWS_REGION and AWS_DEFAULT_REGION (boto3 default)

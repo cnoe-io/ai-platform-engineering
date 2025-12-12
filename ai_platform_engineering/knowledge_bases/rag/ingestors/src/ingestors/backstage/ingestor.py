@@ -22,7 +22,7 @@ logging.basicConfig(level=LOG_LEVEL)
 BACKSTAGE_URL = os.getenv("BACKSTAGE_URL")
 BACKSTAGE_API_TOKEN = os.getenv("BACKSTAGE_API_TOKEN")
 IGNORE_TYPES = os.getenv("IGNORE_TYPES", "template,api,resource").lower().split(",")
-SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 60 * 15))  # sync every 15 minutes by default
+SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 86400))  # sync every day by default
 
 if BACKSTAGE_URL is None or BACKSTAGE_API_TOKEN is None:
     raise ValueError("BACKSTAGE_URL and BACKSTAGE_API_TOKEN environment variables must be set")
