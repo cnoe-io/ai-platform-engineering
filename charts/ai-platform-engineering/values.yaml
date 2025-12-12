@@ -47,10 +47,10 @@ metrics:
     # This creates ONE ServiceMonitor that scrapes ALL ai-platform-engineering services
     enabled: false
     # Scrape interval
-    interval: "30s"
+    interval: "31s"
     # Scrape timeout
     scrapeTimeout: "10s"
-    # Additional labels for the ServiceMonitor (e.g., to match Prometheus selector)
+    # Additional labels for the ServiceMonitor (e.g., to matz Prometheus selector)
     # Example: labels: { release: prometheus }
     labels: {}
     # Additional annotations for the ServiceMonitor
