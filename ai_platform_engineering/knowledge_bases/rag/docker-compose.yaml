@@ -50,7 +50,8 @@ services:
         MILVUS_URI: http://milvus-standalone:19530
         ENABLE_GRAPH_RAG: ${ENABLE_GRAPH_RAG:-true}
         CLEANUP_INTERVAL: 86400
-        ONTOLOGY_AGENT_RESTAPI_ADDR: ${ONTOLOGY_AGENT_RESTAPI_ADDR:-http://agent_ontology:8098}
+        MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
+        ONTOLOGY_AGENT_RESTAPI_ADDR: ${ONTOLOGY_AGENT_RESTAPI_ADDR:-http://host.docker.internal:8098}
         # Embeddings configuration
         EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-azure-openai}
         EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
@@ -133,14 +134,16 @@ services:
         BACKSTAGE_URL: ${BACKSTAGE_URL}
         BACKSTAGE_API_TOKEN: ${BACKSTAGE_API_TOKEN}
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
-        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-86400}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    restart: unless-stopped
+        EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+    restart: no
     build:
       context: .
       dockerfile: ./build/Dockerfile.ingestors
     profiles:
       - backstage
+      - ingestors
 
   aws_ingestor:
     environment:
@@ -154,10 +157,11 @@ services:
         AWS_DEFAULT_PROFILE: ${AWS_DEFAULT_PROFILE:-}
         RESOURCE_TYPES: ${AWS_RESOURCE_TYPES:-iam:user,ec2:instance,ec2:volume,ec2:natgateway,ec2:vpc,ec2:subnet,ec2:security-group,eks:cluster,s3:bucket,elasticloadbalancing:loadbalancer,route53:hostedzone,rds:db,lambda:function,dynamodb:table}
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
-        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-86400}
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    restart: unless-stopped
+        EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+    restart: no
     volumes:
       - ${HOME}/.aws:/home/app/.aws:ro
     build:
@@ -165,6 +169,7 @@ services:
       dockerfile: ./build/Dockerfile.ingestors
     profiles:
       - aws
+      - ingestors
 
   k8s_ingestor:
     environment:
@@ -176,10 +181,11 @@ services:
         RESOURCE_LIST: ${K8S_RESOURCE_LIST:-Certificate,ClusterIssuer,CronJob,DaemonSet,Deployment,Ingress,IngressClass,Issuer,Job,Namespace,Node,Service,StatefulSet,StorageClass}
         IGNORE_FIELD_LIST: ${K8S_IGNORE_FIELD_LIST:-metadata.annotations.kubectl.kubernetes.io,metadata.labels.app.kubernetes.io,metadata.managedFields,metadata.selfLink}
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
-        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-86400}
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    restart: unless-stopped
+        EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+    restart: no
     volumes:
       - ~/.kube/config:/home/app/.kube/config:ro
     build:
@@ -187,6 +193,7 @@ services:
       dockerfile: ./build/Dockerfile.ingestors
     profiles:
       - k8s
+      - ingestors
 
   slack_ingestor:
     environment:
@@ -196,15 +203,17 @@ services:
         SLACK_WORKSPACE_URL: ${SLACK_WORKSPACE_URL:-https://slack.com}
         SLACK_CHANNELS: ${SLACK_CHANNELS:-{}}
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
-        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-86400}
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    restart: unless-stopped
+        EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+    restart: no
     build:
       context: .
       dockerfile: ./build/Dockerfile.ingestors
     profiles:
       - slack
+      - ingestors
 
   webex_ingestor:
     environment:
@@ -216,30 +225,66 @@ services:
         SYNC_INTERVAL: ${SYNC_INTERVAL:-86400}
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-60}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    restart: unless-stopped
+        EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+    restart: no
     build:
       context: .
       dockerfile: ./build/Dockerfile.ingestors
     profiles:
       - webex
+      - ingestors
 
   argocd_ingestor:
     environment:
-        INGESTOR_TYPE: argocd
+        INGESTOR_TYPE: argocdv3
         SERVER_URL: ${SERVER_URL}
         ARGOCD_AUTH_TOKEN: ${ARGOCD_AUTH_TOKEN}
         ARGOCD_VERIFY_SSL: ${ARGOCD_VERIFY_SSL:-true}
         ARGOCD_FILTER_PROJECTS: ${ARGOCD_FILTER_PROJECTS:-}
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
-        SYNC_INTERVAL: ${SYNC_INTERVAL:-900}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-86400}
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    restart: unless-stopped
+        EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+    restart: no
     build:
       context: .
       dockerfile: ./build/Dockerfile.ingestors
     profiles:
       - argocd
+      - ingestors
+
+  github_ingestor:
+    environment:
+        INGESTOR_TYPE: github
+        # Authentication: Use either PAT or GitHub App (choose one method)
+        # Method 1: Personal Access Token
+        GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+        # Method 2: GitHub App (recommended for production)
+        # GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+        # GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+        # GITHUB_APP_INSTALLATION_ID: ${GITHUB_APP_INSTALLATION_ID:-}
+        # Common settings
+        GITHUB_ORG: ${GITHUB_ORG}
+        GITHUB_API_URL: ${GITHUB_API_URL:-https://api.github.com/graphql}
+        GITHUB_REST_API_URL: ${GITHUB_REST_API_URL:-https://api.github.com}
+        RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
+        SYNC_INTERVAL: ${SYNC_INTERVAL:-86400}
+        INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
+        FETCH_TEAM_DETAILS: ${FETCH_TEAM_DETAILS:-true}
+        FETCH_ORG_EMAILS: ${FETCH_ORG_EMAILS:-false}
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
+        EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+    restart: no
+    # volumes:
+      # Mount your GitHub App private key file (adjust path as needed)
+      # - ${GITHUB_APP_PRIVATE_KEY_FILE:-./github-app.pem}:/app/secrets/github-app.pem:ro
+    build:
+      context: .
+      dockerfile: ./build/Dockerfile.ingestors
+    profiles:
+      - github
+      - ingestors
 
 #####################
 # Dependent services

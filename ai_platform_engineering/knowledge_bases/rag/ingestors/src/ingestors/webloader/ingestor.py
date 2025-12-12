@@ -352,7 +352,6 @@ if __name__ == "__main__":
             .sync_with_fn(periodic_reload)\
             .with_startup(redis_listener)\
             .every(RELOAD_INTERVAL)\
-            .skip_first_sync()\
             .run()
             
     except KeyboardInterrupt:

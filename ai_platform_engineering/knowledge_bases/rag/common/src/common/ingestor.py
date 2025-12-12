@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 from typing import List, Optional, Dict, Any, Callable
 import aiohttp
 from common.models.rag import DataSourceInfo, DocumentMetadata
@@ -26,9 +27,14 @@ class Client():
         self.ingestor_description = ingestor_description
         self.ingestor_metadata = ingestor_metadata
         self.ingestor_id: Optional[str] = None
+
+        # This is what the ingestor will batch ingestion by
+        # ingestor will choose whichever is smaller: self.ingestor_max_docs_per_ingest or self.server_max_docs_per_ingest
+        self.ingestor_max_docs_per_ingest: int = int(os.getenv("MAX_DOCUMENTS_PER_INGEST", "1000")) 
+        self.server_max_docs_per_ingest: int = 1000  # This is the server's max documents per ingestion request - will be updated from server during ping
+
         self._ping_task: Optional[asyncio.Task] = None
         self._ping_interval = int(os.getenv("INGESTOR_PING_INTERVAL_SECONDS", "120"))  # Default 2 minutes
-        self.max_documents_per_ingest: int = 1000  # Default value, will be updated from server
         
         # Note: Health check will be done during initialize() with aiohttp
     
@@ -48,6 +54,12 @@ class Client():
         self._ping_task = asyncio.create_task(self._periodic_ping())
         logger.info(f"Ingestor initialized with ID: {self.ingestor_id}")
     
+    def max_docs_per_ingest(self) -> int:
+        """
+        Return the maximum number of documents the ingestor will ingest per ingestion request
+        """
+        return min(self.ingestor_max_docs_per_ingest, self.server_max_docs_per_ingest)
+
     async def shutdown(self) -> None:
         """
         Shutdown the ingestor and stop periodic ping task
@@ -83,11 +95,11 @@ class Client():
                 # Extract response data
                 ping_response = await resp.json()
                 
-                # Extract ingestor_id and max_documents_per_ingest from response
+                # Extract ingestor_id and server_max_docs_per_ingest from response
                 self.ingestor_id = ping_response.get('ingestor_id', f"{self.ingestor_type}:{self.ingestor_name}")
-                self.max_documents_per_ingest = ping_response.get('max_documents_per_ingest', 1000)
+                self.server_max_docs_per_ingest = ping_response.get('max_documents_per_ingest', 1000) # default to 1000 
                 
-                logger.info(f"Updated max_documents_per_ingest to {self.max_documents_per_ingest} for ingestor {self.ingestor_name}")
+                logger.info(f"Updated max_documents_per_ingest to {self.server_max_docs_per_ingest} for ingestor {self.ingestor_name}")
                 
                 return ping_response
     
@@ -171,20 +183,20 @@ class Client():
         
         # Check if we need to batch the documents
         total_documents = len(documents)
-        if total_documents <= self.max_documents_per_ingest:
+        if total_documents <= self.max_docs_per_ingest():
             # Single batch - process all documents at once
             logger.info(f"Ingesting {total_documents} documents in a single batch")
             return await self._ingest_documents_batch(job_id, datasource_id, documents, fresh_until)
         
         # Multiple batches - split documents into chunks
-        logger.info(f"Ingesting {total_documents} documents in batches of {self.max_documents_per_ingest}")
+        logger.info(f"Ingesting {total_documents} documents in batches of {self.max_docs_per_ingest()}")
         last_response: Dict[str, Any] = {}
         
-        for i in range(0, total_documents, self.max_documents_per_ingest):
-            batch_end = min(i + self.max_documents_per_ingest, total_documents)
+        for i in range(0, total_documents, self.max_docs_per_ingest()):
+            batch_end = min(i + self.max_docs_per_ingest(), total_documents)
             batch_documents = documents[i:batch_end]
-            batch_num = (i // self.max_documents_per_ingest) + 1
-            total_batches = (total_documents + self.max_documents_per_ingest - 1) // self.max_documents_per_ingest
+            batch_num = (i // self.max_docs_per_ingest()) + 1
+            total_batches = (total_documents + self.max_docs_per_ingest() - 1) // self.max_docs_per_ingest()
             
             logger.info(f"Processing batch {batch_num}/{total_batches} with {len(batch_documents)} documents")
             last_response = await self._ingest_documents_batch(job_id, datasource_id, batch_documents, fresh_until)
@@ -302,7 +314,7 @@ class Client():
         if message is not None:
             params["message"] = message
         if total is not None:
-            params["total"] = total  # FastAPI will handle int conversion
+            params["total"] = str(total)  # Convert to string for query params
         
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -329,7 +341,7 @@ class Client():
         if message is not None:
             params["message"] = message
         if total is not None:
-            params["total"] = total  # FastAPI will handle int conversion
+            params["total"] = str(total)  # Convert to string for query params
         
         async with aiohttp.ClientSession() as session:
             async with session.patch(
@@ -469,9 +481,8 @@ class IngestorBuilder:
         self._metadata: Dict[str, Any] = {}
         self._sync_function: Optional[Callable] = None
         self._startup_function: Optional[Callable] = None
-        self._interval = 0  # Default to single run
+        self._sync_interval = 0  # User-specified sync interval (how often data should be refreshed)
         self._init_delay = 0  # Optional init delay
-        self._skip_first_sync = False  # Optional flag to skip first sync
     
     def name(self, name: str) -> 'IngestorBuilder':
         """Set the ingestor name"""
@@ -499,8 +510,13 @@ class IngestorBuilder:
         return self
     
     def every(self, seconds: int) -> 'IngestorBuilder':
-        """Set the sync interval in seconds"""
-        self._interval = seconds
+        """
+        Set the sync interval in seconds (how often data should be refreshed).
+        
+        The builder will automatically check datasources and determine when the next
+        sync should occur based on their last_updated timestamps.
+        """
+        self._sync_interval = seconds
         return self
     
     def with_init_delay(self, seconds: int) -> 'IngestorBuilder':
@@ -511,11 +527,6 @@ class IngestorBuilder:
     def with_startup(self, startup_function: Callable) -> 'IngestorBuilder':
         """Set an optional startup function to run concurrently (e.g., to start a server). Can be sync or async."""
         self._startup_function = startup_function
-        return self
-    
-    def skip_first_sync(self) -> 'IngestorBuilder':
-        """Skip the first sync cycle and start from the second iteration (only applies to periodic syncs)"""
-        self._skip_first_sync = True
         return self
     
     def run(self):
@@ -534,6 +545,58 @@ class IngestorBuilder:
         # Run the ingestor
         asyncio.run(self._run_ingestor())
     
+    async def _calculate_next_sync_time(self, client: Client) -> int:
+        """
+        Calculate how long to sleep before next sync by checking datasource timestamps.
+        Returns number of seconds to sleep.
+        """
+        try:
+            current_time = int(time.time())
+            
+            # Fetch all datasources for this ingestor
+            datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
+            
+            if not datasources:
+                # No datasources yet - ingestor owns datasources, so sync should run
+                # Either sync will create datasources, or it's a quick no-op
+                # Once datasources exist, normal scheduling takes over
+                logger.debug("No datasources found, running sync immediately")
+                return 0
+            
+            # Find the earliest datasource that will need reloading
+            min_time_until_reload = self._sync_interval
+            
+            for ds in datasources:
+                if ds.last_updated is None:
+                    # Datasource never updated, needs immediate reload
+                    logger.debug(f"Datasource {ds.datasource_id} has no last_updated, needs immediate sync")
+                    return 0
+                
+                time_since_update = current_time - ds.last_updated
+                time_until_reload = self._sync_interval - time_since_update
+                
+                if time_until_reload <= 0:
+                    # This datasource is overdue, sync immediately
+                    logger.debug(f"Datasource {ds.datasource_id} is overdue (last updated {time_since_update}s ago), needs immediate sync")
+                    return 0
+                
+                # Track the earliest reload time
+                if time_until_reload < min_time_until_reload:
+                    min_time_until_reload = time_until_reload
+                    logger.debug(f"Datasource {ds.datasource_id} will need reload in {time_until_reload}s")
+            
+            # Add a small minimum to avoid too-frequent checks (e.g., 1 minute)
+            MIN_SLEEP_TIME = 60  # 1 minute minimum
+            sleep_time = max(MIN_SLEEP_TIME, int(min_time_until_reload))
+            
+            logger.info(f"Next sync in {sleep_time}s ({sleep_time/3600:.1f}h) based on datasource schedules")
+            return sleep_time
+            
+        except Exception as e:
+            # If we can't calculate, fall back to sync interval
+            logger.warning(f"Error calculating next sync time: {e}, using full sync_interval")
+            return self._sync_interval
+    
     async def _run_ingestor(self):
         """Internal method to run the ingestor with proper async handling"""
         # Type checking - these should never be None due to assertions in run()
@@ -546,7 +609,12 @@ class IngestorBuilder:
         # Check if we should exit after first sync (for debugging and job mode)
         exit_after_first_sync = os.getenv("EXIT_AFTER_FIRST_SYNC", "false").lower() in ("true", "1", "yes")
         
-        logger.info(f"Starting ingestor: {self._name} (type: {self._type}, interval: {self._interval}s, init_delay: {self._init_delay}s, skip_first_sync: {self._skip_first_sync}, exit_after_first_sync: {exit_after_first_sync}, description: {self._description}, metadata: {self._metadata})")
+        # If exit_after_first_sync is set, force single-run mode
+        if exit_after_first_sync:
+            self._sync_interval = 0
+            logger.info("EXIT_AFTER_FIRST_SYNC is set, forcing single-run mode")
+        
+        logger.info(f"Starting ingestor: {self._name} (type: {self._type}, sync_interval: {self._sync_interval}s, init_delay: {self._init_delay}s, exit_after_first_sync: {exit_after_first_sync})")
         
         # Create and initialize RAG client
         client = Client(self._name, self._type, self._description, self._metadata)
@@ -577,11 +645,11 @@ class IngestorBuilder:
                     startup_task = asyncio.create_task(_run_sync_startup())
                 logger.info("Startup function running concurrently")
             
-            if self._interval <= 0:
+            if self._sync_interval <= 0:
                 # Single run mode
                 logger.info("Running single sync cycle...")
                 
-                # Call user's sync function with client
+                # Call user's sync function with client (original signature)
                 if asyncio.iscoroutinefunction(self._sync_function):
                     await self._sync_function(client)
                 else:
@@ -590,34 +658,30 @@ class IngestorBuilder:
                 logger.info("Single sync cycle completed.")
                 return
             else:
-                # Start periodic sync loop
-                first_iteration = True
+                # Periodic mode with smart scheduling based on datasource timestamps
                 while True:
-                    # Skip first sync if requested
-                    if first_iteration and self._skip_first_sync:
-                        logger.info(f"Skipping first sync cycle. Next sync in {self._interval} seconds.")
-                        first_iteration = False
-                        await asyncio.sleep(self._interval)
-                        continue
+                    # Calculate when next sync should happen based on datasource timestamps
+                    sleep_time = await self._calculate_next_sync_time(client)
                     
-                    logger.info("Starting sync cycle...")
+                    if sleep_time > 0:
+                        # No datasources need syncing yet, sleep until next one is due
+                        await asyncio.sleep(sleep_time)
                     
-                    # Call user's sync function with client
+                    # Now run the sync (either immediately if overdue, or after sleeping)
+                    logger.info("Running sync cycle...")
+                    
+                    # Call user's sync function (original signature - no changes needed!)
                     if asyncio.iscoroutinefunction(self._sync_function):
                         await self._sync_function(client)
                     else:
                         self._sync_function(client)
                     
-                    logger.info(f"Sync completed. Next sync in {self._interval} seconds.")
+                    logger.info("Sync cycle completed.")
 
                     # Exit after first sync if environment variable is set
                     if exit_after_first_sync:
                         logger.info("EXIT_AFTER_FIRST_SYNC is set. Exiting after first sync.")
                         return
-
-                    # Wait for next cycle
-                    first_iteration = False
-                    await asyncio.sleep(self._interval)
                     
         except KeyboardInterrupt:
             logger.info("Received interrupt signal, shutting down...")

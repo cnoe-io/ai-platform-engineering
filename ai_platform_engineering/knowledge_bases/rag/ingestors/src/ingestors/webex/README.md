@@ -52,7 +52,7 @@ This script will walk you through adding spaces and generate the properly format
 
 ## Optional Environment Variables
 
-- `SYNC_INTERVAL` - Sync interval in seconds (default: `900` = 15 minutes)
+- `SYNC_INTERVAL` - Sync interval in seconds (default: `86400` = 24 hours)
 - `INIT_DELAY_SECONDS` - Delay before first sync in seconds (default: `0`)
 - `LOG_LEVEL` - Logging level (default: `INFO`)
 

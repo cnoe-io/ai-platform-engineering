@@ -5,6 +5,33 @@ Usage: python3 build_config.py
 """
 
 import json
+import base64
+from urllib.parse import urlparse, parse_qs
+
+def extract_and_encode_space_id(space_link: str) -> str:
+    """
+    Convert Webex space link to base64-encoded space ID.
+    
+    Input format: webexteams://im?space=c590efb0-cee8-11f0-88a1-05c9cb3973f5
+    Output: base64 encoding of ciscospark://us/ROOM/c590efb0-cee8-11f0-88a1-05c9cb3973f5
+    """
+    # Parse the URL
+    parsed = urlparse(space_link)
+    
+    # Extract the space GUID from query parameters
+    query_params = parse_qs(parsed.query)
+    space_guid = query_params.get('space', [None])[0]
+    
+    if not space_guid:
+        raise ValueError(f"Could not extract space GUID from link: {space_link}")
+    
+    # Format as ciscospark URI
+    ciscospark_uri = f"ciscospark://us/ROOM/{space_guid}"
+    
+    # Base64 encode
+    space_id = base64.b64encode(ciscospark_uri.encode()).decode()
+    
+    return space_id
 
 def main():
     print("=== Webex Spaces Configuration Builder ===\n")
@@ -12,22 +39,25 @@ def main():
     
     while True:
         print("\n--- Add a Space ---")
-        space_id = input("Space ID (long base64 string) [or press Enter to finish]: ").strip()
+        space_link = input("Space link (e.g., webexteams://im?space=xxx) [or press Enter to finish]: ").strip()
         
-        if not space_id:
+        if not space_link:
             break
+        
+        try:
+            space_id = extract_and_encode_space_id(space_link)
+            print(f"✓ Converted to space ID: {space_id[:40]}...")
+        except Exception as e:
+            print(f"✗ Error: {e}")
+            continue
             
         name = input("Space name (e.g., General Discussion): ").strip() or "unknown"
-        
-        lookback_days_input = input("Lookback days for initial sync (default: 30, 0 = all history): ").strip()
-        lookback_days = int(lookback_days_input) if lookback_days_input else 30
         
         include_bots_input = input("Include bot messages? (y/N): ").strip().lower()
         include_bots = include_bots_input in ['y', 'yes']
         
         spaces[space_id] = {
             "name": name,
-            "lookback_days": lookback_days,
             "include_bots": include_bots
         }
         

@@ -33,7 +33,7 @@ logging.basicConfig(level=LOG_LEVEL)
 CLUSTER_NAME = os.environ.get('CLUSTER_NAME')
 if not CLUSTER_NAME:
     raise ValueError("CLUSTER_NAME environment variable must be set")
-SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 60 * 15))  # sync every 15 minutes by default
+SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 86400))  # sync every day by default
 
 # Kubernetes configuration options
 KUBECONFIG_PATH = os.environ.get('KUBECONFIG')  # Custom kubeconfig file path

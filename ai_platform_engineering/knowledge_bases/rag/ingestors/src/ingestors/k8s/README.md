@@ -50,7 +50,7 @@ Ingests Kubernetes resources as graph entities into the RAG system. Discovers an
 - `KUBE_CONTEXT` - Specific kubeconfig context to use (works with any kubeconfig source)
 - `K8S_RESOURCE_LIST` - Comma-separated list of Kubernetes resource kinds to ingest 
 - `K8S_IGNORE_FIELD_LIST` - Comma-separated list of field prefixes to exclude from ingested entities
-- `SYNC_INTERVAL` - Sync interval in seconds (default: `900` = 15 minutes)
+- `SYNC_INTERVAL` - Sync interval in seconds (default: `86400` = 24 hours)
 - `INIT_DELAY_SECONDS` - Delay before first sync in seconds (default: `0`)
 - `LOG_LEVEL` - Logging level (default: `INFO`)
 

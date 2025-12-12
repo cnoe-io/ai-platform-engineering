@@ -17,7 +17,8 @@ from common.constants import (
     ALL_IDS_KEY,
     ALL_IDS_PROPS_KEY,
     ENTITY_TYPE_KEY,
-    PROP_DELIMITER
+    PROP_DELIMITER,
+    ONTOLOGY_VERSION_ID_KEY
 )
 from common.graph_db.base import GraphDB
 from common.models.graph import Entity
@@ -109,8 +110,14 @@ class HeuristicsProcessor:
         await self.search_engine.build_index()
         await update_progress(f"BM25 index built: {self.search_engine.stats['total_entities_indexed']} entities indexed")
         
-        # Step 1: Get all entity types for type-aware batching
+        # Step 0.5: Pre-create all schema entity nodes in ontology DB
+        # This ensures nodes exist BEFORE any relations are created, preventing race conditions
+        await update_progress("Pre-creating schema entity nodes...")
         entity_types = await self.graph_db.get_all_entity_types()
+        await self._create_schema_nodes(entity_types)
+        await update_progress(f"Created {len(entity_types)} schema entity nodes")
+        
+        # Step 1: Get all entity types for type-aware batching
         await update_progress(f"Found {len(entity_types)} entity types to process")
         
         # Get total entity count for progress reporting
@@ -171,12 +178,6 @@ class HeuristicsProcessor:
         
         await update_progress("No more entities to process")
         
-        # Step 3: Clean up low-count relations (noise reduction)
-        # await update_progress(f"Cleaning up relations with count < {self.min_relation_count}...")
-        # discarded_count = await self._cleanup_low_count_relations(update_progress)
-        # self.stats["relations_discarded"] = discarded_count
-        # await update_progress(f"Discarded {discarded_count} low-count relations")
-        
         # Log final statistics
         self.logger.info(f"Heuristics processing complete. Stats: {self.stats}")
         
@@ -185,37 +186,29 @@ class HeuristicsProcessor:
         gc.collect()
         await update_progress("Garbage collection complete")
     
-    async def _cleanup_low_count_relations(self, update_progress) -> int:
+    async def _create_schema_nodes(self, entity_types: List[str]):
         """
-        Clean up relations with count below the minimum threshold to reduce noise.
-        
-        Returns:
-            Number of relations discarded
+        Pre-create all schema entity nodes in ontology DB.
+        This prevents race conditions where relations are created before schema nodes exist.
         """
-        self.logger.info(f"Cleaning up relations with count < {self.min_relation_count}")
+        self.logger.info(f"Pre-creating {len(entity_types)} schema entity nodes")
         
-        # Fetch all relation candidates
-        all_candidates = await self.rc_manager.fetch_all_candidates()
+        entities = []
+        for entity_type in entity_types:
+            entity = Entity(
+                entity_type=entity_type,
+                primary_key_properties=[ENTITY_TYPE_KEY, ONTOLOGY_VERSION_ID_KEY],
+                all_properties={
+                    ENTITY_TYPE_KEY: entity_type,
+                    ONTOLOGY_VERSION_ID_KEY: self.rc_manager.ontology_version_id
+                }
+            )
+            entities.append(entity)
         
-        discarded_count = 0
-        total_candidates = len(all_candidates)
-        
-        for relation_id, candidate in all_candidates.items():
-            # Check if count is below threshold
-            if candidate.heuristic and candidate.heuristic.total_matches < self.min_relation_count:
-                try:
-                    # Delete the entire candidate (Redis + Graph DB)
-                    await self.rc_manager.delete_candidate(relation_id)
-                    discarded_count += 1
-                    
-                    if self.logger.isEnabledFor(logging.DEBUG):
-                        self.logger.debug(f"Discarded relation {relation_id} ({candidate.heuristic.entity_a_type} -> {candidate.heuristic.entity_b_type}) with count {candidate.heuristic.total_matches}")
-                
-                except Exception as e:
-                    self.logger.error(f"Error deleting relation {relation_id}: {e}", exc_info=True)
-        
-        self.logger.info(f"Cleanup complete: discarded {discarded_count}/{total_candidates} relations")
-        return discarded_count
+        # Batch create all schema nodes using MERGE (idempotent)
+        if entities:
+            await self.rc_manager.ontology_graph_db.update_entity_batch(entities, batch_size=1000)
+            self.logger.info(f"Successfully created {len(entities)} schema entity nodes")
     
     async def _process_entities_pipeline(self, entities: List[Entity], batch_num: int, total_batches: int, update_progress):
         """
