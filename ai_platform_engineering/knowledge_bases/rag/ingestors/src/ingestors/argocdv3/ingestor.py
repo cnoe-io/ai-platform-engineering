@@ -30,7 +30,7 @@ if ARGOCD_AUTH_TOKEN is None:
     raise ValueError("ARGOCD_AUTH_TOKEN environment variable must be set")
 ARGOCD_VERIFY_SSL = os.getenv("ARGOCD_VERIFY_SSL", "true").lower() == "true"
 ARGOCD_FILTER_PROJECTS = os.getenv("ARGOCD_FILTER_PROJECTS", "").strip()
-SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 900))  # sync every 15 minutes by default
+SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 86400))  # sync every day by default
 # Create instance name from server URL - sanitize by replacing all non-alphanumeric chars with underscore
 def sanitize_instance_name(url: str) -> str:
     """Replace all non-alphanumeric characters in URL with underscores"""
@@ -72,7 +72,11 @@ class ArgoCDClient:
                 **kwargs
             )
             response.raise_for_status()
-            return response.json()
+            json_response = response.json()
+            # Handle None response from API
+            if json_response is None:
+                return {}
+            return json_response
         except requests.exceptions.RequestException as e:
             logging.error(f"Error making request to {url}: {e}")
             raise
@@ -208,12 +212,120 @@ def extract_project_roles(project: Dict[str, Any]) -> List[Dict[str, Any]]:
     return roles
 
 
+async def process_project_entities(
+    client: Client,
+    argocd_client: ArgoCDClient,
+    project_data: Dict[str, Any],
+    job_id: str,
+    datasource_id: str,
+    batch_entities: List[Entity]
+) -> int:
+    """
+    Process entities for a single project and add them to the batch.
+    Returns the count of entities processed.
+    """
+    project_name = project_data.get("metadata", {}).get("name", "unknown")
+    logging.info(f"Processing project: {project_name}")
+    
+    entities_processed = 0
+    
+    try:
+        # 1. Convert and add the Project entity itself
+        filtered_project = utils.filter_nested_dict(project_data, IGNORE_FIELD_LIST)
+        filtered_project["argocd_instance"] = argocd_instance_name  # type: ignore
+        
+        project_entity = Entity(
+            entity_type="ArgoCDProject",
+            all_properties=filtered_project,  # type: ignore
+            primary_key_properties=["argocd_instance", "metadata.uid"],
+            additional_key_properties=[["argocd_instance", "metadata.name"]]
+        )
+        batch_entities.append(project_entity)
+        entities_processed += 1
+        
+        # 2. Extract and add Project Roles
+        roles = extract_project_roles(project_data)
+        for role in roles:
+            role["argocd_instance"] = argocd_instance_name
+            role_entity = Entity(
+                entity_type="ArgoCDProjectRole",
+                all_properties=role,
+                primary_key_properties=["argocd_instance", "project_name", "role_name"],
+                additional_key_properties=[["argocd_instance", "role_name"]]
+            )
+            batch_entities.append(role_entity)
+            entities_processed += 1
+        
+        # 3. Fetch and process Applications for this project
+        applications = argocd_client.get_applications(projects=[project_name])
+        logging.info(f"  Found {len(applications)} applications in project {project_name}")
+        
+        for app in applications:
+            try:
+                filtered_app = utils.filter_nested_dict(app, IGNORE_FIELD_LIST)
+                filtered_app["argocd_instance"] = argocd_instance_name  # type: ignore
+                
+                app_entity = Entity(
+                    entity_type="ArgoCDApplication",
+                    all_properties=filtered_app,  # type: ignore
+                    primary_key_properties=["argocd_instance", "metadata.uid"],
+                    additional_key_properties=[
+                        ["argocd_instance", "metadata.name"],
+                        ["argocd_instance", "metadata.namespace", "metadata.name"]
+                    ]
+                )
+                batch_entities.append(app_entity)
+                entities_processed += 1
+            except Exception as e:
+                logging.error(f"  Error converting application to Entity: {e}", exc_info=True)
+                await client.add_job_error(job_id, [f"Error converting application in project {project_name}: {str(e)}"])
+                await client.increment_job_failure(job_id, 1)
+        
+        # 4. Fetch and process ApplicationSets for this project
+        applicationsets = argocd_client.get_applicationsets(projects=[project_name])
+        logging.info(f"  Found {len(applicationsets)} applicationsets in project {project_name}")
+        
+        for appset in applicationsets:
+            try:
+                filtered_appset = utils.filter_nested_dict(appset, IGNORE_FIELD_LIST)
+                filtered_appset["argocd_instance"] = argocd_instance_name  # type: ignore
+                
+                appset_entity = Entity(
+                    entity_type="ArgoCDApplicationSet",
+                    all_properties=filtered_appset,  # type: ignore
+                    primary_key_properties=["argocd_instance", "metadata.uid"],
+                    additional_key_properties=[
+                        ["argocd_instance", "metadata.name"],
+                        ["argocd_instance", "metadata.namespace", "metadata.name"]
+                    ]
+                )
+                batch_entities.append(appset_entity)
+                entities_processed += 1
+            except Exception as e:
+                logging.error(f"  Error converting applicationset to Entity: {e}", exc_info=True)
+                await client.add_job_error(job_id, [f"Error converting applicationset in project {project_name}: {str(e)}"])
+                await client.increment_job_failure(job_id, 1)
+        
+        logging.info(f"  Processed {entities_processed} entities for project {project_name}")
+        
+    except Exception as e:
+        error_msg = f"Error processing project {project_name}: {str(e)}"
+        logging.error(error_msg, exc_info=True)
+        await client.add_job_error(job_id, [error_msg])
+        raise
+    
+    return entities_processed
+
+
 async def sync_argocd_entities(client: Client):
     """
     Sync function that fetches ArgoCD entities and ingests them with job tracking.
-    This function is called periodically by the IngestorBuilder.
+    This function uses a streaming approach to minimize memory usage by:
+    1. Processing one project at a time
+    2. Batching entity ingestion
+    3. Progressive job updates
     """
-    logging.info("Starting ArgoCD v3 entity sync...")
+    logging.info("Starting ArgoCD v3 entity sync with optimized batching...")
     
     # Initialize ArgoCD client
     argocd_client = ArgoCDClient(SERVER_URL, ARGOCD_AUTH_TOKEN, ARGOCD_VERIFY_SSL)
@@ -239,10 +351,8 @@ async def sync_argocd_entities(client: Client):
     await client.upsert_datasource(datasource_info)
     logging.info(f"Created/updated datasource: {datasource_id}")
     
-    # 2. Fetch all entities from ArgoCD
-    all_entities: List[Entity] = []
-    
-    # Fetch projects first (needed for filtering)
+    # 2. Fetch projects first (needed for filtering)
+    logging.info("Fetching projects...")
     projects_data = argocd_client.get_projects()
     
     # Apply project filter if specified
@@ -250,51 +360,41 @@ async def sync_argocd_entities(client: Client):
         projects_data = [p for p in projects_data if p.get("metadata", {}).get("name") in FILTER_PROJECTS]
         logging.info(f"Filtered to {len(projects_data)} projects: {FILTER_PROJECTS}")
     
-    project_names = [p.get("metadata", {}).get("name") for p in projects_data]
-    
-    # Fetch all other entities
-    applications_data = argocd_client.get_applications(projects=project_names if FILTER_PROJECTS else None)
+    # 3. Fetch global resources (not project-specific)
+    logging.info("Fetching global resources (clusters, repositories)...")
     clusters_data = argocd_client.get_clusters()
     repositories_data = argocd_client.get_repositories()
-    applicationsets_data = argocd_client.get_applicationsets(projects=project_names if FILTER_PROJECTS else None)
     
-    # Extract roles from projects
-    all_roles = []
-    for project in projects_data:
-        roles = extract_project_roles(project)
-        all_roles.extend(roles)
-    
-    # Count total items
-    total_items = (
+    # 4. Estimate total items for job tracking
+    # Note: This is an estimate since we fetch apps/appsets per project
+    # We'll update the total as we discover more entities
+    estimated_total = (
         1 +  # ArgoCDInstance
-        len(applications_data) +
-        len(projects_data) +
+        len(projects_data) * 10 +  # Estimate: ~10 entities per project (project + roles + apps + appsets)
         len(clusters_data) +
-        len(repositories_data) +
-        len(applicationsets_data) +
-        len(all_roles)
+        len(repositories_data)
     )
     
-    logging.info(f"Total entities to process: {total_items}")
+    logging.info(f"Estimated total entities to process: {estimated_total}")
     
-    if total_items <= 1:  # Only the instance entity
-        logging.info("No entities to process from ArgoCD")
-        return
-    
-    # 3. Create a job for this ingestion
+    # 5. Create a job for this ingestion
     job_response = await client.create_job(
         datasource_id=datasource_id,
         job_status=JobStatus.IN_PROGRESS,
-        message="Starting ArgoCD v3 entity ingestion",
-        total=total_items
+        message="Starting ArgoCD v3 entity ingestion with batching",
+        total=estimated_total
     )
     job_id = job_response["job_id"]
-    logging.info(f"Created job {job_id} for datasource={datasource_id} with {total_items} entities")
+    logging.info(f"Created job {job_id} for datasource={datasource_id}")
     
-    # 4. Convert ArgoCD items to Entity objects
+    # Get batch size from client configuration (considers both server and ingestor limits)
+    INGEST_BATCH_SIZE = client.max_docs_per_ingest()
+    logging.info(f"Using ingest batch size: {INGEST_BATCH_SIZE}")
+    
+    total_entities_processed = 0
     
     try:
-        # Create ArgoCDInstance entity
+        # 6. Create ArgoCDInstance entity first
         instance_entity = Entity(
             entity_type="ArgoCDInstance",
             all_properties={
@@ -307,181 +407,135 @@ async def sync_argocd_entities(client: Client):
             primary_key_properties=["server_url"],
             additional_key_properties=[["instance_name"]]
         )
-        all_entities.append(instance_entity)
         
-        # Convert Applications
-        for app in applications_data:
+        # Start with instance entity in the batch
+        current_batch: List[Entity] = [instance_entity]
+        total_entities_processed += 1
+        
+        # 7. Process each project one at a time (streaming approach)
+        logging.info(f"Processing {len(projects_data)} projects...")
+        for idx, project_data in enumerate(projects_data, 1):
+            project_name = project_data.get("metadata", {}).get("name", "unknown")
+            logging.info(f"Processing project {idx}/{len(projects_data)}: {project_name}")
+            
             try:
-                # Filter ignored fields while preserving nested structure
-                filtered_app = utils.filter_nested_dict(app, IGNORE_FIELD_LIST)
-                
-                # Add ArgoCD instance identifier
-                filtered_app["argocd_instance"] = argocd_instance_name # type: ignore
-                
-                entity = Entity(
-                    entity_type="ArgoCDApplication",
-                    all_properties=filtered_app, # type: ignore
-                    primary_key_properties=["argocd_instance", "metadata.uid"],
-                    additional_key_properties=[
-                        ["argocd_instance", "metadata.name"],
-                        ["argocd_instance", "metadata.namespace", "metadata.name"]
-                    ]
+                # Process this project and add entities to current batch
+                entities_added = await process_project_entities(
+                    client=client,
+                    argocd_client=argocd_client,
+                    project_data=project_data,
+                    job_id=job_id,
+                    datasource_id=datasource_id,
+                    batch_entities=current_batch
                 )
-                all_entities.append(entity)
-            except Exception as e:
-                logging.error(f"Error converting application to Entity: {e}", exc_info=True)
-                await client.add_job_error(job_id, [f"Error converting application: {str(e)}"])
-                await client.increment_job_failure(job_id, 1)
-        
-        # Convert Projects
-        for project in projects_data:
-            try:
-                # Filter ignored fields while preserving nested structure
-                filtered_project = utils.filter_nested_dict(project, IGNORE_FIELD_LIST)
+                total_entities_processed += entities_added
                 
-                # Add ArgoCD instance identifier
-                filtered_project["argocd_instance"] = argocd_instance_name # type: ignore
+                # If batch is large enough, ingest it and start a new batch
+                if len(current_batch) >= INGEST_BATCH_SIZE:
+                    logging.info(f"Batch reached {len(current_batch)} entities, ingesting...")
+                    await client.ingest_entities(
+                        job_id=job_id,
+                        datasource_id=datasource_id,
+                        entities=current_batch,
+                        fresh_until=utils.get_default_fresh_until()
+                    )
+                    await client.increment_job_progress(job_id, len(current_batch))
+                    logging.info(f"Ingested batch of {len(current_batch)} entities")
+                    
+                    # Start new batch
+                    current_batch = []
                 
-                entity = Entity(
-                    entity_type="ArgoCDProject",
-                    all_properties=filtered_project, # type: ignore
-                    primary_key_properties=["argocd_instance", "metadata.uid"],
-                    additional_key_properties=[["argocd_instance", "metadata.name"]]
-                )
-                all_entities.append(entity)
             except Exception as e:
-                logging.error(f"Error converting project to Entity: {e}", exc_info=True)
-                await client.add_job_error(job_id, [f"Error converting project: {str(e)}"])
-                await client.increment_job_failure(job_id, 1)
+                error_msg = f"Error processing project {project_name}: {str(e)}"
+                logging.error(error_msg, exc_info=True)
+                await client.add_job_error(job_id, [error_msg])
+                # Continue with next project instead of failing entire job
+                continue
         
-        # Convert Clusters
+        # 8. Process global resources (clusters and repositories)
+        logging.info(f"Processing {len(clusters_data)} clusters...")
         for cluster in clusters_data:
             try:
-                # Filter ignored fields while preserving nested structure
                 filtered_cluster = utils.filter_nested_dict(cluster, IGNORE_FIELD_LIST)
+                filtered_cluster["argocd_instance"] = argocd_instance_name  # type: ignore
                 
-                # Add ArgoCD instance identifier
-                filtered_cluster["argocd_instance"] = argocd_instance_name # type: ignore
-                
-                entity = Entity(
+                cluster_entity = Entity(
                     entity_type="ArgoCDCluster",
-                    all_properties=filtered_cluster, # type: ignore
+                    all_properties=filtered_cluster,  # type: ignore
                     primary_key_properties=["argocd_instance", "server"],
                     additional_key_properties=[["argocd_instance", "name"]]
                 )
-                all_entities.append(entity)
+                current_batch.append(cluster_entity)
+                total_entities_processed += 1
+                
+                # Batch ingest if needed
+                if len(current_batch) >= INGEST_BATCH_SIZE:
+                    await client.ingest_entities(
+                        job_id=job_id,
+                        datasource_id=datasource_id,
+                        entities=current_batch,
+                        fresh_until=utils.get_default_fresh_until()
+                    )
+                    await client.increment_job_progress(job_id, len(current_batch))
+                    logging.info(f"Ingested batch of {len(current_batch)} entities")
+                    current_batch = []
+                    
             except Exception as e:
                 logging.error(f"Error converting cluster to Entity: {e}", exc_info=True)
                 await client.add_job_error(job_id, [f"Error converting cluster: {str(e)}"])
                 await client.increment_job_failure(job_id, 1)
         
-        # Convert Repositories
+        logging.info(f"Processing {len(repositories_data)} repositories...")
         for repo in repositories_data:
             try:
-                # Filter ignored fields while preserving nested structure
                 filtered_repo = utils.filter_nested_dict(repo, IGNORE_FIELD_LIST)
+                filtered_repo["argocd_instance"] = argocd_instance_name  # type: ignore
                 
-                # Add ArgoCD instance identifier
-                filtered_repo["argocd_instance"] = argocd_instance_name # type: ignore
-                
-                entity = Entity(
+                repo_entity = Entity(
                     entity_type="ArgoCDRepository",
-                    all_properties=filtered_repo, # type: ignore
+                    all_properties=filtered_repo,  # type: ignore
                     primary_key_properties=["argocd_instance", "repo"],
                     additional_key_properties=[["argocd_instance", "name"]]
                 )
-                all_entities.append(entity)
+                current_batch.append(repo_entity)
+                total_entities_processed += 1
+                
+                # Batch ingest if needed
+                if len(current_batch) >= INGEST_BATCH_SIZE:
+                    await client.ingest_entities(
+                        job_id=job_id,
+                        datasource_id=datasource_id,
+                        entities=current_batch,
+                        fresh_until=utils.get_default_fresh_until()
+                    )
+                    await client.increment_job_progress(job_id, len(current_batch))
+                    logging.info(f"Ingested batch of {len(current_batch)} entities")
+                    current_batch = []
+                    
             except Exception as e:
                 logging.error(f"Error converting repository to Entity: {e}", exc_info=True)
                 await client.add_job_error(job_id, [f"Error converting repository: {str(e)}"])
                 await client.increment_job_failure(job_id, 1)
         
-        # Convert ApplicationSets
-        for appset in applicationsets_data:
-            try:
-                # Filter ignored fields while preserving nested structure
-                filtered_appset = utils.filter_nested_dict(appset, IGNORE_FIELD_LIST)
-                
-                # Add ArgoCD instance identifier
-                filtered_appset["argocd_instance"] = argocd_instance_name # type: ignore
-                
-                entity = Entity(
-                    entity_type="ArgoCDApplicationSet",
-                    all_properties=filtered_appset, # type: ignore
-                    primary_key_properties=["argocd_instance", "metadata.uid"],
-                    additional_key_properties=[
-                        ["argocd_instance", "metadata.name"],
-                        ["argocd_instance", "metadata.namespace", "metadata.name"]
-                    ]
-                )
-                all_entities.append(entity)
-            except Exception as e:
-                logging.error(f"Error converting applicationset to Entity: {e}", exc_info=True)
-                await client.add_job_error(job_id, [f"Error converting applicationset: {str(e)}"])
-                await client.increment_job_failure(job_id, 1)
-        
-        # Convert Project Roles
-        for role in all_roles:
-            try:
-                # Add ArgoCD instance identifier
-                role["argocd_instance"] = argocd_instance_name
-                
-                entity = Entity(
-                    entity_type="ArgoCDProjectRole",
-                    all_properties=role,
-                    primary_key_properties=["argocd_instance", "project_name", "role_name"],
-                    additional_key_properties=[["argocd_instance", "role_name"]]
-                )
-                all_entities.append(entity)
-            except Exception as e:
-                logging.error(f"Error converting project role to Entity: {e}", exc_info=True)
-                await client.add_job_error(job_id, [f"Error converting project role: {str(e)}"])
-                await client.increment_job_failure(job_id, 1)
-        
-        logging.info(f"Converted {len(all_entities)} ArgoCD items to Entity objects")
-        
-    except Exception as e:
-        error_msg = f"Error during entity conversion: {str(e)}"
-        await client.add_job_error(job_id, [error_msg])
-        await client.update_job(
-            job_id=job_id,
-            job_status=JobStatus.FAILED,
-            message=error_msg
-        )
-        logging.error(error_msg, exc_info=True)
-        raise
-    
-    # 5. Ingest entities using automatic batching
-    try:
-        if all_entities:
-            logging.info(f"Ingesting {len(all_entities)} entities with automatic batching")
-            
-            # Use the client's ingest_entities method which handles batching automatically
+        # 9. Ingest any remaining entities in the final batch
+        if current_batch:
+            logging.info(f"Ingesting final batch of {len(current_batch)} entities...")
             await client.ingest_entities(
                 job_id=job_id,
                 datasource_id=datasource_id,
-                entities=all_entities,
+                entities=current_batch,
                 fresh_until=utils.get_default_fresh_until()
             )
-            
-            # Update job progress to reflect all entities processed
-            await client.increment_job_progress(job_id, len(all_entities))
-            
-            # Mark job as complete
-            await client.update_job(
-                job_id=job_id,
-                job_status=JobStatus.COMPLETED,
-                message=f"Successfully ingested {len(all_entities)} entities"
-            )
-            logging.info(f"Successfully completed ingestion of {len(all_entities)} entities")
-        else:
-            # No entities to ingest
-            await client.update_job(
-                job_id=job_id,
-                job_status=JobStatus.COMPLETED,
-                message="No entities to ingest"
-            )
-            logging.info("No entities to ingest")
+            await client.increment_job_progress(job_id, len(current_batch))
+            logging.info(f"Ingested final batch of {len(current_batch)} entities")
+        
+        # 10. Mark job as complete
+        await client.update_job(
+            job_id=job_id,
+            job_status=JobStatus.COMPLETED,
+            message=f"Successfully ingested {total_entities_processed} entities using streaming approach"
+        )
+        logging.info(f"Successfully completed ingestion of {total_entities_processed} entities")
         
     except Exception as e:
         # Mark job as failed
