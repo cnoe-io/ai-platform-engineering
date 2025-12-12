@@ -1,3 +1,171 @@
+## Unreleased
+
+### Feat
+
+- webui ingest view now supports pagination
+- **docs**: add development guide
+- add github ingestor
+- move confluence to use official mcp image by default in helm
+- **build**: add test-agent-argocd target for agent unit tests
+- **confluence**: apply sooperset/mcp-atlassian to production docker-compose
+- **confluence**: replace custom MCP server with sooperset/mcp-atlassian
+- **aws**: improve ECR URL parsing and repository search
+- **supervisor**: add AWS agent for Kubernetes debugging
+- **jira**: enhance MCP error handling and epic linking workflow
+- auto-inject current date into ALL agent queries globally
+- **aws**: auto-inject current date into every query
+- **aws**: add smart date usage - only fetch dates when actually needed
+- **aws**: add smart namespace auto-discovery for kubectl operations
+- **aws**: add kubectl logs support and documentation
+- **aws**: add Phase 7 - Kubernetes pods status to EKS health check SOP
+- **aws**: add EKS kubectl tool with temporary kubeconfig management
+- **aws**: add comprehensive EKS cluster health check SOP
+- **aws**: broaden planning workflow triggers beyond 'all' queries
+- **aws**: implement planning mode with reflection sub-agent
+- upgrade langchain to 1.x for deepagents compatibility
+- **aws**: integrate deepagents for context management and auto-offloading
+- **aws**: prompt agent to ask for account when not specified
+- **docker**: add AWS CLI, kubectl, jq and multi-account configuration
+- **supervisor**: update AWS agent routing to support all services and cost queries
+- **aws**: enhance AWS agent system prompt for multi-account and cost queries
+- **aws**: add AWS CLI tool with cross-account support and reflection capabilities
+- add reflection and autonomous retry to supervisor and jira agents
+- **jira**: add explicit update verification and confirmation workflow
+- **jira**: add intelligent field handling and fallback for custom fields
+- **jira**: add filter management tools and board creation workflow
+- **jira**: add comprehensive MCP tools and enhanced security
+- **docker**: add section headers and slim transport configuration
+- **docker**: refactor docker-compose.dev.yaml for better configurability
+- **agent-forge**: improve build workflow and add local build tooling
+- **supervisor**: add ambiguous terms clarification for multi-agent queries
+- **jira**: add reflection and auto-retry strategy for failed searches
+- **jira**: add get_epic_issues tool and improve agent reliability
+- **jira**: add read-only mode, mock responses, and improve error propagation
+- **jira**: implement dynamic field discovery and schema validation
+- add grafana dashboard to helm chart
+- add grafana-dashboard
+- rag intertation with supervisor
+- also update docker-compose files in main dir to volume mount
+- just some more logging
+- bump charts
+- make all sub-agent prompts configurable
+- also enable metric from each sub-agent
+- default metric to false and use global with helper
+- add prometheus metrics support
+
+### Fix
+
+- remove unused var
+- update .gitleaksignore
+- remove agent_rag pyproject/uv
+- lint issues
+- remove redis bloom filter logi
+- remove kw queries
+- docker-compose updates
+- webloader ingestor bugs
+- webex ingestor bugs
+- default sync interval, github graph entity id keys
+- argocd ingestor bug
+- ingestor sleeping logic, better entity type format
+- neo4j entity_type bug, consume results
+- graphrag async logic bug
+- **aws**: include tools.py and agent_strands.py in Docker builds
+- **aws**: use relative imports in agent_executor
+- lint & icons
+- ui bugs, neo4j bugs, langchain issues
+- dissapearing relations
+- confluence mcp requires TRANSPORT: "streamable-http" to work
+- make agent-confluence use the same env var names as official confluence mcp
+- correct chart version bump
+- **uv.lock**: update agent_github
+- add rag-stack subchart import-values back for automatic cm rendering
+- **jira**: return error JSON instead of raising exceptions in MCP tools
+- **agent-runtime**: add jwt deps for github/webex/weather and petstore build arg
+- **jira**: resolve pydantic default handling in MCP tools
+- **argocd**: add utils as explicit dependency with proper versioning
+- **deps**: align utils dependencies with workspace and regenerate argocd lock
+- **build**: include agent uv.lock files in Docker builds for reproducible builds
+- **build**: use --locked flag to enforce committed lock files in Docker builds
+- **build**: improve agent test isolation and prevent MCP test conflicts
+- **jira-mcp**: update tests to match error JSON return behavior
+- **argocd-mcp**: use uv run python for test execution
+- **argocd-mcp**: add dependency installation to test target
+- **komodor**: remove from system prompt
+- **confluence**: remove healthcheck from mcp-confluence in dev compose
+- **confluence**: remove Authorization header for sooperset/mcp-atlassian HTTP mode
+- **supervisor**: remove Komodor references from platform engineer
+- **jira**: replace exceptions with error JSON in comments.py
+- **jira**: replace exceptions with error JSON in issues, boards, sprints
+- **jira**: prevent duplicate issue creation on epic linking failures
+- update langchain import for langchain 1.x compatibility
+- add missing prometheus_client dependency to weather and template agents
+- add missing AGENT_NAME build arg for agent-petstore
+- **supervisor**: remove get_current_date requirement for AWS queries
+- **aws**: prevent agent from hallucinating resource names
+- **aws**: correct reflection sub-agent key from 'prompt' to 'system_prompt'
+- **aws**: add checkpointer to deepagents for state persistence
+- **aws**: remove StateBackend explicit initialization in deepagents
+- **aws**: remove 'default' profile option from AWS CLI tool
+- make to do more resilient by handling duplicate icon issue
+- correctly handle different llm content types (list for aws bedrock, str for azure openai)
+- bump Chart.yaml
+- Update Chart.lock
+- bump rag-stack dependency
+- answer format for rag
+- Update pre-release-a2a-rag
+- Update pre-release-a2a-rag.yml
+- **jira-mcp**: remove unused imports and f-string prefix
+- **jira**: add browse_url to all MCP tool responses
+- **jira**: use actual Jira base URL instead of placeholder in links
+- **jira**: resolve circular import and fix check_read_only function
+- **jira**: remove unused imports in test files
+- **ci**: add QEMU setup for multi-platform Docker builds
+- updates
+- **a2a**: restore max_retries=1 default and tool error tracking
+- bump caipe chart version
+- disable auto-eval
+- bump Chart.yaml
+- update agent-ontology chart
+- bump chart
+- rag chart for v2 ingestor
+- update slack ingestor readme
+- remove old code, ui bug fixes
+- add/update readmes
+- remove agent_rag (deprecated)
+- rag tool optimisations, crash fix
+- lint fixes
+- update .gitleaksignore
+- GH workflow
+- search optimisations, fixed tests and ui fixes
+- correct mount path for prompt-config
+- **docs**: fix MDX compilation errors in workshop files
+- rufflint
+- **lint**: fix linting
+- **komodor**: improve system prompt and fix a2a noise
+- **lint**: fix linting
+- **test**: add komodor test prompt
+- **lint**: fix linting
+- **komodor**: regenerate mcp from openapi spec
+
+### Refactor
+
+- **aws**: make system prompt generic and fix linting issues
+- **argocd-mcp**: pin dependencies to latest compatible versions
+- **deps**: clean up and align pyproject.toml files
+- **build**: remove redundant dev dependencies and pytest config
+- **build**: add individual MCP test targets for granular testing
+- **build**: decouple test targets for better modularity
+- **aws**: remove company-specific references from system prompt
+- **aws**: rename agent.py to agent_strands.py
+- **aws**: replace company-specific references with generic placeholders
+- remove Komodor agent from supervisor configuration
+- **aws**: update Strands agent imports and AWS CLI tool integration
+
+### Perf
+
+- **aws**: optimize agent performance with reduced timeouts and semaphores
+- **langgraph**: increase recursion limit to 100 for large batch operations
+
 ## 0.2.4 (2025-11-24)
 
 ### Feat
@@ -49,6 +217,9 @@ exclusively. Legacy response formats are no longer supported.
 - bump chart
 - much shorter system prompt for deep supervisor agent
 - cahrt bump for prompt config
+- ontology agent rewrite for scale
+- add webex and argocdv3 ingestors, fix dummy ingestor
+- add embeddings factory; separate webloader
 - **tools**: add workspace operations and utility tools
 - **mcp**: add standardized entry points for MCP servers
 - **structured-outputs**: implement structured output support for agents
@@ -86,6 +257,13 @@ exclusively. Legacy response formats are no longer supported.
 - better deep agent prompt and etc
 - work with jarvis will required/optional fields
 - maintain context id
+- webui graph rewrite
+- fix backstage ingestor
+- add slack ingestor
+- fix k8s ingestor
+- fix aws ingestor
+- Dockerfile fixes
+- remove pandas from rag server
 - don't build the webui image in main docker-compose
 - backstage JWT token is using ES256
 - resolve structured outputs compatibility issues
@@ -144,6 +322,8 @@ exclusively. Legacy response formats are no longer supported.
 - update a2a streaming and agent improvements
 - implement A2A streaming and common code refactoring
 - refactor a2a_stream with common code
+- major ingestor refactor
+- add retry when 429 Too many requests
 - add istio support and extraDeploy for custom resources
 
 ### Fix
@@ -218,6 +398,16 @@ exclusively. Legacy response formats are no longer supported.
 - Fix linting issues and verify tests pass
 - lint and tests
 - better docker-compose and temporarily disable aws
+- webui with new ingestors
+- get agent_ontology with new common libs
+- add rag_ontology tests; lots of bugs fixed
+- server improvements
+- update common module
+- graph ui improvements - working buttons
+- agent_ontology bug fixes; using tool instead of structured output
+- e2e tests for rag components
+- add e2e tests; bug fixes; more info in healthz
+- agent-rag uses MCP instead of direct DB access
 - **auth**: Fix shared key authentication not loading middleware
 - rag broken links
 - docs - broken links
@@ -264,6 +454,9 @@ exclusively. Legacy response formats are no longer supported.
 
 - better idpbuilder docs;
 - **docs**: gh pages
+- remove redundant test-data
+- add e2e tests; rm local tests
+- ui improvements
 - RAG ingestion and retrieval bug fixes
 - **ci**: Correct dependency verification pattern for helm packages
 - **ci**: Skip version check when only Chart.lock changes
