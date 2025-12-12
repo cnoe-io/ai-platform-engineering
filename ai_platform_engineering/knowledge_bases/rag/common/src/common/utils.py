@@ -274,97 +274,84 @@ async def retry_function_async(func, retries=20, delay=5, *args, **kwargs):
                     raise
 
 
-def format_entity_type_for_display(entity_type: str) -> str:
+def format_entity_type_for_display(entity_type: str) -> list[str]:
     """
-    Convert CamelCase entity type to more readable format using intelligent heuristics.
+    Generate all possible variations of a CamelCase entity type for search/matching.
     
-    This method automatically detects acronyms (consecutive uppercase letters) and 
-    preserves them while adding spaces between words.
+    This method generates multiple variations by splitting at clear, natural word boundaries only.
+    If there are no clear split points, it returns just the original string.
     
     Examples:
-    - AWSAccount -> AWS Account
-    - AWSEksCluster -> AWS Eks Cluster
-    - AWSS3Bucket -> AWS S3 Bucket
-    - BackstageComponent -> Backstage Component
-    - K8sNamespace -> K8s Namespace
-    - EC2Instance -> EC2 Instance
+    - AwsAccount -> ['AwsAccount', 'Aws Account']
+    - AwsEksCluster -> ['AwsEksCluster', 'Aws Eks Cluster', 'Aws EksCluster', 'AwsEks Cluster']
+    - AwsS3Bucket -> ['AwsS3Bucket', 'Aws S3 Bucket', 'Aws S3Bucket', 'AwsS3 Bucket']
+    - BackstageComponent -> ['BackstageComponent', 'Backstage Component']
+    - K8sNamespace -> ['K8sNamespace', 'K8s Namespace']
+    - EC2Instance -> ['EC2Instance', 'EC2 Instance']
     
     :param entity_type: The CamelCase entity type string to format
-    :return: A more readable formatted string
+    :return: A list of possible formatted variations
     """
     if not entity_type:
-        return entity_type
+        return [entity_type]
     
-    # Build the result by analyzing character patterns
-    result = []
-    i = 0
+    # Always include the original
+    variations = {entity_type}
     
-    while i < len(entity_type):
-        # Check if we're at the start of an acronym (2+ consecutive uppercase letters)
-        if i < len(entity_type) - 1 and entity_type[i].isupper() and entity_type[i + 1].isupper():
-            # Collect consecutive uppercase letters
-            acronym_start = i
-            
-            while i < len(entity_type) and entity_type[i].isupper():
-                if i < len(entity_type) - 1:
-                    next_char = entity_type[i + 1]
-                    
-                    # If next char is lowercase, we've reached the start of a new word
-                    # Keep the last uppercase letter with the new word (e.g., "AWS|Account")
-                    if next_char.islower():
-                        break
-                    
-                    # If next char is a digit, include it (e.g., K8s, EC2)
-                    elif next_char.isdigit():
-                        i += 2  # Include current uppercase and next digit
-                        # If there's more after the digit, continue
-                        if i < len(entity_type):
-                            if entity_type[i].islower():
-                                # End of this acronym (e.g., K8s|Namespace)
-                                break
-                            # Otherwise continue collecting
-                        break
-                i += 1
-            
-            # Extract the acronym
-            acronym = entity_type[acronym_start:i]
-            
-            # For acronyms longer than 3 chars, check if we should split them
-            # (e.g., "AWSS3" -> "AWS" + "S3")
-            if len(acronym) > 3:
-                # Try to find a reasonable split point
-                # Look for a sequence that could be a separate acronym (2-3 chars at the end)
-                for split_point in range(len(acronym) - 1, max(2, len(acronym) - 4), -1):
-                    potential_second = acronym[split_point:]
-                    if len(potential_second) >= 2 and len(potential_second) <= 3:
-                        # Split here
-                        if result and result[-1] != ' ':
-                            result.append(' ')
-                        result.append(acronym[:split_point])
-                        result.append(' ')
-                        result.append(potential_second)
-                        acronym = None
-                        break
-            
-            if acronym:
-                # Add space before acronym if not at start
-                if result and result[-1] != ' ':
-                    result.append(' ')
-                result.append(acronym)
-            
-        # Regular word character (single uppercase letter)
-        elif entity_type[i].isupper():
-            # Add space before uppercase if not at start and previous wasn't a space
-            if result and result[-1] != ' ':
-                result.append(' ')
-            result.append(entity_type[i])
-            i += 1
-        else:
-            # Lowercase or other characters
-            result.append(entity_type[i])
-            i += 1
+    # Find all clear, natural split points (positions where we can insert a space)
+    split_points = []
     
-    return str(''.join(result).strip())
+    for i in range(1, len(entity_type)):
+        char = entity_type[i]
+        prev_char = entity_type[i - 1]
+        
+        # Split before uppercase letter that follows a lowercase letter (e.g., "Aws|Account")
+        if char.isupper() and prev_char.islower():
+            split_points.append(i)
+        # Split before uppercase letter followed by lowercase when previous is uppercase 
+        # (e.g., "AWS|Account" - clear word boundary)
+        elif i < len(entity_type) - 1 and char.isupper() and prev_char.isupper() and entity_type[i + 1].islower():
+            split_points.append(i)
+        # Split before uppercase letter after a digit (e.g., "S3|Bucket", "K8s|Namespace")
+        elif char.isalpha() and char.isupper() and prev_char.isdigit():
+            split_points.append(i)
+    
+    if not split_points:
+        # No clear split points, return original only
+        return [entity_type]
+    
+    # Generate combinations of splits
+    from itertools import combinations
+    
+    # Add the fully split version (all split points)
+    parts = []
+    last_idx = 0
+    for split_idx in split_points:
+        parts.append(entity_type[last_idx:split_idx])
+        last_idx = split_idx
+    parts.append(entity_type[last_idx:])
+    variations.add(' '.join(parts))
+    
+    # Generate partial splits (useful for intermediate variations)
+    # For performance, limit combinations to avoid explosion
+    max_combinations = min(len(split_points), 4)
+    
+    for r in range(1, len(split_points)):
+        if r > max_combinations:
+            break
+        for combo in combinations(split_points, r):
+            parts = []
+            last_idx = 0
+            for split_idx in sorted(combo):
+                parts.append(entity_type[last_idx:split_idx])
+                last_idx = split_idx
+            parts.append(entity_type[last_idx:])
+            variations.add(' '.join(parts))
+    
+    # Sort variations by number of spaces (original first, then increasing complexity)
+    sorted_variations = sorted(variations, key=lambda x: (x.count(' '), x))
+    
+    return sorted_variations
 
 
 def flatten_dict(d: dict, wildcard_index=True, preserve_list_of_dicts=False) -> dict[str, str]:
