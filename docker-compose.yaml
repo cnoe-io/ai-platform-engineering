@@ -50,15 +50,11 @@ services:
       - KOMODOR_AGENT_HOST=agent-komodor
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
       - PETSTORE_AGENT_HOST=agent-petstore
-      - RAG_AGENT_HOST=agent_rag
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SLACK_AGENT_HOST=agent-slack
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
-
-      # Agent ports
-      # Add an exception for the RAG agent port to 8099. All other agents use the default port 8000.
-      - RAG_AGENT_PORT=${RAG_AGENT_PORT:-8099}
 
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
