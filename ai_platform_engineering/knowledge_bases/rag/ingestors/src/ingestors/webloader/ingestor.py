@@ -92,7 +92,7 @@ async def process_url_ingestion(
         try:
             if 'job_id' in locals():
                 await job_manager.add_error_msg(job_id, error_msg)
-        except Exception:
+        except:
             pass
         
         raise
@@ -352,7 +352,6 @@ if __name__ == "__main__":
             .sync_with_fn(periodic_reload)\
             .with_startup(redis_listener)\
             .every(RELOAD_INTERVAL)\
-            .skip_first_sync()\
             .run()
             
     except KeyboardInterrupt:
