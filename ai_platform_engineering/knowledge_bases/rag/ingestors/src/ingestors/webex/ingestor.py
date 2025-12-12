@@ -186,8 +186,7 @@ class WebexSpaceSyncer:
                     
                     # Stop if we've reached messages older than last sync
                     if len(new_messages) < len(batch_messages):
-                        found_old_messages = True
-                        logger.debug(f"Reached messages from previous sync, stopping pagination")
+                        logger.debug("Reached messages from previous sync, stopping pagination")
                         break
                 else:
                     messages.extend(batch_messages)
