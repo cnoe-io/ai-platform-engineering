@@ -161,7 +161,6 @@ class WebexSpaceSyncer:
             
             # Fetch messages (most recent first)
             newest_time = last_message_time or ""
-            found_old_messages = False
             
             # Only fetch a few pages to avoid overwhelming memory
             max_pages = 10
