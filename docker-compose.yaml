@@ -177,6 +177,8 @@ services:
     container_name: agent-github
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
+      - ./ai_platform_engineering/agents/github/agent_github:/app/ai_platform_engineering/agents/agent/agent_github
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     env_file: [.env]
     ports: ["8001:8000"]
     environment:

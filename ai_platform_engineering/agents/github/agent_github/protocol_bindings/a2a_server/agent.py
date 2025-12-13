@@ -10,7 +10,8 @@ with other agents (ArgoCD, Komodor, etc.).
 
 import logging
 import os
-from typing import Dict, Any, Literal
+import re
+from typing import Dict, Any, Literal, AsyncIterable
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
@@ -102,4 +103,62 @@ class GitHubAgent(BaseLangGraphAgent):
     def get_tool_processing_message(self) -> str:
         """Return the message shown when processing tool results."""
         return _prompt_config.tool_processing_message
+
+    def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
+        """
+        Parse GitHub API errors for user-friendly messages.
+        
+        Overrides base class to provide GitHub-specific error parsing.
+        
+        Args:
+            error: The exception that was raised
+            tool_name: Name of the tool that failed
+            
+        Returns:
+            User-friendly error message
+        """
+        error_str = str(error)
+        
+        # Parse common GitHub API errors for better user messages
+        if "404 Not Found" in error_str:
+            # Extract repo name from URL if possible
+            repo_match = re.search(r'/repos/([^/]+/[^/]+)/', error_str)
+            repo_name = repo_match.group(1) if repo_match else "repository"
+            return f"Repository '{repo_name}' not found. Please check the organization and repository names are correct."
+        elif "401" in error_str or "403" in error_str:
+            return "GitHub authentication failed or insufficient permissions. Please check your GITHUB_PERSONAL_ACCESS_TOKEN."
+        elif "rate limit" in error_str.lower():
+            return "GitHub API rate limit exceeded. Please wait before trying again."
+        else:
+            return f"Error executing {tool_name}: {error_str}"
+
+    async def stream(
+        self, query: str, sessionId: str, trace_id: str = None
+    ) -> AsyncIterable[dict[str, Any]]:
+        """
+        Stream responses with safety-net error handling.
+
+        Tool-level errors are handled by _wrap_mcp_tools(), but this catches
+        any other unexpected failures (LLM errors, graph errors, etc.) as a last resort.
+
+        Args:
+            query: User's input query
+            sessionId: Session ID for this conversation
+            trace_id: Optional trace ID for observability
+
+        Yields:
+            Streaming response chunks
+        """
+        try:
+            async for chunk in super().stream(query, sessionId, trace_id):
+                yield chunk
+        except Exception as e:
+            # This should rarely trigger since tool errors are handled at tool level
+            logger.error(f"Unexpected GitHub agent error: {str(e)}", exc_info=True)
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'kind': 'error',
+                'content': f"❌ An unexpected error occurred: {str(e)}\n\nPlease try again or contact support if the issue persists.",
+            }
 

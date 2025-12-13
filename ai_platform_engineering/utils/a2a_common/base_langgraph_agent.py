@@ -280,26 +280,85 @@ Use this as the reference point for all date calculations. When users say "today
 
         return json.dumps(summary, indent=2)
 
+    def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
+        """
+        Parse tool errors for user-friendly messages.
+        
+        Subclasses can override this to provide service-specific error messages
+        (e.g., GitHub 404 → "Repository not found", Jira 401 → "Invalid credentials").
+        
+        Args:
+            error: The exception that was raised
+            tool_name: Name of the tool that failed
+            
+        Returns:
+            User-friendly error message
+        """
+        return f"Error executing {tool_name}: {str(error)}"
+
     def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
         """
-        Hook for subclasses to wrap MCP tools (e.g., for chunking large outputs).
-
-        Default implementation returns tools unchanged.
-
-        NOTE: Wrapping MCP tools has issues with A2A protocol - disabled for now.
-        Large outputs will need to be handled at the MCP server level or via
-        streaming/pagination instead.
+        Wrap MCP tools with error handling to prevent exceptions from closing A2A streams.
+        
+        All tools are wrapped with try/catch blocks that:
+        - Catch any exceptions during tool execution
+        - Call _parse_tool_error() for agent-specific error messages
+        - Return proper tuple format for response_format='content_and_artifact'
+        - Log warnings for debugging
+        
+        This prevents tool failures from crashing agents and closing A2A event streams.
+        Subclasses can override _parse_tool_error() for service-specific error parsing.
 
         Args:
             tools: List of tools from MCP client
             context_id: Context ID for this session
 
         Returns:
-            List of (potentially wrapped) tools
+            List of wrapped tools with error handling
         """
-        # TODO: Re-enable chunking once A2A tool wrapping issues are resolved
-        # For now, return tools unchanged to avoid breaking tool execution
-        return tools
+        from functools import wraps
+        
+        wrapped_tools = []
+        
+        for tool in tools:
+            # Store original methods
+            original_run = tool._run if hasattr(tool, '_run') else None
+            original_arun = tool._arun if hasattr(tool, '_arun') else None
+            
+            # Create error-handled sync version
+            if original_run:
+                @wraps(original_run)
+                def safe_run(*args, _orig=original_run, _tool_name=tool.name, **kwargs):
+                    try:
+                        result = _orig(*args, **kwargs)
+                        return result
+                    except Exception as e:
+                        user_msg = self._parse_tool_error(e, _tool_name)
+                        logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
+                        # Return tuple format for response_format='content_and_artifact'
+                        return (user_msg, {"error": str(e), "tool": _tool_name})
+                
+                tool._run = safe_run
+            
+            # Create error-handled async version
+            if original_arun:
+                @wraps(original_arun)
+                async def safe_arun(*args, _orig=original_arun, _tool_name=tool.name, **kwargs):
+                    try:
+                        result = await _orig(*args, **kwargs)
+                        return result
+                    except Exception as e:
+                        user_msg = self._parse_tool_error(e, _tool_name)
+                        logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
+                        # Return tuple format for response_format='content_and_artifact'
+                        return (user_msg, {"error": str(e), "tool": _tool_name})
+                
+                tool._arun = safe_arun
+            
+            wrapped_tools.append(tool)
+        
+        logger.info(f"Wrapped {len(wrapped_tools)} {self.get_agent_name()} MCP tools with error handling")
+        return wrapped_tools
 
     async def _setup_mcp_and_graph(self, config: RunnableConfig) -> None:
         """
