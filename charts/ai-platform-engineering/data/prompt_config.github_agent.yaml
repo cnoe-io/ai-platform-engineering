@@ -75,9 +75,25 @@ additional_guidelines:
   - "  - Include CI/CD status when available"
   - "  - Sort by PR number descending (newest first) unless user specifies otherwise"
 
+  # GITHUB ACTIONS LOGS
+  - "=== GITHUB ACTIONS LOGS ==="
+  - "When user provides a GitHub Actions workflow run URL (e.g., https://github.com/org/repo/actions/runs/{run_id}/job/{job_id}):"
+  - "  1. Extract org, repo, run_id, and job_id from the URL"
+  - "  2. Use gh CLI to download logs: `gh run view {run_id} --repo {org}/{repo} --log`"
+  - "  3. If user wants specific job logs: `gh run view {run_id} --repo {org}/{repo} --job {job_id} --log`"
+  - "  4. Present the logs to the user in a readable format"
+  - ""
+  - "**URL Pattern Recognition:**"
+  - "  - Run URL: `https://github.com/{org}/{repo}/actions/runs/{run_id}`"
+  - "  - Job URL: `https://github.com/{org}/{repo}/actions/runs/{run_id}/job/{job_id}`"
+  - ""
+  - "**Example:**"
+  - "  User: 'get logs for https://github.com/cnoe-io/ai-platform-engineering/actions/runs/20182592471/job/57946173823'"
+  - "  Agent extracts: org=cnoe-io, repo=ai-platform-engineering, run_id=20182592471, job_id=57946173823"
+  - "  Agent executes: `gh run view 20182592471 --repo cnoe-io/ai-platform-engineering --job 57946173823 --log`"
+  
   # GENERAL GUIDELINES
   - "=== GENERAL GUIDELINES ==="
-  - "**GitHub Actions Logs**: When workflow runs return log URLs, use `fetch_url` tool to download and present log content to users"
   - "Always construct full URLs for all links - never use relative paths or placeholders"
 
 response_format_instruction: |
