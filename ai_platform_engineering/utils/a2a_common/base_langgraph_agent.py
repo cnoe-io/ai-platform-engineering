@@ -209,6 +209,18 @@ Use this as the reference point for all date calculations. When users say "today
         """Return message to show when agent is processing tool results."""
         pass
 
+    def get_additional_tools(self) -> list:
+        """
+        Hook for subclasses to provide additional custom tools beyond MCP tools.
+
+        Override this method to add CLI-based tools (e.g., gh CLI, aws CLI)
+        or other non-MCP tools to the agent.
+
+        Returns:
+            List of BaseTool instances, or empty list if no additional tools
+        """
+        return []
+
     def _chunk_large_output(self, output: Any, tool_name: str) -> Any:
         """
         Generic post-hook to chunk large tool outputs.
@@ -283,14 +295,14 @@ Use this as the reference point for all date calculations. When users say "today
     def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
         """
         Parse tool errors for user-friendly messages.
-        
+
         Subclasses can override this to provide service-specific error messages
         (e.g., GitHub 404 → "Repository not found", Jira 401 → "Invalid credentials").
-        
+
         Args:
             error: The exception that was raised
             tool_name: Name of the tool that failed
-            
+
         Returns:
             User-friendly error message
         """
@@ -299,13 +311,13 @@ Use this as the reference point for all date calculations. When users say "today
     def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
         """
         Wrap MCP tools with error handling to prevent exceptions from closing A2A streams.
-        
+
         All tools are wrapped with try/catch blocks that:
         - Catch any exceptions during tool execution
         - Call _parse_tool_error() for agent-specific error messages
         - Return proper tuple format for response_format='content_and_artifact'
         - Log warnings for debugging
-        
+
         This prevents tool failures from crashing agents and closing A2A event streams.
         Subclasses can override _parse_tool_error() for service-specific error parsing.
 
@@ -317,14 +329,14 @@ Use this as the reference point for all date calculations. When users say "today
             List of wrapped tools with error handling
         """
         from functools import wraps
-        
+
         wrapped_tools = []
-        
+
         for tool in tools:
             # Store original methods
             original_run = tool._run if hasattr(tool, '_run') else None
             original_arun = tool._arun if hasattr(tool, '_arun') else None
-            
+
             # Create error-handled sync version
             if original_run:
                 @wraps(original_run)
@@ -337,9 +349,9 @@ Use this as the reference point for all date calculations. When users say "today
                         logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
                         # Return tuple format for response_format='content_and_artifact'
                         return (user_msg, {"error": str(e), "tool": _tool_name})
-                
+
                 tool._run = safe_run
-            
+
             # Create error-handled async version
             if original_arun:
                 @wraps(original_arun)
@@ -352,11 +364,11 @@ Use this as the reference point for all date calculations. When users say "today
                         logger.warning(f"{self.get_agent_name()} MCP tool error: {user_msg}")
                         # Return tuple format for response_format='content_and_artifact'
                         return (user_msg, {"error": str(e), "tool": _tool_name})
-                
+
                 tool._arun = safe_arun
-            
+
             wrapped_tools.append(tool)
-        
+
         logger.info(f"Wrapped {len(wrapped_tools)} {self.get_agent_name()} MCP tools with error handling")
         return wrapped_tools
 
@@ -442,8 +454,14 @@ Use this as the reference point for all date calculations. When users say "today
         # Get tools from MCP client
         tools = await client.get_tools()
 
-        # Allow subclasses to wrap tools (e.g., for output chunking)
+        # Allow subclasses to wrap tools (e.g., for error handling)
         tools = self._wrap_mcp_tools(tools, args.get("thread_id", "default"))
+
+        # Allow subclasses to add custom local tools (e.g., gh CLI, aws CLI)
+        additional_tools = self.get_additional_tools()
+        if additional_tools:
+            tools.extend(additional_tools)
+            logger.info(f"{agent_name}: Added {len(additional_tools)} custom tools")
 
         # Display detailed tool information for debugging
         logger.debug('*' * 50)
@@ -455,6 +473,12 @@ Use this as the reference point for all date calculations. When users say "today
 
             # Handle tools with no args_schema
             args_schema = tool.args_schema if tool.args_schema is not None else {}
+            
+            # Convert Pydantic model to dict schema if needed
+            if hasattr(args_schema, 'model_json_schema'):
+                args_schema = args_schema.model_json_schema()
+            elif not isinstance(args_schema, dict):
+                args_schema = {}
 
             # Store tool info for later reference
             self.tools_info[tool.name] = {
@@ -699,13 +723,13 @@ Use this as the reference point for all date calculations. When users say "today
             - content: str
         """
         agent_name = self.get_agent_name()
-        
+
         # Auto-inject current date into every query for all agents
         # This eliminates need for agents to call get_current_date() tool
         current_date = datetime.now().strftime("%Y-%m-%d")
         current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         enhanced_query = f"{query}\n\n[Current date: {current_date}, Current date/time: {current_datetime}]"
-        
+
         debug_print(f"Starting stream for {agent_name} with query: {enhanced_query}", banner=True)
 
         inputs: dict[str, Any] = {'messages': [('user', enhanced_query)]}
@@ -714,7 +738,7 @@ Use this as the reference point for all date calculations. When users say "today
         configurable = dict(config.get("configurable", {})) if isinstance(config.get("configurable", {}), dict) else {}
         if sessionId and "thread_id" not in configurable:
             configurable["thread_id"] = sessionId
-        
+
         # Set recursion limit for agents that need to process many items
         # Default LangGraph limit is 25, increase to 100 for "all" queries
         if "recursion_limit" not in configurable:

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
+from agent_github.tools import get_gh_cli_tool
 
 logger = logging.getLogger(__name__)
 
@@ -104,21 +105,41 @@ class GitHubAgent(BaseLangGraphAgent):
         """Return the message shown when processing tool results."""
         return _prompt_config.tool_processing_message
 
+    def get_additional_tools(self) -> list:
+        """
+        Provide additional custom tools for GitHub agent.
+
+        Returns gh CLI tool for operations not covered by GitHub Copilot MCP,
+        such as fetching workflow run logs.
+
+        Returns:
+            List containing gh CLI tool if enabled
+        """
+        tools = []
+
+        # Add gh CLI tool for workflow logs and other operations
+        gh_tool = get_gh_cli_tool()
+        if gh_tool:
+            tools.append(gh_tool)
+            logger.info("GitHub agent: Added gh CLI tool (gh_cli_execute)")
+
+        return tools
+
     def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
         """
         Parse GitHub API errors for user-friendly messages.
-        
+
         Overrides base class to provide GitHub-specific error parsing.
-        
+
         Args:
             error: The exception that was raised
             tool_name: Name of the tool that failed
-            
+
         Returns:
             User-friendly error message
         """
         error_str = str(error)
-        
+
         # Parse common GitHub API errors for better user messages
         if "404 Not Found" in error_str:
             # Extract repo name from URL if possible
