@@ -53,6 +53,10 @@ class AIPlatformEngineerA2ABinding:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
       # Reset execution plan state for each new stream
       self._execution_plan_sent = False
+      
+      # Track tool calls to ensure every AIMessage.tool_call gets a ToolMessage
+      pending_tool_calls = {}  # {tool_call_id: tool_name}
+      
       inputs = {'messages': [('user', query)]}
       config = self.tracing.create_config(context_id)
 
@@ -218,12 +222,19 @@ class AIPlatformEngineerA2ABinding:
               elif isinstance(message, AIMessage) and hasattr(message, "tool_calls") and message.tool_calls:
                   for tool_call in message.tool_calls:
                       tool_name = tool_call.get("name", "")
+                      tool_call_id = tool_call.get("id", "")
+                      
                       # Skip tool calls with empty names
                       if not tool_name or not tool_name.strip():
                           logging.debug("Skipping tool call with empty name")
                           continue
+                      
+                      # Track this tool call as pending
+                      if tool_call_id:
+                          pending_tool_calls[tool_call_id] = tool_name
+                          logging.debug(f"Tracked tool call: {tool_call_id} -> {tool_name}")
 
-                          logging.info(f"Tool call started: {tool_name}")
+                      logging.info(f"Tool call started: {tool_name}")
 
                       # Stream tool start notification to client with metadata
                       tool_name_formatted = tool_name.title()
@@ -242,6 +253,13 @@ class AIPlatformEngineerA2ABinding:
               elif isinstance(message, ToolMessage):
                   tool_name = message.name if hasattr(message, 'name') else "unknown"
                   tool_content = message.content if hasattr(message, 'content') else ""
+                  
+                  # Mark tool call as completed (remove from pending)
+                  tool_call_id = message.tool_call_id if hasattr(message, 'tool_call_id') else None
+                  if tool_call_id and tool_call_id in pending_tool_calls:
+                      pending_tool_calls.pop(tool_call_id)
+                      logging.debug(f"Resolved tool call: {tool_call_id} -> {tool_name}")
+                  
                   logging.debug(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
                   
                   # This is a hard-coded list for now
@@ -323,15 +341,106 @@ class AIPlatformEngineerA2ABinding:
           logging.warning("⚠️ Primary stream cancelled by client disconnection - parsing final response before exit")
           # Don't return immediately - let post-stream parsing run below
       except ValueError as ve:
-          # Handle LangGraph validation errors (e.g., orphaned tool_calls)
-          # Yield error event but keep queue open for follow-up questions
-          error_msg = f"Validation error: {str(ve)}"
-          logging.error(f"❌ {error_msg}")
-          yield {
-              "is_task_complete": False,  # Keep queue open - allow follow-up questions
-              "require_user_input": False,
-              "content": f"❌ Error: {error_msg}\n\nPlease try again or ask a follow-up question.",
-          }
+          # Handle LangGraph validation errors (e.g., orphaned tool_calls, context overflow)
+          error_str = str(ve)
+          
+          # Check if it's an orphaned tool call error
+          if "tool_calls that do not have a corresponding ToolMessage" in error_str:
+              logging.error(f"❌ Orphaned tool calls detected: {list(pending_tool_calls.values())}")
+              
+              # Add synthetic ToolMessages for orphaned calls to recover
+              try:
+                  from langchain_core.messages import ToolMessage
+                  synthetic_messages = []
+                  for tool_call_id, tool_name in pending_tool_calls.items():
+                      synthetic_msg = ToolMessage(
+                          content=f"Tool call interrupted or failed to complete.",
+                          tool_call_id=tool_call_id,
+                          name=tool_name,
+                      )
+                      synthetic_messages.append(synthetic_msg)
+                  
+                  if synthetic_messages:
+                      await self.graph.aupdate_state(config, {"messages": synthetic_messages})
+                      logging.info(f"✅ Added {len(synthetic_messages)} synthetic ToolMessages to recover from orphaned tool calls")
+                      # Clear tracking
+                      pending_tool_calls.clear()
+              except Exception as recovery_error:
+                  logging.error(f"Failed to add synthetic ToolMessages: {recovery_error}")
+              
+              yield {
+                  "is_task_complete": False,
+                  "require_user_input": False,
+                  "content": (
+                      "❌ Some tool calls were interrupted. I've recovered the conversation state.\n\n"
+                      "Please ask your question again."
+                  ),
+              }
+              return
+          
+          # Check if it's a context overflow error
+          elif "Input is too long" in error_str or "context" in error_str.lower():
+              logging.error(f"❌ Context window overflow: {error_str}")
+              
+              # Try to summarize conversation history instead of clearing
+              try:
+                  # Try LangMem summarization first
+                  try:
+                      from langmem import summarize_messages
+                      from langchain_core.messages import SystemMessage
+                      
+                      state = await self.graph.aget_state(config)
+                      messages = state.values.get("messages", []) if state and state.values else []
+                      
+                      if messages:
+                          logging.info(f"Summarizing {len(messages)} messages with LangMem...")
+                          summary_result = await summarize_messages(messages)
+                          summary_text = summary_result if isinstance(summary_result, str) else str(summary_result)
+                          
+                          # Replace all messages with summary
+                          await self.graph.aupdate_state(config, {"messages": [SystemMessage(content=f"[Conversation Summary]\n{summary_text}")]})
+                          logging.info("✅ Summarized conversation history with LangMem")
+                          
+                          recovery_msg = (
+                              "❌ The conversation exceeded the model's context window. "
+                              "I've summarized our conversation to recover.\n\n"
+                              "Please continue - your previous context has been preserved in summary form."
+                          )
+                      else:
+                          recovery_msg = "❌ Context overflow occurred but no history to summarize. Please ask your question again."
+                  
+                  except ImportError:
+                      # LangMem not available, fall back to clearing
+                      await self.graph.aupdate_state(config, {"messages": []})
+                      logging.info("✅ Cleared conversation history (LangMem not available)")
+                      
+                      recovery_msg = (
+                          "❌ The conversation exceeded the model's context window. "
+                          "I've cleared the history to recover.\n\n"
+                          "**What happened:** The accumulated messages and tool outputs were too large for the model.\n\n"
+                          "**To avoid this:** Try asking for smaller chunks of data or more specific queries.\n\n"
+                          "Please ask your question again."
+                      )
+              
+              except Exception as recovery_error:
+                  logging.error(f"Failed to recover from context overflow: {recovery_error}")
+                  recovery_msg = "❌ Context overflow recovery failed. Please refresh and try again."
+              
+              yield {
+                  "is_task_complete": False,
+                  "require_user_input": False,
+                  "content": recovery_msg,
+              }
+          else:
+              # Other validation errors
+              error_msg = f"Validation error: {error_str}"
+              logging.error(f"❌ {error_msg}")
+              yield {
+                  "is_task_complete": False,
+                  "require_user_input": False,
+                  "content": f"❌ Error: {error_msg}\n\nPlease try again or ask a follow-up question.",
+              }
+          
           # Don't yield completion event - keep queue open for follow-up questions
           return
       # Fallback to old method if astream doesn't work

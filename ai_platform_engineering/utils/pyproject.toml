@@ -16,6 +16,7 @@ dependencies = [
     "langchain-core==1.1.2",
     "langchain-mcp-adapters==0.2.1",
     "langgraph==1.0.4",
+    "langmem>=0.0.30",
     "mcp==1.21.0",
     "prometheus-client==0.23.1",
     "pydantic==2.12.5",
