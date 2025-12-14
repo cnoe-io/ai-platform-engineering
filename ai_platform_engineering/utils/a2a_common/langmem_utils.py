@@ -321,6 +321,228 @@ def _get_message_content(message: BaseMessage) -> str:
 
 
 # ============================================================================
+# Proactive Context Management
+# ============================================================================
+
+@dataclass
+class ContextCheckResult:
+    """Result of a pre-flight context check."""
+    needs_compression: bool
+    estimated_tokens: int
+    threshold_tokens: int
+    history_tokens: int
+    system_tokens: int
+    query_tokens: int
+    tool_tokens: int
+    compressed: bool = False
+    tokens_saved: int = 0
+    used_langmem: bool = False
+    error: Optional[str] = None
+
+
+async def preflight_context_check(
+    graph: Any,
+    config: Any,
+    query: str,
+    system_prompt: str = "",
+    model: Any = None,
+    agent_name: str = "agent",
+    max_context_tokens: int = 100000,
+    min_messages_to_keep: int = 4,
+    tool_count: int = 40,
+) -> ContextCheckResult:
+    """
+    Proactively check context usage and compress if needed BEFORE calling LLM.
+
+    This prevents "Input is too long" errors by summarizing history when
+    approaching the context limit.
+
+    Args:
+        graph: LangGraph instance with aget_state/aupdate_state
+        config: Runnable configuration with thread_id
+        query: Current query to be sent
+        system_prompt: System prompt content (for token estimation)
+        model: LLM model for summarization (required if compression needed)
+        agent_name: Name for logging
+        max_context_tokens: Maximum context window (default 100K)
+        min_messages_to_keep: Minimum recent messages to preserve
+        tool_count: Number of tools (for schema overhead estimation)
+
+    Returns:
+        ContextCheckResult with status and metrics
+
+    Example:
+        result = await preflight_context_check(
+            graph=self.graph,
+            config=config,
+            query=user_query,
+            system_prompt=SYSTEM_PROMPT,
+            model=llm,
+            agent_name="supervisor",
+            max_context_tokens=100000,
+        )
+        if result.compressed:
+            logger.info(f"Context compressed, saved {result.tokens_saved} tokens")
+    """
+    try:
+        # Get current state
+        state = await graph.aget_state(config)
+        if not state or not state.values:
+            return ContextCheckResult(
+                needs_compression=False,
+                estimated_tokens=0,
+                threshold_tokens=int(max_context_tokens * 0.8),
+                history_tokens=0,
+                system_tokens=0,
+                query_tokens=0,
+                tool_tokens=0,
+            )
+
+        messages = state.values.get("messages", [])
+        if not messages:
+            return ContextCheckResult(
+                needs_compression=False,
+                estimated_tokens=0,
+                threshold_tokens=int(max_context_tokens * 0.8),
+                history_tokens=0,
+                system_tokens=0,
+                query_tokens=0,
+                tool_tokens=0,
+            )
+
+        # Estimate tokens
+        system_tokens = len(system_prompt) // 4  # ~4 chars per token
+        history_tokens = _estimate_tokens(messages)
+        query_tokens = len(query) // 4
+        tool_tokens = tool_count * 500  # ~500 tokens per tool schema
+
+        total_estimated = system_tokens + history_tokens + query_tokens + tool_tokens
+        threshold = int(max_context_tokens * 0.8)
+
+        if total_estimated <= threshold:
+            logger.debug(
+                f"[{agent_name}] Pre-flight check passed: "
+                f"{total_estimated:,} / {max_context_tokens:,} tokens"
+            )
+            return ContextCheckResult(
+                needs_compression=False,
+                estimated_tokens=total_estimated,
+                threshold_tokens=threshold,
+                history_tokens=history_tokens,
+                system_tokens=system_tokens,
+                query_tokens=query_tokens,
+                tool_tokens=tool_tokens,
+            )
+
+        # Need compression!
+        logger.warning(
+            f"⚠️ [{agent_name}] Pre-flight check detected potential overflow: "
+            f"{total_estimated:,} tokens (threshold: {threshold:,}). "
+            f"System: {system_tokens:,}, History: {history_tokens:,}, "
+            f"Query: {query_tokens:,}, Tools: {tool_tokens:,}"
+        )
+
+        if model is None:
+            return ContextCheckResult(
+                needs_compression=True,
+                estimated_tokens=total_estimated,
+                threshold_tokens=threshold,
+                history_tokens=history_tokens,
+                system_tokens=system_tokens,
+                query_tokens=query_tokens,
+                tool_tokens=tool_tokens,
+                error="Model not provided for compression",
+            )
+
+        # Separate messages to keep vs summarize
+        messages_to_summarize = messages[:-min_messages_to_keep] if len(messages) > min_messages_to_keep else []
+        messages_to_keep = messages[-min_messages_to_keep:] if len(messages) > min_messages_to_keep else messages
+
+        if not messages_to_summarize:
+            logger.info(f"[{agent_name}] Not enough messages to summarize (keeping {len(messages_to_keep)})")
+            return ContextCheckResult(
+                needs_compression=True,
+                estimated_tokens=total_estimated,
+                threshold_tokens=threshold,
+                history_tokens=history_tokens,
+                system_tokens=system_tokens,
+                query_tokens=query_tokens,
+                tool_tokens=tool_tokens,
+                error="Not enough messages to summarize",
+            )
+
+        # Summarize
+        result = await summarize_messages(
+            messages=messages_to_summarize,
+            model=model,
+            agent_name=agent_name,
+        )
+
+        if result.success and result.summary_message:
+            # Import RemoveMessage here to avoid circular imports
+            from langgraph.graph.message import RemoveMessage
+
+            # Remove old messages
+            remove_commands = []
+            for msg in messages_to_summarize:
+                msg_id = getattr(msg, 'id', None) or (msg.get('id') if isinstance(msg, dict) else None)
+                if msg_id:
+                    remove_commands.append(RemoveMessage(id=msg_id))
+
+            if remove_commands:
+                await graph.aupdate_state(config, {"messages": remove_commands})
+                await graph.aupdate_state(config, {"messages": [result.summary_message]})
+
+                new_history_tokens = _estimate_tokens([result.summary_message] + messages_to_keep)
+                new_total = system_tokens + new_history_tokens + query_tokens + tool_tokens
+
+                logger.info(
+                    f"✅ [{agent_name}] Context compressed: "
+                    f"{total_estimated:,} → {new_total:,} tokens. "
+                    f"LangMem used: {result.used_langmem}, "
+                    f"saved {result.tokens_saved:,} tokens"
+                )
+
+                return ContextCheckResult(
+                    needs_compression=True,
+                    estimated_tokens=new_total,
+                    threshold_tokens=threshold,
+                    history_tokens=new_history_tokens,
+                    system_tokens=system_tokens,
+                    query_tokens=query_tokens,
+                    tool_tokens=tool_tokens,
+                    compressed=True,
+                    tokens_saved=result.tokens_saved,
+                    used_langmem=result.used_langmem,
+                )
+
+        # Summarization failed
+        return ContextCheckResult(
+            needs_compression=True,
+            estimated_tokens=total_estimated,
+            threshold_tokens=threshold,
+            history_tokens=history_tokens,
+            system_tokens=system_tokens,
+            query_tokens=query_tokens,
+            tool_tokens=tool_tokens,
+            error=result.error or "Summarization returned no summary",
+        )
+
+    except Exception as e:
+        logger.error(f"[{agent_name}] Pre-flight check error: {e}", exc_info=True)
+        return ContextCheckResult(
+            needs_compression=False,
+            estimated_tokens=0,
+            threshold_tokens=int(max_context_tokens * 0.8),
+            history_tokens=0,
+            system_tokens=0,
+            query_tokens=0,
+            tool_tokens=0,
+            error=str(e),
+        )
+
+
+# ============================================================================
 # Status Reporting
 # ============================================================================
 
@@ -336,4 +558,5 @@ def get_langmem_status() -> dict:
         "verified": is_langmem_verified(),
         "env_skip_verification": os.getenv("SKIP_LANGMEM_VERIFICATION", "false").lower() == "true",
     }
+
 

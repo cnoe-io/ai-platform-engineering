@@ -22,7 +22,11 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
-from ai_platform_engineering.utils.a2a_common.langmem_utils import summarize_messages, get_langmem_status
+from ai_platform_engineering.utils.a2a_common.langmem_utils import (
+    summarize_messages,
+    get_langmem_status,
+    preflight_context_check,
+)
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -87,6 +91,39 @@ class AIPlatformEngineerA2ABinding:
 
       logging.debug(f"Created tracing config: {config}")
 
+      # ========================================================================
+      # PRE-FLIGHT CONTEXT CHECK: Proactively compress if approaching limit
+      # ========================================================================
+      try:
+          max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "100000"))
+          min_messages_to_keep = int(os.getenv("MIN_MESSAGES_TO_KEEP", "4"))
+
+          context_result = await preflight_context_check(
+              graph=self.graph,
+              config=config,
+              query=query,
+              system_prompt=self.SYSTEM_INSTRUCTION,
+              model=LLMFactory().get_llm(),
+              agent_name="supervisor",
+              max_context_tokens=max_context_tokens,
+              min_messages_to_keep=min_messages_to_keep,
+              tool_count=50,  # Supervisor has many tools
+          )
+
+          if context_result.compressed:
+              logging.info(
+                  f"🧠 Supervisor pre-flight: Context compressed, "
+                  f"saved {context_result.tokens_saved:,} tokens, "
+                  f"LangMem used: {context_result.used_langmem}"
+              )
+          elif context_result.needs_compression and context_result.error:
+              logging.warning(
+                  f"⚠️ Supervisor pre-flight: Compression needed but failed: {context_result.error}"
+              )
+      except Exception as preflight_error:
+          logging.error(f"❌ Supervisor pre-flight check failed: {preflight_error}")
+          # Don't fail the request - continue without compression
+
       try:
           # Track accumulated AI message content for final parsing
           accumulated_ai_content = []
@@ -95,7 +132,7 @@ class AIPlatformEngineerA2ABinding:
           # Check if token-by-token streaming is enabled (default: true)
           # When disabled, uses 'values' mode which waits for complete messages
           enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
-          
+
           if enable_streaming:
               # Use astream with multiple stream modes to get both token-level streaming AND custom events
               # stream_mode=['messages', 'custom'] enables:
