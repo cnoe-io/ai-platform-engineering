@@ -838,13 +838,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     async def _safe_enqueue_event(self, event_queue: EventQueue, event) -> None:
         """
         Safely enqueue an event, handling closed queue gracefully.
-        
+
         Prevents spam logging of "Queue is closed" by tracking closure state.
         """
         # Track if we've already logged about queue closure (class-level to persist across calls)
         if not hasattr(self, '_queue_closed_logged'):
             self._queue_closed_logged = False
-        
+
         try:
             await event_queue.enqueue_event(event)
             # Reset flag if queue becomes available again
@@ -1509,7 +1509,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 if is_error:
                     logger.info("⚠️ EXECUTOR: Error detected in content - sending error with terminal status")
                     error_text = last_content or event.get('content', '')
-                    
+
                     # Send error as artifact
                     error_artifact = new_text_artifact(
                         name='error_result',
