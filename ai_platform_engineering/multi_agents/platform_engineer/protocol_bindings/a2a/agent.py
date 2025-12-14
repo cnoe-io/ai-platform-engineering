@@ -4,6 +4,7 @@
 import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncIterable
 from typing import Any
 
@@ -386,7 +387,7 @@ class AIPlatformEngineerA2ABinding:
               try:
                   # Try LangMem summarization first
                   try:
-                      from langmem import summarize_messages
+                      from langmem import create_thread_extractor
                       from langchain_core.messages import SystemMessage
                       
                       state = await self.graph.aget_state(config)
@@ -394,8 +395,19 @@ class AIPlatformEngineerA2ABinding:
                       
                       if messages:
                           logging.info(f"Summarizing {len(messages)} messages with LangMem...")
-                          summary_result = await summarize_messages(messages)
-                          summary_text = summary_result if isinstance(summary_result, str) else str(summary_result)
+                          
+                          # Get model from environment
+                          model_name = os.getenv("MODEL_NAME", "gpt-4o")
+                          
+                          # Create summarizer using LangMem
+                          summarizer = create_thread_extractor(
+                              model=model_name,
+                              instructions="Summarize the key points and context from this conversation."
+                          )
+                          
+                          # Summarize messages
+                          summary_result = await summarizer.ainvoke({"messages": messages})
+                          summary_text = summary_result.summary if hasattr(summary_result, 'summary') else str(summary_result)
                           
                           # Replace all messages with summary
                           await self.graph.aupdate_state(config, {"messages": [SystemMessage(content=f"[Conversation Summary]\n{summary_text}")]})

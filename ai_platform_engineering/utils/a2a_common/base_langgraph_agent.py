@@ -28,14 +28,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import tiktoken
 
-# LangMem for intelligent message summarization
-try:
-    from langmem import summarize_messages
-    LANGMEM_AVAILABLE = True
-except ImportError:
-    LANGMEM_AVAILABLE = False
-    logger.warning("langmem not available - will use simple message deletion instead of summarization")
-
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
@@ -44,6 +36,14 @@ from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 
 
 logger = logging.getLogger(__name__)
+
+# LangMem for intelligent message summarization (import after logger is defined)
+try:
+    from langmem import create_thread_extractor
+    LANGMEM_AVAILABLE = True
+except ImportError:
+    LANGMEM_AVAILABLE = False
+    logger.warning("langmem not available - will use simple message deletion instead of summarization")
 
 if not MCP_AVAILABLE:
     logger.warning("langchain_mcp_adapters not available - MCP functionality will be disabled for agents using this base class")
@@ -818,9 +818,19 @@ Use this as the reference point for all date calculations. When users say "today
                         if messages_to_summarize:
                             logger.info(f"{agent_name}: Summarizing {len(messages_to_summarize)} old messages with LangMem...")
                             
+                            # Create summarizer using current model
+                            llm_provider = os.getenv("LLM_PROVIDER", "azure-openai").lower()
+                            model_name = os.getenv("MODEL_NAME", "gpt-4o")
+                            
+                            # Use LangMem's create_thread_extractor
+                            summarizer = create_thread_extractor(
+                                model=model_name,
+                                instructions="Summarize the key points and context from this conversation."
+                            )
+                            
                             # Summarize old messages
-                            summary_result = await summarize_messages(messages_to_summarize)
-                            summary_text = summary_result if isinstance(summary_result, str) else str(summary_result)
+                            summary_result = await summarizer.ainvoke({"messages": messages_to_summarize})
+                            summary_text = summary_result.summary if hasattr(summary_result, 'summary') else str(summary_result)
                             
                             # Create summary message
                             summary_message = SystemMessage(content=f"[Conversation Summary]\n{summary_text}")
