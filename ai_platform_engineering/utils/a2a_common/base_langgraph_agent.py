@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 import tiktoken
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
@@ -589,7 +589,7 @@ Use this as the reference point for all date calculations. When users say "today
         # Create the react agent graph
         logger.info(f"🔧 Creating {agent_name} agent graph with {len(tools)} tools...")
 
-        self.graph = create_react_agent(
+        self.graph = create_agent(
             self.model,
             tools,
             checkpointer=memory,
