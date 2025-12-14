@@ -25,7 +25,7 @@ async def test_langmem():
     print("=" * 60)
     print("LangMem Integration Test")
     print("=" * 60)
-    
+
     # Test 1: Check availability
     print("\n📋 Test 1: Check LangMem availability")
     try:
@@ -35,57 +35,57 @@ async def test_langmem():
             summarize_messages,
             verify_langmem_on_startup,
         )
-        
+
         status = get_langmem_status()
         print(f"   Available: {status['available']}")
         print(f"   Verified: {status['verified']}")
         print(f"   Skip verification env: {status['env_skip_verification']}")
-        
+
         if not status['available']:
             print("\n❌ LangMem is NOT available!")
             print("   Install with: pip install langmem")
             return False
-        
+
         print("   ✅ LangMem is available")
-        
+
     except ImportError as e:
         print(f"\n❌ Failed to import langmem_utils: {e}")
         return False
-    
+
     # Test 2: Get model from LLMFactory
     print("\n📋 Test 2: Initialize LLM via LLMFactory")
     try:
         from cnoe_agent_utils import LLMFactory
-        
+
         model = LLMFactory().get_llm()
         print(f"   Model type: {type(model).__name__}")
         print(f"   LLM_PROVIDER: {os.getenv('LLM_PROVIDER', 'not set')}")
         print("   ✅ LLM initialized")
-        
+
     except Exception as e:
         print(f"\n❌ Failed to initialize LLM: {e}")
         print("   Make sure LLM_PROVIDER and related env vars are set")
         return False
-    
+
     # Test 3: Verify LangMem with test summarization
     print("\n📋 Test 3: Verify LangMem with test summarization")
     try:
         success = await verify_langmem_on_startup(model=model, agent_name="test")
-        
+
         if success:
             print("   ✅ LangMem verification passed!")
         else:
             print("   ⚠️ LangMem verification failed (will use fallback)")
-            
+
     except Exception as e:
         print(f"\n❌ Verification failed with error: {e}")
         return False
-    
+
     # Test 4: Test actual summarization
     print("\n📋 Test 4: Test message summarization")
     try:
         from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-        
+
         # Create test messages
         test_messages = [
             SystemMessage(content="You are a helpful assistant for platform engineering."),
@@ -96,15 +96,15 @@ async def test_langmem():
             HumanMessage(content="Can you also check Jira for related tickets?"),
             AIMessage(content="I found 3 related Jira tickets: CAIPE-123, CAIPE-124, CAIPE-125..."),
         ]
-        
+
         print(f"   Input: {len(test_messages)} messages")
-        
+
         result = await summarize_messages(
             messages=test_messages,
             model=model,
             agent_name="test",
         )
-        
+
         print(f"   Success: {result.success}")
         print(f"   Used LangMem: {result.used_langmem}")
         print(f"   Tokens before: {result.tokens_before:,}")
@@ -112,23 +112,23 @@ async def test_langmem():
         print(f"   Tokens saved: {result.tokens_saved:,}")
         print(f"   Compression ratio: {result.compression_ratio:.1%}")
         print(f"   Duration: {result.duration_ms:.0f}ms")
-        
+
         if result.summary_message:
             summary_preview = result.summary_message.content[:200] + "..." if len(result.summary_message.content) > 200 else result.summary_message.content
             print(f"\n   Summary preview:\n   {summary_preview}")
-        
+
         if result.success:
             print("\n   ✅ Summarization test passed!")
         else:
             print(f"\n   ❌ Summarization failed: {result.error}")
             return False
-            
+
     except Exception as e:
         print(f"\n❌ Summarization test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
-    
+
     # Final status
     print("\n" + "=" * 60)
     final_status = get_langmem_status()

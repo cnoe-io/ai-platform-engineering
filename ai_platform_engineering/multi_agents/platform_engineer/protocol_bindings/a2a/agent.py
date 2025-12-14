@@ -428,7 +428,7 @@ class AIPlatformEngineerA2ABinding:
                       if result.success and result.summary_message:
                           # Replace all messages with summary
                           await self.graph.aupdate_state(config, {"messages": [result.summary_message]})
-                          
+
                           langmem_status = get_langmem_status()
                           logging.info(
                               f"✅ Summarized conversation history. "
