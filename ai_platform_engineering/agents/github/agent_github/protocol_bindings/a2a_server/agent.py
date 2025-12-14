@@ -144,9 +144,9 @@ class GitHubAgent(BaseLangGraphAgent):
             # ExceptionGroup (Python 3.11+) or TaskGroup error
             underlying_error = error.exceptions[0]
             logger.debug(f"Extracted underlying error from TaskGroup: {underlying_error}")
-        
+
         error_str = str(underlying_error)
-        
+
         # Parse common GitHub API errors for better user messages
         if "404 Not Found" in error_str or "404" in error_str:
             # Extract repo name from URL if possible
