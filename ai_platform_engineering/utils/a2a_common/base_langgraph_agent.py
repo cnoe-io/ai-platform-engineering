@@ -308,6 +308,50 @@ Use this as the reference point for all date calculations. When users say "today
         """
         return f"Error executing {tool_name}: {str(error)}"
 
+    def _truncate_tool_output(self, output: Any, tool_name: str, max_size: int = 10000) -> tuple[Any, bool]:
+        """
+        Truncate large tool outputs to prevent context overflow.
+        
+        Handles both simple strings and tuple outputs (content, artifact) format.
+        
+        Args:
+            output: Tool output to truncate (string or tuple)
+            tool_name: Name of the tool
+            max_size: Maximum size in characters (default 10KB)
+            
+        Returns:
+            Tuple of (truncated_output, was_truncated)
+        """
+        # Handle tuple outputs from response_format='content_and_artifact'
+        if isinstance(output, tuple) and len(output) == 2:
+            content, artifact = output
+            content_str = str(content) if not isinstance(content, str) else content
+            
+            if len(content_str) <= max_size:
+                return output, False
+            
+            # Truncate content only, preserve artifact
+            truncated = content_str[:max_size]
+            remaining = len(content_str) - max_size
+            truncation_notice = f"\n\n... (truncated {remaining} characters to prevent context overflow)"
+            
+            logger.warning(f"{self.get_agent_name()}: Truncated {tool_name} output from {len(content_str)} to {max_size} chars")
+            return (truncated + truncation_notice, artifact), True
+        
+        # Handle simple string/other outputs
+        output_str = str(output) if not isinstance(output, str) else output
+        
+        if len(output_str) <= max_size:
+            return output, False
+        
+        # Truncate with notice
+        truncated = output_str[:max_size]
+        remaining = len(output_str) - max_size
+        truncation_notice = f"\n\n... (truncated {remaining} characters to prevent context overflow)"
+        
+        logger.warning(f"{self.get_agent_name()}: Truncated {tool_name} output from {len(output_str)} to {max_size} chars")
+        return truncated + truncation_notice, True
+
     def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
         """
         Wrap MCP tools with error handling to prevent exceptions from closing A2A streams.
@@ -317,6 +361,7 @@ Use this as the reference point for all date calculations. When users say "today
         - Call _parse_tool_error() for agent-specific error messages
         - Return proper tuple format for response_format='content_and_artifact'
         - Log warnings for debugging
+        - Truncate large outputs to prevent context overflow
 
         This prevents tool failures from crashing agents and closing A2A event streams.
         Subclasses can override _parse_tool_error() for service-specific error parsing.
@@ -330,6 +375,9 @@ Use this as the reference point for all date calculations. When users say "today
         """
         from functools import wraps
 
+        # Get max tool output size from environment (default 10KB for smaller context models)
+        max_tool_output = int(os.getenv("MAX_TOOL_OUTPUT_SIZE", "10000"))
+
         wrapped_tools = []
 
         for tool in tools:
@@ -340,9 +388,11 @@ Use this as the reference point for all date calculations. When users say "today
             # Create error-handled sync version
             if original_run:
                 @wraps(original_run)
-                def safe_run(*args, _orig=original_run, _tool_name=tool.name, **kwargs):
+                def safe_run(*args, _orig=original_run, _tool_name=tool.name, _max_size=max_tool_output, **kwargs):
                     try:
                         result = _orig(*args, **kwargs)
+                        # Truncate large outputs to prevent context overflow
+                        result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
                         return result
                     except Exception as e:
                         user_msg = self._parse_tool_error(e, _tool_name)
@@ -355,9 +405,11 @@ Use this as the reference point for all date calculations. When users say "today
             # Create error-handled async version
             if original_arun:
                 @wraps(original_arun)
-                async def safe_arun(*args, _orig=original_arun, _tool_name=tool.name, **kwargs):
+                async def safe_arun(*args, _orig=original_arun, _tool_name=tool.name, _max_size=max_tool_output, **kwargs):
                     try:
                         result = await _orig(*args, **kwargs)
+                        # Truncate large outputs to prevent context overflow
+                        result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
                         return result
                     except Exception as e:
                         user_msg = self._parse_tool_error(e, _tool_name)
@@ -473,7 +525,7 @@ Use this as the reference point for all date calculations. When users say "today
 
             # Handle tools with no args_schema
             args_schema = tool.args_schema if tool.args_schema is not None else {}
-            
+
             # Convert Pydantic model to dict schema if needed
             if hasattr(args_schema, 'model_json_schema'):
                 args_schema = args_schema.model_json_schema()
