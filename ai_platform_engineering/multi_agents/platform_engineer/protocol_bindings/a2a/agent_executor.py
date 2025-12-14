@@ -31,6 +31,7 @@ from a2a.types import (
     Artifact,
     Part,
     DataPart,
+    TextPart,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
@@ -1506,12 +1507,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 is_error = '❌ Error:' in last_content or 'Validation error:' in last_content or 'Error:' in event.get('content', '')
 
                 if is_error:
-                    logger.info("⚠️ EXECUTOR: Error detected in content - sending error message but keeping queue open for follow-up questions")
-                    # Send error as artifact but don't send final status - keep queue open
+                    logger.info("⚠️ EXECUTOR: Error detected in content - sending error with terminal status")
+                    error_text = last_content or event.get('content', '')
+                    
+                    # Send error as artifact
                     error_artifact = new_text_artifact(
                         name='error_result',
                         description='Error message from Platform Engineer',
-                        text=last_content or event.get('content', ''),
+                        text=error_text,
                     )
                     await self._safe_enqueue_event(
                         event_queue,
@@ -1519,12 +1522,24 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             append=False,
                             context_id=task.context_id,
                             task_id=task.id,
-                            last_chunk=True,
+                            last_chunk=False,  # Don't close queue with artifact
                             artifact=error_artifact,
                         )
                     )
-                    # Don't send final status - keep queue open for follow-up questions
-                    logger.info(f"Task {task.id} error message sent. Queue kept open for follow-up questions.")
+                    # Send terminal status to properly close the stream
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskStatusUpdateEvent(
+                            final=True,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            status=TaskStatus(
+                                state=TaskState.completed,
+                                message=new_agent_text_message(error_text),
+                            ),
+                        )
+                    )
+                    logger.info(f"Task {task.id} error message sent with terminal status.")
                     return
 
                 # If sub-agent sent complete_result, forward it as complete_result (not partial_result)

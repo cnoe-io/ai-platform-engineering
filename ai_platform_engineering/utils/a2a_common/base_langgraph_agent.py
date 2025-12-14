@@ -315,10 +315,10 @@ Use this as the reference point for all date calculations. When users say "today
             # ExceptionGroup (Python 3.11+) or TaskGroup error
             underlying_error = error.exceptions[0]
             logger.debug(f"Extracted underlying error from TaskGroup: {type(underlying_error).__name__}")
-        
+
         error_str = str(underlying_error)
         error_type = type(underlying_error).__name__
-        
+
         # Common error patterns that apply to all agents
         if "timeout" in error_str.lower() or "timed out" in error_str.lower():
             return f"Request timed out for {tool_name}. Please try again."
