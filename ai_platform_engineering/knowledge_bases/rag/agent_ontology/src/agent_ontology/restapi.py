@@ -55,12 +55,6 @@ agent: OntologyAgent = OntologyAgent(graph_db=graph_db,
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     logger.info("Setting up key-value store with ontology version")
-
-    # Fetch latest ontology version
-    ontology_version_id = await redis_client.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
-    if ontology_version_id is None: # if no ontology version is found, create one
-        ontology_version_id = utils.get_uuid()
-        await redis_client.set(constants.KV_ONTOLOGY_VERSION_ID_KEY, ontology_version_id)
     if SYNC_INTERVAL == 0:
         logger.warning("Automatic heuristics processing and evaluation is disabled, heuristics will be updated only on demand (via REST endpoints)")
     else:
@@ -105,7 +99,7 @@ async def accept_relation(relation_id: str, relation_name: str, property_mapping
 
     rc_manager = await get_rc_manager_with_latest_ontology()
     if rc_manager is None:
-        raise HTTPException(status_code=404, detail="No ontology found, cannot accept relation")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Please trigger heuristics processing first via POST /v1/graph/ontology/agent/regenerate_ontology")
 
     # Fetch the candidate
     candidate = await rc_manager.fetch_candidate(relation_id)
@@ -167,7 +161,7 @@ async def reject_relation(relation_id: str, justification: str):
         return JSONResponse(status_code=400, content={"message": "Ontology processing/evaluation is in progress"})
     rc_manager = await get_rc_manager_with_latest_ontology()
     if rc_manager is None:
-        raise HTTPException(status_code=404, detail="No ontology found, cannot reject relation")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Please trigger heuristics processing first via POST /v1/graph/ontology/agent/regenerate_ontology")
     
     # Fetch the candidate
     candidate = await rc_manager.fetch_candidate(relation_id)
@@ -214,7 +208,7 @@ async def undo_evaluation(relation_id: str):
 
     rc_manager = await get_rc_manager_with_latest_ontology()
     if rc_manager is None:
-        raise HTTPException(status_code=404, detail="No ontology found, cannot undo evaluation")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Please trigger heuristics processing first via POST /v1/graph/ontology/agent/regenerate_ontology")
     # Remove the evaluation
     await rc_manager.remove_evaluation(relation_id)
 
@@ -250,7 +244,7 @@ async def sync_relation(relation_id: str):
         return JSONResponse(status_code=400, content={"message": "Ontology processing/evaluation is in progress"})
     rc_manager = await get_rc_manager_with_latest_ontology()
     if rc_manager is None:
-        raise HTTPException(status_code=404, detail="No ontology found, cannot sync relation")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Please trigger heuristics processing first via POST /v1/graph/ontology/agent/regenerate_ontology")
     await rc_manager.sync_relation(relation_id)
     return JSONResponse(status_code=200, content={"message": "Submitted"})
 
@@ -267,7 +261,7 @@ async def get_relation_heuristics_batch(relation_ids: List[str]):
     logger.info(f"Fetching heuristics for {len(relation_ids)} relations in batch")
     rc_manager = await get_rc_manager_with_latest_ontology()
     if rc_manager is None:
-        raise HTTPException(status_code=404, detail="No ontology found, cannot get heuristics")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Please trigger heuristics processing first via POST /v1/graph/ontology/agent/regenerate_ontology")
     
     heuristics_dict = await rc_manager.fetch_heuristics_batch(relation_ids)
     
@@ -317,7 +311,7 @@ async def get_relation_evaluations_batch(relation_ids: List[str]):
     logger.info(f"Fetching evaluations and sync status for {len(relation_ids)} relations in batch")
     rc_manager = await get_rc_manager_with_latest_ontology()
     if rc_manager is None:
-        raise HTTPException(status_code=404, detail="No ontology found, cannot get evaluations")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Please trigger heuristics processing first via POST /v1/graph/ontology/agent/regenerate_ontology")
     
     result = await rc_manager.fetch_evaluations_and_sync_status_batch(relation_ids)
     
@@ -345,7 +339,7 @@ async def clear_ontology():
         return JSONResponse(status_code=400, content={"message": "Ontology processing is in progress"})
     ontology_version_id = await redis_client.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
     if ontology_version_id is None:
-        raise HTTPException(status_code=404, detail="No ontology version found")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Nothing to clear.")
     
     # Remove relations and entities from the ontology graph
     await agent.ontology_graph_db.remove_relation(None, {constants.ONTOLOGY_VERSION_ID_KEY: ontology_version_id})
@@ -373,7 +367,7 @@ async def clear_ontology():
 async def get_ontology_version():
     ontology_version_id = await redis_client.get(constants.KV_ONTOLOGY_VERSION_ID_KEY)
     if ontology_version_id is None:
-        raise HTTPException(status_code=500, detail="Intial setup not completed. Ontology version not found")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Please trigger heuristics processing first via POST /v1/graph/ontology/agent/regenerate_ontology")
     return JSONResponse(status_code=200, content={"ontology_version_id": ontology_version_id})
 
 
@@ -389,7 +383,7 @@ async def process_all():
     logger.warning("Processing all entities for heuristics")
     rc_manager = await get_rc_manager_with_latest_ontology()
     if rc_manager is None:
-        raise HTTPException(status_code=404, detail="No ontology found, cannot process entities")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Please trigger heuristics processing first via POST /v1/graph/ontology/agent/regenerate_ontology")
     await agent.process_all(rc_manager)
     return JSONResponse(status_code=200, content={"message": "Submitted for processing"})
 
@@ -405,7 +399,7 @@ async def cleanup():
     """
     rc_manager = await get_rc_manager_with_latest_ontology()
     if rc_manager is None:
-        raise HTTPException(status_code=404, detail="No ontology found, cleanup not possible")
+        raise HTTPException(status_code=400, detail="Ontology not initialized. Please trigger heuristics processing first via POST /v1/graph/ontology/agent/regenerate_ontology")
     await rc_manager.cleanup() # This will remove all relations that are no longer candidates, as well as applied relations
     return JSONResponse(status_code=200, content={"message": "Submitted"})
 
