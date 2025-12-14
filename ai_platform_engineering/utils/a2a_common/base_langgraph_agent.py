@@ -818,13 +818,10 @@ Use this as the reference point for all date calculations. When users say "today
                         if messages_to_summarize:
                             logger.info(f"{agent_name}: Summarizing {len(messages_to_summarize)} old messages with LangMem...")
 
-                            # Create summarizer using current model
-                            llm_provider = os.getenv("LLM_PROVIDER", "azure-openai").lower()
-                            model_name = os.getenv("MODEL_NAME", "gpt-4o")
-
-                            # Use LangMem's create_thread_extractor
+                            # Use LangMem's create_thread_extractor with the agent's already-initialized model
+                            # This ensures consistent LLM configuration (same as LLMFactory().get_llm())
                             summarizer = create_thread_extractor(
-                                model=model_name,
+                                model=self.model,
                                 instructions="Summarize the key points and context from this conversation."
                             )
 
