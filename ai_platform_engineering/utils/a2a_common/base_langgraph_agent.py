@@ -28,6 +28,14 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import tiktoken
 
+# LangMem for intelligent message summarization
+try:
+    from langmem import summarize_messages
+    LANGMEM_AVAILABLE = True
+except ImportError:
+    LANGMEM_AVAILABLE = False
+    logger.warning("langmem not available - will use simple message deletion instead of summarization")
+
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
@@ -751,6 +759,128 @@ Use this as the reference point for all date calculations. When users say "today
             # Don't fail the request if trimming fails - just log and continue
             logger.warning(f"{agent_name}: Continuing without message trimming due to error")
 
+    async def _preflight_context_check(self, config: RunnableConfig, query: str) -> None:
+        """
+        Pre-flight check: Estimate context usage BEFORE calling LLM.
+        
+        Proactively trims messages if we're approaching the context limit,
+        preventing 'Input is too long' errors.
+        
+        Args:
+            config: Runnable configuration
+            query: Current query to be sent
+        """
+        agent_name = self.get_agent_name()
+        
+        try:
+            # Get current state
+            state = await self.graph.aget_state(config)
+            if not state or not state.values:
+                return  # No history yet
+            
+            messages = state.values.get("messages", [])
+            if not messages:
+                return
+            
+            # Estimate tokens for: system prompt + history + new query + tool schemas
+            system_prompt_tokens = self._count_message_tokens(SystemMessage(content=self._get_system_instruction_with_date()))
+            history_tokens = self._count_total_tokens(messages)
+            query_tokens = len(self.tokenizer.encode(query))
+            
+            # Estimate tool schema overhead (~500 tokens per tool for 40 tools = 20K)
+            tool_count = len(self.tools_info) if hasattr(self, 'tools_info') else 40
+            tool_schema_tokens = tool_count * 500
+            
+            total_estimated = system_prompt_tokens + history_tokens + query_tokens + tool_schema_tokens
+            
+            # Use 80% of max as threshold to be safe (leave room for response)
+            threshold = int(self.max_context_tokens * 0.8)
+            
+            if total_estimated > threshold:
+                logger.warning(
+                    f"{agent_name}: Pre-flight check detected potential overflow: "
+                    f"{total_estimated:,} tokens (threshold: {threshold:,}). "
+                    f"System: {system_prompt_tokens:,}, History: {history_tokens:,}, "
+                    f"Query: {query_tokens:,}, Tools: {tool_schema_tokens:,}"
+                )
+                
+                # Use LangMem to summarize instead of delete (preserves context)
+                target_tokens = int(self.max_context_tokens * 0.5)
+                
+                if LANGMEM_AVAILABLE:
+                    # Use LangMem to summarize old messages
+                    try:
+                        state_messages = state.values.get("messages", [])
+                        # Keep recent messages, summarize older ones
+                        messages_to_summarize = state_messages[:-self.min_messages_to_keep]
+                        messages_to_keep = state_messages[-self.min_messages_to_keep:]
+                        
+                        if messages_to_summarize:
+                            logger.info(f"{agent_name}: Summarizing {len(messages_to_summarize)} old messages with LangMem...")
+                            
+                            # Summarize old messages
+                            summary_result = await summarize_messages(messages_to_summarize)
+                            summary_text = summary_result if isinstance(summary_result, str) else str(summary_result)
+                            
+                            # Create summary message
+                            summary_message = SystemMessage(content=f"[Conversation Summary]\n{summary_text}")
+                            
+                            # Remove old messages and add summary
+                            remove_commands = []
+                            for msg in messages_to_summarize:
+                                msg_id = msg.id if hasattr(msg, "id") else msg.get("id")
+                                if msg_id:
+                                    remove_commands.append(RemoveMessage(id=msg_id))
+                            
+                            if remove_commands:
+                                # First remove old messages
+                                await self.graph.aupdate_state(config, {"messages": remove_commands})
+                                # Then add summary
+                                await self.graph.aupdate_state(config, {"messages": [summary_message]})
+                                
+                                new_tokens = system_prompt_tokens + self._count_message_tokens(summary_message) + self._count_total_tokens(messages_to_keep) + query_tokens + tool_schema_tokens
+                                logger.info(
+                                    f"{agent_name}: ✨ Summarized {len(messages_to_summarize)} messages with LangMem. "
+                                    f"New estimate: {new_tokens:,} tokens"
+                                )
+                    except Exception as e:
+                        logger.error(f"{agent_name}: LangMem summarization failed: {e}. Falling back to deletion.")
+                        # Fallback to simple deletion
+                        LANGMEM_AVAILABLE = False
+                
+                # Fallback: Simple deletion if LangMem not available
+                if not LANGMEM_AVAILABLE:
+                    messages_to_remove_count = 0
+                    
+                    # Remove oldest messages until we're under target
+                    while history_tokens > target_tokens and len(messages) > self.min_messages_to_keep:
+                        oldest = messages.pop(0)
+                        messages_to_remove_count += 1
+                        history_tokens = self._count_total_tokens(messages)
+                    
+                    if messages_to_remove_count > 0:
+                        # Create RemoveMessage commands
+                        remove_commands = []
+                        state_messages = state.values.get("messages", [])
+                        for i in range(min(messages_to_remove_count, len(state_messages))):
+                            msg = state_messages[i]
+                            msg_id = msg.id if hasattr(msg, "id") else msg.get("id")
+                            if msg_id:
+                                remove_commands.append(RemoveMessage(id=msg_id))
+                        
+                        if remove_commands:
+                            await self.graph.aupdate_state(config, {"messages": remove_commands})
+                            logger.info(
+                                f"{agent_name}: ✂️ Pre-flight trimmed {messages_to_remove_count} messages "
+                                f"(simple deletion). New estimate: {system_prompt_tokens + history_tokens + query_tokens + tool_schema_tokens:,} tokens"
+                            )
+            else:
+                logger.debug(f"{agent_name}: Pre-flight check passed: {total_estimated:,} / {self.max_context_tokens:,} tokens")
+                
+        except Exception as e:
+            logger.error(f"{agent_name}: Pre-flight check error: {e}", exc_info=True)
+            # Don't fail the request - just log and continue
+    
     async def _ensure_graph_initialized(self, config: RunnableConfig) -> None:
         """Ensure the graph is initialized before use."""
         if self.graph is None:
@@ -809,6 +939,9 @@ Use this as the reference point for all date calculations. When users say "today
 
         # Ensure graph is initialized
         await self._ensure_graph_initialized(config)
+
+        # Pre-flight check: Estimate context usage BEFORE calling LLM
+        await self._preflight_context_check(config, enhanced_query)
 
         # Auto-trim old messages to prevent context overflow
         await self._trim_messages_if_needed(config)

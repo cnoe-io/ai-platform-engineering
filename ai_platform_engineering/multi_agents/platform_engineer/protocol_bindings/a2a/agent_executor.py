@@ -835,14 +835,29 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     # to support structured metadata and dynamic form generation
 
     async def _safe_enqueue_event(self, event_queue: EventQueue, event) -> None:
-        """Safely enqueue an event, handling closed queue gracefully."""
+        """
+        Safely enqueue an event, handling closed queue gracefully.
+        
+        Prevents spam logging of "Queue is closed" by tracking closure state.
+        """
+        # Track if we've already logged about queue closure (class-level to persist across calls)
+        if not hasattr(self, '_queue_closed_logged'):
+            self._queue_closed_logged = False
+        
         try:
             await event_queue.enqueue_event(event)
+            # Reset flag if queue becomes available again
+            if self._queue_closed_logged:
+                logger.info("Queue reopened, resuming event streaming")
+                self._queue_closed_logged = False
         except Exception as e:
             # Check if the error is related to queue being closed
             if "Queue is closed" in str(e) or "QueueEmpty" in str(e):
-                logger.warning(f"Queue is closed, cannot enqueue event: {type(event).__name__}")
-                # Don't re-raise the exception for closed queue - this is expected during shutdown
+                # Only log once when queue first closes, then suppress
+                if not self._queue_closed_logged:
+                    logger.warning(f"⚠️ Event queue closed. Subsequent events will be dropped silently until queue reopens.")
+                    self._queue_closed_logged = True
+                # Don't spam logs or re-raise - this is expected during shutdown/reconnection
             else:
                 logger.error(f"Failed to enqueue event {type(event).__name__}: {e}")
                 raise
