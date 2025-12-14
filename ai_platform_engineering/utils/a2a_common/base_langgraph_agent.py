@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 import tiktoken
 
 from langgraph.checkpoint.memory import MemorySaver
-from langchain.agents import create_agent
+from langgraph.prebuilt import create_react_agent
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
@@ -319,14 +319,14 @@ Use this as the reference point for all date calculations. When users say "today
     def _truncate_tool_output(self, output: Any, tool_name: str, max_size: int = 10000) -> tuple[Any, bool]:
         """
         Truncate large tool outputs to prevent context overflow.
-        
+
         Handles both simple strings and tuple outputs (content, artifact) format.
-        
+
         Args:
             output: Tool output to truncate (string or tuple)
             tool_name: Name of the tool
             max_size: Maximum size in characters (default 10KB)
-            
+
         Returns:
             Tuple of (truncated_output, was_truncated)
         """
@@ -334,29 +334,29 @@ Use this as the reference point for all date calculations. When users say "today
         if isinstance(output, tuple) and len(output) == 2:
             content, artifact = output
             content_str = str(content) if not isinstance(content, str) else content
-            
+
             if len(content_str) <= max_size:
                 return output, False
-            
+
             # Truncate content only, preserve artifact
             truncated = content_str[:max_size]
             remaining = len(content_str) - max_size
             truncation_notice = f"\n\n... (truncated {remaining} characters to prevent context overflow)"
-            
+
             logger.warning(f"{self.get_agent_name()}: Truncated {tool_name} output from {len(content_str)} to {max_size} chars")
             return (truncated + truncation_notice, artifact), True
-        
+
         # Handle simple string/other outputs
         output_str = str(output) if not isinstance(output, str) else output
-        
+
         if len(output_str) <= max_size:
             return output, False
-        
+
         # Truncate with notice
         truncated = output_str[:max_size]
         remaining = len(output_str) - max_size
         truncation_notice = f"\n\n... (truncated {remaining} characters to prevent context overflow)"
-        
+
         logger.warning(f"{self.get_agent_name()}: Truncated {tool_name} output from {len(output_str)} to {max_size} chars")
         return truncated + truncation_notice, True
 
@@ -589,7 +589,7 @@ Use this as the reference point for all date calculations. When users say "today
         # Create the react agent graph
         logger.info(f"🔧 Creating {agent_name} agent graph with {len(tools)} tools...")
 
-        self.graph = create_agent(
+        self.graph = create_react_agent(
             self.model,
             tools,
             checkpointer=memory,
@@ -762,40 +762,40 @@ Use this as the reference point for all date calculations. When users say "today
     async def _preflight_context_check(self, config: RunnableConfig, query: str) -> None:
         """
         Pre-flight check: Estimate context usage BEFORE calling LLM.
-        
+
         Proactively trims messages if we're approaching the context limit,
         preventing 'Input is too long' errors.
-        
+
         Args:
             config: Runnable configuration
             query: Current query to be sent
         """
         agent_name = self.get_agent_name()
-        
+
         try:
             # Get current state
             state = await self.graph.aget_state(config)
             if not state or not state.values:
                 return  # No history yet
-            
+
             messages = state.values.get("messages", [])
             if not messages:
                 return
-            
+
             # Estimate tokens for: system prompt + history + new query + tool schemas
             system_prompt_tokens = self._count_message_tokens(SystemMessage(content=self._get_system_instruction_with_date()))
             history_tokens = self._count_total_tokens(messages)
             query_tokens = len(self.tokenizer.encode(query))
-            
+
             # Estimate tool schema overhead (~500 tokens per tool for 40 tools = 20K)
             tool_count = len(self.tools_info) if hasattr(self, 'tools_info') else 40
             tool_schema_tokens = tool_count * 500
-            
+
             total_estimated = system_prompt_tokens + history_tokens + query_tokens + tool_schema_tokens
-            
+
             # Use 80% of max as threshold to be safe (leave room for response)
             threshold = int(self.max_context_tokens * 0.8)
-            
+
             if total_estimated > threshold:
                 logger.warning(
                     f"{agent_name}: Pre-flight check detected potential overflow: "
@@ -803,10 +803,10 @@ Use this as the reference point for all date calculations. When users say "today
                     f"System: {system_prompt_tokens:,}, History: {history_tokens:,}, "
                     f"Query: {query_tokens:,}, Tools: {tool_schema_tokens:,}"
                 )
-                
+
                 # Use LangMem to summarize instead of delete (preserves context)
                 target_tokens = int(self.max_context_tokens * 0.5)
-                
+
                 if LANGMEM_AVAILABLE:
                     # Use LangMem to summarize old messages
                     try:
@@ -814,40 +814,40 @@ Use this as the reference point for all date calculations. When users say "today
                         # Keep recent messages, summarize older ones
                         messages_to_summarize = state_messages[:-self.min_messages_to_keep]
                         messages_to_keep = state_messages[-self.min_messages_to_keep:]
-                        
+
                         if messages_to_summarize:
                             logger.info(f"{agent_name}: Summarizing {len(messages_to_summarize)} old messages with LangMem...")
-                            
+
                             # Create summarizer using current model
                             llm_provider = os.getenv("LLM_PROVIDER", "azure-openai").lower()
                             model_name = os.getenv("MODEL_NAME", "gpt-4o")
-                            
+
                             # Use LangMem's create_thread_extractor
                             summarizer = create_thread_extractor(
                                 model=model_name,
                                 instructions="Summarize the key points and context from this conversation."
                             )
-                            
+
                             # Summarize old messages
                             summary_result = await summarizer.ainvoke({"messages": messages_to_summarize})
                             summary_text = summary_result.summary if hasattr(summary_result, 'summary') else str(summary_result)
-                            
+
                             # Create summary message
                             summary_message = SystemMessage(content=f"[Conversation Summary]\n{summary_text}")
-                            
+
                             # Remove old messages and add summary
                             remove_commands = []
                             for msg in messages_to_summarize:
                                 msg_id = msg.id if hasattr(msg, "id") else msg.get("id")
                                 if msg_id:
                                     remove_commands.append(RemoveMessage(id=msg_id))
-                            
+
                             if remove_commands:
                                 # First remove old messages
                                 await self.graph.aupdate_state(config, {"messages": remove_commands})
                                 # Then add summary
                                 await self.graph.aupdate_state(config, {"messages": [summary_message]})
-                                
+
                                 new_tokens = system_prompt_tokens + self._count_message_tokens(summary_message) + self._count_total_tokens(messages_to_keep) + query_tokens + tool_schema_tokens
                                 logger.info(
                                     f"{agent_name}: ✨ Summarized {len(messages_to_summarize)} messages with LangMem. "
@@ -857,17 +857,17 @@ Use this as the reference point for all date calculations. When users say "today
                         logger.error(f"{agent_name}: LangMem summarization failed: {e}. Falling back to deletion.")
                         # Fallback to simple deletion
                         LANGMEM_AVAILABLE = False
-                
+
                 # Fallback: Simple deletion if LangMem not available
                 if not LANGMEM_AVAILABLE:
                     messages_to_remove_count = 0
-                    
+
                     # Remove oldest messages until we're under target
                     while history_tokens > target_tokens and len(messages) > self.min_messages_to_keep:
                         oldest = messages.pop(0)
                         messages_to_remove_count += 1
                         history_tokens = self._count_total_tokens(messages)
-                    
+
                     if messages_to_remove_count > 0:
                         # Create RemoveMessage commands
                         remove_commands = []
@@ -877,7 +877,7 @@ Use this as the reference point for all date calculations. When users say "today
                             msg_id = msg.id if hasattr(msg, "id") else msg.get("id")
                             if msg_id:
                                 remove_commands.append(RemoveMessage(id=msg_id))
-                        
+
                         if remove_commands:
                             await self.graph.aupdate_state(config, {"messages": remove_commands})
                             logger.info(
@@ -886,11 +886,11 @@ Use this as the reference point for all date calculations. When users say "today
                             )
             else:
                 logger.debug(f"{agent_name}: Pre-flight check passed: {total_estimated:,} / {self.max_context_tokens:,} tokens")
-                
+
         except Exception as e:
             logger.error(f"{agent_name}: Pre-flight check error: {e}", exc_info=True)
             # Don't fail the request - just log and continue
-    
+
     async def _ensure_graph_initialized(self, config: RunnableConfig) -> None:
         """Ensure the graph is initialized before use."""
         if self.graph is None:
