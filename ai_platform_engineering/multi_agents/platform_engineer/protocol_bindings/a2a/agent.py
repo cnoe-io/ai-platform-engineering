@@ -92,11 +92,23 @@ class AIPlatformEngineerA2ABinding:
           accumulated_ai_content = []
           final_ai_message = None
 
-          # Use astream with multiple stream modes to get both token-level streaming AND custom events
-          # stream_mode=['messages', 'custom'] enables:
-          # - 'messages': Token-level streaming via AIMessageChunk
-          # - 'custom': Custom events from sub-agents via get_stream_writer()
-          async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+          # Check if token-by-token streaming is enabled (default: true)
+          # When disabled, uses 'values' mode which waits for complete messages
+          enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
+          
+          if enable_streaming:
+              # Use astream with multiple stream modes to get both token-level streaming AND custom events
+              # stream_mode=['messages', 'custom'] enables:
+              # - 'messages': Token-level streaming via AIMessageChunk
+              # - 'custom': Custom events from sub-agents via get_stream_writer()
+              stream_mode = ['messages', 'custom']
+              logging.info("Supervisor: Token-by-token streaming ENABLED")
+          else:
+              # Use values mode for complete messages (better spacing, less responsive)
+              stream_mode = ['values', 'custom']
+              logging.info("Supervisor: Token-by-token streaming DISABLED, using full message mode")
+
+          async for item_type, item in self.graph.astream(inputs, config, stream_mode=stream_mode):
 
               # Handle custom A2A event payloads from sub-agents
               if item_type == 'custom' and isinstance(item, dict):
@@ -386,8 +398,9 @@ class AIPlatformEngineerA2ABinding:
 
               # Try to re-invoke the graph with the same query to continue
               try:
-                  # Re-stream with recovered state
-                  async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+                  # Re-stream with recovered state (use same streaming mode as main stream)
+                  retry_stream_mode = ['messages', 'custom'] if os.getenv("ENABLE_STREAMING", "true").lower() == "true" else ['values', 'custom']
+                  async for item_type, item in self.graph.astream(inputs, config, stream_mode=retry_stream_mode):
                       if item_type == 'custom' and isinstance(item, dict):
                           if item.get("type") == "a2a_event":
                               custom_text = item.get("data", "")
