@@ -20,6 +20,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
 )
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
+from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 
@@ -421,12 +422,12 @@ class AIPlatformEngineerA2ABinding:
                       if messages:
                           logging.info(f"Summarizing {len(messages)} messages with LangMem...")
 
-                          # Get model from environment
-                          model_name = os.getenv("MODEL_NAME", "gpt-4o")
+                          # Use LLMFactory for consistent model configuration across the system
+                          model = LLMFactory().get_llm()
 
                           # Create summarizer using LangMem
                           summarizer = create_thread_extractor(
-                              model=model_name,
+                              model=model,
                               instructions="Summarize the key points and context from this conversation."
                           )
 
