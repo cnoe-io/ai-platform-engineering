@@ -309,7 +309,29 @@ Use this as the reference point for all date calculations. When users say "today
         Returns:
             User-friendly error message
         """
-        return f"Error executing {tool_name}: {str(error)}"
+        # Handle TaskGroup/ExceptionGroup errors by extracting underlying exceptions
+        underlying_error = error
+        if hasattr(error, 'exceptions') and error.exceptions:
+            # ExceptionGroup (Python 3.11+) or TaskGroup error
+            underlying_error = error.exceptions[0]
+            logger.debug(f"Extracted underlying error from TaskGroup: {type(underlying_error).__name__}")
+        
+        error_str = str(underlying_error)
+        error_type = type(underlying_error).__name__
+        
+        # Common error patterns that apply to all agents
+        if "timeout" in error_str.lower() or "timed out" in error_str.lower():
+            return f"Request timed out for {tool_name}. Please try again."
+        elif "connection" in error_str.lower() and ("refused" in error_str.lower() or "failed" in error_str.lower()):
+            return f"Connection failed for {tool_name}. The service may be unavailable."
+        elif "rate limit" in error_str.lower() or "429" in error_str:
+            return f"Rate limit exceeded for {tool_name}. Please wait before trying again."
+        elif "unhandled errors in a TaskGroup" in error_str:
+            return f"Request failed for {tool_name}. The service may be temporarily unavailable."
+        elif error_type in ("ConnectionError", "ConnectionRefusedError", "ConnectionResetError"):
+            return f"Connection error for {tool_name}. Please check if the service is running."
+        else:
+            return f"Error executing {tool_name}: {error_str}"
 
     def _truncate_tool_output(self, output: Any, tool_name: str, max_size: int = 10000) -> tuple[Any, bool]:
         """
@@ -828,9 +850,9 @@ Use this as the reference point for all date calculations. When users say "today
                             await self.graph.aupdate_state(config, {"messages": [result.summary_message]})
 
                             new_tokens = (
-                                system_prompt_tokens + 
-                                self._count_message_tokens(result.summary_message) + 
-                                self._count_total_tokens(messages_to_keep) + 
+                                system_prompt_tokens +
+                                self._count_message_tokens(result.summary_message) +
+                                self._count_total_tokens(messages_to_keep) +
                                 query_tokens + tool_schema_tokens
                             )
                             logger.info(
