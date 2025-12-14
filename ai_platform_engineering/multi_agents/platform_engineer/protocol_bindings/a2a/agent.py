@@ -22,6 +22,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
+from ai_platform_engineering.utils.a2a_common.langmem_utils import summarize_messages, get_langmem_status
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -371,7 +372,7 @@ class AIPlatformEngineerA2ABinding:
 
               # Preserve user's query in the error message
               user_query_preview = query[:200] if len(query) > 200 else query
-              
+
               yield {
                   "is_task_complete": False,
                   "require_user_input": False,
@@ -382,7 +383,7 @@ class AIPlatformEngineerA2ABinding:
                       "Proceeding..."
                   ),
               }
-              
+
               # Try to re-invoke the graph with the same query to continue
               try:
                   # Re-stream with recovered state
@@ -412,32 +413,28 @@ class AIPlatformEngineerA2ABinding:
 
               # Try to summarize conversation history instead of clearing
               try:
-                  # Try LangMem summarization first
-                  try:
-                      from langmem import create_thread_extractor
+                  state = await self.graph.aget_state(config)
+                  messages = state.values.get("messages", []) if state and state.values else []
 
-                      state = await self.graph.aget_state(config)
-                      messages = state.values.get("messages", []) if state and state.values else []
+                  if messages:
+                      # Use shared LangMem utility for consistent summarization
+                      model = LLMFactory().get_llm()
+                      result = await summarize_messages(
+                          messages=messages,
+                          model=model,
+                          agent_name="supervisor",
+                      )
 
-                      if messages:
-                          logging.info(f"Summarizing {len(messages)} messages with LangMem...")
-
-                          # Use LLMFactory for consistent model configuration across the system
-                          model = LLMFactory().get_llm()
-
-                          # Create summarizer using LangMem
-                          summarizer = create_thread_extractor(
-                              model=model,
-                              instructions="Summarize the key points and context from this conversation."
-                          )
-
-                          # Summarize messages
-                          summary_result = await summarizer.ainvoke({"messages": messages})
-                          summary_text = summary_result.summary if hasattr(summary_result, 'summary') else str(summary_result)
-
+                      if result.success and result.summary_message:
                           # Replace all messages with summary
-                          await self.graph.aupdate_state(config, {"messages": [SystemMessage(content=f"[Conversation Summary]\n{summary_text}")]})
-                          logging.info("✅ Summarized conversation history with LangMem")
+                          await self.graph.aupdate_state(config, {"messages": [result.summary_message]})
+                          
+                          langmem_status = get_langmem_status()
+                          logging.info(
+                              f"✅ Summarized conversation history. "
+                              f"LangMem used: {result.used_langmem}, "
+                              f"tokens saved: {result.tokens_saved:,}"
+                          )
 
                           recovery_msg = (
                               "❌ The conversation exceeded the model's context window. "
@@ -445,20 +442,19 @@ class AIPlatformEngineerA2ABinding:
                               "Please continue - your previous context has been preserved in summary form."
                           )
                       else:
-                          recovery_msg = "❌ Context overflow occurred but no history to summarize. Please ask your question again."
+                          # Summarization failed, fall back to clearing
+                          await self.graph.aupdate_state(config, {"messages": []})
+                          logging.warning(f"⚠️ Summarization failed: {result.error}. Cleared history instead.")
 
-                  except ImportError:
-                      # LangMem not available, fall back to clearing
-                      await self.graph.aupdate_state(config, {"messages": []})
-                      logging.info("✅ Cleared conversation history (LangMem not available)")
-
-                      recovery_msg = (
-                          "❌ The conversation exceeded the model's context window. "
-                          "I've cleared the history to recover.\n\n"
-                          "**What happened:** The accumulated messages and tool outputs were too large for the model.\n\n"
-                          "**To avoid this:** Try asking for smaller chunks of data or more specific queries.\n\n"
-                          "Please ask your question again."
-                      )
+                          recovery_msg = (
+                              "❌ The conversation exceeded the model's context window. "
+                              "I've cleared the history to recover.\n\n"
+                              "**What happened:** The accumulated messages and tool outputs were too large for the model.\n\n"
+                              "**To avoid this:** Try asking for smaller chunks of data or more specific queries.\n\n"
+                              "Please ask your question again."
+                          )
+                  else:
+                      recovery_msg = "❌ Context overflow occurred but no history to summarize. Please ask your question again."
 
               except Exception as recovery_error:
                   logging.error(f"Failed to recover from context overflow: {recovery_error}")

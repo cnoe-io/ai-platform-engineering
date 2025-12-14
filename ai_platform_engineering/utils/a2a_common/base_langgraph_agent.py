@@ -37,13 +37,8 @@ from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 
 logger = logging.getLogger(__name__)
 
-# LangMem for intelligent message summarization (import after logger is defined)
-try:
-    from langmem import create_thread_extractor
-    LANGMEM_AVAILABLE = True
-except ImportError:
-    LANGMEM_AVAILABLE = False
-    logger.warning("langmem not available - will use simple message deletion instead of summarization")
+# LangMem utilities for intelligent message summarization
+from .langmem_utils import is_langmem_available, summarize_messages, get_langmem_status
 
 if not MCP_AVAILABLE:
     logger.warning("langchain_mcp_adapters not available - MCP functionality will be disabled for agents using this base class")
@@ -806,57 +801,46 @@ Use this as the reference point for all date calculations. When users say "today
 
                 # Use LangMem to summarize instead of delete (preserves context)
                 target_tokens = int(self.max_context_tokens * 0.5)
+                langmem_succeeded = False
 
-                if LANGMEM_AVAILABLE:
-                    # Use LangMem to summarize old messages
-                    try:
-                        state_messages = state.values.get("messages", [])
-                        # Keep recent messages, summarize older ones
-                        messages_to_summarize = state_messages[:-self.min_messages_to_keep]
-                        messages_to_keep = state_messages[-self.min_messages_to_keep:]
+                # Try LangMem summarization first
+                state_messages = state.values.get("messages", [])
+                messages_to_summarize = state_messages[:-self.min_messages_to_keep]
+                messages_to_keep = state_messages[-self.min_messages_to_keep:]
 
-                        if messages_to_summarize:
-                            logger.info(f"{agent_name}: Summarizing {len(messages_to_summarize)} old messages with LangMem...")
+                if messages_to_summarize:
+                    result = await summarize_messages(
+                        messages=messages_to_summarize,
+                        model=self.model,
+                        agent_name=agent_name,
+                    )
 
-                            # Use LangMem's create_thread_extractor with the agent's already-initialized model
-                            # This ensures consistent LLM configuration (same as LLMFactory().get_llm())
-                            summarizer = create_thread_extractor(
-                                model=self.model,
-                                instructions="Summarize the key points and context from this conversation."
+                    if result.success and result.summary_message:
+                        # Remove old messages and add summary
+                        remove_commands = []
+                        for msg in messages_to_summarize:
+                            msg_id = msg.id if hasattr(msg, "id") else msg.get("id")
+                            if msg_id:
+                                remove_commands.append(RemoveMessage(id=msg_id))
+
+                        if remove_commands:
+                            await self.graph.aupdate_state(config, {"messages": remove_commands})
+                            await self.graph.aupdate_state(config, {"messages": [result.summary_message]})
+
+                            new_tokens = (
+                                system_prompt_tokens + 
+                                self._count_message_tokens(result.summary_message) + 
+                                self._count_total_tokens(messages_to_keep) + 
+                                query_tokens + tool_schema_tokens
                             )
+                            logger.info(
+                                f"{agent_name}: Context compressed. New estimate: {new_tokens:,} tokens. "
+                                f"LangMem used: {result.used_langmem}"
+                            )
+                            langmem_succeeded = True
 
-                            # Summarize old messages
-                            summary_result = await summarizer.ainvoke({"messages": messages_to_summarize})
-                            summary_text = summary_result.summary if hasattr(summary_result, 'summary') else str(summary_result)
-
-                            # Create summary message
-                            summary_message = SystemMessage(content=f"[Conversation Summary]\n{summary_text}")
-
-                            # Remove old messages and add summary
-                            remove_commands = []
-                            for msg in messages_to_summarize:
-                                msg_id = msg.id if hasattr(msg, "id") else msg.get("id")
-                                if msg_id:
-                                    remove_commands.append(RemoveMessage(id=msg_id))
-
-                            if remove_commands:
-                                # First remove old messages
-                                await self.graph.aupdate_state(config, {"messages": remove_commands})
-                                # Then add summary
-                                await self.graph.aupdate_state(config, {"messages": [summary_message]})
-
-                                new_tokens = system_prompt_tokens + self._count_message_tokens(summary_message) + self._count_total_tokens(messages_to_keep) + query_tokens + tool_schema_tokens
-                                logger.info(
-                                    f"{agent_name}: ✨ Summarized {len(messages_to_summarize)} messages with LangMem. "
-                                    f"New estimate: {new_tokens:,} tokens"
-                                )
-                    except Exception as e:
-                        logger.error(f"{agent_name}: LangMem summarization failed: {e}. Falling back to deletion.")
-                        # Fallback to simple deletion
-                        LANGMEM_AVAILABLE = False
-
-                # Fallback: Simple deletion if LangMem not available
-                if not LANGMEM_AVAILABLE:
+                # Fallback: Simple deletion if summarization failed
+                if not langmem_succeeded:
                     messages_to_remove_count = 0
 
                     # Remove oldest messages until we're under target
