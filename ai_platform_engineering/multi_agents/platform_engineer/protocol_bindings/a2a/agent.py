@@ -21,7 +21,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 )
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
-from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage, SystemMessage
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -351,7 +351,6 @@ class AIPlatformEngineerA2ABinding:
               
               # Add synthetic ToolMessages for orphaned calls to recover
               try:
-                  from langchain_core.messages import ToolMessage
                   synthetic_messages = []
                   for tool_call_id, tool_name in pending_tool_calls.items():
                       synthetic_msg = ToolMessage(
@@ -388,7 +387,6 @@ class AIPlatformEngineerA2ABinding:
                   # Try LangMem summarization first
                   try:
                       from langmem import create_thread_extractor
-                      from langchain_core.messages import SystemMessage
                       
                       state = await self.graph.aget_state(config)
                       messages = state.values.get("messages", []) if state and state.values else []
