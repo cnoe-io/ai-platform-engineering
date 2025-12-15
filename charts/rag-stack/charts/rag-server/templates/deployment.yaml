@@ -6,6 +6,7 @@ metadata:
     {{- include "rag-server.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   selector:
     matchLabels:
       {{- include "rag-server.selectorLabels" . | nindent 6 }}
