@@ -31,9 +31,103 @@ import time
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage, SystemMessage, AIMessage, ToolMessage
 
 logger = logging.getLogger(__name__)
+
+
+def _find_safe_summarization_boundary(messages: List[BaseMessage], min_keep: int) -> int:
+    """
+    Find a safe index to split messages for summarization.
+    
+    Ensures we don't split in the middle of tool call/result pairs, which would
+    cause LLM validation errors like "Expected toolResult blocks for the following Ids".
+    
+    Args:
+        messages: List of messages to analyze
+        min_keep: Minimum number of recent messages to keep
+        
+    Returns:
+        Index where it's safe to split (messages[:index] can be summarized)
+    """
+    if len(messages) <= min_keep:
+        return 0
+    
+    # Start from the proposed cut point
+    cut_index = len(messages) - min_keep
+    
+    # Track pending tool calls that need results
+    pending_tool_calls = set()
+    
+    # Scan from cut point to end to find pending tool calls in "keep" section
+    for i in range(cut_index, len(messages)):
+        msg = messages[i]
+        
+        # Check for tool calls in AI messages
+        if isinstance(msg, AIMessage):
+            tool_calls = getattr(msg, 'tool_calls', None) or []
+            for tc in tool_calls:
+                tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+                if tc_id:
+                    pending_tool_calls.add(tc_id)
+        
+        # Check for tool results
+        if isinstance(msg, ToolMessage):
+            tc_id = getattr(msg, 'tool_call_id', None)
+            if tc_id and tc_id in pending_tool_calls:
+                pending_tool_calls.discard(tc_id)
+    
+    # If no pending tool calls, cut point is safe
+    if not pending_tool_calls:
+        return cut_index
+    
+    # Move cut point backward until we include all tool calls for pending results
+    # Or find a safe boundary
+    for i in range(cut_index - 1, -1, -1):
+        msg = messages[i]
+        
+        if isinstance(msg, AIMessage):
+            tool_calls = getattr(msg, 'tool_calls', None) or []
+            for tc in tool_calls:
+                tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+                if tc_id and tc_id in pending_tool_calls:
+                    # Found the tool call, need to keep it
+                    # Move cut point before this message
+                    cut_index = i
+                    pending_tool_calls.discard(tc_id)
+        
+        if not pending_tool_calls:
+            break
+    
+    # Final check: make sure messages[:cut_index] doesn't end with an AI message with tool calls
+    while cut_index > 0:
+        last_msg = messages[cut_index - 1]
+        if isinstance(last_msg, AIMessage):
+            tool_calls = getattr(last_msg, 'tool_calls', None) or []
+            if tool_calls:
+                # This AI message has tool calls - check if results are in summarize section
+                has_all_results = True
+                for tc in tool_calls:
+                    tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+                    if tc_id:
+                        # Look for matching ToolMessage in messages[:cut_index]
+                        found = False
+                        for j in range(cut_index):
+                            if isinstance(messages[j], ToolMessage):
+                                if getattr(messages[j], 'tool_call_id', None) == tc_id:
+                                    found = True
+                                    break
+                        if not found:
+                            has_all_results = False
+                            break
+                
+                if not has_all_results:
+                    cut_index -= 1
+                    continue
+        break
+    
+    logger.debug(f"Safe summarization boundary: {cut_index} (keeping {len(messages) - cut_index} messages)")
+    return cut_index
 
 # ============================================================================
 # LangMem Availability
@@ -136,8 +230,9 @@ async def summarize_messages(
                 f"(~{tokens_before:,} tokens)..."
             )
 
+            # Note: In langmem 0.0.30+, 'model' is a positional-only argument
             summarizer = create_thread_extractor(
-                model=model,
+                model,  # positional argument
                 instructions=instructions,
             )
 
@@ -454,9 +549,10 @@ async def preflight_context_check(
                 error="Model not provided for compression",
             )
 
-        # Separate messages to keep vs summarize
-        messages_to_summarize = messages[:-min_messages_to_keep] if len(messages) > min_messages_to_keep else []
-        messages_to_keep = messages[-min_messages_to_keep:] if len(messages) > min_messages_to_keep else messages
+        # Find safe boundary that doesn't split tool call/result pairs
+        safe_cut_index = _find_safe_summarization_boundary(messages, min_messages_to_keep)
+        messages_to_summarize = messages[:safe_cut_index]
+        messages_to_keep = messages[safe_cut_index:]
 
         if not messages_to_summarize:
             logger.info(f"[{agent_name}] Not enough messages to summarize (keeping {len(messages_to_keep)})")
