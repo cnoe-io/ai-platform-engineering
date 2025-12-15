@@ -22,13 +22,13 @@ jobs:
 
     steps:
       - name: Checkout main repository
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6
         with:
           path: main-repo
           fetch-depth: 1
 
       - name: Checkout community-plugins repository
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6
         with:
           repository: cnoe-io/community-plugins
           ref: agent-forge-upstream-docker
