@@ -27,7 +27,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6.0.1
+      uses: actions/checkout@v6
 
     - name: Set up Helm
       uses: azure/setup-helm@v4
@@ -366,7 +366,7 @@ jobs:
 
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: helm-test-results-${{ matrix.helm-version }}
         path: |
@@ -376,7 +376,7 @@ jobs:
 
     - name: Upload test logs
       if: failure()
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: helm-test-logs-${{ matrix.helm-version }}
         path: |
