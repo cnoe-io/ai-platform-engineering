@@ -78,6 +78,10 @@ ingress:
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1
 
+# This sets the number of old ReplicaSets to retain for rollback
+# Kubernetes will automatically clean up ReplicaSets beyond this limit
+revisionHistoryLimit: 3
+
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
