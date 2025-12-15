@@ -94,6 +94,12 @@ services:
         NEO4J_USERNAME: neo4j
         NEO4J_PASSWORD: dummy_password
         SYNC_INTERVAL: 86400 # 24 hours
+        ENABLE_TRACING: ${ENABLE_TRACING:-false}
+        LANGFUSE_HOST: ${LANGFUSE_HOST}
+        LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+        LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+        LANGFUSE_SESSION_ID: ${LANGFUSE_SESSION_ID}
+        LANGFUSE_USER_ID: ${LANGFUSE_USER_ID}
     env_file:
       - ../../../.env
     restart: unless-stopped

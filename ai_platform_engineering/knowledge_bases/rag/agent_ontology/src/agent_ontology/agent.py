@@ -118,17 +118,20 @@ class OntologyAgent:
             return
 
         # Evaluate the new heuristics version
+        self.agent_status_msg = "Evaluating relations..."
         await self.evaluate_all(rc_manager_current_version, rc_manager_new_version)
 
         # set the new ontology version as the current ontology version
         self.logger.info(f"Setting new ontology version: {new_ontology_version_id}")
         await self.redis.set(constants.KV_ONTOLOGY_VERSION_ID_KEY, new_ontology_version_id)
         
-
+        self.agent_status_msg = "Syncing relations..."
+        self.is_processing = True
         await self.sync_all_relations(rc_manager_new_version) # sync all relations with the graph database, just in case some relations were not updated
         await rc_manager_new_version.cleanup() # Clear all previous ontology
 
         self.agent_status_msg = "Idle"
+        self.is_processing = False
 
         # invoke the garbage collector to free up memory
         gc.collect()
@@ -683,22 +686,41 @@ class OntologyAgent:
                         #     worker_logger.info(f"[DEBUG_MODE] Worker {worker_id}: Successfully accepted relation {candidate.relation_id}")
                         return
                     else:
-                        await agent.ainvoke(
-                            {"messages": [
-                                HumanMessage(
-                                    content=(
-                                        f"You have {len(worker_queue)} relation candidate groups to evaluate. "
-                                        f"For each group:\n"
-                                        f"1. Call fetch_next_relation_candidate to get the group\n"
-                                        f"2. Evaluate ALL candidates in the group\n"
-                                        f"3. Make accept/reject/unsure decisions\n"
-                                        f"4. Repeat until no more groups remain\n\n"
-                                        f"Start by fetching the first group."
-                                    )
+                        # Retry logic with exponential backoff
+                        max_retries = 5
+                        retry_delay = 2  # Initial delay in seconds
+                        
+                        for attempt in range(max_retries):
+                            try:
+                                await agent.ainvoke(
+                                    {"messages": [
+                                        HumanMessage(
+                                            content=(
+                                                f"You have {len(worker_queue)} relation candidate groups to evaluate. "
+                                                f"For each group:\n"
+                                                f"1. Call fetch_next_relation_candidate to get the group\n"
+                                                f"2. Evaluate ALL candidates in the group\n"
+                                                f"3. Make accept/reject/unsure decisions\n"
+                                                f"4. Repeat until no more groups remain\n\n"
+                                                f"Start by fetching the first group."
+                                            )
+                                        )
+                                    ]},
+                                    {"recursion_limit": self.agent_recursion_limit, "callbacks": [langfuse_handler]}
                                 )
-                            ]},
-                            {"recursion_limit": self.agent_recursion_limit, "callbacks": [langfuse_handler]}
-                        )
+                                # If successful, break out of retry loop
+                                break
+                            except Exception as e:
+                                worker_logger.warning(f"Worker {worker_id} agent invocation attempt {attempt + 1}/{max_retries} failed: {e}")
+                                if attempt < max_retries - 1:
+                                    # Sleep before retrying (exponential backoff)
+                                    sleep_time = retry_delay * (2 ** attempt)
+                                    worker_logger.info(f"Worker {worker_id} retrying in {sleep_time} seconds...")
+                                    await asyncio.sleep(sleep_time)
+                                else:
+                                    # Last attempt failed, re-raise the exception
+                                    worker_logger.error(f"Worker {worker_id} all {max_retries} attempts failed")
+                                    raise
                     
                     # Collect evaluation count from worker
                     worker_evaluations = agent_worker.total_evaluation_count
