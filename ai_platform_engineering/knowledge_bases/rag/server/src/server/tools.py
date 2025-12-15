@@ -297,6 +297,20 @@ class AgentTools:
             if result["root_entity"] is None:
                 return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the ontology graph database. The entity may not exist or may have been deleted."
             
+            # Check the size of the results, if too large return an error message instead
+            result_str = json_encode(result)
+            tokens = count_tokens_approximately(result_str)
+            if tokens > max_graph_raw_query_tokens:
+                logger.warning(f"Ontology entity exploration result is too large ({tokens} tokens), returning error message instead.")
+                return (
+                    f"Entity exploration result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). "
+                    "Please reduce the amount of data returned:\n"
+                    "- Use a smaller depth value (current: {depth})\n"
+                    "- Use graph_fetch_data_entity_details for a single entity without neighbors\n"
+                    "- Consider using graph_raw_query_ontology with LIMIT and specific property selection\n\n"
+                    f"Entity explored: {entity_type}"
+                )
+            
             return result
         except Exception as e:
             logger.error(f"Traceback: {traceback.format_exc()}")
@@ -345,6 +359,20 @@ class AgentTools:
             
             if result["root_entity"] is None:
                 return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the data graph database. Please verify the entity type and primary key are correct."
+            
+            # Check the size of the results, if too large return an error message instead
+            result_str = json_encode(result)
+            tokens = count_tokens_approximately(result_str)
+            if tokens > max_graph_raw_query_tokens:
+                logger.warning(f"Data entity exploration result is too large ({tokens} tokens), returning error message instead.")
+                return (
+                    f"Entity exploration result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). "
+                    "Please reduce the amount of data returned:\n"
+                    "- Use a smaller depth value (current: {depth})\n"
+                    "- Use graph_fetch_data_entity_details for a single entity without neighbors\n"
+                    "- Consider using graph_raw_query_data with LIMIT and specific property selection\n\n"
+                    f"Entity explored: {entity_type} with primary_key_id: {primary_key_id}"
+                )
             
             return result
         except Exception as e:

@@ -17,12 +17,22 @@ class DocumentProcessor:
     # Milvus varchar field limit (65535 bytes, using 60000 to be safe with UTF-8 encoding)
     MILVUS_MAX_VARCHAR_LENGTH = 60000
     
-    def __init__(self, vstore: Milvus, job_manager: JobManager, graph_rag_enabled: bool, data_graph_db: Optional[GraphDB] = None, max_property_length: int = 250):
+    def __init__(self, vstore: Milvus, job_manager: JobManager, graph_rag_enabled: bool, data_graph_db: Optional[GraphDB] = None, max_property_length: int = 250, batch_size: int = 1000):
+        """
+        Args:
+            vstore: Milvus instance
+            job_manager: JobManager instance
+            graph_rag_enabled: Whether graph RAG is enabled
+            data_graph_db: GraphDB instance
+            max_property_length: Maximum length for property values for graph entities
+            batch_size: Batch size for ingestion into vector database
+        """
         self.vstore = vstore
         self.data_graph_db = data_graph_db
         self.graph_rag_enabled = graph_rag_enabled
         self.job_manager = job_manager
         self.max_property_length = max_property_length
+        self.batch_size = batch_size
         self.logger = utils.get_logger("DocumentProcessor")
 
     @staticmethod
@@ -878,7 +888,7 @@ class DocumentProcessor:
                     message=f"Adding {len(deduped_chunks)} document chunks to vector database"
                 )
 
-                await self.vstore.aadd_documents(deduped_chunks, ids=deduped_chunk_ids)
+                await self.vstore.aadd_documents(deduped_chunks, ids=deduped_chunk_ids, batch_size=self.batch_size)
                 self.logger.info(f"Successfully added {len(deduped_chunks)} chunks to vector database")
                 
                 # Update job with success message
