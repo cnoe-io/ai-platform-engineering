@@ -574,3 +574,106 @@ async def swap_sprint(
         ensure_ascii=False,
     )
 
+
+async def get_issue_sprint(
+    issue_key: Annotated[
+        str,
+        Field(description="Jira issue key (e.g., 'PROJ-123')")
+    ],
+    expand: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "(Optional) Comma-separated list of parameters to expand. "
+                "Valid values: changelog, renderedFields, names, schema, operations, editmeta, versionedRepresentations"
+            )
+        ),
+    ] = None,
+) -> str:
+    """Get sprint information for a specific issue using the Agile API.
+
+    This function uses the Jira Agile REST API to retrieve issue details including
+    sprint information, which is not always available through the standard REST API.
+
+    The response includes Agile-specific fields:
+    - sprint: Current sprint the issue is in (with id, name, state, startDate, endDate, goal)
+    - closedSprints: Array of closed sprints the issue was in
+    - flagged: Whether the issue is flagged
+
+    Args:
+        issue_key: The issue key (e.g., 'SRI-185').
+        expand: Optional parameters to expand.
+
+    Returns:
+        JSON string containing the issue details with sprint information.
+
+    Raises:
+        ValueError: If the API request fails.
+
+    Reference:
+        https://developer.atlassian.com/cloud/jira/software/rest/api-group-issue/#api-rest-agile-1-0-issue-issueidorkey-get
+    """
+    logger.debug(f"get_issue_sprint called with issue_key={issue_key}, expand={expand}")
+
+    params: Dict[str, Any] = {}
+    if expand:
+        params["expand"] = expand
+
+    success, response = await make_api_request(
+        path=f"rest/agile/1.0/issue/{issue_key}",
+        method="GET",
+        params=params if params else None,
+    )
+
+    if not success:
+        error_result = {
+            "success": False,
+            "error": f"Failed to fetch issue {issue_key} from Agile API: {response}"
+        }
+        return json.dumps(error_result, indent=2, ensure_ascii=False)
+
+    # Extract sprint information for clearer output
+    fields = response.get("fields", {})
+    sprint_info = fields.get("sprint")
+    closed_sprints = fields.get("closedSprints", [])
+    flagged = fields.get("flagged", False)
+
+    # Build a clear sprint summary
+    sprint_summary = {
+        "issue_key": response.get("key", issue_key),
+        "summary": fields.get("summary", ""),
+        "status": fields.get("status", {}).get("name", "Unknown"),
+        "current_sprint": None,
+        "closed_sprints": [],
+        "flagged": flagged,
+    }
+
+    if sprint_info:
+        sprint_summary["current_sprint"] = {
+            "id": sprint_info.get("id"),
+            "name": sprint_info.get("name"),
+            "state": sprint_info.get("state"),
+            "start_date": sprint_info.get("startDate"),
+            "end_date": sprint_info.get("endDate"),
+            "goal": sprint_info.get("goal"),
+            "board_id": sprint_info.get("originBoardId"),
+        }
+
+    if closed_sprints:
+        for cs in closed_sprints:
+            sprint_summary["closed_sprints"].append({
+                "id": cs.get("id"),
+                "name": cs.get("name"),
+                "state": cs.get("state"),
+                "start_date": cs.get("startDate"),
+                "end_date": cs.get("endDate"),
+                "complete_date": cs.get("completeDate"),
+            })
+
+    # Include the full response for completeness
+    result = {
+        "sprint_summary": sprint_summary,
+        "full_response": response,
+    }
+
+    return json.dumps(result, indent=2, ensure_ascii=False)

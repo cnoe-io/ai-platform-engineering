@@ -31,7 +31,6 @@ from a2a.types import (
     Artifact,
     Part,
     DataPart,
-    TextPart,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
@@ -856,7 +855,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             if "Queue is closed" in str(e) or "QueueEmpty" in str(e):
                 # Only log once when queue first closes, then suppress
                 if not self._queue_closed_logged:
-                    logger.warning(f"⚠️ Event queue closed. Subsequent events will be dropped silently until queue reopens.")
+                    logger.warning("⚠️ Event queue closed. Subsequent events will be dropped silently until queue reopens.")
                     self._queue_closed_logged = True
                 # Don't spam logs or re-raise - this is expected during shutdown/reconnection
             else:
@@ -1795,13 +1794,25 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         Handle task cancellation.
 
         Sends a cancellation status update to the client and logs the cancellation.
-        Note: Currently doesn't stop in-flight LangGraph execution, but prevents
-        further streaming and notifies the client properly.
+        Also repairs any orphaned tool calls in the message history to prevent
+        subsequent queries from failing.
         """
         logger.info("Platform Engineer Agent: Task cancellation requested")
 
         task = context.current_task
         if task:
+            # CRITICAL: Repair orphaned tool calls immediately on cancel
+            # This prevents subsequent queries from failing due to AIMessages
+            # with tool_calls that have no corresponding ToolMessage.
+            try:
+                if hasattr(self.agent, '_repair_orphaned_tool_calls'):
+                    config = self.agent.tracing.create_config(task.context_id)
+                    await self.agent._repair_orphaned_tool_calls(config)
+                    logger.info(f"Task {task.id}: Repaired orphaned tool calls after cancel")
+            except Exception as e:
+                logger.warning(f"Task {task.id}: Failed to repair orphaned tool calls on cancel: {e}")
+                # Don't fail the cancel operation if repair fails
+
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     status=TaskStatus(state=TaskState.canceled),

@@ -158,7 +158,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
   async def _heartbeat_task(self, writer, agent_name: str, stop_event: asyncio.Event) -> None:
     """Send periodic heartbeat updates while waiting for sub-agent response."""
-    heartbeat_interval = float(os.getenv("A2A_HEARTBEAT_INTERVAL", "10.0"))  # Default 10 seconds
+    heartbeat_interval = float(os.getenv("A2A_HEARTBEAT_INTERVAL", "30.0"))  # Default 30 seconds
     wait_count = 0
 
     while not stop_event.is_set():

@@ -35,6 +35,7 @@ from mcp_splunk.tools import (
     incident_clear,
     incident_id,
     incident_id_clear,
+    logs_search,  # Splunk Platform log search
     metric,
     metric_name,
     metrictimeseries,
@@ -238,6 +239,20 @@ def main():
     # Register tests_pause tools
 
     mcp.tool()(tests_pause.pause_multiple_tests)
+
+    # Register Splunk Platform log search tools (conditional)
+    # These connect to Splunk Cloud Platform's MCP Server for log searching
+    # Reference: https://docs.aws.amazon.com/devopsagent/latest/userguide/configuring-capabilities-for-aws-devops-agent-connecting-telemetry-sources-connecting-splunk.html
+    ENABLE_SPLUNK_LOGS = os.getenv("ENABLE_SPLUNK_LOGS", "true").lower() in ("true", "1", "yes")
+
+    if ENABLE_SPLUNK_LOGS:
+        logging.info("Splunk Platform log search tools enabled (ENABLE_SPLUNK_LOGS=true)")
+        mcp.tool()(logs_search.search_splunk_logs)
+        mcp.tool()(logs_search.get_splunk_indexes)
+        mcp.tool()(logs_search.get_splunk_metadata)
+        mcp.tool()(logs_search.get_splunk_info)
+    else:
+        logging.info("Splunk Platform log search tools disabled (ENABLE_SPLUNK_LOGS=false)")
 
     # Run the MCP server
     mcp.run(transport=MCP_MODE.lower())

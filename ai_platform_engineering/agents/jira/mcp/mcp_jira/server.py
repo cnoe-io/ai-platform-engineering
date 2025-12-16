@@ -102,6 +102,7 @@ def main():
     mcp.tool()(sprints.get_sprint_issues)
     mcp.tool()(sprints.move_issues_to_sprint)
     mcp.tool()(sprints.swap_sprint)
+    mcp.tool()(sprints.get_issue_sprint)
 
     # Register board tools
     mcp.tool()(boards.get_all_boards)
