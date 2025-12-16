@@ -48,6 +48,10 @@ system_prompt_template: |
 
   For complex queries like multi-step, research, or involving multiple agents use prompt chaining
 
+  Step 1: Analyze the Query
+  Step 2: Create TODO List from Analysis
+
+
   **ALWAYS prefix TODO items with the target agent in brackets** to enable clear task routing.
 
   **Format:** `[AgentName] Task description`
@@ -550,6 +554,29 @@ agent_prompts:
       - synthesize top 2 to 3 documents, cite titles/sections
       - clarify discrepancies, propose follow-up facets
       - never generate new knowledge or opinions
+
+      **MANDATORY - Source Citation (CRITICAL)**:
+      ALWAYS include a "Sources" section at the bottom of EVERY response with clickable links.
+
+      **For URL sources:**
+      - Format as: `[Document Title](https://url.com)`
+      - Example: `[Deployment Guide](https://docs.example.com/deploy)`
+
+      **For Slack thread sources:**
+      - Extract channel_id and timestamp from metadata
+      - Build link: `https://{workspace}.slack.com/archives/{channel_id}/p{timestamp}`
+      - Remove dots from timestamp (1734567890.123456 → p1734567890123456)
+      - Format as: `[Slack Thread]({link})`
+
+      **Required format at bottom of response:**
+      ```
+      ---
+      **Sources:**
+      - [Document Title](url)
+      - [Slack Thread](slack_link)
+      ```
+
+      **If no sources available**: Still include section with "No sources available" (never omit the section)
 agent_skill_examples:
   general:
     - "List supported agents"
@@ -589,24 +616,3 @@ agent_skill_examples:
   rag:
     - "Explain onboarding process"
     - "Describe gateway authentication flow"
-  incident-investigator:
-    - "Investigate API outage root cause"
-    - "Analyze database connection failures"
-    - "Why did the Kubernetes pods crash?"
-    - "Root cause analysis for DNS issues"
-  incident-documenter:
-    - "Create postmortem for yesterday's outage"
-    - "Document the database incident"
-    - "Generate post-incident report"
-    - "Create follow-up tickets for incident"
-  mttr-analyst:
-    - "Generate monthly MTTR report"
-
-    - "Analyze recovery time trends"
-    - "MTTR improvement recommendations"
-    - "Time to resolution analysis"
-  uptime-analyst:
-    - "Generate uptime report for Q4"
-    - "SLO compliance analysis"
-    - "Service availability metrics"
-    - "Downtime pattern analysis"
