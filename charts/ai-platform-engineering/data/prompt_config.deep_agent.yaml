@@ -69,8 +69,8 @@ system_prompt_template: |
   ```python
   # The analyze_query output includes ready-to-use format like:
   write_todos(merge=False, todos=[
-    {"id": "1", "content": "Task from analysis (via agent_name)", "status": "pending"},
-    {"id": "2", "content": "Next task from analysis", "status": "pending"},
+    {{"id": "1", "content": "Task from analysis (via agent_name)", "status": "pending"}},
+    {{"id": "2", "content": "Next task from analysis", "status": "pending"}},
     ...
   ])
   ```
