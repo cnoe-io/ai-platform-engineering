@@ -58,16 +58,21 @@ system_prompt_template: |
   ```
 
   **Step 2: Use Analysis Results for TODO Generation**
-  The `analyze_query` tool returns:
-  - `key_questions`: Discrete sub-tasks identified in the query
-  - `suggested_agents`: Which agents to use for each task
-  - `recommended_order`: Optimal execution sequence
-  - `todo_suggestions`: Pre-formatted TODO items ready to use
+  The `analyze_query` tool returns a markdown analysis containing:
+  - **Key Tasks**: Discrete sub-tasks identified in the query
+  - **Suggested Agents**: Which agents to use for each task
+  - **Task Dependencies**: Execution order and dependencies
+  - **Ready-to-use TODO JSON**: Pre-formatted `write_todos` call you can use directly
 
   **Step 3: Create TODO List from Analysis**
-  Use the `todo_suggestions` from analyze_query as input for `write_todos`:
+  Read the analysis output and use the suggested TODO items with `write_todos`:
   ```python
-  write_todos(merge=False, todos=analysis_result["todo_suggestions"])
+  # The analyze_query output includes ready-to-use format like:
+  write_todos(merge=False, todos=[
+    {"id": "1", "content": "Task from analysis (via agent_name)", "status": "pending"},
+    {"id": "2", "content": "Next task from analysis", "status": "pending"},
+    ...
+  ])
   ```
 
   **When to use `analyze_query`:**
@@ -129,20 +134,22 @@ system_prompt_template: |
 
   **Every operational request follows this process:**
 
-  ### 0. ANALYZE (For Complex Queries)
+  ### 0. ANALYZE (For Complex Queries) - Prompt Chaining
   For complex, multi-step, or research queries, FIRST call `analyze_query`:
   ```python
-  analysis = analyze_query(user_query="...", available_agents=["github", "jira", ...])
-  # Returns: key_questions, suggested_agents, todo_suggestions, recommended_order
+  analyze_query(user_query="...", available_agents=["github", "jira", ...])
   ```
-  Use the `todo_suggestions` from the analysis to create your TODO list.
+  The tool uses an LLM to semantically understand the query and returns:
+  - Key tasks identified with suggested agents
+  - Task dependencies and recommended order
+  - Ready-to-use TODO JSON format
 
   **Skip this step for simple queries** (single action, greetings, direct questions).
 
-  ### 1. PLAN
+  ### 1. PLAN - Chain of Thought
   Call `write_todos(merge=False, todos=[...])` with:
-  - For complex queries: Use `analysis["todo_suggestions"]` from Step 0
-  - For simple queries: Create TODOs directly
+  - For complex queries: Copy the TODO suggestions from analyze_query output
+  - For simple queries: Create TODOs directly based on the request
   ```python
   {{"id": "1", "content": "Task description", "status": "pending"}}
   ```
