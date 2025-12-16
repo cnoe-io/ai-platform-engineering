@@ -776,6 +776,81 @@ Use this as the reference point for all date calculations. When users say "today
             # Don't fail the request if trimming fails - just log and continue
             logger.warning(f"{agent_name}: Continuing without message trimming due to error")
 
+    async def _repair_orphaned_tool_calls(self, config: RunnableConfig) -> None:
+        """
+        CRITICAL: Repair orphaned tool calls in message history.
+
+        This prevents the "Found AIMessages with tool_calls that do not have a
+        corresponding ToolMessage" error by adding synthetic ToolMessages for
+        any tool calls that don't have results.
+
+        This is essential for sub-agent recovery when:
+        - A sub-agent call fails mid-stream (e.g., context overflow)
+        - A tool call is interrupted
+        - Network issues cause incomplete responses
+
+        Args:
+            config: Runnable configuration with thread_id
+        """
+        agent_name = self.get_agent_name()
+
+        try:
+            state = await self.graph.aget_state(config)
+            if not state or not state.values:
+                return
+
+            messages = state.values.get("messages", [])
+            if not messages:
+                return
+
+            # Find all tool_call IDs from AIMessages
+            pending_tool_calls = {}  # {tool_call_id: tool_name}
+
+            for msg in messages:
+                # Track tool calls from AIMessages
+                if isinstance(msg, AIMessage):
+                    tool_calls = getattr(msg, 'tool_calls', None) or []
+                    for tc in tool_calls:
+                        tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+                        tc_name = tc.get('name') if isinstance(tc, dict) else getattr(tc, 'name', 'unknown')
+                        if tc_id:
+                            pending_tool_calls[tc_id] = tc_name
+
+                # Remove from pending when we see a ToolMessage
+                if isinstance(msg, ToolMessage):
+                    tc_id = getattr(msg, 'tool_call_id', None)
+                    if tc_id and tc_id in pending_tool_calls:
+                        del pending_tool_calls[tc_id]
+
+            # If there are orphaned tool calls, add synthetic ToolMessages
+            if pending_tool_calls:
+                logger.warning(
+                    f"{agent_name}: ⚠️ Found {len(pending_tool_calls)} orphaned tool calls: "
+                    f"{list(pending_tool_calls.values())}. Adding synthetic ToolMessages to repair."
+                )
+
+                synthetic_messages = []
+                for tool_call_id, tool_name in pending_tool_calls.items():
+                    synthetic_msg = ToolMessage(
+                        content=f"⚠️ Tool call to '{tool_name}' was interrupted or failed. "
+                                f"The previous attempt did not complete successfully. "
+                                f"Please retry if needed.",
+                        tool_call_id=tool_call_id,
+                        name=tool_name,
+                    )
+                    synthetic_messages.append(synthetic_msg)
+
+                # Update state with synthetic messages
+                await self.graph.aupdate_state(config, {"messages": synthetic_messages})
+                logger.info(
+                    f"{agent_name}: ✅ Added {len(synthetic_messages)} synthetic ToolMessages "
+                    f"to repair orphaned tool calls"
+                )
+
+        except Exception as e:
+            logger.error(f"{agent_name}: Error repairing orphaned tool calls: {e}", exc_info=True)
+            # Don't fail - this is a recovery mechanism, not critical path
+
     async def _preflight_context_check(self, config: RunnableConfig, query: str) -> None:
         """
         Pre-flight check: Estimate context usage BEFORE calling LLM.
@@ -952,6 +1027,10 @@ Use this as the reference point for all date calculations. When users say "today
 
         # Ensure graph is initialized
         await self._ensure_graph_initialized(config)
+
+        # CRITICAL: Repair orphaned tool calls BEFORE any LLM invocation
+        # This prevents "Found AIMessages with tool_calls that do not have a corresponding ToolMessage" errors
+        await self._repair_orphaned_tool_calls(config)
 
         # Pre-flight check: Estimate context usage BEFORE calling LLM
         await self._preflight_context_check(config, enhanced_query)

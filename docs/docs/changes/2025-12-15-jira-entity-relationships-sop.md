@@ -1,9 +1,9 @@
 # Jira Entity Relationships SOP
 
-**Date**: 2025-12-15  
-**Status**: 🟢 In-use  
-**Author**: Sri Aradhyula  
-**Scope**: Jira Agent MCP Tools  
+**Date**: 2025-12-15
+**Status**: 🟢 In-use
+**Author**: Sri Aradhyula
+**Scope**: Jira Agent MCP Tools
 
 ## Overview
 
@@ -279,6 +279,265 @@ Agent actions:
 2. get_board_sprints(board_id=X, state="active")
 3. get_sprint_issues(sprint_id=Y)
 ```
+
+---
+
+## Real-World Query Examples
+
+These are actual user queries and the correct SOP to handle them.
+
+### Query 1: "What is the sprint assigned to SDPL-687?"
+
+**User Intent**: Get sprint information for a specific issue
+
+**SOP**:
+```python
+# Step 1: Get the issue with sprint field
+issue = get_issue(
+    issue_key="SDPL-687",
+    fields="summary,status,sprint,customfield_10020"  # sprint is often customfield_10020
+)
+
+# The sprint field will contain:
+# - sprint name
+# - sprint id
+# - sprint state (active/closed/future)
+```
+
+**Tool Sequence**:
+1. `get_issue(issue_key="SDPL-687", fields="summary,status,sprint")`
+
+**Expected Response**:
+```
+Issue SDPL-687 is assigned to:
+- Sprint: Cisco-FY26Q2-S8
+- State: active
+- Start: 2025-01-06
+- End: 2025-01-20
+```
+
+---
+
+### Query 2: "Points completed per developer for sprints: Cisco-FY26Q2-S7, S8, S9"
+
+**User Intent**: Aggregate story points by developer across multiple named sprints
+
+**SOP**:
+```python
+# Step 1: Find the project's scrum board
+boards = get_all_boards(project_key_or_id="SDPL", board_type="scrum")
+board_id = boards["values"][0]["id"]
+
+# Step 2: Get ALL sprints for the board (to find by name)
+all_sprints = get_board_sprints(board_id=board_id, max_results=100)
+
+# Step 3: Filter sprints by name to get sprint IDs
+target_sprint_names = ["Cisco-FY26Q2-S7", "Cisco-FY26Q2-S8", "Cisco-FY26Q2-S9"]
+sprint_ids = {s["name"]: s["id"] for s in all_sprints["values"] if s["name"] in target_sprint_names}
+
+# Step 4: For each sprint, get completed issues with points
+for sprint_name, sprint_id in sprint_ids.items():
+    issues = get_sprint_issues(
+        sprint_id=sprint_id,
+        jql="status in (Done, Resolved, Closed)",
+        fields="summary,assignee,customfield_10021,status"  # 10021 is often Story Points
+    )
+
+    # Aggregate points by assignee
+    for issue in issues["issues"]:
+        developer = issue["fields"]["assignee"]["displayName"]
+        points = issue["fields"].get("customfield_10021", 0) or 0
+        # Accumulate...
+```
+
+**Tool Sequence**:
+1. `get_all_boards(project_key_or_id="SDPL", board_type="scrum")` - Get board ID
+2. `get_board_sprints(board_id=X, max_results=100)` - Get all sprints to find by name
+3. `get_sprint_issues(sprint_id=Y, jql="status in (Done,Resolved,Closed)", fields="assignee,customfield_10021")` - For each sprint
+4. **Agent aggregates data** and formats table
+
+**Expected Response**:
+```
+| Developer Name    | Cisco-FY26Q2-S7 | Cisco-FY26Q2-S8 | Cisco-FY26Q2-S9 |
+|-------------------|-----------------|-----------------|-----------------|
+| John Smith        | 13              | 8               | 5               |
+| Jane Doe          | 8               | 13              | 10              |
+| Bob Wilson        | 5               | 5               | 8               |
+```
+
+---
+
+### Query 3: "Report of points resolved per developer for last 3 sprints in SDPL"
+
+**User Intent**: Find recent sprints automatically, then aggregate
+
+**SOP**:
+```python
+# Step 1: Get the scrum board
+boards = get_all_boards(project_key_or_id="SDPL", board_type="scrum")
+board_id = boards["values"][0]["id"]
+
+# Step 2: Get CLOSED sprints (most recent first)
+# Note: API returns sprints in order, closed sprints are the completed ones
+closed_sprints = get_board_sprints(board_id=board_id, state="closed", max_results=50)
+
+# Step 3: Sort by end date descending, take last 3
+# (sprints have completeDate field when closed)
+recent_sprints = sorted(
+    closed_sprints["values"],
+    key=lambda s: s.get("completeDate", ""),
+    reverse=True
+)[:3]
+
+# Step 4: For each sprint, aggregate as in Query 2
+```
+
+**Tool Sequence**:
+1. `get_all_boards(project_key_or_id="SDPL", board_type="scrum")`
+2. `get_board_sprints(board_id=X, state="closed", max_results=50)` - Get closed sprints
+3. **Agent sorts by completeDate** to find "last 3"
+4. `get_sprint_issues(sprint_id=Y, ...)` - For each of 3 sprints
+5. **Agent aggregates** and formats
+
+**Common Issue**: The agent may find OLD sprints if it doesn't sort by date!
+
+---
+
+### Query 4: "Execute JQL and show Sprint/Points"
+
+**User Intent**: Run specific JQL, extract sprint and points fields
+
+**SOP**:
+```python
+# Use search_issues with explicit fields
+results = search_issues(
+    jql="project = SDPL AND sprint in (73390, 75033, 71590) ORDER BY created DESC",
+    fields="key,summary,sprint,customfield_10021",  # Include sprint and points
+    max_results=100
+)
+
+# Format as table
+for issue in results["issues"]:
+    key = issue["key"]
+    sprint = issue["fields"].get("sprint", [{}])[0].get("name", "No Sprint")
+    points = issue["fields"].get("customfield_10021", 0) or 0
+    print(f"| {key} | {sprint} | {points} |")
+```
+
+**Tool Sequence**:
+1. `search_issues(jql="...", fields="key,summary,sprint,customfield_10021")`
+2. **Agent formats** the table
+
+**Important**: Sprint and Story Points are often custom fields! Common mappings:
+- `sprint` or `customfield_10020` - Sprint field
+- `customfield_10021` or `customfield_10026` - Story Points
+
+---
+
+## Field Discovery: Finding Sprint and Points Fields
+
+The sprint and story points fields are **custom fields** that vary by Jira instance!
+
+**SOP to discover field IDs**:
+```python
+# Step 1: Get a known issue with sprint/points
+issue = get_issue(issue_key="SDPL-687", fields="*all")
+
+# Step 2: Look for fields containing "sprint" or "point"
+# Common patterns:
+# - customfield_10020: Sprint
+# - customfield_10021: Story Points
+# - customfield_10026: Story point estimate
+
+# Step 3: Or use field discovery
+fields = list_fields()  # Returns all field metadata
+sprint_field = next(f for f in fields if "sprint" in f["name"].lower())
+points_field = next(f for f in fields if "story point" in f["name"].lower())
+```
+
+---
+
+## Sprint Naming Conventions
+
+Many organizations use naming patterns. Help the agent understand:
+
+| Pattern | Example | Meaning |
+|---------|---------|---------|
+| `{Team}-FY{YY}Q{Q}-S{N}` | Cisco-FY26Q2-S7 | Fiscal Year 26, Q2, Sprint 7 |
+| `Sprint {N}` | Sprint 42 | Simple numbering |
+| `{Project} Sprint {N}` | SDPL Sprint 15 | Project-prefixed |
+| `{Date Range}` | Jan 6-20 | Date-based |
+
+When user says "last 3 sprints", the agent should:
+1. Get all sprints for the board
+2. Sort by `completeDate` (for closed) or `startDate` (for all)
+3. Take the most recent N
+
+---
+
+## Troubleshooting Common Failures
+
+### Issue: "No sprints found"
+**Cause**: Wrong board, or board is Kanban (no sprints)
+**Fix**:
+```python
+# Check board type first
+boards = get_all_boards(project_key_or_id="SDPL")
+for board in boards["values"]:
+    print(f"{board['name']}: {board['type']}")  # Only 'scrum' has sprints
+```
+
+### Issue: "Sprint field is empty"
+**Cause**: Issue not assigned to any sprint (in backlog)
+**Fix**: Issue is valid, just not in a sprint
+
+### Issue: "Story points not showing"
+**Cause**: Using wrong custom field ID
+**Fix**: Use field discovery to find the correct field ID for your instance
+
+### Issue: "Wrong sprints returned for 'last 3'"
+**Cause**: Not sorting by date, or mixing board sprints
+**Fix**:
+```python
+# Sort by completeDate for closed sprints
+sprints = sorted(closed_sprints, key=lambda s: s["completeDate"], reverse=True)[:3]
+```
+
+### Issue: "Points showing as null"
+**Cause**: Issues don't have story points estimated
+**Fix**: Filter for issues with points: `jql="project = SDPL AND 'Story Points' > 0"`
+
+---
+
+## Agent Prompt Template for Sprint Queries
+
+When user asks about sprints, the agent should:
+
+```
+1. IDENTIFY the project key from the query
+   - "SDPL-687" → project = "SDPL"
+   - "SDPL project" → project = "SDPL"
+
+2. FIND the scrum board for that project
+   - get_all_boards(project_key_or_id="SDPL", board_type="scrum")
+   - If no scrum board → "This project uses Kanban, no sprints available"
+
+3. GET sprints based on need:
+   - Specific sprint by NAME → get_board_sprints() then filter by name
+   - Last N sprints → get_board_sprints(state="closed"), sort by date
+   - Active sprint → get_board_sprints(state="active")
+
+4. GET issues with required fields:
+   - get_sprint_issues(sprint_id, fields="assignee,customfield_10021")
+   - ALWAYS include sprint and points custom fields
+
+5. AGGREGATE and FORMAT:
+   - Group by developer/assignee
+   - Sum story points
+   - Format as requested table
+```
+
+---
 
 ## Related Documents
 
