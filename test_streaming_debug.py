@@ -1,58 +1,12 @@
+#!/usr/bin/env python3
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Minimal streaming debug harness.
-
-This script calls the supervisor streaming endpoint and prints a compact view of events.
-It is intentionally small and dependency-light.
-"""
+"""Debug streaming response duplication by tabulating all events."""
 
 from __future__ import annotations
 
-import json
-import sys
-from collections import Counter
-from pathlib import Path
-
-
-def main() -> None:
-    if len(sys.argv) < 2:
-        print("Usage: python test_streaming_debug.py /tmp/<capture>.jsonl", file=sys.stderr)
-        raise SystemExit(2)
-
-    p = Path(sys.argv[1])
-    if not p.exists():
-        print(f"File not found: {p}", file=sys.stderr)
-        raise SystemExit(2)
-
-    kinds: Counter[str] = Counter()
-    artifacts: Counter[str] = Counter()
-
-    for line in p.read_text().splitlines():
-        if not line.strip():
-            continue
-        obj = json.loads(line)
-        res = obj.get("result", {}) or {}
-        kind = str(res.get("kind") or "")
-        kinds[kind] += 1
-        if kind == "artifact-update":
-            art = res.get("artifact", {}) or {}
-            name = art.get("name")
-            if name:
-                artifacts[str(name)] += 1
-
-    print("Kind counts:", dict(kinds))
-    print("Artifact name counts:", dict(artifacts))
-
-
-if __name__ == "__main__":
-    main()
-
-#!/usr/bin/env python3
-"""Debug streaming response duplication by tabulating all events."""
-
 import asyncio
-import json
 from uuid import uuid4
 from collections import defaultdict
 
@@ -67,6 +21,7 @@ from a2a.types import (
 AGENT_URL = "http://localhost:8000"
 SESSION_CONTEXT_ID = uuid4().hex
 
+
 def create_streaming_payload(text: str) -> dict:
     return {
         "message": {
@@ -77,11 +32,13 @@ def create_streaming_payload(text: str) -> dict:
         }
     }
 
+
 async def fetch_agent_card() -> AgentCard:
     """Fetch the agent card."""
     async with httpx.AsyncClient() as httpx_client:
         resolver = A2ACardResolver(httpx_client=httpx_client, base_url=AGENT_URL)
         return await resolver.get_agent_card()
+
 
 async def test_streaming(message: str):
     """Test streaming and tabulate all events."""
@@ -162,13 +119,13 @@ async def test_streaming(message: str):
 
             # Summary
             print("\n" + "="*100)
-            print(f"\n📊 SUMMARY:")
+            print("\n📊 SUMMARY:")
             print(f"Total events: {event_num}")
             print(f"Content chunks: {len(content_chunks)}")
             print(f"Unique content: {len(set(content_chunks))}")
 
             # Show duplicates
-            print(f"\n🔁 DUPLICATES:")
+            print("\n🔁 DUPLICATES:")
             for content, count in duplicates.items():
                 if count > 1:
                     preview = content[:80].replace('\n', '\\n')
@@ -186,6 +143,6 @@ async def test_streaming(message: str):
         import traceback
         traceback.print_exc()
 
+
 if __name__ == "__main__":
     asyncio.run(test_streaming("get PRs for ai-platform-engineering repo"))
-

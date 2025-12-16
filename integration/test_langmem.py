@@ -30,7 +30,6 @@ async def test_langmem():
     print("\n📋 Test 1: Check LangMem availability")
     try:
         from ai_platform_engineering.utils.a2a_common.langmem_utils import (
-            is_langmem_available,
             get_langmem_status,
             summarize_messages,
             verify_langmem_on_startup,
@@ -147,6 +146,7 @@ async def test_langmem():
 if __name__ == "__main__":
     success = asyncio.run(test_langmem())
     sys.exit(0 if success else 1)
+
 
 
 

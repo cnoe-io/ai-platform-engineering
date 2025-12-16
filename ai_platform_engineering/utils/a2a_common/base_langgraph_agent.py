@@ -3,6 +3,7 @@
 
 """Base agent class providing common A2A functionality with streaming support."""
 
+import asyncio
 import json
 import logging
 import os
@@ -38,7 +39,7 @@ from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 logger = logging.getLogger(__name__)
 
 # LangMem utilities for intelligent message summarization
-from .langmem_utils import is_langmem_available, summarize_messages, get_langmem_status
+from .langmem_utils import summarize_messages
 
 if not MCP_AVAILABLE:
     logger.warning("langchain_mcp_adapters not available - MCP functionality will be disabled for agents using this base class")
@@ -942,7 +943,7 @@ Use this as the reference point for all date calculations. When users say "today
 
                     # Remove oldest messages until we're under target
                     while history_tokens > target_tokens and len(messages) > self.min_messages_to_keep:
-                        oldest = messages.pop(0)
+                        messages.pop(0)  # Remove oldest message
                         messages_to_remove_count += 1
                         history_tokens = self._count_total_tokens(messages)
 
@@ -1044,271 +1045,136 @@ Use this as the reference point for all date calculations. When users say "today
         # Check if token-by-token streaming is enabled (default: false for backward compatibility)
         enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
 
-        if enable_streaming:
-            # Token-by-token streaming mode using 'messages' and 'custom' (for writer() events from tools)
-            logger.info(f"{agent_name}: Token-by-token streaming ENABLED")
-            processed_message_count = 0
-            async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
-                # Process message stream
-                if item_type == 'custom':
-                    # Handle custom events from writer() (e.g., sub-agent streaming)
-                    logger.info(f"{agent_name}: Received custom event from writer(): {item}")
-                    # Yield custom events as-is for the executor to handle
-                    yield item
-                    continue
+        # Flag to track if stream was cancelled
+        stream_cancelled = False
 
-                if item_type != 'messages':
-                    continue
-
-                message = item[0] if item else None
-                if not message:
-                    continue
-
-                logger.debug(f"📨 Received message type: {type(message).__name__}")
-
-                # Skip HumanMessage
-                if isinstance(message, HumanMessage):
-                    continue
-
-                # Handle AIMessageChunk for token-by-token streaming
-                if isinstance(message, AIMessageChunk):
-                    # Check for tool calls
-                    if hasattr(message, "tool_calls") and message.tool_calls:
-                        for tool_call in message.tool_calls:
-                            tool_name = tool_call.get("name", "")
-                            tool_id = tool_call.get("id", "")
-
-                            if not tool_name or not tool_name.strip():
-                                continue
-
-                            if tool_id and tool_id in seen_tool_calls:
-                                continue
-                            if tool_id:
-                                seen_tool_calls.add(tool_id)
-
-                            agent_name_formatted = self.get_agent_name().title()
-                            tool_name_formatted = tool_name.title()
-                            yield {
-                                'is_task_complete': False,
-                                'require_user_input': False,
-                                'tool_call': {
-                                    'id': tool_id or tool_name_formatted,
-                                    'name': tool_name,
-                                },
-                                'kind': 'tool_call',
-                                'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
-                            }
+        try:
+            if enable_streaming:
+                # Token-by-token streaming mode using 'messages' and 'custom' (for writer() events from tools)
+                logger.info(f"{agent_name}: Token-by-token streaming ENABLED")
+                processed_message_count = 0
+                async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+                    # Process message stream
+                    if item_type == 'custom':
+                        # Handle custom events from writer() (e.g., sub-agent streaming)
+                        logger.info(f"{agent_name}: Received custom event from writer(): {item}")
+                        # Yield custom events as-is for the executor to handle
+                        yield item
                         continue
 
-                    # Stream token content
-                    if message.content:
-                        # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
-                        content = message.content
-                        if isinstance(content, list):
-                            # If content is a list (AWS Bedrock), extract text from content blocks
-                            logger.debug(f"🔄 BEDROCK FORMAT FIX (streaming): Converting list content to text. Raw: {str(content)[:100]}...")
+                    if item_type != 'messages':
+                        continue
+
+                    message = item[0] if item else None
+                    if not message:
+                        continue
+
+                    logger.debug(f"📨 Received message type: {type(message).__name__}")
+
+                    # Skip HumanMessage
+                    if isinstance(message, HumanMessage):
+                        continue
+
+                    # Handle AIMessageChunk for token-by-token streaming
+                    if isinstance(message, AIMessageChunk):
+                        # Check for tool calls
+                        if hasattr(message, "tool_calls") and message.tool_calls:
+                            for tool_call in message.tool_calls:
+                                tool_name = tool_call.get("name", "")
+                                tool_id = tool_call.get("id", "")
+
+                                if not tool_name or not tool_name.strip():
+                                    continue
+
+                                if tool_id and tool_id in seen_tool_calls:
+                                    continue
+                                if tool_id:
+                                    seen_tool_calls.add(tool_id)
+
+                                agent_name_formatted = self.get_agent_name().title()
+                                tool_name_formatted = tool_name.title()
+                                yield {
+                                    'is_task_complete': False,
+                                    'require_user_input': False,
+                                    'tool_call': {
+                                        'id': tool_id or tool_name_formatted,
+                                        'name': tool_name,
+                                    },
+                                    'kind': 'tool_call',
+                                    'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
+                                }
+                            continue
+
+                        # Stream token content
+                        if message.content:
+                            # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
+                            content = message.content
+                            if isinstance(content, list):
+                                # If content is a list (AWS Bedrock), extract text from content blocks
+                                logger.debug(f"🔄 BEDROCK FORMAT FIX (streaming): Converting list content to text. Raw: {str(content)[:100]}...")
+                                text_parts = []
+                                for item in content:
+                                    if isinstance(item, dict):
+                                        # Extract text from Bedrock content block: {"type": "text", "text": "..."}
+                                        text_parts.append(item.get('text', ''))
+                                    elif isinstance(item, str):
+                                        text_parts.append(item)
+                                    else:
+                                        text_parts.append(str(item))
+                                content = ''.join(text_parts)
+                                logger.debug(f"🔄 BEDROCK FORMAT FIX (streaming): Normalized to: {content[:100]}...")
+                            elif not isinstance(content, str):
+                                logger.debug(f"🔄 Content normalization: Converting {type(content).__name__} to string")
+                                content = str(content) if content else ''
+
+                            if content:  # Only yield if there's actual content after normalization
+                                yield {
+                                    'is_task_complete': False,
+                                    'require_user_input': False,
+                                    'kind': 'text_chunk',
+                                    'content': content,
+                                }
+                        continue
+
+                    # Handle ToolMessage
+                    if isinstance(message, ToolMessage):
+                        tool_name = getattr(message, "name", "unknown")
+                        tool_content = getattr(message, "content", "")
+
+                        # Normalize tool_content to string (Bedrock returns list, OpenAI returns string)
+                        if isinstance(tool_content, list):
                             text_parts = []
-                            for item in content:
+                            for item in tool_content:
                                 if isinstance(item, dict):
-                                    # Extract text from Bedrock content block: {"type": "text", "text": "..."}
                                     text_parts.append(item.get('text', ''))
                                 elif isinstance(item, str):
                                     text_parts.append(item)
                                 else:
                                     text_parts.append(str(item))
-                            content = ''.join(text_parts)
-                            logger.debug(f"🔄 BEDROCK FORMAT FIX (streaming): Normalized to: {content[:100]}...")
-                        elif not isinstance(content, str):
-                            logger.debug(f"🔄 Content normalization: Converting {type(content).__name__} to string")
-                            content = str(content) if content else ''
+                            tool_content = ''.join(text_parts)
+                        elif not isinstance(tool_content, str):
+                            tool_content = str(tool_content) if tool_content else ""
 
-                        if content:  # Only yield if there's actual content after normalization
-                            yield {
-                                'is_task_complete': False,
-                                'require_user_input': False,
-                                'kind': 'text_chunk',
-                                'content': content,
-                            }
-                    continue
-
-                # Handle ToolMessage
-                if isinstance(message, ToolMessage):
-                    tool_name = getattr(message, "name", "unknown")
-                    tool_content = getattr(message, "content", "")
-                    is_error = False
-                    if hasattr(message, "status"):
-                        is_error = getattr(message, "status", "") == "error"
-                    elif "error" in str(tool_content).lower()[:100]:
-                        is_error = True
-
-                    icon = "❌" if is_error else "✅"
-                    status = "failed" if is_error else "completed"
-
-                    agent_name_formatted = self.get_agent_name().title()
-                    tool_name_formatted = tool_name.title()
-                    yield {
-                        'is_task_complete': False,
-                        'require_user_input': False,
-                        'tool_result': {
-                            'name': tool_name,
-                            'status': status,
-                            'is_error': is_error,
-                        },
-                        'kind': 'tool_result',
-                        'content': f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n",
-                    }
-
-                    # Stream intermediate tool output if enabled
-                    stream_tool_output = os.getenv("STREAM_TOOL_OUTPUT", "false").lower() == "true"
-                    if stream_tool_output and tool_content:
-                        # Format tool output for readability
-                        tool_output_preview = str(tool_content)
-
-                        # Limit output size to avoid overwhelming the stream
-                        max_output_length = int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", "2000"))
-                        if len(tool_output_preview) > max_output_length:
-                            tool_output_preview = tool_output_preview[:max_output_length] + "...\n[Output truncated]"
-
-                        yield {
-                            'is_task_complete': False,
-                            'require_user_input': False,
-                            'kind': 'tool_output',
-                            'content': f"📄 {agent_name_formatted}: Tool output:\n{tool_output_preview}\n\n",
-                        }
-                    continue
-
-                if isinstance(message, AIMessage):
-                    # Surface any tool calls contained on the final AI message as well
-                    if getattr(message, "tool_calls", None):
-                        for tool_call in message.tool_calls:
-                            tool_id = tool_call.get("id", "")
-                            tool_name = tool_call.get("name", "unknown")
-
-                            if tool_id and tool_id in seen_tool_calls:
-                                continue
-                            if tool_id:
-                                seen_tool_calls.add(tool_id)
-
-                            agent_name_formatted = self.get_agent_name().title()
-                            tool_name_formatted = tool_name.title()
-                            yield {
-                                'is_task_complete': False,
-                                'require_user_input': False,
-                                'tool_call': {
-                                    'id': tool_id or tool_name_formatted,
-                                    'name': tool_name,
-                                },
-                                'kind': 'tool_call',
-                                'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
-                            }
-
-                    content_text = ""
-                    if isinstance(message.content, str):
-                        content_text = message.content
-                    elif isinstance(message.content, list):
-                        parts: list[str] = []
-                        for part in message.content:
-                            if isinstance(part, dict):
-                                part_text = part.get("text") or part.get("content")
-                                if part_text:
-                                    parts.append(part_text)
-                            elif hasattr(part, "text"):
-                                part_text = getattr(part, "text", "")
-                                if part_text:
-                                    parts.append(part_text)
-                            elif isinstance(part, str):
-                                parts.append(part)
-                        content_text = "".join(parts)
-                    elif message.content is not None:
-                        content_text = str(message.content)
-
-                    if content_text:
-                        yield {
-                            'is_task_complete': False,
-                            'require_user_input': False,
-                            'kind': 'text_chunk',
-                            'content': content_text,
-                        }
-                    continue
-
-        else:
-            # Full message mode using 'values' (current behavior)
-            logger.info(f"{agent_name}: Token-by-token streaming DISABLED, using full message mode")
-            processed_message_count = 0
-            async for state in self.graph.astream(inputs, config, stream_mode='values'):
-                # Extract messages from the state
-                if not isinstance(state, dict) or 'messages' not in state:
-                    continue
-
-                messages = state.get('messages', [])
-                if not messages:
-                    continue
-
-                # Only process new messages we haven't seen yet
-                new_messages = messages[processed_message_count:]
-                if not new_messages:
-                    continue
-
-                # Update the count of processed messages
-                processed_message_count = len(messages)
-
-                # Process each new message
-                for message in new_messages:
-                    logger.info(f"📨 Received message type: {type(message).__name__}")
-                    if hasattr(message, 'content'):
-                        logger.info(f"📝 Content: {str(message.content)[:200]}")
-                    debug_print(f"Streamed message: {message}", banner=False)
-
-                    # Skip HumanMessage - we don't want to echo the user's query back
-                    if isinstance(message, HumanMessage):
-                        continue
-
-                    if (
-                        isinstance(message, AIMessage)
-                        and getattr(message, "tool_calls", None)
-                        and len(message.tool_calls) > 0
-                    ):
-                        # Agent is calling tools - provide detailed information
-                        for tool_call in message.tool_calls:
-                            tool_id = tool_call.get("id", "")
-                            tool_name = tool_call.get("name", "unknown")
-
-                            # Avoid duplicate tool call messages
-                            if tool_id and tool_id in seen_tool_calls:
-                                continue
-                            if tool_id:
-                                seen_tool_calls.add(tool_id)
-
-                            # Yield detailed tool call message with formatted names
-                            agent_name_formatted = self.get_agent_name().title()
-                            tool_name_formatted = tool_name.title()
-                            yield {
-                                'is_task_complete': False,
-                                'require_user_input': False,
-                                'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
-                            }
-
-                    elif isinstance(message, ToolMessage):
-                        # Agent is processing tool results - show tool name and success/failure
-                        tool_name = getattr(message, "name", "unknown")
-                        tool_content = getattr(message, "content", "")
-
-                        # Check if tool execution was successful
                         is_error = False
                         if hasattr(message, "status"):
                             is_error = getattr(message, "status", "") == "error"
-                        elif "error" in str(tool_content).lower()[:100]:
+                        elif "error" in tool_content.lower()[:100]:
                             is_error = True
 
                         icon = "❌" if is_error else "✅"
                         status = "failed" if is_error else "completed"
 
-                        # Yield detailed tool result message with formatted names
                         agent_name_formatted = self.get_agent_name().title()
                         tool_name_formatted = tool_name.title()
                         yield {
                             'is_task_complete': False,
                             'require_user_input': False,
+                            'tool_result': {
+                                'name': tool_name,
+                                'status': status,
+                                'is_error': is_error,
+                            },
+                            'kind': 'tool_result',
                             'content': f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n",
                         }
 
@@ -1316,7 +1182,7 @@ Use this as the reference point for all date calculations. When users say "today
                         stream_tool_output = os.getenv("STREAM_TOOL_OUTPUT", "false").lower() == "true"
                         if stream_tool_output and tool_content:
                             # Format tool output for readability
-                            tool_output_preview = str(tool_content)
+                            tool_output_preview = tool_content
 
                             # Limit output size to avoid overwhelming the stream
                             max_output_length = int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", "2000"))
@@ -1326,50 +1192,228 @@ Use this as the reference point for all date calculations. When users say "today
                             yield {
                                 'is_task_complete': False,
                                 'require_user_input': False,
+                                'kind': 'tool_output',
                                 'content': f"📄 {agent_name_formatted}: Tool output:\n{tool_output_preview}\n\n",
                             }
+                        continue
 
-                    else:
-                        # Regular message content (reasoning, thinking, or final response)
-                        content_text = None
-                        if hasattr(message, "content"):
-                            content_text = getattr(message, "content", None)
-                        elif isinstance(message, str):
-                            content_text = message
+                    if isinstance(message, AIMessage):
+                        # Surface any tool calls contained on the final AI message as well
+                        if getattr(message, "tool_calls", None):
+                            for tool_call in message.tool_calls:
+                                tool_id = tool_call.get("id", "")
+                                tool_name = tool_call.get("name", "unknown")
+
+                                if tool_id and tool_id in seen_tool_calls:
+                                    continue
+                                if tool_id:
+                                    seen_tool_calls.add(tool_id)
+
+                                agent_name_formatted = self.get_agent_name().title()
+                                tool_name_formatted = tool_name.title()
+                                yield {
+                                    'is_task_complete': False,
+                                    'require_user_input': False,
+                                    'tool_call': {
+                                        'id': tool_id or tool_name_formatted,
+                                        'name': tool_name,
+                                    },
+                                    'kind': 'tool_call',
+                                    'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
+                                }
+
+                        content_text = ""
+                        if isinstance(message.content, str):
+                            content_text = message.content
+                        elif isinstance(message.content, list):
+                            parts: list[str] = []
+                            for part in message.content:
+                                if isinstance(part, dict):
+                                    part_text = part.get("text") or part.get("content")
+                                    if part_text:
+                                        parts.append(part_text)
+                                elif hasattr(part, "text"):
+                                    part_text = getattr(part, "text", "")
+                                    if part_text:
+                                        parts.append(part_text)
+                                elif isinstance(part, str):
+                                    parts.append(part)
+                            content_text = "".join(parts)
+                        elif message.content is not None:
+                            content_text = str(message.content)
 
                         if content_text:
-                            # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
-                            if isinstance(content_text, list):
-                                # If content is a list (AWS Bedrock), extract text from content blocks
-                                logger.debug(f"🔄 BEDROCK FORMAT FIX (full-msg): Converting list content to text. Raw: {str(content_text)[:100]}...")
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'kind': 'text_chunk',
+                                'content': content_text,
+                            }
+                        continue
+
+            else:
+                # Full message mode using 'values' (current behavior)
+                logger.info(f"{agent_name}: Token-by-token streaming DISABLED, using full message mode")
+                processed_message_count = 0
+                async for state in self.graph.astream(inputs, config, stream_mode='values'):
+                    # Extract messages from the state
+                    if not isinstance(state, dict) or 'messages' not in state:
+                        continue
+
+                    messages = state.get('messages', [])
+                    if not messages:
+                        continue
+
+                    # Only process new messages we haven't seen yet
+                    new_messages = messages[processed_message_count:]
+                    if not new_messages:
+                        continue
+
+                    # Update the count of processed messages
+                    processed_message_count = len(messages)
+
+                    # Process each new message
+                    for message in new_messages:
+                        logger.info(f"📨 Received message type: {type(message).__name__}")
+                        if hasattr(message, 'content'):
+                            logger.info(f"📝 Content: {str(message.content)[:200]}")
+                        debug_print(f"Streamed message: {message}", banner=False)
+
+                        # Skip HumanMessage - we don't want to echo the user's query back
+                        if isinstance(message, HumanMessage):
+                            continue
+
+                        if (
+                            isinstance(message, AIMessage)
+                            and getattr(message, "tool_calls", None)
+                            and len(message.tool_calls) > 0
+                        ):
+                            # Agent is calling tools - provide detailed information
+                            for tool_call in message.tool_calls:
+                                tool_id = tool_call.get("id", "")
+                                tool_name = tool_call.get("name", "unknown")
+
+                                # Avoid duplicate tool call messages
+                                if tool_id and tool_id in seen_tool_calls:
+                                    continue
+                                if tool_id:
+                                    seen_tool_calls.add(tool_id)
+
+                                # Yield detailed tool call message with formatted names
+                                agent_name_formatted = self.get_agent_name().title()
+                                tool_name_formatted = tool_name.title()
+                                yield {
+                                    'is_task_complete': False,
+                                    'require_user_input': False,
+                                    'content': f"🔧 {agent_name_formatted}: Calling tool: {tool_name_formatted}\n",
+                                }
+
+                        elif isinstance(message, ToolMessage):
+                            # Agent is processing tool results - show tool name and success/failure
+                            tool_name = getattr(message, "name", "unknown")
+                            tool_content = getattr(message, "content", "")
+
+                            # Normalize tool_content to string (Bedrock returns list, OpenAI returns string)
+                            if isinstance(tool_content, list):
                                 text_parts = []
-                                for item in content_text:
+                                for item in tool_content:
                                     if isinstance(item, dict):
-                                        # Extract text from Bedrock content block: {"type": "text", "text": "..."}
                                         text_parts.append(item.get('text', ''))
                                     elif isinstance(item, str):
                                         text_parts.append(item)
                                     else:
                                         text_parts.append(str(item))
-                                content_text = ''.join(text_parts)
-                                logger.debug(f"🔄 BEDROCK FORMAT FIX (full-msg): Normalized to: {content_text[:100]}...")
-                            elif not isinstance(content_text, str):
-                                logger.debug(f"🔄 Content normalization (full-msg): Converting {type(content_text).__name__} to string")
-                                content_text = str(content_text) if content_text else ''
+                                tool_content = ''.join(text_parts)
+                            elif not isinstance(tool_content, str):
+                                tool_content = str(tool_content) if tool_content else ""
 
-                            if content_text:  # Only yield if there's actual content after normalization
+                            # Check if tool execution was successful
+                            is_error = False
+                            if hasattr(message, "status"):
+                                is_error = getattr(message, "status", "") == "error"
+                            elif "error" in tool_content.lower()[:100]:
+                                is_error = True
+
+                            icon = "❌" if is_error else "✅"
+                            status = "failed" if is_error else "completed"
+
+                            # Yield detailed tool result message with formatted names
+                            agent_name_formatted = self.get_agent_name().title()
+                            tool_name_formatted = tool_name.title()
+                            yield {
+                                'is_task_complete': False,
+                                'require_user_input': False,
+                                'content': f"{icon} {agent_name_formatted}: Tool {tool_name_formatted} {status}\n",
+                            }
+
+                            # Stream intermediate tool output if enabled
+                            stream_tool_output = os.getenv("STREAM_TOOL_OUTPUT", "false").lower() == "true"
+                            if stream_tool_output and tool_content:
+                                # Format tool output for readability
+                                tool_output_preview = tool_content
+
+                                # Limit output size to avoid overwhelming the stream
+                                max_output_length = int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", "2000"))
+                                if len(tool_output_preview) > max_output_length:
+                                    tool_output_preview = tool_output_preview[:max_output_length] + "...\n[Output truncated]"
+
                                 yield {
                                     'is_task_complete': False,
                                     'require_user_input': False,
-                                    'content': content_text,
+                                    'content': f"📄 {agent_name_formatted}: Tool output:\n{tool_output_preview}\n\n",
                                 }
 
-        # Yield task completion marker
-        yield {
-            'is_task_complete': True,
-            'require_user_input': False,
-            'content': '',
-        }
+                        else:
+                            # Regular message content (reasoning, thinking, or final response)
+                            content_text = None
+                            if hasattr(message, "content"):
+                                content_text = getattr(message, "content", None)
+                            elif isinstance(message, str):
+                                content_text = message
 
+                            if content_text:
+                                # Normalize content to string (AWS Bedrock returns list, OpenAI returns string)
+                                if isinstance(content_text, list):
+                                    # If content is a list (AWS Bedrock), extract text from content blocks
+                                    logger.debug(f"🔄 BEDROCK FORMAT FIX (full-msg): Converting list content to text. Raw: {str(content_text)[:100]}...")
+                                    text_parts = []
+                                    for item in content_text:
+                                        if isinstance(item, dict):
+                                            # Extract text from Bedrock content block: {"type": "text", "text": "..."}
+                                            text_parts.append(item.get('text', ''))
+                                        elif isinstance(item, str):
+                                            text_parts.append(item)
+                                        else:
+                                            text_parts.append(str(item))
+                                    content_text = ''.join(text_parts)
+                                    logger.debug(f"🔄 BEDROCK FORMAT FIX (full-msg): Normalized to: {content_text[:100]}...")
+                                elif not isinstance(content_text, str):
+                                    logger.debug(f"🔄 Content normalization (full-msg): Converting {type(content_text).__name__} to string")
+                                    content_text = str(content_text) if content_text else ''
 
+                                if content_text:  # Only yield if there's actual content after normalization
+                                    yield {
+                                        'is_task_complete': False,
+                                        'require_user_input': False,
+                                        'content': content_text,
+                                    }
 
+        except asyncio.CancelledError:
+            # Handle graceful cancellation when client disconnects
+            logger.warning(f"{agent_name}: Stream cancelled by client - handling gracefully")
+            stream_cancelled = True
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'kind': 'cancelled',
+                'content': f"⚠️ {agent_name.title()} operation was cancelled.",
+            }
+            return
+
+        # Yield task completion marker (only if not cancelled)
+        if not stream_cancelled:
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'content': '',
+            }

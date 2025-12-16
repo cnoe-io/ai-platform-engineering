@@ -90,10 +90,8 @@ class TestCreateBoard:
     @pytest.mark.asyncio
     async def test_create_board_success(self, monkeypatch):
         """Test creating a board."""
-        def mock_check_read_only():
-            return None
-
-        monkeypatch.setattr("mcp_jira.tools.jira.boards.check_read_only", mock_check_read_only)
+        # Ensure read-only mode is disabled for this test
+        monkeypatch.setattr("mcp_jira.tools.jira.boards.MCP_JIRA_READ_ONLY", False)
 
         from mcp_jira.tools.jira.boards import create_board
 

@@ -176,6 +176,8 @@ class GitHubAgent(BaseLangGraphAgent):
         Tool-level errors are handled by _wrap_mcp_tools(), but this catches
         any other unexpected failures (LLM errors, graph errors, etc.) as a last resort.
 
+        Note: CancelledError is handled gracefully in the base class (BaseLangGraphAgent).
+
         Args:
             query: User's input query
             sessionId: Session ID for this conversation
@@ -189,6 +191,7 @@ class GitHubAgent(BaseLangGraphAgent):
                 yield chunk
         except Exception as e:
             # This should rarely trigger since tool errors are handled at tool level
+            # Note: CancelledError is handled in base class, won't reach here
             logger.error(f"Unexpected GitHub agent error: {str(e)}", exc_info=True)
             yield {
                 'is_task_complete': True,

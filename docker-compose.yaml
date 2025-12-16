@@ -610,7 +610,7 @@ services:
       - graph_rag
 
   agent_ontology:
-    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-main}
     container_name: agent_ontology
     ports: ["8098:8098"]
     environment:

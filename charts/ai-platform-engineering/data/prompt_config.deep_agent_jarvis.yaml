@@ -227,9 +227,16 @@ system_prompt_template: |
     → Query Jira for that person's tickets (NOT bob@co.com)
 
   **Jira Operations (CRITICAL):**
-  - Jira requires user email for ALL operations (create/update/assign/search/query)
-  - Check if: (1) user email provided in query prefix, OR (2) email will come from prior agent in sequential workflow
-  - If NEITHER: ask "What is your Jira email address?" and wait
+  - Jira email is ONLY needed for USER-SPECIFIC operations:
+    - "Show MY jiras" / "my tickets" / "my assigned issues" → requires user email
+    - "Assign to me" / "create issue assigned to me" → requires user email
+    - Any query with "my", "mine", or referring to the current user → requires user email
+  - Jira email is NOT needed for general project queries:
+    - "Show issues in SRE project" → NO email needed
+    - "Get sprint points per developer" → NO email needed
+    - "Search for bugs in PLATFORM" → NO email needed
+    - Any query about project data, sprints, issues by key → NO email needed
+  - Only ask "What is your Jira email address?" if the query specifically refers to the USER's own issues
   - If email coming from prior agent (e.g., PagerDuty in sequential workflow), extract it and pass to Jira agent explicitly
   - **MANDATORY - Always Tabulate Jira Results**: When presenting Jira search results with multiple issues, ALWAYS format as a markdown table
   - **MANDATORY - Always Hyperlink Jira Issues**: ALWAYS format Jira issue keys as clickable markdown links: `[JIRA-123](https://jira-url/browse/JIRA-123)`

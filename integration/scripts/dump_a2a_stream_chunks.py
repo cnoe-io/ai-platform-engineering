@@ -3,67 +3,6 @@
 
 """Dump A2A SSE streaming chunks into a TSV table.
 
-Usage:
-  python integration/scripts/dump_a2a_stream_chunks.py --input /tmp/capture.jsonl --output integration/artifacts/capture.tsv
-"""
-
-from __future__ import annotations
-
-import argparse
-import json
-from pathlib import Path
-
-
-def _infer_agent(text: str) -> str:
-    # Intentionally avoid content-based heuristics in this repo.
-    # Keep this column blank/unknown for now.
-    return ""
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-
-    inp = Path(args.input)
-    out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
-
-    rows = []
-    idx = 0
-    for line in inp.read_text().splitlines():
-        if not line.strip():
-            continue
-        obj = json.loads(line)
-        res = obj.get("result", {}) or {}
-        if res.get("kind") != "artifact-update":
-            continue
-        art = res.get("artifact", {}) or {}
-        name = str(art.get("name", "") or "")
-        parts = art.get("parts") or []
-        text = "".join(p.get("text", "") for p in parts if isinstance(p, dict) and p.get("text"))
-        if not text:
-            continue
-        idx += 1
-        rows.append((idx, _infer_agent(text), name, text.replace("\t", "    ").replace("\r", "")))
-
-    out.write_text(
-        "idx\tagent\tartifact_name\ttext\n"
-        + "\n".join(f"{i}\t{a}\t{n}\t{t}" for i, a, n, t in rows)
-        + "\n"
-    )
-    print(f"Wrote {len(rows)} rows to {out}")
-
-
-if __name__ == "__main__":
-    main()
-
-# Copyright 2025 CNOE
-# SPDX-License-Identifier: Apache-2.0
-
-"""Dump A2A SSE streaming chunks into a TSV table.
-
 This script is intended for debugging duplicate/garbled streaming output by turning an
 SSE capture (json-lines of `data: {...}` payloads) into a row-per-chunk table:
 
@@ -213,5 +152,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

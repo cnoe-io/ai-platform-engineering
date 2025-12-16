@@ -721,7 +721,7 @@ services:
   #                                      RAG Services                                                #
   ####################################################################################################
   rag_server:
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-main}
     container_name: rag_server
     ports: ["9446:9446"]
     environment:
@@ -744,7 +744,7 @@ services:
       - graph_rag
 
   agent_ontology:
-    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-main}
     container_name: agent_ontology
     ports: ["8098:8098"]
     environment:
@@ -762,13 +762,29 @@ services:
       - graph_rag
 
   rag_webui:
-    image: ghcr.io/cnoe-io/caipe-rag-webui:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-webui:${IMAGE_TAG:-main}
     container_name: rag-webui
     environment:
       - RAG_SERVER_URL=http://rag_server:9446
       - NGINX_ENVSUBST_TEMPLATE_SUFFIX=.conf
     depends_on: [rag_server]
     ports: ["9447:80"]
+    profiles:
+      - rag
+      - graph_rag
+
+  web_ingestor:
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-main}
+    container_name: web-ingestor
+    environment:
+      - INGESTOR_TYPE=webloader
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://rag-redis:6379/0
+      - RAG_SERVER_URL=http://rag_server:9446
+      - MAX_CONCURRENT_JOBS=${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
+    env_file: [.env]
+    restart: unless-stopped
+    depends_on: [rag_server]
     profiles:
       - rag
       - graph_rag
