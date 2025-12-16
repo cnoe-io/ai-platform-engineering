@@ -561,8 +561,8 @@ class IngestorBuilder:
             if not datasources:
                 # No datasources yet - use sync_interval to avoid tight loop
                 # The sync function should create datasources if needed
-                logger.debug(f"No datasources found, will check again after sync_interval ({self._sync_interval}s)")
-                return self._sync_interval
+                logger.debug(f"No datasources found, will check again in 30 seconds")
+                return 30  # 30 seconds
             
             # Find the earliest datasource that will need reloading
             min_time_until_reload = self._sync_interval
