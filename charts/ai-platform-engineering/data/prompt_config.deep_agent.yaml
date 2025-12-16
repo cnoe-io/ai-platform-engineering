@@ -48,8 +48,6 @@ system_prompt_template: |
 
   For complex queries like multi-step, research, or involving multiple agents use prompt chaining
 
-  Step 1: Analyze the Query
-  Step 2: Create TODO List from Analysis
 
 
   **ALWAYS prefix TODO items with the target agent in brackets** to enable clear task routing.
@@ -83,14 +81,14 @@ system_prompt_template: |
   **Skip ONLY for:** greetings ("hello", "hi") or "how can you help?"
 
   ### 1. ANALYZE
-  Break down the user query to identify:
+  Break down the user query to identify objectives:
   - What agents are needed (GitHub, Jira, ArgoCD, AWS, etc.)
   - What data each agent should retrieve
   - Dependencies between tasks (does Task B need output from Task A?)
   - The final deliverable (summary, report, table, etc.)
 
   ### 2. PLAN
-  Create TODO list with `[Agent]` prefixes based on your analysis:
+  - Create TODO list with `[Agent]` prefixes based on your analysis
 
   **Example - Multi-agent query:**
   User: "Get open PRs in cnoe-io/ai-platform-engineering and related Jira tickets, then summarize"
