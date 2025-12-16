@@ -32,7 +32,9 @@ jobs:
         with:
           python-version: "3.13.2"
       - name: Install UV
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Install ruff linter
         run: pip install ruff
       - name: Run ruff linter # python linting
