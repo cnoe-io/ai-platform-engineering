@@ -1,3 +1,62 @@
+## Unreleased
+
+### Feat
+
+- add langfuse to agent ontology
+- **prompts**: make analyze_query mandatory for all queries
+- **agents**: add SOPs, table formatting, and context scoping to Confluence, PagerDuty, AWS
+- **splunk**: add Splunk Cloud Platform MCP log search integration
+- **langmem**: add proactive pre-flight context check to supervisor
+- **langmem**: add centralized LangMem utility with observability
+- **multi-agents**: add langmem dependency for supervisor
+- **agents**: implement comprehensive context management and error recovery
+- **agents**: add intelligent tool output truncation for context management
+- **github-agent**: add gh CLI tool for workflow log retrieval and debugging
+- **prompts**: add GitHub Actions log retrieval from URLs
+- **agents**: add MCP tool error handling to prevent A2A stream closure
+- **prompts**: add GitHub agent formatting SOP and context awareness
+
+### Fix
+
+- clean-up
+- reconcile
+- **docker-compose.dev.yaml**: revert to stable
+- add MAX_SEARCH_RESULTS and WARN_SEARCH_RESULTS for argocd agent
+- neo4j port
+- rag image
+- docker-compose fix
+- minor bugfix; docker-compose fixes
+- accept/reject buttons api in UI
+- argocd ingestor additional id keys
+- content too large err, return 400 if no ontology; better batching
+- better err handling for ontology agent
+- explicit rag reference instructions
+- **ci**: add uv to PATH in lint workflow
+- **prompts**: escape curly braces in JSON examples for Python format()
+- add analyze_query as llm query
+- add analyze_query as llm query
+- updates
+- **langmem**: fix API call and prevent orphaned tool calls
+- **supervisor**: respect ENABLE_STREAMING env var
+- **streaming**: resolve Queue is closed race condition and improve error handling
+- **agents**: improve error parsing for TaskGroup and async errors
+- **prompts**: make RAG lookup conditional
+- **supervisor**: improve orphaned tool call recovery UX
+- **prompts**: remove biased examples from GitHub Actions debugging SOP
+- **supervisor**: fix ToolMessage and SystemMessage imports
+- **agents**: update to non-deprecated create_agent API
+- **agents**: correct LangMem API usage and import order
+- **github-agent**: add GH_TOKEN environment variable for gh CLI authentication
+- **docker-compose.yaml**: add RAG_SERVER_URL
+
+### Refactor
+
+- **prompt**: reconcile jarvis prompt with deep_agent optimizations
+- **prompt**: make source citation generic and add prompt chaining
+- **prompt**: make agent prefixes generic in supervisor prompt
+- **prompts**: replace analyze_query with [Agent] prefix format
+- **agents**: use LLMFactory for LangMem summarization
+
 ## 0.2.5 (2025-12-12)
 
 ### Feat
@@ -52,11 +111,6 @@
 - also enable metric from each sub-agent
 - default metric to false and use global with helper
 - add prometheus metrics support
-- ontology agent rewrite for scale
-- add webex and argocdv3 ingestors, fix dummy ingestor
-- add embeddings factory; separate webloader
-- major ingestor refactor
-- add retry when 429 Too many requests
 
 ### Fix
 
@@ -151,26 +205,6 @@
 - **test**: add komodor test prompt
 - **lint**: fix linting
 - **komodor**: regenerate mcp from openapi spec
-- webui graph rewrite
-- fix backstage ingestor
-- add slack ingestor
-- fix k8s ingestor
-- fix aws ingestor
-- Dockerfile fixes
-- remove pandas from rag server
-- webui with new ingestors
-- get agent_ontology with new common libs
-- add rag_ontology tests; lots of bugs fixed
-- server improvements
-- update common module
-- graph ui improvements - working buttons
-- agent_ontology bug fixes; using tool instead of structured output
-- e2e tests for rag components
-- add e2e tests; bug fixes; more info in healthz
-- agent-rag uses MCP instead of direct DB access
-- remove redundant test-data
-- add e2e tests; rm local tests
-- ui improvements
 
 ### Refactor
 
