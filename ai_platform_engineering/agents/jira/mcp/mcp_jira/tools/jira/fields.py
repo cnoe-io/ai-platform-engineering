@@ -2,7 +2,7 @@
 
 import logging
 import json
-from typing_extensions import Annotated
+from typing import Annotated
 from pydantic import Field
 from mcp_jira.utils.field_discovery import get_field_discovery
 
@@ -56,28 +56,66 @@ async def get_field_info(
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-async def list_custom_fields() -> str:
-    """List all custom fields available in this Jira instance.
+async def list_custom_fields(
+    limit: Annotated[
+        int,
+        Field(description="Maximum number of fields to return (default 50 to prevent context overflow)")
+    ] = 50,
+    include_schema: Annotated[
+        bool,
+        Field(description="Whether to include full schema details (default False for smaller output)")
+    ] = False,
+) -> str:
+    """List custom fields available in this Jira instance.
+
+    Returns a paginated list of custom fields. Use get_field_info() for
+    detailed schema of specific fields.
+
+    Args:
+        limit: Maximum number of fields to return (default 50).
+        include_schema: Whether to include full schema details.
 
     Returns:
-        JSON string with list of custom fields including IDs, names, and schemas.
+        JSON string with list of custom fields including IDs and names.
     """
     field_discovery = get_field_discovery()
     custom_fields = await field_discovery.get_custom_fields()
 
-    result = {
-        "total_count": len(custom_fields),
-        "custom_fields": [
+    # Limit output to prevent context overflow
+    total_count = len(custom_fields)
+    limited_fields = custom_fields[:limit]
+
+    if include_schema:
+        fields_output = [
             {
                 "id": field.get("id"),
                 "name": field.get("name"),
                 "schema": field.get("schema", {})
             }
-            for field in custom_fields
+            for field in limited_fields
         ]
+    else:
+        # Smaller output: just id, name, and schema type
+        fields_output = [
+            {
+                "id": field.get("id"),
+                "name": field.get("name"),
+                "type": field.get("schema", {}).get("type", "unknown")
+            }
+            for field in limited_fields
+        ]
+
+    result = {
+        "total_count": total_count,
+        "returned_count": len(limited_fields),
+        "custom_fields": fields_output,
     }
 
-    logger.info(f"Listed {len(custom_fields)} custom fields")
+    # Add pagination hint if there are more fields
+    if total_count > limit:
+        result["note"] = f"Showing first {limit} of {total_count} fields. Use get_field_info('field_name') to get details for a specific field."
+
+    logger.info(f"Listed {len(limited_fields)} of {total_count} custom fields")
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

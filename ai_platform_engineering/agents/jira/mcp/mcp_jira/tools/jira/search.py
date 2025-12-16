@@ -18,7 +18,7 @@ DEFAULT_READ_JIRA_FIELDS = ["summary", "status", "assignee", "priority", "issuet
 async def search(
     jql: Annotated[str, Field(description="JQL query string to search for issues")],
     fields: Annotated[Optional[str], Field(description="Comma-separated fields to return (e.g., 'summary,status,assignee')")] = None,
-    limit: Annotated[int, Field(description="Maximum number of results to return")] = 100,
+    limit: Annotated[int, Field(description="Maximum number of results to return (default 25, max 100 to prevent context overflow)")] = 25,
     start_at: Annotated[int, Field(description="Starting index for pagination")] = 0,
     projects_filter: Annotated[str, Field(description="Comma-separated list of project keys to filter by")] = "",
     expand: Annotated[str, Field(description="Optional fields to expand")] = "",

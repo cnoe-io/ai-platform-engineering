@@ -44,6 +44,127 @@ class AIPlatformEngineerA2ABinding:
       self.tracing = TracingManager()
       self._execution_plan_sent = False
 
+  async def _repair_orphaned_tool_calls(self, config: dict) -> None:
+      """
+      CRITICAL: Repair orphaned tool calls in message history.
+
+      Bedrock/Anthropic requires ToolMessages to appear IMMEDIATELY after
+      the AIMessage with tool_use. If we can't properly repair the ordering,
+      we remove the problematic AIMessages entirely.
+
+      This is essential for recovery when:
+      - A sub-agent call fails mid-stream (e.g., context overflow)
+      - A tool call is interrupted
+      - Network issues cause incomplete responses
+
+      Args:
+          config: Runnable configuration with thread_id
+      """
+      try:
+          from langchain_core.messages import RemoveMessage
+
+          state = await self.graph.aget_state(config)
+          if not state or not state.values:
+              return
+
+          messages = state.values.get("messages", [])
+          if not messages:
+              return
+
+          # Build a map of tool_call_id -> (index, tool_name, msg_id)
+          tool_calls_info = {}  # {tool_call_id: (msg_index, tool_name, ai_msg_id)}
+          resolved_tool_calls = set()
+
+          for idx, msg in enumerate(messages):
+              # Track tool calls from AIMessages
+              if isinstance(msg, AIMessage):
+                  tool_calls = getattr(msg, 'tool_calls', None) or []
+                  msg_id = getattr(msg, 'id', None)
+                  for tc in tool_calls:
+                      tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+                      tc_name = tc.get('name') if isinstance(tc, dict) else getattr(tc, 'name', 'unknown')
+                      if tc_id:
+                          tool_calls_info[tc_id] = (idx, tc_name, msg_id)
+
+              # Track resolved tool calls
+              if isinstance(msg, ToolMessage):
+                  tc_id = getattr(msg, 'tool_call_id', None)
+                  if tc_id:
+                      resolved_tool_calls.add(tc_id)
+
+          # Find orphaned tool calls (have tool_use but no tool_result)
+          orphaned = {tc_id: info for tc_id, info in tool_calls_info.items()
+                      if tc_id not in resolved_tool_calls}
+
+          if not orphaned:
+              return
+
+          orphaned_names = [info[1] for info in orphaned.values()]
+          logging.warning(
+              f"⚠️ Supervisor: Found {len(orphaned)} orphaned tool calls. "
+              f"IDs: {list(orphaned.keys())}, Names: {orphaned_names}"
+          )
+
+          # CRITICAL FIX FOR BEDROCK:
+          # Bedrock requires tool_result to be IMMEDIATELY after tool_use.
+          # Simply appending ToolMessages won't work - they go at the end.
+          #
+          # SOLUTION: Reconstruct the message history with synthetic ToolMessages
+          # inserted at the correct positions (immediately after AIMessages with tool_use).
+          # This preserves conversation context while satisfying Bedrock's strict ordering.
+
+          # Build a map of msg_index -> list of orphaned tool_call_ids for that AIMessage
+          orphaned_by_msg_idx = {}
+          for tool_call_id, (msg_idx, tool_name, ai_msg_id) in orphaned.items():
+              if msg_idx not in orphaned_by_msg_idx:
+                  orphaned_by_msg_idx[msg_idx] = []
+              orphaned_by_msg_idx[msg_idx].append((tool_call_id, tool_name))
+
+          # Reconstruct message list with synthetic ToolMessages inserted at correct positions
+          reconstructed_messages = []
+          for idx, msg in enumerate(messages):
+              reconstructed_messages.append(msg)
+
+              # If this AIMessage has orphaned tool calls, insert synthetic ToolMessages right after
+              if idx in orphaned_by_msg_idx:
+                  for tool_call_id, tool_name in orphaned_by_msg_idx[idx]:
+                      synthetic_msg = ToolMessage(
+                          content=(
+                              f"⚠️ Tool call to '{tool_name}' was interrupted or timed out. "
+                              f"The sub-agent failed to complete. You may retry if needed."
+                          ),
+                          tool_call_id=tool_call_id,
+                          name=tool_name,
+                      )
+                      reconstructed_messages.append(synthetic_msg)
+                      logging.info(
+                          f"🔧 Inserted synthetic ToolMessage after AIMessage at index {idx} "
+                          f"for tool_call_id={tool_call_id[:20]}..., name={tool_name}"
+                      )
+
+          # Now replace the entire message history:
+          # 1. Remove all existing messages
+          # 2. Add the reconstructed messages
+
+          all_msg_ids = [getattr(msg, 'id', None) for msg in messages if getattr(msg, 'id', None)]
+          if all_msg_ids:
+              remove_messages = [RemoveMessage(id=msg_id) for msg_id in all_msg_ids]
+              await self.graph.aupdate_state(config, {"messages": remove_messages})
+              logging.debug(f"Removed {len(all_msg_ids)} old messages")
+
+          # Add reconstructed messages (they'll be appended in order)
+          await self.graph.aupdate_state(config, {"messages": reconstructed_messages})
+
+          logging.info(
+              f"✅ Supervisor: Reconstructed message history with {len(orphaned)} synthetic ToolMessages. "
+              f"Total messages: {len(reconstructed_messages)} (was {len(messages)}). "
+              f"Conversation context preserved."
+          )
+
+      except Exception as e:
+          logging.error(f"Supervisor: Error repairing orphaned tool calls: {e}", exc_info=True)
+          # Don't fail - this is a recovery mechanism, not critical path
+
   def _deserialize_a2a_event(self, data: Any):
       """Try to deserialize a dict payload into known A2A models."""
       if not isinstance(data, dict):
@@ -123,6 +244,17 @@ class AIPlatformEngineerA2ABinding:
       except Exception as preflight_error:
           logging.error(f"❌ Supervisor pre-flight check failed: {preflight_error}")
           # Don't fail the request - continue without compression
+
+      # ========================================================================
+      # CRITICAL: Repair orphaned tool calls BEFORE LLM invocation
+      # This prevents "Found AIMessages with tool_calls that do not have a
+      # corresponding ToolMessage" errors when sub-agents fail mid-stream
+      # ========================================================================
+      try:
+          await self._repair_orphaned_tool_calls(config)
+      except Exception as repair_error:
+          logging.error(f"⚠️ Supervisor: Failed to repair orphaned tool calls: {repair_error}")
+          # Don't fail - this is a recovery mechanism
 
       try:
           # Track accumulated AI message content for final parsing
@@ -454,6 +586,73 @@ class AIPlatformEngineerA2ABinding:
                       "is_task_complete": False,
                       "require_user_input": False,
                       "content": f"❌ Recovery retry failed. Please ask your question again."
+                  }
+                  return
+
+          # Check if it's a Bedrock tool_use ordering error
+          # This happens when ToolMessage is not IMMEDIATELY after the AIMessage with tool_use
+          elif "tool_use" in error_str and "tool_result" in error_str and "immediately after" in error_str:
+              logging.error(f"❌ Bedrock tool_use ordering error: {error_str}")
+
+              # Extract the problematic tool_use ID from error if possible
+              import re
+              id_match = re.search(r'tooluse_[A-Za-z0-9_-]+', error_str)
+              problem_id = id_match.group(0) if id_match else "unknown"
+              logging.error(f"Problematic tool_use ID: {problem_id}")
+
+              # Aggressive fix: Remove ALL messages with orphaned tool_calls
+              try:
+                  from langchain_core.messages import RemoveMessage
+
+                  state = await self.graph.aget_state(config)
+                  messages = state.values.get("messages", []) if state and state.values else []
+
+                  # Find all tool_call IDs and their resolutions
+                  tool_call_to_msg = {}  # {tool_call_id: msg with that tool_call}
+                  resolved = set()
+
+                  for msg in messages:
+                      if isinstance(msg, AIMessage):
+                          tool_calls = getattr(msg, 'tool_calls', None) or []
+                          for tc in tool_calls:
+                              tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+                              if tc_id:
+                                  tool_call_to_msg[tc_id] = msg
+                      if isinstance(msg, ToolMessage):
+                          tc_id = getattr(msg, 'tool_call_id', None)
+                          if tc_id:
+                              resolved.add(tc_id)
+
+                  # Remove AIMessages with unresolved tool_calls
+                  msgs_to_remove = []
+                  for tc_id, msg in tool_call_to_msg.items():
+                      if tc_id not in resolved:
+                          msg_id = getattr(msg, 'id', None)
+                          if msg_id:
+                              msgs_to_remove.append(RemoveMessage(id=msg_id))
+                              logging.info(f"Removing AIMessage with orphaned tool_call: {tc_id[:20]}...")
+
+                  if msgs_to_remove:
+                      await self.graph.aupdate_state(config, {"messages": msgs_to_remove})
+                      logging.info(f"✅ Removed {len(msgs_to_remove)} AIMessages with orphaned tool_calls")
+
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": (
+                          "⚠️ A previous tool call failed and caused a message ordering issue. "
+                          "I've cleaned up the conversation history.\n\n"
+                          "Please ask your question again."
+                      ),
+                  }
+                  return
+
+              except Exception as cleanup_error:
+                  logging.error(f"Failed to clean up orphaned tool_calls: {cleanup_error}")
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": f"❌ Tool ordering error occurred. Please start a new conversation."
                   }
                   return
 
