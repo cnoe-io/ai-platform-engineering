@@ -313,7 +313,7 @@ services:
         - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/neo4j/plugins:/plugins
     ports:
       - "7474:7474"
-      - "7688:7687"
+      - "7687:7687"
     restart: unless-stopped
     profiles:
       - deps
