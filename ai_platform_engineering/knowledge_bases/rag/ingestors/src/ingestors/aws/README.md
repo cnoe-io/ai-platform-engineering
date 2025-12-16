@@ -32,7 +32,7 @@ Ingests AWS resources as graph entities into the RAG system. Discovers and fetch
 
 - `AWS_REGION` or `AWS_DEFAULT_REGION` - AWS region for API calls (default: `us-east-2`)
 - `RESOURCE_TYPES` - Comma-separated list of resource types to ingest (default: all supported types)
-- `SYNC_INTERVAL` - Sync interval in seconds (default: `900` = 15 minutes)
+- `SYNC_INTERVAL` - Sync interval in seconds (default: `86400` = 24 hours)
 - `INIT_DELAY_SECONDS` - Delay before first sync in seconds (default: `0`)
 - `LOG_LEVEL` - Logging level (default: `INFO`)
 
