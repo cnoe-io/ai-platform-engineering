@@ -87,7 +87,10 @@ class A2ARemoteAgentConnectTool(BaseTool):
     logger.info("*" * 80)
     logger.info(
         f"Connecting to remote agent: {getattr(self._remote_agent_card, 'name', self._remote_agent_card)}")
-    self._httpx_client = httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(retries=10), timeout=httpx.Timeout(300.0))
+    # Use A2A_TIMEOUT environment variable with default of 120 seconds
+    a2a_timeout = float(os.getenv("A2A_TIMEOUT", "120.0"))
+    logger.info(f"Using A2A timeout: {a2a_timeout} seconds")
+    self._httpx_client = httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(retries=10), timeout=httpx.Timeout(a2a_timeout))
 
     # If self._remote_agent_card is already an AgentCard, just use it
     if isinstance(self._remote_agent_card, AgentCard):
@@ -153,11 +156,32 @@ class A2ARemoteAgentConnectTool(BaseTool):
   def _run(self, prompt: str, trace_id: Optional[str] = None, context_id: Optional[str] = None) -> Any:
     raise NotImplementedError("Use _arun for async execution.")
 
+  async def _heartbeat_task(self, writer, agent_name: str, stop_event: asyncio.Event) -> None:
+    """Send periodic heartbeat updates while waiting for sub-agent response."""
+    heartbeat_interval = float(os.getenv("A2A_HEARTBEAT_INTERVAL", "30.0"))  # Default 30 seconds
+    wait_count = 0
+
+    while not stop_event.is_set():
+      try:
+        await asyncio.wait_for(stop_event.wait(), timeout=heartbeat_interval)
+        # If we get here, stop_event was set - exit the loop
+        break
+      except asyncio.TimeoutError:
+        # Timeout means we should send a heartbeat
+        wait_count += 1
+        elapsed = wait_count * heartbeat_interval
+        writer({
+          "type": "a2a_event",
+          "data": f"⏳ Waiting for {agent_name}... ({int(elapsed)}s)"
+        })
+        logger.debug(f"Heartbeat: Waiting for {agent_name} ({int(elapsed)}s)")
+
   async def _arun(self, prompt: str, trace_id: Optional[str] = None, context_id: Optional[str] = None) -> Any:
     """Execute remote agent call with retry, error detection, and human-in-loop support."""
 
     max_attempts = int(os.getenv("A2A_REMOTE_MAX_RETRIES", "1"))
     retry_delay = float(os.getenv("A2A_REMOTE_RETRY_DELAY_SECONDS", "5.0"))
+    enable_heartbeat = os.getenv("A2A_HEARTBEAT_ENABLED", "true").lower() == "true"
     writer = get_stream_writer()
 
     # Track metrics for this subagent call
@@ -175,10 +199,30 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
     last_error: Optional[str] = None
 
+    async def stop_heartbeat_gracefully(stop_event, task):
+      """Helper to stop heartbeat task gracefully."""
+      stop_event.set()
+      if task:
+        try:
+          await asyncio.wait_for(task, timeout=1.0)
+        except asyncio.TimeoutError:
+          task.cancel()
+
     try:
       for attempt in range(max_attempts + 1):
+        # Start heartbeat task if enabled
+        stop_heartbeat = asyncio.Event()
+        heartbeat_task = None
+        if enable_heartbeat:
+          heartbeat_task = asyncio.create_task(
+            self._heartbeat_task(writer, self.name, stop_heartbeat)
+          )
+
         try:
           output, status, status_message = await self._execute_once(prompt, trace_id, context_id, writer, user_email)
+
+          # Stop heartbeat on completion
+          await stop_heartbeat_gracefully(stop_heartbeat, heartbeat_task)
 
           if status and status.lower() == "error":
             last_error = status_message or "Remote agent returned an error response."
@@ -198,6 +242,9 @@ class A2ARemoteAgentConnectTool(BaseTool):
           return output
 
         except Exception as exc:  # noqa: BLE001
+          # Stop heartbeat on error
+          await stop_heartbeat_gracefully(stop_heartbeat, heartbeat_task)
+
           last_error = str(exc)
           logger.error(f"{self.name} attempt {attempt + 1} raised exception: {last_error}")
           if attempt < max_attempts:

@@ -77,24 +77,27 @@ skills_prompt = PromptTemplate(
 def generate_system_prompt(agents: Dict[str, Any], rag_config: Optional[Dict[str, Any]] = None):
   """
   Generate system prompt with static RAG tools.
-  
+
   Args:
       agents: Dictionary of available agents with their descriptions
-  
+
   Returns:
       System prompt string
   """
   tool_instructions = []
-  
-  # Always add static RAG tools instruction (no dynamic datasources/entities)
-  logger.info("Adding static RAG tools to system prompt")
-  
-  # Get RAG instructions from rag_prompts module
-  if rag_config:
-    rag_instructions = get_rag_instructions(rag_config)
+
+  # RAG is optional: only include RAG guidance if the RAG agent/tool is connected.
+  rag_connected = agents.get("rag") is not None
+  if rag_connected:
+    logger.info("RAG agent connected; including RAG instructions in system prompt")
+    rag_instructions = get_rag_instructions(rag_config or {})
   else:
-    rag_instructions = "RAG tools are not available"
-  
+    logger.info("RAG agent not connected; disabling RAG guidance in system prompt")
+    rag_instructions = (
+      "RAG tools are NOT available in this deployment. Do NOT mention a RAG knowledge base. "
+      "If information is missing (org/owner/repo/etc.), ask the user directly."
+    )
+
   # Add instructions for each agent
   for agent_key, agent_card in agents.items():
 

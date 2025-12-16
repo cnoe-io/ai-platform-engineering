@@ -312,3 +312,44 @@ class TestSwapSprint:
         result = await swap_sprint(1, 2)
 
         assert "swap" in result.lower() or "success" in result.lower()
+
+
+class TestGetIssueSprint:
+    """Tests for get_issue_sprint function."""
+
+    @pytest.mark.asyncio
+    async def test_get_issue_sprint_success(self, monkeypatch):
+        """Test getting sprint information for an issue - in mock mode returns data."""
+        from mcp_jira.tools.jira.sprints import get_issue_sprint
+
+        result = await get_issue_sprint("PROJ-123")
+
+        # In mock mode, the function should return a valid response structure
+        assert "PROJ-123" in result
+        assert "sprint_summary" in result
+
+    @pytest.mark.asyncio
+    async def test_get_issue_sprint_no_sprint(self, monkeypatch):
+        """Test getting sprint information for an issue - mock mode returns data."""
+        from mcp_jira.tools.jira.sprints import get_issue_sprint
+
+        result = await get_issue_sprint("PROJ-456")
+
+        # In mock mode, the function should return a valid response structure
+        assert "PROJ-456" in result
+        assert "sprint_summary" in result
+
+    @pytest.mark.asyncio
+    async def test_get_issue_sprint_returns_valid_structure(self, monkeypatch):
+        """Test that get_issue_sprint returns valid JSON structure."""
+        from mcp_jira.tools.jira.sprints import get_issue_sprint
+
+        result = await get_issue_sprint("TEST-999")
+
+        # Verify the result is valid JSON with expected structure
+        result_dict = json.loads(result)
+        assert "sprint_summary" in result_dict
+        assert "issue_key" in result_dict["sprint_summary"]
+        assert "current_sprint" in result_dict["sprint_summary"]
+        assert "closed_sprints" in result_dict["sprint_summary"]
+        assert "flagged" in result_dict["sprint_summary"]

@@ -69,13 +69,13 @@ class ConfluenceAgent(BaseLangGraphAgent):
     def get_mcp_http_config(self) -> dict | None:
         """
         Return custom HTTP MCP configuration for sooperset/mcp-atlassian.
-        
+
         This overrides the default HTTP config to NOT send Authorization headers,
         since sooperset/mcp-atlassian handles auth via environment variables.
         """
         mcp_host = os.getenv("MCP_HOST", "localhost")
         mcp_port = os.getenv("MCP_PORT", "8000")
-        
+
         return {
             "url": f"http://{mcp_host}:{mcp_port}/mcp/",
             # No Authorization header - server uses env vars for auth
@@ -93,9 +93,20 @@ class ConfluenceAgent(BaseLangGraphAgent):
     @trace_agent_stream("confluence")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):
         """
-        Stream responses with confluence-specific tracing.
+        Stream responses with confluence-specific tracing and safety-net error handling.
 
         Overrides the base stream method to add agent-specific tracing decorator.
         """
-        async for event in super().stream(query, sessionId, trace_id):
-            yield event
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            async for event in super().stream(query, sessionId, trace_id):
+                yield event
+        except Exception as e:
+            logger.error(f"Unexpected Confluence agent error: {str(e)}", exc_info=True)
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'kind': 'error',
+                'content': f"❌ An unexpected error occurred in Confluence: {str(e)}\n\nPlease try again or contact support if the issue persists.",
+            }

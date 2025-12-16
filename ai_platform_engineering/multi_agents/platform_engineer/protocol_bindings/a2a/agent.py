@@ -4,6 +4,7 @@
 import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncIterable
 from typing import Any
 
@@ -19,7 +20,12 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
 )
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
+from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
+from ai_platform_engineering.utils.a2a_common.langmem_utils import (
+    summarize_messages,
+    preflight_context_check,
+)
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -37,6 +43,122 @@ class AIPlatformEngineerA2ABinding:
       self.tracing = TracingManager()
       self._execution_plan_sent = False
 
+  async def _repair_orphaned_tool_calls(self, config: dict) -> None:
+      """
+      CRITICAL: Repair orphaned tool calls in message history.
+
+      Bedrock/Anthropic requires ToolMessages to appear IMMEDIATELY after
+      the AIMessage with tool_use. If we can't properly repair the ordering,
+      we remove the problematic AIMessages entirely.
+
+      This is essential for recovery when:
+      - A sub-agent call fails mid-stream (e.g., context overflow)
+      - A tool call is interrupted
+      - Network issues cause incomplete responses
+
+      Args:
+          config: Runnable configuration with thread_id
+      """
+      try:
+          from langchain_core.messages import RemoveMessage
+
+          state = await self.graph.aget_state(config)
+          if not state or not state.values:
+              return
+
+          messages = state.values.get("messages", [])
+          if not messages:
+              return
+
+          # Build a map of tool_call_id -> (index, tool_name, msg_id)
+          tool_calls_info = {}  # {tool_call_id: (msg_index, tool_name, ai_msg_id)}
+          resolved_tool_calls = set()
+
+          for idx, msg in enumerate(messages):
+              # Track tool calls from AIMessages
+              if isinstance(msg, AIMessage):
+                  tool_calls = getattr(msg, 'tool_calls', None) or []
+                  msg_id = getattr(msg, 'id', None)
+                  for tc in tool_calls:
+                      tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+                      tc_name = tc.get('name') if isinstance(tc, dict) else getattr(tc, 'name', 'unknown')
+                      if tc_id:
+                          tool_calls_info[tc_id] = (idx, tc_name, msg_id)
+
+              # Track resolved tool calls
+              if isinstance(msg, ToolMessage):
+                  tc_id = getattr(msg, 'tool_call_id', None)
+                  if tc_id:
+                      resolved_tool_calls.add(tc_id)
+
+          # Find orphaned tool calls (have tool_use but no tool_result)
+          orphaned = {tc_id: info for tc_id, info in tool_calls_info.items()
+                      if tc_id not in resolved_tool_calls}
+
+          if not orphaned:
+              return
+
+          orphaned_names = [info[1] for info in orphaned.values()]
+          logging.warning(
+              f"⚠️ Supervisor: Found {len(orphaned)} orphaned tool calls. "
+              f"IDs: {list(orphaned.keys())}, Names: {orphaned_names}"
+          )
+
+          # STRATEGY: Remove ONLY the AIMessages that have orphaned tool calls.
+          # This preserves earlier conversation history while eliminating the problematic
+          # messages that would cause Bedrock validation errors.
+          #
+          # We cannot simply append ToolMessages at the end because Bedrock requires
+          # tool_result immediately after tool_use. And we cannot remove ALL messages
+          # because that triggers IndexError when LangGraph's should_continue runs.
+
+          # Get the IDs of AIMessages that have orphaned tool calls
+          ai_msg_ids_to_remove = set()
+          for tool_call_id, (msg_idx, tool_name, ai_msg_id) in orphaned.items():
+              if ai_msg_id:
+                  ai_msg_ids_to_remove.add(ai_msg_id)
+                  logging.info(
+                      f"🔧 Will remove AIMessage with orphaned tool_call: "
+                      f"msg_id={ai_msg_id[:20] if ai_msg_id else 'None'}..., "
+                      f"tool={tool_name}, tool_call_id={tool_call_id[:20]}..."
+                  )
+
+          if ai_msg_ids_to_remove:
+              # Remove only the problematic AIMessages
+              remove_messages = [RemoveMessage(id=msg_id) for msg_id in ai_msg_ids_to_remove]
+              await self.graph.aupdate_state(config, {"messages": remove_messages})
+              logging.info(
+                  f"✅ Supervisor: Removed {len(ai_msg_ids_to_remove)} AIMessage(s) with orphaned tool calls. "
+                  f"Earlier conversation history preserved."
+              )
+          else:
+              # No message IDs found - fall back to just logging
+              logging.warning(
+                  f"⚠️ Supervisor: Found orphaned tool calls but no message IDs to remove. "
+                  f"Orphaned tools: {orphaned_names}"
+              )
+
+      except Exception as e:
+          logging.error(f"Supervisor: Error repairing orphaned tool calls: {e}", exc_info=True)
+          # If repair fails, try a fallback: clear the thread state entirely
+          # This loses history but allows future queries to work
+          try:
+              logging.warning("⚠️ Attempting fallback: clearing corrupted thread state")
+              # Get the thread_id from config
+              thread_id = config.get("configurable", {}).get("thread_id")
+              if thread_id and hasattr(self.graph, 'checkpointer') and self.graph.checkpointer:
+                  # Try to clear the checkpoint for this thread
+                  logging.info(f"Clearing checkpoint for thread_id: {thread_id}")
+                  # We can't easily delete checkpoints, so we'll just add a fresh HumanMessage
+                  # to reset the conversation flow
+                  from langchain_core.messages import HumanMessage
+                  reset_msg = HumanMessage(content="[System: Previous conversation was interrupted. Starting fresh.]")
+                  await self.graph.aupdate_state(config, {"messages": [reset_msg]})
+                  logging.info("✅ Added reset message to recover from corrupted state")
+          except Exception as fallback_err:
+              logging.error(f"Fallback recovery also failed: {fallback_err}")
+              # At this point, the conversation is corrupted - user will need to start a new thread
+
   def _deserialize_a2a_event(self, data: Any):
       """Try to deserialize a dict payload into known A2A models."""
       if not isinstance(data, dict):
@@ -53,6 +175,10 @@ class AIPlatformEngineerA2ABinding:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}")
       # Reset execution plan state for each new stream
       self._execution_plan_sent = False
+
+      # Track tool calls to ensure every AIMessage.tool_call gets a ToolMessage
+      pending_tool_calls = {}  # {tool_call_id: tool_name}
+
       inputs = {'messages': [('user', query)]}
       config = self.tracing.create_config(context_id)
 
@@ -80,16 +206,83 @@ class AIPlatformEngineerA2ABinding:
 
       logging.debug(f"Created tracing config: {config}")
 
+      # ========================================================================
+      # PRE-FLIGHT CONTEXT CHECK: Proactively compress if approaching limit
+      # ========================================================================
+      try:
+          max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "100000"))
+          min_messages_to_keep = int(os.getenv("MIN_MESSAGES_TO_KEEP", "4"))
+
+          context_result = await preflight_context_check(
+              graph=self.graph,
+              config=config,
+              query=query,
+              system_prompt=self.SYSTEM_INSTRUCTION,
+              model=LLMFactory().get_llm(),
+              agent_name="supervisor",
+              max_context_tokens=max_context_tokens,
+              min_messages_to_keep=min_messages_to_keep,
+              tool_count=50,  # Supervisor has many tools
+          )
+
+          if context_result.compressed:
+              logging.info(
+                  f"🧠 Supervisor pre-flight: Context compressed, "
+                  f"saved {context_result.tokens_saved:,} tokens, "
+                  f"LangMem used: {context_result.used_langmem}"
+              )
+          elif context_result.needs_compression and context_result.error:
+              logging.warning(
+                  f"⚠️ Supervisor pre-flight: Compression needed but failed: {context_result.error}"
+              )
+      except Exception as preflight_error:
+          logging.error(f"❌ Supervisor pre-flight check failed: {preflight_error}")
+          # Don't fail the request - continue without compression
+
+      # ========================================================================
+      # CRITICAL: Repair orphaned tool calls BEFORE LLM invocation
+      # This prevents "Found AIMessages with tool_calls that do not have a
+      # corresponding ToolMessage" errors when sub-agents fail mid-stream
+      # ========================================================================
+      try:
+          await self._repair_orphaned_tool_calls(config)
+      except Exception as repair_error:
+          logging.error(f"⚠️ Supervisor: Failed to repair orphaned tool calls: {repair_error}")
+          # Don't fail - this is a recovery mechanism
+
+      # ========================================================================
+      # SYNTHESIS RETRY CONFIGURATION
+      # If synthesis fails (orphaned tool calls, timeout), retry before failing
+      # ========================================================================
+      max_synthesis_retries = int(os.getenv("MAX_SYNTHESIS_RETRIES", "2"))
+      synthesis_retry_count = 0
+
       try:
           # Track accumulated AI message content for final parsing
           accumulated_ai_content = []
           final_ai_message = None
 
-          # Use astream with multiple stream modes to get both token-level streaming AND custom events
-          # stream_mode=['messages', 'custom'] enables:
-          # - 'messages': Token-level streaming via AIMessageChunk
-          # - 'custom': Custom events from sub-agents via get_stream_writer()
-          async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+          # Track sub-agent responses for fallback if synthesis fails
+          # Format: {tool_name: response_content}
+          accumulated_subagent_responses = {}
+
+          # Check if token-by-token streaming is enabled (default: true)
+          # When disabled, uses 'values' mode which waits for complete messages
+          enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
+
+          if enable_streaming:
+              # Use astream with multiple stream modes to get both token-level streaming AND custom events
+              # stream_mode=['messages', 'custom'] enables:
+              # - 'messages': Token-level streaming via AIMessageChunk
+              # - 'custom': Custom events from sub-agents via get_stream_writer()
+              stream_mode = ['messages', 'custom']
+              logging.info("Supervisor: Token-by-token streaming ENABLED")
+          else:
+              # Use values mode for complete messages (better spacing, less responsive)
+              stream_mode = ['values', 'custom']
+              logging.info("Supervisor: Token-by-token streaming DISABLED, using full message mode")
+
+          async for item_type, item in self.graph.astream(inputs, config, stream_mode=stream_mode):
 
               # Handle custom A2A event payloads from sub-agents
               if item_type == 'custom' and isinstance(item, dict):
@@ -218,12 +411,19 @@ class AIPlatformEngineerA2ABinding:
               elif isinstance(message, AIMessage) and hasattr(message, "tool_calls") and message.tool_calls:
                   for tool_call in message.tool_calls:
                       tool_name = tool_call.get("name", "")
+                      tool_call_id = tool_call.get("id", "")
+
                       # Skip tool calls with empty names
                       if not tool_name or not tool_name.strip():
                           logging.debug("Skipping tool call with empty name")
                           continue
 
-                          logging.info(f"Tool call started: {tool_name}")
+                      # Track this tool call as pending
+                      if tool_call_id:
+                          pending_tool_calls[tool_call_id] = tool_name
+                          logging.debug(f"Tracked tool call: {tool_call_id} -> {tool_name}")
+
+                      logging.info(f"Tool call started: {tool_name}")
 
                       # Stream tool start notification to client with metadata
                       tool_name_formatted = tool_name.title()
@@ -242,8 +442,38 @@ class AIPlatformEngineerA2ABinding:
               elif isinstance(message, ToolMessage):
                   tool_name = message.name if hasattr(message, 'name') else "unknown"
                   tool_content = message.content if hasattr(message, 'content') else ""
+
+                  # Normalize tool_content to string (Bedrock returns list, OpenAI returns string)
+                  if isinstance(tool_content, list):
+                      # If content is a list (AWS Bedrock), extract text from content blocks
+                      text_parts = []
+                      for item in tool_content:
+                          if isinstance(item, dict):
+                              text_parts.append(item.get('text', ''))
+                          elif isinstance(item, str):
+                              text_parts.append(item)
+                          else:
+                              text_parts.append(str(item))
+                      tool_content = ''.join(text_parts)
+                  elif not isinstance(tool_content, str):
+                      tool_content = str(tool_content) if tool_content else ""
+
+                  # Mark tool call as completed (remove from pending)
+                  tool_call_id = message.tool_call_id if hasattr(message, 'tool_call_id') else None
+                  if tool_call_id and tool_call_id in pending_tool_calls:
+                      pending_tool_calls.pop(tool_call_id)
+                      logging.debug(f"Resolved tool call: {tool_call_id} -> {tool_name}")
+
                   logging.debug(f"Tool call completed: {tool_name} (content: {len(tool_content)} chars)")
-                  
+
+                  # Track sub-agent responses for fallback if synthesis fails
+                  # Only track significant responses (sub-agent tools like 'task', agent names)
+                  if tool_content and len(tool_content) > 100:
+                      if tool_name not in accumulated_subagent_responses:
+                          accumulated_subagent_responses[tool_name] = []
+                      accumulated_subagent_responses[tool_name].append(tool_content)
+                      logging.debug(f"📦 Tracked sub-agent response from {tool_name}: {len(tool_content)} chars")
+
                   # This is a hard-coded list for now
                   # TODO: Fetch the rag tool names from when the deep agent is initialised
                   rag_tool_names = {
@@ -323,20 +553,283 @@ class AIPlatformEngineerA2ABinding:
           logging.warning("⚠️ Primary stream cancelled by client disconnection - parsing final response before exit")
           # Don't return immediately - let post-stream parsing run below
       except ValueError as ve:
-          # Handle LangGraph validation errors (e.g., orphaned tool_calls)
-          # Yield error event but keep queue open for follow-up questions
-          error_msg = f"Validation error: {str(ve)}"
-          logging.error(f"❌ {error_msg}")
-          yield {
-              "is_task_complete": False,  # Keep queue open - allow follow-up questions
-              "require_user_input": False,
-              "content": f"❌ Error: {error_msg}\n\nPlease try again or ask a follow-up question.",
-          }
+          # Handle LangGraph validation errors (e.g., orphaned tool_calls, context overflow)
+          error_str = str(ve)
+
+          # Check if it's an orphaned tool call error
+          if "tool_calls that do not have a corresponding ToolMessage" in error_str:
+              logging.error(f"❌ Orphaned tool calls detected: {list(pending_tool_calls.values())}")
+
+              # Add synthetic ToolMessages for orphaned calls to recover
+              try:
+                  synthetic_messages = []
+                  for tool_call_id, tool_name in pending_tool_calls.items():
+                      synthetic_msg = ToolMessage(
+                          content="Tool call interrupted or failed to complete.",
+                          tool_call_id=tool_call_id,
+                          name=tool_name,
+                      )
+                      synthetic_messages.append(synthetic_msg)
+
+                  if synthetic_messages:
+                      await self.graph.aupdate_state(config, {"messages": synthetic_messages})
+                      logging.info(f"✅ Added {len(synthetic_messages)} synthetic ToolMessages to recover from orphaned tool calls")
+                      # Clear tracking
+                      pending_tool_calls.clear()
+              except Exception as recovery_error:
+                  logging.error(f"Failed to add synthetic ToolMessages: {recovery_error}")
+
+              # Preserve user's query in the error message
+              user_query_preview = query[:200] if len(query) > 200 else query
+
+              yield {
+                  "is_task_complete": False,
+                  "require_user_input": False,
+                  "content": (
+                      "✅ I've recovered from an interrupted tool call. "
+                      "Let me continue processing your request...\n\n"
+                      f"Your query: {user_query_preview}\n\n"
+                      "Proceeding..."
+                  ),
+              }
+
+              # Try to re-invoke the graph with the same query to continue
+              try:
+                  # Re-stream with recovered state (use same streaming mode as main stream)
+                  retry_stream_mode = ['messages', 'custom'] if os.getenv("ENABLE_STREAMING", "true").lower() == "true" else ['values', 'custom']
+                  async for item_type, item in self.graph.astream(inputs, config, stream_mode=retry_stream_mode):
+                      if item_type == 'custom' and isinstance(item, dict):
+                          if item.get("type") == "a2a_event":
+                              custom_text = item.get("data", "")
+                              if custom_text:
+                                  yield {"is_task_complete": False, "require_user_input": False, "content": custom_text}
+                      elif item_type == 'messages':
+                          message = item[0] if item else None
+                          if isinstance(message, AIMessage) and hasattr(message, 'content') and message.content:
+                              yield {"is_task_complete": False, "require_user_input": False, "content": str(message.content)}
+                  return
+              except Exception as retry_error:
+                  logging.error(f"Retry after recovery failed: {retry_error}")
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": "❌ Recovery retry failed. Please ask your question again."
+                  }
+                  return
+
+          # Check if it's a Bedrock tool_use ordering error
+          # This happens when ToolMessage is not IMMEDIATELY after the AIMessage with tool_use
+          elif "tool_use" in error_str and "tool_result" in error_str and "immediately after" in error_str:
+              logging.error(f"❌ Bedrock tool_use ordering error: {error_str}")
+
+              # Extract the problematic tool_use ID from error if possible
+              import re
+              id_match = re.search(r'tooluse_[A-Za-z0-9_-]+', error_str)
+              problem_id = id_match.group(0) if id_match else "unknown"
+              logging.error(f"Problematic tool_use ID: {problem_id}")
+
+              # Aggressive fix: Remove ALL messages with orphaned tool_calls
+              try:
+                  from langchain_core.messages import RemoveMessage
+
+                  state = await self.graph.aget_state(config)
+                  messages = state.values.get("messages", []) if state and state.values else []
+
+                  # Find all tool_call IDs and their resolutions
+                  tool_call_to_msg = {}  # {tool_call_id: msg with that tool_call}
+                  resolved = set()
+
+                  for msg in messages:
+                      if isinstance(msg, AIMessage):
+                          tool_calls = getattr(msg, 'tool_calls', None) or []
+                          for tc in tool_calls:
+                              tc_id = tc.get('id') if isinstance(tc, dict) else getattr(tc, 'id', None)
+                              if tc_id:
+                                  tool_call_to_msg[tc_id] = msg
+                      if isinstance(msg, ToolMessage):
+                          tc_id = getattr(msg, 'tool_call_id', None)
+                          if tc_id:
+                              resolved.add(tc_id)
+
+                  # Remove AIMessages with unresolved tool_calls
+                  msgs_to_remove = []
+                  for tc_id, msg in tool_call_to_msg.items():
+                      if tc_id not in resolved:
+                          msg_id = getattr(msg, 'id', None)
+                          if msg_id:
+                              msgs_to_remove.append(RemoveMessage(id=msg_id))
+                              logging.info(f"Removing AIMessage with orphaned tool_call: {tc_id[:20]}...")
+
+                  if msgs_to_remove:
+                      await self.graph.aupdate_state(config, {"messages": msgs_to_remove})
+                      logging.info(f"✅ Removed {len(msgs_to_remove)} AIMessages with orphaned tool_calls")
+
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": (
+                          "⚠️ A previous tool call failed and caused a message ordering issue. "
+                          "I've cleaned up the conversation history.\n\n"
+                          "Please ask your question again."
+                      ),
+                  }
+                  return
+
+              except Exception as cleanup_error:
+                  logging.error(f"Failed to clean up orphaned tool_calls: {cleanup_error}")
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": "❌ Tool ordering error occurred. Please start a new conversation."
+                  }
+                  return
+
+          # Check if it's a context overflow error
+          elif "Input is too long" in error_str or "context" in error_str.lower():
+              logging.error(f"❌ Context window overflow: {error_str}")
+
+              # Try to summarize conversation history instead of clearing
+              try:
+                  state = await self.graph.aget_state(config)
+                  messages = state.values.get("messages", []) if state and state.values else []
+
+                  if messages:
+                      # Use shared LangMem utility for consistent summarization
+                      model = LLMFactory().get_llm()
+                      result = await summarize_messages(
+                          messages=messages,
+                          model=model,
+                          agent_name="supervisor",
+                      )
+
+                      if result.success and result.summary_message:
+                          # Replace all messages with summary
+                          await self.graph.aupdate_state(config, {"messages": [result.summary_message]})
+
+                          logging.info(
+                              f"✅ Summarized conversation history. "
+                              f"LangMem used: {result.used_langmem}, "
+                              f"tokens saved: {result.tokens_saved:,}"
+                          )
+
+                          recovery_msg = (
+                              "❌ The conversation exceeded the model's context window. "
+                              "I've summarized our conversation to recover.\n\n"
+                              "Please continue - your previous context has been preserved in summary form."
+                          )
+                      else:
+                          # Summarization failed, fall back to clearing
+                          await self.graph.aupdate_state(config, {"messages": []})
+                          logging.warning(f"⚠️ Summarization failed: {result.error}. Cleared history instead.")
+
+                          recovery_msg = (
+                              "❌ The conversation exceeded the model's context window. "
+                              "I've cleared the history to recover.\n\n"
+                              "**What happened:** The accumulated messages and tool outputs were too large for the model.\n\n"
+                              "**To avoid this:** Try asking for smaller chunks of data or more specific queries.\n\n"
+                              "Please ask your question again."
+                          )
+                  else:
+                      recovery_msg = "❌ Context overflow occurred but no history to summarize. Please ask your question again."
+
+              except Exception as recovery_error:
+                  logging.error(f"Failed to recover from context overflow: {recovery_error}")
+                  recovery_msg = "❌ Context overflow recovery failed. Please refresh and try again."
+
+              yield {
+                  "is_task_complete": False,
+                  "require_user_input": False,
+                  "content": recovery_msg,
+              }
+          elif "tool_calls" in error_str.lower() and "toolmessage" in error_str.lower():
+              # Orphaned tool calls error - try to repair and retry, or fallback to raw output
+              logging.warning(f"⚠️ Orphaned tool calls detected. Retry {synthesis_retry_count + 1}/{max_synthesis_retries}")
+
+              if synthesis_retry_count < max_synthesis_retries:
+                  synthesis_retry_count += 1
+                  try:
+                      # Try to repair orphaned tool calls
+                      logging.info("🔧 Attempting to repair orphaned tool calls...")
+                      await self._repair_orphaned_tool_calls(config)
+                      logging.info("✅ Orphaned tool calls repaired. Retrying synthesis...")
+
+                      # Don't return - fall through to try again
+                      # Note: This won't actually retry in the current structure,
+                      # but we can at least try to return the accumulated content
+                  except Exception as repair_error:
+                      logging.error(f"❌ Failed to repair orphaned tool calls: {repair_error}")
+
+              # If we have accumulated sub-agent responses, return them as fallback
+              if accumulated_subagent_responses:
+                  logging.warning(f"📦 Synthesis failed. Returning {len(accumulated_subagent_responses)} accumulated sub-agent responses as fallback.")
+
+                  # Format the raw sub-agent outputs
+                  fallback_content = "⚠️ **Note:** The final synthesis timed out, but here are the results from the sub-agents:\n\n"
+                  for tool_name, responses in accumulated_subagent_responses.items():
+                      fallback_content += f"---\n\n### Results from {tool_name}:\n\n"
+                      for resp in responses:
+                          # Truncate very long responses
+                          if len(resp) > 50000:
+                              resp = resp[:50000] + "\n\n... [truncated due to length]"
+                          fallback_content += f"{resp}\n\n"
+
+                  fallback_content += "---\n\n⚠️ _The agent was unable to synthesize these results. Please review the raw output above._"
+
+                  yield {
+                      "is_task_complete": True,
+                      "require_user_input": False,
+                      "content": fallback_content,
+                  }
+              else:
+                  # No accumulated responses - return error
+                  yield {
+                      "is_task_complete": False,
+                      "require_user_input": False,
+                      "content": f"❌ Synthesis failed: {error_str}\n\nNo sub-agent responses were captured. Please try again.",
+                  }
+          else:
+              # Other validation errors
+              error_msg = f"Validation error: {error_str}"
+              logging.error(f"❌ {error_msg}")
+              yield {
+                  "is_task_complete": False,
+                  "require_user_input": False,
+                  "content": f"❌ Error: {error_msg}\n\nPlease try again or ask a follow-up question.",
+              }
+
           # Don't yield completion event - keep queue open for follow-up questions
           return
       # Fallback to old method if astream doesn't work
       except Exception as e:
+          error_str = str(e)
           logging.warning(f"Token-level streaming failed, falling back to message-level: {e}")
+
+          # Check if this is a timeout or orphaned tool call error that we can recover from
+          is_timeout_error = "timed out" in error_str.lower() or "timeout" in error_str.lower()
+          is_orphan_error = "tool_calls" in error_str.lower() and "toolmessage" in error_str.lower()
+
+          # If we have accumulated sub-agent responses, return them as fallback
+          if (is_timeout_error or is_orphan_error) and accumulated_subagent_responses:
+              logging.warning(f"📦 Streaming failed with recoverable error. Returning {len(accumulated_subagent_responses)} accumulated sub-agent responses as fallback.")
+
+              # Format the raw sub-agent outputs
+              fallback_content = "⚠️ **Note:** The agent encountered a timeout, but here are the results from the sub-agents:\n\n"
+              for tool_name, responses in accumulated_subagent_responses.items():
+                  fallback_content += f"---\n\n### Results from {tool_name}:\n\n"
+                  for resp in responses:
+                      # Truncate very long responses
+                      if len(resp) > 50000:
+                          resp = resp[:50000] + "\n\n... [truncated due to length]"
+                      fallback_content += f"{resp}\n\n"
+
+              fallback_content += "---\n\n⚠️ _The agent was unable to synthesize these results due to timeout. Please review the raw output above._"
+
+              yield {
+                  "is_task_complete": True,
+                  "require_user_input": False,
+                  "content": fallback_content,
+              }
+              return
           async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom', 'updates']):
 
               # Handle custom A2A event payloads emitted via get_stream_writer()
@@ -377,6 +870,19 @@ class AIPlatformEngineerA2ABinding:
               elif isinstance(message, ToolMessage):
                   # Stream ToolMessage content (includes formatted TODO lists)
                   tool_content = message.content if hasattr(message, 'content') else ""
+                  # Normalize tool_content to string (Bedrock returns list, OpenAI returns string)
+                  if isinstance(tool_content, list):
+                      text_parts = []
+                      for item in tool_content:
+                          if isinstance(item, dict):
+                              text_parts.append(item.get('text', ''))
+                          elif isinstance(item, str):
+                              text_parts.append(item)
+                          else:
+                              text_parts.append(str(item))
+                      tool_content = ''.join(text_parts)
+                  elif not isinstance(tool_content, str):
+                      tool_content = str(tool_content) if tool_content else ""
                   logging.debug(f"Detected ToolMessage with {len(tool_content)} chars, yielding")
                   yield {
                       "is_task_complete": False,
@@ -428,8 +934,21 @@ class AIPlatformEngineerA2ABinding:
           logging.info("✅ Using final AIMessage for structured response parsing")
           # Extract content from AIMessage
           final_content = final_ai_message.content if hasattr(final_ai_message, 'content') else str(final_ai_message)
-          logging.info(f"📝 Extracted content from AIMessage: type={type(final_content)}, length={len(str(final_content))}")
-          logging.info(f"📝 Content preview: {str(final_content)[:300]}...")
+          # Normalize final_content to string (Bedrock returns list, OpenAI returns string)
+          if isinstance(final_content, list):
+              text_parts = []
+              for item in final_content:
+                  if isinstance(item, dict):
+                      text_parts.append(item.get('text', ''))
+                  elif isinstance(item, str):
+                      text_parts.append(item)
+                  else:
+                      text_parts.append(str(item))
+              final_content = ''.join(text_parts)
+          elif not isinstance(final_content, str):
+              final_content = str(final_content) if final_content else ""
+          logging.info(f"📝 Extracted content from AIMessage: type={type(final_content)}, length={len(final_content)}")
+          logging.info(f"📝 Content preview: {final_content[:300]}...")
           final_response = self.handle_structured_response(final_content)
           logging.info(f"✅ Parsed response from final AIMessage: is_task_complete={final_response.get('is_task_complete')}")
       elif accumulated_ai_content:

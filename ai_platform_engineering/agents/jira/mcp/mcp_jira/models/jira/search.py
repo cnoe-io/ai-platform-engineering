@@ -105,3 +105,23 @@ class JiraSearchResult(BaseModel):
             The validated JiraSearchResult instance
         """
         return self
+
+    def to_simplified_dict(self) -> dict[str, Any]:
+        """Convert to simplified dictionary with pagination hints for LLM context."""
+        result = {
+            "total": self.total,
+            "returned": len(self.issues),
+            "start_at": self.start_at,
+            "is_last": self.is_last,
+            "issues": [issue.to_simplified_dict() for issue in self.issues],
+        }
+
+        # Add pagination hint if there are more results
+        if self.total > 0 and not self.is_last:
+            remaining = self.total - (self.start_at + len(self.issues))
+            result["pagination_hint"] = (
+                f"Showing {len(self.issues)} of {self.total} results. "
+                f"{remaining} more available. Use start_at={self.start_at + len(self.issues)} to get next page."
+            )
+
+        return result

@@ -76,6 +76,19 @@ RUN ARCH=$(uname -m) && \
     chmod +x kubectl && \
     mv kubectl /usr/local/bin/kubectl
 
+# Install GitHub CLI (architecture-aware)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+        GH_ARCH="arm64"; \
+    else \
+        GH_ARCH="amd64"; \
+    fi && \
+    GH_VERSION="2.63.2" && \
+    curl -sL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" -o gh.tar.gz && \
+    tar -xzf gh.tar.gz && \
+    mv gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh /usr/local/bin/gh && \
+    rm -rf gh.tar.gz gh_${GH_VERSION}_linux_${GH_ARCH}
+
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 

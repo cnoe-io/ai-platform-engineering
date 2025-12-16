@@ -75,9 +75,20 @@ class PagerDutyAgent(BaseLangGraphAgent):
     @trace_agent_stream("pagerduty")
     async def stream(self, query: str, sessionId: str, trace_id: str = None):
         """
-        Stream responses with pagerduty-specific tracing.
+        Stream responses with pagerduty-specific tracing and safety-net error handling.
 
         Overrides the base stream method to add agent-specific tracing decorator.
         """
-        async for event in super().stream(query, sessionId, trace_id):
-            yield event
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            async for event in super().stream(query, sessionId, trace_id):
+                yield event
+        except Exception as e:
+            logger.error(f"Unexpected PagerDuty agent error: {str(e)}", exc_info=True)
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'kind': 'error',
+                'content': f"❌ An unexpected error occurred in PagerDuty: {str(e)}\n\nPlease try again or contact support if the issue persists.",
+            }
