@@ -10,6 +10,7 @@ on names, descriptions, labels, annotations, etc.
 from typing import Dict, Any, List
 import re
 import logging
+import os
 from mcp_argocd.tools.api_v1_applications import (
     list_applications,
     _get_argocd_base_url,
@@ -22,9 +23,9 @@ from mcp_argocd.tools.api_v1_clusters import cluster_service__list
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Safety limits to prevent OOM
-MAX_SEARCH_RESULTS = 1000  # Never return more than 1000 items total across all resource types
-WARN_SEARCH_RESULTS = 500  # Log warning if search returns more than this
+# Safety limits to prevent OOM and SSE timeout issues (configurable via env vars)
+MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "1000"))
+WARN_SEARCH_RESULTS = int(os.getenv("WARN_SEARCH_RESULTS", "500"))
 
 
 async def search_argocd_resources(
