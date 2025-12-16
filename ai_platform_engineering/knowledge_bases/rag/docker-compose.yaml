@@ -1,6 +1,6 @@
 services:
   caipe-p2p:
-    image: ${CAIPE_P2P_IMAGE:-ghcr.io/cnoe-io/ai-platform-engineering:latest}
+    image: ${CAIPE_P2P_IMAGE:-ghcr.io/cnoe-io/ai-platform-engineering:0.2.5}
     container_name: caipe-p2p
     volumes:
     - ../../../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
