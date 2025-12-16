@@ -10,12 +10,14 @@ with other agents (ArgoCD, Komodor, etc.).
 
 import logging
 import os
-from typing import Dict, Any, Literal
+import re
+from typing import Dict, Any, Literal, AsyncIterable
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
+from agent_github.tools import get_gh_cli_tool
 
 logger = logging.getLogger(__name__)
 
@@ -102,4 +104,99 @@ class GitHubAgent(BaseLangGraphAgent):
     def get_tool_processing_message(self) -> str:
         """Return the message shown when processing tool results."""
         return _prompt_config.tool_processing_message
+
+    def get_additional_tools(self) -> list:
+        """
+        Provide additional custom tools for GitHub agent.
+
+        Returns gh CLI tool for operations not covered by GitHub Copilot MCP,
+        such as fetching workflow run logs.
+
+        Returns:
+            List containing gh CLI tool if enabled
+        """
+        tools = []
+
+        # Add gh CLI tool for workflow logs and other operations
+        gh_tool = get_gh_cli_tool()
+        if gh_tool:
+            tools.append(gh_tool)
+            logger.info("GitHub agent: Added gh CLI tool (gh_cli_execute)")
+
+        return tools
+
+    def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
+        """
+        Parse GitHub API errors for user-friendly messages.
+
+        Overrides base class to provide GitHub-specific error parsing.
+
+        Args:
+            error: The exception that was raised
+            tool_name: Name of the tool that failed
+
+        Returns:
+            User-friendly error message
+        """
+        # Handle TaskGroup/ExceptionGroup errors by extracting underlying exceptions
+        underlying_error = error
+        if hasattr(error, 'exceptions') and error.exceptions:
+            # ExceptionGroup (Python 3.11+) or TaskGroup error
+            underlying_error = error.exceptions[0]
+            logger.debug(f"Extracted underlying error from TaskGroup: {underlying_error}")
+
+        error_str = str(underlying_error)
+
+        # Parse common GitHub API errors for better user messages
+        if "404 Not Found" in error_str or "404" in error_str:
+            # Extract repo name from URL if possible
+            repo_match = re.search(r'/repos/([^/]+/[^/]+)/', error_str)
+            repo_name = repo_match.group(1) if repo_match else "repository"
+            return f"Repository '{repo_name}' not found. Please check the organization and repository names are correct."
+        elif "401" in error_str or "403" in error_str:
+            return "GitHub authentication failed or insufficient permissions. Please check your GITHUB_PERSONAL_ACCESS_TOKEN."
+        elif "rate limit" in error_str.lower() or "429" in error_str:
+            return "GitHub API rate limit exceeded. Please wait a few minutes before trying again."
+        elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
+            return f"GitHub API request timed out for {tool_name}. The server may be slow or overloaded. Please try again."
+        elif "connection" in error_str.lower() or "connect" in error_str.lower():
+            return f"Failed to connect to GitHub API for {tool_name}. Please check your network connection."
+        elif "unhandled errors in a TaskGroup" in error_str:
+            # Generic TaskGroup error without specific cause
+            return f"GitHub API request failed for {tool_name}. The API may be temporarily unavailable. Please try again."
+        else:
+            return f"Error executing {tool_name}: {error_str}"
+
+    async def stream(
+        self, query: str, sessionId: str, trace_id: str = None
+    ) -> AsyncIterable[dict[str, Any]]:
+        """
+        Stream responses with safety-net error handling.
+
+        Tool-level errors are handled by _wrap_mcp_tools(), but this catches
+        any other unexpected failures (LLM errors, graph errors, etc.) as a last resort.
+
+        Note: CancelledError is handled gracefully in the base class (BaseLangGraphAgent).
+
+        Args:
+            query: User's input query
+            sessionId: Session ID for this conversation
+            trace_id: Optional trace ID for observability
+
+        Yields:
+            Streaming response chunks
+        """
+        try:
+            async for chunk in super().stream(query, sessionId, trace_id):
+                yield chunk
+        except Exception as e:
+            # This should rarely trigger since tool errors are handled at tool level
+            # Note: CancelledError is handled in base class, won't reach here
+            logger.error(f"Unexpected GitHub agent error: {str(e)}", exc_info=True)
+            yield {
+                'is_task_complete': True,
+                'require_user_input': False,
+                'kind': 'error',
+                'content': f"❌ An unexpected error occurred: {str(e)}\n\nPlease try again or contact support if the issue persists.",
+            }
 

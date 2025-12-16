@@ -835,14 +835,29 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     # to support structured metadata and dynamic form generation
 
     async def _safe_enqueue_event(self, event_queue: EventQueue, event) -> None:
-        """Safely enqueue an event, handling closed queue gracefully."""
+        """
+        Safely enqueue an event, handling closed queue gracefully.
+
+        Prevents spam logging of "Queue is closed" by tracking closure state.
+        """
+        # Track if we've already logged about queue closure (class-level to persist across calls)
+        if not hasattr(self, '_queue_closed_logged'):
+            self._queue_closed_logged = False
+
         try:
             await event_queue.enqueue_event(event)
+            # Reset flag if queue becomes available again
+            if self._queue_closed_logged:
+                logger.info("Queue reopened, resuming event streaming")
+                self._queue_closed_logged = False
         except Exception as e:
             # Check if the error is related to queue being closed
             if "Queue is closed" in str(e) or "QueueEmpty" in str(e):
-                logger.warning(f"Queue is closed, cannot enqueue event: {type(event).__name__}")
-                # Don't re-raise the exception for closed queue - this is expected during shutdown
+                # Only log once when queue first closes, then suppress
+                if not self._queue_closed_logged:
+                    logger.warning("⚠️ Event queue closed. Subsequent events will be dropped silently until queue reopens.")
+                    self._queue_closed_logged = True
+                # Don't spam logs or re-raise - this is expected during shutdown/reconnection
             else:
                 logger.error(f"Failed to enqueue event {type(event).__name__}: {e}")
                 raise
@@ -1491,12 +1506,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 is_error = '❌ Error:' in last_content or 'Validation error:' in last_content or 'Error:' in event.get('content', '')
 
                 if is_error:
-                    logger.info("⚠️ EXECUTOR: Error detected in content - sending error message but keeping queue open for follow-up questions")
-                    # Send error as artifact but don't send final status - keep queue open
+                    logger.info("⚠️ EXECUTOR: Error detected in content - sending error with terminal status")
+                    error_text = last_content or event.get('content', '')
+
+                    # Send error as artifact
                     error_artifact = new_text_artifact(
                         name='error_result',
                         description='Error message from Platform Engineer',
-                        text=last_content or event.get('content', ''),
+                        text=error_text,
                     )
                     await self._safe_enqueue_event(
                         event_queue,
@@ -1504,12 +1521,24 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             append=False,
                             context_id=task.context_id,
                             task_id=task.id,
-                            last_chunk=True,
+                            last_chunk=False,  # Don't close queue with artifact
                             artifact=error_artifact,
                         )
                     )
-                    # Don't send final status - keep queue open for follow-up questions
-                    logger.info(f"Task {task.id} error message sent. Queue kept open for follow-up questions.")
+                    # Send terminal status to properly close the stream
+                    await self._safe_enqueue_event(
+                        event_queue,
+                        TaskStatusUpdateEvent(
+                            final=True,
+                            context_id=task.context_id,
+                            task_id=task.id,
+                            status=TaskStatus(
+                                state=TaskState.completed,
+                                message=new_agent_text_message(error_text),
+                            ),
+                        )
+                    )
+                    logger.info(f"Task {task.id} error message sent with terminal status.")
                     return
 
                 # If sub-agent sent complete_result, forward it as complete_result (not partial_result)
@@ -1765,13 +1794,25 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         Handle task cancellation.
 
         Sends a cancellation status update to the client and logs the cancellation.
-        Note: Currently doesn't stop in-flight LangGraph execution, but prevents
-        further streaming and notifies the client properly.
+        Also repairs any orphaned tool calls in the message history to prevent
+        subsequent queries from failing.
         """
         logger.info("Platform Engineer Agent: Task cancellation requested")
 
         task = context.current_task
         if task:
+            # CRITICAL: Repair orphaned tool calls immediately on cancel
+            # This prevents subsequent queries from failing due to AIMessages
+            # with tool_calls that have no corresponding ToolMessage.
+            try:
+                if hasattr(self.agent, '_repair_orphaned_tool_calls'):
+                    config = self.agent.tracing.create_config(task.context_id)
+                    await self.agent._repair_orphaned_tool_calls(config)
+                    logger.info(f"Task {task.id}: Repaired orphaned tool calls after cancel")
+            except Exception as e:
+                logger.warning(f"Task {task.id}: Failed to repair orphaned tool calls on cancel: {e}")
+                # Don't fail the cancel operation if repair fails
+
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     status=TaskStatus(state=TaskState.canceled),

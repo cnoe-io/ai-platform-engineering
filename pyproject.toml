@@ -20,6 +20,7 @@ dependencies = [
     "langchain-mcp-adapters==0.2.1",
     "langfuse==3.10.5",
     "langgraph==1.0.4",
+    "langmem>=0.0.30",
     "mdformat==1.0.0",
     "prometheus-client==0.23.1",
     "pyjwt==2.10.1",

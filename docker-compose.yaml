@@ -187,6 +187,7 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication
     # Docker socket mount is only needed when MCP_MODE=stdio
     # For local Github Offical MCP server execution.
     # Uncomment this when MCP_MODE=stdio is supported
