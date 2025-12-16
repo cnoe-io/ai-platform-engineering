@@ -24,7 +24,6 @@ from ai_platform_engineering.multi_agents.tools import (
     format_markdown,
     fetch_url,
     get_current_date,
-    analyze_query,
     write_workspace_file,
     read_workspace_file,
     list_workspace_files,
@@ -248,7 +247,6 @@ class AIPlatformEngineerMAS:
         format_markdown,
         fetch_url,
         get_current_date,
-        analyze_query,  # Query analysis for prompt chaining / better TODO generation
         write_workspace_file,
         read_workspace_file,
         list_workspace_files,
