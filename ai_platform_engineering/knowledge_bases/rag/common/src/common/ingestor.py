@@ -58,6 +58,7 @@ class Client():
         """
         Return the maximum number of documents the ingestor will ingest per ingestion request
         """
+        logger.info(f"ingestor_max_docs_per_ingest: {self.ingestor_max_docs_per_ingest}, server_max_docs_per_ingest: {self.server_max_docs_per_ingest}")
         return min(self.ingestor_max_docs_per_ingest, self.server_max_docs_per_ingest)
 
     async def shutdown(self) -> None:
@@ -181,6 +182,7 @@ class Client():
         if fresh_until is None:
             fresh_until = utils.get_default_fresh_until()
         
+        logger.info(f"Ingesting {len(documents)} documents with max_docs_per_ingest: {self.max_docs_per_ingest()}")
         # Check if we need to batch the documents
         total_documents = len(documents)
         if total_documents <= self.max_docs_per_ingest():
@@ -557,11 +559,10 @@ class IngestorBuilder:
             datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
             
             if not datasources:
-                # No datasources yet - ingestor owns datasources, so sync should run
-                # Either sync will create datasources, or it's a quick no-op
-                # Once datasources exist, normal scheduling takes over
-                logger.debug("No datasources found, running sync immediately")
-                return 0
+                # No datasources yet - use sync_interval to avoid tight loop
+                # The sync function should create datasources if needed
+                logger.debug(f"No datasources found, will check again after sync_interval ({self._sync_interval}s)")
+                return self._sync_interval
             
             # Find the earliest datasource that will need reloading
             min_time_until_reload = self._sync_interval
@@ -610,9 +611,9 @@ class IngestorBuilder:
         exit_after_first_sync = os.getenv("EXIT_AFTER_FIRST_SYNC", "false").lower() in ("true", "1", "yes")
         
         # If exit_after_first_sync is set, force single-run mode
-        if exit_after_first_sync:
-            self._sync_interval = 0
-            logger.info("EXIT_AFTER_FIRST_SYNC is set, forcing single-run mode")
+        # if exit_after_first_sync:
+        #     self._sync_interval = 0
+        #     logger.info("EXIT_AFTER_FIRST_SYNC is set, forcing single-run mode")
         
         logger.info(f"Starting ingestor: {self._name} (type: {self._type}, sync_interval: {self._sync_interval}s, init_delay: {self._init_delay}s, exit_after_first_sync: {exit_after_first_sync})")
         
@@ -664,6 +665,11 @@ class IngestorBuilder:
                     sleep_time = await self._calculate_next_sync_time(client)
                     
                     if sleep_time > 0:
+                        # If exit_after_first_sync is set, exit after first sync
+                        if exit_after_first_sync:
+                            logger.info("EXIT_AFTER_FIRST_SYNC is set. Exiting as there are no datasources to sync.")
+                            return
+                        
                         # No datasources need syncing yet, sleep until next one is due
                         await asyncio.sleep(sleep_time)
                     

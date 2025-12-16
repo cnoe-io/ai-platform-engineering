@@ -238,7 +238,7 @@ async def process_project_entities(
             entity_type="ArgoCDProject",
             all_properties=filtered_project,  # type: ignore
             primary_key_properties=["argocd_instance", "metadata.uid"],
-            additional_key_properties=[["argocd_instance", "metadata.name"]]
+            additional_key_properties=[["metadata.name"]]
         )
         batch_entities.append(project_entity)
         entities_processed += 1
@@ -251,7 +251,7 @@ async def process_project_entities(
                 entity_type="ArgoCDProjectRole",
                 all_properties=role,
                 primary_key_properties=["argocd_instance", "project_name", "role_name"],
-                additional_key_properties=[["argocd_instance", "role_name"]]
+                additional_key_properties=[["role_name"]]
             )
             batch_entities.append(role_entity)
             entities_processed += 1
@@ -270,8 +270,8 @@ async def process_project_entities(
                     all_properties=filtered_app,  # type: ignore
                     primary_key_properties=["argocd_instance", "metadata.uid"],
                     additional_key_properties=[
-                        ["argocd_instance", "metadata.name"],
-                        ["argocd_instance", "metadata.namespace", "metadata.name"]
+                        ["metadata.name"],
+                        ["metadata.namespace", "metadata.name"]
                     ]
                 )
                 batch_entities.append(app_entity)
@@ -295,8 +295,8 @@ async def process_project_entities(
                     all_properties=filtered_appset,  # type: ignore
                     primary_key_properties=["argocd_instance", "metadata.uid"],
                     additional_key_properties=[
-                        ["argocd_instance", "metadata.name"],
-                        ["argocd_instance", "metadata.namespace", "metadata.name"]
+                        ["metadata.name"],
+                        ["metadata.namespace", "metadata.name"]
                     ]
                 )
                 batch_entities.append(appset_entity)
@@ -463,7 +463,7 @@ async def sync_argocd_entities(client: Client):
                     entity_type="ArgoCDCluster",
                     all_properties=filtered_cluster,  # type: ignore
                     primary_key_properties=["argocd_instance", "server"],
-                    additional_key_properties=[["argocd_instance", "name"]]
+                    additional_key_properties=[["name"]]
                 )
                 current_batch.append(cluster_entity)
                 total_entities_processed += 1
@@ -495,7 +495,7 @@ async def sync_argocd_entities(client: Client):
                     entity_type="ArgoCDRepository",
                     all_properties=filtered_repo,  # type: ignore
                     primary_key_properties=["argocd_instance", "repo"],
-                    additional_key_properties=[["argocd_instance", "name"]]
+                    additional_key_properties=[["name"]]
                 )
                 current_batch.append(repo_entity)
                 total_entities_processed += 1

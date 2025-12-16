@@ -145,7 +145,8 @@ async def app_lifespan(app: FastAPI):
             vstore=vector_db,
             graph_rag_enabled=graph_rag_enabled,
             job_manager=jobmanager,
-            data_graph_db=data_graph_db
+            data_graph_db=data_graph_db,
+            batch_size=max_documents_per_ingest
         )
     else:
         # setup ingestor without graph db
@@ -153,6 +154,7 @@ async def app_lifespan(app: FastAPI):
             vstore=vector_db,
             job_manager=jobmanager,
             graph_rag_enabled=graph_rag_enabled,
+            batch_size=max_documents_per_ingest
         )
 
     yield

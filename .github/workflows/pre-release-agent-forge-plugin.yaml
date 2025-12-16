@@ -20,7 +20,7 @@ jobs:
       should_build: ${{ steps.set-build.outputs.should_build }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -62,18 +62,18 @@ jobs:
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2 # v2.13.3
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
         with:
           egress-policy: audit
 
       - name: Checkout current repository
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6
         with:
           path: main-repo
           fetch-depth: 0
           
       - name: Checkout community-plugins repository
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6
         with:
           repository: cnoe-io/community-plugins
           ref: agent-forge-upstream-docker

@@ -12,6 +12,10 @@ image:
 
 replicaCount: 1
 
+# This sets the number of old ReplicaSets to retain for rollback
+# Kubernetes will automatically clean up ReplicaSets beyond this limit
+revisionHistoryLimit: 3
+
 serviceAccount:
   create: false
   name: ""

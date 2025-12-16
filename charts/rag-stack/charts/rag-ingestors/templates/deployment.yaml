@@ -11,6 +11,7 @@ metadata:
     app.kubernetes.io/ingestor-name: {{ $ingestor.name }}
 spec:
   replicas: 1
+  revisionHistoryLimit: {{ $.Values.revisionHistoryLimit }}
   selector:
     matchLabels:
       {{- include "rag-ingestors.selectorLabels" $ | nindent 6 }}
