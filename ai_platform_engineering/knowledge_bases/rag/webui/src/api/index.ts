@@ -253,14 +253,14 @@ export const acceptOntologyRelation = async (
         match_type: 'exact' | 'prefix' | 'suffix' | 'subset' | 'superset' | 'contains';
     }>
 ): Promise<void> => {
-    await api.post(`/v1/graph/ontology/agent/relation/accept/${encodeURIComponent(relationId)}`, {
-        relation_name: relationName,
-        property_mappings: propertyMappings
-    });
+    await api.post(
+        `/v1/graph/ontology/agent/relation/accept/${encodeURIComponent(relationId)}?relation_name=${encodeURIComponent(relationName)}`,
+        propertyMappings
+    );
 };
 
-export const rejectOntologyRelation = async (relationId: string): Promise<void> => {
-    await api.post(`/v1/graph/ontology/agent/relation/reject/${encodeURIComponent(relationId)}`);
+export const rejectOntologyRelation = async (relationId: string, justification: string = 'Rejected by user'): Promise<void> => {
+    await api.post(`/v1/graph/ontology/agent/relation/reject/${encodeURIComponent(relationId)}?justification=${encodeURIComponent(justification)}`);
 };
 
 export const undoOntologyRelationEvaluation = async (relationId: string): Promise<void> => {

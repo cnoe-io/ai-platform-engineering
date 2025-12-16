@@ -6,6 +6,7 @@ metadata:
     {{- include "rag-webui.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   selector:
     matchLabels:
       {{- include "rag-webui.selectorLabels" . | nindent 6 }}

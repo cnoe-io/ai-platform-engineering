@@ -1,6 +1,6 @@
 services:
   caipe-p2p:
-    image: ${CAIPE_P2P_IMAGE:-ghcr.io/cnoe-io/ai-platform-engineering:latest}
+    image: ${CAIPE_P2P_IMAGE:-ghcr.io/cnoe-io/ai-platform-engineering:0.2.5}
     container_name: caipe-p2p
     volumes:
     - ../../../charts/ai-platform-engineering/data/prompt_config.yaml:/app/prompt_config.yaml
@@ -72,6 +72,8 @@ services:
         INGESTOR_TYPE: webloader
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         REDIS_URL: redis://rag-redis:6379/0
+        SYNC_INTERVAL: 86400 # 24 hours
+        EXIT_AFTER_FIRST_SYNC: false
         RAG_SERVER_URL: ${RAG_SERVER_URL:-http://rag_server:9446}
         MAX_CONCURRENT_JOBS: ${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
     restart: unless-stopped
@@ -94,6 +96,12 @@ services:
         NEO4J_USERNAME: neo4j
         NEO4J_PASSWORD: dummy_password
         SYNC_INTERVAL: 86400 # 24 hours
+        ENABLE_TRACING: ${ENABLE_TRACING:-false}
+        LANGFUSE_HOST: ${LANGFUSE_HOST}
+        LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+        LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+        LANGFUSE_SESSION_ID: ${LANGFUSE_SESSION_ID}
+        LANGFUSE_USER_ID: ${LANGFUSE_USER_ID}
     env_file:
       - ../../../.env
     restart: unless-stopped
@@ -137,6 +145,7 @@ services:
         SYNC_INTERVAL: ${SYNC_INTERVAL:-86400}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+        MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     build:
       context: .
@@ -161,6 +170,7 @@ services:
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+        MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     volumes:
       - ${HOME}/.aws:/home/app/.aws:ro
@@ -185,6 +195,7 @@ services:
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+        MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     volumes:
       - ~/.kube/config:/home/app/.kube/config:ro
@@ -207,6 +218,7 @@ services:
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+        MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     build:
       context: .
@@ -226,6 +238,7 @@ services:
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-60}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+        MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     build:
       context: .
@@ -246,6 +259,7 @@ services:
         INIT_DELAY_SECONDS: ${INIT_DELAY_SECONDS:-0}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+        MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     build:
       context: .
@@ -275,6 +289,7 @@ services:
         FETCH_ORG_EMAILS: ${FETCH_ORG_EMAILS:-false}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         EXIT_AFTER_FIRST_SYNC: ${EXIT_AFTER_FIRST_SYNC:-false}
+        MAX_DOCUMENTS_PER_INGEST: ${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     # volumes:
       # Mount your GitHub App private key file (adjust path as needed)
@@ -319,8 +334,7 @@ services:
       - NODE_ENV=development
       - AGENT_FORGE_BASE_URL=${AGENT_FORGE_BASE_URL:-http://localhost:8000}
     profiles:
-      - deps
-      - apps
+      - caipe
 
   rag-redis:
     image: redis
@@ -433,9 +447,7 @@ services:
       - ./tests/rag_graph_test:/app/data:ro
     environment:
       RAG_SERVER_URL: http://rag_server:9446
-      INGESTOR_NAME: dummy_ingestor
+      INGESTOR_TYPE: test_dummy_graph
       DUMMY_ENTITIES_FILE: /app/data/dummy_entities.json
-    depends_on:
-      - rag_server
     profiles:
       - dummy_ingestor

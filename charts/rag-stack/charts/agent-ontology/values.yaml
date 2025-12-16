@@ -20,6 +20,10 @@ debugAgent: false                     # DEBUG_AGENT - evaluation doesn't go to L
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1
 
+# This sets the number of old ReplicaSets to retain for rollback
+# Kubernetes will automatically clean up ReplicaSets beyond this limit
+revisionHistoryLimit: 3
+
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
   # This sets the image repository for the corresponding agent.

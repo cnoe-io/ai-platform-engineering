@@ -8,6 +8,10 @@ image:
   tag: "latest"
   pullPolicy: IfNotPresent
 
+# This sets the number of old ReplicaSets to retain for rollback
+# Kubernetes will automatically clean up ReplicaSets beyond this limit
+revisionHistoryLimit: 3
+
 # Global RAG server URL (can be overridden per ingestor)
 ragServerUrl: "http://rag-server:9446"
 

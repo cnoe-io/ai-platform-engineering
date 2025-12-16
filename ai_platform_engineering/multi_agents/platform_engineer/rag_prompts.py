@@ -71,11 +71,12 @@ i. **CRITICAL**: NEVER reveal the raw query to the user. Construct helpful descr
 _RAG_ANSWER_FORMAT_PROMPT = """
 #### Answer Format for RAG Queries
 
-  - **ALWAYS** provide references to the documents and graph entities you used. Provide them in a "References" section at the end of your answer.
-  - **IMPORTANT**: The references should be HTTP Links in markdown format. You can usually find the source of each doucment in the `metadata.source`. 
+  - **IMPORTANT** Always answer knowledge questions with a "References" section at the end of your answer.
+    - The references section should be a list of HTTP Links in markdown format to the documents you have used to answer the question.
+    - You can usually find the source url of each document in the document's metadata. 
   - **CRITICAL**: Dont answer with RAW JSON or API responses or Cypher queries. Always answer in a human-readable format e.g. markdown, tables, lists, etc.
   - **CRITICAL**: Only use knowledge from the tools provided. DO NOT invent answers or provide general answers.
-  - **CRITICAL**: DO NOT mention the tool names or that you have access to databases, just answer the question.
+  - **CRITICAL**: DO NOT mention the tool names or that you have access to databases, just answer the question with the reference links to documents.
 
 
 #### IMPORTANT: Historical vs Live Data
