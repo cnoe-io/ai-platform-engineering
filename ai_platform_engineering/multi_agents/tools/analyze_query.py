@@ -1,472 +1,556 @@
 """
 Query Analysis Tool for Prompt Chaining.
 
-This tool breaks down complex user queries into structured sub-tasks
-for better chain-of-thought TODO list generation. It identifies:
-- Key questions the user is asking
-- Required data sources/agents
-- Dependencies between tasks
-- Suggested execution order
+=============================================================================
+PURPOSE:
+=============================================================================
+This tool is part of the CAIPE supervisor agent's planning workflow. It uses
+an LLM to semantically break down complex user queries into structured sub-tasks,
+enabling better chain-of-thought TODO list generation.
+
+=============================================================================
+WORKFLOW INTEGRATION:
+=============================================================================
+The supervisor agent (deep_agent) uses a two-phase planning approach:
+
+  Phase 1: PROMPT CHAINING (this tool)
+  ------------------------------------
+  For complex queries, the supervisor first calls `analyze_query` to:
+  - Identify discrete tasks/questions in the user's request
+  - Map each task to appropriate specialized agents
+  - Determine task dependencies and execution order
+  - Generate ready-to-use TODO suggestions
+
+  Phase 2: CHAIN-OF-THOUGHT (write_todos)
+  ---------------------------------------
+  The supervisor then uses the analysis output to create a structured
+  TODO execution plan via `write_todos`, which:
+  - Displays a visual checklist to the user
+  - Tracks task completion status
+  - Enables systematic task execution
+
+=============================================================================
+EXAMPLE USAGE:
+=============================================================================
+User query: "Research the ai-platform-engineering repo, find recent issues,
+             and create a summary report"
+
+1. Supervisor calls:
+   analyze_query(
+       user_query="Research the ai-platform-engineering repo...",
+       available_agents=["github", "jira", "rag"]
+   )
+
+2. This tool returns markdown analysis with:
+   - Key tasks: [get repo info, find issues, create summary]
+   - Agent mapping: {repo info: github, issues: github/jira, summary: synthesize}
+   - Execution order: [1, 2, 3]
+   - Ready-to-use TODO JSON
+
+3. Supervisor copies TODO suggestions to:
+   write_todos(merge=False, todos=[
+       {"id": "1", "content": "Get repository info (via github)", "status": "pending"},
+       {"id": "2", "content": "Find recent issues (via github, jira)", "status": "pending"},
+       {"id": "3", "content": "Create summary report", "status": "pending"}
+   ])
+
+=============================================================================
+ARCHITECTURE:
+=============================================================================
+                    ┌─────────────────────┐
+                    │    User Query       │
+                    └──────────┬──────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │   analyze_query()   │ ◄── This tool
+                    │   (Prompt Chaining) │
+                    └──────────┬──────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │                │                │
+              ▼                ▼                ▼
+        ┌─────────┐      ┌─────────┐      ┌─────────┐
+        │   LLM   │  OR  │Fallback │      │ Format  │
+        │Analysis │      │Heuristic│      │ Output  │
+        └────┬────┘      └────┬────┘      └────┬────┘
+              └────────────────┼────────────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │   Markdown Output   │
+                    │   with TODO JSON    │
+                    └──────────┬──────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │    write_todos()    │
+                    │  (Chain-of-Thought) │
+                    └─────────────────────┘
 """
 
+import json
+import logging
 from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Dict, List, Any, Optional
-import re
+
+logger = logging.getLogger(__name__)
 
 
-# Keywords that suggest specific agent involvement
-AGENT_KEYWORDS = {
-    "github": ["github", "repository", "repo", "pull request", "pr", "commit", "branch", "issue", "workflow", "action"],
-    "jira": ["jira", "ticket", "issue", "sprint", "epic", "story", "bug", "task", "assignee", "backlog"],
-    "argocd": ["argocd", "argo", "application", "sync", "deployment", "gitops", "kubernetes", "k8s", "helm"],
-    "pagerduty": ["pagerduty", "oncall", "on-call", "incident", "alert", "escalation", "schedule"],
-    "aws": ["aws", "amazon", "ec2", "s3", "eks", "lambda", "cloudwatch", "iam", "rds", "cost"],
-    "slack": ["slack", "channel", "message", "notification", "workspace"],
-    "splunk": ["splunk", "log", "search", "alert", "detector", "metric"],
-    "confluence": ["confluence", "wiki", "page", "documentation", "doc"],
-    "backstage": ["backstage", "catalog", "service", "component", "system"],
-    "rag": ["knowledge", "documentation", "how to", "what is", "explain", "guide", "runbook", "best practice"],
-}
+# =============================================================================
+# LLM PROMPT TEMPLATES
+# =============================================================================
+# These prompts guide the LLM to perform structured query analysis.
+# The system prompt defines the task and output format.
+# The user prompt provides the specific query to analyze.
 
-# Action keywords that suggest task types
-ACTION_KEYWORDS = {
-    "search": ["find", "search", "look for", "query", "get", "list", "show", "display"],
-    "create": ["create", "make", "add", "new", "generate", "write"],
-    "update": ["update", "modify", "change", "edit", "set"],
-    "delete": ["delete", "remove", "cancel", "close"],
-    "analyze": ["analyze", "investigate", "research", "understand", "compare", "review"],
-    "report": ["report", "summarize", "aggregate", "compile", "tabulate"],
-}
+ANALYSIS_SYSTEM_PROMPT = """You are a query analysis expert. Your job is to break down complex user queries into discrete, actionable tasks.
 
+## Your Task
+Analyze the user's query and break it down into specific sub-tasks that can be executed by specialized agents.
+
+## Available Agents
+{available_agents}
+
+## Agent Capabilities
+- **github**: Repository info, pull requests, issues, commits, workflows, branches
+- **jira**: Tickets, sprints, epics, stories, bugs, project management
+- **argocd**: Kubernetes deployments, GitOps applications, sync status
+- **pagerduty**: Incidents, on-call schedules, alerts, escalation policies
+- **aws**: EKS clusters, EC2 instances, S3, costs, CloudWatch
+- **splunk**: Log search, metrics, alerts, detectors
+- **confluence**: Wiki pages, documentation, spaces
+- **backstage**: Service catalog, components, systems
+- **rag**: Knowledge base search, documentation lookup, how-to guides
+
+## Output Format
+Respond with a JSON object containing:
+```json
+{{
+  "key_questions": ["List of discrete tasks/questions identified"],
+  "task_agent_mapping": {{
+    "task description": ["agent1", "agent2"]
+  }},
+  "dependencies": [
+    {{"task": "task that depends", "depends_on": "prerequisite task", "reason": "why"}}
+  ],
+  "execution_order": ["ordered list of tasks"],
+  "complexity": "simple|moderate|complex",
+  "reasoning": "Brief explanation of your analysis"
+}}
+```
+
+## Rules
+1. Break compound queries into atomic tasks (e.g., "find X and update Y" → 2 tasks)
+2. Identify data dependencies (e.g., "search results" needed before "summarize")
+3. Map each task to the MOST appropriate agent(s) from the available list
+4. Order tasks respecting dependencies
+5. Complexity: simple (1-2 tasks), moderate (3-4), complex (5+)
+
+Only output valid JSON, no markdown code blocks or extra text."""
+
+ANALYSIS_USER_PROMPT = """Analyze this user query and break it down into actionable tasks:
+
+**User Query:** {query}
+
+**Available Agents:** {agents}
+
+Provide your analysis as a JSON object."""
+
+
+# =============================================================================
+# LLM FACTORY HELPER
+# =============================================================================
+
+def _get_llm():
+    """
+    Get an LLM instance for query analysis.
+    
+    Uses cnoe_agent_utils.LLMFactory to create the LLM, which respects
+    environment configuration (MODEL_NAME, OPENAI_API_KEY, etc.).
+    
+    Returns:
+        LLM instance or None if creation fails.
+        
+    Note:
+        Temperature is set to 0.0 for deterministic, structured output.
+        This ensures consistent task breakdown across similar queries.
+    """
+    try:
+        from cnoe_agent_utils import LLMFactory
+        
+        # Use temperature=0 for consistent, structured analysis
+        llm = LLMFactory.create(
+            temperature=0.0,  # Deterministic for structured output
+        )
+        return llm
+    except Exception as e:
+        logger.warning(f"Could not create LLM via LLMFactory: {e}")
+        return None
+
+
+# =============================================================================
+# RESPONSE PARSING
+# =============================================================================
+
+def _parse_llm_response(response_text: str) -> Dict[str, Any]:
+    """
+    Parse LLM response text into a structured dictionary.
+    
+    Handles common LLM output quirks:
+    - Markdown code blocks (```json ... ```)
+    - Extra whitespace
+    - Invalid JSON (returns None for fallback)
+    
+    Args:
+        response_text: Raw text response from the LLM.
+        
+    Returns:
+        Parsed dictionary or None if parsing fails.
+    """
+    text = response_text.strip()
+    
+    # Remove markdown code blocks if present
+    # LLMs sometimes wrap JSON in ```json ... ``` despite instructions
+    if text.startswith("```"):
+        lines = text.split("\n")
+        # Remove first line (```json or ```)
+        lines = lines[1:]
+        # Remove last line if it's ```
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines)
+    
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse LLM response as JSON: {e}")
+        return None
+
+
+# =============================================================================
+# FALLBACK HEURISTIC ANALYSIS
+# =============================================================================
+
+def _fallback_analysis(query: str, available_agents: List[str]) -> Dict[str, Any]:
+    """
+    Fallback to basic keyword-based analysis when LLM is unavailable.
+    
+    This is a degraded mode that uses simple string matching to identify
+    relevant agents. It's less accurate than LLM analysis but ensures
+    the tool always returns something useful.
+    
+    Args:
+        query: The user's query string.
+        available_agents: List of agent names currently available.
+        
+    Returns:
+        Analysis dictionary with is_fallback=True flag.
+        
+    Note:
+        This fallback is triggered when:
+        - LLMFactory fails to create an LLM
+        - LLM invocation throws an exception
+        - LLM response cannot be parsed as JSON
+    """
+    query_lower = query.lower()
+    
+    # Keyword-to-agent mapping for basic detection
+    # These keywords suggest which agent might be relevant
+    agent_keywords = {
+        "github": ["github", "repo", "pull request", "pr", "commit", "branch"],
+        "jira": ["jira", "ticket", "sprint", "epic", "story", "bug"],
+        "argocd": ["argocd", "argo", "deployment", "sync", "kubernetes", "k8s"],
+        "pagerduty": ["pagerduty", "oncall", "on-call", "incident", "alert"],
+        "aws": ["aws", "ec2", "s3", "eks", "lambda", "cost"],
+        "splunk": ["splunk", "log", "search", "metric"],
+        "confluence": ["confluence", "wiki", "documentation", "doc"],
+        "backstage": ["backstage", "catalog", "service"],
+        "rag": ["knowledge", "how to", "what is", "explain", "guide"],
+    }
+    
+    # Detect agents based on keyword presence
+    detected_agents = []
+    for agent, keywords in agent_keywords.items():
+        if agent in [a.lower() for a in available_agents]:
+            if any(kw in query_lower for kw in keywords):
+                detected_agents.append(agent)
+    
+    # Return simple structure - treats entire query as single task
+    return {
+        "key_questions": [query],
+        "task_agent_mapping": {query: detected_agents or ["rag"]},
+        "dependencies": [],
+        "execution_order": [query],
+        "complexity": "simple",
+        "reasoning": "Fallback analysis (LLM unavailable) - basic keyword matching used",
+        "is_fallback": True  # Flag to indicate degraded mode
+    }
+
+
+# =============================================================================
+# MAIN TOOL FUNCTION
+# =============================================================================
 
 @tool
 def analyze_query(
     user_query: str,
     available_agents: Optional[List[str]] = None
-) -> Dict[str, Any]:
+) -> str:
     """
-    Analyze a user query to break it down into structured sub-tasks for TODO generation.
+    Analyze a complex user query using an LLM to break it down into structured sub-tasks.
 
-    Use this tool BEFORE creating your TODO list to ensure comprehensive task planning.
-    This helps with prompt chaining by identifying all the discrete questions/tasks
-    embedded in a complex user request.
+    This tool is designed for PROMPT CHAINING - use it BEFORE creating your TODO list
+    to ensure comprehensive task planning. The LLM semantically understands the query
+    and identifies embedded tasks, appropriate agents, and execution order.
 
     Args:
-        user_query: The original user query/request to analyze
-        available_agents: Optional list of available agent names (e.g., ["github", "jira", "argocd"])
+        user_query: The original user query/request to analyze.
+        available_agents: Optional list of available agent names (e.g., ["github", "jira"]).
+                         If not provided, all standard agents are assumed available.
 
     Returns:
-        Dict containing:
-        - key_questions: List of discrete questions/tasks identified in the query
-        - suggested_agents: Dict mapping each question to suggested agents
-        - task_dependencies: List of dependency relationships between tasks
-        - recommended_order: Suggested execution order for the tasks
-        - complexity: "simple" (1-2 tasks), "moderate" (3-4 tasks), or "complex" (5+ tasks)
-        - analysis_summary: Human-readable summary of the analysis
+        Markdown formatted analysis containing:
+        - Summary with complexity rating and agents needed
+        - Table of key tasks with suggested agents
+        - Task dependencies (if any)
+        - Ready-to-use TODO suggestions for write_todos
 
-    Example usage:
+    Example:
         analyze_query(
-            user_query="Research the ai-platform-engineering repo, find recent issues, and create a summary report",
+            user_query="Research the ai-platform-engineering repo, find recent issues, and create a summary",
             available_agents=["github", "jira", "rag"]
         )
 
-    After calling this tool, use the 'key_questions' list as input for write_todos
-    to create a well-structured execution plan.
+    When to use:
+        ✅ Complex queries with multiple parts ("do X and Y and Z")
+        ✅ Research/investigation requests
+        ✅ Queries involving multiple systems
+        ✅ Report generation requests
+        
+    When to skip:
+        ❌ Simple single-action queries ("list PRs")
+        ❌ Greetings ("hello", "how can you help?")
+        ❌ Direct questions ("what is X?")
     """
-    # Identify key questions/tasks
-    key_questions = _extract_key_questions(user_query)
-
-    # Identify suggested agents for each question
-    suggested_agents = {}
-    all_agents_needed = set()
-
-    for question in key_questions:
-        agents = _identify_agents_for_question(question, available_agents)
-        suggested_agents[question] = agents
-        all_agents_needed.update(agents)
-
-    # Identify task dependencies
-    task_dependencies = _identify_dependencies(key_questions)
-
-    # Determine recommended execution order
-    recommended_order = _determine_execution_order(key_questions, task_dependencies)
-
-    # Calculate complexity
-    num_tasks = len(key_questions)
-    if num_tasks <= 2:
-        complexity = "simple"
-    elif num_tasks <= 4:
-        complexity = "moderate"
-    else:
-        complexity = "complex"
-
-    # Generate analysis summary
-    analysis_summary = _generate_summary(
-        key_questions,
-        all_agents_needed,
-        complexity,
-        task_dependencies
-    )
-
-    # Generate TODO suggestions
-    todo_suggestions = _generate_todo_suggestions(key_questions, suggested_agents, recommended_order)
-
-    # Generate formatted markdown output
-    markdown_output = _generate_markdown_output(
-        key_questions=key_questions,
-        suggested_agents=suggested_agents,
-        all_agents_needed=all_agents_needed,
-        task_dependencies=task_dependencies,
-        recommended_order=recommended_order,
-        complexity=complexity,
-        todo_suggestions=todo_suggestions
-    )
-
-    return {
-        "key_questions": key_questions,
-        "suggested_agents": suggested_agents,
-        "agents_needed": list(all_agents_needed),
-        "task_dependencies": task_dependencies,
-        "recommended_order": recommended_order,
-        "complexity": complexity,
-        "total_tasks": num_tasks,
-        "analysis_summary": analysis_summary,
-        "todo_suggestions": todo_suggestions,
-        "markdown": markdown_output  # Formatted markdown for display
-    }
+    # Set default available agents if not specified
+    # These represent the standard CAIPE agent ecosystem
+    if not available_agents:
+        available_agents = [
+            "github", "jira", "argocd", "pagerduty", "aws",
+            "splunk", "confluence", "backstage", "rag"
+        ]
+    
+    agents_str = ", ".join(available_agents)
+    
+    # =======================================================================
+    # STEP 1: Attempt LLM-based analysis (preferred)
+    # =======================================================================
+    llm = _get_llm()
+    analysis = None
+    
+    if llm:
+        try:
+            # Construct the prompt messages
+            messages = [
+                SystemMessage(content=ANALYSIS_SYSTEM_PROMPT.format(available_agents=agents_str)),
+                HumanMessage(content=ANALYSIS_USER_PROMPT.format(query=user_query, agents=agents_str))
+            ]
+            
+            # Invoke the LLM
+            response = llm.invoke(messages)
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            # Parse the structured response
+            analysis = _parse_llm_response(response_text)
+            
+            if analysis:
+                logger.info(f"LLM analysis completed: {len(analysis.get('key_questions', []))} tasks identified")
+        except Exception as e:
+            logger.warning(f"LLM analysis failed: {e}, falling back to heuristics")
+    
+    # =======================================================================
+    # STEP 2: Fallback to heuristic analysis if LLM failed
+    # =======================================================================
+    if not analysis:
+        analysis = _fallback_analysis(user_query, available_agents)
+    
+    # =======================================================================
+    # STEP 3: Format the analysis as markdown for the supervisor
+    # =======================================================================
+    return _format_analysis_output(user_query, analysis)
 
 
-def _extract_key_questions(query: str) -> List[str]:
-    """Extract discrete questions/tasks from the query."""
-    questions = []
+# =============================================================================
+# OUTPUT FORMATTING
+# =============================================================================
 
-    # Split on common conjunctions and punctuation
-    # Handle "and", "then", "also", semicolons, numbered lists
-    split_patterns = [
-        r'\band\s+(?:also\s+)?',  # "and", "and also"
-        r'\bthen\s+',              # "then"
-        r'\balso\s+',              # "also"
-        r';\s*',                   # semicolons
-        r'\.\s+(?=[A-Z])',         # periods followed by capital letter
-        r',\s*(?=(?:and\s+)?(?:create|get|find|show|list|search|update|delete|analyze))',  # comma before action verb
-    ]
-
-    # First try to split on explicit task separators
-    segments = [query]
-    for pattern in split_patterns:
-        new_segments = []
-        for segment in segments:
-            parts = re.split(pattern, segment, flags=re.IGNORECASE)
-            new_segments.extend([p.strip() for p in parts if p.strip()])
-        segments = new_segments
-
-    # Process each segment to identify distinct tasks
-    for segment in segments:
-        # Skip very short segments
-        if len(segment) < 10:
-            continue
-
-        # Check for multiple action verbs in one segment
-        action_verbs = []
-        segment_lower = segment.lower()
-
-        for action_type, keywords in ACTION_KEYWORDS.items():
-            for keyword in keywords:
-                if keyword in segment_lower:
-                    action_verbs.append((segment_lower.find(keyword), keyword, action_type))
-
-        # If multiple distinct actions, try to split further
-        if len(action_verbs) > 1:
-            action_verbs.sort(key=lambda x: x[0])
-
-            # Check if actions are at different positions (not just synonyms together)
-            positions = [av[0] for av in action_verbs]
-            if max(positions) - min(positions) > 20:  # Actions are spread apart
-                # Keep as potentially multiple tasks, but don't over-split
-                questions.append(segment)
-            else:
-                questions.append(segment)
-        else:
-            questions.append(segment)
-
-    # If no split happened, analyze the single query for implicit tasks
-    if len(questions) == 1 and len(query) > 50:
-        questions = _identify_implicit_tasks(query)
-
-    # Clean up and deduplicate
-    cleaned_questions = []
-    for q in questions:
-        q = q.strip()
-        # Remove leading conjunctions
-        q = re.sub(r'^(and|then|also|but|or)\s+', '', q, flags=re.IGNORECASE)
-        q = q.strip()
-        if q and q not in cleaned_questions and len(q) > 5:
-            cleaned_questions.append(q)
-
-    return cleaned_questions if cleaned_questions else [query]
-
-
-def _identify_implicit_tasks(query: str) -> List[str]:
-    """Identify implicit tasks in a complex query."""
-    tasks = []
-    query_lower = query.lower()
-
-    # Check for research/investigation patterns
-    if any(word in query_lower for word in ["research", "investigate", "analyze", "understand"]):
-        # Research queries often have implicit sub-tasks
-        if "repo" in query_lower or "repository" in query_lower:
-            tasks.append("Get repository overview and metadata")
-            tasks.append("Fetch README and documentation")
-            if "issue" in query_lower or "recent" in query_lower:
-                tasks.append("Get recent issues and pull requests")
-            if "contributor" in query_lower or "activity" in query_lower:
-                tasks.append("Analyze contributors and activity")
-
-    # Check for report generation patterns
-    if any(word in query_lower for word in ["report", "summary", "compile", "aggregate"]):
-        tasks.append("Gather data from relevant sources")
-        tasks.append("Synthesize and format results")
-
-    # Check for multi-system queries
-    agents_mentioned = []
-    for agent, keywords in AGENT_KEYWORDS.items():
-        if any(kw in query_lower for kw in keywords):
-            agents_mentioned.append(agent)
-
-    if len(agents_mentioned) > 1:
-        for agent in agents_mentioned:
-            tasks.append(f"Query {agent} for relevant information")
-        tasks.append("Correlate and synthesize results from all sources")
-
-    return tasks if tasks else [query]
-
-
-def _identify_agents_for_question(question: str, available_agents: Optional[List[str]]) -> List[str]:
-    """Identify which agents are relevant for a question."""
-    question_lower = question.lower()
-    agents = []
-
-    for agent, keywords in AGENT_KEYWORDS.items():
-        # Check if agent is available (if list provided)
-        if available_agents and agent not in [a.lower() for a in available_agents]:
-            continue
-
-        if any(keyword in question_lower for keyword in keywords):
-            agents.append(agent)
-
-    # If no specific agent identified, suggest RAG for knowledge queries
-    if not agents:
-        if any(word in question_lower for word in ["what", "how", "why", "explain", "documentation"]):
-            agents.append("rag")
-
-    return agents
-
-
-def _identify_dependencies(questions: List[str]) -> List[Dict[str, str]]:
-    """Identify dependencies between tasks."""
-    dependencies = []
-
-    for i, q1 in enumerate(questions):
-        q1_lower = q1.lower()
-        for j, q2 in enumerate(questions):
-            if i >= j:
-                continue
-            q2_lower = q2.lower()
-
-            # Check for explicit dependency patterns
-            # "using X" or "with X" suggests dependency on previous data
-            if any(pattern in q2_lower for pattern in ["using the", "with the", "based on", "from the"]):
-                dependencies.append({
-                    "task": q2,
-                    "depends_on": q1,
-                    "reason": "Task references data from previous task"
-                })
-
-            # Synthesis/report tasks depend on data gathering
-            if any(word in q2_lower for word in ["synthesize", "summarize", "report", "compile", "correlate"]):
-                if any(word in q1_lower for word in ["get", "fetch", "find", "search", "query"]):
-                    dependencies.append({
-                        "task": q2,
-                        "depends_on": q1,
-                        "reason": "Synthesis depends on data gathering"
-                    })
-
-    return dependencies
-
-
-def _determine_execution_order(questions: List[str], dependencies: List[Dict[str, str]]) -> List[str]:
-    """Determine optimal execution order based on dependencies."""
-    # Start with original order
-    ordered = []
-    remaining = questions.copy()
-
-    # Build dependency map
-    dep_map = {}
-    for dep in dependencies:
-        task = dep["task"]
-        if task not in dep_map:
-            dep_map[task] = []
-        dep_map[task].append(dep["depends_on"])
-
-    # Topological sort
-    while remaining:
-        # Find tasks with no unresolved dependencies
-        available = []
-        for task in remaining:
-            deps = dep_map.get(task, [])
-            if all(d in ordered for d in deps):
-                available.append(task)
-
-        if not available:
-            # No tasks available (cycle or all remaining have deps)
-            # Just add remaining in original order
-            ordered.extend(remaining)
-            break
-
-        # Add first available task
-        task = available[0]
-        ordered.append(task)
-        remaining.remove(task)
-
-    return ordered
-
-
-def _generate_summary(
-    questions: List[str],
-    agents: set,
-    complexity: str,
-    dependencies: List[Dict[str, str]]
-) -> str:
-    """Generate a human-readable analysis summary."""
-    summary_parts = []
-
-    summary_parts.append(f"📊 **Query Analysis**: {complexity.upper()} ({len(questions)} tasks)")
-
-    if agents:
-        summary_parts.append(f"🤖 **Agents needed**: {', '.join(sorted(agents))}")
-
-    summary_parts.append("📋 **Key tasks identified**:")
-    for i, q in enumerate(questions, 1):
-        summary_parts.append(f"   {i}. {q}")
-
-    if dependencies:
-        summary_parts.append(f"🔗 **Dependencies**: {len(dependencies)} task dependencies found")
-
-    return "\n".join(summary_parts)
-
-
-def _generate_todo_suggestions(
-    questions: List[str],
-    suggested_agents: Dict[str, List[str]],
-    execution_order: List[str]
-) -> List[Dict[str, str]]:
-    """Generate TODO item suggestions based on analysis."""
-    todos = []
-
-    for i, question in enumerate(execution_order, 1):
-        agents = suggested_agents.get(question, [])
-        agent_hint = f" (via {', '.join(agents)})" if agents else ""
-
-        todos.append({
-            "id": str(i),
-            "content": f"{question}{agent_hint}",
-            "status": "pending",
-            "suggested_agents": agents
-        })
-
-    # Add synthesis task if multiple tasks
-    if len(todos) > 1:
-        todos.append({
-            "id": str(len(todos) + 1),
-            "content": "Synthesize results and present findings",
-            "status": "pending",
-            "suggested_agents": []
-        })
-
-    return todos
-
-
-def _generate_markdown_output(
-    key_questions: List[str],
-    suggested_agents: Dict[str, List[str]],
-    all_agents_needed: set,
-    task_dependencies: List[Dict[str, str]],
-    recommended_order: List[str],
-    complexity: str,
-    todo_suggestions: List[Dict[str, str]]
-) -> str:
-    """Generate a well-formatted markdown output for the analysis."""
-
-    # Complexity emoji
+def _format_analysis_output(query: str, analysis: Dict[str, Any]) -> str:
+    """
+    Format the analysis result as markdown for the supervisor agent.
+    
+    The output is designed to be:
+    1. Human-readable (for debugging/transparency)
+    2. LLM-parseable (supervisor can extract TODO suggestions)
+    3. Actionable (includes ready-to-use write_todos JSON)
+    
+    Output Structure:
+    -----------------
+    ## 📊 Query Analysis Results
+    
+    **Complexity:** 🟡 MODERATE (3 tasks)
+    **Agents Needed:** `github` `jira`
+    
+    ---
+    
+    ### 🎯 Key Tasks Identified
+    | # | Task | Agent(s) |
+    |---|------|----------|
+    | 1 | Get repo info | `github` |
+    ...
+    
+    ### 🔗 Task Dependencies
+    (if any)
+    
+    ---
+    
+    ### 📋 Suggested TODO Items
+    ```
+    - ⏳ Task 1 (via agent)
+    - ⏳ Task 2 (via agent)
+    ```
+    
+    <details>
+    <summary>📦 JSON for write_todos</summary>
+    ```python
+    write_todos(merge=False, todos=[...])
+    ```
+    </details>
+    
+    Args:
+        query: Original user query (for context).
+        analysis: Parsed analysis dictionary from LLM or fallback.
+        
+    Returns:
+        Formatted markdown string.
+    """
+    # Extract analysis components with defaults
+    key_questions = analysis.get("key_questions", [query])
+    task_mapping = analysis.get("task_agent_mapping", {})
+    dependencies = analysis.get("dependencies", [])
+    execution_order = analysis.get("execution_order", key_questions)
+    complexity = analysis.get("complexity", "moderate")
+    reasoning = analysis.get("reasoning", "")
+    is_fallback = analysis.get("is_fallback", False)
+    
+    # Visual complexity indicator
     complexity_emoji = {
-        "simple": "🟢",
-        "moderate": "🟡",
-        "complex": "🔴"
+        "simple": "🟢",    # 1-2 tasks
+        "moderate": "🟡",  # 3-4 tasks
+        "complex": "🔴"    # 5+ tasks
     }.get(complexity, "⚪")
-
+    
+    # Collect all unique agents mentioned
+    all_agents = set()
+    for agents in task_mapping.values():
+        all_agents.update(agents)
+    
+    # Build markdown output
     md = []
-
-    # Header
+    
+    # ---------------------------------------------------------------------
+    # HEADER & SUMMARY
+    # ---------------------------------------------------------------------
     md.append("## 📊 Query Analysis Results\n")
-
-    # Summary box
-    md.append(f"**Complexity:** {complexity_emoji} {complexity.upper()} ({len(key_questions)} tasks)\n")
-
-    # Agents needed
-    if all_agents_needed:
-        agent_badges = " ".join([f"`{agent}`" for agent in sorted(all_agents_needed)])
-        md.append(f"**Agents Needed:** {agent_badges}\n")
-
-    md.append("---\n")
-
-    # Key Questions / Tasks
+    
+    # Warning if using fallback mode
+    if is_fallback:
+        md.append("⚠️ *Using fallback analysis (LLM unavailable)*\n")
+    
+    # Complexity and agents summary
+    md.append(f"**Complexity:** {complexity_emoji} {complexity.upper()} ({len(key_questions)} tasks)")
+    
+    if all_agents:
+        agent_badges = " ".join([f"`{agent}`" for agent in sorted(all_agents)])
+        md.append(f"**Agents Needed:** {agent_badges}")
+    
+    # LLM's reasoning (helps with debugging/transparency)
+    if reasoning:
+        md.append(f"\n**Analysis:** {reasoning}")
+    
+    md.append("\n---\n")
+    
+    # ---------------------------------------------------------------------
+    # KEY TASKS TABLE
+    # ---------------------------------------------------------------------
     md.append("### 🎯 Key Tasks Identified\n")
-    md.append("| # | Task | Suggested Agent(s) |")
-    md.append("|---|------|-------------------|")
-
-    for i, question in enumerate(recommended_order, 1):
-        agents = suggested_agents.get(question, [])
-        agents_str = ", ".join([f"`{a}`" for a in agents]) if agents else "_none_"
-        # Truncate long questions for table display
-        task_display = question[:80] + "..." if len(question) > 80 else question
+    md.append("| # | Task | Agent(s) |")
+    md.append("|---|------|----------|")
+    
+    for i, task in enumerate(execution_order, 1):
+        agents = task_mapping.get(task, [])
+        agents_str = ", ".join([f"`{a}`" for a in agents]) if agents else "_auto_"
+        # Truncate long task descriptions for table readability
+        task_display = task[:80] + "..." if len(task) > 80 else task
         md.append(f"| {i} | {task_display} | {agents_str} |")
-
+    
     md.append("")
-
-    # Dependencies (if any)
-    if task_dependencies:
+    
+    # ---------------------------------------------------------------------
+    # TASK DEPENDENCIES (if any exist)
+    # ---------------------------------------------------------------------
+    if dependencies:
         md.append("### 🔗 Task Dependencies\n")
-        for dep in task_dependencies:
-            task_short = dep['task'][:50] + "..." if len(dep['task']) > 50 else dep['task']
-            depends_short = dep['depends_on'][:50] + "..." if len(dep['depends_on']) > 50 else dep['depends_on']
-            md.append(f"- **{task_short}** → depends on → _{depends_short}_")
-            md.append(f"  - Reason: {dep['reason']}")
+        for dep in dependencies:
+            md.append(f"- **{dep.get('task', '')}** depends on **{dep.get('depends_on', '')}**")
+            if dep.get('reason'):
+                md.append(f"  - _{dep['reason']}_")
         md.append("")
-
+    
     md.append("---\n")
-
-    # TODO Suggestions (ready to use)
-    md.append("### 📋 Suggested Execution Plan\n")
-    md.append("Copy this to your TODO list:\n")
+    
+    # ---------------------------------------------------------------------
+    # SUGGESTED TODO ITEMS (Human-readable list)
+    # ---------------------------------------------------------------------
+    md.append("### 📋 Suggested TODO Items\n")
+    md.append("Use these to create your execution plan:\n")
     md.append("```")
-    md.append("📋 Execution Plan")
-
-    for todo in todo_suggestions:
-        status_emoji = "⏳"
-        md.append(f"- {status_emoji} {todo['content']}")
-
+    
+    for i, task in enumerate(execution_order, 1):
+        agents = task_mapping.get(task, [])
+        agent_hint = f" (via {', '.join(agents)})" if agents else ""
+        md.append(f"- ⏳ {task}{agent_hint}")
+    
+    # Add synthesis step for multi-task queries
+    # (Supervisor needs to combine results at the end)
+    if len(execution_order) > 1:
+        md.append("- ⏳ Synthesize results and present findings")
+    
     md.append("```\n")
-
-    # JSON for write_todos (collapsible)
+    
+    # ---------------------------------------------------------------------
+    # JSON FOR write_todos (Collapsible, copy-paste ready)
+    # ---------------------------------------------------------------------
+    # This section provides the exact JSON format the supervisor can use
+    # with the write_todos tool. It's in a collapsible <details> block
+    # to keep the output clean.
     md.append("<details>")
-    md.append("<summary>📦 JSON for <code>write_todos</code> (click to expand)</summary>\n")
+    md.append("<summary>📦 JSON for <code>write_todos</code></summary>\n")
     md.append("```python")
     md.append("write_todos(merge=False, todos=[")
-    for todo in todo_suggestions:
-        md.append(f'    {{"id": "{todo["id"]}", "content": "{todo["content"]}", "status": "pending"}},')
+    
+    for i, task in enumerate(execution_order, 1):
+        agents = task_mapping.get(task, [])
+        agent_hint = f" (via {', '.join(agents)})" if agents else ""
+        content = f"{task}{agent_hint}"
+        # Escape quotes to ensure valid JSON
+        content = content.replace('"', '\\"')
+        md.append(f'    {{"id": "{i}", "content": "{content}", "status": "pending"}},')
+    
+    # Add synthesis task for multi-step queries
+    if len(execution_order) > 1:
+        md.append(f'    {{"id": "{len(execution_order) + 1}", "content": "Synthesize results and present findings", "status": "pending"}},')
+    
     md.append("])")
     md.append("```")
-    md.append("</details>\n")
-
+    md.append("</details>")
+    
     return "\n".join(md)
-

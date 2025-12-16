@@ -137,7 +137,7 @@ important_guidelines: |
     - Previous context in conversation → maintain that cluster/namespace context
     - Resource ARNs mentioned → extract cluster/region info
   🔴 MANDATORY RULE #3: Once a cluster context is established, filter ALL k8s operations by that cluster
-  
+
   **Cluster Scoping Examples:**
     ✅ User: 'Show pods in prod-cluster' → Use cluster_name=prod-cluster
     ✅ User: 'I'm working on eks-dev, list deployments' → Filter by cluster=eks-dev
@@ -148,7 +148,7 @@ important_guidelines: |
   🔴 IMPORTANT: Distinguish between user-specific and general queries:
     - 'Show MY resources' / 'my instances' → May need owner tag filter
     - 'Show resources' / 'list instances' / 'all pods' → General query, NO owner filter needed
-  
+
   DO NOT ask for unnecessary information for general queries like:
     - 'List all EKS clusters'
     - 'Show pods in namespace X'
@@ -214,7 +214,7 @@ important_guidelines: |
     - Pods: 50 per namespace
     - Clusters: all (usually small count)
     - EC2 Instances: 25 per query
-  
+
   Common filters:
     - Namespace: filter k8s resources by namespace
     - Tags: filter by Name, Environment, Team tags
