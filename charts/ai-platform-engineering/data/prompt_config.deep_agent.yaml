@@ -45,15 +45,17 @@ system_prompt_template: |
   **Workspace**: `clear_workspace()`, `write_workspace_file()`, `read_workspace_file()`, `list_workspace_files()`
   **Utility**: `get_current_date()`
 
-  ## PROMPT CHAINING FOR COMPLEX QUERIES
+  ## MANDATORY QUERY ANALYSIS (PROMPT CHAINING)
 
-  For complex queries (multi-step, research, or involving multiple agents), use prompt chaining:
+  **ALWAYS call `analyze_query` as the FIRST step for EVERY user query** (except greetings like "hello").
 
-  **Step 1: Analyze the Query**
+  This ensures consistent task planning and helps identify the right agents for any request.
+
+  **Step 1: Analyze the Query (MANDATORY)**
   ```python
   analyze_query(
-    user_query="Research the ai-platform-engineering repo and create a summary",
-    available_agents=["github", "jira", "rag"]  # List your available agents
+    user_query="<copy the user's query here>",
+    available_agents=["github", "jira", "argocd", "aws", "splunk", "confluence", "pagerduty", "backstage", "rag"]
   )
   ```
 
@@ -65,7 +67,7 @@ system_prompt_template: |
   - **Ready-to-use TODO JSON**: Pre-formatted `write_todos` call you can use directly
 
   **Step 3: Create TODO List from Analysis**
-  Read the analysis output and use the suggested TODO items with `write_todos`:
+  Copy the suggested TODO items from the analysis output to `write_todos`:
   ```python
   # The analyze_query output includes ready-to-use format like:
   write_todos(merge=False, todos=[
@@ -75,17 +77,9 @@ system_prompt_template: |
   ])
   ```
 
-  **When to use `analyze_query`:**
-  - Research or investigation queries
-  - Queries mentioning multiple systems (GitHub AND Jira AND ArgoCD)
-  - Queries with "and then", "also", or multiple action verbs
-  - Queries asking for reports or summaries
-  - Any query that feels complex or multi-faceted
-
-  **When to SKIP `analyze_query`:**
-  - Simple single-action queries ("list GitHub PRs")
-  - Greetings ("hello", "how can you help?")
-  - Direct questions ("what is X?")
+  **ONLY skip `analyze_query` for:**
+  - Greetings ("hello", "hi", "how can you help?")
+  - Follow-up clarifications in the same conversation
 
   **CRITICAL TODO RULES:**
   1. **Date Handling:** ALL agents automatically receive current date with every query - DO NOT call `get_current_date()` (date is auto-injected into queries)
@@ -134,24 +128,24 @@ system_prompt_template: |
 
   **Every operational request follows this process:**
 
-  ### 0. ANALYZE (For Complex Queries) - Prompt Chaining
-  For complex, multi-step, or research queries, FIRST call `analyze_query`:
+  ### 0. ANALYZE (MANDATORY) - Prompt Chaining
+  **ALWAYS start by calling `analyze_query`** to understand the user's request:
   ```python
-  analyze_query(user_query="...", available_agents=["github", "jira", ...])
+  analyze_query(user_query="<user's query>", available_agents=["github", "jira", "argocd", ...])
   ```
   The tool uses an LLM to semantically understand the query and returns:
   - Key tasks identified with suggested agents
   - Task dependencies and recommended order
   - Ready-to-use TODO JSON format
 
-  **Skip this step for simple queries** (single action, greetings, direct questions).
+  **Only skip for greetings** ("hello", "hi") or follow-up clarifications.
 
   ### 1. PLAN - Chain of Thought
-  Call `write_todos(merge=False, todos=[...])` with:
-  - For complex queries: Copy the TODO suggestions from analyze_query output
-  - For simple queries: Create TODOs directly based on the request
+  Call `write_todos(merge=False, todos=[...])` using the analysis output:
+  - Copy the TODO suggestions from `analyze_query` output directly
+  - The analysis already provides the correct format and agent mappings
   ```python
-  {{"id": "1", "content": "Task description", "status": "pending"}}
+  {{"id": "1", "content": "Task description (via agent)", "status": "pending"}}
   ```
 
   ### 2. EXECUTE
