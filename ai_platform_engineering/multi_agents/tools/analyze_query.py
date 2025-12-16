@@ -163,20 +163,20 @@ Provide your analysis as a JSON object."""
 def _get_llm():
     """
     Get an LLM instance for query analysis.
-    
+
     Uses cnoe_agent_utils.LLMFactory to create the LLM, which respects
     environment configuration (MODEL_NAME, OPENAI_API_KEY, etc.).
-    
+
     Returns:
         LLM instance or None if creation fails.
-        
+
     Note:
         Temperature is set to 0.0 for deterministic, structured output.
         This ensures consistent task breakdown across similar queries.
     """
     try:
         from cnoe_agent_utils import LLMFactory
-        
+
         # Use temperature=0 for consistent, structured analysis
         llm = LLMFactory.create(
             temperature=0.0,  # Deterministic for structured output
@@ -194,20 +194,20 @@ def _get_llm():
 def _parse_llm_response(response_text: str) -> Dict[str, Any]:
     """
     Parse LLM response text into a structured dictionary.
-    
+
     Handles common LLM output quirks:
     - Markdown code blocks (```json ... ```)
     - Extra whitespace
     - Invalid JSON (returns None for fallback)
-    
+
     Args:
         response_text: Raw text response from the LLM.
-        
+
     Returns:
         Parsed dictionary or None if parsing fails.
     """
     text = response_text.strip()
-    
+
     # Remove markdown code blocks if present
     # LLMs sometimes wrap JSON in ```json ... ``` despite instructions
     if text.startswith("```"):
@@ -218,7 +218,7 @@ def _parse_llm_response(response_text: str) -> Dict[str, Any]:
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         text = "\n".join(lines)
-    
+
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
@@ -233,18 +233,18 @@ def _parse_llm_response(response_text: str) -> Dict[str, Any]:
 def _fallback_analysis(query: str, available_agents: List[str]) -> Dict[str, Any]:
     """
     Fallback to basic keyword-based analysis when LLM is unavailable.
-    
+
     This is a degraded mode that uses simple string matching to identify
     relevant agents. It's less accurate than LLM analysis but ensures
     the tool always returns something useful.
-    
+
     Args:
         query: The user's query string.
         available_agents: List of agent names currently available.
-        
+
     Returns:
         Analysis dictionary with is_fallback=True flag.
-        
+
     Note:
         This fallback is triggered when:
         - LLMFactory fails to create an LLM
@@ -252,7 +252,7 @@ def _fallback_analysis(query: str, available_agents: List[str]) -> Dict[str, Any
         - LLM response cannot be parsed as JSON
     """
     query_lower = query.lower()
-    
+
     # Keyword-to-agent mapping for basic detection
     # These keywords suggest which agent might be relevant
     agent_keywords = {
@@ -266,14 +266,14 @@ def _fallback_analysis(query: str, available_agents: List[str]) -> Dict[str, Any
         "backstage": ["backstage", "catalog", "service"],
         "rag": ["knowledge", "how to", "what is", "explain", "guide"],
     }
-    
+
     # Detect agents based on keyword presence
     detected_agents = []
     for agent, keywords in agent_keywords.items():
         if agent in [a.lower() for a in available_agents]:
             if any(kw in query_lower for kw in keywords):
                 detected_agents.append(agent)
-    
+
     # Return simple structure - treats entire query as single task
     return {
         "key_questions": [query],
@@ -325,7 +325,7 @@ def analyze_query(
         ✅ Research/investigation requests
         ✅ Queries involving multiple systems
         ✅ Report generation requests
-        
+
     When to skip:
         ❌ Simple single-action queries ("list PRs")
         ❌ Greetings ("hello", "how can you help?")
@@ -338,15 +338,15 @@ def analyze_query(
             "github", "jira", "argocd", "pagerduty", "aws",
             "splunk", "confluence", "backstage", "rag"
         ]
-    
+
     agents_str = ", ".join(available_agents)
-    
+
     # =======================================================================
     # STEP 1: Attempt LLM-based analysis (preferred)
     # =======================================================================
     llm = _get_llm()
     analysis = None
-    
+
     if llm:
         try:
             # Construct the prompt messages
@@ -354,25 +354,25 @@ def analyze_query(
                 SystemMessage(content=ANALYSIS_SYSTEM_PROMPT.format(available_agents=agents_str)),
                 HumanMessage(content=ANALYSIS_USER_PROMPT.format(query=user_query, agents=agents_str))
             ]
-            
+
             # Invoke the LLM
             response = llm.invoke(messages)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             # Parse the structured response
             analysis = _parse_llm_response(response_text)
-            
+
             if analysis:
                 logger.info(f"LLM analysis completed: {len(analysis.get('key_questions', []))} tasks identified")
         except Exception as e:
             logger.warning(f"LLM analysis failed: {e}, falling back to heuristics")
-    
+
     # =======================================================================
     # STEP 2: Fallback to heuristic analysis if LLM failed
     # =======================================================================
     if not analysis:
         analysis = _fallback_analysis(user_query, available_agents)
-    
+
     # =======================================================================
     # STEP 3: Format the analysis as markdown for the supervisor
     # =======================================================================
@@ -386,49 +386,49 @@ def analyze_query(
 def _format_analysis_output(query: str, analysis: Dict[str, Any]) -> str:
     """
     Format the analysis result as markdown for the supervisor agent.
-    
+
     The output is designed to be:
     1. Human-readable (for debugging/transparency)
     2. LLM-parseable (supervisor can extract TODO suggestions)
     3. Actionable (includes ready-to-use write_todos JSON)
-    
+
     Output Structure:
     -----------------
     ## 📊 Query Analysis Results
-    
+
     **Complexity:** 🟡 MODERATE (3 tasks)
     **Agents Needed:** `github` `jira`
-    
+
     ---
-    
+
     ### 🎯 Key Tasks Identified
     | # | Task | Agent(s) |
     |---|------|----------|
     | 1 | Get repo info | `github` |
     ...
-    
+
     ### 🔗 Task Dependencies
     (if any)
-    
+
     ---
-    
+
     ### 📋 Suggested TODO Items
     ```
     - ⏳ Task 1 (via agent)
     - ⏳ Task 2 (via agent)
     ```
-    
+
     <details>
     <summary>📦 JSON for write_todos</summary>
     ```python
     write_todos(merge=False, todos=[...])
     ```
     </details>
-    
+
     Args:
         query: Original user query (for context).
         analysis: Parsed analysis dictionary from LLM or fallback.
-        
+
     Returns:
         Formatted markdown string.
     """
@@ -440,60 +440,60 @@ def _format_analysis_output(query: str, analysis: Dict[str, Any]) -> str:
     complexity = analysis.get("complexity", "moderate")
     reasoning = analysis.get("reasoning", "")
     is_fallback = analysis.get("is_fallback", False)
-    
+
     # Visual complexity indicator
     complexity_emoji = {
         "simple": "🟢",    # 1-2 tasks
         "moderate": "🟡",  # 3-4 tasks
         "complex": "🔴"    # 5+ tasks
     }.get(complexity, "⚪")
-    
+
     # Collect all unique agents mentioned
     all_agents = set()
     for agents in task_mapping.values():
         all_agents.update(agents)
-    
+
     # Build markdown output
     md = []
-    
+
     # ---------------------------------------------------------------------
     # HEADER & SUMMARY
     # ---------------------------------------------------------------------
     md.append("## 📊 Query Analysis Results\n")
-    
+
     # Warning if using fallback mode
     if is_fallback:
         md.append("⚠️ *Using fallback analysis (LLM unavailable)*\n")
-    
+
     # Complexity and agents summary
     md.append(f"**Complexity:** {complexity_emoji} {complexity.upper()} ({len(key_questions)} tasks)")
-    
+
     if all_agents:
         agent_badges = " ".join([f"`{agent}`" for agent in sorted(all_agents)])
         md.append(f"**Agents Needed:** {agent_badges}")
-    
+
     # LLM's reasoning (helps with debugging/transparency)
     if reasoning:
         md.append(f"\n**Analysis:** {reasoning}")
-    
+
     md.append("\n---\n")
-    
+
     # ---------------------------------------------------------------------
     # KEY TASKS TABLE
     # ---------------------------------------------------------------------
     md.append("### 🎯 Key Tasks Identified\n")
     md.append("| # | Task | Agent(s) |")
     md.append("|---|------|----------|")
-    
+
     for i, task in enumerate(execution_order, 1):
         agents = task_mapping.get(task, [])
         agents_str = ", ".join([f"`{a}`" for a in agents]) if agents else "_auto_"
         # Truncate long task descriptions for table readability
         task_display = task[:80] + "..." if len(task) > 80 else task
         md.append(f"| {i} | {task_display} | {agents_str} |")
-    
+
     md.append("")
-    
+
     # ---------------------------------------------------------------------
     # TASK DEPENDENCIES (if any exist)
     # ---------------------------------------------------------------------
@@ -504,28 +504,28 @@ def _format_analysis_output(query: str, analysis: Dict[str, Any]) -> str:
             if dep.get('reason'):
                 md.append(f"  - _{dep['reason']}_")
         md.append("")
-    
+
     md.append("---\n")
-    
+
     # ---------------------------------------------------------------------
     # SUGGESTED TODO ITEMS (Human-readable list)
     # ---------------------------------------------------------------------
     md.append("### 📋 Suggested TODO Items\n")
     md.append("Use these to create your execution plan:\n")
     md.append("```")
-    
+
     for i, task in enumerate(execution_order, 1):
         agents = task_mapping.get(task, [])
         agent_hint = f" (via {', '.join(agents)})" if agents else ""
         md.append(f"- ⏳ {task}{agent_hint}")
-    
+
     # Add synthesis step for multi-task queries
     # (Supervisor needs to combine results at the end)
     if len(execution_order) > 1:
         md.append("- ⏳ Synthesize results and present findings")
-    
+
     md.append("```\n")
-    
+
     # ---------------------------------------------------------------------
     # JSON FOR write_todos (Collapsible, copy-paste ready)
     # ---------------------------------------------------------------------
@@ -536,7 +536,7 @@ def _format_analysis_output(query: str, analysis: Dict[str, Any]) -> str:
     md.append("<summary>📦 JSON for <code>write_todos</code></summary>\n")
     md.append("```python")
     md.append("write_todos(merge=False, todos=[")
-    
+
     for i, task in enumerate(execution_order, 1):
         agents = task_mapping.get(task, [])
         agent_hint = f" (via {', '.join(agents)})" if agents else ""
@@ -544,13 +544,13 @@ def _format_analysis_output(query: str, analysis: Dict[str, Any]) -> str:
         # Escape quotes to ensure valid JSON
         content = content.replace('"', '\\"')
         md.append(f'    {{"id": "{i}", "content": "{content}", "status": "pending"}},')
-    
+
     # Add synthesis task for multi-step queries
     if len(execution_order) > 1:
         md.append(f'    {{"id": "{len(execution_order) + 1}", "content": "Synthesize results and present findings", "status": "pending"}},')
-    
+
     md.append("])")
     md.append("```")
     md.append("</details>")
-    
+
     return "\n".join(md)
