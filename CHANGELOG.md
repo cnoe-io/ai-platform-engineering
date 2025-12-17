@@ -1,3 +1,10 @@
+## Unreleased
+
+### Fix
+
+- rag tool and prompt optimizations
+- critical fix for ingestor
+
 ## 0.2.6 (2025-12-16)
 
 ### Feat
