@@ -61,6 +61,10 @@ metrics:
     metricRelabelings: []
   grafanaDashboard:
     enabled: true
+    # Labels for Grafana sidecar dashboard discovery
+    # Override to match your Grafana sidecar configuration (e.g., grafana_dashboard: "local")
+    labels:
+      grafana_dashboard: "1"
 
 # Extra Kubernetes resources to deploy
 extraDeploy: []
