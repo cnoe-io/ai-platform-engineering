@@ -81,6 +81,8 @@ extraDeploy: []
 promptConfigType: "default"  # Options: "default" or "deep_agent"
 promptConfig: ""              # Custom prompt config (overrides promptConfigType if set)
 
+ragPromptConfig: ""           # Custom RAG prompt config (overrides default if set)
+
 ######### Supervisor agent configuration #########
 supervisor-agent:
   nameOverride: "supervisor-agent"
