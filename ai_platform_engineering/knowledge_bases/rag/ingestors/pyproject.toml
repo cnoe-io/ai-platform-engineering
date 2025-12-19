@@ -10,10 +10,12 @@ requires-python = ">=3.13, <4.0"
 dependencies = [
     "aiohttp>=3.13.2",
     "aiohttp-retry>=2.9.1",
+    "atlassian-python-api>=3.41.0",
     "beautifulsoup4>=4.14.2",
     "boto3>=1.38.38",
     "common",
     "fastapi[standard]>=0.121.2",
+    "html2text>=2020.1.16",
     "kubernetes>=33.1.0",
     "langchain>=1.0.7",
     "langchain-text-splitters>=1.0.0",
