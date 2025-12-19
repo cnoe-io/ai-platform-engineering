@@ -1,0 +1,40 @@
+{{- if include "agent.gatewayApi.enabled" . | eq "true" -}}
+{{- $fullName := include "agent.fullname" . -}}
+{{- $svcPort := .Values.service.port -}}
+{{- $gatewayName := include "agent.gatewayApi.gatewayName" . -}}
+{{- $gatewayNamespace := include "agent.gatewayApi.gatewayNamespace" . -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "agent.fullname" . }}
+  labels:
+    {{- include "agent.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+  - name: {{ $gatewayName }}
+    {{- if ne $gatewayNamespace .Release.Namespace }}
+    namespace: {{ $gatewayNamespace }}
+    {{- end }}
+  {{- if .Values.ingress.hosts }}
+  hostnames:
+  {{- range .Values.ingress.hosts }}
+  - {{ .host | quote }}
+  {{- end }}
+  {{- end }}
+  rules:
+  {{- range .Values.ingress.hosts }}
+  {{- range .paths }}
+  - matches:
+    - path:
+        type: {{ include "agent.gatewayApi.pathType" .pathType }}
+        value: {{ .path }}
+    backendRefs:
+    - name: {{ $fullName }}
+      port: {{ $svcPort }}
+  {{- end }}
+  {{- end }}
+{{- end }}
