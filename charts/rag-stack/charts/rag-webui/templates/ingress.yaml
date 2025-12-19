@@ -1,4 +1,4 @@
-{{- if .Values.ingress.enabled -}}
+{{- if include "rag-webui.ingress.shouldRender" . | eq "true" -}}
 {{- $fullName := include "rag-webui.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 apiVersion: networking.k8s.io/v1
@@ -28,7 +28,7 @@ spec:
   rules:
     {{- if .Values.ingress.hosts }}
     {{- range .Values.ingress.hosts }}
-    - host: {{ . | quote }}
+    - host: {{ .host | quote }}
       http:
         paths:
           - path: /

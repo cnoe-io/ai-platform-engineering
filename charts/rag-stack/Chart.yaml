@@ -3,7 +3,7 @@ name: rag-stack
 description: A complete RAG stack including web UI, server, agents, Redis, Neo4j and Milvus
 
 type: application
-version: 0.0.6
+version: 0.0.7
 appVersion: "0.0.6"
 
 dependencies:
