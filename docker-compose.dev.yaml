@@ -63,6 +63,9 @@ services:
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - ENABLE_RAG=${ENABLE_RAG:-false}
 
+      # GitHub Token for git operations
+      - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
       # Example: ENABLE_ARGOCD=true enables the ArgoCD agent, allowing the platform engineer to route tasks related to Kubernetes application management.
