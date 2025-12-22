@@ -27,7 +27,23 @@ from ai_platform_engineering.multi_agents.tools import (
     write_workspace_file,
     read_workspace_file,
     list_workspace_files,
-    clear_workspace
+    clear_workspace,
+    git_clone,
+    git_status,
+    git_log,
+    git_branch,
+    git_diff,
+    git_show,
+    git_remote,
+    grep_search,
+    grep_count,
+    wget_download,
+    wget_mirror,
+    curl_request,
+    curl_download,
+    glob_find,
+    glob_expand,
+    glob_test
 )
 from deepagents import async_create_deep_agent
 
@@ -241,7 +257,7 @@ class AIPlatformEngineerMAS:
     # Get fresh tools from registry (for tool notifications and visibility)
     all_agents = platform_registry.get_all_agents()
 
-    # Add utility tools: reflection, markdown formatting, URL fetching, current date, workspace
+    # Add utility tools: reflection, markdown formatting, URL fetching, current date, workspace, git, grep, wget, curl, glob
     all_tools = all_agents + [
         reflect_on_output,
         format_markdown,
@@ -250,7 +266,23 @@ class AIPlatformEngineerMAS:
         write_workspace_file,
         read_workspace_file,
         list_workspace_files,
-        clear_workspace
+        clear_workspace,
+        git_clone,
+        git_status,
+        git_log,
+        git_branch,
+        git_diff,
+        git_show,
+        git_remote,
+        grep_search,
+        grep_count,
+        wget_download,
+        wget_mirror,
+        curl_request,
+        curl_download,
+        glob_find,
+        glob_expand,
+        glob_test
     ]
 
     # Add RAG tools if initially loaded
