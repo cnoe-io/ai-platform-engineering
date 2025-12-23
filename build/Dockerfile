@@ -25,6 +25,10 @@ FROM python:3.13-slim
 
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    wget \
+    curl \
+    grep \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
