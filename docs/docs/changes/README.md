@@ -57,6 +57,10 @@ All documentation files are in the root of this directory, organized by date and
 - **2024-10-22-implementation-summary.md** - Implementation summary [🟢 In-use]
 
 ### 🐛 Bug Fixes & Performance
+- **2025-12-23-agent-name-tracing-fix.md** - Agent name tracing fix for LangGraph observations [🟢 In-use]
+- **2025-12-15-jira-entity-relationships-sop.md** - Jira entity relationships and field discovery [🟢 In-use]
+- **2025-12-13-context-management-and-resilience.md** - Context management and resilience improvements [🟢 In-use]
+- **2025-12-04-jira-field-discovery-implementation.md** - Jira field discovery implementation [🟢 In-use]
 - **2025-11-08-platform-engineer-final-response-parsing.md** - Platform Engineer final response parsing and DataPart implementation [🟢 In-use]
 - **2025-11-05-a2a-artifact-streaming-fix.md** - A2A artifact streaming race condition fix [🟢 In-use]
 - **2025-11-05-argocd-oom-analysis.md** - ArgoCD OOM protection analysis [🟢 In-use]
@@ -85,11 +89,14 @@ All documentation files are in the root of this directory, organized by date and
 - **A2A artifact streaming?** → `2025-11-05-a2a-artifact-streaming-fix.md`
 - **OOM protection?** → `2025-11-05-oom-protection-summary.md`
 - **ArgoCD pagination?** → `2025-11-05-mcp-argocd-pagination-summary.md`
+- **Agent name tracing?** → `2025-12-23-agent-name-tracing-fix.md`
+- **Jira field discovery?** → `2025-12-04-jira-field-discovery-implementation.md`
+- **Context resilience?** → `2025-12-13-context-management-and-resilience.md`
 
 ## Document Statistics
 
-- **Total documents**: 37 markdown files
-- **🟢 In-use**: 38 documents
+- **Total documents**: 41 markdown files
+- **🟢 In-use**: 42 documents
 - **🟡 Proposed**: 2 documents
 - **🔴 Abandoned**: 2 documents
 
