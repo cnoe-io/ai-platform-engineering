@@ -607,8 +607,16 @@ Use this as the reference point for all date calculations. When users say "today
         # Create the react agent graph
         logger.info(f"🔧 Creating {agent_name} agent graph with {len(tools)} tools...")
 
+        # Configure model with agent name for proper tracing
+        # This ensures LangGraph observations show the agent name instead of generic "agent"
+        model_with_name = self.model.with_config(
+            run_name=agent_name,
+            tags=[f"agent:{agent_name}"],
+            metadata={"agent_name": agent_name}
+        )
+
         self.graph = create_react_agent(
-            self.model,
+            model_with_name,
             tools,
             checkpointer=memory,
             prompt=self._get_system_instruction_with_date(),
