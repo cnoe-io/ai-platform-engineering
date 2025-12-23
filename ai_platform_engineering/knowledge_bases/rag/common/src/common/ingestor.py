@@ -485,6 +485,7 @@ class IngestorBuilder:
         self._startup_function: Optional[Callable] = None
         self._sync_interval = 0  # User-specified sync interval (how often data should be refreshed)
         self._init_delay = 0  # Optional init delay
+        self._last_sync_time: Optional[int] = None  # Track last sync completion time
     
     def name(self, name: str) -> 'IngestorBuilder':
         """Set the ingestor name"""
@@ -547,10 +548,13 @@ class IngestorBuilder:
         # Run the ingestor
         asyncio.run(self._run_ingestor())
     
-    async def _calculate_next_sync_time(self, client: Client) -> int:
+    async def _calculate_next_sync_time(self, client: Client) -> tuple[int, bool]:
         """
-        Calculate how long to sleep before next sync by checking datasource timestamps.
-        Returns number of seconds to sleep.
+        Calculate how long to sleep before next sync by checking datasource timestamps
+        and last sync time. 
+        
+        Returns:
+            tuple[int, bool]: (seconds to sleep, has_datasources)
         """
         try:
             current_time = int(time.time())
@@ -559,10 +563,24 @@ class IngestorBuilder:
             datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
             
             if not datasources:
-                # No datasources yet - use sync_interval to avoid tight loop
-                # The sync function should create datasources if needed
-                logger.debug("No datasources found, will check in 30 seconds")
-                return 30  # 30 seconds
+                # No datasources yet - base scheduling on last sync time
+                if self._last_sync_time is None:
+                    # Never synced before, sync immediately
+                    logger.debug("No datasources found and never synced before, needs immediate sync")
+                    return (0, False)
+                
+                # Calculate time until next sync based on last sync time
+                time_since_last_sync = current_time - self._last_sync_time
+                time_until_next_sync = self._sync_interval - time_since_last_sync
+                
+                if time_until_next_sync <= 0:
+                    # Overdue for next sync
+                    logger.debug(f"No datasources found, last sync was {time_since_last_sync}s ago, needs immediate sync")
+                    return (0, False)
+                
+                # Schedule next sync based on interval
+                logger.info(f"No datasources found, next sync in {time_until_next_sync}s based on last sync time")
+                return (int(time_until_next_sync), False)
             
             # Find the earliest datasource that will need reloading
             min_time_until_reload = self._sync_interval
@@ -571,7 +589,7 @@ class IngestorBuilder:
                 if ds.last_updated is None:
                     # Datasource never updated, needs immediate reload
                     logger.debug(f"Datasource {ds.datasource_id} has no last_updated, needs immediate sync")
-                    return 0
+                    return (0, True)
                 
                 time_since_update = current_time - ds.last_updated
                 time_until_reload = self._sync_interval - time_since_update
@@ -579,7 +597,7 @@ class IngestorBuilder:
                 if time_until_reload <= 0:
                     # This datasource is overdue, sync immediately
                     logger.debug(f"Datasource {ds.datasource_id} is overdue (last updated {time_since_update}s ago), needs immediate sync")
-                    return 0
+                    return (0, True)
                 
                 # Track the earliest reload time
                 if time_until_reload < min_time_until_reload:
@@ -591,12 +609,12 @@ class IngestorBuilder:
             sleep_time = max(MIN_SLEEP_TIME, int(min_time_until_reload))
             
             logger.info(f"Next sync in {sleep_time}s ({sleep_time/3600:.1f}h) based on datasource schedules")
-            return sleep_time
+            return (sleep_time, True)
             
         except Exception as e:
             # If we can't calculate, fall back to sync interval
             logger.warning(f"Error calculating next sync time: {e}, using full sync_interval")
-            return self._sync_interval
+            return (self._sync_interval, False)
     
     async def _run_ingestor(self):
         """Internal method to run the ingestor with proper async handling"""
@@ -609,11 +627,6 @@ class IngestorBuilder:
         
         # Check if we should exit after first sync (for debugging and job mode)
         exit_after_first_sync = os.getenv("EXIT_AFTER_FIRST_SYNC", "false").lower() in ("true", "1", "yes")
-        
-        # If exit_after_first_sync is set, force single-run mode
-        # if exit_after_first_sync:
-        #     self._sync_interval = 0
-        #     logger.info("EXIT_AFTER_FIRST_SYNC is set, forcing single-run mode")
         
         logger.info(f"Starting ingestor: {self._name} (type: {self._type}, sync_interval: {self._sync_interval}s, init_delay: {self._init_delay}s, exit_after_first_sync: {exit_after_first_sync})")
         
@@ -656,21 +669,26 @@ class IngestorBuilder:
                 else:
                     self._sync_function(client)
                 
-                logger.info("Single sync cycle completed.")
+                # Track sync completion time
+                self._last_sync_time = int(time.time())
+                logger.info(f"Single sync cycle completed at {self._last_sync_time}")
                 return
             else:
                 # Periodic mode with smart scheduling based on datasource timestamps
                 while True:
                     # Calculate when next sync should happen based on datasource timestamps
-                    sleep_time = await self._calculate_next_sync_time(client)
+                    sleep_time, has_datasources = await self._calculate_next_sync_time(client)
+                    
+                    # EXIT_AFTER_FIRST_SYNC logic:
+                    # - If there are datasources but none need updating (sleep_time > 0) → exit without syncing
+                    # - If there are no datasources → run sync first, then exit
+                    if exit_after_first_sync and has_datasources and sleep_time > 0:
+                        logger.info("EXIT_AFTER_FIRST_SYNC is set and no datasources need updating. Exiting without sync.")
+                        return
                     
                     if sleep_time > 0:
-                        # If exit_after_first_sync is set, exit after first sync
-                        if exit_after_first_sync:
-                            logger.info("EXIT_AFTER_FIRST_SYNC is set. Exiting as there are no datasources to sync.")
-                            return
-                        
                         # No datasources need syncing yet, sleep until next one is due
+                        logger.info(f"Sleeping for {sleep_time}s before next sync")
                         await asyncio.sleep(sleep_time)
                     
                     # Now run the sync (either immediately if overdue, or after sleeping)
@@ -682,7 +700,9 @@ class IngestorBuilder:
                     else:
                         self._sync_function(client)
                     
-                    logger.info("Sync cycle completed.")
+                    # Track sync completion time
+                    self._last_sync_time = int(time.time())
+                    logger.info(f"Sync cycle completed at {self._last_sync_time}")
 
                     # Exit after first sync if environment variable is set
                     if exit_after_first_sync:
