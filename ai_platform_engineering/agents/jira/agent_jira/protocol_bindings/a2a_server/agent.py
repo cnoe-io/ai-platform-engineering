@@ -56,12 +56,23 @@ class JiraAgent(BaseLangGraphAgent):
         if not jira_api_url:
             raise ValueError("ATLASSIAN_API_URL must be set as an environment variable.")
 
+        project_dir = os.path.dirname(os.path.dirname(server_path))
+        venv_python = os.path.join(project_dir, ".venv/bin/python")
+        
+        if os.path.exists(venv_python):
+             command = venv_python
+             args = [server_path]
+        else:
+             command = "uv"
+             args = ["run", "--quiet", "--project", project_dir, server_path]
+
         return {
-            "command": "uv",
-            "args": ["run", "--project", os.path.dirname(server_path), server_path],
+            "command": command,
+            "args": args,
             "env": {
                 "ATLASSIAN_TOKEN": jira_token,
                 "ATLASSIAN_API_URL": jira_api_url,
+                "MCP_MODE": "stdio"
             },
             "transport": "stdio",
         }

@@ -56,12 +56,23 @@ class SlackAgent(BaseLangGraphAgent):
         if not slack_team_id:
             raise ValueError("SLACK_TEAM_ID must be set as an environment variable.")
 
+        project_dir = os.path.dirname(os.path.dirname(server_path))
+        venv_python = os.path.join(project_dir, ".venv/bin/python")
+        
+        if os.path.exists(venv_python):
+             command = venv_python
+             args = [server_path]
+        else:
+             command = "uv"
+             args = ["run", "--quiet", "--project", project_dir, server_path]
+
         return {
-            "command": "uv",
-            "args": ["run", "--project", os.path.dirname(server_path), server_path],
+            "command": command,
+            "args": args,
             "env": {
                 "SLACK_BOT_TOKEN": slack_token,
                 "SLACK_TEAM_ID": slack_team_id,
+                "MCP_MODE": "stdio"
             },
             "transport": "stdio",
         }
