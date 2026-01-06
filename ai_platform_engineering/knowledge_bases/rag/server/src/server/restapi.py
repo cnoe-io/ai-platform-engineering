@@ -97,6 +97,7 @@ async def app_lifespan(app: FastAPI):
     # Use EmbeddingsFactory to get embeddings based on EMBEDDINGS_PROVIDER env var
     embeddings = EmbeddingsFactory.get_embeddings()
 
+
     logger.info("SKIP_INIT_TESTS=" + str(skip_init_tests))
     if not skip_init_tests:
         try:
@@ -1050,9 +1051,9 @@ async def init_tests(logger: logging.Logger,
     logger.info(f"Redis ping response: {resp}")
 
     # Test embeddings endpoint
-    logger.info(f"2. Testing connections to Azure OpenAI embeddings [{embeddings_model}]...")
+    logger.info(f"2. Testing connections to [{embeddings_model}]...")
     resp = embeddings.get_embeddings().embed_documents(["Test document"])
-    logger.info(f"Azure OpenAI embeddings response: {resp}")
+    logger.info(f"Embeddings response: {resp}")
 
     # Test vector DB connections
     logger.info(f"3. Testing connections to Milvus: [{milvus_uri}]...")
