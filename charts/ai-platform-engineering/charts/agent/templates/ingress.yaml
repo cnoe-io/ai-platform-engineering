@@ -1,4 +1,4 @@
-{{- if include "agent.ingress.enabled" . | eq "true" -}}
+{{- if include "agent.ingress.shouldRender" . | eq "true" -}}
 {{- $fullName := include "agent.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 apiVersion: networking.k8s.io/v1

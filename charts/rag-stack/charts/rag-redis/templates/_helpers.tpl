@@ -140,3 +140,16 @@ Determine if ingress should be rendered - enabled when ingress.enabled is true A
 {{- false -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Determine if HTTPRoute should be rendered - enabled when ingress.enabled is true AND gatewayApi IS enabled
+*/}}
+{{- define "rag-redis.httproute.shouldRender" -}}
+{{- $ingressEnabled := .Values.ingress.enabled | default false -}}
+{{- $gatewayEnabled := include "rag-redis.gatewayApi.enabled" . | eq "true" -}}
+{{- if and $ingressEnabled $gatewayEnabled -}}
+{{- true -}}
+{{- else -}}
+{{- false -}}
+{{- end -}}
+{{- end }}

@@ -22,19 +22,27 @@ spec:
   {{- if .Values.ingress.hosts }}
   hostnames:
   {{- range .Values.ingress.hosts }}
-  - {{ .host | quote }}
+  - {{ . | quote }}
   {{- end }}
   {{- end }}
   rules:
+  {{- if .Values.ingress.hosts }}
   {{- range .Values.ingress.hosts }}
-  {{- range .paths }}
   - matches:
     - path:
-        type: {{ include "agent.gatewayApi.pathType" .pathType }}
-        value: {{ .path }}
+        type: PathPrefix
+        value: /
     backendRefs:
     - name: {{ $fullName }}
       port: {{ $svcPort }}
   {{- end }}
+  {{- else }}
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: {{ $fullName }}
+      port: {{ $svcPort }}
   {{- end }}
 {{- end }}
