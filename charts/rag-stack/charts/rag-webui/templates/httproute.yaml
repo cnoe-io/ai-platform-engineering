@@ -1,4 +1,4 @@
-{{- if include "rag-webui.gatewayApi.enabled" . | eq "true" -}}
+{{- if include "rag-webui.httproute.shouldRender" . | eq "true" -}}
 {{- $fullName := include "rag-webui.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 {{- $gatewayName := include "rag-webui.gatewayApi.gatewayName" . -}}

@@ -1,4 +1,4 @@
-{{- if include "rag-redis.gatewayApi.enabled" . | eq "true" -}}
+{{- if include "rag-redis.httproute.shouldRender" . | eq "true" -}}
 {{- $fullName := include "rag-redis.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
 {{- $gatewayName := include "rag-redis.gatewayApi.gatewayName" . -}}
