@@ -1,6 +1,8 @@
 nameOverride: ""
 fullnameOverride: "rag-server"
 
+sunnyTesting: true
+
 # Feature Flags
 enableGraphRag: true              # ENABLE_GRAPH_RAG - enable/disable graph RAG features
 enableMcp: true                   # ENABLE_MCP - enable/disable MCP tools for AI agents
