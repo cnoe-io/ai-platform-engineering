@@ -58,6 +58,10 @@ REDIS_GRAPH_RELATION_HEURISTICS_PREFIX = "graph_relation_heuristics:"
 # =============================
 WEBLOADER_INGESTOR_REDIS_QUEUE = "ingestor:webloader:requests"
 WEBLOADER_INGESTOR_TYPE = "webloader"
-WEBLOADER_INGESTOR_NAME = "default_webloader" 
+WEBLOADER_INGESTOR_NAME = "default_webloader"
+
+CONFLUENCE_INGESTOR_REDIS_QUEUE = "ingestor:confluence:requests"
+CONFLUENCE_INGESTOR_TYPE = "confluence"
+CONFLUENCE_INGESTOR_NAME = "default_confluence"
 
 

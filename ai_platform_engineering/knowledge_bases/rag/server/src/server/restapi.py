@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+import re
 import traceback
 import uuid
+from urllib.parse import urlparse
 from common import utils
 from fastapi import FastAPI, status, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -15,11 +17,35 @@ import logging
 from langchain_core.documents import Document
 from common.metadata_storage import MetadataStorage
 from common.job_manager import JobManager, JobStatus
-from common.models.server import ExploreNeighborhoodRequest, QueryRequest, QueryResult, DocumentIngestRequest, IngestorPingRequest, IngestorPingResponse, UrlIngestRequest, IngestorRequest, WebIngestorCommand, UrlReloadRequest
+from common.models.server import (
+    ExploreNeighborhoodRequest,
+    QueryRequest,
+    QueryResult,
+    DocumentIngestRequest,
+    IngestorPingRequest,
+    IngestorPingResponse,
+    UrlIngestRequest,
+    IngestorRequest,
+    WebIngestorCommand,
+    ConfluenceIngestorCommand,
+    UrlReloadRequest,
+    ConfluenceIngestRequest,
+    ConfluenceReloadRequest
+)
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
-from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
+from common.constants import (
+    DATASOURCE_ID_KEY,
+    WEBLOADER_INGESTOR_REDIS_QUEUE,
+    WEBLOADER_INGESTOR_NAME,
+    WEBLOADER_INGESTOR_TYPE,
+    CONFLUENCE_INGESTOR_REDIS_QUEUE,
+    CONFLUENCE_INGESTOR_NAME,
+    CONFLUENCE_INGESTOR_TYPE,
+    DEFAULT_DATA_LABEL,
+    DEFAULT_SCHEMA_LABEL
+)
 from common.embeddings_factory import EmbeddingsFactory
 import redis.asyncio as redis
 from langchain_milvus import BM25BuiltInFunction, Milvus
@@ -60,6 +86,7 @@ mcp_enabled = os.getenv("ENABLE_MCP", "true").lower() in ("true", "1", "yes")
 sleep_on_init_failure = int(os.getenv("SLEEP_ON_INIT_FAILURE_SECONDS", 180)) # seconds to sleep on init failure before shutdown
 max_documents_per_ingest = int(os.getenv("MAX_DOCUMENTS_PER_INGEST", 1000)) # max number of documents to ingest per ingestion request
 max_results_per_query = int(os.getenv("MAX_RESULTS_PER_QUERY", 100)) # max number of results to return per query
+confluence_url = os.getenv("CONFLUENCE_URL") # optional - base URL for Confluence instance (e.g., https://company.atlassian.net/wiki)
 
 default_collection_name_docs = "rag_default"
 dense_index_params = {"index_type": "HNSW", "metric_type": "COSINE"}
@@ -537,21 +564,22 @@ async def ingest_url(url_request: UrlIngestRequest):
     """Queue a URL for ingestion by the webloader ingestor."""
     if not metadata_storage or not jobmanager:
         raise HTTPException(status_code=500, detail="Server not initialized")
-    
+
     logger.info(f"Received URL ingestion request: {url_request.url}")
-    
-    # Sanitize URL and generate datasource ID from URL
+
+    # Sanitize URL
     sanitized_url = sanitize_url(url_request.url)
     url_request.url = sanitized_url
-    datasource_id = utils.generate_datasource_id_from_url(url_request.url)
-    ingestor_id = generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE)
 
-    # Check if datasource already exists
+    # Generate datasource ID and create datasource
+    datasource_id = utils.generate_datasource_id_from_url(url_request.url)
+
+    # Check if datasource already exists (for web, each URL is unique)
     existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
     if existing_datasource:
         logger.info(f"Datasource already exists for URL {url_request.url}, datasource ID: {datasource_id}")
         raise HTTPException(status_code=400, detail="URL already ingested, please delete existing datasource before re-ingesting")
-    
+
     # Check if there is already a job for this datasource in progress or pending
     existing_jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
     if existing_jobs:
@@ -559,7 +587,7 @@ async def ingest_url(url_request: UrlIngestRequest):
         if existing_pending_jobs:
             logger.info(f"An ingestion job is already in progress or pending for datasource {datasource_id}, job ID: {existing_pending_jobs[0].job_id}")
             raise HTTPException(status_code=400, detail=f"An ingestion job is already in progress or pending for this URL (job ID: {existing_pending_jobs[0].job_id})")
-                
+
     # Create job with PENDING status first
     job_id = str(uuid.uuid4())
     success = await jobmanager.upsert_job(
@@ -569,19 +597,20 @@ async def ingest_url(url_request: UrlIngestRequest):
         total=0,  # Unknown until sitemap is checked
         datasource_id=datasource_id
     )
-    
+
     if not success:
         raise HTTPException(status_code=500, detail="Failed to create job")
-    
+
     logger.info(f"Created job {job_id} for datasource {datasource_id}")
-    
+
     if not url_request.description:
         url_request.description = f"Web content from {url_request.url}"
 
     # Create datasource
+    # Metadata schema for source_type="web": {"url_ingest_request": UrlIngestRequest}
     datasource_info = DataSourceInfo(
         datasource_id=datasource_id,
-        ingestor_id=ingestor_id,
+        ingestor_id=generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE),
         description=url_request.description,
         source_type="web",
         last_updated=int(time.time()),
@@ -592,18 +621,23 @@ async def ingest_url(url_request: UrlIngestRequest):
 
     await metadata_storage.store_datasource_info(datasource_info)
     logger.info(f"Created datasource: {datasource_id}")
-    
+
     # Queue the request for the ingestor
     ingestor_request = IngestorRequest(
-        ingestor_id=ingestor_id,
+        ingestor_id=generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE),
         command=WebIngestorCommand.INGEST_URL,
         payload=url_request.model_dump()
     )
-    
-    # Push to Redis queue  
+
+    # Push to Redis queue
     await redis_client.rpush(WEBLOADER_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
-    logger.info(f"Queued URL ingestion request for {url_request.url}")
-    return {"datasource_id": datasource_id, "job_id": job_id, "message": "URL ingestion request queued"}
+    logger.info(f"Queued URL ingestion request for {url_request.url} to {WEBLOADER_INGESTOR_REDIS_QUEUE}")
+
+    return {
+        "datasource_id": datasource_id,
+        "job_id": job_id,
+        "message": "URL ingestion request queued"
+    }
 
 
 @app.post("/v1/ingest/webloader/reload", status_code=status.HTTP_202_ACCEPTED)
@@ -647,6 +681,179 @@ async def reload_all_urls():
     logger.info("Re-queued URL ingestion request for all datasources")
     
     return {"message": "Reload all URLs request queued"}
+
+@app.post("/v1/ingest/confluence/page", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest):
+    """Queue a Confluence page for ingestion by the confluence ingestor."""
+    if not metadata_storage or not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+
+    logger.info(f"Received Confluence page ingestion request: {confluence_request.url}")
+
+    # Parse Confluence URL to extract space_key and page_id
+    confluence_match = re.search(r'/spaces/([^/]+)/pages/(\d+)', confluence_request.url)
+    if not confluence_match:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Confluence URL format. Expected: https://domain.atlassian.net/wiki/spaces/SPACE/pages/PAGE_ID/Title"
+        )
+
+    space_key = confluence_match.group(1)
+    page_id = confluence_match.group(2)
+
+    # Validate that submitted URL matches configured Confluence instance
+    if confluence_url:
+        submitted_parsed = urlparse(confluence_request.url)
+        configured_parsed = urlparse(confluence_url)
+
+        # Compare scheme and netloc (domain)
+        if submitted_parsed.scheme != configured_parsed.scheme or submitted_parsed.netloc != configured_parsed.netloc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"URL must be from configured Confluence instance: {configured_parsed.scheme}://{configured_parsed.netloc}"
+            )
+
+    # Generate space-level datasource ID
+    domain = urlparse(confluence_request.url).netloc.replace(".", "_").replace("-", "_")
+    datasource_id = f"src_confluence___{domain}__{space_key}"
+
+    # Check if datasource already exists
+    existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
+    if existing_datasource:
+        # Update existing datasource
+        existing_page_ids = existing_datasource.metadata.get("page_ids", []) if existing_datasource.metadata else []
+
+        if len(existing_page_ids) == 0:
+            # Empty page_ids means fetch all pages - don't modify
+            logger.info(f"Datasource {datasource_id} fetches all pages, not modifying page_ids")
+        elif page_id not in existing_page_ids:
+            # Add page_id to the list
+            existing_page_ids.append(page_id)
+            existing_datasource.metadata["page_ids"] = existing_page_ids
+            await metadata_storage.store_datasource_info(existing_datasource)
+            logger.info(f"Added page {page_id} to datasource {datasource_id}")
+        else:
+            logger.info(f"Page {page_id} already in datasource {datasource_id}")
+    else:
+        # Create new datasource
+        if not confluence_request.description:
+            confluence_request.description = f"Confluence space {space_key}"
+
+        confluence_url_base = confluence_request.url.split('/wiki/')[0] + '/wiki' if '/wiki/' in confluence_request.url else confluence_request.url
+
+        # Metadata schema for source_type="confluence":
+        # {
+        #   "confluence_ingest_request": ConfluenceIngestRequest, # Original request for audit
+        #   "space_key": str,             # Confluence space key
+        #   "page_ids": List[str] | None, # Specific page IDs, or None/[] for entire space
+        #   "confluence_url": str         # Base Confluence URL
+        # }
+        datasource_info = DataSourceInfo(
+            datasource_id=datasource_id,
+            ingestor_id=generate_ingestor_id(CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE),
+            description=confluence_request.description,
+            source_type="confluence",
+            last_updated=int(time.time()),
+            default_chunk_size=1000,
+            default_chunk_overlap=200,
+            metadata={
+                "confluence_ingest_request": confluence_request.model_dump(),
+                "space_key": space_key,
+                "page_ids": [page_id],
+                "confluence_url": confluence_url_base
+            }
+        )
+
+        await metadata_storage.store_datasource_info(datasource_info)
+        logger.info(f"Created datasource: {datasource_id}")
+
+    # Check if there is already a job for this datasource in progress or pending
+    existing_jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
+    if existing_jobs:
+        existing_pending_jobs = [job for job in existing_jobs if job.status in (JobStatus.IN_PROGRESS, JobStatus.PENDING)]
+        if existing_pending_jobs:
+            logger.info(f"An ingestion job is already in progress or pending for datasource {datasource_id}, job ID: {existing_pending_jobs[0].job_id}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"An ingestion job is already in progress or pending for this Confluence space (job ID: {existing_pending_jobs[0].job_id})"
+            )
+
+    # Create job with PENDING status
+    job_id = str(uuid.uuid4())
+    success = await jobmanager.upsert_job(
+        job_id,
+        status=JobStatus.PENDING,
+        message="Waiting for ingestor to process...",
+        total=1,  # Single page ingestion
+        datasource_id=datasource_id
+    )
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to create job")
+
+    logger.info(f"Created job {job_id} for datasource {datasource_id}")
+
+    # Queue the request for the ingestor
+    ingestor_request = IngestorRequest(
+        ingestor_id=generate_ingestor_id(CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE),
+        command=ConfluenceIngestorCommand.INGEST_PAGE,
+        payload=confluence_request.model_dump()
+    )
+
+    # Push to Redis queue
+    await redis_client.rpush(CONFLUENCE_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
+    logger.info(f"Queued Confluence page ingestion request for {confluence_request.url} to {CONFLUENCE_INGESTOR_REDIS_QUEUE}")
+
+    return {
+        "datasource_id": datasource_id,
+        "job_id": job_id,
+        "message": "Confluence page ingestion request queued"
+    }
+
+
+@app.post("/v1/ingest/confluence/reload", status_code=status.HTTP_202_ACCEPTED)
+async def reload_confluence_page(reload_request: ConfluenceReloadRequest):
+    """Reloads a previously ingested Confluence page by re-queuing it for ingestion."""
+    if not metadata_storage or not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+
+    # Fetch existing datasource
+    datasource_info = await metadata_storage.get_datasource_info(reload_request.datasource_id)
+    if not datasource_info:
+        raise HTTPException(status_code=404, detail="Datasource not found")
+
+    # Queue the request for the ingestor
+    ingestor_request = IngestorRequest(
+        ingestor_id=datasource_info.ingestor_id,
+        command=ConfluenceIngestorCommand.RELOAD_DATASOURCE,
+        payload=reload_request.model_dump()
+    )
+
+    # Push to Redis queue
+    await redis_client.rpush(CONFLUENCE_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
+    logger.info(f"Re-queued Confluence page ingestion request for {reload_request.datasource_id}")
+    return {"datasource_id": reload_request.datasource_id, "message": "Confluence page reload request queued"}
+
+
+@app.post("/v1/ingest/confluence/reload-all", status_code=status.HTTP_202_ACCEPTED)
+async def reload_all_confluence_pages():
+    """Reloads all previously ingested Confluence pages by re-queuing them for ingestion."""
+    if not metadata_storage or not jobmanager:
+        raise HTTPException(status_code=500, detail="Server not initialized")
+
+    # Queue the request for the ingestor
+    ingestor_request = IngestorRequest(
+        ingestor_id=generate_ingestor_id(CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE),
+        command=ConfluenceIngestorCommand.RELOAD_ALL,
+        payload={}
+    )
+
+    # Push to Redis queue
+    await redis_client.rpush(CONFLUENCE_INGESTOR_REDIS_QUEUE, ingestor_request.model_dump_json())  # type: ignore
+    logger.info("Re-queued Confluence ingestion request for all datasources")
+
+    return {"message": "Reload all Confluence pages request queued"}
+
 
 @app.post("/v1/ingest")
 async def ingest_documents(ingest_request: DocumentIngestRequest):
