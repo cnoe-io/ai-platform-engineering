@@ -11,7 +11,8 @@ image:
   # This sets the image repository for the corresponding agent.
   repository: "ghcr.io/cnoe-io/ai-platform-engineering"
   pullPolicy: "Always"
-  tag: "stable"
+  # tag defaults to .Chart.AppVersion when not specified
+  tag: ""
   args: ["platform-engineer"]
 
 # This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/

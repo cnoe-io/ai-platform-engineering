@@ -48,7 +48,8 @@ rag-server:
   fullnameOverride: "rag-server"
   image:
     repository: "ghcr.io/cnoe-io/caipe-rag-server"
-    tag: "latest"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
     pullPolicy: Always
 
   service:
@@ -83,14 +84,15 @@ rag-server:
     enabled: true
     image:
       repository: "ghcr.io/cnoe-io/caipe-rag-ingestors"
-      tag: "latest"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: Always
-    
+
     logLevel: INFO
     maxConcurrency: 10            # WEBLOADER_MAX_CONCURRENCY - max concurrent HTTP requests per ingestion
     maxIngestionTasks: 5          # WEBLOADER_MAX_INGESTION_TASKS - max concurrent ingestion tasks
     reloadInterval: 86400         # WEBLOADER_RELOAD_INTERVAL - auto-reload interval in seconds (24 hours)
-    
+
     resources:
       requests:
         cpu: 100m
@@ -119,7 +121,8 @@ agent-ontology:
   fullnameOverride: "agent-ontology"
   image:
     repository: "ghcr.io/cnoe-io/caipe-rag-agent-ontology"
-    tag: "latest"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
     pullPolicy: "Always"
 
   service:
@@ -175,7 +178,8 @@ rag-webui:
   enabled: true
   image:
     repository: "ghcr.io/cnoe-io/caipe-rag-webui"
-    tag: "latest"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
     pullPolicy: Always
 
   service:
@@ -309,10 +313,10 @@ milvus:
 # Disabled by default - configure ingestors as needed
 rag-ingestors:
   enabled: false
-  
+
   # Global configuration
   ragServerUrl: "http://rag-server:9446"
-  
+
   # List of ingestors to deploy
   # Each ingestor creates a separate deployment
   # See charts/rag-ingestors/values.yaml for detailed examples
@@ -328,7 +332,7 @@ rag-ingestors:
     #   envFrom:
     #     - secretRef:
     #         name: aws-credentials
-    # 
+    #
     # - name: k8s-local
     #   type: k8s
     #   syncInterval: 86400

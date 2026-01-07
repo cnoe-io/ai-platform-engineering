@@ -1,0 +1,248 @@
+name: "[Release] Sync Chart Versions"
+description: "Sync version and appVersion in all Chart.yaml files when a stable release tag is created"
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'  # Matches stable releases only: v0.2.5, v1.0.0 (NOT v1.0.0-rc1)
+      - '[0-9]+.[0-9]+.[0-9]+'   # Matches stable releases only: 0.2.5, 1.0.0 (without v prefix)
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to sync (e.g., 0.2.5)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  sync-versions:
+    name: Sync Chart Versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Determine version and mode
+        id: version
+        run: |
+          # Check if called via workflow_call (version input provided)
+          if [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+            MODE="workflow_call"
+            TAG=""
+            echo "📦 Called via workflow_call with version: $VERSION"
+          else
+            # Triggered by tag push
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#v}"
+            MODE="tag_push"
+            echo "📦 Triggered by tag push: $TAG (version: $VERSION)"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "mode=$MODE" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: ✅ Validate pyproject.toml version
+        if: steps.version.outputs.mode == 'tag_push'
+        run: |
+          PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          RELEASE_VERSION="${{ steps.version.outputs.version }}"
+
+          echo "📋 pyproject.toml version: $PYPROJECT_VERSION"
+          echo "🏷️  Release tag version: $RELEASE_VERSION"
+
+          if [[ "$PYPROJECT_VERSION" != "$RELEASE_VERSION" ]]; then
+            echo "❌ ERROR: Version mismatch!"
+            echo "   pyproject.toml has version '$PYPROJECT_VERSION'"
+            echo "   but release tag is '$RELEASE_VERSION'"
+            echo ""
+            echo "Please update pyproject.toml to version '$RELEASE_VERSION' before tagging."
+            exit 1
+          fi
+
+          echo "✅ pyproject.toml version matches release tag"
+
+      - name: ⚙️ Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: 🔍 Check if Chart.yaml versions already match
+        id: check
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Quick check: see if any Chart.yaml needs updating
+          NEEDS_UPDATE=false
+          for CHART_FILE in $(find charts -name "Chart.yaml" -type f 2>/dev/null | head -3); do
+            CHART_VERSION=$(yq '.version' "$CHART_FILE" 2>/dev/null || echo "unknown")
+            if [[ "$CHART_VERSION" != "$VERSION" ]]; then
+              NEEDS_UPDATE=true
+              break
+            fi
+          done
+
+          if [[ "$NEEDS_UPDATE" == "false" ]]; then
+            echo "✅ Chart.yaml files already have version '$VERSION' - skipping update"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "📝 Chart.yaml files need updating to '$VERSION'"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📝 Update Chart.yaml files
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Dynamically find all Chart.yaml files under charts/
+          echo "🔍 Discovering Chart.yaml files..."
+          CHART_FILES=$(find charts -name "Chart.yaml" -type f | sort)
+
+          if [[ -z "$CHART_FILES" ]]; then
+            echo "❌ No Chart.yaml files found under charts/"
+            exit 1
+          fi
+
+          echo "📋 Found Chart.yaml files:"
+          echo "$CHART_FILES" | sed 's/^/  - /'
+
+          # Build list of local chart names (charts in this repo)
+          echo ""
+          echo "🔍 Identifying local chart names..."
+          LOCAL_CHART_NAMES=$(for f in $CHART_FILES; do yq '.name' "$f"; done | sort -u)
+          echo "📋 Local charts: $LOCAL_CHART_NAMES"
+
+          echo ""
+          echo "🔄 Updating version and appVersion to '$VERSION' in all Chart.yaml files..."
+
+          for CHART_FILE in $CHART_FILES; do
+            # Update the chart's own version and appVersion
+            yq -i ".version = \"$VERSION\"" "$CHART_FILE"
+            yq -i ".appVersion = \"$VERSION\"" "$CHART_FILE"
+            echo "  ✅ Updated $CHART_FILE version and appVersion"
+          done
+
+          echo ""
+          echo "🔄 Updating local dependency version references..."
+
+          for CHART_FILE in $CHART_FILES; do
+            # Check if this chart has dependencies
+            if yq -e '.dependencies' "$CHART_FILE" > /dev/null 2>&1; then
+              # Update version for each local dependency
+              # Local deps are identified by: no repository field, OR repository starts with "file://"
+              for LOCAL_CHART in $LOCAL_CHART_NAMES; do
+                # Update dependency version where name matches and it's a local chart
+                # Check for no repository field
+                yq -i "(.dependencies[] | select(.name == \"$LOCAL_CHART\" and .repository == null)).version = \"$VERSION\"" "$CHART_FILE" 2>/dev/null || true
+                # Check for file:// repository
+                yq -i "(.dependencies[] | select(.name == \"$LOCAL_CHART\" and .repository != null and (.repository | test(\"^file://\")))).version = \"$VERSION\"" "$CHART_FILE" 2>/dev/null || true
+              done
+              echo "  ✅ Updated local dependency versions in $CHART_FILE"
+            fi
+          done
+
+      - name: 🔍 Verify changes
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Build list of local chart names
+          CHART_FILES=$(find charts -name "Chart.yaml" -type f | sort)
+          LOCAL_CHART_NAMES=$(for f in $CHART_FILES; do yq '.name' "$f"; done | sort -u)
+
+          echo "📋 Verifying version and appVersion in all Chart.yaml files..."
+          ERRORS=0
+
+          for CHART_FILE in $CHART_FILES; do
+            CHART_VERSION=$(yq '.version' "$CHART_FILE")
+            APP_VERSION=$(yq '.appVersion' "$CHART_FILE")
+
+            if [[ "$CHART_VERSION" != "$VERSION" ]]; then
+              echo "  ❌ $CHART_FILE has version '$CHART_VERSION' (expected '$VERSION')"
+              ERRORS=$((ERRORS + 1))
+            elif [[ "$APP_VERSION" != "$VERSION" ]]; then
+              echo "  ❌ $CHART_FILE has appVersion '$APP_VERSION' (expected '$VERSION')"
+              ERRORS=$((ERRORS + 1))
+            else
+              echo "  ✅ $CHART_FILE (version: $CHART_VERSION, appVersion: $APP_VERSION)"
+            fi
+          done
+
+          echo ""
+          echo "📋 Verifying local dependency version references..."
+
+          for CHART_FILE in $CHART_FILES; do
+            if yq -e '.dependencies' "$CHART_FILE" > /dev/null 2>&1; then
+              for LOCAL_CHART in $LOCAL_CHART_NAMES; do
+                # Check dependencies with no repository (local)
+                DEP_VERSION=$(yq ".dependencies[] | select(.name == \"$LOCAL_CHART\" and .repository == null) | .version" "$CHART_FILE" 2>/dev/null | head -1)
+                if [[ -n "$DEP_VERSION" && "$DEP_VERSION" != "null" && "$DEP_VERSION" != "$VERSION" ]]; then
+                  echo "  ❌ $CHART_FILE dependency '$LOCAL_CHART' has version '$DEP_VERSION' (expected '$VERSION')"
+                  ERRORS=$((ERRORS + 1))
+                fi
+
+                # Check dependencies with file:// repository (local)
+                DEP_VERSION=$(yq ".dependencies[] | select(.name == \"$LOCAL_CHART\" and .repository != null and (.repository | test(\"^file://\"))) | .version" "$CHART_FILE" 2>/dev/null | head -1)
+                if [[ -n "$DEP_VERSION" && "$DEP_VERSION" != "null" && "$DEP_VERSION" != "$VERSION" ]]; then
+                  echo "  ❌ $CHART_FILE dependency '$LOCAL_CHART' (file://) has version '$DEP_VERSION' (expected '$VERSION')"
+                  ERRORS=$((ERRORS + 1))
+                fi
+              done
+            fi
+          done
+
+          if [[ $ERRORS -gt 0 ]]; then
+            echo ""
+            echo "❌ Found $ERRORS errors with incorrect versions"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ All Chart.yaml files and local dependency references have correct versions"
+
+      - name: 📤 Commit and push changes
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          MODE="${{ steps.version.outputs.mode }}"
+          TAG="${{ steps.version.outputs.tag }}"
+
+          # Check if there are changes to commit
+          if git diff --quiet; then
+            echo "ℹ️  No changes to commit - all Chart.yaml files already have correct version and appVersion"
+            exit 0
+          fi
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Commit changes to the default branch (add all Chart.yaml files dynamically)
+          find charts -name "Chart.yaml" -type f -exec git add {} +
+          git commit -m "chore: sync Chart.yaml versions and dependency refs to $VERSION"
+
+          # Push to main
+          git push origin HEAD:main
+
+          echo "✅ Committed and pushed version updates to main"
+
+          # For tag_push mode: retag to include this commit in the release
+          if [[ "$MODE" == "tag_push" ]]; then
+            echo ""
+            echo "🏷️  Updating tag '$TAG' to include version sync commit..."
+            NEW_COMMIT=$(git rev-parse HEAD)
+            git tag -f "$TAG" "$NEW_COMMIT"
+            git push --force origin "$TAG"
+            echo "✅ Tag '$TAG' now points to commit with synced versions"
+          fi
+
+

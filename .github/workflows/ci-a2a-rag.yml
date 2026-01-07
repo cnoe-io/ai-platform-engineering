@@ -14,16 +14,35 @@ on:
     paths:
       - 'ai_platform_engineering/knowledge_bases/rag/**'
   workflow_dispatch:
+
 jobs:
+  load-config:
+    runs-on: ubuntu-latest
+    outputs:
+      rag_components: ${{ steps.read-config.outputs.rag_components }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/agents.json
+          sparse-checkout-cone-mode: false
+
+      - name: Read config
+        id: read-config
+        run: |
+          RAG_COMPONENTS=$(jq -c '.rag_components' .github/agents.json)
+          echo "rag_components=$RAG_COMPONENTS" >> $GITHUB_OUTPUT
+
   build-and-push:
     runs-on: ubuntu-latest
+    needs: load-config
     permissions:
       contents: read
       packages: write
 
     strategy:
       matrix:
-        component: [agent-ontology, server, webui, ingestors]
+        component: ${{ fromJson(needs.load-config.outputs.rag_components) }}
       fail-fast: false
 
     env:
