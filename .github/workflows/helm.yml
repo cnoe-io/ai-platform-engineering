@@ -7,139 +7,15 @@ on:
       - main
     paths:
       - charts/**
-  pull_request:
-    paths:
-      - charts/**
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  check-version-bump:
-    name: Check Chart Version Bump
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: 🔍 Check for chart changes and version bumps
-        run: |
-          echo "Checking for chart changes..."
-
-          # Get the base branch (usually main or master)
-          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-
-          # Check if there are any changes in the charts directory
-          CHART_CHANGES=$(git diff --name-only origin/$BASE_BRANCH...HEAD | grep "^charts/" || true)
-
-          if [ -z "$CHART_CHANGES" ]; then
-            echo "No changes in charts directory, skipping version check"
-            exit 0
-          fi
-
-          echo "Changes detected in charts directory:"
-          echo "$CHART_CHANGES"
-
-          # Detect which charts have changes (excluding Chart.lock only changes)
-          RAG_STACK_CHANGED=false
-          AI_PLATFORM_CHANGED=false
-          RAG_STACK_NEEDS_VERSION_BUMP=false
-          AI_PLATFORM_NEEDS_VERSION_BUMP=false
-
-          # Check rag-stack changes
-          if echo "$CHART_CHANGES" | grep -q "^charts/rag-stack/"; then
-            RAG_STACK_CHANGED=true
-            echo "✅ rag-stack chart has changes"
-
-            # Check if changes are more than just Chart.lock
-            if echo "$CHART_CHANGES" | grep "^charts/rag-stack/" | grep -qv "Chart.lock$"; then
-              RAG_STACK_NEEDS_VERSION_BUMP=true
-              echo "  → Substantive changes detected (not just Chart.lock), version bump required"
-            else
-              echo "  → Only Chart.lock changed, version bump not required"
-            fi
-          fi
-
-          # Check ai-platform-engineering changes
-          if echo "$CHART_CHANGES" | grep -q "^charts/ai-platform-engineering/"; then
-            AI_PLATFORM_CHANGED=true
-            echo "✅ ai-platform-engineering chart has changes"
-
-            # Check if changes are more than just Chart.lock
-            if echo "$CHART_CHANGES" | grep "^charts/ai-platform-engineering/" | grep -qv "Chart.lock$"; then
-              AI_PLATFORM_NEEDS_VERSION_BUMP=true
-              echo "  → Substantive changes detected (not just Chart.lock), version bump required"
-            else
-              echo "  → Only Chart.lock changed, version bump not required"
-            fi
-          fi
-
-          # Check version bump for rag-stack (only if substantive changes)
-          if [ "$RAG_STACK_NEEDS_VERSION_BUMP" = true ]; then
-            echo ""
-            echo "Checking rag-stack version bump..."
-            CURRENT_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
-            echo "Current version: $CURRENT_VERSION"
-
-            # Check if chart exists in base branch
-            if git show origin/$BASE_BRANCH:charts/rag-stack/Chart.yaml &>/dev/null; then
-              git checkout origin/$BASE_BRANCH -- charts/rag-stack/Chart.yaml
-              BASE_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
-              echo "Base version: $BASE_VERSION"
-
-              git checkout HEAD -- charts/rag-stack/Chart.yaml
-
-              if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
-                echo "❌ Error: rag-stack chart has changes but version was not bumped!"
-                echo "Please update the version in charts/rag-stack/Chart.yaml"
-                exit 1
-              else
-                echo "✅ rag-stack version bumped from $BASE_VERSION to $CURRENT_VERSION"
-              fi
-            else
-              echo "ℹ️  rag-stack is a new chart (doesn't exist in $BASE_BRANCH), skipping version bump check"
-            fi
-          fi
-
-          # Check version bump for ai-platform-engineering (only if substantive changes)
-          if [ "$AI_PLATFORM_NEEDS_VERSION_BUMP" = true ]; then
-            echo ""
-            echo "Checking ai-platform-engineering version bump..."
-            CURRENT_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
-            echo "Current version: $CURRENT_VERSION"
-
-            # Check if chart exists in base branch
-            if git show origin/$BASE_BRANCH:charts/ai-platform-engineering/Chart.yaml &>/dev/null; then
-              git checkout origin/$BASE_BRANCH -- charts/ai-platform-engineering/Chart.yaml
-              BASE_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
-              echo "Base version: $BASE_VERSION"
-
-              git checkout HEAD -- charts/ai-platform-engineering/Chart.yaml
-
-              if [ "$CURRENT_VERSION" = "$BASE_VERSION" ]; then
-                echo "❌ Error: ai-platform-engineering chart has changes but version was not bumped!"
-                echo "Please update the version in charts/ai-platform-engineering/Chart.yaml"
-                exit 1
-              else
-                echo "✅ ai-platform-engineering version bumped from $BASE_VERSION to $CURRENT_VERSION"
-              fi
-            else
-              echo "ℹ️  ai-platform-engineering is a new chart (doesn't exist in $BASE_BRANCH), skipping version bump check"
-            fi
-          fi
-
-          echo ""
-          echo "✅ All version checks passed!"
-
   publish:
     name: Push Helm Charts to GHCR
     runs-on: ubuntu-latest
-    # Publish only on merge to main
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - name: 📥 Checkout repository
@@ -180,6 +56,141 @@ jobs:
 
           echo "rag-stack-changed=$RAG_STACK_CHANGED" >> $GITHUB_OUTPUT
           echo "ai-platform-changed=$AI_PLATFORM_CHANGED" >> $GITHUB_OUTPUT
+
+          # Check for substantive changes (not just Chart.lock)
+          RAG_STACK_NEEDS_VERSION_BUMP=false
+          AI_PLATFORM_NEEDS_VERSION_BUMP=false
+
+          if [ "$RAG_STACK_CHANGED" = true ]; then
+            if echo "$CHANGED_FILES" | grep "^charts/rag-stack/" | grep -qv "Chart.lock$"; then
+              RAG_STACK_NEEDS_VERSION_BUMP=true
+            fi
+          fi
+
+          if [ "$AI_PLATFORM_CHANGED" = true ]; then
+            if echo "$CHANGED_FILES" | grep "^charts/ai-platform-engineering/" | grep -qv "Chart.lock$"; then
+              AI_PLATFORM_NEEDS_VERSION_BUMP=true
+            fi
+          fi
+
+          echo "rag-stack-needs-version-bump=$RAG_STACK_NEEDS_VERSION_BUMP" >> $GITHUB_OUTPUT
+          echo "ai-platform-needs-version-bump=$AI_PLATFORM_NEEDS_VERSION_BUMP" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Check Version Bumps
+        run: |
+          # Function to validate version bump
+          # Valid bumps:
+          #   0.2.8 -> 0.2.9 (standard increment)
+          #   0.2.8 -> 0.2.8.rc.helm.1 (adding RC to same base)
+          #   0.2.8.rc.helm.1 -> 0.2.8.rc.helm.2 (RC increment)
+          #   0.2.8.rc.helm.1 -> 0.2.8 (releasing from RC)
+          #   0.2.8.rc.helm.1 -> 0.2.9 (new version from RC)
+          validate_version_bump() {
+            local OLD_VERSION="$1"
+            local NEW_VERSION="$2"
+
+            # If versions are identical, fail
+            if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+              echo "❌ Versions are identical"
+              return 1
+            fi
+
+            # Extract base version and RC suffix
+            # Pattern: X.Y.Z or X.Y.Z.rc.helm.N
+            OLD_BASE=$(echo "$OLD_VERSION" | sed 's/\.rc\.helm\.[0-9]*$//')
+            NEW_BASE=$(echo "$NEW_VERSION" | sed 's/\.rc\.helm\.[0-9]*$//')
+
+            OLD_RC=$(echo "$OLD_VERSION" | grep -o '\.rc\.helm\.[0-9]*$' | grep -o '[0-9]*$' || echo "")
+            NEW_RC=$(echo "$NEW_VERSION" | grep -o '\.rc\.helm\.[0-9]*$' | grep -o '[0-9]*$' || echo "")
+
+            echo "  Old: base=$OLD_BASE, rc=$OLD_RC"
+            echo "  New: base=$NEW_BASE, rc=$NEW_RC"
+
+            # Case 1: Base version changed (e.g., 0.2.8 -> 0.2.9)
+            if [ "$OLD_BASE" != "$NEW_BASE" ]; then
+              echo "✅ Base version changed: $OLD_BASE -> $NEW_BASE"
+              return 0
+            fi
+
+            # Case 2: Same base, adding RC (e.g., 0.2.8 -> 0.2.8.rc.helm.1)
+            if [ -z "$OLD_RC" ] && [ -n "$NEW_RC" ]; then
+              echo "✅ Added RC suffix: $OLD_VERSION -> $NEW_VERSION"
+              return 0
+            fi
+
+            # Case 3: Same base, incrementing RC (e.g., 0.2.8.rc.helm.1 -> 0.2.8.rc.helm.2)
+            if [ -n "$OLD_RC" ] && [ -n "$NEW_RC" ]; then
+              if [ "$NEW_RC" -gt "$OLD_RC" ]; then
+                echo "✅ RC incremented: $OLD_RC -> $NEW_RC"
+                return 0
+              else
+                echo "❌ RC must increment: $OLD_RC -> $NEW_RC (expected higher number)"
+                return 1
+              fi
+            fi
+
+            # Case 4: Releasing from RC (e.g., 0.2.8.rc.helm.1 -> 0.2.8)
+            if [ -n "$OLD_RC" ] && [ -z "$NEW_RC" ]; then
+              echo "✅ Released from RC: $OLD_VERSION -> $NEW_VERSION"
+              return 0
+            fi
+
+            echo "❌ Invalid version transition"
+            return 1
+          }
+
+          # Check rag-stack version bump
+          if [ "${{ steps.detect.outputs.rag-stack-needs-version-bump }}" = "true" ]; then
+            echo ""
+            echo "Checking rag-stack version bump..."
+            CURRENT_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
+            echo "Current version: $CURRENT_VERSION"
+
+            if git show HEAD~1:charts/rag-stack/Chart.yaml &>/dev/null; then
+              BASE_VERSION=$(git show HEAD~1:charts/rag-stack/Chart.yaml | grep "^version:" | awk '{print $2}')
+              echo "Previous version: $BASE_VERSION"
+
+              if ! validate_version_bump "$BASE_VERSION" "$CURRENT_VERSION"; then
+                echo ""
+                echo "❌ Error: rag-stack chart has changes but version was not properly bumped!"
+                echo "Valid version bumps:"
+                echo "  - Standard: $BASE_VERSION -> X.Y.Z (higher version)"
+                echo "  - RC: $BASE_VERSION -> ${BASE_VERSION}.rc.helm.1"
+                echo "  - RC increment: X.Y.Z.rc.helm.N -> X.Y.Z.rc.helm.(N+1)"
+                exit 1
+              fi
+            else
+              echo "ℹ️  rag-stack is a new chart, skipping version bump check"
+            fi
+          fi
+
+          # Check ai-platform-engineering version bump
+          if [ "${{ steps.detect.outputs.ai-platform-needs-version-bump }}" = "true" ]; then
+            echo ""
+            echo "Checking ai-platform-engineering version bump..."
+            CURRENT_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
+            echo "Current version: $CURRENT_VERSION"
+
+            if git show HEAD~1:charts/ai-platform-engineering/Chart.yaml &>/dev/null; then
+              BASE_VERSION=$(git show HEAD~1:charts/ai-platform-engineering/Chart.yaml | grep "^version:" | awk '{print $2}')
+              echo "Previous version: $BASE_VERSION"
+
+              if ! validate_version_bump "$BASE_VERSION" "$CURRENT_VERSION"; then
+                echo ""
+                echo "❌ Error: ai-platform-engineering chart has changes but version was not properly bumped!"
+                echo "Valid version bumps:"
+                echo "  - Standard: $BASE_VERSION -> X.Y.Z (higher version)"
+                echo "  - RC: $BASE_VERSION -> ${BASE_VERSION}.rc.helm.1"
+                echo "  - RC increment: X.Y.Z.rc.helm.N -> X.Y.Z.rc.helm.(N+1)"
+                exit 1
+              fi
+            else
+              echo "ℹ️  ai-platform-engineering is a new chart, skipping version bump check"
+            fi
+          fi
+
+          echo ""
+          echo "✅ All version checks passed!"
 
       - name: 📦 Package rag-stack Chart
         if: steps.detect.outputs.rag-stack-changed == 'true'
@@ -231,7 +242,7 @@ jobs:
             echo "❌ ERROR: neo4j missing from rag-stack package"
             exit 1
           fi
-          
+
           if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/milvus/Chart.yaml"; then
             echo "✅ milvus dependency verified"
           else

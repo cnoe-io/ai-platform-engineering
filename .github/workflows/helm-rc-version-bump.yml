@@ -31,6 +31,107 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
           yq --version
 
+      - name: 🏷️ Get latest release version
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Fetching latest release version..."
+
+          # Get the latest release tag using GitHub CLI
+          LATEST_RELEASE=$(gh release view --json tagName -q '.tagName' 2>/dev/null || echo "")
+
+          if [[ -z "$LATEST_RELEASE" ]]; then
+            # Fallback: try to get from git tags
+            LATEST_RELEASE=$(git tag --sort=-v:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || echo "")
+          fi
+
+          if [[ -z "$LATEST_RELEASE" ]]; then
+            echo "❌ ERROR: Could not determine latest release version"
+            echo "Please ensure there is at least one release or semver tag in the repository"
+            exit 1
+          fi
+
+          # Strip 'v' prefix if present
+          RELEASE_VERSION="${LATEST_RELEASE#v}"
+
+          echo "✅ Latest release version: $RELEASE_VERSION"
+          echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: ✅ Validate chart versions against release
+        id: validate
+        run: |
+          RELEASE_VERSION="${{ steps.release.outputs.release_version }}"
+
+          echo "🔍 Validating all chart versions against release version: $RELEASE_VERSION"
+          echo ""
+
+          # Valid patterns:
+          # 1. Exact match: <release_version> (e.g., 0.2.8)
+          # 2. RC pattern: <release_version>-rc.helm.<number> (e.g., 0.2.8-rc.helm.1)
+          VALID_PATTERN="^${RELEASE_VERSION}(-rc\.helm\.[0-9]+)?$"
+
+          echo "📋 Valid version pattern: $VALID_PATTERN"
+          echo ""
+
+          VALIDATION_FAILED=false
+          FAILED_CHARTS=""
+
+          for CHART_FILE in $(find charts -name "Chart.yaml" -type f); do
+            CHART_DIR=$(dirname "$CHART_FILE")
+            CHART_NAME=$(yq '.name' "$CHART_FILE")
+            CHART_VERSION=$(yq '.version' "$CHART_FILE" | tr -d '"')
+            APP_VERSION=$(yq '.appVersion // ""' "$CHART_FILE" | tr -d '"')
+
+            echo "📦 Checking $CHART_NAME ($CHART_DIR)"
+            echo "   version: $CHART_VERSION"
+            echo "   appVersion: $APP_VERSION"
+
+            # Validate chart version
+            if [[ ! "$CHART_VERSION" =~ $VALID_PATTERN ]]; then
+              echo "   ❌ ERROR: Chart version '$CHART_VERSION' does not match release pattern"
+              echo "      Expected: '$RELEASE_VERSION' or '$RELEASE_VERSION-rc.helm.<number>'"
+              VALIDATION_FAILED=true
+              FAILED_CHARTS="$FAILED_CHARTS $CHART_NAME(version:$CHART_VERSION)"
+            else
+              echo "   ✅ Chart version is valid"
+            fi
+
+            # Validate appVersion if it exists and is not empty
+            if [[ -n "$APP_VERSION" && "$APP_VERSION" != "null" ]]; then
+              if [[ ! "$APP_VERSION" =~ $VALID_PATTERN ]]; then
+                echo "   ❌ ERROR: appVersion '$APP_VERSION' does not match release pattern"
+                echo "      Expected: '$RELEASE_VERSION' or '$RELEASE_VERSION-rc.helm.<number>'"
+                VALIDATION_FAILED=true
+                FAILED_CHARTS="$FAILED_CHARTS $CHART_NAME(appVersion:$APP_VERSION)"
+              else
+                echo "   ✅ appVersion is valid"
+              fi
+            fi
+
+            echo ""
+          done
+
+          if [[ "$VALIDATION_FAILED" == "true" ]]; then
+            echo ""
+            echo "════════════════════════════════════════════════════════════════"
+            echo "❌ VERSION VALIDATION FAILED"
+            echo "════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "The following charts have invalid versions:"
+            echo "$FAILED_CHARTS" | tr ' ' '\n' | grep -v '^$' | sed 's/^/  - /'
+            echo ""
+            echo "All chart versions and appVersions must match one of:"
+            echo "  - Exact release version: $RELEASE_VERSION"
+            echo "  - RC version pattern: $RELEASE_VERSION-rc.helm.<number>"
+            echo ""
+            echo "Please update the chart versions to match the latest release."
+            echo "════════════════════════════════════════════════════════════════"
+            exit 1
+          fi
+
+          echo "✅ All chart versions are valid against release version $RELEASE_VERSION"
+
       - name: 🔍 Detect changed charts
         id: detect
         run: |
@@ -202,15 +303,10 @@ jobs:
         if: steps.check.outputs.charts_to_bump != ''
         run: |
           CHARTS_TO_BUMP="${{ steps.check.outputs.charts_to_bump }}"
+          RELEASE_VERSION="${{ steps.release.outputs.release_version }}"
 
           echo "🔄 Bumping chart versions..."
-
-          # Get the current appVersion (base version for rc.helm suffix)
-          # Use the first Chart.yaml we find to get the appVersion
-          FIRST_CHART=$(echo "$CHARTS_TO_BUMP" | awk '{print $1}')
-          APP_VERSION=$(yq '.appVersion' "$FIRST_CHART/Chart.yaml" | tr -d '"')
-
-          echo "📋 Base appVersion: $APP_VERSION"
+          echo "📋 Base release version: $RELEASE_VERSION"
 
           BUMPED_CHARTS=""
           for CHART_DIR in $CHARTS_TO_BUMP; do
@@ -223,10 +319,10 @@ jobs:
               # Already has rc.helm suffix, increment it
               CURRENT_RC="${BASH_REMATCH[1]}"
               NEW_RC=$((CURRENT_RC + 1))
-              NEW_VERSION="${APP_VERSION}-rc.helm.${NEW_RC}"
+              NEW_VERSION="${RELEASE_VERSION}-rc.helm.${NEW_RC}"
             else
               # No rc.helm suffix, start with 1
-              NEW_VERSION="${APP_VERSION}-rc.helm.1"
+              NEW_VERSION="${RELEASE_VERSION}-rc.helm.1"
             fi
 
             echo "  📦 $CHART_NAME: $CURRENT_VERSION → $NEW_VERSION"
