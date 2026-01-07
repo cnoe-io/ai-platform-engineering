@@ -409,13 +409,18 @@ class BM25SearchEngine:
             raise ValueError("query_tokens_list and exclude_entity_types must have same length")
         
         # Calculate dynamic top_k based on corpus size if diversity mode is enabled
+        corpus_size = len(self.metadata)
         if diversity_mode:
-            corpus_size = len(self.metadata)
             # Use ~1% of corpus, min 50, max 1000
             calculated_top_k = max(50, min(1000, int(corpus_size * 0.01)))
             top_k = calculated_top_k
             self.logger.debug(f"[BM25 Batch Search] Diversity mode enabled: corpus_size={corpus_size}, calculated top_k={top_k}, final_k={final_k}, max_per_type={max_entities_per_type}")
         
+        # Cap top_k to corpus size to avoid ValueError
+        if top_k > corpus_size:
+            self.logger.warning(f"[BM25 Batch Search] Requested top_k={top_k} exceeds corpus size={corpus_size}, capping to corpus size")
+            top_k = corpus_size
+
         self.logger.debug(f"[BM25 Batch Search] Processing {len(query_tokens_list)} queries with top_k={top_k}")
         
         # Group queries by their EXCLUDE type in ONE PASS (O(n))
