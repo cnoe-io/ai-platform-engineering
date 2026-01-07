@@ -1,0 +1,209 @@
+name: "[Release] Manual Version Release"
+description: "Manually trigger a new release by specifying the version"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New version to release (e.g., 0.2.9, 0.3.0, 1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  # First: Sync all Chart.yaml versions
+  sync-chart-versions:
+    name: Sync Chart Versions
+    uses: ./.github/workflows/helm-release-version-sync.yml
+    with:
+      version: ${{ github.event.inputs.version }}
+    secrets: inherit
+
+  # Then: Create the release
+  release:
+    name: Create Release
+    needs: sync-chart-versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: 📥 Checkout repository (with synced Chart.yaml files)
+        uses: actions/checkout@v6.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ✅ Validate version format
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          echo "📦 Requested version: $VERSION"
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ ERROR: Version must be in semver format (e.g., 0.2.9, 0.3.0, 1.0.0)"
+            echo "   Received: '$VERSION'"
+            exit 1
+          fi
+
+          echo "✅ Version format is valid"
+
+      - name: 🔍 Get current version and validate increment
+        id: validate
+        run: |
+          # Extract current version from pyproject.toml
+          CURRENT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          NEW_VERSION="${{ github.event.inputs.version }}"
+
+          echo "📋 Current version: $CURRENT_VERSION"
+          echo "📦 New version: $NEW_VERSION"
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+          # Check if versions are the same
+          if [[ "$NEW_VERSION" == "$CURRENT_VERSION" ]]; then
+            echo "❌ ERROR: New version ($NEW_VERSION) is the same as current version ($CURRENT_VERSION)"
+            exit 1
+          fi
+
+          # Compare versions using sort -V (version sort)
+          # The higher version should come last when sorted
+          HIGHER=$(echo -e "$CURRENT_VERSION\n$NEW_VERSION" | sort -V | tail -n1)
+
+          if [[ "$HIGHER" == "$CURRENT_VERSION" ]]; then
+            echo "❌ ERROR: New version ($NEW_VERSION) must be greater than current version ($CURRENT_VERSION)"
+            echo "   Hint: At minimum, increment the patch version (e.g., $CURRENT_VERSION -> next patch)"
+            exit 1
+          fi
+
+          # Check if tag already exists
+          if git tag -l "$NEW_VERSION" | grep -q .; then
+            echo "❌ ERROR: Tag '$NEW_VERSION' already exists"
+            exit 1
+          fi
+
+          echo "✅ Version validation passed: $CURRENT_VERSION -> $NEW_VERSION"
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 📦 Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: 📦 Install commitizen
+        run: |
+          uv tool install commitizen
+          echo "✅ Installed commitizen"
+
+      - name: 📝 Update version in pyproject.toml
+        run: |
+          NEW_VERSION="${{ github.event.inputs.version }}"
+          echo "🔄 Updating pyproject.toml version to '$NEW_VERSION'..."
+
+          sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
+
+          # Verify the change
+          UPDATED_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          if [[ "$UPDATED_VERSION" != "$NEW_VERSION" ]]; then
+            echo "❌ ERROR: Failed to update pyproject.toml"
+            exit 1
+          fi
+
+          echo "✅ Updated pyproject.toml to version $NEW_VERSION"
+
+      - name: 📋 Generate changelog with commitizen
+        run: |
+          NEW_VERSION="${{ github.event.inputs.version }}"
+          echo "🔄 Generating changelog for $NEW_VERSION using commitizen..."
+
+          # Generate changelog for unreleased commits with the new version
+          uv tool run cz changelog --unreleased-version "$NEW_VERSION"
+
+          echo "✅ Generated changelog entry for $NEW_VERSION"
+          echo ""
+          echo "📋 New changelog entry preview:"
+          head -30 CHANGELOG.md
+
+      - name: 🔒 Regenerate uv.lock
+        run: |
+          echo "🔄 Regenerating uv.lock..."
+          uv lock
+          echo "✅ uv.lock regenerated"
+
+      - name: 🔍 Review changes
+        run: |
+          echo "📋 Files modified:"
+          git diff --stat
+          echo ""
+          echo "📝 Detailed diff for pyproject.toml:"
+          git diff pyproject.toml
+
+      - name: 📤 Commit, tag, and push
+        run: |
+          NEW_VERSION="${{ github.event.inputs.version }}"
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage changes
+          git add pyproject.toml CHANGELOG.md uv.lock
+
+          # Commit with conventional commit format
+          CURRENT_VERSION="${{ steps.validate.outputs.current_version }}"
+          git commit -m "bump: version $CURRENT_VERSION → $NEW_VERSION"
+
+          # Create annotated tag
+          git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+
+          # Push commit and tag
+          git push origin main
+          git push origin "$NEW_VERSION"
+
+          echo "✅ Committed and pushed release $NEW_VERSION"
+          echo ""
+          echo "🏷️ Tag '$NEW_VERSION' created and pushed"
+          echo "📦 CI workflows should now be triggered for the new tag"
+
+      - name: 🚀 Create GitHub Release with auto-generated notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_VERSION="${{ github.event.inputs.version }}"
+          echo "🔄 Creating GitHub Release for $NEW_VERSION..."
+
+          gh release create "$NEW_VERSION" \
+            --title "Release $NEW_VERSION" \
+            --generate-notes
+
+          echo "✅ GitHub Release created with auto-generated notes"
+          echo "🔗 https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION"
+
+      - name: 📊 Summary
+        run: |
+          NEW_VERSION="${{ github.event.inputs.version }}"
+          CURRENT_VERSION="${{ steps.validate.outputs.current_version }}"
+
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Previous Version | \`$CURRENT_VERSION\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| New Version | \`$NEW_VERSION\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | \`$NEW_VERSION\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`main\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files Modified" >> $GITHUB_STEP_SUMMARY
+          echo "- \`charts/**/Chart.yaml\` - versions synced" >> $GITHUB_STEP_SUMMARY
+          echo "- \`pyproject.toml\` - version updated" >> $GITHUB_STEP_SUMMARY
+          echo "- \`CHANGELOG.md\` - changelog generated (commitizen)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`uv.lock\` - lock file regenerated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### GitHub Release" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [Release $NEW_VERSION](https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION)" >> $GITHUB_STEP_SUMMARY
+

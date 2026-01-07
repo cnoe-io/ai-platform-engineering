@@ -1,0 +1,197 @@
+name: "[Release] Create RC Tags for RAG Images"
+description: "Add release candidate tags to RAG Docker images after CI build completes"
+
+on:
+  workflow_run:
+    workflows:
+      - "[CI][A2A] CAIPE RAG Build and Push"
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  create-rc-tag:
+    name: Create RC tag for RAG images
+    runs-on: ubuntu-latest
+    # Only run if the triggering workflow succeeded and was on main
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Get version and config
+        id: version
+        run: |
+          VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Current version: $VERSION"
+
+          # Read RAG components from config file
+          RAG_COMPONENTS=$(jq -r '.rag_components | join(" ")' .github/agents.json)
+          echo "rag_components=$RAG_COMPONENTS" >> $GITHUB_OUTPUT
+          echo "📋 RAG components: $RAG_COMPONENTS"
+
+      - name: Determine next RAG RC number
+        id: rc
+        uses: actions/github-script@v8
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        with:
+          script: |
+            const version = process.env.VERSION;
+            // Format: 0.2.8-rc.rag.1, 0.2.8-rc.rag.2, etc.
+            const prefix = `${version}-rc.rag.`;
+
+            // Get all tags
+            const { data: refs } = await github.rest.git.listMatchingRefs({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `tags/${prefix}`
+            });
+
+            // Find the highest RC number
+            let maxRc = 0;
+            for (const ref of refs) {
+              const tagName = ref.ref.replace('refs/tags/', '');
+              const match = tagName.match(new RegExp(`^${version.replace(/\./g, '\\.')}-rc\\.rag\\.(\\d+)$`));
+              if (match) {
+                const num = parseInt(match[1], 10);
+                if (num > maxRc) maxRc = num;
+              }
+            }
+
+            const nextRc = maxRc + 1;
+            const rcTag = `${version}-rc.rag.${nextRc}`;
+
+            console.log(`📊 Found ${refs.length} existing RAG RC tags for ${version}`);
+            console.log(`🏷️ Next RAG RC tag: ${rcTag}`);
+
+            core.setOutput('number', nextRc);
+            core.setOutput('tag', rcTag);
+
+      - name: Create Git tag
+        env:
+          RC_TAG: ${{ steps.rc.outputs.tag }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$RC_TAG" "$SHA" -m "Release candidate (RAG) $RC_TAG"
+          git push origin "$RC_TAG"
+
+          echo "✅ Created and pushed tag: $RC_TAG"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Add RC tag to RAG images
+        env:
+          RC_TAG: ${{ steps.rc.outputs.tag }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          OWNER: ${{ github.repository_owner }}
+          RAG_COMPONENTS: ${{ steps.version.outputs.rag_components }}
+        run: |
+          SHORT_SHA="${SHA:0:7}"
+          echo "🏷️ Adding tag '$RC_TAG' to RAG images built from commit $SHORT_SHA"
+
+          FAILED_IMAGES=()
+          SUCCESS_COUNT=0
+
+          tag_image() {
+            local image_name=$1
+            local source_tag=$2
+            local full_source="${REGISTRY}/${OWNER}/${image_name}:${source_tag}"
+            local full_target="${REGISTRY}/${OWNER}/${image_name}:${RC_TAG}"
+
+            echo "  📦 Tagging ${image_name}..."
+            if docker buildx imagetools create --tag "$full_target" "$full_source" 2>/dev/null; then
+              echo "    ✅ ${image_name}:${RC_TAG}"
+              ((SUCCESS_COUNT++)) || true
+            else
+              echo "    ❌ Failed to tag ${image_name}"
+              FAILED_IMAGES+=("$image_name")
+            fi
+          }
+
+          # RAG components (from config)
+          echo ""
+          echo "📦 RAG Components:"
+          for component in $RAG_COMPONENTS; do
+            tag_image "caipe-rag-${component}" "$SHORT_SHA"
+          done
+
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Successfully tagged: $SUCCESS_COUNT images"
+
+          if [ ${#FAILED_IMAGES[@]} -gt 0 ]; then
+            echo "⚠️ Failed to tag: ${#FAILED_IMAGES[@]} images"
+            echo "   ${FAILED_IMAGES[*]}"
+          fi
+
+          echo ""
+          echo "🏷️ All RAG images now available with tag: ${RC_TAG}"
+
+      - name: Create summary
+        env:
+          RC_TAG: ${{ steps.rc.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 🏷️ RAG Release Candidate Created
+
+          | Property | Value |
+          |----------|-------|
+          | **RC Tag** | \`${RC_TAG}\` |
+          | **Version** | \`${VERSION}\` |
+          | **Commit** | \`${SHA}\` |
+
+          ## Usage
+
+          All RAG images are now available with the \`${RC_TAG}\` tag:
+
+          \`\`\`bash
+          docker pull ghcr.io/${{ github.repository_owner }}/caipe-rag-server:${RC_TAG}
+          docker pull ghcr.io/${{ github.repository_owner }}/caipe-rag-webui:${RC_TAG}
+          docker pull ghcr.io/${{ github.repository_owner }}/caipe-rag-ingestors:${RC_TAG}
+          docker pull ghcr.io/${{ github.repository_owner }}/caipe-rag-agent-ontology:${RC_TAG}
+          \`\`\`
+
+          ## Helm Chart (RAG Stack)
+
+          Update your rag-stack values.yaml:
+
+          \`\`\`yaml
+          global:
+            image:
+              tag: "${RC_TAG}"
+          \`\`\`
+          EOF
+
