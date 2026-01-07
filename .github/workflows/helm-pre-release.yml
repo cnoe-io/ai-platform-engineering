@@ -2,55 +2,197 @@ name: "[Pre-Release] Helm Chart"
 description: "Publish pre-release Helm charts"
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
-    paths:
-      - charts/**
-  pull_request_target:
-    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
-    paths:
-      - charts/**
+  workflow_run:
+    workflows: ["[CI][Helm] Auto-bump Chart Versions"]
+    types:
+      - completed
 
 permissions:
   contents: read
   packages: write
   pull-requests: write
+  actions: read
 
 jobs:
   publish-pre-release:
     name: Publish Pre-release Helm Chart
     runs-on: ubuntu-latest
-    if: |
-      github.event.action != 'closed' &&
-      (
-        (
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          startsWith(github.head_ref, 'prebuild/')
-        ) ||
-        (
-          github.event_name == 'pull_request_target' &&
-          contains(github.event.pull_request.labels.*.name, 'helm-prerelease')
-        )
-      )
+    # Only run if the triggering workflow succeeded
+    if: github.event.workflow_run.conclusion == 'success'
 
     steps:
+      - name: 📥 Download version bump status artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: version-bump-status
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📋 Read version bump status
+        id: bump-status
+        run: |
+          if [[ -f "version-bump-status.txt" ]]; then
+            echo "📋 Version bump status:"
+            cat version-bump-status.txt
+
+            # Parse the status file
+            NEW_COMMIT=$(grep "^new_commit=" version-bump-status.txt | cut -d'=' -f2)
+            PR_NUMBER=$(grep "^pr_number=" version-bump-status.txt | cut -d'=' -f2)
+            HEAD_SHA=$(grep "^head_sha=" version-bump-status.txt | cut -d'=' -f2)
+
+            echo "new_commit=$NEW_COMMIT" >> $GITHUB_OUTPUT
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+            echo "head_sha=$HEAD_SHA" >> $GITHUB_OUTPUT
+
+            if [[ "$NEW_COMMIT" == "true" ]]; then
+              echo "🔄 Version bump workflow made a new commit - skipping pre-release"
+              echo "skip=true" >> $GITHUB_OUTPUT
+            else
+              echo "✅ No new commit from version bump - proceeding with pre-release"
+              echo "skip=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "⚠️ No version bump status file found"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🔍 Get PR details
+        if: steps.bump-status.outputs.skip != 'true'
+        id: pr-info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = '${{ steps.bump-status.outputs.pr_number }}';
+            if (!prNumber) {
+              core.setFailed('PR number not found in artifact');
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: parseInt(prNumber)
+            });
+
+            core.setOutput('head_ref', pr.head.ref);
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('base_ref', pr.base.ref);
+            core.setOutput('head_repo_full_name', pr.head.repo.full_name);
+            core.setOutput('labels', pr.labels.map(l => l.name).join(','));
+
+            console.log(`PR #${prNumber}: ${pr.head.ref} -> ${pr.base.ref}`);
+            console.log(`Head SHA: ${pr.head.sha}`);
+            console.log(`Labels: ${pr.labels.map(l => l.name).join(', ')}`);
+
+      - name: 🔍 Check if pre-release should run
+        if: steps.bump-status.outputs.skip != 'true'
+        id: should-run
+        run: |
+          HEAD_REF="${{ steps.pr-info.outputs.head_ref }}"
+          HEAD_REPO="${{ steps.pr-info.outputs.head_repo_full_name }}"
+          LABELS="${{ steps.pr-info.outputs.labels }}"
+          REPO="${{ github.repository }}"
+
+          echo "🔍 Checking pre-release conditions..."
+          echo "  Branch: $HEAD_REF"
+          echo "  Repo: $HEAD_REPO"
+          echo "  Labels: $LABELS"
+
+          SHOULD_RUN=false
+
+          # Check for prebuild/ branch from same repo
+          if [[ "$HEAD_REPO" == "$REPO" && "$HEAD_REF" == prebuild/* ]]; then
+            echo "✅ Matched: prebuild/ branch from same repo"
+            SHOULD_RUN=true
+          fi
+
+          # Check for helm-prerelease label
+          if [[ "$LABELS" == *"helm-prerelease"* ]]; then
+            echo "✅ Matched: helm-prerelease label"
+            SHOULD_RUN=true
+          fi
+
+          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
+
+          if [[ "$SHOULD_RUN" != "true" ]]; then
+            echo "ℹ️ Skipping pre-release - conditions not met"
+          fi
+
       - name: 📥 Checkout repository
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true'
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ steps.pr-info.outputs.head_sha }}
           fetch-depth: 0
 
+      - name: 🔍 Check if chart versions are bumped
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true'
+        id: version-check
+        run: |
+          git fetch origin main
+
+          echo "🔍 Checking if chart versions have been bumped..."
+
+          # Check if any changed chart has unbumped version
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep "^charts/" || true)
+
+          if [[ -z "$CHANGED_FILES" ]]; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Find unique chart directories
+          CHART_DIRS=""
+          for FILE in $CHANGED_FILES; do
+            DIR=$(dirname "$FILE")
+            while [[ "$DIR" != "." && "$DIR" != "charts" ]]; do
+              if [[ -f "$DIR/Chart.yaml" ]]; then
+                if [[ ! "$CHART_DIRS" =~ "$DIR" ]]; then
+                  CHART_DIRS="$CHART_DIRS $DIR"
+                fi
+                break
+              fi
+              DIR=$(dirname "$DIR")
+            done
+          done
+
+          # Check if any chart version is NOT bumped
+          NEEDS_BUMP=false
+          for CHART_DIR in $CHART_DIRS; do
+            if [[ -f "$CHART_DIR/Chart.yaml" ]]; then
+              CURRENT_VERSION=$(grep "^version:" "$CHART_DIR/Chart.yaml" | awk '{print $2}' | tr -d '"')
+              BASE_VERSION=$(git show origin/main:$CHART_DIR/Chart.yaml 2>/dev/null | grep "^version:" | awk '{print $2}' | tr -d '"' || echo "0.0.0")
+
+              if [[ "$CURRENT_VERSION" == "$BASE_VERSION" ]]; then
+                echo "  ⏳ $CHART_DIR: version not bumped yet ($CURRENT_VERSION)"
+                NEEDS_BUMP=true
+              else
+                echo "  ✅ $CHART_DIR: version bumped ($BASE_VERSION → $CURRENT_VERSION)"
+              fi
+            fi
+          done
+
+          if [[ "$NEEDS_BUMP" == "true" ]]; then
+            echo "⏳ Skipping pre-release - waiting for helm-rc-version-bump to complete"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ All chart versions bumped, proceeding with pre-release"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: ⚙️ Set up Helm
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true' && steps.version-check.outputs.skip != 'true'
         uses: azure/setup-helm@v4
         with:
           version: v3.14.0
 
       - name: 🔐 Login to GHCR
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true' && steps.version-check.outputs.skip != 'true'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: 🔍 Detect Changed Charts
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true' && steps.version-check.outputs.skip != 'true'
         id: detect
         run: |
           # Detect which charts have changes (excluding Chart.lock only changes)
@@ -90,14 +232,15 @@ jobs:
           echo "ai-platform-changed=$AI_PLATFORM_CHANGED" >> $GITHUB_OUTPUT
 
       - name: 🏷️ Generate Pre-release Versions
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true' && steps.version-check.outputs.skip != 'true'
         id: version
         run: |
           # Get branch name and remove 'prebuild/' prefix if present
-          BRANCH_NAME="${{ github.head_ref }}"
+          BRANCH_NAME="${{ steps.pr-info.outputs.head_ref }}"
           CLEAN_BRANCH=$(echo "${BRANCH_NAME#prebuild/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
           # Get commit count for this PR
-          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          COMMIT_COUNT=$(git rev-list --count origin/${{ steps.pr-info.outputs.base_ref }}..HEAD)
 
           echo "clean-branch=$CLEAN_BRANCH" >> $GITHUB_OUTPUT
           echo "commit-count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
@@ -137,7 +280,7 @@ jobs:
           fi
 
       - name: 📦 Package rag-stack Chart
-        if: steps.detect.outputs.rag-stack-changed == 'true'
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true' && steps.version-check.outputs.skip != 'true' && steps.detect.outputs.rag-stack-changed == 'true'
         run: |
           echo "📦 Packaging rag-stack..."
 
@@ -153,7 +296,7 @@ jobs:
           echo "✅ rag-stack packaged successfully"
 
       - name: 📦 Package ai-platform-engineering Chart
-        if: steps.detect.outputs.ai-platform-changed == 'true'
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true' && steps.version-check.outputs.skip != 'true' && steps.detect.outputs.ai-platform-changed == 'true'
         run: |
           echo "📦 Packaging ai-platform-engineering..."
 
@@ -198,6 +341,7 @@ jobs:
           echo "✅ ai-platform-engineering packaged successfully with all dependencies"
 
       - name: 🚀 Push Pre-release Charts to GHCR
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true' && steps.version-check.outputs.skip != 'true'
         run: |
           REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts"
 
@@ -215,13 +359,16 @@ jobs:
           done
 
       - name: 💬 Comment on PR
-        uses: actions/github-script@v8
+        if: steps.bump-status.outputs.skip != 'true' && steps.should-run.outputs.should_run == 'true' && steps.version-check.outputs.skip != 'true'
+        uses: actions/github-script@v7
         with:
           script: |
             const registry = `ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts`;
             const ragStackChanged = '${{ steps.detect.outputs.rag-stack-changed }}' === 'true';
             const aiPlatformChanged = '${{ steps.detect.outputs.ai-platform-changed }}' === 'true';
-            const isFork = '${{ github.event.pull_request.head.repo.full_name }}' !== '${{ github.repository }}';
+            const headRepo = '${{ steps.pr-info.outputs.head_repo_full_name }}';
+            const isFork = headRepo !== '${{ github.repository }}';
+            const prNumber = parseInt('${{ steps.bump-status.outputs.pr_number }}');
 
             let body = `## 📦 Pre-release Helm Charts Published\n\n`;
 
@@ -249,7 +396,8 @@ jobs:
               body += `\`\`\`\n\n`;
             }
 
-            const isBranchTrigger = '${{ github.head_ref }}'.startsWith('prebuild/');
+            const headRef = '${{ steps.pr-info.outputs.head_ref }}';
+            const isBranchTrigger = headRef.startsWith('prebuild/');
             const isLabelTrigger = !isBranchTrigger;
 
             body += `> **Note:** These pre-release versions will be automatically cleaned up when the PR is closed or merged.\n\n`;
@@ -259,85 +407,8 @@ jobs:
             }
 
             github.rest.issues.createComment({
-              issue_number: context.issue.number,
+              issue_number: prNumber,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: body
             });
-
-  cleanup-pre-release:
-    name: Cleanup Pre-release Charts
-    runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'pull_request_target' &&
-      (
-        (
-          github.event.action == 'closed' &&
-          (
-            startsWith(github.event.pull_request.head.ref, 'prebuild/') ||
-            contains(github.event.pull_request.labels.*.name, 'helm-prerelease')
-          )
-        ) ||
-        (
-          github.event.action == 'unlabeled' &&
-          github.event.label.name == 'helm-prerelease'
-        )
-      )
-
-    steps:
-      - name: 🔐 Login to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: 🗑️ Delete Pre-release Chart Versions
-        run: |
-          # Get branch name and remove 'prebuild/' prefix if present
-          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
-          CLEAN_BRANCH=$(echo "${BRANCH_NAME#prebuild/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
-
-          echo "🧹 Cleaning up pre-release versions for branch: $CLEAN_BRANCH"
-
-          OWNER="${{ github.repository_owner }}"
-
-          # Function to cleanup a chart
-          cleanup_chart() {
-            local CHART_NAME=$1
-            local PACKAGE_NAME="pre-release-helm-charts/${CHART_NAME}"
-
-            echo "🔍 Checking ${CHART_NAME} for pre-release versions matching pattern: *-${CLEAN_BRANCH}-*"
-
-            # Get package versions using GitHub CLI (for OCI packages)
-            # Note: Forward slash in package name must be URL encoded as %2F
-            gh api \
-              "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions" \
-              --jq '.[] | select(.metadata.container.tags[]? | test(".*-'${CLEAN_BRANCH}'-.*")) | {id: .id, tags: .metadata.container.tags}' > "${CHART_NAME}_versions.json" || true
-
-            if [ -s "${CHART_NAME}_versions.json" ]; then
-              echo "🗑️ Found ${CHART_NAME} pre-release versions to delete:"
-              cat "${CHART_NAME}_versions.json"
-
-              # Delete each version
-              while IFS= read -r version; do
-                VERSION_ID=$(echo "$version" | jq -r '.id')
-                TAGS=$(echo "$version" | jq -r '.tags | join(", ")')
-
-                echo "Deleting ${CHART_NAME} version $VERSION_ID with tags: $TAGS"
-
-                gh api \
-                  --method DELETE \
-                  "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions/${VERSION_ID}" || true
-              done < <(cat "${CHART_NAME}_versions.json" | jq -c '.')
-
-              echo "✅ ${CHART_NAME} pre-release cleanup completed"
-            else
-              echo "ℹ️ No ${CHART_NAME} pre-release versions found for branch: $CLEAN_BRANCH"
-            fi
-          }
-
-          # Cleanup both charts
-          cleanup_chart "rag-stack"
-          cleanup_chart "ai-platform-engineering"
-
-          echo "✅ All pre-release chart cleanup completed"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
