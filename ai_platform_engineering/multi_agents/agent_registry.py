@@ -11,6 +11,7 @@ across the platform, with integrated agent enablement logic.
 # Sunny V2 oh yeah
 # Sunny V3 oh yeah
 # Sunny V4 oh yeah
+# Sunny V5 oh yeah
 import os
 import logging
 import httpx
