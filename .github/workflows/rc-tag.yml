@@ -87,18 +87,6 @@ jobs:
             core.setOutput('number', nextRc);
             core.setOutput('tag', rcTag);
 
-      - name: Create Git tag
-        env:
-          RC_TAG: ${{ steps.rc.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git tag -a "$RC_TAG" -m "Release candidate $RC_TAG"
-          git push origin "$RC_TAG"
-
-          echo "✅ Created and pushed tag: $RC_TAG"
-
       - name: 🔄 Trigger CI workflows with tag version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -142,6 +130,18 @@ jobs:
             exit 1
           fi
           echo "📝 Images will be tagged with $RC_TAG when builds complete"
+
+      - name: Create Git tag
+        env:
+          RC_TAG: ${{ steps.rc.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$RC_TAG" -m "Release candidate $RC_TAG"
+          git push origin "$RC_TAG"
+
+          echo "✅ Created and pushed tag: $RC_TAG"
 
       - name: Create summary
         env:
