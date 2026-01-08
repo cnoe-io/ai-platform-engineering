@@ -33,6 +33,7 @@ export const iconMap: { [key: string]: string } = {
     'slack': slackIcon,
     'webex': webexIcon,
     'web': '🌐',
+    'confluence': '📚️',
 };
 
 export const defaultColor = '#9E9E9E';
@@ -58,4 +59,3 @@ export const getColorForType = (label: string): string => {
     }
     return defaultColor;
 };
-

@@ -48,6 +48,12 @@ Ingests messages from Webex spaces as documents into the RAG system. Each space 
 
 [📖 View detailed documentation →](src/ingestors/webex/README.md)
 
+### [Confluence Ingestor](src/ingestors/confluence/README.md)
+
+Ingests pages from Confluence spaces as documents into the RAG system. Supports both on-demand page ingestion and automatic periodic syncing of configured spaces.
+
+[📖 View detailed documentation →](src/ingestors/confluence/README.md)
+
 ## Running Ingestors
 
 Set environment and run:
