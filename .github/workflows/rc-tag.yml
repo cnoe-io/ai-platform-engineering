@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: write
 
 env:
   REGISTRY: ghcr.io
@@ -115,18 +116,31 @@ jobs:
             "ci-agent-forge-plugin.yml"
           )
 
+          SUCCESS=0
+          FAILED=0
+
           # Trigger all workflows (fire and forget)
           for WF in "${CI_WORKFLOWS[@]}"; do
             echo -n "  🚀 $WF... "
-            if gh workflow run "$WF" --ref "${{ github.ref }}" -f tag_version="$RC_TAG" 2>/dev/null; then
+            if ERROR=$(gh workflow run "$WF" --ref "${{ github.ref }}" -f tag_version="$RC_TAG" 2>&1); then
               echo "✅"
+              ((SUCCESS++))
             else
-              echo "⚠️ failed to trigger"
+              echo "❌"
+              echo "     Error: $ERROR"
+              ((FAILED++))
             fi
           done
 
           echo ""
-          echo "✅ All CI workflows triggered (building asynchronously)"
+          if [[ $FAILED -eq 0 ]]; then
+            echo "✅ All $SUCCESS CI workflows triggered successfully"
+          elif [[ $SUCCESS -gt 0 ]]; then
+            echo "⚠️ $SUCCESS workflows triggered, $FAILED failed"
+          else
+            echo "❌ All $FAILED workflows failed to trigger"
+            exit 1
+          fi
           echo "📝 Images will be tagged with $RC_TAG when builds complete"
 
       - name: Create summary

@@ -12,6 +12,7 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: write
 
 jobs:
   # First: Sync all Chart.yaml versions
@@ -190,6 +191,9 @@ jobs:
             "ci-agent-forge-plugin.yml:false"
           )
 
+          SUCCESS=0
+          FAILED=0
+
           # Trigger all workflows (fire and forget - don't wait)
           for WF_CONFIG in "${CI_WORKFLOWS[@]}"; do
             IFS=':' read -r WF HAS_BUILD_ALL <<< "$WF_CONFIG"
@@ -200,15 +204,25 @@ jobs:
               ARGS="$ARGS -f build_all=true"
             fi
 
-            if gh workflow run "$WF" --ref "$NEW_VERSION" $ARGS 2>/dev/null; then
+            if ERROR=$(gh workflow run "$WF" --ref "$NEW_VERSION" $ARGS 2>&1); then
               echo "✅"
+              ((SUCCESS++))
             else
-              echo "⚠️ failed to trigger"
+              echo "❌"
+              echo "     Error: $ERROR"
+              ((FAILED++))
             fi
           done
 
           echo ""
-          echo "✅ All CI workflows triggered (building asynchronously)"
+          if [[ $FAILED -eq 0 ]]; then
+            echo "✅ All $SUCCESS CI workflows triggered successfully"
+          elif [[ $SUCCESS -gt 0 ]]; then
+            echo "⚠️ $SUCCESS workflows triggered, $FAILED failed"
+          else
+            echo "❌ All $FAILED workflows failed to trigger"
+            exit 1
+          fi
           echo "📝 Images will be tagged with $NEW_VERSION when builds complete"
 
       - name: 🚀 Create GitHub Release
