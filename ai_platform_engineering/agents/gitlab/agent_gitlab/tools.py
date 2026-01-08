@@ -13,8 +13,8 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-# Maximum execution time for bash commands (reusing glab env var for backwards compatibility)
-COMMAND_TIMEOUT = int(os.getenv("GLAB_CLI_MAX_EXECUTION_TIME", "30"))
+# Maximum execution time for bash commands (seconds)
+COMMAND_TIMEOUT = int(os.getenv("BASH_COMMAND_TIMEOUT", "30"))
 
 
 class BashCommandToolInput(BaseModel):
