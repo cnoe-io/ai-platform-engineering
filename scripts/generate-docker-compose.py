@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Any
 
 # All available agents in the platform
 ALL_AGENTS = [
-    'argocd', 'aws', 'backstage', 'confluence', 'github', 'jira',
+    'argocd', 'aws', 'backstage', 'confluence', 'github', 'gitlab', 'jira',
     'komodor', 'pagerduty', 'slack', 'splunk', 'weather', 'webex',
     'petstore', 'rag'
 ]
@@ -113,6 +113,11 @@ def get_agent_defaults(agent_name: str) -> Dict[str, Any]:
     # Agent-specific overrides
     agent_overrides = {
         'github': {
+            'volumes': ['/var/run/docker.sock:/var/run/docker.sock'],
+            'has_mcp_service': False,
+            'mcp_mode': 'http'
+        },
+        'gitlab': {
             'volumes': ['/var/run/docker.sock:/var/run/docker.sock'],
             'has_mcp_service': False,
             'mcp_mode': 'http'
