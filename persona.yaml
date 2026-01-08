@@ -22,6 +22,7 @@ persona:
       - backstage
       - confluence
       - github
+      - gitlab
       - jira
       - komodor
       - pagerduty
@@ -40,6 +41,7 @@ persona:
       - backstage
       - confluence
       - github
+      - gitlab
       - jira
       - komodor
       - pagerduty
@@ -93,6 +95,11 @@ persona:
     agents:
       - github
 
+  gitlab:
+    description: "GitLab agent only"
+    agents:
+      - gitlab
+
   jira:
     description: "Jira agent only"
     agents:
@@ -142,6 +149,7 @@ persona:
       - backstage
       - confluence
       - github
+      - gitlab
       - jira
       - komodor
       - pagerduty
