@@ -8,8 +8,8 @@ This agent supports both HTTP and stdio MCP modes:
 - HTTP mode: Uses GitLab's official MCP server at https://{gitlab_host}/-/mcp
 - stdio mode: Uses @zereight/mcp-gitlab OSS MCP server
 
-Both modes are supplemented with glab CLI for git operations (clone, push, etc.)
-that require local repository access.
+Both modes are supplemented with bash_command tool for git operations (clone, push, etc.)
+and file operations that require shell command execution.
 """
 
 import logging
@@ -154,7 +154,7 @@ class GitLabAgent(BaseLangGraphAgent):
         """
         Filter MCP tools based on GitLab permission settings.
 
-        Uses the same environment variables as glab CLI tool for consistency:
+        Uses environment variables to control tool access:
         - GITLAB_READ_ONLY_MODE: If true, filters out all create/update/delete tools
         - GITLAB_ALLOW_CREATE: If false, filters out create tools
         - GITLAB_ALLOW_UPDATE: If false, filters out update/edit tools
