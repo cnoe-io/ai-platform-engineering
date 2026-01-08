@@ -124,11 +124,11 @@ jobs:
             echo -n "  🚀 $WF... "
             if ERROR=$(gh workflow run "$WF" --ref "${{ github.ref }}" -f tag_version="$RC_TAG" 2>&1); then
               echo "✅"
-              ((SUCCESS++))
+              ((SUCCESS++)) || true
             else
               echo "❌"
               echo "     Error: $ERROR"
-              ((FAILED++))
+              ((FAILED++)) || true
             fi
           done
 

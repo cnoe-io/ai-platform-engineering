@@ -206,11 +206,11 @@ jobs:
 
             if ERROR=$(gh workflow run "$WF" --ref "$NEW_VERSION" $ARGS 2>&1); then
               echo "✅"
-              ((SUCCESS++))
+              ((SUCCESS++)) || true
             else
               echo "❌"
               echo "     Error: $ERROR"
-              ((FAILED++))
+              ((FAILED++)) || true
             fi
           done
 
