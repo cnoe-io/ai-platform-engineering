@@ -1,4 +1,4 @@
-name: "[CI][Agent Forge] Build and Push"
+name: "[CI][AgentForge] Build and Push"
 description: "Build and push Agent Forge Plugin"
 
 on:

@@ -4,10 +4,10 @@ description: "Add release candidate tags to all Docker images after CI builds co
 on:
   workflow_run:
     workflows:
-      - "[CI][A2A] Sub-Agents A2A Docker Build and Push"
-      - "[CI][MCP] Sub-Agents MCP Docker Build and Push"
-      - "[CI][A2A] Supervisor Agent Docker Build and Push"
-      - "[CI][Agent Forge] Build and Push"
+      - '[CI][A2A] Sub-Agents A2A Docker Build and Push'
+      - '[CI][MCP] Sub-Agents MCP Docker Build and Push'
+      - '[CI][A2A] Supervisor Agent Docker Build and Push'
+      - '[CI][AgentForge] Build and Push'
     types:
       - completed
     branches:
