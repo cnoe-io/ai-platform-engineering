@@ -8,6 +8,7 @@ This module provides the central registry for managing and discovering agents
 across the platform, with integrated agent enablement logic.
 """
 # adding a new sunny comment for testing
+# Sunny V2 oh yeah
 import os
 import logging
 import httpx
