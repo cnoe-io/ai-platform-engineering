@@ -1,0 +1,81 @@
+[project]
+name = "agent_gitlab"
+version = "0.1.0"
+license = "Apache-2.0"
+description = "A GitLab natural language agent using LangChain, LangGraph, and MCP."
+readme = "README.md"
+authors = [
+    { name = "CNOE Contributors", email = "cnoe-steering@googlegroups.com" },
+]
+maintainers = [
+    { name = "CNOE Contributors", email = "cnoe-steering@googlegroups.com" },
+]
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "a2a-sdk==0.3.0",
+    "agentevals==0.0.7",
+    "agntcy-app-sdk==0.4.5",
+    "ai-platform-engineering-utils",
+    "click==8.3.1",
+    "langchain-anthropic==1.0.0",
+    "langchain-core==1.1.2",
+    "langchain-mcp-adapters==0.2.1",
+    "langchain-openai==1.1.0",
+    "langgraph==1.0.4",
+    "pytest==8.3.5",
+    "pyjwt==2.10.1",
+    "tabulate==0.9.0",
+    "rich==14.1.0",
+    "sseclient==0.0.27",
+    "fastapi==0.115.11",
+    "uvicorn==0.35.0",
+    "httpx==0.28.1",
+    "httpx-sse==0.4.3",
+    "python-dotenv==1.2.1",
+    "cnoe-agent-utils==0.3.9",
+    "pydantic==2.12.5",
+    "prometheus_client==0.23.1",
+    "typing-extensions==4.15.0",
+]
+
+[tool.uv.sources]
+ai-platform-engineering-utils = { path = "../../utils" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.poetry.scripts]
+agent_gitlab_a2a = "agent_gitlab.protocol_bindings.a2a_server:main"
+
+[tool.poetry.group.dev.dependencies]
+pytest-asyncio = "^1.0.0"
+pytest-cov = "^6.1.1"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+# Allow lines to be as long as 140.
+line-length = 140
+# Number of spaces per indentation level
+indent-width = 2
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+]
+ignore = ["F403"]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: marks tests as unit tests",
+    "integration: marks tests as integration tests",
+    "parsers: marks tests as parser tests"
+]
