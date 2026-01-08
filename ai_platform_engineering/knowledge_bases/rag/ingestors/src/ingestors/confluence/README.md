@@ -1,4 +1,4 @@
-# Confluence RAG Ingestor v2
+# Confluence Ingestor
 
 Syncs pages from Confluence spaces into the RAG (Retrieval-Augmented Generation) system for knowledge base integration.
 
@@ -196,11 +196,3 @@ python ingestor.py
 - `ingestor.py` - Main ingestor logic, Redis listener, periodic reload
 - `loader.py` - ConfluenceLoader class for fetching and processing pages
 - Helper functions for session creation, datasource ID generation, etc.
-
-### Adding Features
-The ingestor follows the common ingestor pattern (`IngestorBuilder`):
-- `name()` - Ingestor name
-- `type()` - Ingestor type
-- `sync_with_fn()` - Periodic sync function
-- `with_startup()` - Redis listener startup
-- `every()` - Sync interval
