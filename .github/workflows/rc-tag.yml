@@ -1,17 +1,16 @@
 name: "[Release] Create RC Tags for Images"
-description: "Add release candidate tags to all Docker images after CI builds complete"
+description: "Create RC tag on main push and tag all images"
 
 on:
-  workflow_run:
-    workflows:
-      - '[CI][A2A] Sub-Agents A2A Docker Build and Push'
-      - '[CI][MCP] Sub-Agents MCP Docker Build and Push'
-      - '[CI][A2A] Supervisor Agent Docker Build and Push'
-      - '[CI][AgentForge] Build and Push'
-    types:
-      - completed
-    # NOTE: branches filter removed due to GitHub bug (actions/runner#1628)
-    # Branch filtering is handled in job's if condition instead
+  push:
+    branches:
+      - main
+    paths:
+      # Trigger on image-related file changes (OR logic - any match triggers)
+      - 'ai_platform_engineering/**'
+      - 'build/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
 
 permissions:
   contents: write
@@ -21,77 +20,9 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  check-all-workflows:
-    name: Check if all CI workflows succeeded
-    runs-on: ubuntu-latest
-    # Only run if the triggering workflow succeeded and was on main
-    if: |
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
-    outputs:
-      all_succeeded: ${{ steps.check.outputs.all_succeeded }}
-      sha: ${{ steps.check.outputs.sha }}
-      short_sha: ${{ steps.check.outputs.short_sha }}
-    steps:
-      - name: Check all required workflows
-        id: check
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const sha = '${{ github.event.workflow_run.head_sha }}';
-            const shortSha = sha.substring(0, 7);
-
-            const requiredWorkflows = [
-              '[CI][A2A] Sub-Agents A2A Docker Build and Push',
-              '[CI][MCP] Sub-Agents MCP Docker Build and Push',
-              '[CI][A2A] Supervisor Agent Docker Build and Push',
-              '[CI][AgentForge] Build and Push'
-            ];
-
-            // Get all workflow runs for this commit
-            const { data: runs } = await github.rest.actions.listWorkflowRunsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              head_sha: sha,
-              per_page: 100
-            });
-
-            // Check status of each required workflow
-            let allSucceeded = true;
-            let pendingWorkflows = [];
-
-            for (const name of requiredWorkflows) {
-              const run = runs.workflow_runs.find(r => r.name === name);
-              if (!run) {
-                console.log(`⏳ Workflow "${name}" not found for commit ${shortSha} - may not have triggered yet`);
-                pendingWorkflows.push(name);
-                allSucceeded = false;
-              } else if (run.status !== 'completed') {
-                console.log(`⏳ Workflow "${name}" is still ${run.status}`);
-                pendingWorkflows.push(name);
-                allSucceeded = false;
-              } else if (run.conclusion !== 'success') {
-                console.log(`❌ Workflow "${name}" ${run.conclusion}`);
-                allSucceeded = false;
-              } else {
-                console.log(`✅ Workflow "${name}" succeeded`);
-              }
-            }
-
-            if (pendingWorkflows.length > 0) {
-              console.log(`\n⏳ Waiting for: ${pendingWorkflows.join(', ')}`);
-              console.log('This workflow will be triggered again when another CI workflow completes.');
-            }
-
-            core.setOutput('all_succeeded', allSucceeded);
-            core.setOutput('sha', sha);
-            core.setOutput('short_sha', shortSha);
-
   create-rc-tag:
-    name: Create RC tag and tag images
+    name: Create RC tag and tag all images
     runs-on: ubuntu-latest
-    needs: check-all-workflows
-    if: needs.check-all-workflows.outputs.all_succeeded == 'true'
     steps:
       - name: 🔒 Harden runner
         uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
@@ -102,9 +33,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ needs.check-all-workflows.outputs.sha }}
 
-      - name: Get version and agent config
+      - name: Get version and config
         id: version
         run: |
           VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
@@ -114,10 +44,10 @@ jobs:
           # Read agent lists from config file
           A2A_AGENTS=$(jq -r '.a2a_agents | join(" ")' .github/agents.json)
           MCP_AGENTS=$(jq -r '.mcp_agents | join(" ")' .github/agents.json)
+          RAG_COMPONENTS=$(jq -r '.rag_components | join(" ")' .github/agents.json)
           echo "a2a_agents=$A2A_AGENTS" >> $GITHUB_OUTPUT
           echo "mcp_agents=$MCP_AGENTS" >> $GITHUB_OUTPUT
-          echo "📋 A2A agents: $A2A_AGENTS"
-          echo "📋 MCP agents: $MCP_AGENTS"
+          echo "rag_components=$RAG_COMPONENTS" >> $GITHUB_OUTPUT
 
       - name: Determine next RC number
         id: rc
@@ -159,98 +89,50 @@ jobs:
       - name: Create Git tag
         env:
           RC_TAG: ${{ steps.rc.outputs.tag }}
-          SHA: ${{ needs.check-all-workflows.outputs.sha }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git tag -a "$RC_TAG" "$SHA" -m "Release candidate $RC_TAG"
+          git tag -a "$RC_TAG" -m "Release candidate $RC_TAG"
           git push origin "$RC_TAG"
 
           echo "✅ Created and pushed tag: $RC_TAG"
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Add RC tag to all images
+      - name: 🔄 Trigger CI workflows with tag version
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RC_TAG: ${{ steps.rc.outputs.tag }}
-          SHORT_SHA: ${{ needs.check-all-workflows.outputs.short_sha }}
-          OWNER: ${{ github.repository_owner }}
-          A2A_AGENTS: ${{ steps.version.outputs.a2a_agents }}
-          MCP_AGENTS: ${{ steps.version.outputs.mcp_agents }}
         run: |
-          echo "🏷️ Adding tag '$RC_TAG' to all images built from commit $SHORT_SHA"
+          echo "🔄 Triggering CI workflows with tag_version=$RC_TAG..."
+          echo ""
 
-          FAILED_IMAGES=()
-          SUCCESS_COUNT=0
+          # All workflows support tag_version now
+          CI_WORKFLOWS=(
+            "ci-a2a-sub-agent.yml"
+            "ci-mcp-sub-agent.yml"
+            "ci-a2a-rag.yml"
+            "ci-supervisor-agent.yml"
+            "ci-agent-forge-plugin.yml"
+          )
 
-          tag_image() {
-            local image_name=$1
-            local source_tag=$2
-            local full_source="${REGISTRY}/${OWNER}/${image_name}:${source_tag}"
-            local full_target="${REGISTRY}/${OWNER}/${image_name}:${RC_TAG}"
-
-            echo "  📦 Tagging ${image_name}..."
-            if docker buildx imagetools create --tag "$full_target" "$full_source" 2>/dev/null; then
-              echo "    ✅ ${image_name}:${RC_TAG}"
-              ((SUCCESS_COUNT++)) || true
+          # Trigger all workflows (fire and forget)
+          for WF in "${CI_WORKFLOWS[@]}"; do
+            echo -n "  🚀 $WF... "
+            if gh workflow run "$WF" --ref "${{ github.ref }}" -f tag_version="$RC_TAG" 2>/dev/null; then
+              echo "✅"
             else
-              echo "    ❌ Failed to tag ${image_name}"
-              FAILED_IMAGES+=("$image_name")
+              echo "⚠️ failed to trigger"
             fi
-          }
-
-          # Supervisor agent
-          echo ""
-          echo "📦 Supervisor Agent:"
-          tag_image "ai-platform-engineering" "$SHORT_SHA"
-
-          # Agent Forge plugin
-          echo ""
-          echo "📦 Agent Forge Plugin:"
-          tag_image "backstage-plugin-agent-forge" "$SHORT_SHA"
-
-          # A2A sub-agents (from config)
-          echo ""
-          echo "📦 A2A Sub-Agents:"
-          for agent in $A2A_AGENTS; do
-            tag_image "agent-${agent}" "$SHORT_SHA"
-          done
-
-          # MCP sub-agents (from config)
-          echo ""
-          echo "📦 MCP Sub-Agents:"
-          for agent in $MCP_AGENTS; do
-            tag_image "mcp-${agent}" "$SHORT_SHA"
           done
 
           echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ Successfully tagged: $SUCCESS_COUNT images"
-
-          if [ ${#FAILED_IMAGES[@]} -gt 0 ]; then
-            echo "⚠️ Failed to tag: ${#FAILED_IMAGES[@]} images"
-            echo "   ${FAILED_IMAGES[*]}"
-            # Don't fail the workflow - some images may not have been built
-            # (e.g., if only certain paths changed)
-          fi
-
-          echo ""
-          echo "🏷️ All images now available with tag: ${RC_TAG}"
+          echo "✅ All CI workflows triggered (building asynchronously)"
+          echo "📝 Images will be tagged with $RC_TAG when builds complete"
 
       - name: Create summary
         env:
           RC_TAG: ${{ steps.rc.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
-          SHA: ${{ needs.check-all-workflows.outputs.sha }}
         run: |
           cat >> $GITHUB_STEP_SUMMARY << EOF
           # 🏷️ Release Candidate Created
@@ -258,8 +140,14 @@ jobs:
           | Property | Value |
           |----------|-------|
           | **RC Tag** | \`${RC_TAG}\` |
-          | **Version** | \`${VERSION}\` |
-          | **Commit** | \`${SHA}\` |
+          | **Base Version** | \`${VERSION}\` |
+          | **Commit** | \`${{ github.sha }}\` |
+
+          ## What happened
+
+          1. 🏷️ Created git tag \`${RC_TAG}\`
+          2. 🔄 Triggered CI workflows with \`tag_version=${RC_TAG}\`
+          3. 📦 CI workflows building asynchronously - images will be tagged when complete
 
           ## Usage
 
@@ -273,8 +161,8 @@ jobs:
           docker pull ghcr.io/${{ github.repository_owner }}/agent-slack:${RC_TAG}
           docker pull ghcr.io/${{ github.repository_owner }}/mcp-jira:${RC_TAG}
 
-          # Agent Forge Plugin
-          docker pull ghcr.io/${{ github.repository_owner }}/backstage-plugin-agent-forge:${RC_TAG}
+          # RAG components (example)
+          docker pull ghcr.io/${{ github.repository_owner }}/caipe-rag-server:${RC_TAG}
           \`\`\`
 
           ## Helm Chart
@@ -287,4 +175,3 @@ jobs:
               tag: "${RC_TAG}"
           \`\`\`
           EOF
-

@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   # First: Sync all Chart.yaml versions
@@ -169,95 +170,59 @@ jobs:
           echo ""
           echo "🏷️ Tag '$NEW_VERSION' created and pushed"
 
-      - name: 🚀 Create GitHub Release (draft)
+      - name: 🔄 Trigger fresh CI builds for release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NEW_VERSION="${{ github.event.inputs.version }}"
-          echo "🔄 Creating draft GitHub Release for $NEW_VERSION..."
+          echo "🔄 Triggering fresh CI builds for release $NEW_VERSION..."
+          echo "   (build_all=true, tag_version=$NEW_VERSION)"
+          echo ""
+
+          # Workflows with their input capabilities
+          # Format: "workflow_file:supports_build_all"
+          # All workflows support tag_version now
+          CI_WORKFLOWS=(
+            "ci-a2a-sub-agent.yml:true"
+            "ci-mcp-sub-agent.yml:true"
+            "ci-a2a-rag.yml:false"
+            "ci-supervisor-agent.yml:false"
+            "ci-agent-forge-plugin.yml:false"
+          )
+
+          # Trigger all workflows (fire and forget - don't wait)
+          for WF_CONFIG in "${CI_WORKFLOWS[@]}"; do
+            IFS=':' read -r WF HAS_BUILD_ALL <<< "$WF_CONFIG"
+            echo -n "  🚀 $WF... "
+
+            ARGS="-f tag_version=$NEW_VERSION"
+            if [[ "$HAS_BUILD_ALL" == "true" ]]; then
+              ARGS="$ARGS -f build_all=true"
+            fi
+
+            if gh workflow run "$WF" --ref "$NEW_VERSION" $ARGS 2>/dev/null; then
+              echo "✅"
+            else
+              echo "⚠️ failed to trigger"
+            fi
+          done
+
+          echo ""
+          echo "✅ All CI workflows triggered (building asynchronously)"
+          echo "📝 Images will be tagged with $NEW_VERSION when builds complete"
+
+      - name: 🚀 Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_VERSION="${{ github.event.inputs.version }}"
+          echo "🔄 Creating GitHub Release for $NEW_VERSION..."
 
           gh release create "$NEW_VERSION" \
             --title "Release $NEW_VERSION" \
-            --generate-notes \
-            --draft
+            --generate-notes
 
-          echo "✅ Draft release created (will be published after image builds complete)"
-
-      - name: 🔄 Trigger image builds and wait for completion
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
-
-          WORKFLOWS=(
-            "ci-a2a-sub-agent.yml"
-            "ci-a2a-rag.yml"
-            "ci-mcp-sub-agent.yml"
-            "ci-supervisor-agent.yml"
-            "ci-agent-forge-plugin.yml"
-          )
-
-          echo "🔄 Triggering ${#WORKFLOWS[@]} CI workflows for tag $NEW_VERSION..."
-
-          # Trigger all workflows
-          for WF in "${WORKFLOWS[@]}"; do
-            gh workflow run "$WF" --ref "$NEW_VERSION"
-            echo "  ✅ Triggered $WF"
-          done
-
-          # Wait for runs to be registered in GitHub
-          echo "⏳ Waiting 15s for workflow runs to register..."
-          sleep 15
-
-          echo ""
-          echo "⏳ Waiting for all workflows to complete (this may take 20-30 minutes)..."
-          echo ""
-
-          FAILED=0
-          SUCCEEDED=0
-
-          for WF in "${WORKFLOWS[@]}"; do
-            # Get the latest run for this workflow on this ref
-            RUN_ID=$(gh run list --workflow="$WF" --branch="$NEW_VERSION" --limit=1 --json databaseId -q '.[0].databaseId')
-
-            if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
-              echo "  ⚠️ $WF - no run found, skipping"
-              continue
-            fi
-
-            echo "  ⏳ Watching $WF (run $RUN_ID)..."
-
-            if gh run watch "$RUN_ID" --exit-status; then
-              echo "  ✅ $WF completed successfully"
-              SUCCEEDED=$((SUCCEEDED + 1))
-            else
-              echo "  ❌ $WF failed"
-              FAILED=$((FAILED + 1))
-            fi
-          done
-
-          echo ""
-          echo "📊 Results: $SUCCEEDED succeeded, $FAILED failed"
-
-          if [[ $FAILED -gt 0 ]]; then
-            echo ""
-            echo "❌ $FAILED workflow(s) failed - release remains as draft"
-            echo "   Fix the issues and manually publish the release, or delete the draft and retry"
-            exit 1
-          fi
-
-          echo "✅ All image builds completed successfully"
-
-      - name: 📢 Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
-
-          echo "🔄 Publishing GitHub Release $NEW_VERSION..."
-          gh release edit "$NEW_VERSION" --draft=false
-
-          echo "✅ Release published"
+          echo "✅ Release created and published"
           echo "🔗 https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION"
 
       - name: 📊 Summary
@@ -280,12 +245,13 @@ jobs:
           echo "- \`CHANGELOG.md\` - changelog generated (commitizen)" >> $GITHUB_STEP_SUMMARY
           echo "- \`uv.lock\` - lock file regenerated" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Image Builds Completed ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ci-a2a-sub-agent.yml\` - A2A sub-agent images" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ci-a2a-rag.yml\` - RAG component images" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ci-mcp-sub-agent.yml\` - MCP sub-agent images" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ci-supervisor-agent.yml\` - Supervisor agent image" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ci-agent-forge-plugin.yml\` - Agent Forge plugin image" >> $GITHUB_STEP_SUMMARY
+          echo "### Images (CI builds triggered) ⏳" >> $GITHUB_STEP_SUMMARY
+          echo "CI workflows triggered asynchronously - images will be tagged with \`$NEW_VERSION\` when complete:" >> $GITHUB_STEP_SUMMARY
+          echo "- Supervisor agent" >> $GITHUB_STEP_SUMMARY
+          echo "- Agent Forge plugin" >> $GITHUB_STEP_SUMMARY
+          echo "- A2A sub-agents" >> $GITHUB_STEP_SUMMARY
+          echo "- MCP sub-agents" >> $GITHUB_STEP_SUMMARY
+          echo "- RAG components" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### GitHub Release" >> $GITHUB_STEP_SUMMARY
           echo "🔗 [Release $NEW_VERSION](https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION)" >> $GITHUB_STEP_SUMMARY

@@ -2,12 +2,17 @@ name: "[CI][AgentForge] Build and Push"
 description: "Build and push Agent Forge Plugin"
 
 on:
+  # Main push is handled by rc-tag.yml which triggers this workflow
   push:
-    branches:
-      - main
+    # Build on all manual new tags as well
     tags:
       - '**'
   workflow_dispatch:
+    inputs:
+      tag_version:
+        description: 'Version tag to apply (e.g., 0.2.8-rc.1)'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -55,7 +60,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ inputs.tag_version }},enable=${{ inputs.tag_version != '' }}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
