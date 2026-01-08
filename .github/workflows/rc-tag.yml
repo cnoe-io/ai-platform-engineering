@@ -10,8 +10,8 @@ on:
       - '[CI][AgentForge] Build and Push'
     types:
       - completed
-    branches:
-      - main
+    # NOTE: branches filter removed due to GitHub bug (actions/runner#1628)
+    # Branch filtering is handled in job's if condition instead
 
 permissions:
   contents: write
@@ -45,7 +45,7 @@ jobs:
               '[CI][A2A] Sub-Agents A2A Docker Build and Push',
               '[CI][MCP] Sub-Agents MCP Docker Build and Push',
               '[CI][A2A] Supervisor Agent Docker Build and Push',
-              '[CI][Agent Forge] Build and Push'
+              '[CI][AgentForge] Build and Push'
             ];
 
             // Get all workflow runs for this commit
