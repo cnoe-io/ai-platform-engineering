@@ -1,0 +1,27 @@
+tests:
+  gitlab_agent_1:
+    input: |
+      list my GitLab projects
+    reference_trajectory:
+      solution_1: __start__;agent_gitlab
+    metadata:
+      comments: |
+        Lists all projects accessible to the user.
+
+  gitlab_agent_2:
+    input: |
+      show open merge requests in project my-app
+    reference_trajectory:
+      solution_1: __start__;agent_gitlab
+    metadata:
+      comments: |
+        Shows all open merge requests in the specified project.
+
+  gitlab_agent_3:
+    input: |
+      show pipeline status for project my-app
+    reference_trajectory:
+      solution_1: __start__;agent_gitlab
+    metadata:
+      comments: |
+        Shows the CI/CD pipeline status for the specified project.
