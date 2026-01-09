@@ -136,9 +136,10 @@ jobs:
         id: set-matrix
         uses: actions/github-script@v8
         env:
-          # Build all agents when: tag push, manual dispatch with build_all=true, or shared files changed
+          # Build all agents when: main branch push, tag push, manual dispatch with build_all=true, or shared files changed
           BUILD_ALL: >-
             ${{
+              github.ref == 'refs/heads/main' ||
               startsWith(github.ref, 'refs/tags/') ||
               (github.event_name == 'workflow_dispatch' && inputs.build_all == true) ||
               steps.filter.outputs.shared_utils == 'true' ||
@@ -263,7 +264,7 @@ jobs:
   # Retag unchanged agents from previous version when tag_version is provided
   retag-unchanged:
     runs-on: ubuntu-latest
-    needs: [determine-agents, build-and-push]
+    needs: determine-agents
     if: needs.determine-agents.outputs.should_retag == 'true'
     permissions:
       packages: write
