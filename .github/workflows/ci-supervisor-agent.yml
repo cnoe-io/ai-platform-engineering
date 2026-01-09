@@ -73,7 +73,7 @@ jobs:
 
           # Fetch the tag created for this commit
           git fetch --tags --force
-          TAG=$(git tag --points-at ${{ github.sha }} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' | head -n 1)
+          TAG=$(git tag --points-at ${{ github.sha }} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' | head -n 1)
 
           if [ -z "$TAG" ]; then
             echo "❌ rc-tag.yml finished but no RC tag found on this commit"
@@ -104,16 +104,29 @@ jobs:
         run: |
           SHOULD_BUILD="false"
           SHOULD_RETAG="false"
+          TAG_VERSION="${{ env.TAG_VERSION }}"
+
+          # Check for RC suffix
+          if [[ "$TAG_VERSION" =~ -rc\.[0-9]+$ ]]; then
+            IS_RC="true"
+          else
+            IS_RC="false"
+          fi
 
           if [ "$CORE_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
             SHOULD_BUILD="true"
           elif [ -n "$TAG_VERSION" ]; then
-            SHOULD_RETAG="true"
+            if [ "$IS_RC" == "true" ]; then
+              SHOULD_RETAG="true"
+            else
+              # No RC suffix but tag exists (e.g. final release) -> Build everything
+              SHOULD_BUILD="true"
+            fi
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
           echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
-          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG"
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC"
 
   build-and-push:
     runs-on: ubuntu-latest

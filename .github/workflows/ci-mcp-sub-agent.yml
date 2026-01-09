@@ -97,7 +97,7 @@ jobs:
 
           # Fetch the tag created for this commit
           git fetch --tags --force
-          TAG=$(git tag --points-at ${{ github.sha }} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' | head -n 1)
+          TAG=$(git tag --points-at ${{ github.sha }} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' | head -n 1)
 
           if [ -z "$TAG" ]; then
             echo "❌ rc-tag.yml finished but no RC tag found on this commit"
@@ -114,6 +114,9 @@ jobs:
           script: |
             const agents = JSON.parse(process.env.ALL_AGENTS);
             let filters = '';
+            filters += 'shared_config:\n';
+            filters += '  - \'pyproject.toml\'\n';
+            filters += '  - \'uv.lock\'\n';
             filters += 'shared_dockerfile:\n';
             filters += '  - \'build/agents/Dockerfile.mcp\'\n';
             agents.forEach(agent => {
@@ -134,32 +137,37 @@ jobs:
         id: set-matrix
         uses: actions/github-script@v8
         env:
-          BUILD_ALL: >-
-            ${{
-              github.ref == 'refs/heads/main' ||
-              startsWith(github.ref, 'refs/tags/') ||
-              (github.event_name == 'workflow_dispatch' && inputs.build_all == true) ||
-              steps.filter.outputs.shared_dockerfile == 'true'
-            }}
           FILTER_OUTPUTS: ${{ toJson(steps.filter.outputs) }}
           TAG_VERSION: ${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version || '' }}
+          MANUAL_BUILD_ALL: ${{ inputs.build_all || 'false' }}
         with:
           script: |
             const allAgents = JSON.parse(process.env.ALL_AGENTS);
-            const buildAll = process.env.BUILD_ALL === 'true';
             const filterOutputs = JSON.parse(process.env.FILTER_OUTPUTS);
             const tagVersion = process.env.TAG_VERSION;
+            const manualBuildAll = process.env.MANUAL_BUILD_ALL === 'true';
+
+            const isRc = /-rc\.\d+$/.test(tagVersion);
+            const isSharedChanged = filterOutputs.shared_config === 'true' ||
+                                   filterOutputs.shared_dockerfile === 'true';
+
+            const shouldForceBuildAll = manualBuildAll || isSharedChanged || (tagVersion && !isRc);
 
             let agentsToBuild;
             let agentsToRetag = [];
 
-            if (buildAll) {
+            if (shouldForceBuildAll) {
+              console.log("🚀 Forced 'Build All' mode activated");
               agentsToBuild = allAgents;
-            } else {
+              agentsToRetag = [];
+            } else if (isRc) {
+              console.log(`🏷️ RC Tag detected (${tagVersion}): Using Build vs. Retag optimization`);
               agentsToBuild = allAgents.filter(a => filterOutputs[a] === 'true');
-              if (tagVersion) {
-                agentsToRetag = allAgents.filter(a => filterOutputs[a] !== 'true');
-              }
+              agentsToRetag = allAgents.filter(a => filterOutputs[a] !== 'true');
+            } else {
+              console.log("🔍 Standard PR/Push: Building only changed agents");
+              agentsToBuild = allAgents.filter(a => filterOutputs[a] === 'true');
+              agentsToRetag = [];
             }
 
             core.setOutput('agents_to_build', JSON.stringify(agentsToBuild));
