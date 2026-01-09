@@ -225,18 +225,20 @@ jobs:
           fi
           echo "📝 Images will be tagged with $NEW_VERSION when builds complete"
 
-      - name: 🚀 Create GitHub Release
+      - name: 🚀 Create GitHub Release (Draft)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NEW_VERSION="${{ github.event.inputs.version }}"
-          echo "🔄 Creating GitHub Release for $NEW_VERSION..."
+          echo "🔄 Creating DRAFT GitHub Release for $NEW_VERSION..."
 
           gh release create "$NEW_VERSION" \
             --title "Release $NEW_VERSION" \
-            --generate-notes
+            --generate-notes \
+            --draft
 
-          echo "✅ Release created and published"
+          echo "✅ Draft release created"
+          echo "📋 Release will be published automatically when all CI builds pass"
           echo "🔗 https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION"
 
       - name: 📊 Summary
@@ -267,6 +269,9 @@ jobs:
           echo "- MCP sub-agents" >> $GITHUB_STEP_SUMMARY
           echo "- RAG components" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### GitHub Release" >> $GITHUB_STEP_SUMMARY
+          echo "### GitHub Release (Draft) 📝" >> $GITHUB_STEP_SUMMARY
           echo "🔗 [Release $NEW_VERSION](https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Release is in DRAFT state** — it will be published automatically when all CI builds pass." >> $GITHUB_STEP_SUMMARY
+          echo "If any CI fails, the release will remain as a draft for investigation." >> $GITHUB_STEP_SUMMARY
 

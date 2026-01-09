@@ -274,3 +274,38 @@ jobs:
               exit 1
             fi
           fi
+
+  # Notify release-finalize workflow when this CI completes (for final release builds only)
+  notify-release:
+    runs-on: ubuntu-latest
+    needs: [determine-changes, build-and-push, retag-unchanged]
+    # Only notify for final releases (non-RC tags) - RC builds don't need release finalization
+    if: |
+      always() &&
+      needs.determine-changes.outputs.tag_version != '' &&
+      !contains(needs.determine-changes.outputs.tag_version, '-rc.')
+    steps:
+      - name: 🔔 Notify release finalize
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+        run: |
+          # Determine overall conclusion
+          BUILD_RESULT="${{ needs.build-and-push.result }}"
+          RETAG_RESULT="${{ needs.retag-unchanged.result }}"
+
+          # Consider skipped as success (job conditions not met)
+          if [[ "$BUILD_RESULT" == "skipped" ]]; then BUILD_RESULT="success"; fi
+          if [[ "$RETAG_RESULT" == "skipped" ]]; then RETAG_RESULT="success"; fi
+
+          if [[ "$BUILD_RESULT" == "success" && "$RETAG_RESULT" == "success" ]]; then
+            CONCLUSION="success"
+          else
+            CONCLUSION="failure"
+          fi
+
+          echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
+
+          gh api /repos/${{ github.repository }}/dispatches \
+            -f event_type=ci-completed \
+            -f client_payload="{\"tag\":\"$TAG_VERSION\",\"workflow\":\"${{ github.workflow }}\",\"conclusion\":\"$CONCLUSION\"}"
