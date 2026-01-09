@@ -13,6 +13,7 @@ across the platform, with integrated agent enablement logic.
 # Sunny V4 oh yeah
 # Sunny V5 oh yeah
 # Sunny V6 oh yeah NOPT
+# Sunny V7 oh yeah NOPT
 import os
 import logging
 import httpx
