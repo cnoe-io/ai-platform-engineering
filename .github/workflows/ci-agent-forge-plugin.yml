@@ -35,7 +35,7 @@ jobs:
     outputs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
-      tag_version: ${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version }}
+      tag_version: ${{ steps.version.outputs.tag_version }}
 
     steps:
       - name: Checkout main repository
@@ -44,43 +44,12 @@ jobs:
           path: main-repo
           fetch-depth: 0
 
-      - name: ⏳ Wait for Release Tagger
-        id: wait-for-tag
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "🔍 Finding [Release] Create RC Tags workflow run for commit ${{ github.sha }}..."
-
-          # Wait for the run to appear (up to 30 seconds)
-          for i in {1..6}; do
-            RUN_ID=$(gh run list --workflow "rc-tag.yml" --commit ${{ github.sha }} --repo ${{ github.repository }} --json databaseId --jq '.[0].databaseId')
-            if [ -n "$RUN_ID" ]; then break; fi
-            echo "  ...waiting for workflow run to start (attempt $i/6)..."
-            sleep 5
-          done
-
-          if [ -z "$RUN_ID" ]; then
-            echo "❌ Could not find rc-tag.yml run for this commit"
-            exit 1
-          fi
-
-          echo "⏳ Waiting for workflow run $RUN_ID to complete..."
-          gh run --repo ${{ github.repository }} watch "$RUN_ID" --exit-status
-
-          # Fetch the tag created for this commit
-          cd main-repo
-          git fetch --tags --force
-          TAG=$(git tag --points-at ${{ github.sha }} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' | head -n 1)
-
-          if [ -z "$TAG" ]; then
-            echo "❌ rc-tag.yml finished but no RC tag found on this commit"
-            exit 1
-          fi
-
-          echo "✅ Found tag: $TAG"
-          echo "tag_version=$TAG" >> $GITHUB_OUTPUT
-          cd ..
+      - name: Determine Tag
+        id: version
+        uses: ./.github/actions/determine-release-tag
+        with:
+          manual_tag: ${{ inputs.tag_version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Detect changed paths
         id: filter
@@ -95,7 +64,7 @@ jobs:
         id: set-outputs
         env:
           FORGE_CHANGED: ${{ steps.filter.outputs.forge }}
-          TAG_VERSION: ${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version || '' }}
+          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           SHOULD_BUILD="false"
           SHOULD_RETAG="false"
@@ -165,7 +134,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ needs.prepare.outputs.tag_version || inputs.tag_version }},enable=${{ (needs.prepare.outputs.tag_version || inputs.tag_version) != '' }}
+            type=raw,value=${{ needs.prepare.outputs.tag_version }},enable=${{ needs.prepare.outputs.tag_version != '' }}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
@@ -225,7 +194,7 @@ jobs:
 
       - name: 🏷️ Retag from previous version
         env:
-          TAG_VERSION: ${{ needs.prepare.outputs.tag_version || inputs.tag_version }}
+          TAG_VERSION: ${{ needs.prepare.outputs.tag_version }}
         run: |
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           echo "🏷️ Retagging agent-forge..."
