@@ -40,7 +40,7 @@ jobs:
     outputs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
-      tag_version: ${{ steps.wait-for-tag.outputs.tag_version }}
+      tag_version: ${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6

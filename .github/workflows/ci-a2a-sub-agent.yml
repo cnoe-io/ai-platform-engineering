@@ -63,6 +63,7 @@ jobs:
       agents_to_retag: ${{ steps.set-matrix.outputs.agents_to_retag }}
       should_build: ${{ steps.set-matrix.outputs.should_build }}
       should_retag: ${{ steps.set-matrix.outputs.should_retag }}
+      tag_version: ${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version }}
     env:
       ALL_AGENTS: ${{ needs.load-config.outputs.all_agents }}
     steps:
@@ -229,7 +230,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version }},enable=${{ (steps.wait-for-tag.outputs.tag_version || inputs.tag_version) != '' }}
+            type=raw,value=${{ needs.determine-agents.outputs.tag_version }},enable=${{ needs.determine-agents.outputs.tag_version != '' }}
             type=ref,event=branch,prefix=
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
@@ -308,7 +309,7 @@ jobs:
 
       - name: 🏷️ Retag from previous version
         env:
-          TAG_VERSION: ${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version }}
+          TAG_VERSION: ${{ needs.determine-agents.outputs.tag_version }}
         run: |
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           echo "🏷️ Retagging agent-${{ matrix.agent }}..."
