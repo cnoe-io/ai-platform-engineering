@@ -84,15 +84,32 @@ jobs:
             IS_RC="false"
           fi
 
-          if [ "$CORE_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            SHOULD_BUILD="true"
-          elif [ -n "$TAG_VERSION" ]; then
+          # Determine build vs retag logic:
+          # 1. Final release (non-RC tag): Always build
+          # 2. RC tag with changes: Build
+          # 3. RC tag without changes: Retag from previous version
+          # 4. Push to main or workflow_dispatch without tag: Build if changed
+
+          if [ -n "$TAG_VERSION" ]; then
+            # We have a tag version (from workflow_dispatch or tag push)
             if [ "$IS_RC" == "true" ]; then
-              SHOULD_RETAG="true"
+              # RC tag: only build if core files changed, otherwise retag
+              if [ "$CORE_CHANGED" == "true" ]; then
+                SHOULD_BUILD="true"
+                echo "🔨 RC tag with core changes: building"
+              else
+                SHOULD_RETAG="true"
+                echo "🏷️ RC tag without core changes: retagging"
+              fi
             else
-              # No RC suffix but tag exists (e.g. final release) -> Build everything
+              # Final release (non-RC): always build
               SHOULD_BUILD="true"
+              echo "🚀 Final release: building"
             fi
+          elif [ "$CORE_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Push to main with changes, or manual trigger without tag
+            SHOULD_BUILD="true"
+            echo "📦 Core files changed or manual trigger: building"
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT

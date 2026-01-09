@@ -76,14 +76,36 @@ jobs:
             IS_RC="false"
           fi
 
-          if [ "$FORGE_CHANGED" == "true" ] || [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            SHOULD_BUILD="true"
-          elif [ -n "$TAG_VERSION" ]; then
+          # Determine build vs retag logic:
+          # 1. Final release (non-RC tag): Always build
+          # 2. RC tag with changes: Build
+          # 3. RC tag without changes: Retag from previous version
+          # 4. Push to main or workflow_dispatch without tag: Build
+
+          if [ -n "$TAG_VERSION" ]; then
+            # We have a tag version (from workflow_dispatch or tag push)
             if [ "$IS_RC" == "true" ]; then
-              SHOULD_RETAG="true"
+              # RC tag: only build if forge files changed, otherwise retag
+              if [ "$FORGE_CHANGED" == "true" ]; then
+                SHOULD_BUILD="true"
+                echo "🔨 RC tag with forge changes: building"
+              else
+                SHOULD_RETAG="true"
+                echo "🏷️ RC tag without forge changes: retagging"
+              fi
             else
+              # Final release (non-RC): always build
               SHOULD_BUILD="true"
+              echo "🚀 Final release: building"
             fi
+          elif [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Push to main or manual trigger without tag: always build
+            SHOULD_BUILD="true"
+            echo "📦 Push to main or manual trigger: building"
+          elif [ "$FORGE_CHANGED" == "true" ]; then
+            # PR with forge changes
+            SHOULD_BUILD="true"
+            echo "🔍 Forge files changed: building"
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
@@ -135,12 +157,9 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
             type=raw,value=${{ needs.prepare.outputs.tag_version }},enable=${{ needs.prepare.outputs.tag_version != '' }}
-            type=ref,event=branch
-            type=ref,event=pr
-            type=ref,event=tag
-            type=sha,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch,prefix=
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

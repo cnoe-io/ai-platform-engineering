@@ -80,20 +80,44 @@ jobs:
           SHOULD_RETAG="false"
           TAG_VERSION="${{ env.TAG_VERSION }}"
 
+          # Check if this is an RC tag
           if [[ "$TAG_VERSION" =~ -rc\.[0-9]+$ ]]; then
             IS_RC="true"
           else
             IS_RC="false"
           fi
 
-          if [ "$RAG_CHANGED" == "true" ] || [ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            SHOULD_BUILD="true"
-          elif [ -n "$TAG_VERSION" ]; then
+          # Determine build vs retag logic:
+          # 1. Final release (non-RC tag via workflow_dispatch or tag push): Always build
+          # 2. RC tag with changes: Build
+          # 3. RC tag without changes: Retag from previous version
+          # 4. Push to main: Build
+          # 5. PR or other: Build only if changed
+
+          if [ -n "$TAG_VERSION" ]; then
+            # We have a tag version (from workflow_dispatch or tag push)
             if [ "$IS_RC" == "true" ]; then
-              SHOULD_RETAG="true"
+              # RC tag: only build if RAG files changed, otherwise retag
+              if [ "$RAG_CHANGED" == "true" ]; then
+                SHOULD_BUILD="true"
+                echo "🔨 RC tag with RAG changes: building"
+              else
+                SHOULD_RETAG="true"
+                echo "🏷️ RC tag without RAG changes: retagging"
+              fi
             else
+              # Final release (non-RC): always build
               SHOULD_BUILD="true"
+              echo "🚀 Final release: building all"
             fi
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            # Push to main: always build
+            SHOULD_BUILD="true"
+            echo "📦 Push to main: building"
+          elif [ "$RAG_CHANGED" == "true" ]; then
+            # PR or other with RAG changes
+            SHOULD_BUILD="true"
+            echo "🔍 RAG files changed: building"
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
@@ -173,9 +197,9 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,format=short
+            type=ref,event=branch,prefix=
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
