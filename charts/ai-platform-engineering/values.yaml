@@ -15,8 +15,6 @@ tags:
   agent-webex: false
   rag-stack: false
 
-sunnyTesting: true
-
 # Global configuration shared across all subcharts
 global:
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret

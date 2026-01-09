@@ -7,16 +7,7 @@ Agent Registry for AI Platform Engineering Multi-Agent System.
 This module provides the central registry for managing and discovering agents
 across the platform, with integrated agent enablement logic.
 """
-# adding a new sunny comment for testing
-# Sunny V2 oh yeah
-# Sunny V3 oh yeah
-# Sunny V4 oh yeah
-# Sunny V5 oh yeah
-# Sunny V6 oh yeah NOPT
-# Sunny V7 oh yeah NOPT
-# Sunny V8 oh yeah NOT
-# Sunny V9 oh yeah NOT
-# Sunny V10 oh yeah PLEASE
+
 import os
 import logging
 import httpx
