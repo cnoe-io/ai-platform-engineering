@@ -2,8 +2,15 @@ name: "[CI][AgentForge] Build and Push"
 description: "Build and push Agent Forge Plugin"
 
 on:
-  # Main push is handled by rc-tag.yml which triggers this workflow
+  # Trigger on push to main to build and push images
   push:
+    branches:
+      - main
+    paths:
+      - 'ai_platform_engineering/**'
+      - 'build/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
     # Build on all manual new tags as well
     tags:
       - '**'
@@ -19,8 +26,94 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/backstage-plugin-agent-forge
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      should_build: ${{ steps.set-outputs.outputs.should_build }}
+      should_retag: ${{ steps.set-outputs.outputs.should_retag }}
+      tag_version: ${{ steps.wait-for-tag.outputs.tag_version }}
+
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v6
+        with:
+          path: main-repo
+          fetch-depth: 0
+
+      - name: ⏳ Wait for Release Tagger
+        id: wait-for-tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Finding [Release] Create RC Tags workflow run for commit ${{ github.sha }}..."
+
+          # Wait for the run to appear (up to 30 seconds)
+          for i in {1..6}; do
+            RUN_ID=$(gh run list --workflow "rc-tag.yml" --commit ${{ github.sha }} --repo ${{ github.repository }} --json databaseId --jq '.[0].databaseId')
+            if [ -n "$RUN_ID" ]; then break; fi
+            echo "  ...waiting for workflow run to start (attempt $i/6)..."
+            sleep 5
+          done
+
+          if [ -z "$RUN_ID" ]; then
+            echo "❌ Could not find rc-tag.yml run for this commit"
+            exit 1
+          fi
+
+          echo "⏳ Waiting for workflow run $RUN_ID to complete..."
+          gh run --repo ${{ github.repository }} watch "$RUN_ID" --exit-status
+
+          # Fetch the tag created for this commit
+          cd main-repo
+          git fetch --tags --force
+          TAG=$(git tag --points-at ${{ github.sha }} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' | head -n 1)
+
+          if [ -z "$TAG" ]; then
+            echo "❌ rc-tag.yml finished but no RC tag found on this commit"
+            exit 1
+          fi
+
+          echo "✅ Found tag: $TAG"
+          echo "tag_version=$TAG" >> $GITHUB_OUTPUT
+          cd ..
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3.0.2
+        with:
+          working-directory: main-repo
+          filters: |
+            forge:
+              - 'build/agent-forge/**'
+
+      - name: Set Outputs
+        id: set-outputs
+        env:
+          FORGE_CHANGED: ${{ steps.filter.outputs.forge }}
+          TAG_VERSION: ${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version || '' }}
+        run: |
+          SHOULD_BUILD="false"
+          SHOULD_RETAG="false"
+
+          if [ "$FORGE_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            SHOULD_BUILD="true"
+          elif [ -n "$TAG_VERSION" ]; then
+            SHOULD_RETAG="true"
+          fi
+
+          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+          echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG"
+
   build-and-push:
     runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
     permissions:
       contents: read
       packages: write
@@ -61,7 +154,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ inputs.tag_version }},enable=${{ inputs.tag_version != '' }}
+            type=raw,value=${{ needs.prepare.outputs.tag_version || inputs.tag_version }},enable=${{ (needs.prepare.outputs.tag_version || inputs.tag_version) != '' }}
             type=ref,event=branch
             type=ref,event=pr
             type=ref,event=tag
@@ -88,3 +181,70 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+
+  # Retag unchanged agent forge from previous version when tag_version is provided
+  retag-unchanged:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.should_retag == 'true'
+    permissions:
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/backstage-plugin-agent-forge
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: 📦 Install crane
+        run: |
+          VERSION="v0.20.2"
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar xz crane
+          sudo mv crane /usr/local/bin/
+
+      - name: 🔐 Log in to registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: 🏷️ Retag from previous version
+        env:
+          TAG_VERSION: ${{ needs.prepare.outputs.tag_version || inputs.tag_version }}
+        run: |
+          FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          echo "🏷️ Retagging agent-forge..."
+
+          # Determine source tag (previous version)
+          if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
+            BASE_VERSION="${BASH_REMATCH[1]}"
+            RC_NUM="${BASH_REMATCH[2]}"
+
+            if [[ "$RC_NUM" -gt 1 ]]; then
+              PREV_RC=$((RC_NUM - 1))
+              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}"
+            else
+              SOURCE_TAG="${BASE_VERSION}"
+            fi
+          else
+            SOURCE_TAG="latest"
+          fi
+
+          echo "  Source: ${SOURCE_TAG}"
+          echo "  Target: ${TAG_VERSION}"
+
+          if crane tag "${FULL_IMAGE}:${SOURCE_TAG}" "${TAG_VERSION}" 2>/dev/null; then
+            echo "  ✅ Successfully retagged from ${SOURCE_TAG}"
+          else
+            echo "  ⚠️ Failed to retag from ${SOURCE_TAG}, trying 'latest'..."
+            if crane tag "${FULL_IMAGE}:latest" "${TAG_VERSION}" 2>/dev/null; then
+              echo "  ✅ Successfully retagged from latest"
+            else
+              echo "  ❌ Failed to retag agent-forge"
+              exit 1
+            fi
+          fi

@@ -87,50 +87,6 @@ jobs:
             core.setOutput('number', nextRc);
             core.setOutput('tag', rcTag);
 
-      - name: 🔄 Trigger CI workflows with tag version
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RC_TAG: ${{ steps.rc.outputs.tag }}
-        run: |
-          echo "🔄 Triggering CI workflows with tag_version=$RC_TAG..."
-          echo ""
-
-          # All workflows support tag_version now
-          CI_WORKFLOWS=(
-            "ci-a2a-sub-agent.yml"
-            "ci-mcp-sub-agent.yml"
-            "ci-a2a-rag.yml"
-            "ci-supervisor-agent.yml"
-            "ci-agent-forge-plugin.yml"
-          )
-
-          SUCCESS=0
-          FAILED=0
-
-          # Trigger all workflows (fire and forget)
-          for WF in "${CI_WORKFLOWS[@]}"; do
-            echo -n "  🚀 $WF... "
-            if ERROR=$(gh workflow run "$WF" --ref "${{ github.ref }}" -f tag_version="$RC_TAG" 2>&1); then
-              echo "✅"
-              ((SUCCESS++)) || true
-            else
-              echo "❌"
-              echo "     Error: $ERROR"
-              ((FAILED++)) || true
-            fi
-          done
-
-          echo ""
-          if [[ $FAILED -eq 0 ]]; then
-            echo "✅ All $SUCCESS CI workflows triggered successfully"
-          elif [[ $SUCCESS -gt 0 ]]; then
-            echo "⚠️ $SUCCESS workflows triggered, $FAILED failed"
-          else
-            echo "❌ All $FAILED workflows failed to trigger"
-            exit 1
-          fi
-          echo "📝 Images will be tagged with $RC_TAG when builds complete"
-
       - name: Create Git tag
         env:
           RC_TAG: ${{ steps.rc.outputs.tag }}

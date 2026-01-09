@@ -2,8 +2,15 @@ name: "[CI][MCP] Sub-Agents MCP Docker Build and Push"
 description: "Build and push MCP Docker images for sub-agents"
 
 on:
-  # Main push is handled by rc-tag.yml which triggers this workflow
+  # Trigger on push to main to detect changes and build/retag images
   push:
+    branches:
+      - main
+    paths:
+      - 'ai_platform_engineering/**'
+      - 'build/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
     # Build on all new tags as well
     tags:
       - '**'
@@ -61,6 +68,44 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: ⏳ Wait for Release Tagger
+        id: wait-for-tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Finding [Release] Create RC Tags workflow run for commit ${{ github.sha }}..."
+
+          # Wait for the run to appear (up to 30 seconds)
+          for i in {1..6}; do
+            RUN_ID=$(gh run list --workflow "rc-tag.yml" --commit ${{ github.sha }} --json databaseId --jq '.[0].databaseId')
+            if [ -n "$RUN_ID" ]; then break; fi
+            echo "  ...waiting for workflow run to start (attempt $i/6)..."
+            sleep 5
+          done
+
+          if [ -z "$RUN_ID" ]; then
+            echo "❌ Could not find rc-tag.yml run for this commit"
+            exit 1
+          fi
+
+          echo "⏳ Waiting for workflow run $RUN_ID to complete..."
+          gh run watch "$RUN_ID" --exit-status
+
+          # Fetch the tag created for this commit
+          git fetch --tags --force
+          TAG=$(git tag --points-at ${{ github.sha }} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' | head -n 1)
+
+          if [ -z "$TAG" ]; then
+            echo "❌ rc-tag.yml finished but no RC tag found on this commit"
+            exit 1
+          fi
+
+          echo "✅ Found tag: $TAG"
+          echo "tag_version=$TAG" >> $GITHUB_OUTPUT
 
       - name: Generate path filters
         id: generate-filters
@@ -80,8 +125,9 @@ jobs:
 
       - name: Detect changed paths (MCP)
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v3.0.2
         with:
+          predicate-quantifier: 'every'
           filters: ${{ steps.generate-filters.outputs.filters }}
 
       - name: Set matrix based on changes (MCP)
@@ -95,7 +141,7 @@ jobs:
               steps.filter.outputs.shared_dockerfile == 'true'
             }}
           FILTER_OUTPUTS: ${{ toJson(steps.filter.outputs) }}
-          TAG_VERSION: ${{ inputs.tag_version || '' }}
+          TAG_VERSION: ${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version || '' }}
         with:
           script: |
             const allAgents = JSON.parse(process.env.ALL_AGENTS);
@@ -167,7 +213,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ inputs.tag_version }},enable=${{ inputs.tag_version != '' }}
+            type=raw,value=${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version }},enable=${{ (steps.wait-for-tag.outputs.tag_version || inputs.tag_version) != '' }}
             type=ref,event=branch,prefix=
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
@@ -235,7 +281,7 @@ jobs:
 
       - name: 🏷️ Retag from previous version
         env:
-          TAG_VERSION: ${{ inputs.tag_version }}
+          TAG_VERSION: ${{ steps.wait-for-tag.outputs.tag_version || inputs.tag_version }}
         run: |
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           echo "🏷️ Retagging mcp-${{ matrix.agent }}..."
