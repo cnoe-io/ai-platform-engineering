@@ -42,12 +42,29 @@ class UrlIngestRequest(BaseModel):
     check_for_sitemaps: bool = Field(False, description="Whether to check for a sitemaps")
     sitemap_max_urls: int = Field(2000, description="Maximum number of URLs to fetch from sitemap - 0 means no limit", ge=0)
     description: str = Field("", description="Description for this data source")
+    ingest_type: str = Field("web", description="Type of ingestor to use: 'web' or 'confluence'")
 
 class UrlReloadRequest(BaseModel):
     datasource_id: str = Field(..., description="ID of the URL datasource to reload")
 
 class WebIngestorCommand(str, Enum):
     INGEST_URL = "ingest-url"
+    RELOAD_ALL = "reload-all"
+    RELOAD_DATASOURCE = "reload-datasource"
+
+# ============================================================================
+# Models specific for Confluence Ingestor
+# ============================================================================
+
+class ConfluenceIngestRequest(BaseModel):
+    url: str = Field(..., description="Confluence page URL (e.g., 'https://domain.atlassian.net/wiki/spaces/SPACE/pages/PAGE_ID/Title')")
+    description: str = Field("", description="Description for this data source")
+
+class ConfluenceReloadRequest(BaseModel):
+    datasource_id: str = Field(..., description="ID of the Confluence datasource to reload")
+
+class ConfluenceIngestorCommand(str, Enum):
+    INGEST_PAGE = "ingest-page"
     RELOAD_ALL = "reload-all"
     RELOAD_DATASOURCE = "reload-datasource"
 

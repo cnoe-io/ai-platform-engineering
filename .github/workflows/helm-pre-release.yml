@@ -26,7 +26,7 @@ jobs:
         (
           github.event_name == 'pull_request' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
-          startsWith(github.head_ref, 'pre/')
+          startsWith(github.head_ref, 'prebuild/')
         ) ||
         (
           github.event_name == 'pull_request_target' &&
@@ -92,9 +92,9 @@ jobs:
       - name: 🏷️ Generate Pre-release Versions
         id: version
         run: |
-          # Get branch name and remove 'pre/' prefix if present
+          # Get branch name and remove 'prebuild/' prefix if present
           BRANCH_NAME="${{ github.head_ref }}"
-          CLEAN_BRANCH=$(echo "${BRANCH_NAME#pre/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
+          CLEAN_BRANCH=$(echo "${BRANCH_NAME#prebuild/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
           # Get commit count for this PR
           COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
@@ -249,7 +249,7 @@ jobs:
               body += `\`\`\`\n\n`;
             }
 
-            const isBranchTrigger = '${{ github.head_ref }}'.startsWith('pre/');
+            const isBranchTrigger = '${{ github.head_ref }}'.startsWith('prebuild/');
             const isLabelTrigger = !isBranchTrigger;
 
             body += `> **Note:** These pre-release versions will be automatically cleaned up when the PR is closed or merged.\n\n`;
@@ -274,7 +274,7 @@ jobs:
         (
           github.event.action == 'closed' &&
           (
-            startsWith(github.event.pull_request.head.ref, 'pre/') ||
+            startsWith(github.event.pull_request.head.ref, 'prebuild/') ||
             contains(github.event.pull_request.labels.*.name, 'helm-prerelease')
           )
         ) ||
@@ -291,9 +291,9 @@ jobs:
 
       - name: 🗑️ Delete Pre-release Chart Versions
         run: |
-          # Get branch name and remove 'pre/' prefix if present
+          # Get branch name and remove 'prebuild/' prefix if present
           BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
-          CLEAN_BRANCH=$(echo "${BRANCH_NAME#pre/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
+          CLEAN_BRANCH=$(echo "${BRANCH_NAME#prebuild/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
           echo "🧹 Cleaning up pre-release versions for branch: $CLEAN_BRANCH"
 
