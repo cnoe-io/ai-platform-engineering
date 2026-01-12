@@ -126,6 +126,7 @@ run-single-graph: setup-venv ## Run the AI Platform Engineer in Single Graph Mod
 	export ENABLE_WEATHER=true && \
 	export ENABLE_WEBEX=true && \
 	export ENABLE_BACKSTAGE=true && \
+	export ENABLE_RAG=true && \
 	export ENABLE_TRACING=$${ENABLE_TRACING:-false} && \
 	uv run --project $(AI_PLATFORM_ENGINEERING_DIR) python -m ai_platform_engineering.multi_agents platform-engineer $(ARGS)
 
