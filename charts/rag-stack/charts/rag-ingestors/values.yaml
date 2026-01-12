@@ -1,4 +1,3 @@
-# Sunny was here v4
 # Default values for rag-ingestors
 # This chart allows you to deploy multiple ingestors as separate deployments
 # Each ingestor can have its own configuration
