@@ -6,6 +6,11 @@ on:
     paths:
       - 'charts/**'
     types: [opened, synchronize]
+  push:
+    branches:
+      - main
+    paths:
+      - 'charts/**'
 
 permissions:
   contents: write
@@ -21,7 +26,8 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v6.0.1
         with:
-          ref: ${{ github.head_ref }}
+          # For PRs: checkout PR branch; For push: checkout the pushed ref
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
           fetch-depth: 0
           # Use PAT instead of GITHUB_TOKEN to allow pushed commits to trigger workflows
           token: ${{ secrets.GH_PAT }}
@@ -136,10 +142,15 @@ jobs:
       - name: 🔍 Detect changed charts
         id: detect
         run: |
-          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-
-          echo "🔍 Detecting changed files compared to $BASE_BRANCH..."
-          CHANGED_FILES=$(git diff --name-only origin/$BASE_BRANCH...HEAD | grep "^charts/" || true)
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+            echo "🔍 Detecting changed files compared to $BASE_REF (PR mode)..."
+            CHANGED_FILES=$(git diff --name-only ${BASE_REF}...HEAD | grep "^charts/" || true)
+          else
+            # Push to main: compare to previous commit
+            echo "🔍 Detecting changed files compared to HEAD~1 (push mode)..."
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep "^charts/" || true)
+          fi
 
           if [[ -z "$CHANGED_FILES" ]]; then
             echo "ℹ️  No chart files changed"
@@ -265,10 +276,16 @@ jobs:
         id: check
         if: steps.detect.outputs.changed_charts != ''
         run: |
-          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
           ALL_CHARTS="${{ steps.parents.outputs.all_charts }}"
 
           echo "🔍 Checking if versions were bumped..."
+
+          # Determine base ref for comparison
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+          else
+            BASE_REF="HEAD~1"
+          fi
 
           CHARTS_TO_BUMP=""
           for CHART_DIR in $ALL_CHARTS; do
@@ -276,8 +293,8 @@ jobs:
             CHART_NAME=$(yq '.name' "$CHART_FILE")
             CURRENT_VERSION=$(yq '.version' "$CHART_FILE")
 
-            # Get base branch version
-            BASE_VERSION=$(git show origin/$BASE_BRANCH:$CHART_FILE 2>/dev/null | yq '.version' || echo "0.0.0")
+            # Get base version
+            BASE_VERSION=$(git show ${BASE_REF}:$CHART_FILE 2>/dev/null | yq '.version' || echo "0.0.0")
 
             echo "  $CHART_NAME: $BASE_VERSION → $CURRENT_VERSION"
 
