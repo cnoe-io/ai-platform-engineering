@@ -22,6 +22,13 @@ global:
       host: "rag-redis"
       port: 6379
 
+  # Gateway API configuration
+  # When enabled, HTTPRoutes will be created instead of Ingress resources
+  gatewayApi:
+    enabled: false  # Disabled by default for backwards compatibility
+    gatewayName: ""  # Reference to existing Gateway resource
+    gatewayNamespace: ""  # Optional: Gateway namespace, defaults to release namespace if empty
+
   # Secrets configuration for LLM providers
   # When used as a subchart, global values can override these values
   # When used as a standalone agent, this will be the secret for the LLM provider
