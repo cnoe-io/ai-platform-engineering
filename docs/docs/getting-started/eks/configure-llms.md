@@ -154,7 +154,7 @@ Find the current chart version in `helm/Chart.yaml` and update:
   sources:
     # Main chart from GHCR
     - chart: ai-platform-engineering
-      repoURL: ghcr.io/cnoe-io/helm-charts
+      repoURL: ghcr.io/cnoe-io/charts
       targetRevision: <CHART VERSION>  # Replace with your chart version
 ```
 

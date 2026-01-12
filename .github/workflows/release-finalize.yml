@@ -1,0 +1,277 @@
+name: "[Release] Finalize Release"
+description: "Automatically publish draft release when all CI builds pass"
+
+on:
+  repository_dispatch:
+    types: [ci-completed]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  check-and-publish:
+    name: Check CI Status and Publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: 📥 Extract payload
+        id: payload
+        run: |
+          TAG="${{ github.event.client_payload.tag }}"
+          WORKFLOW="${{ github.event.client_payload.workflow }}"
+          CONCLUSION="${{ github.event.client_payload.conclusion }}"
+
+          echo "🏷️ Tag: $TAG"
+          echo "📦 Triggered by: $WORKFLOW"
+          echo "📊 Conclusion: $CONCLUSION"
+
+          if [[ -z "$TAG" ]]; then
+            echo "❌ No tag in payload, skipping"
+            exit 0
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "workflow=$WORKFLOW" >> $GITHUB_OUTPUT
+          echo "conclusion=$CONCLUSION" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Check all CI workflow statuses
+        id: check-cis
+        if: steps.payload.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.payload.outputs.tag }}
+        run: |
+          echo "🔍 Checking CI statuses for tag: $TAG"
+          echo ""
+
+          # Required CI workflows that must pass for release
+          REQUIRED_WORKFLOWS=(
+            "[CI][A2A] Sub-Agents A2A Docker Build and Push"
+            "[CI][MCP] Sub-Agents MCP Docker Build and Push"
+            "[CI][A2A] CAIPE RAG Build and Push"
+            "[CI][A2A] Supervisor Agent Docker Build and Push"
+            "[CI][AgentForge] Build and Push"
+          )
+
+          ALL_PASSED=true
+          ANY_FAILED=false
+          ANY_RUNNING=false
+          MISSING_RUNS=()
+
+          for WF_NAME in "${REQUIRED_WORKFLOWS[@]}"; do
+            echo -n "  📦 $WF_NAME: "
+
+            # Get the most recent run for this workflow triggered on the tag ref
+            # --repo is required because there's no checkout step
+            RUN_DATA=$(gh run list \
+              --repo="${{ github.repository }}" \
+              --workflow="$WF_NAME" \
+              --branch="$TAG" \
+              --limit=1 \
+              --json status,conclusion,databaseId \
+              2>/dev/null || echo "[]")
+
+            RUN_COUNT=$(echo "$RUN_DATA" | jq 'length')
+            if [[ "$RUN_COUNT" -eq 0 || -z "$RUN_DATA" || "$RUN_DATA" == "[]" ]]; then
+              echo "⏳ not started yet"
+              ALL_PASSED=false
+              MISSING_RUNS+=("$WF_NAME")
+              continue
+            fi
+
+            STATUS=$(echo "$RUN_DATA" | jq -r '.[0].status // "unknown"')
+            CONCLUSION=$(echo "$RUN_DATA" | jq -r '.[0].conclusion // "null"')
+
+            if [[ "$STATUS" == "completed" ]]; then
+              if [[ "$CONCLUSION" == "success" ]]; then
+                echo "✅ passed"
+              elif [[ "$CONCLUSION" == "skipped" ]]; then
+                echo "⏭️ skipped (OK)"
+              else
+                echo "❌ failed ($CONCLUSION)"
+                ALL_PASSED=false
+                ANY_FAILED=true
+              fi
+            elif [[ "$STATUS" == "in_progress" || "$STATUS" == "queued" || "$STATUS" == "waiting" ]]; then
+              echo "🔄 $STATUS"
+              ALL_PASSED=false
+              ANY_RUNNING=true
+            else
+              echo "❓ unknown status: $STATUS"
+              ALL_PASSED=false
+            fi
+          done
+
+          echo ""
+          echo "all_passed=$ALL_PASSED" >> $GITHUB_OUTPUT
+          echo "any_failed=$ANY_FAILED" >> $GITHUB_OUTPUT
+          echo "any_running=$ANY_RUNNING" >> $GITHUB_OUTPUT
+
+          if [[ "$ALL_PASSED" == "true" ]]; then
+            echo "✅ All CI workflows passed!"
+          elif [[ "$ANY_FAILED" == "true" ]]; then
+            echo "❌ Some CI workflows failed"
+          elif [[ "$ANY_RUNNING" == "true" ]]; then
+            echo "⏳ Some CI workflows still running, will check again when they complete"
+          else
+            echo "⏳ Waiting for CI workflows to start"
+          fi
+
+      - name: 🚀 Publish release
+        if: steps.check-cis.outputs.all_passed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.payload.outputs.tag }}
+        run: |
+          echo "🚀 Publishing release $TAG..."
+
+          # Check if release exists and is a draft
+          RELEASE_INFO=$(gh release view "$TAG" --repo="${{ github.repository }}" --json isDraft,url 2>/dev/null || echo '{"isDraft":false}')
+          IS_DRAFT=$(echo "$RELEASE_INFO" | jq -r '.isDraft')
+
+          if [[ "$IS_DRAFT" != "true" ]]; then
+            echo "ℹ️ Release $TAG is not a draft (already published or doesn't exist)"
+            exit 0
+          fi
+
+          # Publish the release
+          gh release edit "$TAG" --repo="${{ github.repository }}" --draft=false
+
+          echo "✅ Release $TAG published!"
+          echo "🔗 $(echo "$RELEASE_INFO" | jq -r '.url')"
+
+      - name: 🧹 Clean up old RC tags
+        if: steps.check-cis.outputs.all_passed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.payload.outputs.tag }}
+        run: |
+          echo "🧹 Cleaning up old RC tags..."
+
+          # Parse new version components (e.g., 0.2.9 -> major=0, minor=2, patch=9)
+          if [[ "$TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            NEW_MAJOR="${BASH_REMATCH[1]}"
+            NEW_MINOR="${BASH_REMATCH[2]}"
+            NEW_PATCH="${BASH_REMATCH[3]}"
+          else
+            echo "⚠️ Could not parse version from tag: $TAG"
+            exit 0
+          fi
+
+          echo "📦 New release: $NEW_MAJOR.$NEW_MINOR.$NEW_PATCH"
+
+          # Get all tags via GitHub API and filter for RC tags
+          RC_TAGS=$(gh api "/repos/${{ github.repository }}/tags" --paginate --jq '.[].name' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' || true)
+
+          if [[ -z "$RC_TAGS" ]]; then
+            echo "ℹ️ No RC tags found"
+            exit 0
+          fi
+
+          DELETED=0
+          SKIPPED=0
+
+          while IFS= read -r RC_TAG; do
+            [[ -z "$RC_TAG" ]] && continue
+
+            # Parse RC tag (e.g., 0.2.8-rc.1 -> base=0.2.8)
+            if [[ "$RC_TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-rc\.([0-9]+)$ ]]; then
+              RC_MAJOR="${BASH_REMATCH[1]}"
+              RC_MINOR="${BASH_REMATCH[2]}"
+              RC_PATCH="${BASH_REMATCH[3]}"
+
+              # Delete RC if its base version is less than the new release version
+              # Compare: RC_VERSION < NEW_VERSION
+              SHOULD_DELETE=false
+
+              if [[ "$RC_MAJOR" -lt "$NEW_MAJOR" ]]; then
+                SHOULD_DELETE=true
+              elif [[ "$RC_MAJOR" -eq "$NEW_MAJOR" && "$RC_MINOR" -lt "$NEW_MINOR" ]]; then
+                SHOULD_DELETE=true
+              elif [[ "$RC_MAJOR" -eq "$NEW_MAJOR" && "$RC_MINOR" -eq "$NEW_MINOR" && "$RC_PATCH" -lt "$NEW_PATCH" ]]; then
+                SHOULD_DELETE=true
+              fi
+
+              if [[ "$SHOULD_DELETE" == "true" ]]; then
+                echo "  🗑️ Deleting $RC_TAG (base $RC_MAJOR.$RC_MINOR.$RC_PATCH < $TAG)"
+                if gh api -X DELETE "/repos/${{ github.repository }}/git/refs/tags/$RC_TAG" 2>/dev/null; then
+                  ((DELETED++)) || true
+                else
+                  echo "    ⚠️ Failed to delete $RC_TAG"
+                fi
+              else
+                echo "  ⏭️ Keeping $RC_TAG (base $RC_MAJOR.$RC_MINOR.$RC_PATCH >= $TAG)"
+                ((SKIPPED++)) || true
+              fi
+            fi
+          done <<< "$RC_TAGS"
+
+          echo ""
+          echo "✅ RC cleanup complete: $DELETED deleted, $SKIPPED kept"
+
+      - name: ❌ Mark release as failed
+        if: steps.check-cis.outputs.any_failed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.payload.outputs.tag }}
+        run: |
+          echo "❌ CI builds failed for $TAG"
+
+          # Add a note to the release
+          RELEASE_INFO=$(gh release view "$TAG" --repo="${{ github.repository }}" --json body 2>/dev/null || echo '{}')
+          CURRENT_BODY=$(echo "$RELEASE_INFO" | jq -r '.body // ""')
+
+          # Only add failure note if not already present
+          if [[ "$CURRENT_BODY" != *"CI BUILD FAILURE"* ]]; then
+            NEW_BODY="${CURRENT_BODY}
+
+          ---
+          ⚠️ **CI BUILD FAILURE** ⚠️
+
+          One or more CI builds failed for this release. Please investigate and either:
+          1. Fix the issues and re-run the failed workflows
+          2. Delete this draft release and create a new one
+
+          _Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_"
+
+            gh release edit "$TAG" --repo="${{ github.repository }}" --notes "$NEW_BODY"
+            echo "📝 Added failure note to release"
+          fi
+
+      - name: 📊 Summary
+        if: always() && steps.payload.outputs.tag != ''
+        env:
+          TAG: ${{ steps.payload.outputs.tag }}
+          ALL_PASSED: ${{ steps.check-cis.outputs.all_passed }}
+          ANY_FAILED: ${{ steps.check-cis.outputs.any_failed }}
+          ANY_RUNNING: ${{ steps.check-cis.outputs.any_running }}
+        run: |
+          echo "## Release Finalize Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | \`$TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | \`${{ steps.payload.outputs.workflow }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "$ALL_PASSED" == "true" ]]; then
+            echo "### ✅ Release Published" >> $GITHUB_STEP_SUMMARY
+            echo "All CI builds passed. Release has been published." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🧹 Old RC tags (for versions < \`$TAG\`) have been cleaned up." >> $GITHUB_STEP_SUMMARY
+          elif [[ "$ANY_FAILED" == "true" ]]; then
+            echo "### ❌ Release Failed" >> $GITHUB_STEP_SUMMARY
+            echo "One or more CI builds failed. Release remains as draft." >> $GITHUB_STEP_SUMMARY
+          elif [[ "$ANY_RUNNING" == "true" ]]; then
+            echo "### ⏳ Waiting for CI" >> $GITHUB_STEP_SUMMARY
+            echo "Some CI builds are still running. Will check again when they complete." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⏳ CI Not Started" >> $GITHUB_STEP_SUMMARY
+            echo "Waiting for CI workflows to start." >> $GITHUB_STEP_SUMMARY
+          fi
+

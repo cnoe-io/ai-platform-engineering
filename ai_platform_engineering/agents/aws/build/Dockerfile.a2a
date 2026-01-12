@@ -47,12 +47,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install AWS CLI v2 (amd64 and arm64 compatible)
+# Install AWS CLI v2 (amd64 and arm64 compatible) with retry logic
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+        curl -sfL --retry 5 --retry-delay 3 "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
     elif [ "$ARCH" = "arm64" ]; then \
-        curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+        curl -sfL --retry 5 --retry-delay 3 "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
     else \
         echo "Unsupported architecture: $ARCH" && exit 1; \
     fi && \
@@ -60,7 +60,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
     ./aws/install && \
     rm -rf awscliv2.zip aws
 
-# Install kubectl (latest stable version)
+# Install kubectl (latest stable version) with retry logic to handle rate limiting
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \
         KUBECTL_ARCH="amd64"; \
@@ -69,7 +69,9 @@ RUN ARCH=$(dpkg --print-architecture) && \
     else \
         echo "Unsupported architecture: $ARCH" && exit 1; \
     fi && \
-    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${KUBECTL_ARCH}/kubectl" && \
+    KUBECTL_VERSION=$(curl -sfL --retry 5 --retry-delay 3 https://dl.k8s.io/release/stable.txt) && \
+    if [ -z "$KUBECTL_VERSION" ]; then echo "Failed to fetch kubectl version"; exit 1; fi && \
+    curl -sfLO --retry 5 --retry-delay 3 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
     chmod +x kubectl && \
     mv kubectl /usr/local/bin/kubectl
 

@@ -1,0 +1,36 @@
+{
+  "_comment": "Central configuration for agent lists used by CI/CD workflows",
+  "a2a_agents": [
+    "argocd",
+    "aws",
+    "backstage",
+    "confluence",
+    "github",
+    "jira",
+    "komodor",
+    "pagerduty",
+    "slack",
+    "splunk",
+    "template",
+    "webex",
+    "weather"
+  ],
+  "mcp_agents": [
+    "argocd",
+    "backstage",
+    "confluence",
+    "jira",
+    "komodor",
+    "pagerduty",
+    "slack",
+    "splunk",
+    "webex"
+  ],
+  "rag_components": [
+    "agent-ontology",
+    "server",
+    "webui",
+    "ingestors"
+  ]
+}
+
