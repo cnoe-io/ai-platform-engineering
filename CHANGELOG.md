@@ -1,4 +1,10 @@
+## 0.4.1 (2026-01-12)
+
 ## 0.4.0 (2026-01-12)
+
+### Fix
+
+- change cache to min as large images take foreverg
 
 ## 0.3.2 (2026-01-12)
 
