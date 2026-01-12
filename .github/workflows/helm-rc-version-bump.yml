@@ -15,13 +15,12 @@ on:
 permissions:
   contents: write
   pull-requests: read
+  actions: write
 
 jobs:
   auto-bump-versions:
     name: Auto-bump Chart Versions
     runs-on: ubuntu-latest
-    # Don't run on commits made by this workflow (avoid infinite loop)
-    if: github.actor != 'github-actions[bot]'
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v6.0.1
@@ -220,7 +219,15 @@ jobs:
               CHART_DIR=$(dirname "$CHART_FILE")
 
               # Skip if already in changed charts or already found as parent
-              if [[ "$CHANGED_CHARTS $ALL_PARENT_CHARTS" =~ "$CHART_DIR" ]]; then
+              # Use word boundary matching (space-delimited) to avoid prefix matching issues
+              SKIP=false
+              for EXISTING in $CHANGED_CHARTS $ALL_PARENT_CHARTS; do
+                if [[ "$EXISTING" == "$CHART_DIR" ]]; then
+                  SKIP=true
+                  break
+                fi
+              done
+              if [[ "$SKIP" == "true" ]]; then
                 continue
               fi
 
@@ -278,14 +285,7 @@ jobs:
         run: |
           ALL_CHARTS="${{ steps.parents.outputs.all_charts }}"
 
-          echo "🔍 Checking if versions were bumped..."
-
-          # Determine base ref for comparison
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
-          else
-            BASE_REF="HEAD~1"
-          fi
+          echo "🔍 Checking if versions need -rc.helm suffix..."
 
           CHARTS_TO_BUMP=""
           for CHART_DIR in $ALL_CHARTS; do
@@ -293,16 +293,14 @@ jobs:
             CHART_NAME=$(yq '.name' "$CHART_FILE")
             CURRENT_VERSION=$(yq '.version' "$CHART_FILE")
 
-            # Get base version
-            BASE_VERSION=$(git show ${BASE_REF}:$CHART_FILE 2>/dev/null | yq '.version' || echo "0.0.0")
+            echo "  $CHART_NAME: $CURRENT_VERSION"
 
-            echo "  $CHART_NAME: $BASE_VERSION → $CURRENT_VERSION"
-
-            if [[ "$CURRENT_VERSION" == "$BASE_VERSION" ]]; then
-              echo "    ❌ Version not bumped"
-              CHARTS_TO_BUMP="$CHARTS_TO_BUMP $CHART_DIR"
+            # Check if current version already has -rc.helm suffix
+            if [[ "$CURRENT_VERSION" =~ -rc\.helm\.[0-9]+$ ]]; then
+              echo "    ✅ Already has -rc.helm suffix"
             else
-              echo "    ✅ Version already bumped"
+              echo "    ❌ Missing -rc.helm suffix, needs bump"
+              CHARTS_TO_BUMP="$CHARTS_TO_BUMP $CHART_DIR"
             fi
           done
 
@@ -439,3 +437,16 @@ jobs:
           name: version-bump-status
           path: ${{ runner.temp }}/status/version-bump-status.txt
           retention-days: 1
+
+      - name: 🚀 Trigger Helm chart publish
+        if: github.event_name == 'push' && steps.commit.outputs.committed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🚀 Triggering Helm chart publish workflow..."
+
+          if gh workflow run helm.yml --ref main -f publish_all=true 2>&1; then
+            echo "✅ Helm publish workflow triggered successfully"
+          else
+            echo "⚠️ Failed to trigger Helm publish workflow (may need to be run manually)"
+          fi
