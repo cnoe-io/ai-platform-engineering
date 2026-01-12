@@ -7,11 +7,9 @@ import logging
 import os
 import sys
 import argparse
-from typing import Dict, Any
 
 from dotenv import load_dotenv
 from langfuse import Langfuse
-from langchain_openai import ChatOpenAI
 
 # Add project root to path
 sys.path.append(os.getcwd())
@@ -20,7 +18,7 @@ sys.path.append(os.path.join(os.getcwd(), "evals"))
 from evals.trace_analysis import TraceExtractor
 from evals.evaluators.routing_evaluator import RoutingEvaluator
 from evals.evaluators.tool_match_evaluator import ToolMatchEvaluator
-from evals.runner import EvaluationRunner, load_dataset_from_yaml
+from evals.runner import EvaluationRunner
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
