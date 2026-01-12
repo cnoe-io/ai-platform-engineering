@@ -6,7 +6,7 @@ This guide will help you deploy the AI Platform Engineering system using Helm ch
 
 The [`ai-platform-engineering` Helm chart](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering) is a parent chart that orchestrates the deployment of multiple agent subcharts, each representing different platform integrations. The chart supports flexible deployment configurations through tags, allowing you to deploy either a basic setup or a complete multi-agent system.
 
-**Chart Version:** 0.3.0
+**Chart Version:** 0.2.8
 
 ## Prerequisites
 
@@ -32,8 +32,8 @@ The basic installation includes the following sub-agents:
 You can install directly from the OCI registry:
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platform-engineering \
-  --version 0.3.0 \
+helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.basic=true
@@ -43,10 +43,10 @@ Or pull the chart first and install from the local file:
 
 ```bash
 # Pull the chart
-helm pull oci://ghcr.io/cnoe-io/helm-charts/ai-platform-engineering --version 0.3.0
+helm pull oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 0.2.8
 
 # Install from the downloaded file
-helm install ai-platform-engineering ai-platform-engineering-0.3.0.tgz \
+helm install ai-platform-engineering ai-platform-engineering-0.2.8.tgz \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.basic=true
@@ -59,8 +59,8 @@ The chart supports deployment profiles via tags and we have two default profiles
 ### Basic Profile (ArgoCD, Backstage, GitHub sub-agents)
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platform-engineering \
-  --version 0.3.0 \
+helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.basic=true
@@ -69,8 +69,8 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platfo
 ### Complete Profile (All agents)
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platform-engineering \
-  --version 0.3.0 \
+helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.complete=true
@@ -81,8 +81,8 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platfo
 You can customise the sub-agents by adding the tags you need. For example, to install the basic profile as well as the PagerDuty and AWS sub-agents, you can run:
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platform-engineering \
-  --version 0.3.0 \
+helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.basic=true \
@@ -93,8 +93,8 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platfo
 Or if you prefer to entirely customise the deployment, you can do so by adding the tags you need in the format `tags.<agent-name>=true` (*Note*: for rag agent, use `tags.rag-stack=true`) e.g. if you only want to deploy Backstage, Slack and RAG sub-agents, you can run:
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platform-engineering \
-  --version 0.3.0 \
+helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.agent-backstage=true \
@@ -156,8 +156,8 @@ spec:
   sources:
     # Main chart from GHCR
     - chart: ai-platform-engineering
-      repoURL: ghcr.io/cnoe-io/helm-charts
-      targetRevision: 0.3.0
+      repoURL: ghcr.io/cnoe-io/charts
+      targetRevision: 0.2.8
       helm:
         parameters:
         - name: tags.basic # <--- enable basic agents
@@ -181,8 +181,8 @@ tags:
 Then install with:
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platform-engineering \
-  --version 0.3.0 \
+helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --values values.yaml
@@ -194,7 +194,7 @@ To enable the AGNTCY Slim dataplane service:
 
 ```bash
 helm install ai-platform-engineering cnoe/ai-platform-engineering \
-  --version 0.3.0 \
+  --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set global.slim.enabled=true
@@ -205,8 +205,8 @@ helm install ai-platform-engineering cnoe/ai-platform-engineering \
 To enable the RAG stack:
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platform-engineering \
-  --version 0.3.0 \
+helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.rag-stack=true
@@ -217,8 +217,8 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platfo
 Backstage Agent Forge plugin is a plugin for Backstage that allows you to manage your agents from Backstage. This includes the chatbot interface for the agents.
 
 ```bash
-helm install ai-platform-engineering oci://ghcr.io/cnoe-io/helm-charts/ai-platform-engineering \
-  --version 0.3.0 \
+helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  --version 0.2.8 \
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.backstage-agent-forge=true
