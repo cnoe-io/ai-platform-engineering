@@ -111,12 +111,22 @@ jobs:
           echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC"
 
   build-and-push:
-    runs-on: ubuntu-latest
     needs: prepare
     if: needs.prepare.outputs.should_build == 'true'
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm64
+      fail-fast: false
+
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout main repository
@@ -147,22 +157,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set platform tag suffix
+        id: platform
+        run: |
+          PLATFORM="${{ matrix.platform }}"
+          SUFFIX="${PLATFORM//\//-}"
+          echo "suffix=$SUFFIX" >> $GITHUB_OUTPUT
+
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ needs.prepare.outputs.tag_version }},enable=${{ needs.prepare.outputs.tag_version != '' }}
-            type=ref,event=branch,prefix=
-            type=ref,event=tag,prefix=
-            type=sha,format=short,prefix=
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
+            type=raw,value=latest-${{ steps.platform.outputs.suffix }},enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ needs.prepare.outputs.tag_version }}-${{ steps.platform.outputs.suffix }},enable=${{ needs.prepare.outputs.tag_version != '' }}
+            type=sha,format=short,suffix=-${{ steps.platform.outputs.suffix }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -176,8 +186,49 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          cache-to: type=gha,mode=min
+          platforms: ${{ matrix.platform }}
+
+  # Create multi-arch manifest after platform builds complete
+  create-manifest:
+    needs: [prepare, build-and-push]
+    if: needs.prepare.outputs.should_build == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          TAG_VERSION="${{ needs.prepare.outputs.tag_version }}"
+
+          # Create manifest for version tag if provided
+          if [ -n "$TAG_VERSION" ]; then
+            echo "Creating manifest for $TAG_VERSION..."
+            docker manifest create "${IMAGE}:${TAG_VERSION}" \
+              "${IMAGE}:${TAG_VERSION}-linux-amd64" \
+              "${IMAGE}:${TAG_VERSION}-linux-arm64"
+            docker manifest push "${IMAGE}:${TAG_VERSION}"
+          fi
+
+          # Create manifest for latest if on main or workflow_dispatch
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "Creating manifest for latest..."
+            docker manifest create "${IMAGE}:latest" \
+              "${IMAGE}:latest-linux-amd64" \
+              "${IMAGE}:latest-linux-arm64"
+            docker manifest push "${IMAGE}:latest"
+          fi
+
+          echo "✅ Multi-arch manifests created"
 
   # Retag unchanged agent forge from previous version when tag_version is provided
   # If source image doesn't exist (still building), falls back to full build
@@ -286,12 +337,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up QEMU
-        if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: linux/amd64,linux/arm64
-
       - name: Set up Docker Buildx
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/setup-buildx-action@v3
@@ -307,12 +352,12 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.tag_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=min
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
 
   # Notify release-finalize workflow when this CI completes (for final release builds only)
   notify-release:
     runs-on: ubuntu-latest
-    needs: [prepare, build-and-push, retag-unchanged]
+    needs: [prepare, build-and-push, create-manifest, retag-unchanged]
     # Only notify for final releases (non-RC tags) - RC builds don't need release finalization
     if: |
       always() &&
@@ -326,13 +371,15 @@ jobs:
         run: |
           # Determine overall conclusion
           BUILD_RESULT="${{ needs.build-and-push.result }}"
+          MANIFEST_RESULT="${{ needs.create-manifest.result }}"
           RETAG_RESULT="${{ needs.retag-unchanged.result }}"
 
           # Consider skipped as success (job conditions not met)
           if [[ "$BUILD_RESULT" == "skipped" ]]; then BUILD_RESULT="success"; fi
+          if [[ "$MANIFEST_RESULT" == "skipped" ]]; then MANIFEST_RESULT="success"; fi
           if [[ "$RETAG_RESULT" == "skipped" ]]; then RETAG_RESULT="success"; fi
 
-          if [[ "$BUILD_RESULT" == "success" && "$RETAG_RESULT" == "success" ]]; then
+          if [[ "$BUILD_RESULT" == "success" && "$MANIFEST_RESULT" == "success" && "$RETAG_RESULT" == "success" ]]; then
             CONCLUSION="success"
           else
             CONCLUSION="failure"
