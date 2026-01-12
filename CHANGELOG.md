@@ -1,3 +1,16 @@
+## 0.2.8 (2025-12-22)
+
+### Feat
+
+- **helm**: make rag prompt configurable
+
+### Fix
+
+- **docker-compose.yaml**: add rag_web_ingestor
+- **helm**: make grafana dashboard label configurable
+- rag tool and prompt optimizations
+- critical fix for ingestor
+
 ## 0.2.6 (2025-12-16)
 
 ### Feat

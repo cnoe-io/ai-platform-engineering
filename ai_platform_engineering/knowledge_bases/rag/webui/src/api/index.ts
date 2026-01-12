@@ -6,6 +6,7 @@ const apiBase = import.meta.env.VITE_API_BASE?.toString() || '';
 
 // Constants
 export const WEBLOADER_INGESTOR_ID = 'webloader:default_webloader';
+export const CONFLUENCE_INGESTOR_ID = 'confluence:default_confluence';
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
@@ -39,14 +40,34 @@ export const ingestUrl = async (params: {
     check_for_sitemaps?: boolean;
     sitemap_max_urls?: number;
     description?: string;
-}): Promise<{ datasource_id: string; job_id: string; message: string }> => {
-    const response = await api.post('/v1/ingest/webloader/url', params);
-    return response.data;
+    ingest_type?: string;
+}): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
+    // Route to appropriate endpoint based on ingest_type
+    if (params.ingest_type === 'confluence') {
+        // Use dedicated confluence endpoint
+        const response = await api.post('/v1/ingest/confluence/page', {
+            url: params.url,
+            description: params.description || ''
+        });
+        return response.data;
+    } else {
+        // Use webloader endpoint for web URLs
+        const response = await api.post('/v1/ingest/webloader/url', params);
+        return response.data;
+    }
 };
 
 export const reloadDataSource = async (datasourceId: string): Promise<{ datasource_id: string; message: string }> => {
-    const response = await api.post('/v1/ingest/webloader/reload', { datasource_id: datasourceId });
-    return response.data;
+    // Determine endpoint based on datasource ID pattern
+    if (datasourceId.includes('src_confluence___')) {
+        // Use confluence reload endpoint
+        const response = await api.post('/v1/ingest/confluence/reload', { datasource_id: datasourceId });
+        return response.data;
+    } else {
+        // Use webloader reload endpoint
+        const response = await api.post('/v1/ingest/webloader/reload', { datasource_id: datasourceId });
+        return response.data;
+    }
 };
 
 // ============================================================================

@@ -9,8 +9,30 @@ on:
       - '.github/**'
       - 'build/agents/Dockerfile.mcp'
 jobs:
+  load-config:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'prebuild/') &&
+      github.event.action != 'closed'
+    outputs:
+      all_agents: ${{ steps.read-config.outputs.all_agents }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/agents.json
+          sparse-checkout-cone-mode: false
+
+      - name: Read agents config
+        id: read-config
+        run: |
+          ALL_AGENTS=$(jq -c '.mcp_agents' .github/agents.json)
+          echo "all_agents=$ALL_AGENTS" >> $GITHUB_OUTPUT
+
   determine-agents:
     runs-on: ubuntu-latest
+    needs: load-config
     if: |
       github.event_name == 'pull_request' &&
       startsWith(github.head_ref, 'prebuild/') &&
@@ -18,72 +40,51 @@ jobs:
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
       should_build: ${{ steps.set-matrix.outputs.should_build }}
+    env:
+      ALL_AGENTS: ${{ needs.load-config.outputs.all_agents }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      - name: Generate path filters
+        id: generate-filters
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const agents = JSON.parse(process.env.ALL_AGENTS);
+            let filters = 'shared_dockerfile:\n';
+            filters += '  - \'build/agents/Dockerfile.mcp\'\n';
+            agents.forEach(agent => {
+              filters += `${agent}:\n`;
+              filters += `  - 'ai_platform_engineering/agents/${agent}/mcp/**'\n`;
+              filters += `  - 'ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+            });
+            core.setOutput('filters', filters);
+
       - name: Detect changed paths (MCP)
         id: filter
         uses: dorny/paths-filter@v3
         with:
-          filters: |
-            argocd:
-              - 'ai_platform_engineering/agents/argocd/mcp/**'
-              - 'ai_platform_engineering/agents/argocd/build/Dockerfile.mcp'
-              - '.github/**'
-              - 'build/agents/Dockerfile.mcp'
-            backstage:
-              - 'ai_platform_engineering/agents/backstage/mcp/**'
-              - 'ai_platform_engineering/agents/backstage/build/Dockerfile.mcp'
-            confluence:
-              - 'ai_platform_engineering/agents/confluence/mcp/**'
-              - 'ai_platform_engineering/agents/confluence/build/Dockerfile.mcp'
-            jira:
-              - 'ai_platform_engineering/agents/jira/mcp/**'
-              - 'ai_platform_engineering/agents/jira/build/Dockerfile.mcp'
-            komodor:
-              - 'ai_platform_engineering/agents/komodor/mcp/**'
-              - 'ai_platform_engineering/agents/komodor/build/Dockerfile.mcp'
-            pagerduty:
-              - 'ai_platform_engineering/agents/pagerduty/mcp/**'
-              - 'ai_platform_engineering/agents/pagerduty/build/Dockerfile.mcp'
-            slack:
-              - 'ai_platform_engineering/agents/slack/mcp/**'
-              - 'ai_platform_engineering/agents/slack/build/Dockerfile.mcp'
-            splunk:
-              - 'ai_platform_engineering/agents/splunk/mcp/**'
-              - 'ai_platform_engineering/agents/splunk/build/Dockerfile.mcp'
-            litellm:
-              - 'ai_platform_engineering/agents/litellm/mcp/**'
-              - 'ai_platform_engineering/agents/litellm/build/Dockerfile.mcp'
+          filters: ${{ steps.generate-filters.outputs.filters }}
+
       - name: Set matrix based on changes (MCP)
         id: set-matrix
         uses: actions/github-script@v8
         env:
-          BUILD_ALL: 'false'
-          CHANGED_ARGOCD: ${{ steps.filter.outputs.argocd }}
-          CHANGED_BACKSTAGE: ${{ steps.filter.outputs.backstage }}
-          CHANGED_CONFLUENCE: ${{ steps.filter.outputs.confluence }}
-          CHANGED_JIRA: ${{ steps.filter.outputs.jira }}
-          CHANGED_KOMODOR: ${{ steps.filter.outputs.komodor }}
-          CHANGED_PAGERDUTY: ${{ steps.filter.outputs.pagerduty }}
-          CHANGED_SLACK: ${{ steps.filter.outputs.slack }}
-          CHANGED_SPLUNK: ${{ steps.filter.outputs.splunk }}
-          CHANGED_LITELLM: ${{ steps.filter.outputs.litellm }}
+          BUILD_ALL: ${{ steps.filter.outputs.shared_dockerfile == 'true' }}
+          FILTER_OUTPUTS: ${{ toJson(steps.filter.outputs) }}
         with:
           script: |
-            const allAgents = [
-              'argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk','litellm'
-            ];
+            const allAgents = JSON.parse(process.env.ALL_AGENTS);
             const buildAll = process.env.BUILD_ALL === 'true';
+            const filterOutputs = JSON.parse(process.env.FILTER_OUTPUTS);
             let selected;
             if (buildAll) {
               selected = allAgents;
             } else {
-              const env = process.env;
-              selected = allAgents.filter(a => env['CHANGED_' + a.toUpperCase()] === 'true');
+              selected = allAgents.filter(a => filterOutputs[a] === 'true');
             }
             core.setOutput('agents', JSON.stringify(selected));
             core.setOutput('should_build', String(selected.length > 0));
@@ -207,15 +208,34 @@ jobs:
               body
             });
 
+  load-config-cleanup:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
+    outputs:
+      all_agents: ${{ steps.read-config.outputs.all_agents }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/agents.json
+          sparse-checkout-cone-mode: false
+
+      - name: Read agents config
+        id: read-config
+        run: |
+          ALL_AGENTS=$(jq -c '.mcp_agents' .github/agents.json)
+          echo "all_agents=$ALL_AGENTS" >> $GITHUB_OUTPUT
+
   cleanup-images:
     runs-on: ubuntu-latest
+    needs: load-config-cleanup
     if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
     permissions:
       contents: read
       packages: write
     strategy:
       matrix:
-        agent: ['argocd','backstage','confluence','jira','komodor','pagerduty','slack','splunk']
+        agent: ${{ fromJson(needs.load-config-cleanup.outputs.all_agents) }}
       fail-fast: false
     env:
       OWNER: ${{ github.repository_owner }}

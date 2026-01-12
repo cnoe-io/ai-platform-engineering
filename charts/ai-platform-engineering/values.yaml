@@ -92,7 +92,8 @@ supervisor-agent:
   nameOverride: "supervisor-agent"
   image:
     repository: "ghcr.io/cnoe-io/ai-platform-engineering"
-    tag: "stable"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
     pullPolicy: "Always"
     args: ["platform-engineer"]
   env:
@@ -113,7 +114,8 @@ agent-argocd:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-argocd"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -126,7 +128,8 @@ agent-backstage:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-backstage"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -162,7 +165,8 @@ agent-jira:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-jira"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -175,7 +179,8 @@ agent-pagerduty:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-pagerduty"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -188,11 +193,11 @@ agent-slack:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-slack"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
-    pullPolicy: "Always"
 
 agent-aws:
   nameOverride: "agent-aws"
@@ -202,7 +207,8 @@ agent-aws:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-aws"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -215,7 +221,8 @@ agent-splunk:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-splunk"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -228,7 +235,8 @@ agent-webex:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-webex"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -241,7 +249,8 @@ agent-komodor:
   mcp:
     image:
       repository: "ghcr.io/cnoe-io/mcp-komodor"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -251,7 +260,8 @@ backstage-plugin-agent-forge:
   nameOverride: "backstage-plugin-agent-forge"
   image:
     repository: "ghcr.io/cnoe-io/backstage-plugin-agent-forge"
-    tag: "latest"  # Currently there is no stable tag so defaulting to latest. Will be updated to stable when available.
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
     pullPolicy: "Always"
   service:
     ports:
@@ -272,14 +282,16 @@ rag-stack:
     enabled: true
     image:
       repository: "ghcr.io/cnoe-io/caipe-rag-server"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
 
   agent-rag:
     enabled: true
     image:
       repository: "ghcr.io/cnoe-io/caipe-rag-agent-rag"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
 
   agent-ontology:
@@ -289,7 +301,8 @@ rag-stack:
     enabled: true
     image:
       repository: "ghcr.io/cnoe-io/caipe-rag-webui"
-      tag: "stable"
+      # tag defaults to .Chart.AppVersion when not specified
+      tag: ""
       pullPolicy: "Always"
 
   neo4j:
